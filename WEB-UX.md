@@ -39,6 +39,9 @@ Primary flows:
 6. **Calm UI**
    - Avoid layout jump, flashing, and spammy notifications.
    - Background changes do not steal focus.
+7. **URLs are idempotent**
+   - All routes are bookmarkable and reloadable without losing state.
+   - URL changes reflect the current view; refreshing shows the same thing.
 
 ## 2) App Structure (the standard layout)
 
