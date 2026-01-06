@@ -72,7 +72,7 @@ func (m *Manager) Spawn(repo, branch, agentName, prompt string, workspaceID stri
 	command := fmt.Sprintf("%s %s", agent.Command, strconv.Quote(prompt))
 
 	// Create session ID
-	sessionID := fmt.Sprintf("schmux-%s-%s", w.ID, uuid.New().String()[:8])
+	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
 	// Create tmux session
 	tmuxSession := sessionID

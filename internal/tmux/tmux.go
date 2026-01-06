@@ -63,12 +63,14 @@ func GetPanePID(name string) (int, error) {
 	return pid, nil
 }
 
-// CaptureOutput captures the current output of a tmux session.
+// CaptureOutput captures the current output of a tmux session, including full scrollback history.
 func CaptureOutput(name string) (string, error) {
-	// tmux capture-pane -p -t <name>
+	// tmux capture-pane -p -S - -t <name>
+	// -S - captures from the start of the scrollback buffer
 	args := []string{
 		"capture-pane",
 		"-p",        // output to stdout
+		"-S", "-",   // start from beginning of scrollback
 		"-t", name,  // target session/pane
 	}
 

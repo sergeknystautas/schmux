@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -23,6 +24,20 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, r, "spawn.html")
 }
 
+// handleSessionDetail serves the session detail page.
+func (s *Server) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
+	// Extract session ID from URL path: /sessions/{id}
+	sessionID := strings.TrimPrefix(r.URL.Path, "/sessions/")
+	if sessionID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve terminal.html directly at this URL
+	// The JavaScript will extract the session ID from the path
+	s.serveHTML(w, r, "terminal.html")
+}
+
 // handleTerminalHTML serves the terminal view page.
 func (s *Server) handleTerminalHTML(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, r, "terminal.html")
@@ -32,7 +47,17 @@ func (s *Server) handleTerminalHTML(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveHTML(w http.ResponseWriter, r *http.Request, filename string) {
 	assetPath := s.getAssetPath()
 	filePath := filepath.Join(assetPath, filename)
-	http.ServeFile(w, r, filePath)
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Set content type and serve
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(content)
 }
 
 // handleStatic serves static assets (CSS, JS) from the assets directory.
@@ -116,6 +141,12 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleHealthz returns a simple health check response.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 // SpawnRequest represents a request to spawn sessions.
 type SpawnRequest struct {
 	Repo        string         `json:"repo"`
@@ -158,9 +189,10 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Spawn sessions
 	type SessionResult struct {
-		SessionID string `json:"session_id"`
-		Agent     string `json:"agent"`
-		Error     string `json:"error,omitempty"`
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Agent       string `json:"agent"`
+		Error       string `json:"error,omitempty"`
 	}
 
 	results := make([]SessionResult, 0)
@@ -175,8 +207,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				})
 			} else {
 				results = append(results, SessionResult{
-					SessionID: sess.ID,
-					Agent:     agentName,
+					SessionID:   sess.ID,
+					WorkspaceID: sess.WorkspaceID,
+					Agent:       agentName,
 				})
 			}
 		}

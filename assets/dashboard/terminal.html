@@ -3,243 +3,370 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>schmux - Terminal</title>
+    <title>schmux - Session</title>
     <link rel="stylesheet" href="/styles.css">
-    <style>
-        .terminal-container {
-            display: flex;
-            flex-direction: column;
-            height: calc(100vh - 200px);
-        }
-
-        .terminal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 1rem;
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px 4px 0 0;
-        }
-
-        .terminal-info {
-            display: flex;
-            gap: 1rem;
-            font-size: 0.875rem;
-        }
-
-        .terminal-info span {
-            color: var(--text-secondary);
-        }
-
-        .terminal-info strong {
-            color: var(--text-primary);
-        }
-
-        .terminal-actions {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .terminal-output {
-            flex: 1;
-            background-color: #1a1a1a;
-            color: #e0e0e0;
-            padding: 1rem;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
-            font-size: 0.875rem;
-            line-height: 1.4;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            border: 1px solid var(--border-color);
-            border-radius: 0 0 4px 4px;
-        }
-
-        .terminal-status {
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-
-        .terminal-status.connected {
-            background-color: var(--success-color);
-            color: white;
-        }
-
-        .terminal-status.disconnected {
-            background-color: var(--bg-tertiary);
-            color: var(--text-secondary);
-        }
-
-        .back-link {
-            margin-bottom: 1rem;
-        }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <div class="back-link">
-            <a href="/" class="btn">← Back to Sessions</a>
-        </div>
+    <div class="app-shell">
+        <!-- Header -->
+        <header class="app-shell__header">
+            <a href="/" class="logo">schmux</a>
+            <div class="header-actions">
+                <div class="connection-pill connection-pill--connected" id="connectionPill">
+                    <span class="connection-pill__dot"></span>
+                    <span id="connectionText">Connected</span>
+                </div>
+                <button id="themeToggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+                    <span class="icon-theme"></span>
+                </button>
+            </div>
+        </header>
 
-        <section class="terminal-section">
-            <h2>Terminal Output</h2>
-            <div id="statusMessage" class="toast-notification" style="display: none;"></div>
+        <!-- Navigation -->
+        <nav class="app-shell__nav">
+            <ul class="nav-list">
+                <li class="nav-item">
+                    <a href="/" class="nav-link">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                        Sessions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/spawn" class="nav-link">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="16"></line>
+                            <line x1="8" y1="12" x2="16" y2="12"></line>
+                        </svg>
+                        Spawn
+                    </a>
+                </li>
+            </ul>
+        </nav>
 
-            <div class="terminal-container">
-                <div class="terminal-header">
-                    <div class="terminal-info" id="terminalInfo">
-                        <span class="loading">Loading session info...</span>
-                    </div>
-                    <div class="terminal-actions">
-                        <span id="connectionStatus" class="terminal-status">Connecting...</span>
-                        <button id="pauseBtn" class="btn-small">Pause</button>
-                        <button id="disposeBtn" class="btn-small btn-danger">Dispose</button>
+        <!-- Main Content -->
+        <main class="app-shell__content">
+            <div class="page-header">
+                <h1 class="page-header__title">Session <span id="sessionTitle" class="mono"></span></h1>
+                <div class="page-header__actions">
+                    <a href="/" class="btn btn--ghost">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        Back
+                    </a>
+                </div>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loadingState" class="loading-state">
+                <div class="spinner"></div>
+                <span>Loading session...</span>
+            </div>
+
+            <!-- Session Detail -->
+            <div id="sessionDetail" class="session-detail" style="display: none;">
+                <!-- Main: Log Viewer -->
+                <div class="session-detail__main">
+                    <div class="log-viewer">
+                        <div class="log-viewer__header">
+                            <div class="log-viewer__info">
+                                <div class="connection-pill" id="wsConnectionPill">
+                                    <span class="connection-pill__dot"></span>
+                                    <span id="wsConnectionText">Connecting...</span>
+                                </div>
+                                <div class="status-pill" id="sessionStatusPill">
+                                    <span class="status-pill__dot"></span>
+                                    <span id="sessionStatusText">Unknown</span>
+                                </div>
+                            </div>
+                            <div class="log-viewer__actions">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="followTailCheckbox" checked>
+                                    <span>Follow</span>
+                                </label>
+                                <button class="btn btn--sm" id="downloadBtn" title="Download log">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="terminalOutput" class="log-viewer__output">Connecting...</div>
+                        <!-- New content indicator (hidden by default) -->
+                        <button id="newContentBtn" class="log-viewer__new-content" style="display: none;">
+                            ↓ New content
+                        </button>
                     </div>
                 </div>
-                <div id="terminalOutput" class="terminal-output">Connecting...</div>
-            </div>
-        </section>
-    </div>
 
-    <!-- Confirmation Modal -->
-    <div id="confirmModal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <h3 id="confirmTitle">Confirm Action</h3>
-            <p id="confirmMessage">Are you sure?</p>
-            <div class="modal-actions">
-                <button id="confirmCancel" class="btn">Cancel</button>
-                <button id="confirmOk" class="btn btn-danger">Confirm</button>
+                <!-- Sidebar: Metadata -->
+                <aside class="session-detail__sidebar">
+                    <h3 style="margin: 0; font-size: 1rem;">Session Details</h3>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Session ID</span>
+                        <span class="metadata-field__value metadata-field__value--mono" id="metaSessionId"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Agent</span>
+                        <span class="metadata-field__value" id="metaAgent"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Workspace</span>
+                        <span class="metadata-field__value metadata-field__value--mono" id="metaWorkspace"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Repository</span>
+                        <span class="metadata-field__value" id="metaRepo"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Branch</span>
+                        <span class="metadata-field__value" id="metaBranch"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Created</span>
+                        <span class="metadata-field__value" id="metaCreated"></span>
+                    </div>
+
+                    <div class="metadata-field">
+                        <span class="metadata-field__label">Status</span>
+                        <div id="metaStatus"></div>
+                    </div>
+
+                    <hr style="border: none; border-top: 1px solid var(--color-border); margin: var(--spacing-md) 0;">
+
+                    <div class="form-group">
+                        <label class="form-group__label">Attach Command</label>
+                        <div class="copy-field" id="attachCommandField">
+                            <span class="copy-field__value" id="attachCommandValue"></span>
+                            <button class="copy-field__btn" id="copyAttachBtn" title="Copy command">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: auto;">
+                        <button id="disposeBtn" class="btn btn--danger" style="width: 100%;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Dispose Session
+                        </button>
+                    </div>
+                </aside>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="/app.js"></script>
     <script>
-        let statusTimeout;
+        // State
+        // Extract session ID from URL path: /sessions/{id} or /terminal.html?id={id}
+        let sessionId = null;
 
-        function showStatus(message) {
-            const statusEl = document.getElementById('statusMessage');
-            statusEl.textContent = message;
-            statusEl.style.display = 'block';
-            statusEl.classList.add('show');
-
-            clearTimeout(statusTimeout);
-            statusTimeout = setTimeout(() => {
-                statusEl.classList.remove('show');
-                setTimeout(() => {
-                    statusEl.style.display = 'none';
-                }, 300);
-            }, 3000);
-        }
-
-        let confirmCallback = null;
-
-        function showConfirm(message, onConfirm) {
-            const modal = document.getElementById('confirmModal');
-            document.getElementById('confirmMessage').textContent = message;
-            document.getElementById('confirmTitle').textContent = 'Confirm Action';
-
-            confirmCallback = onConfirm;
-            modal.style.display = 'flex';
-        }
-
-        document.getElementById('confirmCancel').addEventListener('click', () => {
-            document.getElementById('confirmModal').style.display = 'none';
-            confirmCallback = null;
-        });
-
-        document.getElementById('confirmOk').addEventListener('click', () => {
-            document.getElementById('confirmModal').style.display = 'none';
-            if (confirmCallback) {
-                confirmCallback();
-                confirmCallback = null;
-            }
-        });
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionId = urlParams.get('id');
-
-        if (!sessionId) {
-            document.getElementById('terminalOutput').textContent = 'Error: No session ID provided';
+        const pathMatch = window.location.pathname.match(/^\/sessions\/([^\/]+)$/);
+        if (pathMatch) {
+            sessionId = pathMatch[1];
         } else {
-            let terminalStream = null;
-            let isPaused = false;
+            // Fallback to query param for /terminal.html?id={id}
+            const urlParams = new URLSearchParams(window.location.search);
+            sessionId = urlParams.get('id');
+        }
 
-            // Load session info
-            loadSessionInfo();
+        let terminalStream = null;
+        let sessionData = null;
 
-            // Set up pause button
-            document.getElementById('pauseBtn').addEventListener('click', function() {
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!sessionId) {
+                showError('No session ID provided');
+                return;
+            }
+
+            loadSession();
+        });
+
+        async function loadSession() {
+            try {
+                // Load sessions and find our session
+                const workspaces = await API.getSessions();
+
+                for (const ws of workspaces) {
+                    const session = ws.sessions.find(s => s.id === sessionId);
+                    if (session) {
+                        sessionData = {
+                            ...session,
+                            workspace_id: ws.id,
+                            workspace: ws.id,
+                            repo: ws.repo,
+                            branch: ws.branch
+                        };
+                        break;
+                    }
+                }
+
+                if (!sessionData) {
+                    showError('Session not found');
+                    return;
+                }
+
+                // Update UI
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('sessionDetail').style.display = 'grid';
+                document.getElementById('sessionTitle').textContent = sessionId.substring(0, 12);
+
+                // Populate metadata
+                document.getElementById('metaSessionId').textContent = sessionData.id;
+                document.getElementById('metaAgent').textContent = sessionData.agent;
+                document.getElementById('metaWorkspace').textContent = sessionData.workspace_id;
+                document.getElementById('metaRepo').textContent = sessionData.repo;
+                document.getElementById('metaBranch').textContent = sessionData.branch;
+                document.getElementById('metaCreated').textContent = Utils.formatTimestamp(sessionData.created_at);
+
+                // Status
+                const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
+                const statusText = sessionData.running ? 'Running' : 'Stopped';
+                document.getElementById('metaStatus').innerHTML = `
+                    <span class="status-pill ${statusClass}">
+                        <span class="status-pill__dot"></span>
+                        ${statusText}
+                    </span>
+                `;
+                document.getElementById('sessionStatusPill').className = `status-pill ${statusClass}`;
+                document.getElementById('sessionStatusText').textContent = statusText;
+
+                // Attach command
+                document.getElementById('attachCommandValue').textContent = sessionData.attach_cmd;
+
+                // Setup terminal stream
+                setupTerminalStream();
+
+                // Setup event listeners
+                setupEventListeners();
+
+            } catch (error) {
+                showError(`Failed to load session: ${error.message}`);
+            }
+        }
+
+        function setupTerminalStream() {
+            const outputDiv = document.getElementById('terminalOutput');
+            const newContentBtn = document.getElementById('newContentBtn');
+
+            terminalStream = new TerminalStream(sessionId, outputDiv, {
+                followTail: true,
+                onNewContent: (hasNew) => {
+                    newContentBtn.style.display = hasNew ? 'block' : 'none';
+                },
+                onStatusChange: (status) => {
+                    const wsPill = document.getElementById('wsConnectionPill');
+                    const wsText = document.getElementById('wsConnectionText');
+                    const sessionStatusText = document.getElementById('sessionStatusText');
+                    const sessionStatusPill = document.getElementById('sessionStatusPill');
+
+                    // Update log viewer connection pill
+                    wsPill.classList.remove('connection-pill--connected', 'connection-pill--reconnecting', 'connection-pill--offline');
+                    if (status === 'connected') {
+                        wsPill.classList.add('connection-pill--connected');
+                        wsText.textContent = 'Live';
+                    } else {
+                        wsPill.classList.add('connection-pill--offline');
+                        wsText.textContent = 'Offline';
+                    }
+
+                    // Clear session status when offline (we don't actually know the state)
+                    if (status === 'disconnected') {
+                        sessionStatusText.textContent = '';
+                        sessionStatusPill.className = 'status-pill';
+                    }
+                }
+            });
+
+            terminalStream.connect();
+        }
+
+        function setupEventListeners() {
+            // New content button - jump to bottom
+            document.getElementById('newContentBtn').addEventListener('click', () => {
                 if (terminalStream) {
-                    if (isPaused) {
+                    terminalStream.jumpToBottom();
+                }
+            });
+
+            // Follow tail toggle - also controls server pause/resume
+            document.getElementById('followTailCheckbox').addEventListener('change', (e) => {
+                if (terminalStream) {
+                    terminalStream.followTail = e.target.checked;
+                    if (e.target.checked) {
                         terminalStream.resume();
-                        this.textContent = 'Pause';
-                        isPaused = false;
                     } else {
                         terminalStream.pause();
-                        this.textContent = 'Resume';
-                        isPaused = true;
                     }
                 }
             });
 
-            // Set up dispose button
-            document.getElementById('disposeBtn').addEventListener('click', async function() {
-                showConfirm(`Dispose session ${sessionId}? This will close this page.`, async () => {
-                    try {
-                        const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
-                        if (!response.ok) {
-                            throw new Error('Failed to dispose session');
+            // Download button
+            document.getElementById('downloadBtn').addEventListener('click', () => {
+                if (terminalStream) {
+                    terminalStream.downloadOutput();
+                }
+            });
+
+            // Copy attach command
+            document.getElementById('copyAttachBtn').addEventListener('click', async () => {
+                if (sessionData) {
+                    await Utils.copyToClipboard(sessionData.attach_cmd);
+                }
+            });
+
+            // Dispose button
+            document.getElementById('disposeBtn').addEventListener('click', () => {
+                Modal.show(
+                    'Dispose Session',
+                    `Dispose session ${sessionId}?`,
+                    async () => {
+                        try {
+                            await API.disposeSession(sessionId);
+                            Toast.success('Session disposed');
+                            window.location.href = '/';
+                        } catch (error) {
+                            Toast.error(`Failed to dispose: ${error.message}`);
                         }
-                        window.location.href = '/';
-                    } catch (error) {
-                        showStatus(`Failed to dispose session: ${error.message}`);
+                    },
+                    {
+                        danger: true,
+                        confirmText: 'Dispose',
+                        detailedMessage: 'This will stop tracking the session and clean up resources. The tmux session will remain available if you need to attach manually.'
                     }
-                });
+                );
             });
+        }
 
-            async function loadSessionInfo() {
-                try {
-                    const response = await fetch('/api/sessions');
-                    const sessions = await response.json();
-                    const session = sessions.find(s => s.id === sessionId);
-
-                    if (!session) {
-                        document.getElementById('terminalInfo').innerHTML = '<span class="error">Session not found</span>';
-                        return;
-                    }
-
-                    const createdDate = new Date(session.created_at).toLocaleString();
-                    document.getElementById('terminalInfo').innerHTML = `
-                        <span>Workspace: <strong class="monospace">${session.workspace_id}</strong></span>
-                        <span>Agent: <strong>${session.agent}</strong></span>
-                        <span>Branch: <strong class="monospace">${session.branch}</strong></span>
-                        <span>Created: <strong>${createdDate}</strong></span>
-                        <span>Status: <strong>${session.running ? 'Running' : 'Stopped'}</strong></span>
-                    `;
-
-                    // Start terminal streaming
-                    startTerminalStream();
-
-                } catch (error) {
-                    document.getElementById('terminalInfo').innerHTML = `<span class="error">Failed to load session: ${error.message}</span>`;
-                }
-            }
-
-            function startTerminalStream() {
-                const outputDiv = document.getElementById('terminalOutput');
-                const statusSpan = document.getElementById('connectionStatus');
-
-                terminalStream = new TerminalStream(sessionId, outputDiv);
-                terminalStream.connect();
-
-                statusSpan.textContent = 'Connected';
-                statusSpan.classList.remove('disconnected');
-                statusSpan.classList.add('connected');
-            }
+        function showError(message) {
+            document.getElementById('loadingState').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state__icon">⚠️</div>
+                    <h3 class="empty-state__title">Error</h3>
+                    <p class="empty-state__description">${message}</p>
+                    <a href="/" class="btn btn--primary">Back to Sessions</a>
+                </div>
+            `;
         }
     </script>
 </body>

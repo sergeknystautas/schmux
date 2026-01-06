@@ -7,218 +7,448 @@
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>schmux</h1>
+    <div class="app-shell">
+        <!-- Header -->
+        <header class="app-shell__header">
+            <a href="/" class="logo">schmux</a>
             <div class="header-actions">
-                <button id="themeToggle" class="btn-icon" title="Toggle theme">
-                    <span class="icon-sun"></span>
+                <div class="connection-pill connection-pill--connected" id="connectionPill">
+                    <span class="connection-pill__dot"></span>
+                    <span id="connectionText">Connected</span>
+                </div>
+                <button id="themeToggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+                    <span class="icon-theme"></span>
                 </button>
-                <a href="/" class="btn">Back to Sessions</a>
             </div>
         </header>
 
-        <main>
-            <section class="spawn-section">
-                <h2>Spawn Sessions</h2>
-                <form id="spawnForm">
-                    <div class="form-group">
-                        <label for="repo">Repository</label>
-                        <select id="repo" name="repo" required>
-                            <option value="">Select repository...</option>
-                        </select>
-                    </div>
+        <!-- Navigation -->
+        <nav class="app-shell__nav">
+            <ul class="nav-list">
+                <li class="nav-item">
+                    <a href="/" class="nav-link">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                        Sessions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/spawn" class="nav-link nav-link--active">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="16"></line>
+                            <line x1="8" y1="12" x2="16" y2="12"></line>
+                        </svg>
+                        Spawn
+                    </a>
+                </li>
+            </ul>
+        </nav>
 
-                    <div class="form-group">
-                        <label for="branch">Branch</label>
-                        <input type="text" id="branch" name="branch" value="main" required>
-                    </div>
+        <!-- Main Content -->
+        <main class="app-shell__content">
+            <div class="page-header">
+                <h1 class="page-header__title">Spawn Sessions</h1>
+            </div>
 
-                    <div class="form-group">
-                        <label for="prompt">Prompt</label>
-                        <textarea id="prompt" name="prompt" rows="6" placeholder="Enter your task prompt..." required></textarea>
-                    </div>
+            <!-- Wizard -->
+            <div class="wizard" id="spawnWizard">
+                <!-- Steps Indicator -->
+                <div class="wizard__steps">
+                    <div class="wizard__step wizard__step--active" data-step="1">1. Target</div>
+                    <div class="wizard__step" data-step="2">2. Agents</div>
+                    <div class="wizard__step" data-step="3">3. Prompt</div>
+                    <div class="wizard__step" data-step="4">4. Review</div>
+                </div>
 
-                    <div class="form-group">
-                        <label>Agents (quantity per agent)</label>
-                        <div id="agentsContainer" class="agents-container">
-                            <span class="loading">Loading agents...</span>
+                <!-- Step Content -->
+                <div class="wizard__content">
+                    <!-- Step 1: Target -->
+                    <div class="wizard-step-content" data-step="1">
+                        <div class="form-group">
+                            <label for="repo" class="form-group__label">Repository</label>
+                            <select id="repo" class="select" required>
+                                <option value="">Select repository...</option>
+                            </select>
                         </div>
-                        <div id="agentsError" class="error" style="display: none; margin-top: 0.5rem;">Please select at least one agent</div>
+
+                        <div class="form-group">
+                            <label for="branch" class="form-group__label">Branch</label>
+                            <input type="text" id="branch" class="input" value="main" required>
+                            <p class="form-group__hint">The branch to checkout for this workspace</p>
+                        </div>
+
+                        <div id="workspaceInfo" class="banner banner--info" style="display: none;">
+                            <span id="workspaceInfoText"></span>
+                        </div>
                     </div>
 
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">Spawn Sessions</button>
-                        <a href="/" class="btn">Cancel</a>
-                    </div>
-                    <div id="statusMessage" class="toast-notification" style="display: none;"></div>
-                </form>
+                    <!-- Step 2: Agents -->
+                    <div class="wizard-step-content" data-step="2" style="display: none;">
+                        <div class="preset-buttons">
+                            <button type="button" class="btn btn--sm" onclick="applyPreset('each')">1 Each</button>
+                            <button type="button" class="btn btn--sm" onclick="applyPreset('review')">Review Squad</button>
+                            <button type="button" class="btn btn--sm" onclick="applyPreset('reset')">Reset</button>
+                        </div>
 
-                <div id="results" class="results" style="display: none;">
-                    <h3>Results</h3>
-                    <div id="resultsContent"></div>
-                    <div class="form-actions">
-                        <a href="/" class="btn btn-primary">View Sessions</a>
+                        <div id="agentsContainer" class="agent-grid">
+                            <div class="loading-state">
+                                <div class="spinner"></div>
+                                <span>Loading agents...</span>
+                            </div>
+                        </div>
+
+                        <div id="agentsError" class="text-error" style="display: none; margin-top: var(--spacing-md);">
+                            Please select at least one agent
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Prompt -->
+                    <div class="wizard-step-content" data-step="3" style="display: none;">
+                        <div class="form-group">
+                            <label for="prompt" class="form-group__label">Prompt</label>
+                            <textarea id="prompt" class="textarea" rows="10" placeholder="Describe the task you want the agents to work on..."></textarea>
+                            <p class="form-group__hint">Be specific about what you want the agents to do. This prompt will be sent to all spawned agents.</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Review -->
+                    <div class="wizard-step-content" data-step="4" style="display: none;">
+                        <h3 style="margin-bottom: var(--spacing-lg);">Review and Spawn</h3>
+                        <div class="card" style="margin-bottom: var(--spacing-lg);">
+                            <div class="card__body">
+                                <div class="metadata-field" style="margin-bottom: var(--spacing-md);">
+                                    <span class="metadata-field__label">Repository</span>
+                                    <span class="metadata-field__value" id="reviewRepo"></span>
+                                </div>
+                                <div class="metadata-field" style="margin-bottom: var(--spacing-md);">
+                                    <span class="metadata-field__label">Branch</span>
+                                    <span class="metadata-field__value" id="reviewBranch"></span>
+                                </div>
+                                <div class="metadata-field" style="margin-bottom: var(--spacing-md);">
+                                    <span class="metadata-field__label">Workspace</span>
+                                    <span class="metadata-field__value" id="reviewWorkspace"></span>
+                                </div>
+                                <div class="metadata-field" style="margin-bottom: var(--spacing-md);">
+                                    <span class="metadata-field__label">Agents</span>
+                                    <span class="metadata-field__value" id="reviewAgents"></span>
+                                </div>
+                                <div class="metadata-field">
+                                    <span class="metadata-field__label">Prompt</span>
+                                    <span class="metadata-field__value" id="reviewPrompt"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results -->
+                    <div id="resultsContent" style="display: none;">
+                        <h3 style="margin-bottom: var(--spacing-md);">Results</h3>
+                        <div id="resultsPanel"></div>
                     </div>
                 </div>
-            </section>
+
+                <!-- Wizard Actions -->
+                <div class="wizard__actions" id="wizardActions">
+                    <button type="button" class="btn" id="prevBtn" onclick="prevStep()" disabled>Back</button>
+                    <button type="button" class="btn btn--primary" id="nextBtn" onclick="nextStep()">Next</button>
+                </div>
+            </div>
         </main>
     </div>
 
     <script src="/app.js"></script>
     <script>
+        // State
+        let currentStep = 1;
+        const totalSteps = 4;
         let availableAgents = [];
+        let agentCounts = {};
         let prefillWorkspaceId = null;
-        let statusTimeout;
 
-        function showStatus(message) {
-            const statusEl = document.getElementById('statusMessage');
-            statusEl.textContent = message;
-            statusEl.style.display = 'block';
-            statusEl.classList.add('show');
+        // DOM Elements
+        const repoSelect = document.getElementById('repo');
+        const branchInput = document.getElementById('branch');
+        const promptInput = document.getElementById('prompt');
+        const agentsContainer = document.getElementById('agentsContainer');
+        const agentsError = document.getElementById('agentsError');
+        const workspaceInfo = document.getElementById('workspaceInfo');
+        const workspaceInfoText = document.getElementById('workspaceInfoText');
 
-            clearTimeout(statusTimeout);
-            statusTimeout = setTimeout(() => {
-                statusEl.classList.remove('show');
-                setTimeout(() => {
-                    statusEl.style.display = 'none';
-                }, 300);
-            }, 3000);
-        }
-
+        // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
-            // Check for workspace_id in URL query params
-            const urlParams = new URLSearchParams(window.location.search);
-            prefillWorkspaceId = urlParams.get('workspace_id');
-
             await loadConfig();
-
-            // Pre-fill repo and branch if provided
-            if (prefillWorkspaceId) {
-                const repo = urlParams.get('repo');
-                const branch = urlParams.get('branch');
-                if (repo) {
-                    document.getElementById('repo').value = repo;
-                    // Lock repo selection when spawning into specific workspace
-                    document.getElementById('repo').disabled = true;
-                }
-                if (branch) {
-                    document.getElementById('branch').value = branch;
-                }
-
-                // Update title
-                document.querySelector('h2').textContent = `Spawn in ${prefillWorkspaceId}`;
-            }
+            checkUrlParams();
         });
 
         async function loadConfig() {
             try {
-                const response = await fetch('/api/config');
-                const config = await response.json();
+                const config = await API.getConfig();
 
                 // Populate repos
-                const repoSelect = document.getElementById('repo');
-                repoSelect.innerHTML = '<option value="">Select repository...</option>';
-                config.repos.forEach(repo => {
-                    const option = document.createElement('option');
-                    option.value = repo.name;
-                    option.textContent = repo.name;
-                    repoSelect.appendChild(option);
-                });
+                repoSelect.innerHTML = '<option value="">Select repository...</option>' +
+                    config.repos.map(repo =>
+                        `<option value="${repo.name}">${repo.name}</option>`
+                    ).join('');
 
                 // Populate agents
                 availableAgents = config.agents;
-                const agentsContainer = document.getElementById('agentsContainer');
-                agentsContainer.innerHTML = config.agents.map(agent => `
-                    <div class="agent-selector">
-                        <label for="agent-${agent.name}">${agent.name}</label>
-                        <input type="number" id="agent-${agent.name}" name="agents[${agent.name}]" min="0" max="10" value="0">
-                    </div>
-                `).join('');
-
-                // Clear error when any agent input changes
+                agentCounts = {};
                 config.agents.forEach(agent => {
-                    const input = document.getElementById(`agent-${agent.name}`);
-                    input.addEventListener('input', () => {
-                        document.getElementById('agentsError').style.display = 'none';
-                    });
+                    agentCounts[agent.name] = 0;
                 });
+
+                renderAgents();
             } catch (error) {
-                document.getElementById('agentsContainer').innerHTML = `<span class="error">Failed to load config: ${error.message}</span>`;
+                agentsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state__icon">⚠️</div>
+                        <h3 class="empty-state__title">Failed to load config</h3>
+                        <p class="empty-state__description">${error.message}</p>
+                    </div>
+                `;
             }
         }
 
-        document.getElementById('spawnForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        function checkUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            prefillWorkspaceId = urlParams.get('workspace_id');
 
-            const formData = new FormData(e.target);
-            const agents = {};
+            if (prefillWorkspaceId) {
+                const repo = urlParams.get('repo');
+                const branch = urlParams.get('branch');
 
-            // Collect agent quantities
-            availableAgents.forEach(agent => {
-                const input = document.getElementById(`agent-${agent.name}`);
-                const count = parseInt(input.value) || 0;
-                if (count > 0) {
-                    agents[agent.name] = count;
+                if (repo) {
+                    repoSelect.value = repo;
+                    repoSelect.disabled = true;
                 }
-            });
+                if (branch) {
+                    branchInput.value = branch;
+                }
 
-            if (Object.keys(agents).length === 0) {
-                document.getElementById('agentsError').style.display = 'block';
+                workspaceInfoText.textContent = `Spawning into existing workspace: ${prefillWorkspaceId}`;
+                workspaceInfo.style.display = 'flex';
+            }
+        }
+
+        function renderAgents() {
+            agentsContainer.innerHTML = availableAgents.map(agent => `
+                <div class="agent-card">
+                    <div class="agent-card__label">${agent.name}</div>
+                    <div class="agent-card__control">
+                        <button class="agent-card__btn" onclick="adjustAgentCount('${agent.name}', -1)" aria-label="Decrease ${agent.name} count">−</button>
+                        <span class="agent-card__count" id="count-${agent.name}">${agentCounts[agent.name]}</span>
+                        <button class="agent-card__btn" onclick="adjustAgentCount('${agent.name}', 1)" aria-label="Increase ${agent.name} count">+</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function adjustAgentCount(agentName, delta) {
+            const newCount = agentCounts[agentName] + delta;
+            if (newCount >= 0 && newCount <= 10) {
+                agentCounts[agentName] = newCount;
+                document.getElementById(`count-${agentName}`).textContent = newCount;
+                agentsError.style.display = 'none';
+            }
+        }
+
+        function applyPreset(preset) {
+            if (preset === 'each') {
+                availableAgents.forEach(agent => {
+                    agentCounts[agent.name] = 1;
+                });
+            } else if (preset === 'review') {
+                // Common review agents
+                availableAgents.forEach(agent => {
+                    agentCounts[agent.name] = agent.name.includes('claude') ? 2 : 0;
+                });
+            } else if (preset === 'reset') {
+                availableAgents.forEach(agent => {
+                    agentCounts[agent.name] = 0;
+                });
+            }
+
+            renderAgents();
+            agentsError.style.display = 'none';
+        }
+
+        function validateStep(step) {
+            if (step === 1) {
+                if (!repoSelect.value) {
+                    Toast.error('Please select a repository');
+                    return false;
+                }
+                if (!branchInput.value) {
+                    Toast.error('Please enter a branch');
+                    return false;
+                }
+            }
+
+            if (step === 2) {
+                const totalCount = Object.values(agentCounts).reduce((a, b) => a + b, 0);
+                if (totalCount === 0) {
+                    agentsError.style.display = 'block';
+                    Toast.error('Please select at least one agent');
+                    return false;
+                }
+            }
+
+            if (step === 3) {
+                if (!promptInput.value.trim()) {
+                    Toast.error('Please enter a prompt');
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        function nextStep() {
+            if (!validateStep(currentStep)) {
                 return;
             }
 
-            // Clear any previous error
-            document.getElementById('agentsError').style.display = 'none';
+            if (currentStep === 3) {
+                // Populate review step
+                document.getElementById('reviewRepo').textContent = repoSelect.value;
+                document.getElementById('reviewBranch').textContent = branchInput.value;
+                document.getElementById('reviewWorkspace').textContent = prefillWorkspaceId || 'New workspace';
+                document.getElementById('reviewAgents').textContent = Object.entries(agentCounts)
+                    .filter(([_, count]) => count > 0)
+                    .map(([name, count]) => `${count}× ${name}`)
+                    .join(', ');
+                document.getElementById('reviewPrompt').textContent = promptInput.value.substring(0, 200) +
+                    (promptInput.value.length > 200 ? '...' : '');
+
+                // Change next button to spawn
+                document.getElementById('nextBtn').textContent = 'Spawn';
+            }
+
+            if (currentStep < totalSteps) {
+                currentStep++;
+                updateStepUI();
+            } else {
+                spawnSessions();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) {
+                currentStep--;
+                updateStepUI();
+            }
+        }
+
+        function updateStepUI() {
+            // Update step indicators
+            document.querySelectorAll('.wizard__step').forEach(stepEl => {
+                const stepNum = parseInt(stepEl.dataset.step);
+                stepEl.classList.remove('wizard__step--active', 'wizard__step--completed');
+                if (stepNum === currentStep) {
+                    stepEl.classList.add('wizard__step--active');
+                } else if (stepNum < currentStep) {
+                    stepEl.classList.add('wizard__step--completed');
+                }
+            });
+
+            // Show/hide step content
+            document.querySelectorAll('.wizard-step-content').forEach(content => {
+                content.style.display = content.dataset.step == currentStep ? 'block' : 'none';
+            });
+
+            // Update buttons
+            document.getElementById('prevBtn').disabled = currentStep === 1;
+            document.getElementById('nextBtn').textContent = currentStep === totalSteps ? 'Spawn' : 'Next';
+        }
+
+        async function spawnSessions() {
+            // Get selected agents
+            const agents = {};
+            Object.entries(agentCounts).forEach(([name, count]) => {
+                if (count > 0) {
+                    agents[name] = count;
+                }
+            });
 
             const request = {
-                repo: formData.get('repo'),
-                branch: formData.get('branch'),
-                prompt: formData.get('prompt'),
+                repo: repoSelect.value,
+                branch: branchInput.value,
+                prompt: promptInput.value,
                 agents: agents,
                 workspace_id: prefillWorkspaceId || ''
             };
 
-            try {
-                const response = await fetch('/api/spawn', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(request)
-                });
+            // Hide wizard actions, show loading
+            document.getElementById('wizardActions').style.display = 'none';
 
-                const results = await response.json();
+            try {
+                const results = await API.spawnSessions(request);
                 displayResults(results);
             } catch (error) {
-                showStatus(`Failed to spawn sessions: ${error.message}`);
+                Toast.error(`Failed to spawn: ${error.message}`);
+                document.getElementById('wizardActions').style.display = 'flex';
             }
-        });
+        }
 
         function displayResults(results) {
-            const resultsDiv = document.getElementById('results');
+            // Hide all step content
+            document.querySelectorAll('.wizard-step-content').forEach(content => {
+                content.style.display = 'none';
+            });
+
+            // Hide step indicators
+            document.querySelector('.wizard__steps').style.display = 'none';
+
+            // Show results
             const resultsContent = document.getElementById('resultsContent');
+            const resultsPanel = document.getElementById('resultsPanel');
 
             const successCount = results.filter(r => !r.error).length;
             const errorCount = results.filter(r => r.error).length;
 
-            let html = `<p>Spawned ${successCount} session(s)`;
-            if (errorCount > 0) {
-                html += ` with ${errorCount} error(s)`;
-            }
-            html += '.</p>';
+            let html = '';
 
-            if (errorCount > 0) {
-                html += '<div class="errors">';
-                results.filter(r => r.error).forEach(r => {
-                    html += `<div class="error-item"><strong>${r.agent}:</strong> ${r.error}</div>`;
+            if (successCount > 0) {
+                html += '<div class="results-panel" style="margin-bottom: var(--spacing-md);">';
+                html += `<div class="results-panel__title">Successfully spawned ${successCount} session(s)</div>`;
+
+                let counter = 1;
+                results.filter(r => !r.error).forEach(r => {
+                    html += `
+                        <div class="results-panel__item results-panel__item--success" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span class="badge badge--primary" style="margin-right: var(--spacing-sm);">${counter++}</span>
+                                <span class="mono">${r.workspace_id}</span>
+                                <span style="color: var(--color-text-muted); margin: 0 var(--spacing-sm);">·</span>
+                                <span>${r.agent}</span>
+                            </div>
+                            <a href="/sessions/${r.session_id}" class="btn btn--sm">View</a>
+                        </div>
+                    `;
                 });
                 html += '</div>';
             }
 
-            resultsContent.innerHTML = html;
-            resultsDiv.style.display = 'block';
+            if (errorCount > 0) {
+                html += '<div class="results-panel">';
+                html += `<div class="results-panel__title text-error">${errorCount} error(s)</div>`;
+                results.filter(r => r.error).forEach(r => {
+                    html += `<div class="results-panel__item results-panel__item--error"><strong>${r.agent}:</strong> ${r.error}</div>`;
+                });
+                html += '</div>';
+            }
 
-            // Hide form
-            document.getElementById('spawnForm').style.display = 'none';
+            resultsPanel.innerHTML = html;
+            resultsContent.style.display = 'block';
+
+            // Add back button
+            document.getElementById('wizardActions').innerHTML = `
+                <a href="/" class="btn btn--primary">Back to Sessions</a>
+            `;
+            document.getElementById('wizardActions').style.display = 'flex';
         }
     </script>
 </body>

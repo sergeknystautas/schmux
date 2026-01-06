@@ -150,12 +150,21 @@ schmux/
    go test ./...
    ```
 
-4. **Build** to verify compilation:
+4. **Compile-check** to verify everything builds:
    ```bash
    go build ./...
    ```
 
-5. **Test manually** if applicable:
+5. **Build the runnable binary** (so you’re testing the code you just changed):
+   ```bash
+   # Produces ./schmux in the repo root
+   go build ./cmd/schmux
+
+   # Alternative: update the schmux on your PATH
+   # go install ./cmd/schmux
+   ```
+
+6. **Test manually** if applicable:
    ```bash
    # Start daemon
    ./schmux start
@@ -167,13 +176,13 @@ schmux/
    ./schmux stop
    ```
 
-6. **Commit** your changes:
+7. **Commit** your changes:
    ```bash
    git add -A
    git commit -m "Description of changes"
    ```
 
-7. **Push** and create a pull request
+8. **Push** and create a pull request
 
 ## Configuration
 

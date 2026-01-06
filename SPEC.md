@@ -120,6 +120,10 @@ JSON file, hand-edited for v0.5. Location: `~/.schmux/config.json`
 - Session metadata (repo, branch, agent, created time)
 - Dispose button
 
+**Connection Monitoring**
+- Header pill shows server connection status (Connected/Disconnected)
+- Polls `/api/healthz` every 5 seconds
+
 ---
 
 ### State

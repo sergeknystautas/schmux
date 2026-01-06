@@ -43,11 +43,13 @@ func (s *Server) Start() error {
 	// Static assets
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/spawn", s.handleSpawn)
+	mux.HandleFunc("/sessions/", s.handleSessionDetail)
 	mux.HandleFunc("/terminal.html", s.handleTerminalHTML)
 	mux.HandleFunc("/styles.css", s.handleStatic)
 	mux.HandleFunc("/app.js", s.handleStatic)
 
 	// API routes
+	mux.HandleFunc("/api/healthz", s.withCORS(s.handleHealthz))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.handleSessions))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.handleSpawnPost))
 	mux.HandleFunc("/api/dispose/", s.withCORS(s.handleDispose))

@@ -5,204 +5,286 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>schmux - Sessions</title>
     <link rel="stylesheet" href="/styles.css">
-    <style>
-        .workspace-group {
-            margin-bottom: 2rem;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        .workspace-header {
-            background: var(--header-bg);
-            padding: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            user-select: none;
-        }
-        .workspace-header:hover {
-            background: var(--hover-bg);
-        }
-        .workspace-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .workspace-toggle {
-            font-size: 1.2rem;
-            transition: transform 0.2s;
-        }
-        .workspace-toggle.collapsed {
-            transform: rotate(-90deg);
-        }
-        .workspace-name {
-            font-weight: bold;
-        }
-        .workspace-meta {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-        .workspace-sessions {
-            display: none;
-        }
-        .workspace-sessions.expanded {
-            display: block;
-        }
-        .session-count-badge {
-            background: var(--accent-color);
-            color: white;
-            padding: 0.2rem 0.5rem;
-            border-radius: 12px;
-            font-size: 0.8rem;
-        }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>schmux</h1>
+    <div class="app-shell">
+        <!-- Header -->
+        <header class="app-shell__header">
+            <a href="/" class="logo">schmux</a>
             <div class="header-actions">
-                <button id="themeToggle" class="btn-icon" title="Toggle theme">
-                    <span class="icon-sun"></span>
+                <div class="connection-pill connection-pill--connected" id="connectionPill">
+                    <span class="connection-pill__dot"></span>
+                    <span id="connectionText">Connected</span>
+                </div>
+                <button id="themeToggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+                    <span class="icon-theme"></span>
                 </button>
-                <a href="/spawn" class="btn">Spawn Sessions</a>
-                <button id="refreshBtn" class="btn">Refresh</button>
             </div>
         </header>
 
-        <main>
-            <section class="sessions-section">
-                <h2>Workspaces</h2>
-                <div id="statusMessage" class="toast-notification" style="display: none;"></div>
-                <div id="workspacesContainer">
-                    <div class="loading">Loading workspaces...</div>
-                </div>
-            </section>
-        </main>
+        <!-- Navigation -->
+        <nav class="app-shell__nav">
+            <ul class="nav-list">
+                <li class="nav-item">
+                    <a href="/" class="nav-link nav-link--active">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                        Sessions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/spawn" class="nav-link">
+                        <svg class="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="16"></line>
+                            <line x1="8" y1="12" x2="16" y2="12"></line>
+                        </svg>
+                        Spawn
+                    </a>
+                </li>
+            </ul>
+        </nav>
 
-        <!-- Confirmation Modal -->
-        <div id="confirmModal" class="modal" style="display: none;">
-            <div class="modal-content">
-                <h3 id="confirmTitle">Confirm Action</h3>
-                <p id="confirmMessage">Are you sure?</p>
-                <div class="modal-actions">
-                    <button id="confirmCancel" class="btn">Cancel</button>
-                    <button id="confirmOk" class="btn btn-danger">Confirm</button>
+        <!-- Main Content -->
+        <main class="app-shell__content">
+            <div class="page-header">
+                <h1 class="page-header__title">Sessions</h1>
+                <div class="page-header__actions">
+                    <button id="refreshBtn" class="btn btn--ghost">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6"></path>
+                            <path d="M1 20v-6h6"></path>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        Refresh
+                    </button>
+                    <a href="/spawn" class="btn btn--primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="16"></line>
+                            <line x1="8" y1="12" x2="16" y2="12"></line>
+                        </svg>
+                        Spawn
+                    </a>
                 </div>
             </div>
-        </div>
+
+            <!-- Filter Bar -->
+            <div class="filter-bar">
+                <div class="filter-bar__search">
+                    <div class="search-input">
+                        <span class="search-input__icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                        </span>
+                        <input type="text" id="searchInput" class="input search-input__input" placeholder="Search sessions..." aria-label="Search sessions">
+                    </div>
+                </div>
+                <div class="filter-bar__filters">
+                    <select id="statusFilter" class="select" aria-label="Filter by status">
+                        <option value="">All Status</option>
+                        <option value="running">Running</option>
+                        <option value="stopped">Stopped</option>
+                    </select>
+                    <select id="repoFilter" class="select" aria-label="Filter by repository">
+                        <option value="">All Repos</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Workspaces Container -->
+            <div id="workspacesContainer" class="workspace-list">
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <span>Loading workspaces...</span>
+                </div>
+            </div>
+        </main>
     </div>
 
     <script src="/app.js"></script>
     <script>
-        let statusTimeout;
+        // State
+        let allWorkspaces = [];
+        let filteredWorkspaces = [];
+        let filters = {
+            search: '',
+            status: '',
+            repo: ''
+        };
 
-        function showStatus(message) {
-            const statusEl = document.getElementById('statusMessage');
-            statusEl.textContent = message;
-            statusEl.style.display = 'block';
-            statusEl.classList.add('show');
+        // DOM Elements
+        const workspacesContainer = document.getElementById('workspacesContainer');
+        const searchInput = document.getElementById('searchInput');
+        const statusFilter = document.getElementById('statusFilter');
+        const repoFilter = document.getElementById('repoFilter');
 
-            clearTimeout(statusTimeout);
-            statusTimeout = setTimeout(() => {
-                statusEl.classList.remove('show');
-                setTimeout(() => {
-                    statusEl.style.display = 'none';
-                }, 300);
-            }, 3000);
-        }
-
-        let confirmCallback = null;
-
-        function showConfirm(message, onConfirm) {
-            const modal = document.getElementById('confirmModal');
-            document.getElementById('confirmMessage').textContent = message;
-            document.getElementById('confirmTitle').textContent = 'Confirm Action';
-
-            confirmCallback = onConfirm;
-            modal.style.display = 'flex';
-        }
-
-        document.getElementById('confirmCancel').addEventListener('click', () => {
-            document.getElementById('confirmModal').style.display = 'none';
-            confirmCallback = null;
-        });
-
-        document.getElementById('confirmOk').addEventListener('click', () => {
-            document.getElementById('confirmModal').style.display = 'none';
-            if (confirmCallback) {
-                confirmCallback();
-                confirmCallback = null;
-            }
-        });
-
-        // Load workspaces on page load
+        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadWorkspaces();
+            setupEventListeners();
         });
 
-        // Refresh button handler
-        document.getElementById('refreshBtn').addEventListener('click', loadWorkspaces);
+        function setupEventListeners() {
+            // Refresh button
+            document.getElementById('refreshBtn').addEventListener('click', () => {
+                loadWorkspaces();
+            });
+
+            // Filters
+            searchInput.addEventListener('input', Utils.debounce((e) => {
+                filters.search = e.target.value.toLowerCase();
+                applyFilters();
+            }, 300));
+
+            statusFilter.addEventListener('change', (e) => {
+                filters.status = e.target.value;
+                applyFilters();
+            });
+
+            repoFilter.addEventListener('change', (e) => {
+                filters.repo = e.target.value;
+                applyFilters();
+            });
+        }
 
         async function loadWorkspaces() {
-            const container = document.getElementById('workspacesContainer');
-            container.innerHTML = '<div class="loading">Loading workspaces...</div>';
+            workspacesContainer.innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <span>Loading workspaces...</span>
+                </div>
+            `;
 
             try {
-                const response = await fetch('/api/sessions');
-                const workspaces = await response.json();
+                const workspaces = await API.getSessions();
+                allWorkspaces = workspaces;
 
-                if (workspaces.length === 0) {
-                    container.innerHTML = '<div class="empty">No active workspaces. <a href="/spawn">Spawn some</a></div>';
-                    return;
+                // Populate repo filter
+                const repos = [...new Set(workspaces.map(ws => ws.repo))];
+                repoFilter.innerHTML = '<option value="">All Repos</option>' +
+                    repos.map(repo => `<option value="${repo}">${repo}</option>`).join('');
+
+                applyFilters();
+            } catch (error) {
+                workspacesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state__icon">⚠️</div>
+                        <h3 class="empty-state__title">Failed to load workspaces</h3>
+                        <p class="empty-state__description">${error.message}</p>
+                        <button class="btn btn--primary" onclick="loadWorkspaces()">Try Again</button>
+                    </div>
+                `;
+            }
+        }
+
+        function applyFilters() {
+            filteredWorkspaces = allWorkspaces.filter(ws => {
+                // Search filter
+                if (filters.search) {
+                    const searchStr = filters.search;
+                    const matchesSearch =
+                        ws.id.toLowerCase().includes(searchStr) ||
+                        ws.repo.toLowerCase().includes(searchStr) ||
+                        ws.branch.toLowerCase().includes(searchStr) ||
+                        ws.sessions.some(s =>
+                            s.agent.toLowerCase().includes(searchStr) ||
+                            s.id.toLowerCase().includes(searchStr)
+                        );
+                    if (!matchesSearch) return false;
                 }
 
-                container.innerHTML = workspaces.map(ws => renderWorkspace(ws)).join('');
-            } catch (error) {
-                container.innerHTML = `<div class="error">Failed to load workspaces: ${error.message}</div>`;
+                // Status filter
+                if (filters.status) {
+                    const hasMatchingSession = ws.sessions.some(s =>
+                        filters.status === 'running' ? s.running : !s.running
+                    );
+                    if (!hasMatchingSession) return false;
+                }
+
+                // Repo filter
+                if (filters.repo && ws.repo !== filters.repo) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            renderWorkspaces();
+        }
+
+        function renderWorkspaces() {
+            if (filteredWorkspaces.length === 0) {
+                workspacesContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state__icon">📂</div>
+                        <h3 class="empty-state__title">No workspaces found</h3>
+                        <p class="empty-state__description">
+                            ${Object.values(filters).some(v => v) ? 'Try adjusting your filters' : 'Get started by spawning your first sessions'}
+                        </p>
+                        ${!Object.values(filters).some(v => v) ? '<a href="/spawn" class="btn btn--primary">Spawn Sessions</a>' : ''}
+                    </div>
+                `;
+                return;
             }
+
+            workspacesContainer.innerHTML = filteredWorkspaces.map(ws => renderWorkspace(ws)).join('');
         }
 
         function renderWorkspace(ws) {
-            const sessionsHtml = ws.sessions.map(sess => {
-                const statusClass = sess.running ? 'status-running' : 'status-stopped';
-                const statusText = sess.running ? 'Running' : 'Stopped';
-                const createdDate = new Date(sess.created_at).toLocaleString();
+            // Filter sessions based on current filters
+            let sessions = ws.sessions;
 
-                return `
-                    <tr class="session-row" data-workspace="${ws.id}">
-                        <td class="monospace">${sess.agent}</td>
-                        <td><span class="status ${statusClass}">${statusText}</span></td>
-                        <td>${createdDate}</td>
-                        <td class="actions">
-                            <button class="btn-small" onclick="copyAttachCommand('${sess.attach_cmd}')" title="Copy attach command">Copy</button>
-                            <button class="btn-small" onclick="viewTerminal('${sess.id}')" title="View terminal">View</button>
-                            <button class="btn-small btn-danger" onclick="disposeSession('${sess.id}')" title="Dispose session">Dispose</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            if (filters.status) {
+                sessions = sessions.filter(s =>
+                    filters.status === 'running' ? s.running : !s.running
+                );
+            }
+
+            if (filters.search) {
+                const searchStr = filters.search;
+                sessions = sessions.filter(s =>
+                    s.agent.toLowerCase().includes(searchStr) ||
+                    s.id.toLowerCase().includes(searchStr)
+                );
+            }
+
+            const sessionsHtml = sessions.map(sess => renderSession(sess, ws)).join('');
 
             return `
-                <div class="workspace-group" data-workspace-id="${ws.id}">
-                    <div class="workspace-header" onclick="toggleWorkspace('${ws.id}')">
-                        <div class="workspace-info">
-                            <span class="workspace-toggle" id="toggle-${ws.id}">▼</span>
-                            <span class="workspace-name">${ws.id}</span>
-                            <span class="workspace-meta">${ws.repo} · ${ws.branch}</span>
-                            <span class="session-count-badge">${ws.session_count} session${ws.session_count !== 1 ? 's' : ''}</span>
+                <div class="workspace-item" data-workspace-id="${ws.id}">
+                    <div class="workspace-item__header" onclick="toggleWorkspace('${ws.id}')">
+                        <div class="workspace-item__info">
+                            <span class="workspace-item__toggle" id="toggle-${ws.id}">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </span>
+                            <span class="workspace-item__name">${Utils.escapeHtml(ws.id)}</span>
+                            <span class="workspace-item__meta">${Utils.escapeHtml(ws.repo)} · ${Utils.escapeHtml(ws.branch)}</span>
+                            <span class="badge badge--neutral">${ws.session_count} session${ws.session_count !== 1 ? 's' : ''}</span>
                         </div>
-                        <button class="btn-small" onclick="event.stopPropagation(); spawnInWorkspace('${ws.id}', '${ws.repo}', '${ws.branch}')" title="Spawn in this directory">+ Add Agent</button>
+                        <button class="btn btn--sm" onclick="event.stopPropagation(); spawnInWorkspace('${ws.id}', '${Utils.escapeHtml(ws.repo)}', '${Utils.escapeHtml(ws.branch)}')" aria-label="Spawn in ${ws.id}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="16"></line>
+                                <line x1="8" y1="12" x2="16" y2="12"></line>
+                            </svg>
+                            Add Agent
+                        </button>
                     </div>
-                    <div class="workspace-sessions" id="sessions-${ws.id}">
-                        <table class="sessions-table">
+                    <div class="workspace-item__sessions" id="sessions-${ws.id}">
+                        <table class="session-table">
                             <thead>
                                 <tr>
                                     <th>Agent</th>
                                     <th>Status</th>
                                     <th>Created</th>
-                                    <th>Actions</th>
+                                    <th class="text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -214,47 +296,86 @@
             `;
         }
 
+        function renderSession(sess, ws) {
+            const statusClass = sess.running ? 'status-pill--running' : 'status-pill--stopped';
+            const statusText = sess.running ? 'Running' : 'Stopped';
+            const createdTime = Utils.formatRelativeTime(sess.created_at);
+
+            return `
+                <tr class="session-row">
+                    <td><span class="mono">${Utils.escapeHtml(sess.agent)}</span></td>
+                    <td>
+                        <span class="status-pill ${statusClass}">
+                            <span class="status-pill__dot"></span>
+                            ${statusText}
+                        </span>
+                    </td>
+                    <td>${createdTime}</td>
+                    <td>
+                        <div class="session-table__actions">
+                            <button class="btn btn--sm btn--ghost" onclick="viewSession('${sess.id}')" title="View session" aria-label="View ${sess.id}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                            <button class="btn btn--sm btn--ghost" onclick="copyAttachCommand('${Utils.escapeHtml(sess.attach_cmd)}')" title="Copy attach command" aria-label="Copy attach command">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                            <button class="btn btn--sm btn--ghost btn--danger" onclick="disposeSession('${sess.id}')" title="Dispose session" aria-label="Dispose ${sess.id}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
         function toggleWorkspace(workspaceId) {
             const sessionsDiv = document.getElementById(`sessions-${workspaceId}`);
             const toggle = document.getElementById(`toggle-${workspaceId}`);
 
-            if (sessionsDiv.classList.contains('expanded')) {
-                sessionsDiv.classList.remove('expanded');
-                toggle.classList.add('collapsed');
+            if (sessionsDiv.classList.contains('workspace-item__sessions--expanded')) {
+                sessionsDiv.classList.remove('workspace-item__sessions--expanded');
+                toggle.classList.add('workspace-item__toggle--collapsed');
             } else {
-                sessionsDiv.classList.add('expanded');
-                toggle.classList.remove('collapsed');
+                sessionsDiv.classList.add('workspace-item__sessions--expanded');
+                toggle.classList.remove('workspace-item__toggle--collapsed');
             }
         }
 
         function spawnInWorkspace(workspaceId, repo, branch) {
-            // Open spawn page with workspace_id pre-filled
             window.location.href = `/spawn?workspace_id=${workspaceId}&repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`;
         }
 
-        function copyAttachCommand(command) {
-            navigator.clipboard.writeText(command).then(() => {
-                showStatus('Copied: ' + command);
-            });
+        function viewSession(sessionId) {
+            window.location.href = `/sessions/${sessionId}`;
         }
 
-        function viewTerminal(sessionId) {
-            window.open(`/terminal.html?id=${sessionId}`, '_blank', 'width=800,height=600');
+        async function copyAttachCommand(command) {
+            await Utils.copyToClipboard(command);
         }
 
         async function disposeSession(sessionId) {
-            showConfirm(`Dispose session ${sessionId}? This will clean up the workspace.`, async () => {
-                try {
-                    const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
-                    if (!response.ok) {
-                        throw new Error('Failed to dispose session');
+            Modal.confirm(
+                `Dispose session ${sessionId}?`,
+                async () => {
+                    try {
+                        await API.disposeSession(sessionId);
+                        Toast.success('Session disposed');
+                        loadWorkspaces();
+                    } catch (error) {
+                        Toast.error(`Failed to dispose: ${error.message}`);
                     }
-                    showStatus('Session disposed');
-                    loadWorkspaces();
-                } catch (error) {
-                    showStatus(`Failed to dispose session: ${error.message}`);
-                }
-            });
+                },
+                { danger: true }
+            );
         }
     </script>
 </body>
