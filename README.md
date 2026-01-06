@@ -33,4 +33,4 @@ See [SPEC.md](SPEC.md) for the full specification.
 
 ## License
 
-TBD
+Apache License 2.0 - see [LICENSE](LICENSE)
