@@ -179,7 +179,7 @@ schmux status         # show daemon status, web dashboard URL
 - **Language**: Go
 - **Web server**: Embedded in daemon, serves dashboard
 - **Terminal streaming**: Capture tmux pane output, stream to browser via websocket
-- **Process tracking**: Monitor agent PID to determine running/stopped status
+- **Process tracking**: Get PID from tmux pane (`#{pane_pid}`) at session creation, then check if that PID is running. More reliable than `pgrep` (no false matches, no race conditions).
 - **Dependency check**: Verify tmux is installed on startup, error if not found
 - **License**: Apache 2.0
 

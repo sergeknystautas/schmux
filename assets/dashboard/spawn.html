@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>schmux - Spawn Sessions</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>schmux</h1>
+            <div class="header-actions">
+                <button id="themeToggle" class="btn-icon" title="Toggle theme">
+                    <span class="icon-sun"></span>
+                </button>
+                <a href="/" class="btn">Back to Sessions</a>
+            </div>
+        </header>
+
+        <main>
+            <section class="spawn-section">
+                <h2>Spawn Sessions</h2>
+                <form id="spawnForm">
+                    <div class="form-group">
+                        <label for="repo">Repository</label>
+                        <select id="repo" name="repo" required>
+                            <option value="">Select repository...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="branch">Branch</label>
+                        <input type="text" id="branch" name="branch" value="main" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prompt">Prompt</label>
+                        <textarea id="prompt" name="prompt" rows="6" placeholder="Enter your task prompt..." required></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Agents (quantity per agent)</label>
+                        <div id="agentsContainer" class="agents-container">
+                            <span class="loading">Loading agents...</span>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Spawn Sessions</button>
+                        <a href="/" class="btn">Cancel</a>
+                    </div>
+                </form>
+
+                <div id="results" class="results" style="display: none;">
+                    <h3>Results</h3>
+                    <div id="resultsContent"></div>
+                    <div class="form-actions">
+                        <a href="/" class="btn btn-primary">View Sessions</a>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/app.js"></script>
+    <script>
+        let availableAgents = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadConfig();
+        });
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+
+                // Populate repos
+                const repoSelect = document.getElementById('repo');
+                repoSelect.innerHTML = '<option value="">Select repository...</option>';
+                config.repos.forEach(repo => {
+                    const option = document.createElement('option');
+                    option.value = repo.name;
+                    option.textContent = repo.name;
+                    repoSelect.appendChild(option);
+                });
+
+                // Populate agents
+                availableAgents = config.agents;
+                const agentsContainer = document.getElementById('agentsContainer');
+                agentsContainer.innerHTML = config.agents.map(agent => `
+                    <div class="agent-selector">
+                        <label for="agent-${agent.name}">${agent.name}</label>
+                        <input type="number" id="agent-${agent.name}" name="agents[${agent.name}]" min="0" max="10" value="0">
+                    </div>
+                `).join('');
+            } catch (error) {
+                document.getElementById('agentsContainer').innerHTML = `<span class="error">Failed to load config: ${error.message}</span>`;
+            }
+        }
+
+        document.getElementById('spawnForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(e.target);
+            const agents = {};
+
+            // Collect agent quantities
+            availableAgents.forEach(agent => {
+                const input = document.getElementById(`agent-${agent.name}`);
+                const count = parseInt(input.value) || 0;
+                if (count > 0) {
+                    agents[agent.name] = count;
+                }
+            });
+
+            if (Object.keys(agents).length === 0) {
+                alert('Please select at least one agent');
+                return;
+            }
+
+            const request = {
+                repo: formData.get('repo'),
+                branch: formData.get('branch'),
+                prompt: formData.get('prompt'),
+                agents: agents
+            };
+
+            try {
+                const response = await fetch('/api/spawn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(request)
+                });
+
+                const results = await response.json();
+                displayResults(results);
+            } catch (error) {
+                alert(`Failed to spawn sessions: ${error.message}`);
+            }
+        });
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            const resultsContent = document.getElementById('resultsContent');
+
+            const successCount = results.filter(r => !r.error).length;
+            const errorCount = results.filter(r => r.error).length;
+
+            let html = `<p>Spawned ${successCount} session(s)`;
+            if (errorCount > 0) {
+                html += ` with ${errorCount} error(s)`;
+            }
+            html += '.</p>';
+
+            if (errorCount > 0) {
+                html += '<div class="errors">';
+                results.filter(r => r.error).forEach(r => {
+                    html += `<div class="error-item"><strong>${r.agent}:</strong> ${r.error}</div>`;
+                });
+                html += '</div>';
+            }
+
+            resultsContent.innerHTML = html;
+            resultsDiv.style.display = 'block';
+
+            // Hide form
+            document.getElementById('spawnForm').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

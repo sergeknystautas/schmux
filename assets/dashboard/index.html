@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>schmux - Sessions</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>schmux</h1>
+            <div class="header-actions">
+                <button id="themeToggle" class="btn-icon" title="Toggle theme">
+                    <span class="icon-sun"></span>
+                </button>
+                <a href="/spawn" class="btn">Spawn Sessions</a>
+                <button id="refreshBtn" class="btn">Refresh</button>
+            </div>
+        </header>
+
+        <main>
+            <section class="sessions-section">
+                <h2>Active Sessions</h2>
+                <div id="sessionsContainer">
+                    <table class="sessions-table">
+                        <thead>
+                            <tr>
+                                <th>Project</th>
+                                <th>Agent</th>
+                                <th>Branch</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionsBody">
+                            <tr>
+                                <td colspan="6" class="loading">Loading sessions...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/app.js"></script>
+    <script>
+        // Load sessions on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSessions();
+        });
+
+        // Refresh button handler
+        document.getElementById('refreshBtn').addEventListener('click', loadSessions);
+
+        async function loadSessions() {
+            const tbody = document.getElementById('sessionsBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading sessions...</td></tr>';
+
+            try {
+                const response = await fetch('/api/sessions');
+                const sessions = await response.json();
+
+                if (sessions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="empty">No active sessions. <a href="/spawn">Spawn some</a></td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = sessions.map(sess => {
+                    const workspaceId = sess.workspace_id;
+                    const statusClass = sess.running ? 'status-running' : 'status-stopped';
+                    const statusText = sess.running ? 'Running' : 'Stopped';
+                    const createdDate = new Date(sess.created_at).toLocaleString();
+
+                    return `
+                        <tr>
+                            <td class="monospace">${workspaceId}</td>
+                            <td>${sess.agent}</td>
+                            <td class="monospace">${sess.branch}</td>
+                            <td><span class="status ${statusClass}">${statusText}</span></td>
+                            <td>${createdDate}</td>
+                            <td class="actions">
+                                <button class="btn-small" onclick="copyAttachCommand('${sess.attach_cmd}')" title="Copy attach command">Copy</button>
+                                <button class="btn-small" onclick="viewTerminal('${sess.id}')" title="View terminal">View</button>
+                                <button class="btn-small btn-danger" onclick="disposeSession('${sess.id}')" title="Dispose session">Dispose</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="6" class="error">Failed to load sessions: ${error.message}</td></tr>`;
+            }
+        }
+
+        function copyAttachCommand(command) {
+            navigator.clipboard.writeText(command).then(() => {
+                // Could show a toast notification here
+                alert('Copied: ' + command);
+            });
+        }
+
+        function viewTerminal(sessionId) {
+            window.open(`/terminal.html?id=${sessionId}`, '_blank', 'width=800,height=600');
+        }
+
+        async function disposeSession(sessionId) {
+            if (!confirm(`Dispose session ${sessionId}? This will clean up the workspace.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
+                if (!response.ok) {
+                    throw new Error('Failed to dispose session');
+                }
+                loadSessions();
+            } catch (error) {
+                alert(`Failed to dispose session: ${error.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

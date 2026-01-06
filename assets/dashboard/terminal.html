@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>schmux - Terminal</title>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        .terminal-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 200px);
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px 4px 0 0;
+        }
+
+        .terminal-info {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .terminal-info span {
+            color: var(--text-secondary);
+        }
+
+        .terminal-info strong {
+            color: var(--text-primary);
+        }
+
+        .terminal-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .terminal-output {
+            flex: 1;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            padding: 1rem;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+            font-size: 0.875rem;
+            line-height: 1.4;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 4px 4px;
+        }
+
+        .terminal-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .terminal-status.connected {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+        .terminal-status.disconnected {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .back-link {
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="back-link">
+            <a href="/" class="btn">← Back to Sessions</a>
+        </div>
+
+        <section class="terminal-section">
+            <h2>Terminal Output</h2>
+
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-info" id="terminalInfo">
+                        <span class="loading">Loading session info...</span>
+                    </div>
+                    <div class="terminal-actions">
+                        <span id="connectionStatus" class="terminal-status">Connecting...</span>
+                        <button id="pauseBtn" class="btn-small">Pause</button>
+                        <button id="disposeBtn" class="btn-small btn-danger">Dispose</button>
+                    </div>
+                </div>
+                <div id="terminalOutput" class="terminal-output">Connecting...</div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/app.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('id');
+
+        if (!sessionId) {
+            document.getElementById('terminalOutput').textContent = 'Error: No session ID provided';
+        } else {
+            let terminalStream = null;
+            let isPaused = false;
+
+            // Load session info
+            loadSessionInfo();
+
+            // Set up pause button
+            document.getElementById('pauseBtn').addEventListener('click', function() {
+                if (terminalStream) {
+                    if (isPaused) {
+                        terminalStream.resume();
+                        this.textContent = 'Pause';
+                        isPaused = false;
+                    } else {
+                        terminalStream.pause();
+                        this.textContent = 'Resume';
+                        isPaused = true;
+                    }
+                }
+            });
+
+            // Set up dispose button
+            document.getElementById('disposeBtn').addEventListener('click', async function() {
+                if (!confirm(`Dispose session ${sessionId}? This will close this page.`)) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
+                    if (!response.ok) {
+                        throw new Error('Failed to dispose session');
+                    }
+                    window.location.href = '/';
+                } catch (error) {
+                    alert(`Failed to dispose session: ${error.message}`);
+                }
+            });
+
+            async function loadSessionInfo() {
+                try {
+                    const response = await fetch('/api/sessions');
+                    const sessions = await response.json();
+                    const session = sessions.find(s => s.id === sessionId);
+
+                    if (!session) {
+                        document.getElementById('terminalInfo').innerHTML = '<span class="error">Session not found</span>';
+                        return;
+                    }
+
+                    const createdDate = new Date(session.created_at).toLocaleString();
+                    document.getElementById('terminalInfo').innerHTML = `
+                        <span>Workspace: <strong class="monospace">${session.workspace_id}</strong></span>
+                        <span>Agent: <strong>${session.agent}</strong></span>
+                        <span>Branch: <strong class="monospace">${session.branch}</strong></span>
+                        <span>Created: <strong>${createdDate}</strong></span>
+                        <span>Status: <strong>${session.running ? 'Running' : 'Stopped'}</strong></span>
+                    `;
+
+                    // Start terminal streaming
+                    startTerminalStream();
+
+                } catch (error) {
+                    document.getElementById('terminalInfo').innerHTML = `<span class="error">Failed to load session: ${error.message}</span>`;
+                }
+            }
+
+            function startTerminalStream() {
+                const outputDiv = document.getElementById('terminalOutput');
+                const statusSpan = document.getElementById('connectionStatus');
+
+                terminalStream = new TerminalStream(sessionId, outputDiv);
+                terminalStream.connect();
+
+                statusSpan.textContent = 'Connected';
+                statusSpan.classList.remove('disconnected');
+                statusSpan.classList.add('connected');
+            }
+        }
+    </script>
+</body>
+</html>
