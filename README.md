@@ -32,6 +32,11 @@ schmux lets you spin up multiple AI coding agents (Codex, Claude Code with vario
 
 See [SPEC.md](SPEC.md) for the full specification.
 
+## More Docs
+
+- [SPEC.md](SPEC.md) - Product requirements and overall spec
+- [WEB-UX.md](WEB-UX.md) - Web UI/UX architecture and component standards
+
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE)
