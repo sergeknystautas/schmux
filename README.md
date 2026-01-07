@@ -45,7 +45,6 @@ See [SPEC.md](SPEC.md) for the full specification.
 
 ## More Docs
 
-- [SPEC.md](SPEC.md) - Product requirements and overall spec
 - [WEB-UX.md](WEB-UX.md) - Web UI/UX architecture and component standards
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Guide to contribute to this codebase
 
