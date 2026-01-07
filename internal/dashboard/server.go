@@ -46,6 +46,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/sessions/", s.handleSessionDetail)
 	mux.HandleFunc("/workspaces", s.handleWorkspaces)
 	mux.HandleFunc("/spawn", s.handleSpawn)
+	mux.HandleFunc("/tips", s.handleTips)
 	mux.HandleFunc("/terminal.html", s.handleTerminalHTML)
 	mux.HandleFunc("/styles.css", s.handleStatic)
 	mux.HandleFunc("/app.js", s.handleStatic)

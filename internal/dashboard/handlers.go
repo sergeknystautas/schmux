@@ -34,6 +34,11 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	s.serveHTML(w, r, "workspaces.html")
 }
 
+// handleTips serves the tips page.
+func (s *Server) handleTips(w http.ResponseWriter, r *http.Request) {
+	s.serveHTML(w, r, "tips.html")
+}
+
 // handleSessionDetail serves the session detail page.
 func (s *Server) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL path: /sessions/{id}
