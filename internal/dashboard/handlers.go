@@ -99,11 +99,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type WorkspaceResponse struct {
-		ID          string            `json:"id"`
-		Repo        string            `json:"repo"`
-		Branch      string            `json:"branch"`
-		SessionCount int              `json:"session_count"`
-		Sessions    []SessionResponse `json:"sessions"`
+		ID           string            `json:"id"`
+		Repo         string            `json:"repo"`
+		Branch       string            `json:"branch"`
+		SessionCount int               `json:"session_count"`
+		Sessions     []SessionResponse `json:"sessions"`
 	}
 
 	workspaceMap := make(map[string]*WorkspaceResponse)
@@ -133,7 +133,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Agent:     sess.Agent,
 			Branch:    ws.Branch,
 			Prompt:    sess.Prompt,
-			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			Running:   s.session.IsRunning(sess.ID),
 			AttachCmd: attachCmd,
 		})
@@ -190,7 +190,7 @@ type SpawnRequest struct {
 	Repo        string         `json:"repo"`
 	Branch      string         `json:"branch"`
 	Prompt      string         `json:"prompt"`
-	Agents      map[string]int `json:"agents"` // agent name -> quantity
+	Agents      map[string]int `json:"agents"`                 // agent name -> quantity
 	WorkspaceID string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 }
 

@@ -16,9 +16,9 @@ import (
 
 // Manager manages sessions.
 type Manager struct {
-	config     *config.Config
-	state      *state.State
-	workspace  *workspace.Manager
+	config    *config.Config
+	state     *state.State
+	workspace *workspace.Manager
 }
 
 // New creates a new session manager.

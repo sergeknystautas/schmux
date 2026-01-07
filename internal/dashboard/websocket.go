@@ -14,7 +14,9 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for localhost
+		// Only allow connections from the dashboard itself (localhost)
+		origin := r.Header.Get("Origin")
+		return origin == "http://localhost:7337"
 	},
 }
 

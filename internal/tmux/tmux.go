@@ -12,10 +12,10 @@ func CreateSession(name, dir, command string) error {
 	// tmux new-session -d -s <name> -c <dir> <command>
 	args := []string{
 		"new-session",
-		"-d",        // detached
-		"-s", name,  // session name
-		"-c", dir,   // working directory
-		command,     // command to run
+		"-d",       // detached
+		"-s", name, // session name
+		"-c", dir, // working directory
+		command, // command to run
 	}
 
 	cmd := exec.Command("tmux", args...)
@@ -41,8 +41,8 @@ func GetPanePID(name string) (int, error) {
 	// tmux display-message -p -t <name> "#{pane_pid}"
 	args := []string{
 		"display-message",
-		"-p",        // output to stdout
-		"-t", name,  // target session
+		"-p",       // output to stdout
+		"-t", name, // target session
 		"#{pane_pid}",
 	}
 
@@ -69,9 +69,9 @@ func CaptureOutput(name string) (string, error) {
 	// -S - captures from the start of the scrollback buffer
 	args := []string{
 		"capture-pane",
-		"-p",        // output to stdout
-		"-S", "-",   // start from beginning of scrollback
-		"-t", name,  // target session/pane
+		"-p",      // output to stdout
+		"-S", "-", // start from beginning of scrollback
+		"-t", name, // target session/pane
 	}
 
 	cmd := exec.Command("tmux", args...)

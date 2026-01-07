@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	port        = 7337
+	port         = 7337
 	readTimeout  = 15 * time.Second
 	writeTimeout = 15 * time.Second
 )
@@ -92,7 +92,15 @@ func (s *Server) Stop() error {
 // withCORS wraps a handler with CORS headers.
 func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// Only allow requests from the dashboard itself (localhost)
+		origin := r.Header.Get("Origin")
+		if origin != "http://localhost:7337" && origin != "" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if origin == "http://localhost:7337" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -128,5 +136,3 @@ func (s *Server) getAssetPath() string {
 	// (will result in 404s but won't crash)
 	return candidates[0]
 }
-
-

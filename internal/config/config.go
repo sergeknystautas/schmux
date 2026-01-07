@@ -11,14 +11,14 @@ import (
 
 var (
 	ErrConfigNotFound = errors.New("config file not found")
-	ErrInvalidConfig   = errors.New("invalid config")
+	ErrInvalidConfig  = errors.New("invalid config")
 )
 
 // Config represents the application configuration.
 type Config struct {
-	WorkspacePath string   `json:"workspace_path"`
-	Repos         []Repo   `json:"repos"`
-	Agents        []Agent  `json:"agents"`
+	WorkspacePath string  `json:"workspace_path"`
+	Repos         []Repo  `json:"repos"`
+	Agents        []Agent `json:"agents"`
 	mu            sync.RWMutex
 }
 
