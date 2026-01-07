@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +17,30 @@ import (
 type Manager struct {
 	config *config.Config
 	state  *state.State
+	logger *log.Logger
 }
 
 // New creates a new workspace manager.
 func New(cfg *config.Config, st *state.State) *Manager {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = ""
+	}
+	logPath := filepath.Join(homeDir, ".schmux", "daemon.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fall back to stderr if log file can't be opened
+		return &Manager{
+			config: cfg,
+			state:  st,
+			logger: log.New(os.Stderr, "[workspace] ", log.LstdFlags),
+		}
+	}
+
 	return &Manager{
 		config: cfg,
 		state:  st,
+		logger: log.New(logFile, "[workspace] ", log.LstdFlags),
 	}
 }
 
@@ -50,6 +68,7 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 				}
 			}
 			if !hasActiveSessions {
+				m.logger.Printf("reusing existing workspace: id=%s path=%s branch=%s", w.ID, w.Path, branch)
 				// Prepare the workspace (fetch/pull/clean)
 				if err := m.prepare(w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
@@ -64,6 +83,7 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 	if err != nil {
 		return nil, err
 	}
+	m.logger.Printf("created new workspace: id=%s path=%s branch=%s repo=%s", w.ID, w.Path, branch, repoURL)
 
 	// Prepare the workspace
 	if err := m.prepare(w.ID, branch); err != nil {
@@ -137,6 +157,8 @@ func (m *Manager) prepare(workspaceID, branch string) error {
 		}
 	}
 
+	m.logger.Printf("preparing workspace: id=%s branch=%s", workspaceID, branch)
+
 	// Fetch latest
 	if err := m.gitFetch(w.Path); err != nil {
 		return fmt.Errorf("git fetch failed: %w", err)
@@ -157,6 +179,7 @@ func (m *Manager) prepare(workspaceID, branch string) error {
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
+	m.logger.Printf("workspace prepared: id=%s branch=%s", workspaceID, branch)
 	return nil
 }
 
@@ -166,6 +189,8 @@ func (m *Manager) Cleanup(workspaceID string) error {
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
+
+	m.logger.Printf("cleaning up workspace: id=%s path=%s", workspaceID, w.Path)
 
 	// Reset all changes
 	if err := m.gitCheckoutDot(w.Path); err != nil {
@@ -177,6 +202,7 @@ func (m *Manager) Cleanup(workspaceID string) error {
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
+	m.logger.Printf("workspace cleaned: id=%s", workspaceID)
 	return nil
 }
 
@@ -203,6 +229,7 @@ func (m *Manager) findRepoByURL(repoURL string) (config.Repo, bool) {
 
 // cloneRepo clones a repository to the given path.
 func (m *Manager) cloneRepo(url, path string) error {
+	m.logger.Printf("cloning repository: url=%s path=%s", url, path)
 	args := []string{"clone", url, path}
 	cmd := exec.Command("git", args...)
 
@@ -210,6 +237,7 @@ func (m *Manager) cloneRepo(url, path string) error {
 		return fmt.Errorf("git clone failed: %w: %s", err, string(output))
 	}
 
+	m.logger.Printf("repository cloned: path=%s", path)
 	return nil
 }
 
