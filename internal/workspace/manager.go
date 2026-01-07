@@ -266,7 +266,7 @@ func (m *Manager) gitCheckout(dir, branch string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if _, err := cmd.CombinedOutput(); err != nil {
 		// If checkout failed, try creating a new branch
 		args = []string{"checkout", "-b", branch}
 		cmd = exec.Command("git", args...)
@@ -287,6 +287,11 @@ func (m *Manager) gitPullRebase(dir string) error {
 	cmd.Dir = dir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
+		// If pull fails due to no tracking info, that's ok for new local branches
+		if strings.Contains(string(output), "no tracking information") {
+			m.logger.Printf("no tracking information for branch, skipping pull")
+			return nil
+		}
 		return fmt.Errorf("git pull failed: %w: %s", err, string(output))
 	}
 
