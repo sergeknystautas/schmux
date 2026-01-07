@@ -21,7 +21,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // handleSessionsList serves the sessions list page.
 func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
-	s.serveHTML(w, r, "index.html")
+	s.serveHTML(w, r, "sessions.html")
 }
 
 // handleSpawn serves the spawn page.
