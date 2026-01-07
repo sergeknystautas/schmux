@@ -128,6 +128,32 @@
                         <span class="metadata-field__value" id="metaAgent"></span>
                     </div>
 
+                    <div class="metadata-field" id="metaNickname" style="display: none;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <span class="metadata-field__label">Nickname</span>
+                            <button class="btn btn--sm btn--ghost" onclick="editNickname()" title="Edit nickname">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <span class="metadata-field__value" id="metaNicknameValue"></span>
+                    </div>
+
+                    <div class="metadata-field" id="metaNicknameAdd" style="display: none;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <span class="metadata-field__label">Nickname</span>
+                            <button class="btn btn--sm btn--ghost" onclick="editNickname()" title="Add nickname">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <span class="metadata-field__value" style="color: var(--color-text-muted); font-style: italic;">Not set</span>
+                    </div>
+
                     <div class="metadata-field">
                         <span class="metadata-field__label">Workspace</span>
                         <span class="metadata-field__value metadata-field__value--mono" id="metaWorkspace"></span>
@@ -237,7 +263,10 @@
                 // Update UI
                 document.getElementById('loadingState').style.display = 'none';
                 document.getElementById('sessionDetail').style.display = 'grid';
-                document.getElementById('sessionTitle').textContent = sessionId.substring(0, 12);
+
+                // Display nickname in title if available, otherwise truncated ID
+                const titleText = sessionData.nickname || sessionId.substring(0, 12);
+                document.getElementById('sessionTitle').textContent = titleText;
 
                 // Populate metadata
                 document.getElementById('metaSessionId').textContent = sessionData.id;
@@ -246,6 +275,18 @@
                 document.getElementById('metaRepo').textContent = sessionData.repo;
                 document.getElementById('metaBranch').textContent = sessionData.branch;
                 document.getElementById('metaCreated').textContent = Utils.formatTimestamp(sessionData.created_at);
+
+                // Show nickname in metadata if available
+                const metaNickname = document.getElementById('metaNickname');
+                const metaNicknameAdd = document.getElementById('metaNicknameAdd');
+                if (sessionData.nickname) {
+                    metaNickname.style.display = 'flex';
+                    metaNicknameAdd.style.display = 'none';
+                    document.getElementById('metaNicknameValue').textContent = sessionData.nickname;
+                } else {
+                    metaNickname.style.display = 'none';
+                    metaNicknameAdd.style.display = 'flex';
+                }
 
                 // Status
                 const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
@@ -377,6 +418,10 @@
                     <a href="/sessions" class="btn btn--primary">Back to Sessions</a>
                 </div>
             `;
+        }
+
+        function editNickname() {
+            Toast.show('Nickname editing coming soon');
         }
     </script>
 </body>

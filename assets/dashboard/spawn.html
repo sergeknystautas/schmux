@@ -120,6 +120,11 @@
                             <textarea id="prompt" class="textarea" rows="10" placeholder="Describe the task you want the agents to work on..."></textarea>
                             <p class="form-group__hint">Be specific about what you want the agents to do. This prompt will be sent to all spawned agents.</p>
                         </div>
+                        <div class="form-group">
+                            <label for="nickname" class="form-group__label">Nickname <span class="text-muted">(optional)</span></label>
+                            <input type="text" id="nickname" class="input" placeholder="e.g., 'Fix login bug', 'Refactor auth flow'" maxlength="100">
+                            <p class="form-group__hint">A human-friendly name to help you identify this session later. If not provided, the session ID will be used.</p>
+                        </div>
                     </div>
 
                     <!-- Step 4: Review -->
@@ -146,6 +151,10 @@
                                 <div class="metadata-field">
                                     <span class="metadata-field__label">Prompt</span>
                                     <span class="metadata-field__value" id="reviewPrompt"></span>
+                                </div>
+                                <div class="metadata-field" id="reviewNicknameRow" style="display: none;">
+                                    <span class="metadata-field__label">Nickname</span>
+                                    <span class="metadata-field__value" id="reviewNickname"></span>
                                 </div>
                             </div>
                         </div>
@@ -345,6 +354,13 @@
                     .join(', ');
                 document.getElementById('reviewPrompt').textContent = promptInput.value.substring(0, 200) +
                     (promptInput.value.length > 200 ? '...' : '');
+                const nicknameInput = document.getElementById('nickname');
+                if (nicknameInput.value.trim()) {
+                    document.getElementById('reviewNicknameRow').style.display = 'flex';
+                    document.getElementById('reviewNickname').textContent = nicknameInput.value.trim();
+                } else {
+                    document.getElementById('reviewNicknameRow').style.display = 'none';
+                }
 
                 // Change next button to spawn
                 document.getElementById('nextBtn').textContent = 'Spawn';
@@ -400,6 +416,7 @@
                 repo: repoSelect.value,
                 branch: branchInput.value,
                 prompt: promptInput.value,
+                nickname: document.getElementById('nickname').value.trim(),
                 agents: agents,
                 workspace_id: prefillWorkspaceId || ''
             };

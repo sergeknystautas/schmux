@@ -31,6 +31,7 @@ type Session struct {
 	WorkspaceID string    `json:"workspace_id"`
 	Agent       string    `json:"agent"`
 	Prompt      string    `json:"prompt"`
+	Nickname    string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession string    `json:"tmux_session"`
 	CreatedAt   time.Time `json:"created_at"`
 	Pid         int       `json:"pid"` // PID of the agent process from tmux pane

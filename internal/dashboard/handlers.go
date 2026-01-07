@@ -93,6 +93,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		Agent     string `json:"agent"`
 		Branch    string `json:"branch"`
 		Prompt    string `json:"prompt"`
+		Nickname  string `json:"nickname,omitempty"`
 		CreatedAt string `json:"created_at"`
 		Running   bool   `json:"running"`
 		AttachCmd string `json:"attach_cmd"`
@@ -133,6 +134,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Agent:     sess.Agent,
 			Branch:    ws.Branch,
 			Prompt:    sess.Prompt,
+			Nickname:  sess.Nickname,
 			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			Running:   s.session.IsRunning(sess.ID),
 			AttachCmd: attachCmd,
@@ -190,6 +192,7 @@ type SpawnRequest struct {
 	Repo        string         `json:"repo"`
 	Branch      string         `json:"branch"`
 	Prompt      string         `json:"prompt"`
+	Nickname    string         `json:"nickname,omitempty"` // optional human-friendly name for sessions
 	Agents      map[string]int `json:"agents"`                 // agent name -> quantity
 	WorkspaceID string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 }
@@ -237,7 +240,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	for agentName, count := range req.Agents {
 		for i := 0; i < count; i++ {
-			sess, err := s.session.Spawn(req.Repo, req.Branch, agentName, req.Prompt, req.WorkspaceID)
+			sess, err := s.session.Spawn(req.Repo, req.Branch, agentName, req.Prompt, req.Nickname, req.WorkspaceID)
 			if err != nil {
 				results = append(results, SessionResult{
 					Agent: agentName,
@@ -273,6 +276,50 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.session.Dispose(sessionID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// UpdateNicknameRequest represents a request to update a session's nickname.
+type UpdateNicknameRequest struct {
+	Nickname string `json:"nickname"`
+}
+
+// handleUpdateNickname handles session nickname update requests.
+func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract session ID from URL: /api/sessions-nickname/{session-id}
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/sessions-nickname/")
+	if sessionID == "" {
+		http.Error(w, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateNicknameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Get the session
+	sess, found := s.state.GetSession(sessionID)
+	if !found {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Update nickname
+	sess.Nickname = req.Nickname
+	s.state.UpdateSession(sess)
+	if err := s.state.Save(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save state: %v", err), http.StatusInternalServerError)
 		return
 	}
 

@@ -103,7 +103,7 @@ JSON file, hand-edited for v0.5. Location: `~/.schmux/config.json`
 - Expand to see individual sessions
 
 **Session List**
-- Displays: agent type, process status (running/stopped), created time
+- Displays: nickname (if set) or agent type, process status (running/stopped), created time
 - Copy-able attach command for each session
 - Dispose button per session
 - **Spawn in this directory** button to add more agents
@@ -112,12 +112,13 @@ JSON file, hand-edited for v0.5. Location: `~/.schmux/config.json`
 - Select git repo (dropdown from pre-registered list)
 - Enter branch name
 - Enter prompt (textarea)
+- Optional nickname (human-friendly name for the session)
 - Agent quantity selector ("shopping cart" style - pick count per agent type)
 - Submit spawns all requested sessions with same prompt in new directories
 
 **Session Detail View**
 - Real-time terminal output (scrolling text)
-- Session metadata (repo, branch, agent, created time)
+- Session metadata (nickname if set, repo, branch, agent, created time)
 - Dispose button
 
 **Connection Monitoring**
@@ -147,6 +148,7 @@ JSON file at `~/.schmux/state.json`
       "workspace_id": "myproject-001",
       "agent": "claude-glm",
       "prompt": "fix the auth bug",
+      "nickname": "Auth fix attempt 1",
       "tmux_session": "schmux-session-abc123",
       "created_at": "2025-01-05T10:30:00Z",
       "pid": 12345
@@ -196,6 +198,7 @@ schmux status         # show daemon status, web dashboard URL
 - **Cross-agent copy** - Select text from one session's terminal, copy with context to another session in same directory
 - **Richer session status** - Beyond just process running/stopped
 - **Batch grouping** - Dashboard groups sessions started together with same prompt
+- **Update nicknames** - Edit session nicknames after creation (from session detail view)
 
 ### v0.9 - CLI catch up
 

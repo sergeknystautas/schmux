@@ -33,7 +33,8 @@ func New(cfg *config.Config, st *state.State, wm *workspace.Manager) *Manager {
 // Spawn creates a new session.
 // If workspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
 // Otherwise, find or create a workspace by repoURL/branch.
-func (m *Manager) Spawn(repoURL, branch, agentName, prompt string, workspaceID string) (*state.Session, error) {
+// nickname is an optional human-friendly name for the session.
+func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
 	// Find agent config
 	agent, found := m.config.FindAgent(agentName)
 	if !found {
@@ -83,6 +84,7 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt string, workspaceID s
 		WorkspaceID: w.ID,
 		Agent:       agentName,
 		Prompt:      prompt,
+		Nickname:    nickname,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),
 		Pid:         pid,

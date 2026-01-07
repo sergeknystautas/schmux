@@ -292,7 +292,7 @@
                         <table class="session-table">
                             <thead>
                                 <tr>
-                                    <th>Agent</th>
+                                    <th>Session</th>
                                     <th>Status</th>
                                     <th>Created</th>
                                     <th class="text-right">Actions</th>
@@ -312,9 +312,18 @@
             const statusText = sess.running ? 'Running' : 'Stopped';
             const createdTime = Utils.formatRelativeTime(sess.created_at);
 
+            // Display nickname if available, otherwise show agent name
+            const displayName = sess.nickname || sess.agent;
+            const agentBadge = sess.nickname ? `<span class="badge badge--secondary" style="font-size: 0.75rem; margin-left: var(--spacing-xs);">${Utils.escapeHtml(sess.agent)}</span>` : '';
+
             return `
                 <tr class="session-row">
-                    <td><span class="mono">${Utils.escapeHtml(sess.agent)}</span></td>
+                    <td>
+                        <div style="display: flex; align-items: center;">
+                            <span class="${sess.nickname ? '' : 'mono'}">${Utils.escapeHtml(displayName)}</span>
+                            ${agentBadge}
+                        </div>
+                    </td>
                     <td>
                         <span class="status-pill ${statusClass}">
                             <span class="status-pill__dot"></span>
