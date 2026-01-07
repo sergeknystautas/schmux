@@ -3,7 +3,9 @@ package session
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,6 +74,25 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
+	// Set up log file for pipe-pane streaming
+	logPath, err := m.ensureLogFile(sessionID)
+	if err != nil {
+		fmt.Printf("warning: failed to create log file: %v\n", err)
+	} else {
+		// Force fixed window size for deterministic TUI output
+		width, height := m.config.GetTerminalSize()
+		if err := tmux.SetWindowSizeManual(tmuxSession); err != nil {
+			fmt.Printf("warning: failed to set manual window size: %v\n", err)
+		}
+		if err := tmux.ResizeWindow(tmuxSession, width, height); err != nil {
+			fmt.Printf("warning: failed to resize window: %v\n", err)
+		}
+		// Start pipe-pane to log file
+		if err := tmux.StartPipePane(tmuxSession, logPath); err != nil {
+			return nil, fmt.Errorf("failed to start pipe-pane (session created): %w", err)
+		}
+	}
+
 	// Get the PID of the agent process from tmux pane
 	pid, err := tmux.GetPanePID(tmuxSession)
 	if err != nil {
@@ -135,6 +156,11 @@ func (m *Manager) Dispose(sessionID string) error {
 	// Kill tmux session (ignore error if already gone)
 	tmux.KillSession(sess.TmuxSession)
 
+	// Delete log file for this session
+	if err := m.deleteLogFile(sessionID); err != nil {
+		fmt.Printf("warning: failed to delete log file: %v\n", err)
+	}
+
 	// Note: workspace is NOT cleaned up on session disposal.
 	// Workspaces persist and are only reset when reused for a new spawn.
 
@@ -179,4 +205,142 @@ func (m *Manager) GetSession(sessionID string) (*state.Session, error) {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
 	return &sess, nil
+}
+
+// getLogDir returns the log directory path, creating it if needed.
+func (m *Manager) getLogDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	logDir := filepath.Join(homeDir, ".schmux", "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create log directory: %w", err)
+	}
+	return logDir, nil
+}
+
+// getLogPath returns the log file path for a session.
+func (m *Manager) getLogPath(sessionID string) (string, error) {
+	logDir, err := m.getLogDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(logDir, fmt.Sprintf("%s.log", sessionID)), nil
+}
+
+// ensureLogFile ensures the log file exists for a session.
+func (m *Manager) ensureLogFile(sessionID string) (string, error) {
+	logPath, err := m.getLogPath(sessionID)
+	if err != nil {
+		return "", err
+	}
+	fd, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to create log file: %w", err)
+	}
+	fd.Close()
+	return logPath, nil
+}
+
+// deleteLogFile removes the log file for a session.
+func (m *Manager) deleteLogFile(sessionID string) error {
+	logPath, err := m.getLogPath(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete log file: %w", err)
+	}
+	return nil
+}
+
+// pruneLogFiles removes log files for sessions not in the active list.
+func (m *Manager) pruneLogFiles(activeSessions []state.Session) error {
+	logDir, err := m.getLogDir()
+	if err != nil {
+		return err
+	}
+	activeIDs := make(map[string]bool)
+	for _, sess := range activeSessions {
+		activeIDs[sess.ID] = true
+	}
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return fmt.Errorf("failed to read log directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".log")
+		if !activeIDs[sessionID] {
+			logPath := filepath.Join(logDir, entry.Name())
+			if err := os.Remove(logPath); err != nil {
+				fmt.Printf("warning: failed to delete orphaned log %s: %v\n", entry.Name(), err)
+			}
+		}
+	}
+	return nil
+}
+
+// GetLogPath returns the log file path for a session (public for WebSocket).
+func (m *Manager) GetLogPath(sessionID string) (string, error) {
+	return m.getLogPath(sessionID)
+}
+
+// EnsurePipePane ensures pipe-pane is active for a session (auto-migrate old sessions).
+func (m *Manager) EnsurePipePane(sessionID string) error {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	// Check if pipe-pane is already active
+	if tmux.IsPipePaneActive(sess.TmuxSession) {
+		return nil
+	}
+	// Ensure log file exists
+	logPath, err := m.ensureLogFile(sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to ensure log file: %w", err)
+	}
+	// Set window size and start pipe-pane
+	width, height := m.config.GetTerminalSize()
+	if err := tmux.SetWindowSizeManual(sess.TmuxSession); err != nil {
+		fmt.Printf("warning: failed to set manual window size: %v\n", err)
+	}
+	if err := tmux.ResizeWindow(sess.TmuxSession, width, height); err != nil {
+		fmt.Printf("warning: failed to resize window: %v\n", err)
+	}
+	if err := tmux.StartPipePane(sess.TmuxSession, logPath); err != nil {
+		return fmt.Errorf("failed to start pipe-pane: %w", err)
+	}
+	return nil
+}
+
+// StartLogPruner starts periodic log pruning. Returns cancel function.
+func (m *Manager) StartLogPruner(interval time.Duration) func() {
+	stopChan := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		m.pruneLogs() // Run once on startup
+		for {
+			select {
+			case <-ticker.C:
+				m.pruneLogs()
+			case <-stopChan:
+				return
+			}
+		}
+	}()
+	return func() { close(stopChan) }
+}
+
+// pruneLogs runs pruneLogFiles with current sessions.
+func (m *Manager) pruneLogs() {
+	activeSessions := m.state.GetSessions()
+	if err := m.pruneLogFiles(activeSessions); err != nil {
+		fmt.Printf("warning: log prune failed: %v\n", err)
+	}
 }

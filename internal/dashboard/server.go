@@ -49,6 +49,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/terminal.html", s.handleTerminalHTML)
 	mux.HandleFunc("/styles.css", s.handleStatic)
 	mux.HandleFunc("/app.js", s.handleStatic)
+	mux.HandleFunc("/xterm.css", s.handleStatic)
+	mux.HandleFunc("/xterm.js", s.handleStatic)
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.handleHealthz))

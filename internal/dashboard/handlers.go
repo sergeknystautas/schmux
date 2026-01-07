@@ -372,13 +372,20 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 
+	type TerminalResponse struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+
 	type ConfigResponse struct {
-		Repos  []RepoResponse  `json:"repos"`
-		Agents []AgentResponse `json:"agents"`
+		Repos    []RepoResponse     `json:"repos"`
+		Agents   []AgentResponse    `json:"agents"`
+		Terminal TerminalResponse   `json:"terminal"`
 	}
 
 	repos := s.config.GetRepos()
 	agents := s.config.GetAgents()
+	width, height := s.config.GetTerminalSize()
 
 	repoResp := make([]RepoResponse, len(repos))
 	for i, repo := range repos {
@@ -391,8 +398,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := ConfigResponse{
-		Repos:  repoResp,
-		Agents: agentResp,
+		Repos:    repoResp,
+		Agents:   agentResp,
+		Terminal: TerminalResponse{Width: width, Height: height},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

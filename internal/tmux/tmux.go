@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -65,12 +66,39 @@ func GetPanePID(name string) (int, error) {
 
 // CaptureOutput captures the current output of a tmux session, including full scrollback history.
 func CaptureOutput(name string) (string, error) {
-	// tmux capture-pane -p -S - -t <name>
+	// tmux capture-pane -e -p -S - -t <name>
+	// -e includes escape sequences for colors/attributes
+	// -p outputs to stdout
 	// -S - captures from the start of the scrollback buffer
 	args := []string{
 		"capture-pane",
+		"-e",      // include escape sequences
 		"-p",      // output to stdout
 		"-S", "-", // start from beginning of scrollback
+		"-t", name, // target session/pane
+	}
+
+	cmd := exec.Command("tmux", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	return stdout.String(), nil
+}
+
+// CaptureLastLines captures the last N lines of the pane, including escape sequences.
+func CaptureLastLines(name string, lines int) (string, error) {
+	if lines <= 0 {
+		return "", fmt.Errorf("invalid line count: %d", lines)
+	}
+	args := []string{
+		"capture-pane",
+		"-e", // include escape sequences
+		"-p", // output to stdout
+		"-S", fmt.Sprintf("-%d", lines),
 		"-t", name, // target session/pane
 	}
 
@@ -136,4 +164,71 @@ func SendKeys(name, keys string) error {
 // GetAttachCommand returns the command to attach to a tmux session.
 func GetAttachCommand(name string) string {
 	return fmt.Sprintf("tmux attach -t %s", name)
+}
+
+// SetWindowSizeManual forces tmux to ignore client resize requests.
+func SetWindowSizeManual(sessionName string) error {
+	args := []string{"set-option", "-t", sessionName, "window-size", "manual"}
+	cmd := exec.Command("tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set window-size manual: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// ResizeWindow resizes the window to fixed dimensions (80x24 for deterministic TUI).
+func ResizeWindow(sessionName string, width, height int) error {
+	args := []string{
+		"resize-window",
+		"-t", fmt.Sprintf("%s:0.0", sessionName),
+		"-x", strconv.Itoa(width),
+		"-y", strconv.Itoa(height),
+	}
+	cmd := exec.Command("tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to resize window: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// StartPipePane begins streaming pane output to a log file.
+func StartPipePane(sessionName, logPath string) error {
+	args := []string{
+		"pipe-pane",
+		"-o", // only output, not input
+		"-t", fmt.Sprintf("%s:0.0", sessionName),
+		fmt.Sprintf("cat >> '%s'", logPath),
+	}
+	cmd := exec.Command("tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to start pipe-pane: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// StopPipePane stops streaming pane output.
+func StopPipePane(sessionName string) error {
+	args := []string{"pipe-pane", "-t", fmt.Sprintf("%s:0.0", sessionName), ""}
+	cmd := exec.Command("tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to stop pipe-pane: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// IsPipePaneActive checks if pipe-pane is running for a session.
+func IsPipePaneActive(sessionName string) bool {
+	args := []string{
+		"display-message", "-p", "-t",
+		fmt.Sprintf("%s:0.0", sessionName),
+		"#{pane_pipe}",
+	}
+	cmd := exec.Command("tmux", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	output := strings.TrimSpace(stdout.String())
+	return output != "" && output != "0"
 }

@@ -16,10 +16,18 @@ var (
 
 // Config represents the application configuration.
 type Config struct {
-	WorkspacePath string  `json:"workspace_path"`
-	Repos         []Repo  `json:"repos"`
-	Agents        []Agent `json:"agents"`
+	WorkspacePath string        `json:"workspace_path"`
+	Repos         []Repo        `json:"repos"`
+	Agents        []Agent       `json:"agents"`
+	Terminal      *TerminalSize `json:"terminal,omitempty"`
 	mu            sync.RWMutex
+}
+
+// TerminalSize represents terminal dimensions.
+type TerminalSize struct {
+	Width     int `json:"width"`
+	Height    int `json:"height"`
+	SeedLines int `json:"seed_lines"`
 }
 
 // Repo represents a git repository configuration.
@@ -86,6 +94,20 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Validate terminal config (width, height, and seed_lines are required)
+	if cfg.Terminal == nil {
+		return nil, fmt.Errorf("%w: terminal is required (set terminal.width, terminal.height, and terminal.seed_lines)", ErrInvalidConfig)
+	}
+	if cfg.Terminal.Width <= 0 {
+		return nil, fmt.Errorf("%w: terminal.width must be > 0", ErrInvalidConfig)
+	}
+	if cfg.Terminal.Height <= 0 {
+		return nil, fmt.Errorf("%w: terminal.height must be > 0", ErrInvalidConfig)
+	}
+	if cfg.Terminal.SeedLines <= 0 {
+		return nil, fmt.Errorf("%w: terminal.seed_lines must be > 0", ErrInvalidConfig)
+	}
+
 	return &cfg, nil
 }
 
@@ -132,4 +154,24 @@ func (c *Config) FindAgent(name string) (Agent, bool) {
 		}
 	}
 	return Agent{}, false
+}
+
+// GetTerminalSize returns the terminal size. Returns 0,0 if not configured.
+func (c *Config) GetTerminalSize() (width, height int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Terminal != nil && c.Terminal.Width > 0 && c.Terminal.Height > 0 {
+		return c.Terminal.Width, c.Terminal.Height
+	}
+	return 0, 0 // not configured
+}
+
+// GetTerminalSeedLines returns the required seed_lines value.
+func (c *Config) GetTerminalSeedLines() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Terminal == nil || c.Terminal.SeedLines <= 0 {
+		return 0
+	}
+	return c.Terminal.SeedLines
 }

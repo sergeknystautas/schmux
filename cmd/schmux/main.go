@@ -31,7 +31,7 @@ func main() {
 		fmt.Println("schmux daemon stopped")
 
 	case "status":
-		running, url, err := daemon.Status()
+		running, url, _, err := daemon.Status()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

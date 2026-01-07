@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/sergek/schmux/internal/dashboard"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
+	"github.com/sergek/schmux/internal/tmux"
 	"github.com/sergek/schmux/internal/workspace"
 )
 
@@ -143,39 +145,43 @@ func Stop() error {
 }
 
 // Status returns the status of the daemon.
-func Status() (running bool, url string, err error) {
+func Status() (running bool, url string, startedAt string, err error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return false, "", fmt.Errorf("failed to get home directory: %w", err)
+		return false, "", "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 
 	pidFile := filepath.Join(homeDir, ".schmux", pidFileName)
+	startedFile := filepath.Join(homeDir, ".schmux", "daemon.started")
 
 	pidData, err := os.ReadFile(pidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, "", nil
+			return false, "", "", nil
 		}
-		return false, "", fmt.Errorf("failed to read PID file: %w", err)
+		return false, "", "", fmt.Errorf("failed to read PID file: %w", err)
 	}
 
 	var pid int
 	if _, err := fmt.Sscanf(string(pidData), "%d", &pid); err != nil {
-		return false, "", fmt.Errorf("failed to parse PID: %w", err)
+		return false, "", "", fmt.Errorf("failed to parse PID: %w", err)
 	}
 
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to find process: %w", err)
+		return false, "", "", fmt.Errorf("failed to find process: %w", err)
 	}
 
 	// Check if process is running
 	if err := process.Signal(syscall.Signal(0)); err != nil {
-		return false, "", nil
+		return false, "", "", nil
 	}
 
 	url = fmt.Sprintf("http://localhost:%d", dashboardPort)
-	return true, url, nil
+	if startedData, err := os.ReadFile(startedFile); err == nil {
+		startedAt = strings.TrimSpace(string(startedData))
+	}
+	return true, url, startedAt, nil
 }
 
 // Run runs the daemon (this is the entry point for the daemon process).
@@ -191,6 +197,7 @@ func Run() error {
 	}
 
 	pidFile := filepath.Join(schmuxDir, pidFileName)
+	startedFile := filepath.Join(schmuxDir, "daemon.started")
 
 	// Write PID file
 	pid := os.Getpid()
@@ -198,6 +205,12 @@ func Run() error {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 	defer os.Remove(pidFile)
+
+	// Record daemon start time
+	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := os.WriteFile(startedFile, []byte(startedAt+"\n"), 0644); err != nil {
+		return fmt.Errorf("failed to write daemon start time: %w", err)
+	}
 
 	// Load config
 	cfg, err := config.Load()
@@ -214,6 +227,43 @@ func Run() error {
 	// Create managers
 	wm := workspace.New(cfg, st)
 	sm := session.New(cfg, st, wm)
+
+	// Bootstrap log streams for active sessions with missing pipe-pane.
+	seedLines := cfg.GetTerminalSeedLines()
+	if seedLines <= 0 {
+		return fmt.Errorf("terminal.seed_lines must be configured")
+	}
+	for _, sess := range st.GetSessions() {
+		if !tmux.SessionExists(sess.TmuxSession) {
+			continue
+		}
+		if tmux.IsPipePaneActive(sess.TmuxSession) {
+			continue
+		}
+
+		logPath, err := sm.GetLogPath(sess.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get log path for %s: %w", sess.ID, err)
+		}
+
+		snapshot, err := tmux.CaptureLastLines(sess.TmuxSession, seedLines)
+		if err != nil {
+			return fmt.Errorf("failed to capture %d lines for %s: %w", seedLines, sess.ID, err)
+		}
+
+		if err := os.WriteFile(logPath, []byte(snapshot), 0644); err != nil {
+			return fmt.Errorf("failed to seed log file for %s: %w", sess.ID, err)
+		}
+
+		if err := tmux.StartPipePane(sess.TmuxSession, logPath); err != nil {
+			return fmt.Errorf("failed to attach pipe-pane for %s: %w", sess.ID, err)
+		}
+	}
+
+	// Start log pruner (every 60 minutes)
+	pruneInterval := 60 * time.Minute
+	stopLogPruner := sm.StartLogPruner(pruneInterval)
+	defer stopLogPruner()
 
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {

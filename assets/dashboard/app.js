@@ -219,27 +219,177 @@ const Utils = {
 };
 
 // ============================================================================
-// WebSocket Terminal Streaming
+// WebSocket Terminal Streaming (xterm.js-based)
 // ============================================================================
 class TerminalStream {
-    constructor(sessionId, outputElement, options = {}) {
+    constructor(sessionId, containerElement, options = {}) {
         this.sessionId = sessionId;
-        this.outputElement = outputElement;
+        this.containerElement = containerElement;
         this.ws = null;
         this.connected = false;
-        this.paused = false;
         this.followTail = options.followTail !== false;
         this.followCheckbox = options.followCheckbox || null;
         this.onStatusChange = options.onStatusChange || (() => {});
-        this.onNewContent = options.onNewContent || (() => {});
+        this.onResume = options.onResume || (() => {});
 
-        // For scroll-aware updates
-        this.latestContent = '';
-        this.pendingContent = false;
-        this.userScrolled = false;
+        // xterm.js instance
+        this.terminal = null;
 
-        // Listen for scroll events to detect user intent
-        this.outputElement.addEventListener('scroll', () => this.handleScroll());
+        // Terminal size (from config, matches tmux pane size - never changes)
+        this.tmuxCols = null;
+        this.tmuxRows = null;
+
+        // Promise that resolves when terminal is initialized
+        this.initialized = this.initTerminal();
+    }
+
+    async initTerminal() {
+        // Check if xterm.js is loaded
+        if (typeof Terminal === 'undefined') {
+            this.containerElement.textContent = 'Error: xterm.js library not loaded';
+            return null;
+        }
+
+        // Fetch terminal size from config (required - no defaults)
+        let cols, rows;
+        try {
+            const resp = await fetch('/api/config');
+            if (!resp.ok) {
+                throw new Error(`Failed to fetch config: ${resp.status}`);
+            }
+            const config = await resp.json();
+            if (!config.terminal || typeof config.terminal.width !== 'number' || typeof config.terminal.height !== 'number') {
+                throw new Error('Config missing terminal.width or terminal.height');
+            }
+            cols = config.terminal.width;
+            rows = config.terminal.height;
+        } catch (e) {
+            this.containerElement.textContent = `Error: ${e.message}`;
+            console.error('Failed to load terminal size from config:', e);
+            return null;
+        }
+
+        // Store tmux pane size (terminal never resizes from these dimensions)
+        this.tmuxCols = cols;
+        this.tmuxRows = rows;
+
+        // Create xterm.js terminal with tmux pane size (matches server-side)
+        this.terminal = new Terminal({
+            cols: cols,
+            rows: rows,
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4',
+                cursor: '#d4d4d4',
+                black: '#000000',
+                red: '#cd3131',
+                green: '#0dbc79',
+                yellow: '#e5e510',
+                blue: '#2472c8',
+                magenta: '#bc3fbc',
+                cyan: '#11a8cd',
+                white: '#e5e5e5',
+                brightBlack: '#666666',
+                brightRed: '#f14c4c',
+                brightGreen: '#23d18b',
+                brightYellow: '#f5f543',
+                brightBlue: '#3b8eea',
+                brightMagenta: '#d670d6',
+                brightCyan: '#29b8db',
+                brightWhite: '#ffffff'
+            },
+            scrollback: 1000,
+            convertEol: true
+        });
+
+        // Open terminal in the container
+        this.terminal.open(this.containerElement);
+
+        // Set up user input handling
+        this.terminal.onData((data) => {
+            this.sendInput(data);
+        });
+
+        // Track scroll position by listening to the viewport element
+        // xterm.js onScroll only fires for programmatic scrolls, not user scrolls
+        // So we must listen to the DOM scroll event directly
+        this._attachScrollListener();
+
+        // Welcome message
+        this.terminal.writeln('\x1b[90mConnecting to session...\x1b[0m');
+
+        // Set up resize observer to handle container size changes
+        this.setupResizeHandler();
+
+        return this.terminal;
+    }
+
+    _attachScrollListener() {
+        // Try to attach scroll listener, retry if element not ready yet
+        const tryAttach = (attempts = 0) => {
+            const viewport = this.terminal?.element?.querySelector('.xterm-viewport');
+            if (viewport) {
+                viewport.addEventListener('scroll', () => {
+                    this.handleUserScroll();
+                });
+            } else if (attempts < 10) {
+                // Retry with exponential backoff
+                setTimeout(() => tryAttach(attempts + 1), 50 * (attempts + 1));
+            }
+        };
+        tryAttach();
+    }
+
+    setupResizeHandler() {
+        // Use ResizeObserver to detect container size changes
+        if (typeof ResizeObserver !== 'undefined') {
+            const resizeObserver = new ResizeObserver(() => {
+                this.scaleTerminal();
+            });
+            resizeObserver.observe(this.containerElement);
+        }
+
+        // Also listen to window resize
+        window.addEventListener('resize', () => {
+            this.scaleTerminal();
+        });
+
+        // Initial scaling (try multiple times as container may not have final size yet)
+        setTimeout(() => this.scaleTerminal(), 100);
+        setTimeout(() => this.scaleTerminal(), 300);
+        setTimeout(() => this.scaleTerminal(), 1000);
+    }
+
+    scaleTerminal() {
+        if (!this.terminal) return;
+
+        // Find the screen element (the actual terminal content, not the viewport)
+        const screenElement = this.terminal.element?.querySelector('.xterm-screen');
+        if (!screenElement) return;
+
+        // Get container dimensions
+        const containerRect = this.containerElement.getBoundingClientRect();
+        const containerWidth = containerRect.width || 800;
+        const containerHeight = containerRect.height || 600;
+
+        // Calculate the EXPECTED screen size from terminal dimensions (don't measure!)
+        // xterm.js at fontSize 14 has approximately these character dimensions
+        const charWidth = 9;   // width at fontSize 14
+        const charHeight = 17;  // height at fontSize 14 (line height ~1.2)
+        const screenWidth = this.tmuxCols * charWidth;
+        const screenHeight = this.tmuxRows * charHeight;
+
+        // Calculate scale factor to fit screen in container
+        const scaleX = containerWidth / screenWidth;
+        const scaleY = containerHeight / screenHeight;
+        const scale = Math.min(scaleX, scaleY, 1); // Never scale up, only down
+
+        // Apply CSS transform to scale ONLY the screen content
+        screenElement.style.transformOrigin = 'top left';
+        screenElement.style.transform = `scale(${scale})`;
     }
 
     connect() {
@@ -250,22 +400,30 @@ class TerminalStream {
 
         this.ws.onopen = () => {
             this.connected = true;
+            this.terminal.clear();
             this.onStatusChange('connected');
         };
 
         this.ws.onmessage = (event) => {
-            if (!this.paused) {
-                this.updateOutput(event.data);
+            if (this.terminal) {
+                this.handleOutput(event.data);
+            } else {
+                console.warn('[ws] message received but terminal is null');
             }
         };
 
         this.ws.onclose = () => {
             this.connected = false;
+            this.terminal.writeln('\x1b[90m\r\n\x1b[0m');
+            this.terminal.writeln('\x1b[91mConnection closed\x1b[0m');
             this.onStatusChange('disconnected');
         };
 
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
+            if (this.terminal) {
+                this.terminal.writeln('\x1b[91mWebSocket error\x1b[0m');
+            }
         };
     }
 
@@ -275,90 +433,85 @@ class TerminalStream {
         }
     }
 
-    pause() {
-        this.paused = true;
+    sendInput(data) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send('pause');
+            this.ws.send(JSON.stringify({ type: 'input', data: data }));
         }
     }
 
-    resume() {
-        this.paused = false;
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send('resume');
+    handleOutput(data) {
+        // Parse JSON message from backend
+        let msg;
+        try {
+            msg = JSON.parse(data);
+        } catch {
+            // Legacy fallback: plain text treated as full refresh
+            msg = { type: 'full', content: data };
+        }
+
+        // Handle message based on type
+        switch (msg.type) {
+            case 'append':
+                this.terminal.write(msg.content);
+                break;
+            case 'full':
+                // Use reset() instead of clear() for full refresh
+                // reset() clears the buffer and scrollback, clear() only clears viewport
+                this.terminal.reset();
+                this.terminal.write(msg.content);
+                break;
+            default:
+                this.terminal.reset();
+                this.terminal.write(msg.content || data);
+        }
+
+        if (this.followTail) {
+            this.terminal.scrollToBottom();
         }
     }
 
-    toggleFollow() {
-        this.followTail = !this.followTail;
-        return this.followTail;
+    setFollow(follow) {
+        this.followTail = follow;
+        if (this.followCheckbox) this.followCheckbox.checked = follow;
+        // Show resume button when not following (scrolled up)
+        this.onResume(!follow);
     }
 
-    isAtBottom(threshold = 50) {
-        const { scrollTop, scrollHeight, clientHeight } = this.outputElement;
-        return scrollHeight - scrollTop - clientHeight < threshold;
+    isAtBottom(threshold = 0) {
+        // Use xterm.js buffer API (verified from official docs)
+        // viewportY = line at top of viewport
+        // baseY = line at top of "bottom page" (fully scrolled down position)
+        // When at bottom: viewportY === baseY
+        const buffer = this.terminal.buffer.active;
+        return buffer.viewportY >= buffer.baseY - threshold;
     }
 
-    handleScroll() {
-        // Mark user as scrolled if they've moved up from the true bottom at all
-        if (!this.userScrolled && this.outputElement.scrollTop < this.outputElement.scrollHeight - this.outputElement.clientHeight - 1) {
-            this.userScrolled = true;
-            // Uncheck the follow checkbox and pause
-            if (this.followCheckbox && this.followCheckbox.checked) {
-                this.followCheckbox.checked = false;
-                this.pause();
-            }
-        }
-
-        // If user scrolls back near bottom, clear the scrolled state and resume
-        if (this.userScrolled && this.isAtBottom()) {
-            this.userScrolled = false;
-            // Re-check the follow checkbox and resume
-            if (this.followCheckbox && !this.followCheckbox.checked) {
-                this.followCheckbox.checked = true;
-                this.resume();
-            }
-            if (this.pendingContent) {
-                this.pendingContent = false;
-                this.outputElement.textContent = this.latestContent;
-                this.onNewContent(false);
-            }
-        }
+    handleUserScroll() {
+        if (!this.terminal) return;
+        this.setFollow(this.isAtBottom(1));
     }
 
     jumpToBottom() {
-        this.userScrolled = false;
-        this.pendingContent = false;
-        this.outputElement.textContent = this.latestContent;
-        this.outputElement.scrollTop = this.outputElement.scrollHeight;
-        this.onNewContent(false);
-        // Re-check the follow checkbox and resume
-        if (this.followCheckbox && !this.followCheckbox.checked) {
-            this.followCheckbox.checked = true;
-            this.resume();
-        }
-    }
-
-    updateOutput(output) {
-        this.latestContent = output;
-
-        // Only update if user hasn't scrolled up
-        if (!this.userScrolled) {
-            this.outputElement.textContent = output;
-            if (this.followTail) {
-                this.outputElement.scrollTop = this.outputElement.scrollHeight;
-            }
-        } else {
-            // User is scrolled back - indicate new content
-            if (!this.pendingContent) {
-                this.pendingContent = true;
-                this.onNewContent(true);
-            }
+        if (this.terminal) {
+            this.terminal.scrollToBottom();
+            this.setFollow(true);
         }
     }
 
     downloadOutput() {
-        const content = this.outputElement.textContent;
+        if (!this.terminal) return;
+
+        // Get buffer content
+        const buffer = this.terminal.buffer;
+        const lines = [];
+        for (let i = 0; i < buffer.active.length; i++) {
+            const line = buffer.active.getLine(i);
+            if (line) {
+                lines.push(line.translateToString());
+            }
+        }
+
+        const content = lines.join('\n');
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
