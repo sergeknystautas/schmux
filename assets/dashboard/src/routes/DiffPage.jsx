@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { getDiff } from '../lib/api.js';
-import { extractRepoName, formatRelativeTime } from '../lib/utils.js';
+import useTheme from '../hooks/useTheme.js';
 
 export default function DiffPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [diffData, setDiffData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -67,10 +68,7 @@ export default function DiffPage() {
     <>
       <div className="page-header">
         <div className="page-header__info">
-          <h1 className="page-header__title">Diff: {workspaceId}</h1>
-          <span className="page-header__meta">
-            {extractRepoName(diffData.repo)} · {diffData.branch}
-          </span>
+          <h1 className="page-header__title">{workspaceId} · {diffData.branch}</h1>
         </div>
         <div className="page-header__actions">
           <Link to="/workspaces" className="btn btn--ghost">
@@ -120,10 +118,11 @@ export default function DiffPage() {
                 <ReactDiffViewer
                   oldValue={selectedFile.old_content || ''}
                   newValue={selectedFile.new_content || ''}
-                  splitView={selectedFile.status !== 'deleted'}
-                  useDarkTheme={false}
+                  splitView={false}
+                  useDarkTheme={theme === 'dark'}
                   hideLineNumbers={false}
-                  showDiffOnly={false}
+                  showDiffOnly={true}
+                  extraLinesSurroundingDiff={2}
                 />
               </div>
             </>

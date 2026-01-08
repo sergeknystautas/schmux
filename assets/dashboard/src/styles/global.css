@@ -1309,6 +1309,7 @@ a:hover {
     gap: var(--spacing-sm);
     flex: 1;
     min-width: 0;
+    color: var(--color-text);
 }
 
 .diff-file-item__path {
@@ -1317,6 +1318,7 @@ a:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: inherit;
 }
 
 .diff-content {
@@ -1350,6 +1352,14 @@ a:hover {
 .diff-viewer-wrapper {
     flex: 1;
     overflow: auto;
+    font-size: 0.8125rem;
+}
+
+/* Override react-diff-viewer-continued default font size */
+.diff-viewer-wrapper code,
+.diff-viewer-wrapper pre {
+    font-size: 0.8125rem !important;
+    line-height: 1.4;
 }
 
 /* Workspace Actions */
