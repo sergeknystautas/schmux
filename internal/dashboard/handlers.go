@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sergek/schmux/internal/state"
 )
 
 // handleIndex serves the React app entry point.
@@ -384,7 +386,7 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	// Update nickname
 	sess.Nickname = req.Nickname
 	s.state.UpdateSession(sess)
-	if err := s.state.Save(); err != nil {
+	if err := state.Save(s.state, s.statePath); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save state: %v", err), http.StatusInternalServerError)
 		return
 	}

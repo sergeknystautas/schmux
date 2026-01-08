@@ -42,8 +42,9 @@ func TestNew(t *testing.T) {
 		WorkspacePath: "/tmp/workspaces",
 	}
 	st := state.New()
+	statePath := t.TempDir() + "/state.json"
 
-	m := New(cfg, st)
+	m := New(cfg, st, statePath)
 	if m == nil {
 		t.Error("New() returned nil")
 	}
@@ -66,7 +67,7 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 	}
 
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	m := New(cfg, st)
+	m := New(cfg, st, t.TempDir()+"/state.json")
 
 	workspaces := m.getWorkspacesForRepo("test")
 	if len(workspaces) != 2 {

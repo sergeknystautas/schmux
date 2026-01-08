@@ -15,13 +15,14 @@ import (
 
 // Manager manages workspace directories.
 type Manager struct {
-	config *config.Config
-	state  *state.State
-	logger *log.Logger
+	config    *config.Config
+	state     *state.State
+	statePath string
+	logger    *log.Logger
 }
 
 // New creates a new workspace manager.
-func New(cfg *config.Config, st *state.State) *Manager {
+func New(cfg *config.Config, st *state.State, statePath string) *Manager {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
@@ -31,16 +32,18 @@ func New(cfg *config.Config, st *state.State) *Manager {
 	if err != nil {
 		// Fall back to stderr if log file can't be opened
 		return &Manager{
-			config: cfg,
-			state:  st,
-			logger: log.New(os.Stderr, "[workspace] ", log.LstdFlags),
+			config:    cfg,
+			state:     st,
+			statePath: statePath,
+			logger:    log.New(os.Stderr, "[workspace] ", log.LstdFlags),
 		}
 	}
 
 	return &Manager{
-		config: cfg,
-		state:  st,
-		logger: log.New(logFile, "[workspace] ", log.LstdFlags),
+		config:    cfg,
+		state:     st,
+		statePath: statePath,
+		logger:    log.New(logFile, "[workspace] ", log.LstdFlags),
 	}
 }
 
@@ -96,13 +99,13 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 			}
 			if !hasActiveSessions {
 				m.logger.Printf("reusing workspace for different branch: id=%s old_branch=%s new_branch=%s", w.ID, w.Branch, branch)
-				// Update branch in state
-				w.Branch = branch
-				m.state.UpdateWorkspace(w)
-				// Prepare the workspace (fetch/pull/clean)
+				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
+				// Update branch in state only after successful prepare
+				w.Branch = branch
+				m.state.UpdateWorkspace(w)
 				return &w, nil
 			}
 		}
@@ -166,7 +169,7 @@ func (m *Manager) create(repoURL, branch string) (*state.Workspace, error) {
 	}
 
 	m.state.AddWorkspace(w)
-	if err := m.state.Save(); err != nil {
+	if err := state.Save(m.state, m.statePath); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 

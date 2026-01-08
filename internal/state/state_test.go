@@ -21,7 +21,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestAddAndGetWorkspace(t *testing.T) {
-	s := Get()
+	s := New()
 
 	w := Workspace{
 		ID:     "test-001",
@@ -49,7 +49,7 @@ func TestAddAndGetWorkspace(t *testing.T) {
 }
 
 func TestUpdateWorkspace(t *testing.T) {
-	s := Get()
+	s := New()
 
 	w := Workspace{
 		ID:     "test-002",
@@ -75,7 +75,7 @@ func TestUpdateWorkspace(t *testing.T) {
 }
 
 func TestAddAndGetSession(t *testing.T) {
-	s := Get()
+	s := New()
 
 	sess := Session{
 		ID:          "session-001",
@@ -102,7 +102,7 @@ func TestAddAndGetSession(t *testing.T) {
 }
 
 func TestRemoveSession(t *testing.T) {
-	s := Get()
+	s := New()
 
 	sess := Session{
 		ID:          "session-002",
@@ -125,7 +125,7 @@ func TestRemoveSession(t *testing.T) {
 }
 
 func TestGetSessions(t *testing.T) {
-	s := Get()
+	s := New()
 
 	// Clear existing sessions
 	s.Sessions = []Session{}
