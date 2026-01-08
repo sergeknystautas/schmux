@@ -400,7 +400,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 
 	// Remove from state
 	m.state.RemoveWorkspace(workspaceID)
-	if err := m.state.Save(); err != nil {
+	if err := state.Save(m.state, m.statePath); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -87,9 +88,10 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 
 func TestDispose(t *testing.T) {
 	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
 	st := state.New()
-	m := New(cfg, st)
+	m := New(cfg, st, statePath)
 
 	// Create test workspace directory and state entry
 	workspaceID := "test-001"
@@ -126,9 +128,10 @@ func TestDispose(t *testing.T) {
 
 func TestDispose_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
 	st := state.New()
-	m := New(cfg, st)
+	m := New(cfg, st, statePath)
 
 	// Try to dispose non-existent workspace
 	err := m.Dispose("nonexistent")
@@ -142,9 +145,10 @@ func TestDispose_NotFound(t *testing.T) {
 
 func TestDispose_ActiveSessions(t *testing.T) {
 	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
 	st := state.New()
-	m := New(cfg, st)
+	m := New(cfg, st, statePath)
 
 	// Create test workspace directory and state entry
 	workspaceID := "test-001"
@@ -188,5 +192,64 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	// Verify directory still exists
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		t.Error("workspace directory should still exist after failed dispose")
+	}
+}
+
+// TestDispose_Integration creates a real git workspace and disposes it.
+func TestDispose_Integration(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New()
+
+	// Create test repo with a branch
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1")
+
+	cfg := &config.Config{
+		WorkspacePath: tmpDir,
+		Repos: []config.Repo{
+			{Name: "test", URL: repoDir},
+		},
+	}
+	m := New(cfg, st, statePath)
+
+	// Create workspace via GetOrCreate (real git clone/checkout)
+	ws, err := m.GetOrCreate(repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// Verify workspace exists
+	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+		t.Fatal("workspace directory should exist after GetOrCreate")
+	}
+
+	// Verify state entry
+	wsState, found := st.GetWorkspace(ws.ID)
+	if !found {
+		t.Fatal("workspace should be in state")
+	}
+	if wsState.Branch != "main" {
+		t.Errorf("expected branch main, got %s", wsState.Branch)
+	}
+
+	// Dispose the workspace
+	if err := m.Dispose(ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Verify directory deleted
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted after Dispose")
+	}
+
+	// Verify state removed
+	_, found = st.GetWorkspace(ws.ID)
+	if found {
+		t.Error("workspace should be removed from state after Dispose")
 	}
 }
