@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sergek/schmux/internal/state"
 )
 
 // handleIndex serves the React app entry point.
@@ -319,6 +321,29 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.session.Dispose(sessionID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleDisposeWorkspace handles workspace disposal requests.
+func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL
+	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/dispose-workspace/")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.workspace.Dispose(workspaceID); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to dispose workspace: %v", err), http.StatusInternalServerError)
 		return
 	}
 

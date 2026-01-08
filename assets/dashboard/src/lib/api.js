@@ -41,3 +41,9 @@ export async function updateNickname(sessionId, nickname) {
   if (!response.ok) throw new Error('Failed to update nickname');
   return response.json();
 }
+
+export async function disposeWorkspace(workspaceId) {
+  const response = await fetch(`/api/dispose-workspace/${workspaceId}`, { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to dispose workspace');
+  return response.json();
+}

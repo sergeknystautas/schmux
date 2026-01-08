@@ -21,7 +21,7 @@ type WSMessage struct {
 
 // WSOutputMessage represents a WebSocket message to the client
 type WSOutputMessage struct {
-	Type    string `json:"type"`    // "full", "append"
+	Type    string `json:"type"` // "full", "append"
 	Content string `json:"content"`
 }
 
