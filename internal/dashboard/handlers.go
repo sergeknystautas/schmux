@@ -104,14 +104,15 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	// Group sessions by workspace
 	type SessionResponse struct {
-		ID        string `json:"id"`
-		Agent     string `json:"agent"`
-		Branch    string `json:"branch"`
-		Prompt    string `json:"prompt"`
-		Nickname  string `json:"nickname,omitempty"`
-		CreatedAt string `json:"created_at"`
-		Running   bool   `json:"running"`
-		AttachCmd string `json:"attach_cmd"`
+		ID           string `json:"id"`
+		Agent        string `json:"agent"`
+		Branch       string `json:"branch"`
+		Prompt       string `json:"prompt"`
+		Nickname     string `json:"nickname,omitempty"`
+		CreatedAt    string `json:"created_at"`
+		LastOutputAt string `json:"last_output_at,omitempty"`
+		Running      bool   `json:"running"`
+		AttachCmd    string `json:"attach_cmd"`
 	}
 
 	type WorkspaceResponse struct {
@@ -144,15 +145,20 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		attachCmd, _ := s.session.GetAttachCommand(sess.ID)
+		lastOutputAt := ""
+		if !sess.LastOutputAt.IsZero() {
+			lastOutputAt = sess.LastOutputAt.Format("2006-01-02T15:04:05")
+		}
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
-			ID:        sess.ID,
-			Agent:     sess.Agent,
-			Branch:    ws.Branch,
-			Prompt:    sess.Prompt,
-			Nickname:  sess.Nickname,
-			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05"),
-			Running:   s.session.IsRunning(sess.ID),
-			AttachCmd: attachCmd,
+			ID:           sess.ID,
+			Agent:        sess.Agent,
+			Branch:       ws.Branch,
+			Prompt:       sess.Prompt,
+			Nickname:     sess.Nickname,
+			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
+			LastOutputAt: lastOutputAt,
+			Running:      s.session.IsRunning(sess.ID),
+			AttachCmd:    attachCmd,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}

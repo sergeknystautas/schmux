@@ -21,7 +21,7 @@ type WSMessage struct {
 
 // WSOutputMessage represents a WebSocket message to the client
 type WSOutputMessage struct {
-	Type    string `json:"type"`    // "full", "append"
+	Type    string `json:"type"` // "full", "append"
 	Content string `json:"content"`
 }
 
@@ -165,6 +165,11 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				return err
 			}
 			offset += int64(len(data))
+		}
+
+		// Update LastOutputAt timestamp when we read new data
+		if len(data) > 0 {
+			s.state.UpdateSessionLastOutput(sessionID, time.Now())
 		}
 
 		return nil

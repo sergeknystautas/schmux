@@ -634,22 +634,27 @@ body {
 
 .session-table th:nth-child(1),
 .session-table td:nth-child(1) {
-    width: 40%;
+    width: 35%;
 }
 
 .session-table th:nth-child(2),
 .session-table td:nth-child(2) {
-    width: 20%;
+    width: 15%;
 }
 
 .session-table th:nth-child(3),
 .session-table td:nth-child(3) {
-    width: 25%;
+    width: 15%;
 }
 
 .session-table th:nth-child(4),
 .session-table td:nth-child(4) {
     width: 15%;
+}
+
+.session-table th:nth-child(5),
+.session-table td:nth-child(5) {
+    width: 20%;
 }
 
 .session-table th,

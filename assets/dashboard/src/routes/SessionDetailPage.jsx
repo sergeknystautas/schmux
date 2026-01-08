@@ -3,9 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream.js';
 import { disposeSession, getSessions } from '../lib/api.js';
-import { copyToClipboard, formatTimestamp, truncateStart } from '../lib/utils.js';
+import { copyToClipboard, formatRelativeTime, formatTimestamp, truncateStart } from '../lib/utils.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
+import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
 
 // Module-level storage for sidebar collapse state (persists across navigation)
 let savedSidebarCollapsed = false;
@@ -24,6 +25,7 @@ export default function SessionDetailPage() {
   const { success, error: toastError } = useToast();
   const { show } = useModal();
   const navigate = useNavigate();
+  const { markAsViewed } = useViewedSessions();
 
   useEffect(() => {
     let active = true;
@@ -56,6 +58,9 @@ export default function SessionDetailPage() {
 
         setSessionData(session);
         setLoading(false);
+
+        // Mark session as viewed
+        markAsViewed(sessionId);
       } catch (err) {
         if (!active) return;
         setError(`Failed to load session: ${err.message}`);
@@ -98,6 +103,17 @@ export default function SessionDetailPage() {
       terminalStream.disconnect();
     };
   }, [sessionData]);
+
+  // Keep marking as viewed while WebSocket is connected (you're seeing output live)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (wsStatus === 'connected') {
+        markAsViewed(sessionId);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [sessionId, wsStatus, markAsViewed]);
 
   const toggleSidebar = () => {
     const wasAtBottom = terminalStreamRef.current?.isAtBottom?.(10) || false;
@@ -305,7 +321,14 @@ export default function SessionDetailPage() {
 
           <div className="metadata-field">
             <span className="metadata-field__label">Created</span>
-            <span className="metadata-field__value">{formatTimestamp(sessionData.created_at)}</span>
+            <span className="metadata-field__value" title={formatTimestamp(sessionData.created_at)}>{formatRelativeTime(sessionData.created_at)}</span>
+          </div>
+
+          <div className="metadata-field">
+            <span className="metadata-field__label">Last Activity</span>
+            <span className="metadata-field__value" title={sessionData.last_output_at ? formatTimestamp(sessionData.last_output_at) : 'Never'}>
+              {sessionData.last_output_at ? formatRelativeTime(sessionData.last_output_at) : 'Never'}
+            </span>
           </div>
 
           <div className="metadata-field">

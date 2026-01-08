@@ -228,6 +228,18 @@ func Run() error {
 	wm := workspace.New(cfg, st)
 	sm := session.New(cfg, st, wm)
 
+	// Initialize LastOutputAt from log file mtimes for existing sessions
+	for _, sess := range st.GetSessions() {
+		logPath, err := sm.GetLogPath(sess.ID)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(logPath); err == nil {
+			sess.LastOutputAt = info.ModTime()
+			st.UpdateSession(sess)
+		}
+	}
+
 	// Bootstrap log streams for active sessions with missing pipe-pane.
 	seedLines := cfg.GetTerminalSeedLines()
 	if seedLines <= 0 {

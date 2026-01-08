@@ -27,14 +27,15 @@ type Workspace struct {
 
 // Session represents an agent session.
 type Session struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Agent       string    `json:"agent"`
-	Prompt      string    `json:"prompt"`
-	Nickname    string    `json:"nickname,omitempty"` // Optional human-friendly name
-	TmuxSession string    `json:"tmux_session"`
-	CreatedAt   time.Time `json:"created_at"`
-	Pid         int       `json:"pid"` // PID of the agent process from tmux pane
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspace_id"`
+	Agent        string    `json:"agent"`
+	Prompt       string    `json:"prompt"`
+	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
+	TmuxSession  string    `json:"tmux_session"`
+	CreatedAt    time.Time `json:"created_at"`
+	Pid          int       `json:"pid"` // PID of the agent process from tmux pane
+	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
 }
 
 var (
@@ -193,6 +194,19 @@ func (s *State) UpdateSession(sess Session) {
 	for i, existing := range s.Sessions {
 		if existing.ID == sess.ID {
 			s.Sessions[i] = sess
+			return
+		}
+	}
+}
+
+// UpdateSessionLastOutput atomically updates just the LastOutputAt field.
+// This is safe to call from concurrent goroutines (e.g., WebSocket handlers).
+func (s *State) UpdateSessionLastOutput(sessionID string, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].LastOutputAt = t
 			return
 		}
 	}
