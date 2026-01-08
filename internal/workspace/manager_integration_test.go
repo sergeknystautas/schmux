@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
@@ -10,6 +11,10 @@ import (
 
 // TestGetOrCreate_BranchReuse_Success verifies state IS updated when checkout succeeds.
 func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
+	// Set up isolated state with temp path
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New()
+
 	// Skip if git not available
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -19,15 +24,14 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature-1")
 
-	// Set up isolated config and state
+	// Set up isolated config
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
 	}
-	st := state.New()
-	manager := New(cfg, st)
+	manager := New(cfg, st, statePath)
 
 	// Create workspace on "main"
 	ws1, err := manager.GetOrCreate(repoDir, "main")

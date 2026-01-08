@@ -37,13 +37,7 @@ type Session struct {
 	Pid         int       `json:"pid"` // PID of the agent process from tmux pane
 }
 
-var (
-	globalState *State
-	once        sync.Once
-)
-
 // New creates a new empty State instance.
-// Use this for testing or when you need multiple independent state instances.
 func New() *State {
 	return &State{
 		Workspaces: []Workspace{},
@@ -51,29 +45,13 @@ func New() *State {
 	}
 }
 
-// Get returns the global state singleton instance.
-// Use this for the main application.
-func Get() *State {
-	once.Do(func() {
-		globalState = New()
-	})
-	return globalState
-}
-
-// Load loads the state from ~/.schmux/state.json.
-func Load() (*State, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	statePath := filepath.Join(homeDir, ".schmux", "state.json")
-
-	data, err := os.ReadFile(statePath)
+// Load loads the state from the given path.
+// Returns an empty state if the file doesn't exist.
+func Load(path string) (*State, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Return empty state if file doesn't exist
-			return Get(), nil
+			return New(), nil
 		}
 		return nil, fmt.Errorf("failed to read state: %w", err)
 	}
@@ -83,33 +61,24 @@ func Load() (*State, error) {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
-	globalState = &st
-	return globalState, nil
+	return &st, nil
 }
 
-// Save saves the state to ~/.schmux/state.json.
-func (s *State) Save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Save saves the state to the given path.
+func Save(st *State, path string) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	stateDir := filepath.Join(homeDir, ".schmux")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
 
-	statePath := filepath.Join(stateDir, "state.json")
-
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(statePath, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write state: %w", err)
 	}
 

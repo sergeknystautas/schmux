@@ -15,13 +15,14 @@ import (
 
 // Manager manages workspace directories.
 type Manager struct {
-	config *config.Config
-	state  *state.State
-	logger *log.Logger
+	config    *config.Config
+	state     *state.State
+	statePath string
+	logger    *log.Logger
 }
 
 // New creates a new workspace manager.
-func New(cfg *config.Config, st *state.State) *Manager {
+func New(cfg *config.Config, st *state.State, statePath string) *Manager {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
@@ -31,16 +32,18 @@ func New(cfg *config.Config, st *state.State) *Manager {
 	if err != nil {
 		// Fall back to stderr if log file can't be opened
 		return &Manager{
-			config: cfg,
-			state:  st,
-			logger: log.New(os.Stderr, "[workspace] ", log.LstdFlags),
+			config:    cfg,
+			state:     st,
+			statePath: statePath,
+			logger:    log.New(os.Stderr, "[workspace] ", log.LstdFlags),
 		}
 	}
 
 	return &Manager{
-		config: cfg,
-		state:  st,
-		logger: log.New(logFile, "[workspace] ", log.LstdFlags),
+		config:    cfg,
+		state:     st,
+		statePath: statePath,
+		logger:    log.New(logFile, "[workspace] ", log.LstdFlags),
 	}
 }
 
@@ -166,7 +169,7 @@ func (m *Manager) create(repoURL, branch string) (*state.Workspace, error) {
 	}
 
 	m.state.AddWorkspace(w)
-	if err := m.state.Save(); err != nil {
+	if err := state.Save(m.state, m.statePath); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
