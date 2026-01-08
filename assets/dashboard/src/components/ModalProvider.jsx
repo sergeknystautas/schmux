@@ -27,12 +27,34 @@ export default function ModalProvider({ children }) {
 
   const confirm = (message, options = {}) => show('Confirm Action', message, options);
 
-  const api = useMemo(() => ({ show, alert, confirm }), []);
+  const prompt = (title, options = {}) => new Promise((resolve) => {
+    setModal({
+      title,
+      isPrompt: true,
+      defaultValue: options.defaultValue || '',
+      placeholder: options.placeholder || '',
+      confirmText: options.confirmText || 'Save',
+      cancelText: options.cancelText || 'Cancel',
+      resolve
+    });
+  });
+
+  const api = useMemo(() => ({ show, alert, confirm, prompt }), []);
 
   const close = (result) => {
     if (!modal) return;
-    modal.resolve(result);
+    if (modal.isPrompt) {
+      modal.resolve(result); // result is the input value or null
+    } else {
+      modal.resolve(result);
+    }
     setModal(null);
+  };
+
+  const handlePromptConfirm = () => {
+    const input = document.getElementById('modal-prompt-input');
+    const value = input?.value || '';
+    close(value);
   };
 
   return (
@@ -45,14 +67,34 @@ export default function ModalProvider({ children }) {
               <h2 className="modal__title" id="modal-title">{modal.title}</h2>
             </div>
             <div className="modal__body">
-              <p>{modal.message}</p>
-              {modal.detailedMessage ? <p className="text-muted">{modal.detailedMessage}</p> : null}
+              {modal.isPrompt ? (
+                <input
+                  id="modal-prompt-input"
+                  type="text"
+                  className="input"
+                  defaultValue={modal.defaultValue}
+                  placeholder={modal.placeholder}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handlePromptConfirm();
+                    if (e.key === 'Escape') close(null);
+                  }}
+                />
+              ) : (
+                <>
+                  <p>{modal.message}</p>
+                  {modal.detailedMessage ? <p className="text-muted">{modal.detailedMessage}</p> : null}
+                </>
+              )}
             </div>
             <div className="modal__footer">
               {modal.cancelText ? (
-                <button className="btn" onClick={() => close(false)}>{modal.cancelText}</button>
+                <button className="btn" onClick={() => close(null)}>{modal.cancelText}</button>
               ) : null}
-              <button className={`btn ${modal.danger ? 'btn--danger' : 'btn--primary'}`} onClick={() => close(true)}>
+              <button
+                className={`btn ${modal.danger ? 'btn--danger' : 'btn--primary'}`}
+                onClick={() => modal.isPrompt ? handlePromptConfirm() : close(true)}
+              >
                 {modal.confirmText}
               </button>
             </div>

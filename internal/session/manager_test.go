@@ -16,9 +16,10 @@ func TestNew(t *testing.T) {
 		},
 	}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 	if m == nil {
 		t.Error("New() returned nil")
 	}
@@ -36,9 +37,10 @@ func TestNew(t *testing.T) {
 func TestGetAttachCommand(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 
 	// Add a test session
 	sess := state.Session{
@@ -56,7 +58,7 @@ func TestGetAttachCommand(t *testing.T) {
 		t.Errorf("GetAttachCommand() error = %v", err)
 	}
 
-	expected := "tmux attach -t schmux-test-001-abc123"
+	expected := `tmux attach -t "schmux-test-001-abc123"`
 	if cmd != expected {
 		t.Errorf("expected %s, got %s", expected, cmd)
 	}
@@ -65,9 +67,10 @@ func TestGetAttachCommand(t *testing.T) {
 func TestGetAttachCommandNotFound(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 
 	_, err := m.GetAttachCommand("nonexistent")
 	if err == nil {
@@ -78,9 +81,10 @@ func TestGetAttachCommandNotFound(t *testing.T) {
 func TestGetAllSessions(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 
 	// Clear existing sessions
 	st.Sessions = []state.Session{}
@@ -104,9 +108,10 @@ func TestGetAllSessions(t *testing.T) {
 func TestGetSession(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 
 	// Add a test session
 	sess := state.Session{
@@ -137,9 +142,10 @@ func TestGetSession(t *testing.T) {
 func TestIsRunning(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New()
-	wm := workspace.New(cfg, st)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
 
-	m := New(cfg, st, wm)
+	m := New(cfg, st, statePath, wm)
 
 	// Add a test session
 	sess := state.Session{

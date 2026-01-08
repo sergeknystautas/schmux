@@ -218,15 +218,22 @@ func Run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Compute state path
+	homeDir, err = os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	statePath := filepath.Join(homeDir, ".schmux", "state.json")
+
 	// Load state
-	st, err := state.Load()
+	st, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
 	}
 
 	// Create managers
-	wm := workspace.New(cfg, st)
-	sm := session.New(cfg, st, wm)
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
 
 	// Initialize LastOutputAt from log file mtimes for existing sessions
 	for _, sess := range st.GetSessions() {
@@ -306,7 +313,7 @@ func Run() error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, sm)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm)
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)

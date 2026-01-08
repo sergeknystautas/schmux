@@ -43,12 +43,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sess, err := s.session.GetSession(sessionID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
-		return
-	}
-
 	// Check if session is already dead before doing anything else
 	if !s.session.IsRunning(sessionID) {
 		http.Error(w, "session not running", http.StatusGone)
@@ -199,6 +193,10 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			case "resume":
 				paused = false
 			case "input":
+				sess, err := s.session.GetSession(sessionID)
+				if err != nil {
+					break
+				}
 				if err := tmux.SendKeys(sess.TmuxSession, msg.Data); err != nil {
 					fmt.Printf("Error sending keys to tmux: %v\n", err)
 				}

@@ -9,6 +9,7 @@ import WorkspacesPage from './routes/WorkspacesPage.jsx';
 import SpawnPage from './routes/SpawnPage.jsx';
 import TipsPage from './routes/TipsPage.jsx';
 import SessionDetailPage from './routes/SessionDetailPage.jsx';
+import DiffPage from './routes/DiffPage.jsx';
 import LegacyTerminalPage from './routes/LegacyTerminalPage.jsx';
 import NotFoundPage from './routes/NotFoundPage.jsx';
 
@@ -24,6 +25,7 @@ export default function App() {
                 <Route path="/sessions" element={<SessionsPage />} />
                 <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                 <Route path="/workspaces" element={<WorkspacesPage />} />
+                <Route path="/diff/:workspaceId" element={<DiffPage />} />
                 <Route path="/spawn" element={<SpawnPage />} />
                 <Route path="/tips" element={<TipsPage />} />
                 <Route path="/terminal.html" element={<LegacyTerminalPage />} />
