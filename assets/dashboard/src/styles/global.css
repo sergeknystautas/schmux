@@ -1234,6 +1234,138 @@ body {
     content: "🌙";
 }
 
+/* ============================================================================
+ * TOOLTIP COMPONENT STYLES
+ * Refined, accessible tooltips with intelligent positioning
+ *
+ * Note: These styles target the React component's class structure.
+ * The old CSS-only tooltips are preserved below for backwards compatibility.
+ * ============================================================================ */
+
+/* React Tooltip component styles (new) */
+.tooltip-react {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-text);
+    color: var(--color-surface);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: var(--shadow-md);
+    animation: tooltip-fade-in 0.15s var(--easing);
+    max-width: 300px;
+    white-space: normal;
+}
+
+@keyframes tooltip-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tooltip-react--default {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+}
+
+.tooltip-react--warning {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-warning);
+}
+
+.tooltip-react--error {
+    background-color: var(--color-surface);
+    color: var(--color-danger);
+    border: 1px solid var(--color-danger);
+}
+
+.tooltip-react__content {
+    display: block;
+}
+
+.tooltip-react__arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 5px solid transparent;
+}
+
+.tooltip-react__arrow--top {
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-top-color: var(--color-text);
+}
+
+.tooltip-react__arrow--bottom {
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-bottom-color: var(--color-text);
+}
+
+.tooltip-react__arrow--left {
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left-color: var(--color-text);
+}
+
+.tooltip-react__arrow--right {
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-right-color: var(--color-text);
+}
+
+.tooltip-react--warning .tooltip-react__arrow--top {
+    border-top-color: var(--color-warning);
+}
+.tooltip-react--warning .tooltip-react__arrow--bottom {
+    border-bottom-color: var(--color-warning);
+}
+.tooltip-react--warning .tooltip-react__arrow--left {
+    border-left-color: var(--color-warning);
+}
+.tooltip-react--warning .tooltip-react__arrow--right {
+    border-right-color: var(--color-warning);
+}
+
+.tooltip-react--error .tooltip-react__arrow--top {
+    border-top-color: var(--color-danger);
+}
+
+.tooltip-react--default .tooltip-react__arrow--top {
+    border-top-color: var(--color-border);
+}
+.tooltip-react--default .tooltip-react__arrow--bottom {
+    border-bottom-color: var(--color-border);
+}
+.tooltip-react--default .tooltip-react__arrow--left {
+    border-left-color: var(--color-border);
+}
+.tooltip-react--default .tooltip-react__arrow--right {
+    border-right-color: var(--color-border);
+}
+.tooltip-react--error .tooltip-react__arrow--bottom {
+    border-bottom-color: var(--color-danger);
+}
+.tooltip-react--error .tooltip-react__arrow--left {
+    border-left-color: var(--color-danger);
+}
+.tooltip-react--error .tooltip-react__arrow--right {
+    border-right-color: var(--color-danger);
+}
+
 /* Utility */
 .sr-only {
     position: absolute;

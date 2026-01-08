@@ -6,6 +6,7 @@ import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
 import SessionTableRow from '../components/SessionTableRow.jsx';
+import WorkspaceTableRow from '../components/WorkspaceTableRow.jsx';
 
 export default function SessionsPage() {
   const { config } = useConfig();
@@ -239,18 +240,13 @@ export default function SessionsPage() {
             : ws.sessions;
 
           return (
-            <div className="workspace-item" key={ws.id}>
-              <div className="workspace-item__header" onClick={() => toggleWorkspace(ws.id)}>
-                <div className="workspace-item__info">
-                  <span className={`workspace-item__toggle${expanded[ws.id] ? '' : ' workspace-item__toggle--collapsed'}`}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </span>
-                  <span className="workspace-item__name">{ws.id}</span>
-                  <span className="workspace-item__meta">{ws.repo} · {ws.branch}</span>
-                  <span className="badge badge--neutral">{ws.session_count} session{ws.session_count !== 1 ? 's' : ''}</span>
-                </div>
+            <WorkspaceTableRow
+              key={ws.id}
+              workspace={ws}
+              onToggle={() => toggleWorkspace(ws.id)}
+              expanded={expanded[ws.id]}
+              sessionCount={sessions.length}
+              actions={
                 <button
                   className="btn btn--sm"
                   onClick={(event) => {
@@ -266,9 +262,8 @@ export default function SessionsPage() {
                   </svg>
                   Add Agent
                 </button>
-              </div>
-
-              <div className={`workspace-item__sessions${expanded[ws.id] ? ' workspace-item__sessions--expanded' : ''}`}>
+              }
+              sessions={
                 <table className="session-table">
                   <thead>
                     <tr>
@@ -290,8 +285,8 @@ export default function SessionsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
+              }
+            />
           );
         })}
       </div>

@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import useConnectionMonitor from '../hooks/useConnectionMonitor.js';
 import useTheme from '../hooks/useTheme.js';
+import Tooltip from './Tooltip.jsx';
 
 const navItems = [
   { to: '/sessions', label: 'Sessions', icon: (
@@ -44,9 +45,11 @@ export default function AppShell() {
             <span className="connection-pill__dot"></span>
             <span>{connected ? 'Connected' : 'Disconnected'}</span>
           </div>
-          <button id="themeToggle" className="icon-btn" title="Toggle theme" aria-label="Toggle theme" onClick={toggleTheme}>
-            <span className="icon-theme"></span>
-          </button>
+          <Tooltip content="Toggle theme">
+            <button id="themeToggle" className="icon-btn" aria-label="Toggle theme" onClick={toggleTheme}>
+              <span className="icon-theme"></span>
+            </button>
+          </Tooltip>
         </div>
       </header>
 
