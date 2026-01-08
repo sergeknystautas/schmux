@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/sergek/schmux/internal/state"
 )
 
 // handleIndex serves the React app entry point.
