@@ -11,6 +11,7 @@ import (
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
+	"github.com/sergek/schmux/internal/workspace"
 )
 
 const (
@@ -23,16 +24,20 @@ const (
 type Server struct {
 	config     *config.Config
 	state      *state.State
+	statePath  string
 	session    *session.Manager
+	workspace  *workspace.Manager
 	httpServer *http.Server
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st *state.State, sm *session.Manager) *Server {
+func NewServer(cfg *config.Config, st *state.State, statePath string, sm *session.Manager, wm *workspace.Manager) *Server {
 	return &Server{
-		config:  cfg,
-		state:   st,
-		session: sm,
+		config:    cfg,
+		state:     st,
+		statePath: statePath,
+		session:   sm,
+		workspace: wm,
 	}
 }
 
@@ -58,6 +63,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.handleUpdateNickname))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.handleSpawnPost))
 	mux.HandleFunc("/api/dispose/", s.withCORS(s.handleDispose))
+	mux.HandleFunc("/api/dispose-workspace/", s.withCORS(s.handleDisposeWorkspace))
 	mux.HandleFunc("/api/config", s.withCORS(s.handleConfig))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.handleDiff))
 

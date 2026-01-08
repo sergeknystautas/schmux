@@ -327,6 +327,29 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// handleDisposeWorkspace handles workspace disposal requests.
+func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL
+	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/dispose-workspace/")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.workspace.Dispose(workspaceID); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to dispose workspace: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 // UpdateNicknameRequest represents a request to update a session's nickname.
 type UpdateNicknameRequest struct {
 	Nickname string `json:"nickname"`
@@ -352,18 +375,9 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the session
-	sess, found := s.state.GetSession(sessionID)
-	if !found {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-
-	// Update nickname
-	sess.Nickname = req.Nickname
-	s.state.UpdateSession(sess)
-	if err := s.state.Save(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save state: %v", err), http.StatusInternalServerError)
+	// Update nickname (and rename tmux session)
+	if err := s.session.RenameSession(sessionID, req.Nickname); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
 

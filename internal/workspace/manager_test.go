@@ -1,6 +1,9 @@
 package workspace
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
@@ -40,8 +43,9 @@ func TestNew(t *testing.T) {
 		WorkspacePath: "/tmp/workspaces",
 	}
 	st := state.New()
+	statePath := t.TempDir() + "/state.json"
 
-	m := New(cfg, st)
+	m := New(cfg, st, statePath)
 	if m == nil {
 		t.Error("New() returned nil")
 	}
@@ -64,7 +68,7 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 	}
 
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	m := New(cfg, st)
+	m := New(cfg, st, t.TempDir()+"/state.json")
 
 	workspaces := m.getWorkspacesForRepo("test")
 	if len(workspaces) != 2 {
@@ -79,5 +83,173 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 	workspaces = m.getWorkspacesForRepo("nonexistent")
 	if len(workspaces) != 0 {
 		t.Errorf("expected 0 workspaces, got %d", len(workspaces))
+	}
+}
+
+func TestDispose(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New()
+	m := New(cfg, st, statePath)
+
+	// Create test workspace directory and state entry
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("failed to create test workspace directory: %v", err)
+	}
+
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	}
+	st.AddWorkspace(w)
+
+	// Dispose the workspace
+	err := m.Dispose(workspaceID)
+	if err != nil {
+		t.Errorf("Dispose() error = %v", err)
+	}
+
+	// Verify workspace removed from state
+	_, found := st.GetWorkspace(workspaceID)
+	if found {
+		t.Error("workspace should be removed from state")
+	}
+
+	// Verify directory deleted
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted")
+	}
+}
+
+func TestDispose_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New()
+	m := New(cfg, st, statePath)
+
+	// Try to dispose non-existent workspace
+	err := m.Dispose("nonexistent")
+	if err == nil {
+		t.Error("Dispose() should return error for non-existent workspace")
+	}
+	if err != nil && err.Error() != "workspace not found: nonexistent" {
+		t.Errorf("Dispose() error = %v, want 'workspace not found: nonexistent'", err)
+	}
+}
+
+func TestDispose_ActiveSessions(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New()
+	m := New(cfg, st, statePath)
+
+	// Create test workspace directory and state entry
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("failed to create test workspace directory: %v", err)
+	}
+
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	}
+	st.AddWorkspace(w)
+
+	// Add an active session for this workspace
+	sess := state.Session{
+		ID:         "sess-001",
+		WorkspaceID: workspaceID,
+		Agent:      "test-agent",
+		Prompt:     "test prompt",
+	}
+	st.AddSession(sess)
+
+	// Try to dispose workspace with active session
+	err := m.Dispose(workspaceID)
+	if err == nil {
+		t.Error("Dispose() should return error when workspace has active sessions")
+	}
+	if err != nil && err.Error() != "workspace has active sessions: test-001" {
+		t.Errorf("Dispose() error = %v, want 'workspace has active sessions: test-001'", err)
+	}
+
+	// Verify workspace still exists in state (not removed)
+	_, found := st.GetWorkspace(workspaceID)
+	if !found {
+		t.Error("workspace should still exist in state after failed dispose")
+	}
+
+	// Verify directory still exists
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		t.Error("workspace directory should still exist after failed dispose")
+	}
+}
+
+// TestDispose_Integration creates a real git workspace and disposes it.
+func TestDispose_Integration(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New()
+
+	// Create test repo with a branch
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1")
+
+	cfg := &config.Config{
+		WorkspacePath: tmpDir,
+		Repos: []config.Repo{
+			{Name: "test", URL: repoDir},
+		},
+	}
+	m := New(cfg, st, statePath)
+
+	// Create workspace via GetOrCreate (real git clone/checkout)
+	ws, err := m.GetOrCreate(repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// Verify workspace exists
+	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+		t.Fatal("workspace directory should exist after GetOrCreate")
+	}
+
+	// Verify state entry
+	wsState, found := st.GetWorkspace(ws.ID)
+	if !found {
+		t.Fatal("workspace should be in state")
+	}
+	if wsState.Branch != "main" {
+		t.Errorf("expected branch main, got %s", wsState.Branch)
+	}
+
+	// Dispose the workspace
+	if err := m.Dispose(ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Verify directory deleted
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted after Dispose")
+	}
+
+	// Verify state removed
+	_, found = st.GetWorkspace(ws.ID)
+	if found {
+		t.Error("workspace should be removed from state after Dispose")
 	}
 }

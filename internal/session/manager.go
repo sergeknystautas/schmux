@@ -20,14 +20,16 @@ import (
 type Manager struct {
 	config    *config.Config
 	state     *state.State
+	statePath string
 	workspace *workspace.Manager
 }
 
 // New creates a new session manager.
-func New(cfg *config.Config, st *state.State, wm *workspace.Manager) *Manager {
+func New(cfg *config.Config, st *state.State, statePath string, wm *workspace.Manager) *Manager {
 	return &Manager{
 		config:    cfg,
 		state:     st,
+		statePath: statePath,
 		workspace: wm,
 	}
 }
@@ -117,7 +119,7 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 	}
 
 	m.state.AddSession(sess)
-	if err := m.state.Save(); err != nil {
+	if err := state.Save(m.state, m.statePath); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
@@ -171,7 +173,7 @@ func (m *Manager) Dispose(sessionID string) error {
 
 	// Remove session from state
 	m.state.RemoveSession(sessionID)
-	if err := m.state.Save(); err != nil {
+	if err := state.Save(m.state, m.statePath); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
@@ -210,6 +212,36 @@ func (m *Manager) GetSession(sessionID string) (*state.Session, error) {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
 	return &sess, nil
+}
+
+// RenameSession updates a session's nickname and renames the tmux session.
+// The nickname is sanitized before use as the tmux session name.
+func (m *Manager) RenameSession(sessionID, newNickname string) error {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	oldTmuxName := sess.TmuxSession
+	newTmuxName := oldTmuxName
+	if newNickname != "" {
+		newTmuxName = sanitizeNickname(newNickname)
+	}
+
+	// Rename the tmux session
+	if err := tmux.RenameSession(oldTmuxName, newTmuxName); err != nil {
+		return fmt.Errorf("failed to rename tmux session: %w", err)
+	}
+
+	// Update session state
+	sess.Nickname = newNickname
+	sess.TmuxSession = newTmuxName
+	m.state.UpdateSession(sess)
+	if err := state.Save(m.state, m.statePath); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	return nil
 }
 
 // getLogDir returns the log directory path, creating it if needed.

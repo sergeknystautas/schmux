@@ -32,6 +32,22 @@ export async function disposeSession(sessionId) {
   return response.json();
 }
 
+export async function updateNickname(sessionId, nickname) {
+  const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname })
+  });
+  if (!response.ok) throw new Error('Failed to update nickname');
+  return response.json();
+}
+
+export async function disposeWorkspace(workspaceId) {
+  const response = await fetch(`/api/dispose-workspace/${workspaceId}`, { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to dispose workspace');
+  return response.json();
+}
+
 export async function getDiff(workspaceId) {
   const response = await fetch(`/api/diff/${workspaceId}`);
   if (!response.ok) throw new Error('Failed to fetch diff');
