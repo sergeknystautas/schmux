@@ -6,7 +6,7 @@ import (
 
 func TestGetAttachCommand(t *testing.T) {
 	cmd := GetAttachCommand("test-session")
-	expected := "tmux attach -t test-session"
+	expected := `tmux attach -t "test-session"`
 	if cmd != expected {
 		t.Errorf("expected %s, got %s", expected, cmd)
 	}

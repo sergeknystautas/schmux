@@ -97,7 +97,7 @@ export default function SessionDetailPage() {
     return () => {
       terminalStream.disconnect();
     };
-  }, [sessionData]);
+  }, [sessionData?.id]);
 
   const toggleSidebar = () => {
     const wasAtBottom = terminalStreamRef.current?.isAtBottom?.(10) || false;

@@ -56,7 +56,7 @@ func TestGetAttachCommand(t *testing.T) {
 		t.Errorf("GetAttachCommand() error = %v", err)
 	}
 
-	expected := "tmux attach -t schmux-test-001-abc123"
+	expected := `tmux attach -t "schmux-test-001-abc123"`
 	if cmd != expected {
 		t.Errorf("expected %s, got %s", expected, cmd)
 	}
