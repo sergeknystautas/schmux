@@ -96,13 +96,13 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 			}
 			if !hasActiveSessions {
 				m.logger.Printf("reusing workspace for different branch: id=%s old_branch=%s new_branch=%s", w.ID, w.Branch, branch)
-				// Update branch in state
-				w.Branch = branch
-				m.state.UpdateWorkspace(w)
-				// Prepare the workspace (fetch/pull/clean)
+				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
+				// Update branch in state only after successful prepare
+				w.Branch = branch
+				m.state.UpdateWorkspace(w)
 				return &w, nil
 			}
 		}
