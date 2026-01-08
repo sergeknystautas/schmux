@@ -163,7 +163,7 @@ func SendKeys(name, keys string) error {
 
 // GetAttachCommand returns the command to attach to a tmux session.
 func GetAttachCommand(name string) string {
-	return fmt.Sprintf("tmux attach -t %s", strconv.Quote(name))
+	return fmt.Sprintf("tmux attach -t \"%s\"", name)
 }
 
 // SetWindowSizeManual forces tmux to ignore client resize requests.
