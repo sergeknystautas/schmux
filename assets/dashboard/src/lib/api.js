@@ -31,3 +31,13 @@ export async function disposeSession(sessionId) {
   if (!response.ok) throw new Error('Failed to dispose session');
   return response.json();
 }
+
+export async function updateNickname(sessionId, nickname) {
+  const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname })
+  });
+  if (!response.ok) throw new Error('Failed to update nickname');
+  return response.json();
+}

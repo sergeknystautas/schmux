@@ -351,18 +351,9 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the session
-	sess, found := s.state.GetSession(sessionID)
-	if !found {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-
-	// Update nickname
-	sess.Nickname = req.Nickname
-	s.state.UpdateSession(sess)
-	if err := s.state.Save(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save state: %v", err), http.StatusInternalServerError)
+	// Update nickname (and rename tmux session)
+	if err := s.session.RenameSession(sessionID, req.Nickname); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
 

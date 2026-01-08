@@ -212,6 +212,36 @@ func (m *Manager) GetSession(sessionID string) (*state.Session, error) {
 	return &sess, nil
 }
 
+// RenameSession updates a session's nickname and renames the tmux session.
+// The nickname is sanitized before use as the tmux session name.
+func (m *Manager) RenameSession(sessionID, newNickname string) error {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	oldTmuxName := sess.TmuxSession
+	newTmuxName := oldTmuxName
+	if newNickname != "" {
+		newTmuxName = sanitizeNickname(newNickname)
+	}
+
+	// Rename the tmux session
+	if err := tmux.RenameSession(oldTmuxName, newTmuxName); err != nil {
+		return fmt.Errorf("failed to rename tmux session: %w", err)
+	}
+
+	// Update session state
+	sess.Nickname = newNickname
+	sess.TmuxSession = newTmuxName
+	m.state.UpdateSession(sess)
+	if err := m.state.Save(); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	return nil
+}
+
 // getLogDir returns the log directory path, creating it if needed.
 func (m *Manager) getLogDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
