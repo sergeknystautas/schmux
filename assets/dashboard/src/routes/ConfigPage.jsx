@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getConfig, updateConfig, getSessions, getWorkspaces } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
@@ -17,11 +17,16 @@ export default function ConfigPage() {
 
   // Form state
   const [workspacePath, setWorkspacePath] = useState('');
-  const [terminalWidth, setTerminalWidth] = useState(120);
-  const [terminalHeight, setTerminalHeight] = useState(40);
-  const [terminalSeedLines, setTerminalSeedLines] = useState(100);
+  const [terminalWidth, setTerminalWidth] = useState('120');
+  const [terminalHeight, setTerminalHeight] = useState('40');
+  const [terminalSeedLines, setTerminalSeedLines] = useState('100');
   const [repos, setRepos] = useState([]);
   const [agents, setAgents] = useState([]);
+
+  // Terminal input refs for uncontrolled inputs
+  const terminalWidthRef = useRef(null);
+  const terminalHeightRef = useRef(null);
+  const terminalSeedLinesRef = useRef(null);
 
   // Input states for new items
   const [newRepoName, setNewRepoName] = useState('');
@@ -40,9 +45,9 @@ export default function ConfigPage() {
         if (!active) return;
         setConfig(data);
         setWorkspacePath(data.workspace_path || '');
-        setTerminalWidth(data.terminal?.width || 120);
-        setTerminalHeight(data.terminal?.height || 40);
-        setTerminalSeedLines(data.terminal?.seed_lines || 100);
+        setTerminalWidth(String(data.terminal?.width || 120));
+        setTerminalHeight(String(data.terminal?.height || 40));
+        setTerminalSeedLines(String(data.terminal?.seed_lines || 100));
         setRepos(data.repos || []);
         setAgents(data.agents || []);
       } catch (err) {
@@ -58,20 +63,25 @@ export default function ConfigPage() {
   }, []);
 
   const handleSave = async () => {
+    // Get terminal values from uncontrolled inputs
+    const width = parseInt(terminalWidthRef.current?.value || '0');
+    const height = parseInt(terminalHeightRef.current?.value || '0');
+    const seedLines = parseInt(terminalSeedLinesRef.current?.value || '0');
+
     // Validate
     if (!workspacePath.trim()) {
       toastError('Workspace path is required');
       return;
     }
-    if (terminalWidth <= 0) {
+    if (width <= 0) {
       toastError('Terminal width must be greater than 0');
       return;
     }
-    if (terminalHeight <= 0) {
+    if (height <= 0) {
       toastError('Terminal height must be greater than 0');
       return;
     }
-    if (terminalSeedLines <= 0) {
+    if (seedLines <= 0) {
       toastError('Terminal seed lines must be greater than 0');
       return;
     }
@@ -103,9 +113,9 @@ export default function ConfigPage() {
       const updateRequest = {
         workspace_path: workspacePath,
         terminal: {
-          width: terminalWidth,
-          height: terminalHeight,
-          seed_lines: terminalSeedLines
+          width: width,
+          height: height,
+          seed_lines: seedLines
         },
         repos: repos,
         agents: agents
@@ -117,7 +127,7 @@ export default function ConfigPage() {
       if (result.warning) {
         setWarning(result.warning);
       } else {
-        success('Config saved. Restart the daemon for changes to take effect.');
+        success('Config saved and reloaded. Changes are now in effect.');
       }
     } catch (err) {
       toastError(err.message || 'Failed to save config');
@@ -203,13 +213,17 @@ export default function ConfigPage() {
 
       {isFirstRun && (
         <div className="banner banner--info" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <strong>Welcome to Schmux!</strong> Before you can start spawning sessions, you need to configure at least one repository and one agent. Fill in the details below and click <strong>Save Configuration</strong> when you're done.
+          <p style={{ margin: 0 }}>
+            <strong>Welcome to schmux!</strong> Before you can start spawning sessions, you need to configure at least one repository and one agent. Fill in the details below and click <strong>Save Configuration</strong> when you're done.
+          </p>
         </div>
       )}
 
       {warning && (
         <div className="banner banner--warning" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <strong>Warning:</strong> {warning}
+          <p style={{ margin: 0 }}>
+            <strong>Warning:</strong> {warning}
+          </p>
         </div>
       )}
 
@@ -218,43 +232,42 @@ export default function ConfigPage() {
           <h2 className="card__title">Terminal Settings</h2>
         </div>
         <div className="card__body">
-          <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
-            <label className="form-group__label">Width</label>
-            <input
-              type="number"
-              className="input"
-              min="1"
-              value={terminalWidth}
-              onChange={(e) => setTerminalWidth(parseInt(e.target.value) || 120)}
-              style={{ width: '150px' }}
-            />
-            <p className="form-group__hint">Terminal width in columns</p>
-          </div>
+          <div style={{ display: 'flex', gap: 'var(--spacing-md)', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ flex: '1', minWidth: '150px', marginBottom: 0 }}>
+              <label className="form-group__label">Width</label>
+              <input
+                ref={terminalWidthRef}
+                type="number"
+                className="input"
+                min="1"
+                defaultValue={terminalWidth}
+              />
+              <p className="form-group__hint">Terminal width in columns</p>
+            </div>
 
-          <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
-            <label className="form-group__label">Height</label>
-            <input
-              type="number"
-              className="input"
-              min="1"
-              value={terminalHeight}
-              onChange={(e) => setTerminalHeight(parseInt(e.target.value) || 40)}
-              style={{ width: '150px' }}
-            />
-            <p className="form-group__hint">Terminal height in rows</p>
-          </div>
+            <div className="form-group" style={{ flex: '1', minWidth: '150px', marginBottom: 0 }}>
+              <label className="form-group__label">Height</label>
+              <input
+                ref={terminalHeightRef}
+                type="number"
+                className="input"
+                min="1"
+                defaultValue={terminalHeight}
+              />
+              <p className="form-group__hint">Terminal height in rows</p>
+            </div>
 
-          <div className="form-group">
-            <label className="form-group__label">Seed Lines</label>
-            <input
-              type="number"
-              className="input"
-              min="1"
-              value={terminalSeedLines}
-              onChange={(e) => setTerminalSeedLines(parseInt(e.target.value) || 100)}
-              style={{ width: '150px' }}
-            />
-            <p className="form-group__hint">Number of terminal lines to capture when reconnecting to sessions</p>
+            <div className="form-group" style={{ flex: '1', minWidth: '150px', marginBottom: 0 }}>
+              <label className="form-group__label">Seed Lines</label>
+              <input
+                ref={terminalSeedLinesRef}
+                type="number"
+                className="input"
+                min="1"
+                defaultValue={terminalSeedLines}
+              />
+              <p className="form-group__hint">Lines to capture when reconnecting</p>
+            </div>
           </div>
         </div>
       </div>
@@ -296,16 +309,15 @@ export default function ConfigPage() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
+                    gap: 'var(--spacing-md)',
                     padding: 'var(--spacing-sm)',
                     backgroundColor: 'var(--color-bg-secondary)',
                     borderRadius: 'var(--border-radius)',
                     marginBottom: 'var(--spacing-xs)'
                   }}
                 >
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{repo.name}</div>
-                    <div className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>{repo.url}</div>
-                  </div>
+                  <div style={{ flex: 1, fontWeight: 500 }}>{repo.name}</div>
+                  <div className="text-muted" style={{ flex: 2, fontSize: 'var(--font-size-sm)' }}>{repo.url}</div>
                   <button
                     className="btn btn--sm btn--danger"
                     onClick={() => removeRepo(repo.name)}
@@ -357,16 +369,15 @@ export default function ConfigPage() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
+                    gap: 'var(--spacing-md)',
                     padding: 'var(--spacing-sm)',
                     backgroundColor: 'var(--color-bg-secondary)',
                     borderRadius: 'var(--border-radius)',
                     marginBottom: 'var(--spacing-xs)'
                   }}
                 >
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{agent.name}</div>
-                    <div className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>{agent.command}</div>
-                  </div>
+                  <div style={{ flex: 1, fontWeight: 500 }}>{agent.name}</div>
+                  <div className="text-muted" style={{ flex: 2, fontSize: 'var(--font-size-sm)' }}>{agent.command}</div>
                   <button
                     className="btn btn--sm btn--danger"
                     onClick={() => removeAgent(agent.name)}
@@ -412,7 +423,7 @@ export default function ConfigPage() {
         </button>
         {!warning && (
           <p className="form-group__hint" style={{ marginTop: 'var(--spacing-sm)' }}>
-            After saving, restart the daemon for changes to take effect.
+            Changes take effect immediately after saving.
           </p>
         )}
       </div>

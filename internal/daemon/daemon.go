@@ -36,8 +36,11 @@ type Daemon struct {
 	server    *dashboard.Server
 }
 
-// Start starts the daemon in the background.
-func Start() error {
+// ValidateReadyToRun checks if the system is ready to run the daemon.
+// It verifies tmux is available, the schmux directory exists, and
+// that no daemon is already running. Called by both 'start' and 'daemon-run'
+// before they diverge.
+func ValidateReadyToRun() error {
 	// Check tmux dependency before forking
 	if err := checkTmux(); err != nil {
 		return err
@@ -77,6 +80,11 @@ func Start() error {
 		os.Remove(pidFile)
 	}
 
+	return nil
+}
+
+// Start starts the daemon in the background.
+func Start() error {
 	// Get the path to the current executable
 	execPath, err := os.Executable()
 	if err != nil {

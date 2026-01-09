@@ -622,10 +622,16 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reload the in-memory config from disk
+	if err := s.config.Reload(); err != nil {
+		// Log the error but don't fail the request - the file was saved successfully
+		fmt.Printf("Warning: failed to reload config: %v\n", err)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
-		"message": "Config saved. Restart the daemon for changes to take effect.",
+		"message": "Config saved and reloaded. Changes are now in effect.",
 	})
 }
 

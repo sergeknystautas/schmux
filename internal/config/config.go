@@ -16,6 +16,13 @@ var (
 	ErrInvalidConfig  = errors.New("invalid config")
 )
 
+const (
+	// Default terminal dimensions
+	DefaultTerminalWidth     = 120
+	DefaultTerminalHeight    = 40
+	DefaultTerminalSeedLines = 100
+)
+
 // Config represents the application configuration.
 type Config struct {
 	WorkspacePath string             `json:"workspace_path"`
@@ -65,8 +72,14 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: %s\n\nNo config file found. Run 'schmux start' to create one, or create it manually:\n\n  %s\n\nExample config:\n  {\n    \"workspace_path\": \"~/schmux-workspaces\",\n    \"repos\": [{\"name\": \"myproject\", \"url\": \"git@github.com:user/myproject.git\"}],\n    \"agents\": [{\"name\": \"claude\", \"command\": \"claude\"}],\n    \"terminal\": {\"width\": 120, \"height\": 40, \"seed_lines\": 100}\n  }\n",
-				ErrConfigNotFound, configPath, configPath)
+			exampleConfig := fmt.Sprintf(`{
+  "workspace_path": "~/schmux-workspaces",
+  "repos": [{"name": "myproject", "url": "git@github.com:user/myproject.git"}],
+  "agents": [{"name": "claude", "command": "claude"}],
+  "terminal": {"width": %d, "height": %d, "seed_lines": %d}
+}`, DefaultTerminalWidth, DefaultTerminalHeight, DefaultTerminalSeedLines)
+			return nil, fmt.Errorf("%w: %s\n\nNo config file found. Please create it manually:\n\n  %s\n\nExample config:\n%s\n",
+				ErrConfigNotFound, configPath, configPath, exampleConfig)
 		}
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
@@ -188,6 +201,42 @@ func (c *Config) GetTerminalSeedLines() int {
 	return c.Terminal.SeedLines
 }
 
+// Reload reloads the configuration from disk and updates this Config struct in place.
+func (c *Config) Reload() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var newCfg Config
+	if err := json.Unmarshal(data, &newCfg); err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Expand workspace path (handle ~)
+	if newCfg.WorkspacePath != "" && newCfg.WorkspacePath[0] == '~' {
+		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
+	}
+
+	// Update the existing config in place
+	c.mu.Lock()
+	c.WorkspacePath = newCfg.WorkspacePath
+	c.Repos = newCfg.Repos
+	c.Agents = newCfg.Agents
+	c.Terminal = newCfg.Terminal
+	c.Internal = newCfg.Internal
+	c.mu.Unlock()
+
+	return nil
+}
+
 // CreateDefault creates a default config with the given workspace path.
 func CreateDefault(workspacePath string) *Config {
 	return &Config{
@@ -195,9 +244,9 @@ func CreateDefault(workspacePath string) *Config {
 		Repos:         []Repo{},
 		Agents:        []Agent{},
 		Terminal: &TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
+			Width:     DefaultTerminalWidth,
+			Height:    DefaultTerminalHeight,
+			SeedLines: DefaultTerminalSeedLines,
 		},
 	}
 }
@@ -259,7 +308,7 @@ func EnsureExists() (bool, error) {
 		return false, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	fmt.Println("Welcome to Schmux!")
+	fmt.Println("Welcome to schmux!")
 	fmt.Println()
 	fmt.Println("No config file found at ~/.schmux/config.json")
 	fmt.Println()
@@ -307,8 +356,7 @@ func EnsureExists() (bool, error) {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("1. Add repos and agents to the config, or use the web dashboard (Config tab)")
-	fmt.Println("2. Run 'schmux start' again to launch the daemon")
-	fmt.Println("3. Open http://localhost:7337 to access the dashboard")
+	fmt.Println("2. Open http://localhost:7337 to access the dashboard")
 
 	return true, nil
 }

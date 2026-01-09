@@ -1,10 +1,10 @@
-# Schmux Web UX Spec (v0.5+)
+# schmux Web UX Spec (v0.5+)
 Owner: Web/UX Architecture  
 Audience: Any developer touching the dashboard  
 Scope: Dashboard UI/UX patterns, component system, and interaction rules
 
 ## 0) Product Reality (so we design correctly)
-Schmux is a **high-signal internal tool**:
+schmux is a **high-signal internal tool**:
 - Users are engineers operating multiple agents across workspaces.
 - The UI is primarily **observability + orchestration**, not “content browsing”.
 - Work is often **long-running**, **multi-step**, and **partially failing**.

@@ -1,6 +1,6 @@
 # schmux
 
-## What is Schmux?
+## What is schmux?
 
 **Smart Cognitive Hub on tmux**
 

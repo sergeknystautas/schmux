@@ -17,8 +17,8 @@ func main() {
 	command := os.Args[1]
 
 	switch command {
-	case "start":
-		// Check if config exists, offer to create if not
+	case "start", "daemon-run":
+		// Shared setup for both start and daemon-run
 		configOk, err := config.EnsureExists()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error checking config: %v\n", err)
@@ -29,11 +29,24 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := daemon.Start(); err != nil {
+		if err := daemon.ValidateReadyToRun(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("schmux daemon started")
+
+		// Diverge here: background vs inline
+		if command == "start" {
+			if err := daemon.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("schmux daemon started")
+		} else { // daemon-run
+			if err := daemon.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Daemon error: %v\n", err)
+				os.Exit(1)
+			}
+		}
 
 	case "stop":
 		if err := daemon.Stop(); err != nil {
@@ -54,13 +67,6 @@ func main() {
 			fmt.Printf("Dashboard: %s\n", url)
 		} else {
 			fmt.Println("schmux daemon is not running")
-			os.Exit(1)
-		}
-
-	case "daemon-run":
-		// This is the entry point for the daemon process
-		if err := daemon.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Daemon error: %v\n", err)
 			os.Exit(1)
 		}
 
