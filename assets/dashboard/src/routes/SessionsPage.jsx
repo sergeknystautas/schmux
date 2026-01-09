@@ -63,6 +63,7 @@ export default function SessionsPage() {
         return next;
       });
     } catch (err) {
+      setWorkspaces([]);
       setError(err.message || 'Failed to load workspaces');
     } finally {
       if (!silent) setLoading(false);
@@ -205,13 +206,6 @@ export default function SessionsPage() {
       </div>
 
       <div className="workspace-list">
-        {loading && (
-          <div className="loading-state">
-            <div className="spinner"></div>
-            <span>Loading workspaces...</span>
-          </div>
-        )}
-
         {error && (
           <div className="empty-state">
             <div className="empty-state__icon">⚠️</div>
