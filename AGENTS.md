@@ -17,10 +17,11 @@
 
 Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 
+- `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
+- `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `go test ./...` — run all unit tests.
 - `go test -v ./...` — verbose test output.
 - `go test -cover ./...` — quick coverage signal.
-- `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `./schmux start` / `./schmux stop` / `./schmux status` — manage the daemon locally.
 
 ## Coding Style & Naming Conventions
