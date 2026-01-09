@@ -675,6 +675,12 @@ body {
     display: block;
 }
 
+/* Indented session table container */
+.workspace-item__sessions .session-table th,
+.workspace-item__sessions .session-table td {
+    padding-left: calc(var(--spacing-lg) + var(--spacing-xl));
+}
+
 /* Session Table */
 .session-table {
     width: 100%;

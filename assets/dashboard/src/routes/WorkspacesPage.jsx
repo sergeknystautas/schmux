@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { disposeSession, disposeWorkspace, getSessions, getWorkspaces, scanWorkspaces } from '../lib/api.js';
 import { copyToClipboard, extractRepoName, formatRelativeTime } from '../lib/utils.js';
@@ -9,6 +9,7 @@ import SessionTableRow from '../components/SessionTableRow.jsx';
 import WorkspaceTableRow from '../components/WorkspaceTableRow.jsx';
 import Tooltip from '../components/Tooltip.jsx';
 import ScanResultsModal from '../components/ScanResultsModal.jsx';
+import useLocalStorage from '../hooks/useLocalStorage.js';
 
 export default function WorkspacesPage() {
   const { config } = useConfig();
@@ -17,12 +18,43 @@ export default function WorkspacesPage() {
   const [sessionsByWorkspace, setSessionsByWorkspace] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState({});
+  const [expanded, setExpanded] = useLocalStorage('workspaces-expanded', {});
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [filters, setFilters] = useLocalStorage('workspaces-filters', { status: '', repo: '' });
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const navigate = useNavigate();
+
+  const repoNames = useMemo(() => {
+    return [...new Set(workspaces.map((ws) => extractRepoName(ws.repo)))].sort();
+  }, [workspaces]);
+
+  const filteredWorkspaces = useMemo(() => {
+    return workspaces.filter((ws) => {
+      const sessions = sessionsByWorkspace[ws.id] || [];
+
+      if (filters.status) {
+        const hasMatching = sessions.some((s) =>
+          filters.status === 'running' ? s.running : !s.running
+        );
+        if (!hasMatching) return false;
+      }
+
+      if (filters.repo && extractRepoName(ws.repo) !== filters.repo) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [workspaces, sessionsByWorkspace, filters.repo, filters.status]);
+
+  const updateFilter = (key, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value || ''
+    }));
+  };
 
   const loadWorkspaces = useCallback(async (options = {}) => {
     const { silent = false } = options;
@@ -73,7 +105,7 @@ export default function WorkspacesPage() {
 
   const expandAll = () => {
     const next = {};
-    workspaces.forEach((ws) => {
+    filteredWorkspaces.forEach((ws) => {
       next[ws.id] = true;
     });
     setExpanded(next);
@@ -81,7 +113,7 @@ export default function WorkspacesPage() {
 
   const collapseAll = () => {
     const next = {};
-    workspaces.forEach((ws) => {
+    filteredWorkspaces.forEach((ws) => {
       next[ws.id] = false;
     });
     setExpanded(next);
@@ -134,7 +166,8 @@ export default function WorkspacesPage() {
     }
   };
 
-  const empty = workspaces.length === 0 && !loading && !error;
+  const empty = filteredWorkspaces.length === 0 && !loading && !error && workspaces.length > 0;
+  const noWorkspaces = workspaces.length === 0 && !loading && !error;
 
   return (
     <>
@@ -157,6 +190,33 @@ export default function WorkspacesPage() {
             </svg>
             Spawn
           </Link>
+        </div>
+      </div>
+
+      <div className="filter-bar">
+        <span className="filter-bar__label">Filters:</span>
+        <div className="filter-bar__filters">
+          <select
+            className="select"
+            aria-label="Filter by status"
+            value={filters.status}
+            onChange={(event) => updateFilter('status', event.target.value)}
+          >
+            <option value="">All Status</option>
+            <option value="running">Running</option>
+            <option value="stopped">Stopped</option>
+          </select>
+          <select
+            className="select"
+            aria-label="Filter by repository"
+            value={filters.repo}
+            onChange={(event) => updateFilter('repo', event.target.value)}
+          >
+            <option value="">All Repos</option>
+            {repoNames.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -189,14 +249,26 @@ export default function WorkspacesPage() {
 
         {empty && (
           <div className="empty-state">
+            <h3 className="empty-state__title">No workspaces match your filters</h3>
+            <p className="empty-state__description">Try adjusting your filters to see more results</p>
+          </div>
+        )}
+
+        {noWorkspaces && (
+          <div className="empty-state">
             <h3 className="empty-state__title">No workspaces found</h3>
             <p className="empty-state__description">Workspaces will appear here when you spawn sessions</p>
             <Link to="/spawn" className="btn btn--primary">Spawn Sessions</Link>
           </div>
         )}
 
-        {workspaces.map((ws) => {
-          const sessions = sessionsByWorkspace[ws.id] || [];
+        {filteredWorkspaces.map((ws) => {
+          let sessions = sessionsByWorkspace[ws.id] || [];
+          if (filters.status) {
+            sessions = sessions.filter((s) =>
+              filters.status === 'running' ? s.running : !s.running
+            );
+          }
           const sessionCount = sessions.length;
 
           return (
