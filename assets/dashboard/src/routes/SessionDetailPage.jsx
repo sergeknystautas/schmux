@@ -45,6 +45,7 @@ export default function SessionDetailPage() {
             session = {
               ...found,
               workspace_id: ws.id,
+              workspace_path: ws.path,
               repo: ws.repo,
               branch: ws.branch
             };
@@ -192,6 +193,16 @@ export default function SessionDetailPage() {
     }
   };
 
+  const handleCopyWorkspace = async () => {
+    if (!sessionData) return;
+    const ok = await copyToClipboard(sessionData.workspace_path);
+    if (ok) {
+      success('Copied workspace path');
+    } else {
+      toastError('Failed to copy');
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-state">
@@ -334,8 +345,20 @@ export default function SessionDetailPage() {
           )}
 
           <div className="metadata-field">
-            <span className="metadata-field__label">Workspace</span>
-            <span className="metadata-field__value metadata-field__value--mono">{sessionData.workspace_id}</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <span className="metadata-field__label">Workspace</span>
+              <Tooltip content="Copy workspace path">
+                <button className="btn btn--sm btn--ghost" onClick={handleCopyWorkspace}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </Tooltip>
+            </div>
+            <Tooltip content={sessionData.workspace_path}>
+              <span className="metadata-field__value metadata-field__value--mono">{sessionData.workspace_id}</span>
+            </Tooltip>
           </div>
 
           <div className="metadata-field">

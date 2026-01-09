@@ -122,6 +122,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ID           string            `json:"id"`
 		Repo         string            `json:"repo"`
 		Branch       string            `json:"branch"`
+		Path         string            `json:"path"`
 		SessionCount int               `json:"session_count"`
 		Sessions     []SessionResponse `json:"sessions"`
 	}
@@ -142,6 +143,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				ID:       ws.ID,
 				Repo:     ws.Repo,
 				Branch:   ws.Branch,
+				Path:     ws.Path,
 				Sessions: []SessionResponse{},
 			}
 			workspaceMap[sess.WorkspaceID] = wsResp
