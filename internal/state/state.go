@@ -19,10 +19,13 @@ type State struct {
 // Workspace represents a workspace directory state.
 // Multiple sessions can share the same workspace (multi-agent per directory).
 type Workspace struct {
-	ID     string `json:"id"`
-	Repo   string `json:"repo"`
-	Branch string `json:"branch"`
-	Path   string `json:"path"`
+	ID        string `json:"id"`
+	Repo      string `json:"repo"`
+	Branch    string `json:"branch"`
+	Path      string `json:"path"`
+	GitDirty  bool   `json:"-"`
+	GitAhead  int    `json:"-"`
+	GitBehind int    `json:"-"`
 }
 
 // Session represents an agent session.

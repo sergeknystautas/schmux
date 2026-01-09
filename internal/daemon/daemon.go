@@ -278,6 +278,19 @@ func Run() error {
 		}
 	}()
 
+	// Start background goroutine to update git status for all workspaces
+	go func() {
+		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+		// Do initial update after a short delay to let daemon start
+		time.Sleep(500 * time.Millisecond)
+		wm.UpdateAllGitStatus()
+		for range ticker.C {
+			wm.UpdateAllGitStatus()
+		}
+	}()
+
 	// Bootstrap log streams for active sessions with missing pipe-pane.
 	seedLines := cfg.GetTerminalSeedLines()
 	if seedLines <= 0 {

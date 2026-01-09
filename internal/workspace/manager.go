@@ -377,6 +377,71 @@ func extractWorkspaceNumber(id string) (int, error) {
 	return strconv.Atoi(numStr)
 }
 
+// UpdateGitStatus refreshes the git status for a single workspace.
+// Returns the updated workspace or an error.
+func (m *Manager) UpdateGitStatus(workspaceID string) (*state.Workspace, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	// Calculate git status (safe to run even with active sessions)
+	dirty, ahead, behind := m.gitStatus(w.Path)
+
+	// Update workspace in memory
+	w.GitDirty = dirty
+	w.GitAhead = ahead
+	w.GitBehind = behind
+
+	// Update the workspace in state (this updates the in-memory copy)
+	m.state.UpdateWorkspace(w)
+
+	return &w, nil
+}
+
+// gitStatus calculates the git status for a workspace directory.
+// Returns: (dirty bool, ahead int, behind int)
+func (m *Manager) gitStatus(dir string) (dirty bool, ahead int, behind int) {
+	// Check for dirty state (any changes: modified, added, removed, or untracked)
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = dir
+	output, err := statusCmd.CombinedOutput()
+	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
+		dirty = true
+	}
+
+	// Check ahead/behind counts using rev-list
+	// @{u} is the shortcut for the upstream branch
+	revListCmd := exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	revListCmd.Dir = dir
+	output, err = revListCmd.CombinedOutput()
+	if err != nil {
+		// No upstream or other error - log and just return dirty state
+		m.logger.Printf("git rev-list failed for %s: %v", dir, err)
+		return dirty, 0, 0
+	}
+
+	// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	if len(parts) == 2 {
+		fmt.Sscanf(parts[0], "%d", &ahead)
+		fmt.Sscanf(parts[1], "%d", &behind)
+	}
+
+	return dirty, ahead, behind
+}
+
+// UpdateAllGitStatus refreshes git status for all workspaces.
+// This is called periodically by the background goroutine.
+func (m *Manager) UpdateAllGitStatus() {
+	workspaces := m.state.GetWorkspaces()
+	for _, w := range workspaces {
+		if _, err := m.UpdateGitStatus(w.ID); err != nil {
+			m.logger.Printf("failed to update git status for workspace %s: %v", w.ID, err)
+		}
+	}
+}
+
 // EnsureWorkspaceDir ensures the workspace base directory exists.
 func (m *Manager) EnsureWorkspaceDir() error {
 	path := m.config.GetWorkspacePath()

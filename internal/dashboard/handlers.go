@@ -125,6 +125,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		Path         string            `json:"path"`
 		SessionCount int               `json:"session_count"`
 		Sessions     []SessionResponse `json:"sessions"`
+		GitDirty     bool              `json:"git_dirty"`
+		GitAhead     int               `json:"git_ahead"`
+		GitBehind    int               `json:"git_behind"`
 	}
 
 	workspaceMap := make(map[string]*WorkspaceResponse)
@@ -145,6 +148,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 				Branch:   ws.Branch,
 				Path:     ws.Path,
 				Sessions: []SessionResponse{},
+				GitDirty: ws.GitDirty,
+				GitAhead: ws.GitAhead,
+				GitBehind: ws.GitBehind,
 			}
 			workspaceMap[sess.WorkspaceID] = wsResp
 		}
@@ -207,20 +213,26 @@ func (s *Server) handleWorkspacesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type WorkspaceResponse struct {
-		ID     string `json:"id"`
-		Repo   string `json:"repo"`
-		Branch string `json:"branch"`
-		Path   string `json:"path"`
+		ID        string `json:"id"`
+		Repo      string `json:"repo"`
+		Branch    string `json:"branch"`
+		Path      string `json:"path"`
+		GitDirty  bool   `json:"git_dirty"`
+		GitAhead  int    `json:"git_ahead"`
+		GitBehind int    `json:"git_behind"`
 	}
 
 	workspaces := s.state.GetWorkspaces()
 	response := make([]WorkspaceResponse, len(workspaces))
 	for i, ws := range workspaces {
 		response[i] = WorkspaceResponse{
-			ID:     ws.ID,
-			Repo:   ws.Repo,
-			Branch: ws.Branch,
-			Path:   ws.Path,
+			ID:        ws.ID,
+			Repo:      ws.Repo,
+			Branch:    ws.Branch,
+			Path:      ws.Path,
+			GitDirty:  ws.GitDirty,
+			GitAhead:  ws.GitAhead,
+			GitBehind: ws.GitBehind,
 		}
 	}
 	sort.Slice(response, func(i, j int) bool {
@@ -448,6 +460,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		SessionsPollIntervalMs int `json:"sessions_poll_interval_ms"`
 		ViewedBufferMs         int `json:"viewed_buffer_ms"`
 		SessionSeenIntervalMs  int `json:"session_seen_interval_ms"`
+		GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
 	}
 
 	type ConfigResponse struct {
@@ -479,10 +492,11 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		Agents:        agentResp,
 		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines},
 		Internal: InternalResponse{
-			MtimePollIntervalMs:    s.config.GetMtimePollIntervalMs(),
-			SessionsPollIntervalMs: s.config.GetSessionsPollIntervalMs(),
-			ViewedBufferMs:         s.config.GetViewedBufferMs(),
-			SessionSeenIntervalMs:  s.config.GetSessionSeenIntervalMs(),
+			MtimePollIntervalMs:     s.config.GetMtimePollIntervalMs(),
+			SessionsPollIntervalMs:  s.config.GetSessionsPollIntervalMs(),
+			ViewedBufferMs:          s.config.GetViewedBufferMs(),
+			SessionSeenIntervalMs:   s.config.GetSessionSeenIntervalMs(),
+			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
 		},
 	}
 
@@ -506,6 +520,13 @@ type ConfigUpdateRequest struct {
 		Height    *int `json:"height,omitempty"`
 		SeedLines *int `json:"seed_lines,omitempty"`
 	} `json:"terminal,omitempty"`
+	Internal *struct {
+		MtimePollIntervalMs     *int `json:"mtime_poll_interval_ms,omitempty"`
+		SessionsPollIntervalMs  *int `json:"sessions_poll_interval_ms,omitempty"`
+		ViewedBufferMs          *int `json:"viewed_buffer_ms,omitempty"`
+		SessionSeenIntervalMs   *int `json:"session_seen_interval_ms,omitempty"`
+		GitStatusPollIntervalMs *int `json:"git_status_poll_interval_ms,omitempty"`
+	} `json:"internal,omitempty"`
 }
 
 // handleConfigUpdate handles config update requests.
@@ -523,6 +544,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	agents := cfg.GetAgents()
 	width, height := cfg.GetTerminalSize()
 	seedLines := cfg.GetTerminalSeedLines()
+	mtimePollIntervalMs := cfg.GetMtimePollIntervalMs()
+	sessionsPollIntervalMs := cfg.GetSessionsPollIntervalMs()
+	viewedBufferMs := cfg.GetViewedBufferMs()
+	sessionSeenIntervalMs := cfg.GetSessionSeenIntervalMs()
+	gitStatusPollIntervalMs := cfg.GetGitStatusPollIntervalMs()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
@@ -590,6 +616,24 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Internal != nil {
+		if req.Internal.MtimePollIntervalMs != nil && *req.Internal.MtimePollIntervalMs > 0 {
+			mtimePollIntervalMs = *req.Internal.MtimePollIntervalMs
+		}
+		if req.Internal.SessionsPollIntervalMs != nil && *req.Internal.SessionsPollIntervalMs > 0 {
+			sessionsPollIntervalMs = *req.Internal.SessionsPollIntervalMs
+		}
+		if req.Internal.ViewedBufferMs != nil && *req.Internal.ViewedBufferMs > 0 {
+			viewedBufferMs = *req.Internal.ViewedBufferMs
+		}
+		if req.Internal.SessionSeenIntervalMs != nil && *req.Internal.SessionSeenIntervalMs > 0 {
+			sessionSeenIntervalMs = *req.Internal.SessionSeenIntervalMs
+		}
+		if req.Internal.GitStatusPollIntervalMs != nil && *req.Internal.GitStatusPollIntervalMs > 0 {
+			gitStatusPollIntervalMs = *req.Internal.GitStatusPollIntervalMs
+		}
+	}
+
 	// Create updated config
 	newCfg := &config.Config{
 		WorkspacePath: workspacePath,
@@ -599,6 +643,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			Width:     width,
 			Height:    height,
 			SeedLines: seedLines,
+		},
+		Internal: &config.InternalIntervals{
+			MtimePollIntervalMs:     mtimePollIntervalMs,
+			SessionsPollIntervalMs:  sessionsPollIntervalMs,
+			ViewedBufferMs:          viewedBufferMs,
+			SessionSeenIntervalMs:   sessionSeenIntervalMs,
+			GitStatusPollIntervalMs: gitStatusPollIntervalMs,
 		},
 	}
 

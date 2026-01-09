@@ -46,6 +46,7 @@ type InternalIntervals struct {
 	SessionsPollIntervalMs int `json:"sessions_poll_interval_ms"`
 	ViewedBufferMs         int `json:"viewed_buffer_ms"`
 	SessionSeenIntervalMs  int `json:"session_seen_interval_ms"`
+	GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
 }
 
 // Repo represents a git repository configuration.
@@ -375,4 +376,14 @@ func (c *Config) GetSessionSeenIntervalMs() int {
 		return 2000
 	}
 	return c.Internal.SessionSeenIntervalMs
+}
+
+// GetGitStatusPollIntervalMs returns the git status polling interval in ms. Defaults to 10000ms.
+func (c *Config) GetGitStatusPollIntervalMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Internal == nil || c.Internal.GitStatusPollIntervalMs <= 0 {
+		return 10000
+	}
+	return c.Internal.GitStatusPollIntervalMs
 }
