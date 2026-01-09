@@ -8,15 +8,6 @@ Orchestrate multiple AI coding agents across tmux sessions with a web dashboard 
 
 schmux lets you spin up multiple AI coding agents (Claude, Codex, and others) working on the same task in parallel. Each agent runs in its own tmux session on a managed clone of your git repository. A web dashboard lets you spawn sessions, monitor terminal output, and manage workspaces.
 
-## Features
-
-- **Multi-agent orchestration** - Run Claude, Codex, and friends simultaneously
-- **Multi-agent per directory** - Spawn reviewers or subagents on existing workspaces
-- **Workspace management** - Auto git clone/checkout/pull for clean working directories
-- **tmux integration** - Each agent in its own session, attach anytime
-- **Web dashboard** - Watch your agents work (or panic) in real-time
-- **Session persistence** - Survives agent completion for review and resume
-
 ## Who is this for?
 
 Have you mastered vibe coding? Did you read and enjoy [Clerky's tweets](https://x.com/bcherny/status/2007179832300581177) about how the author of Claude Code develops? Are you trying to run multiple agents but aren't satisfied with [Gaslight town](https://steve-yegge.medium.com/welcome-to-gas-town-4f25ee16dd04), [Ralph Wiggum](https://medium.com/@joe.njenga/ralph-wiggum-claude-code-new-way-to-run-autonomously-for-hours-without-drama-095f47fbd467), or other agent automation frameworks?
@@ -36,9 +27,11 @@ Get up and running with schmux in 5 minutes.
 You'll need:
 
 1. **Go 1.21+** - [Download here](https://go.dev/dl/) or `brew install go`
-2. **tmux** - [Homepage](https://github.com/tmux/tmux) or `brew install tmux`
-3. **git** - Usually pre-installed, or `brew install git`
-4. **AI agent CLIs** - At least one of:
+2. **Node.js 18+ & npm** - [Download here](https://nodejs.org/) or `brew install node` (for building the React dashboard)
+3. **tmux** - [Homepage](https://github.com/tmux/tmux) or `brew install tmux`
+4. **git** - Usually pre-installed, or `brew install git`
+   - Note: schmux runs git commands locally in your workspaces, so it will work with whatever authentication you have configured (SSH keys, HTTPS tokens, credential helpers, etc.)
+5. **AI agent CLIs** - At least one of:
    - [Claude Code](https://claude.ai/code) (Anthropic's official CLI)
    - [Codex](https://github.com/xyz) (or your preferred agent)
    - Any CLI that takes a prompt as an argument
@@ -50,9 +43,10 @@ You'll need:
 git clone https://github.com/yourusername/schmux.git
 cd schmux
 
-# Build the binary
-go build ./cmd/schmux
+# Build the React dashboard and binary
+go run ./cmd/build-dashboard
 
+# The ./schmux binary is now ready to use
 # (Optional) Install to your PATH
 mv schmux /usr/local/bin/
 ```
@@ -123,6 +117,15 @@ Then start the daemon:
 
 **Problem**: Dashboard shows "Disconnected"
 - **Solution**: Check if daemon is running with `./schmux status`
+
+## Features
+
+- **Multi-agent orchestration** - Run Claude, Codex, and friends simultaneously
+- **Multi-agent per directory** - Spawn reviewers or subagents on existing workspaces
+- **Workspace management** - Auto git clone/checkout/pull for clean working directories
+- **tmux integration** - Each agent in its own session, attach anytime
+- **Web dashboard** - Watch your agents work (or panic) in real-time
+- **Session persistence** - Survives agent completion for review and resume
 
 ## Status
 
