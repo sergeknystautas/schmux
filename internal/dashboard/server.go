@@ -59,6 +59,7 @@ func (s *Server) Start() error {
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.handleHealthz))
 	mux.HandleFunc("/api/workspaces", s.withCORS(s.handleWorkspacesAPI))
+	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.handleWorkspacesScan))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.handleSessions))
 	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.handleUpdateNickname))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.handleSpawnPost))

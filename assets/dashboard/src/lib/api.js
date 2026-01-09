@@ -53,3 +53,9 @@ export async function getDiff(workspaceId) {
   if (!response.ok) throw new Error('Failed to fetch diff');
   return response.json();
 }
+
+export async function scanWorkspaces() {
+  const response = await fetch('/api/workspaces/scan', { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to scan workspaces');
+  return response.json();
+}
