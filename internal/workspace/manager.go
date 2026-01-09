@@ -371,6 +371,10 @@ func extractWorkspaceNumber(id string) (int, error) {
 // EnsureWorkspaceDir ensures the workspace base directory exists.
 func (m *Manager) EnsureWorkspaceDir() error {
 	path := m.config.GetWorkspacePath()
+	// Skip if workspace_path is empty (during wizard setup)
+	if path == "" {
+		return nil
+	}
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}

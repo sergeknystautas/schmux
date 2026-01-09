@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { getConfig, getWorkspaces, spawnSessions } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
+import { useRequireConfig } from '../contexts/ConfigContext.jsx';
 
 const TOTAL_STEPS = 4;
 
 export default function SpawnPage() {
+  useRequireConfig();
   const [currentStep, setCurrentStep] = useState(1);
   const [repos, setRepos] = useState([]);
   const [agents, setAgents] = useState([]);

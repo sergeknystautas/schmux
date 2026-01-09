@@ -89,16 +89,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
-	// Validate config
-	if cfg.WorkspacePath == "" {
-		return nil, fmt.Errorf("%w: workspace_path is required", ErrInvalidConfig)
-	}
-
-	// Expand workspace path (handle ~)
-	if cfg.WorkspacePath[0] == '~' {
-		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
-	}
-
+	// Validate config (workspace_path can be empty during wizard setup)
 	// Validate repos
 	for _, repo := range cfg.Repos {
 		if repo.Name == "" {
@@ -108,7 +99,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("%w: repo URL is required for %s", ErrInvalidConfig, repo.Name)
 		}
 	}
-
 	// Validate agents
 	for _, agent := range cfg.Agents {
 		if agent.Name == "" {
@@ -117,6 +107,11 @@ func Load() (*Config, error) {
 		if agent.Command == "" {
 			return nil, fmt.Errorf("%w: agent command is required for %s", ErrInvalidConfig, agent.Name)
 		}
+	}
+
+	// Expand workspace path (handle ~) - allow empty during wizard setup
+	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
+		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
 	}
 
 	// Validate terminal config (width, height, and seed_lines are required)
@@ -296,7 +291,7 @@ func ConfigExists() bool {
 	return err == nil
 }
 
-// EnsureExists checks if config exists, and offers to create it interactively if not.
+// EnsureExists checks if config exists, and offers to create one interactively if not.
 // Returns true if config exists or was created, false if user declined or error occurred.
 func EnsureExists() (bool, error) {
 	if ConfigExists() {
@@ -326,25 +321,8 @@ func EnsureExists() (bool, error) {
 		return false, nil
 	}
 
-	// Ask for workspace path
-	fmt.Println()
-	fmt.Print("Enter workspace directory path [~/schmux-workspaces]: ")
-	workspacePath, err := reader.ReadString('\n')
-	if err != nil {
-		return false, fmt.Errorf("failed to read workspace path: %w", err)
-	}
-	workspacePath = strings.TrimSpace(workspacePath)
-	if workspacePath == "" {
-		workspacePath = "~/schmux-workspaces"
-	}
-
-	// Expand ~ if present
-	if strings.HasPrefix(workspacePath, "~") {
-		workspacePath = filepath.Join(homeDir, workspacePath[1:])
-	}
-
-	// Create default config
-	cfg := CreateDefault(workspacePath)
+	// Create default config with empty workspace path (user will set in wizard)
+	cfg := CreateDefault("")
 
 	// Save config
 	if err := cfg.Save(); err != nil {
@@ -354,9 +332,7 @@ func EnsureExists() (bool, error) {
 	configPath := filepath.Join(homeDir, ".schmux", "config.json")
 	fmt.Printf("Config created at %s\n", configPath)
 	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Println("1. Add repos and agents to the config, or use the web dashboard (Config tab)")
-	fmt.Println("2. Open http://localhost:7337 to access the dashboard")
+	fmt.Println("Open http://localhost:7337 to complete setup in the web dashboard")
 
 	return true, nil
 }

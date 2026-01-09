@@ -522,37 +522,21 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	width, height := cfg.GetTerminalSize()
 	seedLines := cfg.GetTerminalSeedLines()
 
-	// Check for workspace path change and warn
+	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
 	workspaceCount := len(s.state.GetWorkspaces())
+	pathChanged := false
+	var newPath string
 
 	// Apply updates
 	if req.WorkspacePath != nil {
-		newPath := *req.WorkspacePath
+		newPath = *req.WorkspacePath
 		// Expand ~ if present
 		homeDir, _ := os.UserHomeDir()
 		if len(newPath) > 0 && newPath[0] == '~' && homeDir != "" {
 			newPath = filepath.Join(homeDir, newPath[1:])
 		}
-		if newPath != workspacePath && (sessionCount > 0 || workspaceCount > 0) {
-			// Return warning information but don't block the change
-			type WarningResponse struct {
-				Warning        string `json:"warning"`
-				SessionCount   int    `json:"session_count"`
-				WorkspaceCount int    `json:"workspace_count"`
-				RequiresRestart bool  `json:"requires_restart"`
-			}
-			warning := WarningResponse{
-				Warning:        fmt.Sprintf("Changing workspace_path affects only NEW workspaces. %d existing sessions and %d workspaces will keep their current paths.", sessionCount, workspaceCount),
-				SessionCount:   sessionCount,
-				WorkspaceCount: workspaceCount,
-				RequiresRestart: true,
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(warning)
-			return
-		}
+		pathChanged = (newPath != workspacePath && (sessionCount > 0 || workspaceCount > 0))
 		workspacePath = newPath
 	}
 
@@ -626,6 +610,25 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := s.config.Reload(); err != nil {
 		// Log the error but don't fail the request - the file was saved successfully
 		fmt.Printf("Warning: failed to reload config: %v\n", err)
+	}
+
+	// Return warning if path changed with existing sessions/workspaces
+	if pathChanged {
+		type WarningResponse struct {
+			Warning        string `json:"warning"`
+			SessionCount   int    `json:"session_count"`
+			WorkspaceCount int    `json:"workspace_count"`
+			RequiresRestart bool  `json:"requires_restart"`
+		}
+		warning := WarningResponse{
+			Warning:        fmt.Sprintf("Changing workspace_path affects only NEW workspaces. %d existing sessions and %d workspaces will keep their current paths.", sessionCount, workspaceCount),
+			SessionCount:   sessionCount,
+			WorkspaceCount: workspaceCount,
+			RequiresRestart: true,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(warning)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

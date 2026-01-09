@@ -211,10 +211,51 @@ body {
     border-left-color: var(--color-accent);
 }
 
+.nav-link--disabled {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+    border-left: 3px solid transparent;
+    opacity: 0.5;
+}
+
 .nav-link__icon {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0;
+}
+
+.tab__button {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    transition: all var(--duration-fast) var(--easing);
+    margin-bottom: -1px;
+}
+
+.tab__button:hover {
+    color: var(--color-text);
+}
+
+.tab__button--active {
+    color: var(--color-accent);
+    border-bottom-color: var(--color-accent);
 }
 
 /* Header Actions */

@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { disposeSession, getSessions, getConfig } from '../lib/api.js';
+import { disposeSession, getSessions } from '../lib/api.js';
 import { copyToClipboard, extractRepoName, formatRelativeTime } from '../lib/utils.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
+import { useConfig, useRequireConfig } from '../contexts/ConfigContext.jsx';
 import SessionTableRow from '../components/SessionTableRow.jsx';
 import WorkspaceTableRow from '../components/WorkspaceTableRow.jsx';
 
 export default function SessionsPage() {
   const { config } = useConfig();
+  useRequireConfig();
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,7 +19,6 @@ export default function SessionsPage() {
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const navigate = useNavigate();
-  const [configChecked, setConfigChecked] = useState(false);
 
   const filters = {
     status: searchParams.get('s') || '',
@@ -81,27 +81,6 @@ export default function SessionsPage() {
     }, pollInterval);
     return () => clearInterval(interval);
   }, [loadWorkspaces, config]);
-
-  // Check if first-run (no repos or agents configured)
-  useEffect(() => {
-    const checkFirstRun = async () => {
-      try {
-        const cfg = await getConfig();
-        if ((!cfg.repos || cfg.repos.length === 0) &&
-            (!cfg.agents || cfg.agents.length === 0)) {
-          // First-run - redirect to config
-          navigate('/config?firstRun=true', { replace: true });
-        }
-      } catch (err) {
-        // If we can't load config, just continue - don't block the page
-        console.error('Failed to check config:', err);
-      } finally {
-        setConfigChecked(true);
-      }
-    };
-
-    checkFirstRun();
-  }, [navigate]);
 
   const updateFilter = (key, value) => {
     const next = new URLSearchParams(searchParams);

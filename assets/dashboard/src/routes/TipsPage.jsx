@@ -1,7 +1,9 @@
 import React from 'react';
 import styles from '../styles/tips.module.css';
+import { useRequireConfig } from '../contexts/ConfigContext.jsx';
 
 export default function TipsPage() {
+  useRequireConfig();
   return (
     <>
       <div className="page-header">

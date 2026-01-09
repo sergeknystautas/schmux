@@ -4,7 +4,7 @@ import { disposeSession, disposeWorkspace, getSessions, getWorkspaces, scanWorks
 import { copyToClipboard, extractRepoName, formatRelativeTime } from '../lib/utils.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
+import { useConfig, useRequireConfig } from '../contexts/ConfigContext.jsx';
 import SessionTableRow from '../components/SessionTableRow.jsx';
 import WorkspaceTableRow from '../components/WorkspaceTableRow.jsx';
 import Tooltip from '../components/Tooltip.jsx';
@@ -12,6 +12,7 @@ import ScanResultsModal from '../components/ScanResultsModal.jsx';
 
 export default function WorkspacesPage() {
   const { config } = useConfig();
+  useRequireConfig();
   const [workspaces, setWorkspaces] = useState([]);
   const [sessionsByWorkspace, setSessionsByWorkspace] = useState({});
   const [loading, setLoading] = useState(true);
