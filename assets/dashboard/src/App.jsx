@@ -5,7 +5,6 @@ import ModalProvider from './components/ModalProvider.jsx';
 import { ConfigProvider } from './contexts/ConfigContext.jsx';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext.jsx';
 import SessionsPage from './routes/SessionsPage.jsx';
-import WorkspacesPage from './routes/WorkspacesPage.jsx';
 import SpawnPage from './routes/SpawnPage.jsx';
 import TipsPage from './routes/TipsPage.jsx';
 import ConfigPage from './routes/ConfigPage.jsx';
@@ -25,7 +24,6 @@ export default function App() {
                 <Route path="/" element={<SessionsPage />} />
                 <Route path="/sessions" element={<SessionsPage />} />
                 <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                <Route path="/workspaces" element={<WorkspacesPage />} />
                 <Route path="/diff/:workspaceId" element={<DiffPage />} />
                 <Route path="/spawn" element={<SpawnPage />} />
                 <Route path="/tips" element={<TipsPage />} />

@@ -137,9 +137,8 @@ assets/dashboard/
 │   │   └── utils.js          # Helper functions
 │   │
 │   ├── routes/               # Page components
-│   │   ├── SessionsPage.jsx        # Sessions list view
+│   │   ├── SessionsPage.jsx        # Sessions/workspaces list view
 │   │   ├── SessionDetailPage.jsx   # Session terminal view
-│   │   ├── WorkspacesPage.jsx      # Workspaces list view
 │   │   ├── SpawnPage.jsx           # Multi-step spawn wizard
 │   │   ├── DiffPage.jsx            # Git diff viewer
 │   │   └── TipsPage.jsx            # Help/tips content
@@ -448,8 +447,8 @@ class TerminalStream {
 <Routes>
   <Route element={<AppShell />}>
     <Route path="/" element={<SessionsPage />} />
+    <Route path="/sessions" element={<SessionsPage />} />
     <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-    <Route path="/workspaces" element={<WorkspacesPage />} />
     <Route path="/spawn" element={<SpawnPage />} />
     {/* ... */}
   </Route>

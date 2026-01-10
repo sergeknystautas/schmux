@@ -144,7 +144,7 @@ export default function DiffPage() {
         <div className="empty-state">
           <h3 className="empty-state__title">No changes in workspace</h3>
           <p className="empty-state__description">This workspace has no uncommitted changes</p>
-          <a href="/workspaces" className="btn btn--primary">Back to Workspaces</a>
+          <a href="/sessions" className="btn btn--primary">Back to Sessions</a>
         </div>
       </>
     );

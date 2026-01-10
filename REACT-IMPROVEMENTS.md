@@ -500,7 +500,6 @@ Progress tracking document for React frontend improvements. Agents should grab t
 - [ ] Review SessionsPage for state completeness
 - [ ] Review SessionDetailPage for state completeness
 - [ ] Review SpawnPage for state completeness
-- [ ] Review WorkspacesPage for state completeness
 - [ ] Document gaps and create follow-up tasks
 
 **Files to Audit:**

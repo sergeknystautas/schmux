@@ -54,10 +54,11 @@ All pages use the same shell:
 
 ### 2.2 Routes (canonical)
 - `/sessions` (default landing)
-- `/spawn`
-- `/workspaces/:id` (optional; can be a focused view)
 - `/sessions/:id` (session detail; terminal/log view)
-- Future: `/diffs/:workspaceId`, `/config`, `/activity`
+- `/spawn`
+- `/diff/:workspaceId` (git diff viewer)
+- `/config` (settings)
+- `/tips` (help/tips)
 
 ## 3) Visual System (tokens, not random CSS)
 

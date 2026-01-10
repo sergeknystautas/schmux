@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getSessions, disposeSession } from '../lib/api.js';
+import { getWorkspaces, getSessions, disposeSession } from '../lib/api.js';
 import { copyToClipboard } from '../lib/utils.js';
 import { useToast } from './ToastProvider.jsx';
 import { useModal } from './ModalProvider.jsx';
@@ -13,7 +13,7 @@ import useLocalStorage from '../hooks/useLocalStorage.js';
  * WorkspacesList - Displays workspaces with their sessions
  *
  * Handles polling, filtering, and expansion state internally.
- * Used by: SessionsPage, WorkspacesPage, SessionDetailPage, DiffPage
+ * Used by: SessionsPage, SessionDetailPage, DiffPage
  *
  * Props:
  * - workspaceId: Optional - if provided, shows only that workspace
@@ -33,7 +33,7 @@ export default function WorkspacesList({
   renderActions = null,
   renderSessionActions = null,
 }) {
-  const { config } = useConfig();
+  const { config, getRepoName } = useConfig();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const [allWorkspaces, setAllWorkspaces] = useState([]);
@@ -47,8 +47,25 @@ export default function WorkspacesList({
     }
     setError('');
     try {
-      const workspaces = await getSessions();
-      setAllWorkspaces(workspaces);
+      // Fetch both: all workspaces (including empty) and workspaces with sessions
+      const [allWorkspaces, workspacesWithSessions] = await Promise.all([
+        getWorkspaces(),
+        getSessions()
+      ]);
+
+      // Create a map of workspace ID -> sessions for quick lookup
+      const sessionsMap = {};
+      workspacesWithSessions.forEach(ws => {
+        sessionsMap[ws.id] = ws.sessions || [];
+      });
+
+      // Merge: add sessions to each workspace from the sessions map
+      const merged = allWorkspaces.map(ws => ({
+        ...ws,
+        sessions: sessionsMap[ws.id] || []
+      }));
+
+      setAllWorkspaces(merged);
     } catch (err) {
       if (!silent) {
         setError(err.message || 'Failed to load workspaces');
@@ -139,8 +156,13 @@ export default function WorkspacesList({
   const empty = filteredWorkspaces.length === 0 && !loading && !error && allWorkspaces.length > 0;
   const noWorkspaces = allWorkspaces.length === 0 && !loading && !error;
 
-  // Get repo names for filter dropdown
-  const repoNames = [...new Set(allWorkspaces.map((ws) => ws.repo))].sort();
+  // Get unique repo URLs and their display names for filter dropdown
+  const repoOptions = React.useMemo(() => {
+    const urls = [...new Set(allWorkspaces.map((ws) => ws.repo))];
+    return urls
+      .map(url => ({ url, name: getRepoName(url) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allWorkspaces, getRepoName]);
 
   return (
     <>
@@ -165,8 +187,8 @@ export default function WorkspacesList({
               onChange={(event) => updateFilter('repo', event.target.value)}
             >
               <option value="">All Repos</option>
-              {repoNames.map((name) => (
-                <option key={name} value={name}>{name}</option>
+              {repoOptions.map((option) => (
+                <option key={option.url} value={option.url}>{option.name}</option>
               ))}
             </select>
           </div>

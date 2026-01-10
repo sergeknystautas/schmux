@@ -92,9 +92,8 @@ A session is one agent running in one workspace.
 Open `http://localhost:7337` after starting the daemon.
 
 **Pages:**
-- **Sessions** (`/`) - View all sessions grouped by workspace, filter by status or repo
+- **Sessions** (`/`, `/sessions`) - View all sessions grouped by workspace, filter by status or repo, scan for workspace changes
 - **Session Detail** (`/sessions/:id`) - Watch terminal output, view diffs, manage session
-- **Workspaces** (`/workspaces`) - Browse workspaces, see git status, scan for changes
 - **Spawn** (`/spawn`) - Start new sessions with the spawn wizard
 - **Diff** (`/diff/:workspaceId`) - View git changes for a workspace
 - **Settings** (`/config`) - Configure repos, agents, and workspace path
