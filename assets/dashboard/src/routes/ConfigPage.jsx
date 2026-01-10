@@ -30,6 +30,7 @@ export default function ConfigPage() {
   const [terminalWidth, setTerminalWidth] = useState('120');
   const [terminalHeight, setTerminalHeight] = useState('40');
   const [terminalSeedLines, setTerminalSeedLines] = useState('100');
+  const [terminalBootstrapLines, setTerminalBootstrapLines] = useState('20000');
 
   // Internal settings state
   const [mtimePollInterval, setMtimePollInterval] = useState(5000);
@@ -65,6 +66,7 @@ export default function ConfigPage() {
         setTerminalWidth(String(data.terminal?.width || 120));
         setTerminalHeight(String(data.terminal?.height || 40));
         setTerminalSeedLines(String(data.terminal?.seed_lines || 100));
+        setTerminalBootstrapLines(String(data.terminal?.bootstrap_lines || 20000));
         setRepos(data.repos || []);
 
         // Separate agents and commands based on agentic field
@@ -147,7 +149,7 @@ export default function ConfigPage() {
 
       const updateRequest = {
         workspace_path: workspacePath,
-        terminal: { width, height, seed_lines: seedLines },
+        terminal: { width, height, seed_lines: seedLines, bootstrap_lines: parseInt(terminalBootstrapLines) },
         repos: repos,
         agents: allAgents,
         internal: {
@@ -639,6 +641,18 @@ export default function ConfigPage() {
                         onChange={(e) => setTerminalSeedLines(e.target.value)}
                       />
                       <p className="form-group__hint">Lines to capture when reconnecting</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Bootstrap Lines</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min="1"
+                        value={terminalBootstrapLines}
+                        onChange={(e) => setTerminalBootstrapLines(e.target.value)}
+                      />
+                      <p className="form-group__hint">Lines to send on initial WebSocket connection (default: 20000)</p>
                     </div>
                   </div>
                 </div>

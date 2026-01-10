@@ -493,9 +493,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type TerminalResponse struct {
-		Width     int `json:"width"`
-		Height    int `json:"height"`
-		SeedLines int `json:"seed_lines"`
+		Width          int `json:"width"`
+		Height         int `json:"height"`
+		SeedLines      int `json:"seed_lines"`
+		BootstrapLines int `json:"bootstrap_lines"`
 	}
 
 	type InternalResponse struct {
@@ -520,6 +521,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	agents := s.config.GetAgents()
 	width, height := s.config.GetTerminalSize()
 	seedLines := s.config.GetTerminalSeedLines()
+	bootstrapLines := s.config.GetTerminalBootstrapLines()
 
 	repoResp := make([]RepoResponse, len(repos))
 	for i, repo := range repos {
@@ -535,7 +537,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		WorkspacePath: s.config.GetWorkspacePath(),
 		Repos:         repoResp,
 		Agents:        agentResp,
-		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines},
+		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Internal: InternalResponse{
 			MtimePollIntervalMs:     s.config.GetMtimePollIntervalMs(),
 			SessionsPollIntervalMs:  s.config.GetSessionsPollIntervalMs(),
@@ -564,9 +566,10 @@ type ConfigUpdateRequest struct {
 		Agentic *bool  `json:"agentic,omitempty"`
 	} `json:"agents,omitempty"`
 	Terminal *struct {
-		Width     *int `json:"width,omitempty"`
-		Height    *int `json:"height,omitempty"`
-		SeedLines *int `json:"seed_lines,omitempty"`
+		Width          *int `json:"width,omitempty"`
+		Height         *int `json:"height,omitempty"`
+		SeedLines      *int `json:"seed_lines,omitempty"`
+		BootstrapLines *int `json:"bootstrap_lines,omitempty"`
 	} `json:"terminal,omitempty"`
 	Internal *struct {
 		MtimePollIntervalMs     *int `json:"mtime_poll_interval_ms,omitempty"`
@@ -594,6 +597,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	agents := cfg.GetAgents()
 	width, height := cfg.GetTerminalSize()
 	seedLines := cfg.GetTerminalSeedLines()
+	bootstrapLines := cfg.GetTerminalBootstrapLines()
 	mtimePollIntervalMs := cfg.GetMtimePollIntervalMs()
 	sessionsPollIntervalMs := cfg.GetSessionsPollIntervalMs()
 	viewedBufferMs := cfg.GetViewedBufferMs()
@@ -666,6 +670,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Terminal.SeedLines != nil && *req.Terminal.SeedLines > 0 {
 			seedLines = *req.Terminal.SeedLines
 		}
+		if req.Terminal.BootstrapLines != nil && *req.Terminal.BootstrapLines > 0 {
+			bootstrapLines = *req.Terminal.BootstrapLines
+		}
 	}
 
 	if req.Internal != nil {
@@ -698,9 +705,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		Repos:         repos,
 		Agents:        agents,
 		Terminal: &config.TerminalSize{
-			Width:     width,
-			Height:    height,
-			SeedLines: seedLines,
+			Width:          width,
+			Height:         height,
+			SeedLines:      seedLines,
+			BootstrapLines: bootstrapLines,
 		},
 		Internal: &config.InternalIntervals{
 			MtimePollIntervalMs:     mtimePollIntervalMs,

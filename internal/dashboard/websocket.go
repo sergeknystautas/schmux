@@ -14,6 +14,184 @@ import (
 	"github.com/sergek/schmux/internal/tmux"
 )
 
+// findLastNLinesOffset finds the byte offset for the last N lines in a file.
+// Reads the file backwards in chunks to efficiently find the position.
+// Returns the byte offset where the last N lines start, or 0 if the file has fewer than N lines.
+func findLastNLinesOffset(path string, n int) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat file: %w", err)
+	}
+
+	pos := stat.Size()
+	newlineCount := 0
+	chunkSize := int64(4096)
+
+	buf := make([]byte, chunkSize)
+
+	for newlineCount <= n && pos > 0 {
+		readSize := chunkSize
+		if pos < chunkSize {
+			readSize = pos
+		}
+		pos -= readSize
+
+		_, err := f.Seek(pos, io.SeekStart)
+		if err != nil {
+			return 0, fmt.Errorf("seek to %d: %w", pos, err)
+		}
+
+		nRead, err := f.Read(buf[:readSize])
+		if err != nil {
+			return 0, fmt.Errorf("read chunk: %w", err)
+		}
+
+		// Count newlines backwards
+		for i := nRead - 1; i >= 0; i-- {
+			if buf[i] == '\n' {
+				newlineCount++
+				if newlineCount > n {
+					// Found our position - return byte after this newline
+					return pos + int64(i) + 1, nil
+				}
+			}
+		}
+	}
+
+	// Found fewer than N newlines, return start of file
+	return 0, nil
+}
+
+// findSafeStartPoint finds a safe byte offset to start reading from.
+// Starting from the given offset, scans forward to find a position that's
+// safe to start rendering (after a newline or carriage return).
+// This avoids starting in the middle of an ANSI escape sequence.
+func findSafeStartPoint(path string, startOffset int64, maxScan int64) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return startOffset, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return startOffset, fmt.Errorf("stat file: %w", err)
+	}
+
+	fileSize := stat.Size()
+	if startOffset >= fileSize {
+		return startOffset, nil
+	}
+
+	// Limit how far we scan forward
+	maxPos := startOffset + maxScan
+	if maxPos > fileSize {
+		maxPos = fileSize
+	}
+
+	_, err = f.Seek(startOffset, io.SeekStart)
+	if err != nil {
+		return startOffset, fmt.Errorf("seek: %w", err)
+	}
+
+	// Read in chunks and look for safe start points
+	buf := make([]byte, 4096)
+	pos := startOffset
+
+	for pos < maxPos {
+		readSize := int64(len(buf))
+		if pos+readSize > maxPos {
+			readSize = maxPos - pos
+		}
+
+		n, err := f.Read(buf[:readSize])
+		if err != nil {
+			return startOffset, fmt.Errorf("read: %w", err)
+		}
+		if n == 0 {
+			break
+		}
+
+		// Look for newline or carriage return - these are safe boundaries
+		for i := 0; i < n; i++ {
+			if buf[i] == '\n' || buf[i] == '\r' {
+				return pos + int64(i) + 1, nil
+			}
+		}
+
+		pos += int64(n)
+	}
+
+	// Didn't find a safe boundary, return original offset
+	return startOffset, nil
+}
+
+// extractANSISequences scans the file and extracts all ANSI CSI sequences
+// to prime terminal state before sending bootstrapped content.
+func extractANSISequences(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	// Read the entire file (could be optimized with streaming)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+
+	var sequences []byte
+	i := 0
+
+	// Scan for ESC [ (CSI sequences start with \033[)
+	for i < len(data)-1 {
+		if data[i] == '\033' && i+1 < len(data) && data[i+1] == '[' {
+			// Found CSI sequence start, find the end
+			j := i + 2
+			for j < len(data) {
+				// CSI sequences end with a character in range 0x40-0x7E
+				if data[j] >= 0x40 && data[j] <= 0x7E {
+					// Found the sequence terminator
+					seq := data[i : j+1]
+
+					// Filter out cursor movement sequences
+					// H/f = cursor position, A/B/C/D = cursor up/down/left/right
+					// J/K = erase display/line, s/u = save/restore cursor
+					terminator := data[j]
+					skipList := []byte{'H', 'f', 'A', 'B', 'C', 'D', 'J', 'K', 's', 'u', 'E', 'G', 'L', 'M', 'P', 'Z', '@', '`'}
+					if !contains(skipList, terminator) {
+						sequences = append(sequences, seq...)
+					}
+					break
+				}
+				j++
+			}
+			i = j + 1
+		} else {
+			i++
+		}
+	}
+
+	return sequences, nil
+}
+
+// contains checks if a byte slice contains a specific byte
+func contains(slice []byte, b byte) bool {
+	for _, v := range slice {
+		if v == b {
+			return true
+		}
+	}
+	return false
+}
+
 // WSMessage represents a WebSocket message from the client
 type WSMessage struct {
 	Type string `json:"type"`
@@ -104,6 +282,50 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return conn.WriteMessage(websocket.TextMessage, data)
 	}
 
+	// Get file size for log message
+	fileInfo, _ := os.Stat(logPath)
+	fileSize := int64(0)
+	if fileInfo != nil {
+		fileSize = fileInfo.Size()
+	}
+
+	// Find offset for last N lines to send on initial connect
+	bootstrapLines := s.config.GetTerminalBootstrapLines()
+	checkpointOffset, err := findLastNLinesOffset(logPath, bootstrapLines)
+	if err != nil {
+		fmt.Printf("[ws %s] failed to find checkpoint offset: %v\n", sessionID[:8], err)
+		// Fall back to sending full file
+		checkpointOffset = 0
+	}
+	if checkpointOffset > 0 {
+		offset = checkpointOffset
+		// Find a safer start point to avoid starting mid-escape-sequence
+		safeOffset, err := findSafeStartPoint(logPath, offset, 4096)
+		if err != nil {
+			fmt.Printf("[ws %s] failed to find safe start point: %v\n", sessionID[:8], err)
+		} else if safeOffset != offset {
+			fmt.Printf("[ws %s] adjusted offset from %d to %d for safe start\n", sessionID[:8], offset, safeOffset)
+			offset = safeOffset
+		}
+		bytesToSend := fileSize - offset
+		fmt.Printf("[ws %s] bootstrap: sending last %d lines from offset %d (%.2f MB / %.2f MB total)\n",
+			sessionID[:8], bootstrapLines, offset, float64(bytesToSend)/(1024*1024), float64(fileSize)/(1024*1024))
+	}
+
+	// Extract ANSI sequences from full file to prime terminal state
+	// This helps with colors and formatting after bootstrapping
+	ansiPrefix := []byte{}
+	if checkpointOffset > 0 {
+		ansiSequences, err := extractANSISequences(logPath)
+		if err != nil {
+			fmt.Printf("[ws %s] failed to extract ANSI sequences: %v\n", sessionID[:8], err)
+		} else if len(ansiSequences) > 0 {
+			ansiPrefix = ansiSequences
+			fmt.Printf("[ws %s] extracted %d ANSI sequences for state priming (%.2f MB)\n",
+				sessionID[:8], len(ansiSequences), float64(len(ansiSequences))/(1024*1024))
+		}
+	}
+
 	readFileAndSend := func(sendFull bool) error {
 		// Open file (not ReadFile) to avoid race condition
 		f, err := os.Open(logPath)
@@ -154,10 +376,14 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 
 		// Send content
 		if sendFull {
-			if err := sendOutput("full", string(data)); err != nil {
+			// Prepend ANSI sequences for terminal state priming
+			content := string(ansiPrefix) + string(data)
+			if err := sendOutput("full", content); err != nil {
 				return err
 			}
 			offset = int64(len(data))
+			// Clear ansiPrefix after first use so we don't send it again
+			ansiPrefix = []byte{}
 		} else {
 			if err := sendOutput("append", string(data)); err != nil {
 				return err

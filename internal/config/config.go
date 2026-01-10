@@ -20,9 +20,10 @@ var (
 
 const (
 	// Default terminal dimensions
-	DefaultTerminalWidth     = 120
-	DefaultTerminalHeight    = 40
-	DefaultTerminalSeedLines = 100
+	DefaultTerminalWidth      = 120
+	DefaultTerminalHeight     = 40
+	DefaultTerminalSeedLines  = 100
+	DefaultBootstrapLines     = 20000
 
 	// Default timeout values in seconds
 	DefaultGitCloneTimeoutSeconds      = 300 // 5 minutes
@@ -43,9 +44,10 @@ type Config struct {
 
 // TerminalSize represents terminal dimensions.
 type TerminalSize struct {
-	Width     int `json:"width"`
-	Height    int `json:"height"`
-	SeedLines int `json:"seed_lines"`
+	Width         int `json:"width"`
+	Height        int `json:"height"`
+	SeedLines     int `json:"seed_lines"`
+	BootstrapLines int `json:"bootstrap_lines,omitempty"`
 }
 
 // InternalIntervals represents timing intervals for internal polling and caching.
@@ -218,6 +220,17 @@ func (c *Config) GetTerminalSeedLines() int {
 		return 0
 	}
 	return c.Terminal.SeedLines
+}
+
+// GetTerminalBootstrapLines returns the number of lines to send on WebSocket connect.
+// Defaults to DefaultBootstrapLines if not set.
+func (c *Config) GetTerminalBootstrapLines() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Terminal == nil || c.Terminal.BootstrapLines <= 0 {
+		return DefaultBootstrapLines
+	}
+	return c.Terminal.BootstrapLines
 }
 
 // Reload reloads the configuration from disk and updates this Config struct in place.
