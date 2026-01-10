@@ -518,6 +518,11 @@ export default function SpawnPage() {
                   maxLength={100}
                   value={nickname}
                   onChange={(event) => setNickname(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      handleSpawn();
+                    }
+                  }}
                 />
                 <p className="form-group__hint">A human-friendly name to help you identify this session later.</p>
               </div>
