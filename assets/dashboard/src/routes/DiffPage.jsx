@@ -75,49 +75,39 @@ export default function DiffPage() {
 
   if (error) {
     return (
-      <>
-        <WorkspacesList
-          workspaceId={workspaceId}
-          showControls={false}
-          renderActions={(workspace) => (
-            <>
-              <Tooltip content="Spawn session in this workspace">
-                <button
-                  className="btn btn--sm btn--primary"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    navigate(`/spawn?workspace_id=${workspace.id}`);
-                  }}
-                  aria-label={`Spawn in ${workspace.id}`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="8" x2="12" y2="16"></line>
-                    <line x1="8" y1="12" x2="16" y2="12"></line>
-                  </svg>
-                  Spawn
-                </button>
-              </Tooltip>
-            </>
-          )}
-          renderSessionActions={(action, sess) => {
-            if (action === 'dispose') {
-              return () => handleDispose(sess.id);
-            }
-            return undefined;
-          }}
-        />
-        <div className="empty-state">
-          <div className="empty-state__icon">⚠️</div>
-          <h3 className="empty-state__title">Failed to load diff</h3>
-          <p className="empty-state__description">{error}</p>
-          <a href="/workspaces" className="btn btn--primary">Back to Workspaces</a>
-        </div>
-      </>
+      <WorkspacesList
+        workspaceId={workspaceId}
+        showControls={false}
+        renderActions={(workspace) => (
+          <Tooltip content="Spawn session in this workspace">
+            <button
+              className="btn btn--sm btn--primary"
+              onClick={(event) => {
+                event.stopPropagation();
+                navigate(`/spawn?workspace_id=${workspace.id}`);
+              }}
+              aria-label={`Spawn in ${workspace.id}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+              Spawn
+            </button>
+          </Tooltip>
+        )}
+        renderSessionActions={(action, sess) => {
+          if (action === 'dispose') {
+            return () => handleDispose(sess.id);
+          }
+          return undefined;
+        }}
+      />
     );
   }
 
-  if (!diffData.files || diffData.files.length === 0) {
+  if (!error && (!diffData.files || diffData.files.length === 0)) {
     return (
       <>
         <WorkspacesList
