@@ -144,13 +144,13 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		wsResp, ok := workspaceMap[sess.WorkspaceID]
 		if !ok {
 			wsResp = &WorkspaceResponse{
-				ID:       ws.ID,
-				Repo:     ws.Repo,
-				Branch:   ws.Branch,
-				Path:     ws.Path,
-				Sessions: []SessionResponse{},
-				GitDirty: ws.GitDirty,
-				GitAhead: ws.GitAhead,
+				ID:        ws.ID,
+				Repo:      ws.Repo,
+				Branch:    ws.Branch,
+				Path:      ws.Path,
+				Sessions:  []SessionResponse{},
+				GitDirty:  ws.GitDirty,
+				GitAhead:  ws.GitAhead,
 				GitBehind: ws.GitBehind,
 			}
 			workspaceMap[sess.WorkspaceID] = wsResp
@@ -499,10 +499,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type InternalResponse struct {
-		MtimePollIntervalMs    int `json:"mtime_poll_interval_ms"`
-		SessionsPollIntervalMs int `json:"sessions_poll_interval_ms"`
-		ViewedBufferMs         int `json:"viewed_buffer_ms"`
-		SessionSeenIntervalMs  int `json:"session_seen_interval_ms"`
+		MtimePollIntervalMs     int `json:"mtime_poll_interval_ms"`
+		SessionsPollIntervalMs  int `json:"sessions_poll_interval_ms"`
+		ViewedBufferMs          int `json:"viewed_buffer_ms"`
+		SessionSeenIntervalMs   int `json:"session_seen_interval_ms"`
 		GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
 		GitCloneTimeoutSeconds  int `json:"git_clone_timeout_seconds"`
 		GitStatusTimeoutSeconds int `json:"git_status_timeout_seconds"`

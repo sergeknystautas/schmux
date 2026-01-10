@@ -72,8 +72,9 @@ found:
 // parseTmuxSession extracts the tmux session name from an attach command.
 // Handles both quoted and unquoted session names.
 // Examples:
-//   tmux attach -t "my session" -> my session
-//   tmux attach -t my-session -> my-session
+//
+//	tmux attach -t "my session" -> my session
+//	tmux attach -t my-session -> my-session
 func parseTmuxSession(cmd string) string {
 	// Find the "-t" flag
 	idx := strings.Index(cmd, "-t")

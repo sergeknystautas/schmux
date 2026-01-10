@@ -62,14 +62,14 @@ func TestParseTmuxSession(t *testing.T) {
 
 // MockDaemonClient is a mock implementation for testing
 type MockDaemonClient struct {
-	isRunning      bool
-	config         *cli.Config
-	workspaces     []cli.Workspace
-	sessions       []cli.WorkspaceWithSessions
-	scanResult     *cli.ScanResult
-	scanErr        error
-	spawnResults   []cli.SpawnResult
-	spawnErr       error
+	isRunning    bool
+	config       *cli.Config
+	workspaces   []cli.Workspace
+	sessions     []cli.WorkspaceWithSessions
+	scanResult   *cli.ScanResult
+	scanErr      error
+	spawnResults []cli.SpawnResult
+	spawnErr     error
 }
 
 func (m *MockDaemonClient) IsRunning() bool {
@@ -136,7 +136,7 @@ func TestAutoDetectWorkspace(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name:       "not in a workspace",
+			name: "not in a workspace",
 			workspaces: []cli.Workspace{
 				{
 					ID:   "schmux-002",

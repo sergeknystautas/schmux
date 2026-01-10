@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/sergek/schmux/internal/detect"
 )
 
 var (
@@ -48,12 +50,12 @@ type TerminalSize struct {
 
 // InternalIntervals represents timing intervals for internal polling and caching.
 type InternalIntervals struct {
-	MtimePollIntervalMs    int      `json:"mtime_poll_interval_ms"`
-	SessionsPollIntervalMs int      `json:"sessions_poll_interval_ms"`
-	ViewedBufferMs         int      `json:"viewed_buffer_ms"`
-	SessionSeenIntervalMs  int      `json:"session_seen_interval_ms"`
-	GitStatusPollIntervalMs int      `json:"git_status_poll_interval_ms"`
-	Timeouts               *Timeouts `json:"timeouts,omitempty"`
+	MtimePollIntervalMs     int       `json:"mtime_poll_interval_ms"`
+	SessionsPollIntervalMs  int       `json:"sessions_poll_interval_ms"`
+	ViewedBufferMs          int       `json:"viewed_buffer_ms"`
+	SessionSeenIntervalMs   int       `json:"session_seen_interval_ms"`
+	GitStatusPollIntervalMs int       `json:"git_status_poll_interval_ms"`
+	Timeouts                *Timeouts `json:"timeouts,omitempty"`
 }
 
 // Timeouts represents timeout values for external operations (in seconds).
@@ -343,8 +345,24 @@ func EnsureExists() (bool, error) {
 		return false, nil
 	}
 
+	// Detect available AI agent tools
+	fmt.Println("Detecting available AI agent tools...")
+	detectedAgents := detect.DetectAndPrint()
+
+	// Convert detect.Agent to config.Agent
+	var agents []Agent
+	for _, da := range detectedAgents {
+		agentic := da.Agentic
+		agents = append(agents, Agent{
+			Name:    da.Name,
+			Command: da.Command,
+			Agentic: &agentic,
+		})
+	}
+
 	// Create default config with empty workspace path (user will set in wizard)
 	cfg := CreateDefault("")
+	cfg.Agents = agents
 
 	// Save config
 	if err := cfg.Save(); err != nil {

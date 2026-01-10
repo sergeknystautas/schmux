@@ -25,13 +25,13 @@ func NewSpawnCommand(client cli.DaemonClient) *SpawnCommand {
 // Run executes the spawn command.
 func (cmd *SpawnCommand) Run(args []string) error {
 	var (
-		agentFlag      string
-		promptFlag     string
-		workspaceFlag  string
-		repoFlag       string
-		branchFlag     string
-		nicknameFlag   string
-		jsonOutput     bool
+		agentFlag     string
+		promptFlag    string
+		workspaceFlag string
+		repoFlag      string
+		branchFlag    string
+		nicknameFlag  string
+		jsonOutput    bool
 	)
 
 	fs := flag.NewFlagSet("spawn", flag.ExitOnError)

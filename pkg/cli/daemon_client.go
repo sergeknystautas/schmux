@@ -285,15 +285,15 @@ type Workspace struct {
 
 // Session represents a session.
 type Session struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Agent       string `json:"agent"`
-	Branch      string `json:"branch"`
-	Nickname    string `json:"nickname,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	ID           string `json:"id"`
+	WorkspaceID  string `json:"workspace_id"`
+	Agent        string `json:"agent"`
+	Branch       string `json:"branch"`
+	Nickname     string `json:"nickname,omitempty"`
+	CreatedAt    string `json:"created_at"`
 	LastOutputAt string `json:"last_output_at,omitempty"`
-	Running     bool   `json:"running"`
-	AttachCmd   string `json:"attach_cmd"`
+	Running      bool   `json:"running"`
+	AttachCmd    string `json:"attach_cmd"`
 }
 
 // WorkspaceWithSessions represents a workspace with its sessions.
@@ -329,9 +329,9 @@ type SpawnResult struct {
 
 // ScanResult represents the result of a workspace scan.
 type ScanResult struct {
-	Added   []Workspace      `json:"added"`
+	Added   []Workspace       `json:"added"`
 	Updated []WorkspaceChange `json:"updated"`
-	Removed []Workspace      `json:"removed"`
+	Removed []Workspace       `json:"removed"`
 }
 
 // WorkspaceChange represents a workspace that was updated.
