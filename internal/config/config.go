@@ -21,6 +21,12 @@ const (
 	DefaultTerminalWidth     = 120
 	DefaultTerminalHeight    = 40
 	DefaultTerminalSeedLines = 100
+
+	// Default timeout values in seconds
+	DefaultGitCloneTimeoutSeconds      = 300 // 5 minutes
+	DefaultGitStatusTimeoutSeconds     = 30  // 30 seconds
+	DefaultTmuxQueryTimeoutSeconds     = 5   // 5 seconds
+	DefaultTmuxOperationTimeoutSeconds = 10  // 10 seconds
 )
 
 // Config represents the application configuration.
@@ -42,11 +48,20 @@ type TerminalSize struct {
 
 // InternalIntervals represents timing intervals for internal polling and caching.
 type InternalIntervals struct {
-	MtimePollIntervalMs    int `json:"mtime_poll_interval_ms"`
-	SessionsPollIntervalMs int `json:"sessions_poll_interval_ms"`
-	ViewedBufferMs         int `json:"viewed_buffer_ms"`
-	SessionSeenIntervalMs  int `json:"session_seen_interval_ms"`
-	GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
+	MtimePollIntervalMs    int      `json:"mtime_poll_interval_ms"`
+	SessionsPollIntervalMs int      `json:"sessions_poll_interval_ms"`
+	ViewedBufferMs         int      `json:"viewed_buffer_ms"`
+	SessionSeenIntervalMs  int      `json:"session_seen_interval_ms"`
+	GitStatusPollIntervalMs int      `json:"git_status_poll_interval_ms"`
+	Timeouts               *Timeouts `json:"timeouts,omitempty"`
+}
+
+// Timeouts represents timeout values for external operations (in seconds).
+type Timeouts struct {
+	GitCloneSeconds      int `json:"git_clone_seconds"`      // default: 300 (5 min)
+	GitStatusSeconds     int `json:"git_status_seconds"`     // default: 30
+	TmuxQuerySeconds     int `json:"tmux_query_seconds"`     // default: 5
+	TmuxOperationSeconds int `json:"tmux_operation_seconds"` // default: 10
 }
 
 // Repo represents a git repository configuration.
@@ -392,4 +407,64 @@ func (c *Config) GetGitStatusPollIntervalMs() int {
 		return 10000
 	}
 	return c.Internal.GitStatusPollIntervalMs
+}
+
+// GetTimeouts returns the Timeouts config, or defaults if not set.
+// Does not modify internal state (safe for concurrent reads).
+func (c *Config) GetTimeouts() *Timeouts {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Return existing Timeouts if available, without modifying state
+	if c.Internal != nil && c.Internal.Timeouts != nil {
+		return c.Internal.Timeouts
+	}
+
+	// Return defaults without modifying internal state
+	return &Timeouts{
+		GitCloneSeconds:      DefaultGitCloneTimeoutSeconds,
+		GitStatusSeconds:     DefaultGitStatusTimeoutSeconds,
+		TmuxQuerySeconds:     DefaultTmuxQueryTimeoutSeconds,
+		TmuxOperationSeconds: DefaultTmuxOperationTimeoutSeconds,
+	}
+}
+
+// GetGitCloneTimeoutSeconds returns the git clone timeout in seconds. Defaults to 300 (5 min).
+func (c *Config) GetGitCloneTimeoutSeconds() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.GitCloneSeconds <= 0 {
+		return DefaultGitCloneTimeoutSeconds
+	}
+	return c.Internal.Timeouts.GitCloneSeconds
+}
+
+// GetGitStatusTimeoutSeconds returns the git status timeout in seconds. Defaults to 30.
+func (c *Config) GetGitStatusTimeoutSeconds() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.GitStatusSeconds <= 0 {
+		return DefaultGitStatusTimeoutSeconds
+	}
+	return c.Internal.Timeouts.GitStatusSeconds
+}
+
+// GetTmuxQueryTimeoutSeconds returns the tmux query timeout in seconds. Defaults to 5.
+func (c *Config) GetTmuxQueryTimeoutSeconds() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.TmuxQuerySeconds <= 0 {
+		return DefaultTmuxQueryTimeoutSeconds
+	}
+	return c.Internal.Timeouts.TmuxQuerySeconds
+}
+
+// GetTmuxOperationTimeoutSeconds returns the tmux operation timeout in seconds. Defaults to 10.
+func (c *Config) GetTmuxOperationTimeoutSeconds() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.TmuxOperationSeconds <= 0 {
+		return DefaultTmuxOperationTimeoutSeconds
+	}
+	return c.Internal.Timeouts.TmuxOperationSeconds
 }

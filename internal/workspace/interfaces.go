@@ -1,14 +1,16 @@
 package workspace
 
 import (
+	"context"
+
 	"github.com/sergek/schmux/internal/state"
 )
 
 // ScanResult represents the results of a workspace scan operation.
 type ScanResult struct {
-	Added   []state.Workspace    `json:"added"`
-	Updated []WorkspaceChange    `json:"updated"`
-	Removed []state.Workspace    `json:"removed"`
+	Added   []state.Workspace `json:"added"`
+	Updated []WorkspaceChange `json:"updated"`
+	Removed []state.Workspace `json:"removed"`
 }
 
 // WorkspaceChange represents a workspace that was updated, with old and new values.
@@ -24,16 +26,16 @@ type WorkspaceManager interface {
 
 	// GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
 	// Returns a workspace ready for use (fetch/pull/clean already done).
-	GetOrCreate(repoURL, branch string) (*state.Workspace, error)
+	GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error)
 
 	// Cleanup cleans up a workspace by resetting git state.
-	Cleanup(workspaceID string) error
+	Cleanup(ctx context.Context, workspaceID string) error
 
 	// UpdateGitStatus refreshes the git status for a single workspace.
-	UpdateGitStatus(workspaceID string) (*state.Workspace, error)
+	UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
 
 	// UpdateAllGitStatus refreshes git status for all workspaces.
-	UpdateAllGitStatus()
+	UpdateAllGitStatus(ctx context.Context)
 
 	// EnsureWorkspaceDir ensures the workspace base directory exists.
 	EnsureWorkspaceDir() error

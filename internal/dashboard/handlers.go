@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sergek/schmux/internal/config"
 )
@@ -159,6 +161,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if !sess.LastOutputAt.IsZero() {
 			lastOutputAt = sess.LastOutputAt.Format("2006-01-02T15:04:05")
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+		running := s.session.IsRunning(ctx, sess.ID)
+		cancel()
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
 			ID:           sess.ID,
 			Agent:        sess.Agent,
@@ -166,7 +171,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Nickname:     sess.Nickname,
 			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			LastOutputAt: lastOutputAt,
-			Running:      s.session.IsRunning(sess.ID),
+			Running:      running,
 			AttachCmd:    attachCmd,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
@@ -348,7 +353,10 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			if nickname != "" && spawnCount > 1 {
 				nickname = fmt.Sprintf("%s (%d)", nickname, i+1)
 			}
-			sess, err := s.session.Spawn(req.Repo, req.Branch, agentName, req.Prompt, nickname, req.WorkspaceID)
+			// Session spawn needs a longer timeout for git operations
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutSeconds())*time.Second)
+			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, agentName, req.Prompt, nickname, req.WorkspaceID)
+			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
 					Agent: agentName,
@@ -382,10 +390,13 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.session.Dispose(sessionID); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+	if err := s.session.Dispose(ctx, sessionID); err != nil {
+		cancel()
 		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
+	cancel()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -440,10 +451,13 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update nickname (and rename tmux session)
-	if err := s.session.RenameSession(sessionID, req.Nickname); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+	if err := s.session.RenameSession(ctx, sessionID, req.Nickname); err != nil {
+		cancel()
 		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
+	cancel()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -487,6 +501,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		ViewedBufferMs         int `json:"viewed_buffer_ms"`
 		SessionSeenIntervalMs  int `json:"session_seen_interval_ms"`
 		GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
+		GitCloneTimeoutSeconds  int `json:"git_clone_timeout_seconds"`
+		GitStatusTimeoutSeconds int `json:"git_status_timeout_seconds"`
 	}
 
 	type ConfigResponse struct {
@@ -523,6 +539,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			ViewedBufferMs:          s.config.GetViewedBufferMs(),
 			SessionSeenIntervalMs:   s.config.GetSessionSeenIntervalMs(),
 			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
+			GitCloneTimeoutSeconds:  s.config.GetGitCloneTimeoutSeconds(),
+			GitStatusTimeoutSeconds: s.config.GetGitStatusTimeoutSeconds(),
 		},
 	}
 
@@ -553,6 +571,8 @@ type ConfigUpdateRequest struct {
 		ViewedBufferMs          *int `json:"viewed_buffer_ms,omitempty"`
 		SessionSeenIntervalMs   *int `json:"session_seen_interval_ms,omitempty"`
 		GitStatusPollIntervalMs *int `json:"git_status_poll_interval_ms,omitempty"`
+		GitCloneTimeoutSeconds  *int `json:"git_clone_timeout_seconds,omitempty"`
+		GitStatusTimeoutSeconds *int `json:"git_status_timeout_seconds,omitempty"`
 	} `json:"internal,omitempty"`
 }
 
@@ -576,6 +596,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	viewedBufferMs := cfg.GetViewedBufferMs()
 	sessionSeenIntervalMs := cfg.GetSessionSeenIntervalMs()
 	gitStatusPollIntervalMs := cfg.GetGitStatusPollIntervalMs()
+	gitCloneTimeoutSeconds := cfg.GetGitCloneTimeoutSeconds()
+	gitStatusTimeoutSeconds := cfg.GetGitStatusTimeoutSeconds()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
@@ -659,6 +681,12 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Internal.GitStatusPollIntervalMs != nil && *req.Internal.GitStatusPollIntervalMs > 0 {
 			gitStatusPollIntervalMs = *req.Internal.GitStatusPollIntervalMs
 		}
+		if req.Internal.GitCloneTimeoutSeconds != nil && *req.Internal.GitCloneTimeoutSeconds > 0 {
+			gitCloneTimeoutSeconds = *req.Internal.GitCloneTimeoutSeconds
+		}
+		if req.Internal.GitStatusTimeoutSeconds != nil && *req.Internal.GitStatusTimeoutSeconds > 0 {
+			gitStatusTimeoutSeconds = *req.Internal.GitStatusTimeoutSeconds
+		}
 	}
 
 	// Create updated config
@@ -677,6 +705,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			ViewedBufferMs:          viewedBufferMs,
 			SessionSeenIntervalMs:   sessionSeenIntervalMs,
 			GitStatusPollIntervalMs: gitStatusPollIntervalMs,
+			Timeouts: &config.Timeouts{
+				GitCloneSeconds:  gitCloneTimeoutSeconds,
+				GitStatusSeconds: gitStatusTimeoutSeconds,
+			},
 		},
 	}
 
@@ -759,8 +791,10 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// --numstat shows: added/deleted lines filename
 	// -z uses null terminators for parsing
 	// --find-renames finds renames
-	cmd := exec.Command("git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
 	output, err := cmd.Output()
+	cancel()
 	if err != nil {
 		// No changes is not an error - continue, we'll still check for untracked files
 		output = []byte{}
@@ -785,7 +819,9 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		// Skip if file was deleted (added is "-")
 		if added == "-" {
 			// For deleted files, get old content
-			oldContent := s.getFileContent(ws.Path, filePath, "HEAD")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+			oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
+			cancel()
 			files = append(files, FileDiff{
 				NewPath:    filePath,
 				OldContent: oldContent,
@@ -795,8 +831,10 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if file is new (deleted is "0" and file doesn't exist in HEAD)
-		newContent := s.getFileContent(ws.Path, filePath, "worktree")
-		oldContent := s.getFileContent(ws.Path, filePath, "HEAD")
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+		newContent := s.getFileContent(ctx, ws.Path, filePath, "worktree")
+		oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
+		cancel()
 
 		status := "modified"
 		if oldContent == "" {
@@ -813,8 +851,10 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	// Get untracked files
 	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
-	untrackedCmd := exec.Command("git", "-C", ws.Path, "ls-files", "--others", "--exclude-standard")
+	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+	untrackedCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "ls-files", "--others", "--exclude-standard")
 	untrackedOutput, err := untrackedCmd.Output()
+	cancel()
 	if err == nil {
 		untrackedLines := strings.Split(string(untrackedOutput), "\n")
 		for _, filePath := range untrackedLines {
@@ -822,7 +862,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			// Get content of untracked file from working directory
-			newContent := s.getFileContent(ws.Path, filePath, "worktree")
+			newContent := s.getFileContent(context.Background(), ws.Path, filePath, "worktree")
 			files = append(files, FileDiff{
 				NewPath:    filePath,
 				NewContent: newContent,
@@ -844,7 +884,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 // getFileContent gets file content from a specific git tree-ish.
 // For "worktree", it reads from the working directory directly.
-func (s *Server) getFileContent(workspacePath, filePath, treeish string) string {
+func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, treeish string) string {
 	if treeish == "worktree" {
 		fullPath := filepath.Join(workspacePath, filePath)
 		content, err := os.ReadFile(fullPath)
@@ -853,7 +893,7 @@ func (s *Server) getFileContent(workspacePath, filePath, treeish string) string 
 		}
 		return string(content)
 	}
-	cmd := exec.Command("git", "-C", workspacePath, "show", fmt.Sprintf("%s:%s", treeish, filePath))
+	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "show", fmt.Sprintf("%s:%s", treeish, filePath))
 	output, err := cmd.Output()
 	if err != nil {
 		return ""

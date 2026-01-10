@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -263,8 +264,9 @@ func Run() error {
 		ticker := time.NewTicker(pollInterval)
 		defer ticker.Stop()
 		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.GetTmuxQueryTimeoutSeconds())*time.Second)
 			for _, sess := range st.GetSessions() {
-				if !sm.IsRunning(sess.ID) {
+				if !sm.IsRunning(ctx, sess.ID) {
 					continue
 				}
 				logPath, err := sm.GetLogPath(sess.ID)
@@ -277,6 +279,7 @@ func Run() error {
 					}
 				}
 			}
+			cancel()
 		}
 	}()
 
@@ -287,9 +290,13 @@ func Run() error {
 		defer ticker.Stop()
 		// Do initial update after a short delay to let daemon start
 		time.Sleep(500 * time.Millisecond)
-		wm.UpdateAllGitStatus()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.GetGitStatusTimeoutSeconds())*time.Second)
+		wm.UpdateAllGitStatus(ctx)
+		cancel()
 		for range ticker.C {
-			wm.UpdateAllGitStatus()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.GetGitStatusTimeoutSeconds())*time.Second)
+			wm.UpdateAllGitStatus(ctx)
+			cancel()
 		}
 	}()
 
@@ -299,19 +306,25 @@ func Run() error {
 		return fmt.Errorf("terminal.seed_lines must be configured")
 	}
 	for _, sess := range st.GetSessions() {
-		if !tmux.SessionExists(sess.TmuxSession) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.GetTmuxQueryTimeoutSeconds())*time.Second)
+		if !tmux.SessionExists(ctx, sess.TmuxSession) {
+			cancel()
 			continue
 		}
-		if tmux.IsPipePaneActive(sess.TmuxSession) {
+		if tmux.IsPipePaneActive(ctx, sess.TmuxSession) {
+			cancel()
 			continue
 		}
+		cancel()
 
 		logPath, err := sm.GetLogPath(sess.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get log path for %s: %w", sess.ID, err)
 		}
 
-		snapshot, err := tmux.CaptureLastLines(sess.TmuxSession, seedLines)
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.GetTmuxOperationTimeoutSeconds())*time.Second)
+		snapshot, err := tmux.CaptureLastLines(ctx, sess.TmuxSession, seedLines)
+		cancel()
 		if err != nil {
 			return fmt.Errorf("failed to capture %d lines for %s: %w", seedLines, sess.ID, err)
 		}
@@ -320,9 +333,12 @@ func Run() error {
 			return fmt.Errorf("failed to seed log file for %s: %w", sess.ID, err)
 		}
 
-		if err := tmux.StartPipePane(sess.TmuxSession, logPath); err != nil {
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.GetTmuxOperationTimeoutSeconds())*time.Second)
+		if err := tmux.StartPipePane(ctx, sess.TmuxSession, logPath); err != nil {
+			cancel()
 			return fmt.Errorf("failed to attach pipe-pane for %s: %w", sess.ID, err)
 		}
+		cancel()
 	}
 
 	// Start log pruner (every 60 minutes)

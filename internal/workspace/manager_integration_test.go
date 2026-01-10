@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -34,7 +35,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	manager := New(cfg, st, statePath)
 
 	// Create workspace on "main"
-	ws1, err := manager.GetOrCreate(repoDir, "main")
+	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
 	if err != nil {
 		t.Fatalf("GetOrCreate main failed: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	}
 
 	// Reuse for "feature-1" (exists in repo)
-	ws2, err := manager.GetOrCreate(repoDir, "feature-1")
+	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
 	if err != nil {
 		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
 	}

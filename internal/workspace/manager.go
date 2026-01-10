@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -58,7 +59,7 @@ func (m *Manager) GetByID(workspaceID string) (*state.Workspace, bool) {
 
 // GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
 // Returns a workspace ready for use (fetch/pull/clean already done).
-func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) {
+func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
 	// Try to find an existing workspace with matching repoURL and branch
 	for _, w := range m.state.GetWorkspaces() {
 		// Check if workspace directory still exists
@@ -78,7 +79,7 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 			if !hasActiveSessions {
 				m.logger.Printf("reusing existing workspace: id=%s path=%s branch=%s", w.ID, w.Path, branch)
 				// Prepare the workspace (fetch/pull/clean)
-				if err := m.prepare(w.ID, branch); err != nil {
+				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
 				return &w, nil
@@ -100,7 +101,7 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 			if !hasActiveSessions {
 				m.logger.Printf("reusing workspace for different branch: id=%s old_branch=%s new_branch=%s", w.ID, w.Branch, branch)
 				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
-				if err := m.prepare(w.ID, branch); err != nil {
+				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
 				// Update branch in state only after successful prepare
@@ -114,14 +115,14 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 	}
 
 	// Create a new workspace
-	w, err := m.create(repoURL, branch)
+	w, err := m.create(ctx, repoURL, branch)
 	if err != nil {
 		return nil, err
 	}
 	m.logger.Printf("created new workspace: id=%s path=%s branch=%s repo=%s", w.ID, w.Path, branch, repoURL)
 
 	// Prepare the workspace
-	if err := m.prepare(w.ID, branch); err != nil {
+	if err := m.prepare(ctx, w.ID, branch); err != nil {
 		return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 	}
 
@@ -129,7 +130,7 @@ func (m *Manager) GetOrCreate(repoURL, branch string) (*state.Workspace, error) 
 }
 
 // create creates a new workspace directory for the given repoURL.
-func (m *Manager) create(repoURL, branch string) (*state.Workspace, error) {
+func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
 	// Find repo config by URL
 	repoConfig, found := m.findRepoByURL(repoURL)
 	if !found {
@@ -147,7 +148,7 @@ func (m *Manager) create(repoURL, branch string) (*state.Workspace, error) {
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
 	// Clone the repository
-	if err := m.cloneRepo(repoURL, workspacePath); err != nil {
+	if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
 		return nil, fmt.Errorf("failed to clone repo: %w", err)
 	}
 
@@ -170,7 +171,7 @@ func (m *Manager) create(repoURL, branch string) (*state.Workspace, error) {
 }
 
 // prepare prepares a workspace for use (git checkout, pull, clean).
-func (m *Manager) prepare(workspaceID, branch string) error {
+func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
@@ -186,27 +187,27 @@ func (m *Manager) prepare(workspaceID, branch string) error {
 	m.logger.Printf("preparing workspace: id=%s branch=%s", workspaceID, branch)
 
 	// Fetch latest
-	if err := m.gitFetch(w.Path); err != nil {
+	if err := m.gitFetch(ctx, w.Path); err != nil {
 		return fmt.Errorf("git fetch failed: %w", err)
 	}
 
 	// Checkout branch
-	if err := m.gitCheckout(w.Path, branch); err != nil {
+	if err := m.gitCheckout(ctx, w.Path, branch); err != nil {
 		return fmt.Errorf("git checkout failed: %w", err)
 	}
 
 	// Discard any local changes (must happen before pull)
-	if err := m.gitCheckoutDot(w.Path); err != nil {
+	if err := m.gitCheckoutDot(ctx, w.Path); err != nil {
 		return fmt.Errorf("git checkout -- . failed: %w", err)
 	}
 
 	// Clean untracked files and directories (must happen before pull)
-	if err := m.gitClean(w.Path); err != nil {
+	if err := m.gitClean(ctx, w.Path); err != nil {
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
 	// Pull with rebase (working dir is now clean)
-	if err := m.gitPullRebase(w.Path); err != nil {
+	if err := m.gitPullRebase(ctx, w.Path); err != nil {
 		return fmt.Errorf("git pull --rebase failed (conflicts?): %w", err)
 	}
 
@@ -215,7 +216,7 @@ func (m *Manager) prepare(workspaceID, branch string) error {
 }
 
 // Cleanup cleans up a workspace by resetting git state.
-func (m *Manager) Cleanup(workspaceID string) error {
+func (m *Manager) Cleanup(ctx context.Context, workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
@@ -224,12 +225,12 @@ func (m *Manager) Cleanup(workspaceID string) error {
 	m.logger.Printf("cleaning up workspace: id=%s path=%s", workspaceID, w.Path)
 
 	// Reset all changes
-	if err := m.gitCheckoutDot(w.Path); err != nil {
+	if err := m.gitCheckoutDot(ctx, w.Path); err != nil {
 		return fmt.Errorf("git checkout -- . failed: %w", err)
 	}
 
 	// Clean untracked files
-	if err := m.gitClean(w.Path); err != nil {
+	if err := m.gitClean(ctx, w.Path); err != nil {
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
@@ -259,10 +260,10 @@ func (m *Manager) findRepoByURL(repoURL string) (config.Repo, bool) {
 }
 
 // cloneRepo clones a repository to the given path.
-func (m *Manager) cloneRepo(url, path string) error {
+func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 	m.logger.Printf("cloning repository: url=%s path=%s", url, path)
 	args := []string{"clone", url, path}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git clone failed: %w: %s", err, string(output))
@@ -273,9 +274,9 @@ func (m *Manager) cloneRepo(url, path string) error {
 }
 
 // gitFetch runs git fetch.
-func (m *Manager) gitFetch(dir string) error {
+func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 	args := []string{"fetch"}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -286,16 +287,16 @@ func (m *Manager) gitFetch(dir string) error {
 }
 
 // gitCheckout runs git checkout, falling back to creating a new branch if needed.
-func (m *Manager) gitCheckout(dir, branch string) error {
+func (m *Manager) gitCheckout(ctx context.Context, dir, branch string) error {
 	// Try regular checkout first (handles existing local/remote branches)
 	args := []string{"checkout", branch}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	if _, err := cmd.CombinedOutput(); err != nil {
 		// If checkout failed, try creating a new branch
 		args = []string{"checkout", "-b", branch}
-		cmd = exec.Command("git", args...)
+		cmd = exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = dir
 
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -307,9 +308,9 @@ func (m *Manager) gitCheckout(dir, branch string) error {
 }
 
 // gitPullRebase runs git pull --rebase.
-func (m *Manager) gitPullRebase(dir string) error {
+func (m *Manager) gitPullRebase(ctx context.Context, dir string) error {
 	args := []string{"pull", "--rebase"}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -325,9 +326,9 @@ func (m *Manager) gitPullRebase(dir string) error {
 }
 
 // gitCheckoutDot runs git checkout -- .
-func (m *Manager) gitCheckoutDot(dir string) error {
+func (m *Manager) gitCheckoutDot(ctx context.Context, dir string) error {
 	args := []string{"checkout", "--", "."}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -338,9 +339,9 @@ func (m *Manager) gitCheckoutDot(dir string) error {
 }
 
 // gitClean runs git clean -fd.
-func (m *Manager) gitClean(dir string) error {
+func (m *Manager) gitClean(ctx context.Context, dir string) error {
 	args := []string{"clean", "-fd"}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -383,14 +384,14 @@ func extractWorkspaceNumber(id string) (int, error) {
 
 // UpdateGitStatus refreshes the git status for a single workspace.
 // Returns the updated workspace or an error.
-func (m *Manager) UpdateGitStatus(workspaceID string) (*state.Workspace, error) {
+func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind := m.gitStatus(w.Path)
+	dirty, ahead, behind := m.gitStatus(ctx, w.Path)
 
 	// Update workspace in memory
 	w.GitDirty = dirty
@@ -407,9 +408,9 @@ func (m *Manager) UpdateGitStatus(workspaceID string) (*state.Workspace, error) 
 
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int)
-func (m *Manager) gitStatus(dir string) (dirty bool, ahead int, behind int) {
+func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int) {
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
-	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	statusCmd.Dir = dir
 	output, err := statusCmd.CombinedOutput()
 	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
@@ -418,7 +419,7 @@ func (m *Manager) gitStatus(dir string) (dirty bool, ahead int, behind int) {
 
 	// Check ahead/behind counts using rev-list
 	// @{u} is the shortcut for the upstream branch
-	revListCmd := exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
 	revListCmd.Dir = dir
 	output, err = revListCmd.CombinedOutput()
 	if err != nil {
@@ -439,10 +440,10 @@ func (m *Manager) gitStatus(dir string) (dirty bool, ahead int, behind int) {
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
-func (m *Manager) UpdateAllGitStatus() {
+func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 	for _, w := range workspaces {
-		if _, err := m.UpdateGitStatus(w.ID); err != nil {
+		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			m.logger.Printf("failed to update git status for workspace %s: %v", w.ID, err)
 		}
 	}

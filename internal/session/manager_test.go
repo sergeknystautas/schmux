@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
@@ -157,5 +158,5 @@ func TestIsRunning(t *testing.T) {
 
 	// This will fail if tmux is not installed or session doesn't exist
 	// which is expected in a test environment
-	_ = m.IsRunning("session-003")
+	_ = m.IsRunning(context.Background(), "session-003")
 }

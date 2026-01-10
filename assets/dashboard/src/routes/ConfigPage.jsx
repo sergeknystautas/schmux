@@ -37,6 +37,8 @@ export default function ConfigPage() {
   const [viewedBuffer, setViewedBuffer] = useState(5000);
   const [sessionSeenInterval, setSessionSeenInterval] = useState(2000);
   const [gitStatusPollInterval, setGitStatusPollInterval] = useState(10000);
+  const [gitCloneTimeout, setGitCloneTimeout] = useState(300);
+  const [gitStatusTimeout, setGitStatusTimeout] = useState(30);
 
   // Input states for new items
   const [newRepoName, setNewRepoName] = useState('');
@@ -76,6 +78,8 @@ export default function ConfigPage() {
         setViewedBuffer(data.internal?.viewed_buffer_ms || 5000);
         setSessionSeenInterval(data.internal?.session_seen_interval_ms || 2000);
         setGitStatusPollInterval(data.internal?.git_status_poll_interval_ms || 10000);
+        setGitCloneTimeout(data.internal?.git_clone_timeout_seconds || 300);
+        setGitStatusTimeout(data.internal?.git_status_timeout_seconds || 30);
       } catch (err) {
         if (!active) return;
         setError(err.message || 'Failed to load config');
@@ -152,6 +156,8 @@ export default function ConfigPage() {
           viewed_buffer_ms: viewedBuffer,
           session_seen_interval_ms: sessionSeenInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
+          git_clone_timeout_seconds: gitCloneTimeout,
+          git_status_timeout_seconds: gitStatusTimeout,
         }
       };
 
@@ -701,6 +707,30 @@ export default function ConfigPage() {
                       onChange={(e) => setGitStatusPollInterval(parseInt(e.target.value) || 10000)}
                     />
                     <p className="form-group__hint">How often to refresh git status (dirty, ahead, behind)</p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Git Clone Timeout (seconds)</label>
+                    <input
+                      type="number"
+                      className="input input--compact"
+                      min="10"
+                      value={gitCloneTimeout}
+                      onChange={(e) => setGitCloneTimeout(parseInt(e.target.value) || 300)}
+                    />
+                    <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300s = 5 min)</p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Git Status Timeout (seconds)</label>
+                    <input
+                      type="number"
+                      className="input input--compact"
+                      min="5"
+                      value={gitStatusTimeout}
+                      onChange={(e) => setGitStatusTimeout(parseInt(e.target.value) || 30)}
+                    />
+                    <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30s)</p>
                   </div>
                 </div>
               </div>

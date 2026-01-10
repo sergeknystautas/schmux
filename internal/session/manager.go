@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // Otherwise, find or create a workspace by repoURL/branch.
 // nickname is an optional human-friendly name for the session.
 // prompt is only used if the agent is agentic (takes prompts).
-func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
+func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
 	// Find agent config
 	agent, found := m.config.FindAgent(agentName)
 	if !found {
@@ -58,7 +59,7 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 		w = ws
 	} else {
 		// Get or create workspace (includes fetch/pull/clean)
-		w, err = m.workspace.GetOrCreate(repoURL, branch)
+		w, err = m.workspace.GetOrCreate(ctx, repoURL, branch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get workspace: %w", err)
 		}
@@ -85,7 +86,7 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 	}
 
 	// Create tmux session
-	if err := tmux.CreateSession(tmuxSession, w.Path, command); err != nil {
+	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, command); err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
@@ -96,20 +97,20 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 	} else {
 		// Force fixed window size for deterministic TUI output
 		width, height := m.config.GetTerminalSize()
-		if err := tmux.SetWindowSizeManual(tmuxSession); err != nil {
+		if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
 			fmt.Printf("warning: failed to set manual window size: %v\n", err)
 		}
-		if err := tmux.ResizeWindow(tmuxSession, width, height); err != nil {
+		if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
 			fmt.Printf("warning: failed to resize window: %v\n", err)
 		}
 		// Start pipe-pane to log file
-		if err := tmux.StartPipePane(tmuxSession, logPath); err != nil {
+		if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
 			return nil, fmt.Errorf("failed to start pipe-pane (session created): %w", err)
 		}
 	}
 
 	// Get the PID of the agent process from tmux pane
-	pid, err := tmux.GetPanePID(tmuxSession)
+	pid, err := tmux.GetPanePID(ctx, tmuxSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pane PID: %w", err)
 	}
@@ -137,7 +138,7 @@ func (m *Manager) Spawn(repoURL, branch, agentName, prompt, nickname string, wor
 
 // IsRunning checks if the agent process is still running.
 // Uses the cached PID from tmux pane, which is more reliable than searching by process name.
-func (m *Manager) IsRunning(sessionID string) bool {
+func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return false
@@ -145,7 +146,7 @@ func (m *Manager) IsRunning(sessionID string) bool {
 
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
-		return tmux.SessionExists(sess.TmuxSession)
+		return tmux.SessionExists(ctx, sess.TmuxSession)
 	}
 
 	// Check if the process is still running
@@ -163,14 +164,14 @@ func (m *Manager) IsRunning(sessionID string) bool {
 }
 
 // Dispose disposes of a session.
-func (m *Manager) Dispose(sessionID string) error {
+func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	// Kill tmux session (ignore error if already gone)
-	tmux.KillSession(sess.TmuxSession)
+	tmux.KillSession(ctx, sess.TmuxSession)
 
 	// Delete log file for this session
 	if err := m.deleteLogFile(sessionID); err != nil {
@@ -202,13 +203,13 @@ func (m *Manager) GetAttachCommand(sessionID string) (string, error) {
 }
 
 // GetOutput returns the current terminal output for a session.
-func (m *Manager) GetOutput(sessionID string) (string, error) {
+func (m *Manager) GetOutput(ctx context.Context, sessionID string) (string, error) {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	return tmux.CaptureOutput(sess.TmuxSession)
+	return tmux.CaptureOutput(ctx, sess.TmuxSession)
 }
 
 // GetAllSessions returns all sessions.
@@ -227,7 +228,7 @@ func (m *Manager) GetSession(sessionID string) (*state.Session, error) {
 
 // RenameSession updates a session's nickname and renames the tmux session.
 // The nickname is sanitized before use as the tmux session name.
-func (m *Manager) RenameSession(sessionID, newNickname string) error {
+func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname string) error {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return fmt.Errorf("session not found: %s", sessionID)
@@ -240,7 +241,7 @@ func (m *Manager) RenameSession(sessionID, newNickname string) error {
 	}
 
 	// Rename the tmux session
-	if err := tmux.RenameSession(oldTmuxName, newTmuxName); err != nil {
+	if err := tmux.RenameSession(ctx, oldTmuxName, newTmuxName); err != nil {
 		return fmt.Errorf("failed to rename tmux session: %w", err)
 	}
 
@@ -340,13 +341,13 @@ func (m *Manager) GetLogPath(sessionID string) (string, error) {
 }
 
 // EnsurePipePane ensures pipe-pane is active for a session (auto-migrate old sessions).
-func (m *Manager) EnsurePipePane(sessionID string) error {
+func (m *Manager) EnsurePipePane(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 	// Check if pipe-pane is already active
-	if tmux.IsPipePaneActive(sess.TmuxSession) {
+	if tmux.IsPipePaneActive(ctx, sess.TmuxSession) {
 		return nil
 	}
 	// Ensure log file exists
@@ -356,13 +357,13 @@ func (m *Manager) EnsurePipePane(sessionID string) error {
 	}
 	// Set window size and start pipe-pane
 	width, height := m.config.GetTerminalSize()
-	if err := tmux.SetWindowSizeManual(sess.TmuxSession); err != nil {
+	if err := tmux.SetWindowSizeManual(ctx, sess.TmuxSession); err != nil {
 		fmt.Printf("warning: failed to set manual window size: %v\n", err)
 	}
-	if err := tmux.ResizeWindow(sess.TmuxSession, width, height); err != nil {
+	if err := tmux.ResizeWindow(ctx, sess.TmuxSession, width, height); err != nil {
 		fmt.Printf("warning: failed to resize window: %v\n", err)
 	}
-	if err := tmux.StartPipePane(sess.TmuxSession, logPath); err != nil {
+	if err := tmux.StartPipePane(ctx, sess.TmuxSession, logPath); err != nil {
 		return fmt.Errorf("failed to start pipe-pane: %w", err)
 	}
 	return nil

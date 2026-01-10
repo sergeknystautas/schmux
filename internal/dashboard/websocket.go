@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,10 +45,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check if session is already dead before doing anything else
-	if !s.session.IsRunning(sessionID) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+	if !s.session.IsRunning(ctx, sessionID) {
+		cancel()
 		http.Error(w, "session not running", http.StatusGone)
 		return
 	}
+	cancel()
 
 	// Get log file path
 	logPath, err := s.session.GetLogPath(sessionID)
@@ -176,10 +180,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				continue
 			}
 			// Check if session is still running
-			if !s.session.IsRunning(sessionID) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+			if !s.session.IsRunning(ctx, sessionID) {
+				cancel()
 				sendOutput("append", "\n[Session ended]")
 				return
 			}
+			cancel()
 			if err := readFileAndSend(false); err != nil {
 				return
 			}
@@ -197,9 +204,12 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if err != nil {
 					break
 				}
-				if err := tmux.SendKeys(sess.TmuxSession, msg.Data); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+				if err := tmux.SendKeys(ctx, sess.TmuxSession, msg.Data); err != nil {
+					cancel()
 					fmt.Printf("Error sending keys to tmux: %v\n", err)
 				}
+				cancel()
 			}
 		}
 	}

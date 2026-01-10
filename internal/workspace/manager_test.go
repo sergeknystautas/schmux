@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -313,7 +314,7 @@ func TestDispose_Integration(t *testing.T) {
 	m := New(cfg, st, statePath)
 
 	// Create workspace via GetOrCreate (real git clone/checkout)
-	ws, err := m.GetOrCreate(repoDir, "main")
+	ws, err := m.GetOrCreate(context.Background(), repoDir, "main")
 	if err != nil {
 		t.Fatalf("GetOrCreate failed: %v", err)
 	}

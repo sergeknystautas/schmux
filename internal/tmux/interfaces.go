@@ -1,51 +1,53 @@
 package tmux
 
+import "context"
+
 // TmuxService defines the interface for tmux operations.
 type TmuxService interface {
 	// CreateSession creates a new tmux session with the given name, directory, and command.
-	CreateSession(name, dir, command string) error
+	CreateSession(ctx context.Context, name, dir, command string) error
 
 	// KillSession kills a tmux session.
-	KillSession(name string) error
+	KillSession(ctx context.Context, name string) error
 
 	// ListSessions returns a list of all tmux session names.
-	ListSessions() ([]string, error)
+	ListSessions(ctx context.Context) ([]string, error)
 
 	// SessionExists checks if a tmux session with the given name exists.
-	SessionExists(name string) bool
+	SessionExists(ctx context.Context, name string) bool
 
 	// GetPanePID returns the PID of the first process in the tmux session's pane.
-	GetPanePID(name string) (int, error)
+	GetPanePID(ctx context.Context, name string) (int, error)
 
 	// CaptureOutput captures the current output of a tmux session.
-	CaptureOutput(name string) (string, error)
+	CaptureOutput(ctx context.Context, name string) (string, error)
 
 	// CaptureLastLines captures the last N lines of the pane.
-	CaptureLastLines(name string, lines int) (string, error)
+	CaptureLastLines(ctx context.Context, name string, lines int) (string, error)
 
 	// SendKeys sends keys to a tmux session.
-	SendKeys(name, keys string) error
+	SendKeys(ctx context.Context, name, keys string) error
 
 	// GetAttachCommand returns the command to attach to a tmux session.
 	GetAttachCommand(name string) string
 
 	// SetWindowSizeManual forces tmux to ignore client resize requests.
-	SetWindowSizeManual(sessionName string) error
+	SetWindowSizeManual(ctx context.Context, sessionName string) error
 
 	// ResizeWindow resizes the window to fixed dimensions.
-	ResizeWindow(sessionName string, width, height int) error
+	ResizeWindow(ctx context.Context, sessionName string, width, height int) error
 
 	// StartPipePane begins streaming pane output to a log file.
-	StartPipePane(sessionName, logPath string) error
+	StartPipePane(ctx context.Context, sessionName, logPath string) error
 
 	// StopPipePane stops streaming pane output.
-	StopPipePane(sessionName string) error
+	StopPipePane(ctx context.Context, sessionName string) error
 
 	// IsPipePaneActive checks if pipe-pane is running for a session.
-	IsPipePaneActive(sessionName string) bool
+	IsPipePaneActive(ctx context.Context, sessionName string) bool
 
 	// RenameSession renames an existing tmux session.
-	RenameSession(oldName, newName string) error
+	RenameSession(ctx context.Context, oldName, newName string) error
 }
 
 // Ensure the package functions implement TmuxService via a type adapter.
@@ -57,62 +59,62 @@ func NewTmuxService() TmuxService {
 	return &tmuxService{}
 }
 
-func (t *tmuxService) CreateSession(name, dir, command string) error {
-	return CreateSession(name, dir, command)
+func (t *tmuxService) CreateSession(ctx context.Context, name, dir, command string) error {
+	return CreateSession(ctx, name, dir, command)
 }
 
-func (t *tmuxService) KillSession(name string) error {
-	return KillSession(name)
+func (t *tmuxService) KillSession(ctx context.Context, name string) error {
+	return KillSession(ctx, name)
 }
 
-func (t *tmuxService) ListSessions() ([]string, error) {
-	return ListSessions()
+func (t *tmuxService) ListSessions(ctx context.Context) ([]string, error) {
+	return ListSessions(ctx)
 }
 
-func (t *tmuxService) SessionExists(name string) bool {
-	return SessionExists(name)
+func (t *tmuxService) SessionExists(ctx context.Context, name string) bool {
+	return SessionExists(ctx, name)
 }
 
-func (t *tmuxService) GetPanePID(name string) (int, error) {
-	return GetPanePID(name)
+func (t *tmuxService) GetPanePID(ctx context.Context, name string) (int, error) {
+	return GetPanePID(ctx, name)
 }
 
-func (t *tmuxService) CaptureOutput(name string) (string, error) {
-	return CaptureOutput(name)
+func (t *tmuxService) CaptureOutput(ctx context.Context, name string) (string, error) {
+	return CaptureOutput(ctx, name)
 }
 
-func (t *tmuxService) CaptureLastLines(name string, lines int) (string, error) {
-	return CaptureLastLines(name, lines)
+func (t *tmuxService) CaptureLastLines(ctx context.Context, name string, lines int) (string, error) {
+	return CaptureLastLines(ctx, name, lines)
 }
 
-func (t *tmuxService) SendKeys(name, keys string) error {
-	return SendKeys(name, keys)
+func (t *tmuxService) SendKeys(ctx context.Context, name, keys string) error {
+	return SendKeys(ctx, name, keys)
 }
 
 func (t *tmuxService) GetAttachCommand(name string) string {
 	return GetAttachCommand(name)
 }
 
-func (t *tmuxService) SetWindowSizeManual(sessionName string) error {
-	return SetWindowSizeManual(sessionName)
+func (t *tmuxService) SetWindowSizeManual(ctx context.Context, sessionName string) error {
+	return SetWindowSizeManual(ctx, sessionName)
 }
 
-func (t *tmuxService) ResizeWindow(sessionName string, width, height int) error {
-	return ResizeWindow(sessionName, width, height)
+func (t *tmuxService) ResizeWindow(ctx context.Context, sessionName string, width, height int) error {
+	return ResizeWindow(ctx, sessionName, width, height)
 }
 
-func (t *tmuxService) StartPipePane(sessionName, logPath string) error {
-	return StartPipePane(sessionName, logPath)
+func (t *tmuxService) StartPipePane(ctx context.Context, sessionName, logPath string) error {
+	return StartPipePane(ctx, sessionName, logPath)
 }
 
-func (t *tmuxService) StopPipePane(sessionName string) error {
-	return StopPipePane(sessionName)
+func (t *tmuxService) StopPipePane(ctx context.Context, sessionName string) error {
+	return StopPipePane(ctx, sessionName)
 }
 
-func (t *tmuxService) IsPipePaneActive(sessionName string) bool {
-	return IsPipePaneActive(sessionName)
+func (t *tmuxService) IsPipePaneActive(ctx context.Context, sessionName string) bool {
+	return IsPipePaneActive(ctx, sessionName)
 }
 
-func (t *tmuxService) RenameSession(oldName, newName string) error {
-	return RenameSession(oldName, newName)
+func (t *tmuxService) RenameSession(ctx context.Context, oldName, newName string) error {
+	return RenameSession(ctx, oldName, newName)
 }
