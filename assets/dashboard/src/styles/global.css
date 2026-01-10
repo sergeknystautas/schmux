@@ -616,7 +616,6 @@ body {
 .workspace-list {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
 }
 
 .workspace-item {
@@ -624,6 +623,7 @@ body {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     overflow: hidden;
+    margin-bottom: var(--spacing-md);
 }
 
 .workspace-item__header {
@@ -731,6 +731,11 @@ body {
 
 .session-table tr:hover {
     background-color: var(--color-surface-alt);
+}
+
+.session-row--current {
+    background-color: var(--color-accent-subtle);
+    font-weight: 500;
 }
 
 .session-table__actions {
@@ -1866,3 +1871,4 @@ a:hover {
     background-color: var(--color-info-subtle, #e0f2fe);
     color: var(--color-info, #0284c7);
 }
+

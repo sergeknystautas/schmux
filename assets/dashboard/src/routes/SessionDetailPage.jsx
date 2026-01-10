@@ -10,6 +10,7 @@ import { useConfig } from '../contexts/ConfigContext.jsx';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
 import Tooltip from '../components/Tooltip.jsx';
 import useLocalStorage from '../hooks/useLocalStorage.js';
+import WorkspacesList from '../components/WorkspacesList.jsx';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -37,9 +38,11 @@ export default function SessionDetailPage() {
       try {
         const workspaces = await getSessions();
         let session = null;
+        let workspaceId = null;
         for (const ws of workspaces) {
           const found = ws.sessions.find((s) => s.id === sessionId);
           if (found) {
+            workspaceId = ws.id;
             session = {
               ...found,
               workspace_id: ws.id,
@@ -58,7 +61,7 @@ export default function SessionDetailPage() {
           return;
         }
 
-        setSessionData(session);
+        setSessionData({ ...session, workspaceId });
         setLoading(false);
 
         // Mark session as viewed
@@ -187,13 +190,29 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleCopyWorkspace = async () => {
-    if (!sessionData) return;
-    const ok = await copyToClipboard(sessionData.workspace_path);
+  const handleSessionCopyAttach = async (command) => {
+    const ok = await copyToClipboard(command);
     if (ok) {
-      success('Copied workspace path');
+      success('Copied attach command');
     } else {
       toastError('Failed to copy');
+    }
+  };
+
+  const handleSessionDispose = async (sessionId) => {
+    const accepted = await show('Dispose Session', `Dispose session ${sessionId}?`, {
+      danger: true,
+      confirmText: 'Dispose',
+      detailedMessage: 'This will stop tracking the session and clean up resources. The tmux session will remain available if you need to attach manually.'
+    });
+    if (!accepted) return;
+
+    try {
+      await disposeSession(sessionId);
+      success('Session disposed');
+      navigate('/sessions');
+    } catch (err) {
+      toastError(`Failed to dispose: ${err.message}`);
     }
   };
 
@@ -229,6 +248,57 @@ export default function SessionDetailPage() {
 
   return (
     <>
+      {sessionData && (
+        <WorkspacesList
+          workspaceId={sessionData.workspaceId}
+          currentSessionId={sessionId}
+          showControls={false}
+          renderActions={(workspace) => (
+            <>
+              <Tooltip content="View git diff">
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/diff/${workspace.id}`);
+                  }}
+                  aria-label={`View diff for ${workspace.id}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                  Diff
+                </button>
+              </Tooltip>
+              <Tooltip content="Spawn session in this workspace">
+                <button
+                  className="btn btn--sm btn--primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/spawn?workspace_id=${workspace.id}`);
+                  }}
+                  aria-label={`Spawn in ${workspace.id}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                  Spawn
+                </button>
+              </Tooltip>
+            </>
+          )}
+          renderSessionActions={(action, sess) => {
+            if (action === 'dispose') {
+              return () => handleSessionDispose(sess.id);
+            }
+            return undefined;
+          }}
+        />
+      )}
+
       <div className="page-header">
         <h1 className="page-header__title">Session <span className="mono">{titleText}</span></h1>
         <div className="page-header__actions">
@@ -240,13 +310,6 @@ export default function SessionDetailPage() {
               </svg>
             </button>
           </Tooltip>
-          <Link to="/sessions" className="btn btn--ghost">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            Back
-          </Link>
         </div>
       </div>
 
@@ -337,35 +400,6 @@ export default function SessionDetailPage() {
               <span className="metadata-field__value" style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>Not set</span>
             </div>
           )}
-
-          <div className="metadata-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <span className="metadata-field__label">Workspace</span>
-              <Tooltip content="Copy workspace path">
-                <button className="btn btn--sm btn--ghost" onClick={handleCopyWorkspace}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
-              </Tooltip>
-            </div>
-            <Tooltip content={sessionData.workspace_path}>
-              <span className="metadata-field__value metadata-field__value--mono">{sessionData.workspace_id}</span>
-            </Tooltip>
-          </div>
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Repository</span>
-            <Tooltip content={sessionData.repo}>
-              <a className="metadata-field__value" href={sessionData.repo} target="_blank" rel="noopener noreferrer" style={{ alignSelf: 'flex-start' }}>{truncateStart(sessionData.repo)}</a>
-            </Tooltip>
-          </div>
-
-          <div className="metadata-field">
-            <span className="metadata-field__label">Branch</span>
-            <span className="metadata-field__value">{sessionData.branch}</span>
-          </div>
 
           <div className="metadata-field">
             <span className="metadata-field__label">Created</span>

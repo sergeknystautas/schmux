@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import ReactDiffViewer from 'react-diff-viewer-continued';
-import { getDiff } from '../lib/api.js';
+import { getDiff, disposeSession } from '../lib/api.js';
+import { copyToClipboard } from '../lib/utils.js';
 import useTheme from '../hooks/useTheme.js';
+import useLocalStorage from '../hooks/useLocalStorage.js';
+import { useToast } from '../components/ToastProvider.jsx';
+import { useModal } from '../components/ModalProvider.jsx';
+import WorkspacesList from '../components/WorkspacesList.jsx';
+import Tooltip from '../components/Tooltip.jsx';
 
 export default function DiffPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { success, error: toastError } = useToast();
+  const { confirm } = useModal();
   const [diffData, setDiffData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,6 +42,28 @@ export default function DiffPage() {
 
   const selectedFile = diffData?.files?.[selectedFileIndex];
 
+  const handleCopyAttach = async (command) => {
+    const ok = await copyToClipboard(command);
+    if (ok) {
+      success('Copied attach command');
+    } else {
+      toastError('Failed to copy');
+    }
+  };
+
+  const handleDispose = async (sessionId) => {
+    const accepted = await confirm(`Dispose session ${sessionId}?`, { danger: true });
+    if (!accepted) return;
+
+    try {
+      await disposeSession(sessionId);
+      success('Session disposed');
+      // WorkspacesList will auto-refresh
+    } catch (err) {
+      toastError(`Failed to dispose: ${err.message}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-state">
@@ -45,40 +75,122 @@ export default function DiffPage() {
 
   if (error) {
     return (
-      <div className="empty-state">
-        <div className="empty-state__icon">⚠️</div>
-        <h3 className="empty-state__title">Failed to load diff</h3>
-        <p className="empty-state__description">{error}</p>
-        <Link to="/workspaces" className="btn btn--primary">Back to Workspaces</Link>
-      </div>
+      <>
+        <WorkspacesList
+          workspaceId={workspaceId}
+          showControls={false}
+          renderActions={(workspace) => (
+            <>
+              <Tooltip content="Spawn session in this workspace">
+                <button
+                  className="btn btn--sm btn--primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/spawn?workspace_id=${workspace.id}`);
+                  }}
+                  aria-label={`Spawn in ${workspace.id}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                  Spawn
+                </button>
+              </Tooltip>
+            </>
+          )}
+          renderSessionActions={(action, sess) => {
+            if (action === 'dispose') {
+              return () => handleDispose(sess.id);
+            }
+            return undefined;
+          }}
+        />
+        <div className="empty-state">
+          <div className="empty-state__icon">⚠️</div>
+          <h3 className="empty-state__title">Failed to load diff</h3>
+          <p className="empty-state__description">{error}</p>
+          <a href="/workspaces" className="btn btn--primary">Back to Workspaces</a>
+        </div>
+      </>
     );
   }
 
   if (!diffData.files || diffData.files.length === 0) {
     return (
-      <div className="empty-state">
-        <h3 className="empty-state__title">No changes in workspace</h3>
-        <p className="empty-state__description">This workspace has no uncommitted changes</p>
-        <Link to="/workspaces" className="btn btn--primary">Back to Workspaces</Link>
-      </div>
+      <>
+        <WorkspacesList
+          workspaceId={workspaceId}
+          showControls={false}
+          renderActions={(workspace) => (
+            <>
+              <Tooltip content="Spawn session in this workspace">
+                <button
+                  className="btn btn--sm btn--primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/spawn?workspace_id=${workspace.id}`);
+                  }}
+                  aria-label={`Spawn in ${workspace.id}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                  Spawn
+                </button>
+              </Tooltip>
+            </>
+          )}
+          renderSessionActions={(action, sess) => {
+            if (action === 'dispose') {
+              return () => handleDispose(sess.id);
+            }
+            return undefined;
+          }}
+        />
+        <div className="empty-state">
+          <h3 className="empty-state__title">No changes in workspace</h3>
+          <p className="empty-state__description">This workspace has no uncommitted changes</p>
+          <a href="/workspaces" className="btn btn--primary">Back to Workspaces</a>
+        </div>
+      </>
     );
   }
 
   return (
     <>
-      <div className="page-header">
-        <div className="page-header__info">
-          <h1 className="page-header__title">{workspaceId} · {diffData.branch}</h1>
-        </div>
-        <div className="page-header__actions">
-          <Link to="/workspaces" className="btn btn--ghost">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M19 12H5M12 19l-7-7 7-7"/>
-            </svg>
-            Back
-          </Link>
-        </div>
-      </div>
+      <WorkspacesList
+        workspaceId={workspaceId}
+        showControls={false}
+        renderActions={(workspace) => (
+          <Tooltip content="Spawn session in this workspace">
+            <button
+              className="btn btn--sm btn--primary"
+              onClick={(event) => {
+                event.stopPropagation();
+                navigate(`/spawn?workspace_id=${workspace.id}`);
+              }}
+              aria-label={`Spawn in ${workspace.id}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+              Spawn
+            </button>
+          </Tooltip>
+        )}
+        renderSessionActions={(action, sess) => {
+          if (action === 'dispose') {
+            return () => handleDispose(sess.id);
+          }
+          return undefined;
+        }}
+      />
 
       <div className="diff-layout">
         <div className="diff-sidebar">

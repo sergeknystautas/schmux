@@ -4,12 +4,13 @@ import { formatRelativeTime, formatTimestamp } from '../lib/utils.js';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
 import Tooltip from './Tooltip.jsx';
 
-export default function SessionTableRow({ sess, onCopyAttach, onDispose }) {
+export default function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const { viewedSessions } = useViewedSessions();
 
   const statusClass = sess.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sess.running ? 'Running' : 'Stopped';
   const displayName = sess.nickname || sess.agent;
+  const isCurrent = currentSessionId === sess.id;
 
   // Check for new updates since last viewed
   const lastViewedAt = viewedSessions[sess.id] || 0;
@@ -17,7 +18,7 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose }) {
   const hasNewUpdates = lastOutputTime > 0 && lastOutputTime > lastViewedAt;
 
   return (
-    <tr className="session-row" key={sess.id}>
+    <tr className={`session-row${isCurrent ? ' session-row--current' : ''}`} key={sess.id}>
       <td>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
           <Tooltip content="View session">
