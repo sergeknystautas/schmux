@@ -11,7 +11,7 @@
   - `internal/tmux/` — tmux integration and process inspection.
   - `internal/config/`, `internal/state/` — config/state IO.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/JS) served by the daemon.
-- Docs: `README.md`, `SPEC.md`, `WEB-UX.md`, `CONTRIBUTING.md`.
+- Docs: `README.md`, `docs/cli.md`, `docs/frontend-architecture.md`, `docs/web-ux.md`, `SPEC.md`, `CONTRIBUTING.md`.
 
 ## Build, Test, and Development Commands
 
@@ -29,7 +29,7 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 - Go: keep changes `gofmt`-clean (`gofmt -w .` or `go fmt ./...`).
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
-- Frontend assets live in `assets/dashboard/`; keep HTML/CSS/JS minimal and consistent with `WEB-UX.md`.
+- Frontend assets live in `assets/dashboard/`; keep HTML/CSS/JS minimal and consistent with `docs/frontend-architecture.md`.
 
 ## Testing Guidelines
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/daemon"
+	"github.com/sergek/schmux/pkg/cli"
 )
 
 func main() {
@@ -73,6 +74,38 @@ func main() {
 	case "help", "-h", "--help":
 		printUsage()
 
+	case "spawn":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewSpawnCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "list":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewListCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "attach":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewAttachCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "dispose":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewDisposeCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -86,16 +119,24 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  schmux <command>")
 	fmt.Println()
-	fmt.Println("Commands:")
+	fmt.Println("Daemon Commands:")
 	fmt.Println("  start       Start the daemon in background")
 	fmt.Println("  stop        Stop the daemon")
 	fmt.Println("  status      Show daemon status and dashboard URL")
 	fmt.Println("  daemon-run  Run the daemon in foreground (for debugging)")
+	fmt.Println()
+	fmt.Println("Session Commands:")
+	fmt.Println("  spawn       Spawn a new session")
+	fmt.Println("  list        List sessions")
+	fmt.Println("  attach      Attach to a session")
+	fmt.Println("  dispose     Dispose a session")
+	fmt.Println()
+	fmt.Println("Help:")
 	fmt.Println("  help        Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  schmux start       # Start the daemon")
-	fmt.Println("  schmux status      # Check if daemon is running")
-	fmt.Println("  schmux stop        # Stop the daemon")
-	fmt.Println("  schmux daemon-run  # Run in foreground to see debug output")
+	fmt.Println("  schmux start                        # Start the daemon")
+	fmt.Println("  schmux spawn -a claude -p \"fix bug\"  # Spawn in current workspace")
+	fmt.Println("  schmux list                         # List all sessions")
+	fmt.Println("  schmux attach <session-id>           # Attach to a session")
 }

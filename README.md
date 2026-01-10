@@ -133,8 +133,10 @@ Then start the daemon:
 
 ## Documentation
 
+- [docs/cli.md](docs/cli.md) - CLI command reference
+- [docs/frontend-architecture.md](docs/frontend-architecture.md) - Web UI architecture
+- [docs/web-ux.md](docs/web-ux.md) - UI/UX patterns and design system
 - [SPEC.md](SPEC.md) - Full feature specification
-- [WEB-UX.md](WEB-UX.md) - Web UI/UX architecture and component standards
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Guide to contribute to this codebase
 
 ## Development

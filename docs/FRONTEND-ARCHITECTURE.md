@@ -824,4 +824,4 @@ When making changes to the frontend:
 - [Vite Documentation](https://vitejs.dev/)
 - [xterm.js Documentation](https://xtermjs.org/)
 - [REACT-IMPROVEMENTS.md](../REACT-IMPROVEMENTS.md) — Task tracker for frontend improvements
-- [WEB-UX.md](../WEB-UX.md) — UI/UX patterns and design system
+- [docs/web-ux.md](web-ux.md) — UI/UX patterns and design system

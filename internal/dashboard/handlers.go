@@ -293,13 +293,16 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate request
-	if req.Repo == "" {
-		http.Error(w, "repo is required", http.StatusBadRequest)
-		return
-	}
-	if req.Branch == "" {
-		http.Error(w, "branch is required", http.StatusBadRequest)
-		return
+	if req.WorkspaceID == "" {
+		// When not spawning into existing workspace, repo and branch are required
+		if req.Repo == "" {
+			http.Error(w, "repo is required (when not using --workspace)", http.StatusBadRequest)
+			return
+		}
+		if req.Branch == "" {
+			http.Error(w, "branch is required (when not using --workspace)", http.StatusBadRequest)
+			return
+		}
 	}
 	if len(req.Agents) == 0 {
 		http.Error(w, "at least one agent is required", http.StatusBadRequest)

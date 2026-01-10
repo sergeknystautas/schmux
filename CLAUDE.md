@@ -68,7 +68,7 @@ go test -cover ./...
 
 ## Web Dashboard Guidelines
 
-See `WEB-UX.md` for complete UI/UX patterns. Key principles:
+See `docs/frontend-architecture.md` for complete UI/UX patterns. Key principles:
 
 - **CLI-first**: web dashboard is for observability/orchestration
 - **Status-first**: running/stopped/error visually consistent everywhere
@@ -84,6 +84,8 @@ Routes:
 
 ## Important Files
 
+- `docs/cli.md` - CLI command reference
+- `docs/frontend-architecture.md` - Web UI architecture
+- `docs/web-ux.md` - Dashboard UI/UX patterns, component system
 - `SPEC.md` - Feature specification
-- `WEB-UX.md` - Dashboard UI/UX patterns, component system
 - `AGENTS.md` - Architecture guidelines and conventions
