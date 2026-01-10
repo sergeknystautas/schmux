@@ -195,6 +195,21 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || ''
       });
       setResults(response);
+
+      // Clear collapsed state for reused workspace IDs so new sessions are visible
+      const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id))];
+      const expandedKey = 'schmux:workspace-expanded';
+      const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}');
+      let changed = false;
+      workspaceIds.forEach(id => {
+        if (expanded[id] === false) {
+          expanded[id] = true;
+          changed = true;
+        }
+      });
+      if (changed) {
+        localStorage.setItem(expandedKey, JSON.stringify(expanded));
+      }
     } catch (err) {
       toastError(`Failed to spawn: ${err.message}`);
     } finally {
