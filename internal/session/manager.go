@@ -21,7 +21,6 @@ import (
 type Manager struct {
 	config    *config.Config
 	state     state.StateStore
-	statePath string
 	workspace workspace.WorkspaceManager
 }
 
@@ -30,7 +29,6 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 	return &Manager{
 		config:    cfg,
 		state:     st,
-		statePath: statePath,
 		workspace: wm,
 	}
 }

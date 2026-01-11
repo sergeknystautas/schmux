@@ -260,10 +260,10 @@ func TestClient_GetSessions(t *testing.T) {
 
 func TestClient_Spawn(t *testing.T) {
 	req := SpawnRequest{
-		Repo:    "test",
-		Branch:  "main",
-		Prompt:  "test prompt",
-		Agents:  map[string]int{"claude": 1},
+		Repo:   "test",
+		Branch: "main",
+		Prompt: "test prompt",
+		Agents: map[string]int{"claude": 1},
 	}
 	expectedResults := []SpawnResult{
 		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Agent: "claude"},

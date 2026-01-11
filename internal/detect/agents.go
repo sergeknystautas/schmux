@@ -25,26 +25,31 @@ type agentDetector struct {
 
 // DetectAvailableAgents runs agent detection concurrently and returns available agents.
 // All detectors run in parallel with a shared timeout.
-func DetectAvailableAgents() []Agent {
-	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
-	defer cancel()
-
+// If printProgress is true, prints detection progress to stdout.
+func DetectAvailableAgents(printProgress bool) []Agent {
 	detectors := []agentDetector{
 		{name: "claude", command: "claude", versionArg: "-v"},
 		{name: "gemini", command: "gemini", versionArg: "-v"},
 		{name: "codex", command: "codex", versionArg: "-V"},
 	}
 
-	var wg sync.WaitGroup
-	results := make(chan Agent, len(detectors))
+	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
+	defer cancel()
 
+	type result struct {
+		agent Agent
+		found bool
+		name  string // detector name for not-found message
+	}
+	results := make(chan result, len(detectors))
+
+	var wg sync.WaitGroup
 	for _, detector := range detectors {
 		wg.Add(1)
 		go func(d agentDetector) {
 			defer wg.Done()
-			if agent, found := detectAgent(ctx, d); found {
-				results <- agent
-			}
+			agent, found := detectAgent(ctx, d)
+			results <- result{agent, found, d.name}
 		}(detector)
 	}
 
@@ -54,8 +59,17 @@ func DetectAvailableAgents() []Agent {
 	}()
 
 	var agents []Agent
-	for agent := range results {
-		agents = append(agents, agent)
+	for r := range results {
+		if r.found {
+			if printProgress {
+				fmt.Printf("  Detecting %s... found\n", r.agent.Name)
+			}
+			agents = append(agents, r.agent)
+		} else {
+			if printProgress {
+				fmt.Printf("  Detecting %s... not found\n", r.name)
+			}
+		}
 	}
 
 	return agents
@@ -118,50 +132,7 @@ func looksLikeVersion(output string) bool {
 // DetectAndPrint runs detection and prints progress messages to stdout.
 // Returns the detected agents for use in config.
 func DetectAndPrint() []Agent {
-	detectors := []agentDetector{
-		{name: "claude", command: "claude", versionArg: "-v"},
-		{name: "gemini", command: "gemini", versionArg: "-v"},
-		{name: "codex", command: "codex", versionArg: "-V"},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	type result struct {
-		agent Agent
-		found bool
-		name  string // detector name for not-found message
-	}
-	results := make(chan result, len(detectors))
-
-	// Run detectors concurrently
-	for _, detector := range detectors {
-		wg.Add(1)
-		go func(d agentDetector) {
-			defer wg.Done()
-			agent, found := detectAgent(ctx, d)
-			results <- result{agent, found, d.name}
-		}(detector)
-	}
-
-	// Collect results as they complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	var agents []Agent
-	for r := range results {
-		if r.found {
-			fmt.Printf("  Detecting %s... found\n", r.agent.Name)
-			agents = append(agents, r.agent)
-		} else {
-			fmt.Printf("  Detecting %s... not found\n", r.name)
-		}
-	}
-
-	return agents
+	return DetectAvailableAgents(true)
 }
 
 var detectTimeout = 2 * time.Second // 2 seconds (var for testability)

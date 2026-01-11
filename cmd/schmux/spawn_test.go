@@ -202,17 +202,17 @@ func TestSpawnCommand_Run(t *testing.T) {
 	agenticTrue := true
 
 	tests := []struct {
-		name        string
-		args        []string
-		isRunning   bool
-		config      *cli.Config
-		workspaces  []cli.Workspace
-		scanResult  *cli.ScanResult
-		scanErr     error
+		name         string
+		args         []string
+		isRunning    bool
+		config       *cli.Config
+		workspaces   []cli.Workspace
+		scanResult   *cli.ScanResult
+		scanErr      error
 		spawnResults []cli.SpawnResult
-		spawnErr    error
-		wantErr     bool
-		errContains string
+		spawnErr     error
+		wantErr      bool
+		errContains  string
 	}{
 		{
 			name:        "requires agent flag",
@@ -222,15 +222,15 @@ func TestSpawnCommand_Run(t *testing.T) {
 			errContains: "required flag -a",
 		},
 		{
-			name:      "daemon not running",
-			args:      []string{"-a", "test"},
-			isRunning: false,
-			wantErr:   true,
+			name:        "daemon not running",
+			args:        []string{"-a", "test"},
+			isRunning:   false,
+			wantErr:     true,
 			errContains: "daemon is not running",
 		},
 		{
-			name:    "spawn with repo flag (skip workspace check)",
-			args:    []string{"-r", "schmux", "-a", "claude", "-p", "test"},
+			name:      "spawn with repo flag (skip workspace check)",
+			args:      []string{"-r", "schmux", "-a", "claude", "-p", "test"},
 			isRunning: true,
 			config: &cli.Config{
 				Agents: []cli.Agent{
@@ -246,8 +246,8 @@ func TestSpawnCommand_Run(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "spawn with agentic agent without prompt (repo flag)",
-			args:    []string{"-r", "schmux", "-a", "claude"},
+			name:      "spawn with agentic agent without prompt (repo flag)",
+			args:      []string{"-r", "schmux", "-a", "claude"},
 			isRunning: true,
 			config: &cli.Config{
 				Agents: []cli.Agent{
@@ -277,13 +277,13 @@ func TestSpawnCommand_Run(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &MockDaemonClient{
-				isRunning:     tt.isRunning,
-				config:        tt.config,
-				workspaces:    tt.workspaces,
-				scanResult:    tt.scanResult,
-				scanErr:       tt.scanErr,
-				spawnResults:  tt.spawnResults,
-				spawnErr:      tt.spawnErr,
+				isRunning:    tt.isRunning,
+				config:       tt.config,
+				workspaces:   tt.workspaces,
+				scanResult:   tt.scanResult,
+				scanErr:      tt.scanErr,
+				spawnResults: tt.spawnResults,
+				spawnErr:     tt.spawnErr,
 			}
 
 			cmd := NewSpawnCommand(mock)

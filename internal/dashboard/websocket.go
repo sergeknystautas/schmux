@@ -189,8 +189,8 @@ func extractANSISequences(path string) ([]byte, error) {
 
 	// Sort unique sequences by their last position in the file
 	type seqWithPos struct {
-		key   string
-		pos   int
+		key     string
+		pos     int
 		content []byte
 	}
 	sorted := make([]seqWithPos, 0, len(uniqueSeqs))

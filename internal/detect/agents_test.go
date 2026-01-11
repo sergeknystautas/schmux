@@ -14,7 +14,7 @@ func TestDetectTimeout(t *testing.T) {
 	detectTimeout = 100 * time.Millisecond
 
 	start := time.Now()
-	agents := DetectAvailableAgents()
+	agents := DetectAvailableAgents(false)
 	elapsed := time.Since(start)
 
 	if elapsed > 500*time.Millisecond {
@@ -223,7 +223,7 @@ func TestDetectAvailableAgents(t *testing.T) {
 
 	detectTimeout = 500 * time.Millisecond
 
-	agents := DetectAvailableAgents()
+	agents := DetectAvailableAgents(false)
 
 	// Should return a slice (may be empty if no tools found)
 	if agents == nil {

@@ -22,10 +22,9 @@ const (
 
 // Manager manages workspace directories.
 type Manager struct {
-	config    *config.Config
-	state     state.StateStore
-	statePath string
-	logger    *log.Logger
+	config *config.Config
+	state  state.StateStore
+	logger *log.Logger
 }
 
 // New creates a new workspace manager.
@@ -39,18 +38,16 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 	if err != nil {
 		// Fall back to stderr if log file can't be opened
 		return &Manager{
-			config:    cfg,
-			state:     st,
-			statePath: statePath,
-			logger:    log.New(os.Stderr, "[workspace] ", log.LstdFlags),
+			config: cfg,
+			state:  st,
+			logger: log.New(os.Stderr, "[workspace] ", log.LstdFlags),
 		}
 	}
 
 	return &Manager{
-		config:    cfg,
-		state:     st,
-		statePath: statePath,
-		logger:    log.New(logFile, "[workspace] ", log.LstdFlags),
+		config: cfg,
+		state:  st,
+		logger: log.New(logFile, "[workspace] ", log.LstdFlags),
 	}
 }
 
@@ -61,6 +58,16 @@ func (m *Manager) GetByID(workspaceID string) (*state.Workspace, bool) {
 		return nil, false
 	}
 	return &w, true
+}
+
+// hasActiveSessions returns true if the workspace has any active sessions.
+func (m *Manager) hasActiveSessions(workspaceID string) bool {
+	for _, s := range m.state.GetSessions() {
+		if s.WorkspaceID == workspaceID {
+			return true
+		}
+	}
+	return false
 }
 
 // GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
@@ -75,14 +82,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 		}
 		if w.Repo == repoURL && w.Branch == branch {
 			// Check if workspace has active sessions
-			hasActiveSessions := false
-			for _, s := range m.state.GetSessions() {
-				if s.WorkspaceID == w.ID {
-					hasActiveSessions = true
-					break
-				}
-			}
-			if !hasActiveSessions {
+			if !m.hasActiveSessions(w.ID) {
 				m.logger.Printf("reusing existing workspace: id=%s path=%s branch=%s", w.ID, w.Path, branch)
 				// Prepare the workspace (fetch/pull/clean)
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
@@ -97,14 +97,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	for _, w := range m.state.GetWorkspaces() {
 		if w.Repo == repoURL {
 			// Check if workspace has active sessions
-			hasActiveSessions := false
-			for _, s := range m.state.GetSessions() {
-				if s.WorkspaceID == w.ID {
-					hasActiveSessions = true
-					break
-				}
-			}
-			if !hasActiveSessions {
+			if !m.hasActiveSessions(w.ID) {
 				m.logger.Printf("reusing workspace for different branch: id=%s old_branch=%s new_branch=%s", w.ID, w.Branch, branch)
 				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
@@ -184,10 +177,8 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 	}
 
 	// Check if workspace has active sessions
-	for _, s := range m.state.GetSessions() {
-		if s.WorkspaceID == workspaceID {
-			return fmt.Errorf("workspace has active sessions: %s", workspaceID)
-		}
+	if m.hasActiveSessions(workspaceID) {
+		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
 	m.logger.Printf("preparing workspace: id=%s branch=%s", workspaceID, branch)
@@ -419,9 +410,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	statusCmd.Dir = dir
 	output, err := statusCmd.CombinedOutput()
-	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
-		dirty = true
-	}
+	dirty = err == nil && len(strings.TrimSpace(string(output))) > 0
 
 	// Check ahead/behind counts using rev-list
 	// @{u} is the shortcut for the upstream branch
@@ -437,8 +426,8 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 	// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
 	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
 	if len(parts) == 2 {
-		fmt.Sscanf(parts[0], "%d", &ahead)
-		fmt.Sscanf(parts[1], "%d", &behind)
+		ahead, _ = strconv.Atoi(parts[0])
+		behind, _ = strconv.Atoi(parts[1])
 	}
 
 	return dirty, ahead, behind
@@ -478,10 +467,8 @@ func (m *Manager) Dispose(workspaceID string) error {
 	m.logger.Printf("disposing workspace: id=%s path=%s", workspaceID, w.Path)
 
 	// Check if workspace has active sessions
-	for _, s := range m.state.GetSessions() {
-		if s.WorkspaceID == workspaceID {
-			return fmt.Errorf("workspace has active sessions: %s", workspaceID)
-		}
+	if m.hasActiveSessions(workspaceID) {
+		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
 	// Delete workspace directory

@@ -145,10 +145,10 @@ func TestListCommand_Run(t *testing.T) {
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{
-					ID:       "test-001",
-					Branch:   "main",
-					GitDirty: false,
-					GitAhead: 0,
+					ID:        "test-001",
+					Branch:    "main",
+					GitDirty:  false,
+					GitAhead:  0,
 					GitBehind: 0,
 					Sessions: []cli.Session{
 						{ID: "test-001-abc", Agent: "claude", Running: true},
@@ -176,8 +176,8 @@ func TestListCommand_Run(t *testing.T) {
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{
-					ID:       "test-001",
-					Branch:   "main",
+					ID:     "test-001",
+					Branch: "main",
 					Sessions: []cli.Session{
 						{ID: "test-001-abc", Agent: "claude"},
 					},
@@ -219,4 +219,3 @@ func TestListCommand_Run(t *testing.T) {
 		})
 	}
 }
-

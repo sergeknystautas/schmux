@@ -8,16 +8,16 @@ import (
 
 // MockDaemonClient is a mock implementation of DaemonClient for testing.
 type MockDaemonClient struct {
-	isRunning     bool
-	config        *cli.Config
-	workspaces    []cli.Workspace
-	sessions      []cli.WorkspaceWithSessions
-	scanResult    *cli.ScanResult
-	scanErr       error
-	spawnResults  []cli.SpawnResult
-	spawnErr      error
-	disposeErr    error
-	getConfigErr  error
+	isRunning      bool
+	config         *cli.Config
+	workspaces     []cli.Workspace
+	sessions       []cli.WorkspaceWithSessions
+	scanResult     *cli.ScanResult
+	scanErr        error
+	spawnResults   []cli.SpawnResult
+	spawnErr       error
+	disposeErr     error
+	getConfigErr   error
 	getSessionsErr error
 }
 

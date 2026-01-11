@@ -12,31 +12,31 @@ import (
 // TestAttachCommand_Run tests the attach command Run method
 func TestAttachCommand_Run(t *testing.T) {
 	tests := []struct {
-		name         string
-		args         []string
-		isRunning    bool
-		sessions     []cli.WorkspaceWithSessions
+		name        string
+		args        []string
+		isRunning   bool
+		sessions    []cli.WorkspaceWithSessions
 		tmuxExecErr error
-		wantErr      bool
-		errContains  string
+		wantErr     bool
+		errContains string
 	}{
 		{
-			name:      "requires session id",
-			args:      []string{},
-			isRunning: true,
-			wantErr:   true,
+			name:        "requires session id",
+			args:        []string{},
+			isRunning:   true,
+			wantErr:     true,
 			errContains: "usage:",
 		},
 		{
-			name:      "daemon not running",
-			args:      []string{"test-session"},
-			isRunning: false,
-			wantErr:   true,
+			name:        "daemon not running",
+			args:        []string{"test-session"},
+			isRunning:   false,
+			wantErr:     true,
 			errContains: "daemon is not running",
 		},
 		{
-			name: "session not found",
-			args: []string{"nonexistent-session"},
+			name:      "session not found",
+			args:      []string{"nonexistent-session"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux attach -t "ws-001-abc"`}}},
@@ -51,7 +51,7 @@ func TestAttachCommand_Run(t *testing.T) {
 			sessions: []cli.WorkspaceWithSessions{
 				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc", AttachCmd: `tmux attach -t "ws-001-abc"`}}},
 			},
-			wantErr:   true, // tmux attach will fail in test environment
+			wantErr: true, // tmux attach will fail in test environment
 		},
 	}
 

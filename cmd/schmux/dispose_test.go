@@ -19,22 +19,22 @@ func TestDisposeCommand_Run(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:      "requires session id",
-			args:      []string{},
-			isRunning: true,
-			wantErr:   true,
+			name:        "requires session id",
+			args:        []string{},
+			isRunning:   true,
+			wantErr:     true,
 			errContains: "usage:",
 		},
 		{
-			name:      "daemon not running",
-			args:      []string{"test-session"},
-			isRunning: false,
-			wantErr:   true,
+			name:        "daemon not running",
+			args:        []string{"test-session"},
+			isRunning:   false,
+			wantErr:     true,
 			errContains: "daemon is not running",
 		},
 		{
-			name: "session not found",
-			args: []string{"nonexistent-session"},
+			name:      "session not found",
+			args:      []string{"nonexistent-session"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc"}}},
@@ -43,8 +43,8 @@ func TestDisposeCommand_Run(t *testing.T) {
 			errContains: "session not found",
 		},
 		{
-			name: "dispose succeeds",
-			args: []string{"ws-001-abc"},
+			name:      "dispose succeeds",
+			args:      []string{"ws-001-abc"},
 			isRunning: true,
 			sessions: []cli.WorkspaceWithSessions{
 				{ID: "ws-001", Sessions: []cli.Session{{ID: "ws-001-abc"}}},
@@ -59,9 +59,9 @@ func TestDisposeCommand_Run(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &MockDaemonClient{
-				isRunning:    tt.isRunning,
-				sessions:     tt.sessions,
-				disposeErr:   tt.disposeErr,
+				isRunning:  tt.isRunning,
+				sessions:   tt.sessions,
+				disposeErr: tt.disposeErr,
 			}
 
 			cmd := NewDisposeCommand(mock)
