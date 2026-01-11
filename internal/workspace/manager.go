@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/state"
@@ -68,6 +69,17 @@ func (m *Manager) hasActiveSessions(workspaceID string) bool {
 		}
 	}
 	return false
+}
+
+// isQuietSince returns true if the workspace has no sessions with activity
+// after the cutoff time (i.e., it's safe to run git operations).
+func (m *Manager) isQuietSince(workspaceID string, cutoff time.Time) bool {
+	for _, s := range m.state.GetSessions() {
+		if s.WorkspaceID == workspaceID && s.LastOutputAt.After(cutoff) {
+			return false
+		}
+	}
+	return true
 }
 
 // GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
@@ -438,9 +450,21 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
+// Skips workspaces that have active sessions (recent terminal output).
 func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
+
+	// Calculate activity threshold - only update workspaces that have been
+	// quiet (no session output) within the last poll interval
+	pollIntervalMs := m.config.GetGitStatusPollIntervalMs()
+	cutoff := time.Now().Add(-time.Duration(pollIntervalMs) * time.Millisecond)
+
 	for _, w := range workspaces {
+		// Skip if workspace has recent activity (not quiet)
+		if !m.isQuietSince(w.ID, cutoff) {
+			continue
+		}
+
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			m.logger.Printf("failed to update git status for workspace %s: %v", w.ID, err)
 		}

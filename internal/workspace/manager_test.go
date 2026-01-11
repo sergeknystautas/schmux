@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/state"
@@ -348,4 +349,139 @@ func TestDispose_Integration(t *testing.T) {
 	if found {
 		t.Error("workspace should be removed from state after Dispose")
 	}
+}
+
+func TestIsQuietSince(t *testing.T) {
+	tests := []struct {
+		name        string
+		workspaceID string
+		sessions    []state.Session
+		cutoff      string // RFC3339 timestamp
+		want        bool
+	}{
+		{
+			name:        "no sessions - is quiet",
+			workspaceID: "test-001",
+			sessions:    []state.Session{},
+			cutoff:      "2024-01-01T00:00:00Z",
+			want:        true,
+		},
+		{
+			name:        "session before cutoff - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2023-12-31T23:59:59Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+		{
+			name:        "session after cutoff - not quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2024-01-01T00:00:01Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   false,
+		},
+		{
+			name:        "session at cutoff - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2024-01-01T00:00:00Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+		{
+			name:        "multiple sessions - one after cutoff - not quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2023-12-31T23:59:59Z")},
+				{ID: "sess-002", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2024-01-01T00:00:01Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   false,
+		},
+		{
+			name:        "multiple sessions - all before cutoff - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2023-12-31T23:59:00Z")},
+				{ID: "sess-002", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2023-12-31T23:59:59Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+		{
+			name:        "sessions for different workspace - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-002", LastOutputAt: parseTime(t, "2024-01-01T00:00:01Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+		{
+			name:        "sessions for multiple workspaces - target workspace active - not quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2024-01-01T00:00:01Z")},
+				{ID: "sess-002", WorkspaceID: "test-002", LastOutputAt: parseTime(t, "2023-12-31T23:59:59Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   false,
+		},
+		{
+			name:        "sessions for multiple workspaces - other workspace active - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: parseTime(t, "2023-12-31T23:59:59Z")},
+				{ID: "sess-002", WorkspaceID: "test-002", LastOutputAt: parseTime(t, "2024-01-01T00:00:01Z")},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+		{
+			name:        "zero time - is quiet",
+			workspaceID: "test-001",
+			sessions: []state.Session{
+				{ID: "sess-001", WorkspaceID: "test-001", LastOutputAt: time.Time{}},
+			},
+			cutoff: "2024-01-01T00:00:00Z",
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statePath := t.TempDir() + "/state.json"
+			st := state.New(statePath)
+
+			// Add sessions to state
+			for _, sess := range tt.sessions {
+				st.AddSession(sess)
+			}
+
+			cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+			m := New(cfg, st, statePath)
+
+			cutoff := parseTime(t, tt.cutoff)
+			got := m.isQuietSince(tt.workspaceID, cutoff)
+
+			if got != tt.want {
+				t.Errorf("isQuietSince() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// parseTime parses an RFC3339 timestamp for use in tests.
+func parseTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("failed to parse time %q: %v", s, err)
+	}
+	return ts
 }
