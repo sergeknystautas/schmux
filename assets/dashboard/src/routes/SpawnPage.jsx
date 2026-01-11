@@ -280,7 +280,20 @@ export default function SpawnPage() {
               <div className="results-panel__title text-error">{errorCount} error(s)</div>
               {results.filter((r) => r.error).map((r) => (
                 <div className="results-panel__item results-panel__item--error" key={`${r.agent}-${r.error}`}>
-                  <strong>{r.agent}:</strong> {r.error}
+                  <div><strong>{r.agent}:</strong> {r.error}</div>
+                  {(r.prompt || repo || branch || r.workspace_id) && (
+                    <div style={{ marginTop: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+                      {repo && <div>Repo: {repo}</div>}
+                      {branch && <div>Branch: {branch}</div>}
+                      {r.workspace_id && <div>Workspace: {r.workspace_id}</div>}
+                      {r.prompt && (
+                        <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                          <div>Prompt:</div>
+                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono)' }}>{r.prompt}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -489,15 +502,21 @@ export default function SpawnPage() {
                     <span className="metadata-field__value">{prefillWorkspaceId || 'New workspace'}</span>
                   </div>
                   {spawnMode === 'agent' ? (
-                    <div className="metadata-field">
-                      <span className="metadata-field__label">Agents</span>
-                      <span className="metadata-field__value">
-                        {Object.entries(agentCounts)
-                          .filter(([_, count]) => count > 0)
-                          .map(([name, count]) => `${count}× ${name}`)
-                          .join(', ')}
-                      </span>
-                    </div>
+                    <>
+                      <div className="metadata-field">
+                        <span className="metadata-field__label">Agents</span>
+                        <span className="metadata-field__value">
+                          {Object.entries(agentCounts)
+                            .filter(([_, count]) => count > 0)
+                            .map(([name, count]) => `${count}× ${name}`)
+                            .join(', ')}
+                        </span>
+                      </div>
+                      <div className="metadata-field">
+                        <span className="metadata-field__label">Prompt</span>
+                        <span className="metadata-field__value" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{prompt}</span>
+                      </div>
+                    </>
                   ) : (
                     <div className="metadata-field">
                       <span className="metadata-field__label">Command</span>

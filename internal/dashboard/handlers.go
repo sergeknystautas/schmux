@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -289,8 +290,17 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		SessionID   string `json:"session_id"`
 		WorkspaceID string `json:"workspace_id"`
 		Agent       string `json:"agent"`
+		Prompt      string `json:"prompt,omitempty"`
 		Error       string `json:"error,omitempty"`
 	}
+
+	// Log the spawn request
+	promptPreview := req.Prompt
+	if len(promptPreview) > 100 {
+		promptPreview = promptPreview[:100] + "..."
+	}
+	log.Printf("[spawn] request: repo=%s branch=%s workspace_id=%s agents=%v prompt=%q",
+		req.Repo, req.Branch, req.WorkspaceID, req.Agents, promptPreview)
 
 	results := make([]SessionResult, 0)
 
@@ -324,16 +334,27 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
-					Agent: agentName,
-					Error: err.Error(),
+					Agent:  agentName,
+					Prompt: req.Prompt,
+					Error:  err.Error(),
 				})
 			} else {
 				results = append(results, SessionResult{
 					SessionID:   sess.ID,
 					WorkspaceID: sess.WorkspaceID,
 					Agent:       agentName,
+					Prompt:      req.Prompt,
 				})
 			}
+		}
+	}
+
+	// Log the results
+	for _, r := range results {
+		if r.Error != "" {
+			log.Printf("[spawn] error: agent=%s error=%s", r.Agent, r.Error)
+		} else {
+			log.Printf("[spawn] success: agent=%s session_id=%s workspace_id=%s", r.Agent, r.SessionID, r.WorkspaceID)
 		}
 	}
 
