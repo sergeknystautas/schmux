@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getConfig, updateConfig } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
+import SetupCompleteModal from '../components/SetupCompleteModal.jsx';
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 const TABS = ['Workspace', 'Repositories', 'Agents', 'Commands', 'Advanced'];
 
 export default function ConfigPage() {
-  const { isNotConfigured, reloadConfig } = useConfig();
+  const navigate = useNavigate();
+  const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
+  const { confirm } = useModal();
   const [config, setConfig] = useState(null);
+  const [showSetupComplete, setShowSetupComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const { success, error: toastError } = useToast();
-  const { confirm } = useModal();
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(1);
@@ -168,7 +172,7 @@ export default function ConfigPage() {
 
       if (result.warning) {
         setWarning(result.warning);
-      } else {
+      } else if (!isFirstRun) {
         success('Configuration saved');
       }
       return true;
@@ -273,16 +277,10 @@ export default function ConfigPage() {
     }
   };
 
-  // Map step number to tab index (skip commands step in setup wizard)
-  const getTabForStep = (step) => {
-    if (step <= 3) return step;
-    return step + 1; // Skip commands in initial setup
-  };
+  // Map wizard step (1-5) to tab number (1-5) - now 1:1 mapping
+  const getTabForStep = (step) => step;
 
-  const getCurrentTab = () => {
-    // For normal config mode, tab = step directly
-    return currentStep;
-  };
+  const getCurrentTab = () => currentStep;
 
   // Check if each step is valid
   const stepValid = {
@@ -318,11 +316,11 @@ export default function ConfigPage() {
     <>
       <div className="page-header">
         <h1 className="page-header__title">
-          {isNotConfigured ? 'Setup schmux' : 'Configuration'}
+          {isFirstRun ? 'Setup schmux' : 'Configuration'}
         </h1>
       </div>
 
-      {isNotConfigured && (
+      {isFirstRun && (
         <div className="banner banner--info" style={{ marginBottom: 'var(--spacing-lg)' }}>
           <p style={{ margin: 0 }}>
             <strong>Welcome to schmux!</strong> Complete these steps to start spawning sessions.
@@ -339,9 +337,9 @@ export default function ConfigPage() {
       )}
 
       {/* Steps navigation */}
-      {isNotConfigured ? (
+      {isFirstRun ? (
         <div className="wizard__steps">
-          {[1, 2, 3, 5].map((stepNum) => {
+          {[1, 2, 3, 4, 5].map((stepNum) => {
             const isCompleted = stepNum < currentStep;
             const isCurrent = stepNum === currentStep;
             const isValid = stepValid[stepNum];
@@ -373,7 +371,7 @@ export default function ConfigPage() {
         <div className="config-tabs" style={{ marginBottom: 'var(--spacing-lg)' }}>
           {TABS.map((tab, index) => {
             const stepNum = index + 1;
-            const isCurrent = stepNum === currentTab;
+            const isCurrent = stepNum === currentStep;
             const isValid = stepValid[stepNum];
 
             return (
@@ -767,17 +765,27 @@ export default function ConfigPage() {
                 ← Back
               </button>
             )}
-            {!isNotConfigured && currentStep === 1 && (
+            {!isFirstRun && currentStep === 1 && (
               <span className="wizard__hint">Use tabs above to navigate between sections</span>
             )}
           </div>
           <div className="wizard__actions-right">
             <button
               className="btn btn--primary"
-              onClick={isNotConfigured && currentStep < TOTAL_STEPS ? nextStep : saveCurrentStep}
+              onClick={async () => {
+                if (isFirstRun && currentStep < TOTAL_STEPS) {
+                  nextStep();
+                } else {
+                  const saved = await saveCurrentStep();
+                  if (saved && isFirstRun) {
+                    completeFirstRun();
+                    setShowSetupComplete(true);
+                  }
+                }
+              }}
               disabled={saving}
             >
-              {saving ? 'Saving...' : isNotConfigured ?
+              {saving ? 'Saving...' : isFirstRun ?
                 (currentStep === TOTAL_STEPS ? 'Finish Setup' : 'Next →') :
                 'Save Changes'
               }
@@ -785,6 +793,12 @@ export default function ConfigPage() {
           </div>
         </div>
       </div>
+
+      {showSetupComplete && (
+        <SetupCompleteModal
+          onClose={() => navigate('/spawn')}
+        />
+      )}
     </>
   );
 }

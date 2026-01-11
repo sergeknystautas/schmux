@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 )
+
+// commandContext creates a command for direct execution.
+// Note: Shell aliases are not detected - add them manually to config.
+func commandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, command, args...)
+}
 
 // Agent represents a detected AI agent (matches config.Agent structure).
 type Agent struct {
@@ -77,21 +82,9 @@ func DetectAvailableAgents(printProgress bool) []Agent {
 
 // detectAgent checks if a specific agent tool is available by running its version command.
 func detectAgent(ctx context.Context, d agentDetector) (Agent, bool) {
-	// First check if command exists in PATH
-	if _, err := exec.LookPath(d.command); err != nil {
-		return Agent{}, false
-	}
-
 	// Run version command with timeout
-	cmd := exec.CommandContext(ctx, d.command, d.versionArg)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return Agent{}, false
-	}
-
-	// Verify output looks like a version string (has common version patterns)
-	outputStr := strings.ToLower(string(output))
-	if !looksLikeVersion(outputStr) {
+	cmd := commandContext(ctx, d.command, d.versionArg)
+	if _, err := cmd.CombinedOutput(); err != nil {
 		return Agent{}, false
 	}
 
@@ -101,32 +94,6 @@ func detectAgent(ctx context.Context, d agentDetector) (Agent, bool) {
 		Command: d.command,
 		Agentic: true,
 	}, true
-}
-
-// looksLikeVersion checks if output contains version-like patterns.
-func looksLikeVersion(output string) bool {
-	// Check for common version indicators
-	versionPatterns := []string{
-		"version",
-		"v1",
-		"v2",
-		"v3",
-		"v4",
-		"0.",
-		"1.",
-		"2.",
-		"3.",
-		"4.",
-	}
-
-	lowerOutput := strings.ToLower(output)
-	for _, pattern := range versionPatterns {
-		if strings.Contains(lowerOutput, pattern) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // DetectAndPrint runs detection and prints progress messages to stdout.

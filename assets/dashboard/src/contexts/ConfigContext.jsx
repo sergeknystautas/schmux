@@ -17,11 +17,16 @@ export function ConfigProvider({ children }) {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isFirstRun, setIsFirstRun] = useState(false);
 
   const loadConfig = useCallback(async () => {
     try {
       const data = await getConfig();
       setConfig(data);
+      // Set isFirstRun if workspace_path is empty on initial load
+      if (!data?.workspace_path?.trim()) {
+        setIsFirstRun(true);
+      }
       setError(null);
     } catch (err) {
       console.error('Failed to load config:', err);
@@ -65,9 +70,11 @@ export function ConfigProvider({ children }) {
     loading,
     error,
     isNotConfigured,
+    isFirstRun,
+    completeFirstRun: () => setIsFirstRun(false),
     reloadConfig: loadConfig,
     getRepoName,
-  }), [config, loading, error, isNotConfigured, loadConfig, getRepoName]);
+  }), [config, loading, error, isNotConfigured, isFirstRun, loadConfig, getRepoName]);
 
   return (
     <ConfigContext.Provider value={value}>
