@@ -8,6 +8,7 @@ import { useConfig } from '../contexts/ConfigContext.jsx';
 import WorkspaceTableRow from './WorkspaceTableRow.jsx';
 import SessionTableRow from './SessionTableRow.jsx';
 import Tooltip from './Tooltip.jsx';
+import SpawnDropdown from './SpawnDropdown.jsx';
 import useLocalStorage from '../hooks/useLocalStorage.js';
 
 /**
@@ -38,6 +39,11 @@ export default function WorkspacesList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useLocalStorage('workspace-expanded', {});
+
+  // Extract commands (non-agentic agents) from config for quick spawn
+  const commands = React.useMemo(() => {
+    return (config?.agents || []).filter(a => a.agentic === false);
+  }, [config?.agents]);
 
   const loadWorkspaces = useCallback(async (silent = false) => {
     if (!silent) {
@@ -163,23 +169,7 @@ export default function WorkspacesList({
           Diff
         </button>
       </Tooltip>
-      <Tooltip content="Spawn session in this workspace">
-        <button
-          className="btn btn--sm btn--primary"
-          onClick={(event) => {
-            event.stopPropagation();
-            navigate(`/spawn?workspace_id=${workspace.id}`);
-          }}
-          aria-label={`Spawn in ${workspace.id}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="16"></line>
-            <line x1="8" y1="12" x2="16" y2="12"></line>
-          </svg>
-          Spawn
-        </button>
-      </Tooltip>
+      <SpawnDropdown workspace={workspace} commands={commands} />
       <Tooltip content="Dispose workspace and all sessions" variant="warning">
         <button
           className="btn btn--sm btn--ghost btn--danger"
