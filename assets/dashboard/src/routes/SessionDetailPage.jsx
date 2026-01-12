@@ -173,20 +173,35 @@ export default function SessionDetailPage() {
   };
 
   const handleEditNickname = async () => {
-    const newNickname = await prompt('Edit Nickname', {
-      defaultValue: sessionData.nickname || '',
-      placeholder: 'Enter nickname (optional)',
-      confirmText: 'Save'
-    });
-    if (newNickname === null) return; // User cancelled
+    let newNickname = sessionData.nickname || '';
+    let errorMessage = '';
 
-    try {
-      await updateNickname(sessionId, newNickname);
-      success('Nickname updated');
-      // Refresh session data to show updated nickname
-      setSessionData(prev => ({ ...prev, nickname: newNickname }));
-    } catch (err) {
-      toastError(`Failed to update nickname: ${err.message}`);
+    // Keep prompting until successful or cancelled
+    while (true) {
+      newNickname = await prompt('Edit Nickname', {
+        defaultValue: newNickname,
+        placeholder: 'Enter nickname (optional)',
+        confirmText: 'Save',
+        errorMessage
+      });
+
+      if (newNickname === null) return; // User cancelled
+
+      try {
+        await updateNickname(sessionId, newNickname);
+        success('Nickname updated');
+        // Refresh session data to show updated nickname
+        setSessionData(prev => ({ ...prev, nickname: newNickname }));
+        return; // Success, exit loop
+      } catch (err) {
+        if (err.isConflict) {
+          // Show error and re-prompt
+          errorMessage = err.message;
+        } else {
+          toastError(`Failed to update nickname: ${err.message}`);
+          return; // Other errors, don't re-prompt
+        }
+      }
     }
   };
 

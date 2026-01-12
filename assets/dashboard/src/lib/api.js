@@ -38,7 +38,15 @@ export async function updateNickname(sessionId, nickname) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nickname })
   });
-  if (!response.ok) throw new Error('Failed to update nickname');
+  if (!response.ok) {
+    if (response.status === 409) {
+      const err = await response.json();
+      const error = new Error(err.error || 'Nickname already in use');
+      error.isConflict = true;
+      throw error;
+    }
+    throw new Error('Failed to update nickname');
+  }
   return response.json();
 }
 

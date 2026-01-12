@@ -35,6 +35,7 @@ export default function ModalProvider({ children }) {
       placeholder: options.placeholder || '',
       confirmText: options.confirmText || 'Save',
       cancelText: options.cancelText || 'Cancel',
+      errorMessage: options.errorMessage || '',
       resolve
     });
   });
@@ -68,18 +69,25 @@ export default function ModalProvider({ children }) {
             </div>
             <div className="modal__body">
               {modal.isPrompt ? (
-                <input
-                  id="modal-prompt-input"
-                  type="text"
-                  className="input"
-                  defaultValue={modal.defaultValue}
-                  placeholder={modal.placeholder}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handlePromptConfirm();
-                    if (e.key === 'Escape') close(null);
-                  }}
-                />
+                <>
+                  <input
+                    id="modal-prompt-input"
+                    type="text"
+                    className="input"
+                    defaultValue={modal.defaultValue}
+                    placeholder={modal.placeholder}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handlePromptConfirm();
+                      if (e.key === 'Escape') close(null);
+                    }}
+                  />
+                  {modal.errorMessage && (
+                    <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)', color: 'var(--color-error)' }}>
+                      {modal.errorMessage}
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   <p>{modal.message}</p>

@@ -17,6 +17,12 @@ import (
 	"github.com/sergek/schmux/internal/workspace"
 )
 
+const (
+	// maxNicknameAttempts is the maximum number of attempts to find a unique nickname
+	// before falling back to a UUID suffix.
+	maxNicknameAttempts = 100
+)
+
 // Manager manages sessions.
 type Manager struct {
 	config    *config.Config
@@ -77,10 +83,16 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Use sanitized nickname for tmux session name if provided, otherwise use sessionID
-	tmuxSession := sessionID
+	// Generate unique nickname if provided (auto-suffix if duplicate)
+	uniqueNickname := nickname
 	if nickname != "" {
-		tmuxSession = sanitizeNickname(nickname)
+		uniqueNickname = m.generateUniqueNickname(nickname)
+	}
+
+	// Use sanitized unique nickname for tmux session name if provided, otherwise use sessionID
+	tmuxSession := sessionID
+	if uniqueNickname != "" {
+		tmuxSession = sanitizeNickname(uniqueNickname)
 	}
 
 	// Create tmux session
@@ -118,7 +130,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 		ID:          sessionID,
 		WorkspaceID: w.ID,
 		Agent:       agentName,
-		Nickname:    nickname,
+		Nickname:    uniqueNickname,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),
 		Pid:         pid,
@@ -226,10 +238,16 @@ func (m *Manager) GetSession(sessionID string) (*state.Session, error) {
 
 // RenameSession updates a session's nickname and renames the tmux session.
 // The nickname is sanitized before use as the tmux session name.
+// Returns an error if the new nickname conflicts with an existing session.
 func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname string) error {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// Check if new nickname conflicts with an existing session
+	if conflictingID := m.nicknameExists(newNickname, sessionID); conflictingID != "" {
+		return fmt.Errorf("nickname %q already in use by session %s", newNickname, conflictingID)
 	}
 
 	oldTmuxName := sess.TmuxSession
@@ -400,4 +418,47 @@ func sanitizeNickname(nickname string) string {
 	result := strings.ReplaceAll(nickname, ".", "-")
 	result = strings.ReplaceAll(result, ":", "-")
 	return result
+}
+
+// nicknameExists checks if a nickname (or its sanitized tmux session name) already exists.
+// Returns the conflicting session ID if found, empty string otherwise.
+// excludeSessionID is used during rename to skip the session being renamed.
+func (m *Manager) nicknameExists(nickname, excludeSessionID string) string {
+	if nickname == "" {
+		return ""
+	}
+	tmuxName := sanitizeNickname(nickname)
+	sessions := m.state.GetSessions()
+	for _, sess := range sessions {
+		// Skip the session being edited (for rename operations)
+		if sess.ID == excludeSessionID {
+			continue
+		}
+		// Check if tmux session name matches (nicknames are sanitized for tmux)
+		if sess.TmuxSession == tmuxName {
+			return sess.ID
+		}
+	}
+	return ""
+}
+
+// generateUniqueNickname generates a unique nickname by trying the base name,
+// then "name (1)", "name (2)", etc. until a unique name is found.
+func (m *Manager) generateUniqueNickname(baseNickname string) string {
+	if baseNickname == "" {
+		return ""
+	}
+	// Try base name first
+	if m.nicknameExists(baseNickname, "") == "" {
+		return baseNickname
+	}
+	// Try numbered suffixes
+	for i := 1; i <= maxNicknameAttempts; i++ {
+		candidate := fmt.Sprintf("%s (%d)", baseNickname, i)
+		if m.nicknameExists(candidate, "") == "" {
+			return candidate
+		}
+	}
+	// Fallback: use base nickname with a UUID suffix (should never happen in practice)
+	return fmt.Sprintf("%s-%s", baseNickname, uuid.New().String()[:8])
 }

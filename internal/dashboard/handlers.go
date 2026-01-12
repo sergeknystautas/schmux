@@ -442,12 +442,19 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 
 	// Update nickname (and rename tmux session)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
-	if err := s.session.RenameSession(ctx, sessionID, req.Nickname); err != nil {
-		cancel()
+	err := s.session.RenameSession(ctx, sessionID, req.Nickname)
+	cancel()
+	if err != nil {
+		// Check if this is a nickname conflict error
+		if strings.Contains(err.Error(), "already in use") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict) // 409 Conflict
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
-	cancel()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
