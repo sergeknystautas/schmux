@@ -407,7 +407,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.workspace.Dispose(workspaceID); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to dispose workspace: %v", err), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 

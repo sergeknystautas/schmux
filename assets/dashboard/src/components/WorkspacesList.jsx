@@ -165,7 +165,8 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
       success('Workspace disposed');
       loadWorkspaces();
     } catch (err) {
-      toastError(`Failed to dispose workspace: ${err.message}`);
+      // Display detailed error message from backend
+      toastError(err.message || 'Failed to dispose workspace');
     }
   };
 

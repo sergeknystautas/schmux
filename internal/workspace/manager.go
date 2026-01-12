@@ -495,6 +495,99 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	}
 }
 
+// GitSafetyStatus represents the git safety status of a workspace.
+type GitSafetyStatus struct {
+	Safe           bool   // true if workspace is safe to dispose
+	Reason         string // explanation if not safe
+	ModifiedFiles  int    // number of modified files
+	UntrackedFiles int    // number of untracked files
+	AheadCommits   int    // number of unpushed commits
+}
+
+// checkGitSafety checks if a workspace is safe to dispose based on git state.
+// Returns detailed status about why the workspace is not safe.
+func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*GitSafetyStatus, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	status := &GitSafetyStatus{Safe: true}
+
+	// Check for dirty state (any changes: modified, added, removed, or untracked)
+	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	statusCmd.Dir = w.Path
+	output, err := statusCmd.CombinedOutput()
+	if err != nil {
+		// Git command failed - this might mean the repo is corrupt, treat as unsafe
+		status.Safe = false
+		status.Reason = fmt.Sprintf("git status failed: %v", err)
+		return status, nil
+	}
+
+	// Parse status output to count file types
+	// Format: XY filename where X is staged, Y is unstaged
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Check for untracked files (starts with ??)
+		if strings.HasPrefix(line, "??") {
+			status.UntrackedFiles++
+			status.Safe = false
+			continue
+		}
+
+		// Any other output means modified/added/deleted files
+		status.ModifiedFiles++
+		status.Safe = false
+	}
+
+	// Check ahead/behind counts using rev-list (only if there's an upstream)
+	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	revListCmd.Dir = w.Path
+	output, err = revListCmd.CombinedOutput()
+	if err != nil {
+		// No upstream branch or other error - skip ahead/behind check
+		// A clean working tree with no upstream is safe to dispose
+		// (local-only commits are OK if there's no remote to push to)
+		m.logger.Printf("no upstream branch for %s, skipping ahead/behind check", workspaceID)
+	} else {
+		// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
+		parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+		if len(parts) == 2 {
+			ahead, _ := strconv.Atoi(parts[0])
+			status.AheadCommits = ahead
+			if ahead > 0 {
+				status.Safe = false
+			}
+		}
+	}
+
+	// Build reason string if not safe
+	if !status.Safe {
+		var reasons []string
+		if status.ModifiedFiles > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d modified file(s)", status.ModifiedFiles))
+		}
+		if status.UntrackedFiles > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d untracked file(s)", status.UntrackedFiles))
+		}
+		if status.AheadCommits > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d unpushed commit(s)", status.AheadCommits))
+		}
+		if status.Reason != "" {
+			reasons = append(reasons, status.Reason)
+		}
+		status.Reason = strings.Join(reasons, "; ")
+	}
+
+	return status, nil
+}
+
 // EnsureWorkspaceDir ensures the workspace base directory exists.
 func (m *Manager) EnsureWorkspaceDir() error {
 	path := m.config.GetWorkspacePath()
@@ -520,6 +613,16 @@ func (m *Manager) Dispose(workspaceID string) error {
 	// Check if workspace has active sessions
 	if m.hasActiveSessions(workspaceID) {
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
+	}
+
+	// Check git safety - hard block on dirty state
+	ctx := context.Background()
+	gitStatus, err := m.checkGitSafety(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+	if !gitStatus.Safe {
+		return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
 	}
 
 	// Delete workspace directory

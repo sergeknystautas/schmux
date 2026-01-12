@@ -206,6 +206,17 @@ func TestDispose(t *testing.T) {
 	}
 	st.AddWorkspace(w)
 
+	// Initialize git repository to satisfy git safety check
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("failed to initialize git repository: %v", err)
+	}
+	if err := exec.Command("git", "config", "user.email", "test@test.com").Run(); err != nil {
+		t.Fatalf("failed to configure git user.email: %v", err)
+	}
+	if err := exec.Command("git", "config", "user.name", "Test").Run(); err != nil {
+		t.Fatalf("failed to configure git user.name: %v", err)
+	}
+
 	// Dispose the workspace
 	err := m.Dispose(workspaceID)
 	if err != nil {
@@ -262,6 +273,17 @@ func TestDispose_ActiveSessions(t *testing.T) {
 		Path:   workspacePath,
 	}
 	st.AddWorkspace(w)
+
+	// Initialize git repository to satisfy git safety check
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("failed to initialize git repository: %v", err)
+	}
+	if err := exec.Command("git", "config", "user.email", "test@test.com").Run(); err != nil {
+		t.Fatalf("failed to configure git user.email: %v", err)
+	}
+	if err := exec.Command("git", "config", "user.name", "Test").Run(); err != nil {
+		t.Fatalf("failed to configure git user.name: %v", err)
+	}
 
 	// Add an active session for this workspace
 	sess := state.Session{
