@@ -269,6 +269,8 @@ export default function SpawnPage() {
                     <span className="mono">{r.workspace_id}</span>
                     <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>
                     <span>{r.agent}</span>
+                    {r.nickname && <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>}
+                    {r.nickname && <span style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>{r.nickname}</span>}
                   </div>
                   <Link to={`/sessions/${r.session_id}`} className="btn btn--sm">View</Link>
                 </div>

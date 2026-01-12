@@ -292,6 +292,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID string `json:"workspace_id"`
 		Agent       string `json:"agent"`
 		Prompt      string `json:"prompt,omitempty"`
+		Nickname    string `json:"nickname,omitempty"`
 		Error       string `json:"error,omitempty"`
 	}
 
@@ -335,9 +336,10 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
-					Agent:  agentName,
-					Prompt: req.Prompt,
-					Error:  err.Error(),
+					Agent:    agentName,
+					Prompt:   req.Prompt,
+					Nickname: nickname,
+					Error:    err.Error(),
 				})
 			} else {
 				results = append(results, SessionResult{
@@ -345,6 +347,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 					WorkspaceID: sess.WorkspaceID,
 					Agent:       agentName,
 					Prompt:      req.Prompt,
+					Nickname:    nickname,
 				})
 			}
 		}
