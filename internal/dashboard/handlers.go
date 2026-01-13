@@ -110,28 +110,26 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workspaceMap := make(map[string]*WorkspaceResponse)
+	workspaces := s.state.GetWorkspaces()
+	for _, ws := range workspaces {
+		workspaceMap[ws.ID] = &WorkspaceResponse{
+			ID:           ws.ID,
+			Repo:         ws.Repo,
+			Branch:       ws.Branch,
+			Path:         ws.Path,
+			SessionCount: 0,
+			Sessions:     []SessionResponse{},
+			GitDirty:     ws.GitDirty,
+			GitAhead:     ws.GitAhead,
+			GitBehind:    ws.GitBehind,
+		}
+	}
 
 	for _, sess := range sessions {
 		// Get workspace info
-		ws, found := s.state.GetWorkspace(sess.WorkspaceID)
-		if !found {
-			continue
-		}
-
-		// Get or create workspace response
 		wsResp, ok := workspaceMap[sess.WorkspaceID]
 		if !ok {
-			wsResp = &WorkspaceResponse{
-				ID:        ws.ID,
-				Repo:      ws.Repo,
-				Branch:    ws.Branch,
-				Path:      ws.Path,
-				Sessions:  []SessionResponse{},
-				GitDirty:  ws.GitDirty,
-				GitAhead:  ws.GitAhead,
-				GitBehind: ws.GitBehind,
-			}
-			workspaceMap[sess.WorkspaceID] = wsResp
+			continue
 		}
 
 		attachCmd, _ := s.session.GetAttachCommand(sess.ID)
@@ -145,7 +143,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
 			ID:           sess.ID,
 			Agent:        sess.Agent,
-			Branch:       ws.Branch,
+			Branch:       wsResp.Branch,
 			Nickname:     sess.Nickname,
 			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			LastOutputAt: lastOutputAt,
@@ -178,44 +176,6 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			return nameJ < nameK
 		})
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleWorkspacesAPI returns the list of all workspaces as JSON.
-func (s *Server) handleWorkspacesAPI(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	type WorkspaceResponse struct {
-		ID        string `json:"id"`
-		Repo      string `json:"repo"`
-		Branch    string `json:"branch"`
-		Path      string `json:"path"`
-		GitDirty  bool   `json:"git_dirty"`
-		GitAhead  int    `json:"git_ahead"`
-		GitBehind int    `json:"git_behind"`
-	}
-
-	workspaces := s.state.GetWorkspaces()
-	response := make([]WorkspaceResponse, len(workspaces))
-	for i, ws := range workspaces {
-		response[i] = WorkspaceResponse{
-			ID:        ws.ID,
-			Repo:      ws.Repo,
-			Branch:    ws.Branch,
-			Path:      ws.Path,
-			GitDirty:  ws.GitDirty,
-			GitAhead:  ws.GitAhead,
-			GitBehind: ws.GitBehind,
-		}
-	}
-	sort.Slice(response, func(i, j int) bool {
-		return response[i].ID < response[j].ID
-	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -394,10 +354,12 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
+		log.Printf("[dispose] error: session_id=%s error=%v", sessionID, err)
 		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	cancel()
+	log.Printf("[dispose] success: session_id=%s", sessionID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -418,11 +380,13 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.workspace.Dispose(workspaceID); err != nil {
+		log.Printf("[dispose-workspace] error: workspace_id=%s error=%v", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	log.Printf("[dispose-workspace] success: workspace_id=%s", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

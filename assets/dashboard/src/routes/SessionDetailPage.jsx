@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream.js';
-import { getSessions, updateNickname } from '../lib/api.js';
-import { copyToClipboard, formatRelativeTime, formatTimestamp, truncateStart } from '../lib/utils.js';
+import { updateNickname } from '../lib/api.js';
+import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
+import { useSessions } from '../contexts/SessionsContext.jsx';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
 import Tooltip from '../components/Tooltip.jsx';
 import useLocalStorage from '../hooks/useLocalStorage.js';
@@ -14,11 +15,8 @@ import WorkspacesList from '../components/WorkspacesList.jsx';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
-  const { config } = useConfig();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [sessionData, setSessionData] = useState(null);
-  const [workspaces, setWorkspaces] = useState([]);
+  const { config, loading: configLoading } = useConfig();
+  const { sessionsById, loading: sessionsLoading, error: sessionsError, refresh } = useSessions();
   const [wsStatus, setWsStatus] = useState('connecting');
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
@@ -29,72 +27,28 @@ export default function SessionDetailPage() {
   const terminalStreamRef = useRef(null);
   const workspacesListRef = useRef(null);
   const { success, error: toastError } = useToast();
-  const { show, prompt } = useModal();
-  const navigate = useNavigate();
+  const { prompt } = useModal();
   const { markAsViewed } = useViewedSessions();
 
+  const sessionData = sessionId ? sessionsById[sessionId] : null;
+  const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
+
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const workspaces = await getSessions();
-        let session = null;
-        let workspaceId = null;
-        for (const ws of workspaces) {
-          const found = ws.sessions.find((s) => s.id === sessionId);
-          if (found) {
-            workspaceId = ws.id;
-            session = {
-              ...found,
-              workspace_id: ws.id,
-              workspace_path: ws.path,
-              repo: ws.repo,
-              branch: ws.branch
-            };
-            break;
-          }
-        }
-
-        if (!active) return;
-        if (!session) {
-          setError('Session not found');
-          setLoading(false);
-          return;
-        }
-
-        setSessionData({ ...session, workspaceId });
-        setWorkspaces(workspaces);
-        setLoading(false);
-
-        // Mark session as viewed
-        markAsViewed(sessionId);
-      } catch (err) {
-        if (!active) return;
-        setError(`Failed to load session: ${err.message}`);
-        setLoading(false);
-      }
-    };
-
-    if (sessionId) {
-      load();
-    } else {
-      setError('No session ID provided');
-      setLoading(false);
+    if (sessionData?.id) {
+      markAsViewed(sessionData.id);
     }
-
-    return () => {
-      active = false;
-    };
-  }, [sessionId]);
+  }, [sessionData?.id, markAsViewed]);
 
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
+    if (configLoading) return;
+    if (!config?.terminal || typeof config.terminal.width !== 'number' || typeof config.terminal.height !== 'number') {
+      return;
+    }
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
+      terminalSize: config?.terminal || null,
       onResume: (showing) => {
         setShowResume(showing);
         setFollowTail(!showing);
@@ -112,6 +66,13 @@ export default function SessionDetailPage() {
     return () => {
       terminalStream.disconnect();
     };
+  }, [sessionData?.id, configLoading, config?.terminal]);
+
+  useEffect(() => {
+    if (!sessionData?.id) return;
+    setWsStatus('connecting');
+    setShowResume(false);
+    setFollowTail(true);
   }, [sessionData?.id]);
 
   // Keep marking as viewed while WebSocket is connected (you're seeing output live)
@@ -179,7 +140,7 @@ export default function SessionDetailPage() {
         await updateNickname(sessionId, newNickname);
         success('Nickname updated');
         // Refresh session data to show updated nickname
-        setSessionData(prev => ({ ...prev, nickname: newNickname }));
+        refresh(true);
         return; // Success, exit loop
       } catch (err) {
         if (err.isConflict) {
@@ -218,7 +179,7 @@ export default function SessionDetailPage() {
     }
   };
 
-  if (loading) {
+  if (sessionsLoading && !sessionData && !sessionsError) {
     return (
       <div className="loading-state">
         <div className="spinner"></div>
@@ -227,14 +188,33 @@ export default function SessionDetailPage() {
     );
   }
 
-  if (error) {
+  if (sessionsError || !sessionId) {
+    const message = !sessionId
+      ? 'No session ID provided'
+      : `Failed to load session: ${sessionsError}`;
     return (
       <div className="empty-state">
         <div className="empty-state__icon">⚠️</div>
         <h3 className="empty-state__title">Error</h3>
-        <p className="empty-state__description">{error}</p>
+        <p className="empty-state__description">{message}</p>
         <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
       </div>
+    );
+  }
+
+  if (sessionMissing) {
+    return (
+      <>
+        <WorkspacesList
+          ref={workspacesListRef}
+          showControls={false}
+        />
+        <div className="empty-state">
+          <div className="empty-state__icon">⚠️</div>
+          <h3 className="empty-state__title">Session unavailable</h3>
+          <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the list.</p>
+        </div>
+      </>
     );
   }
 
@@ -250,14 +230,12 @@ export default function SessionDetailPage() {
 
   return (
     <>
-      {sessionData && (
-        <WorkspacesList
-          ref={workspacesListRef}
-          workspaceId={sessionData.workspaceId}
-          currentSessionId={sessionId}
-          showControls={false}
-        />
-      )}
+      <WorkspacesList
+        ref={workspacesListRef}
+        workspaceId={sessionData.workspace_id}
+        currentSessionId={sessionId}
+        showControls={false}
+      />
 
       <div className="page-header">
         <h1 className="page-header__title">Session <span className="mono">{titleText}</span></h1>
@@ -324,7 +302,12 @@ export default function SessionDetailPage() {
                 </Tooltip>
               </div>
             </div>
-            <div id="terminal" className="log-viewer__output" ref={terminalRef}></div>
+            <div
+              key={sessionData.id}
+              id="terminal"
+              className="log-viewer__output"
+              ref={terminalRef}
+            ></div>
             {showResume ? (
               <button className="log-viewer__new-content" onClick={() => terminalStreamRef.current?.jumpToBottom()}>
                 Resume

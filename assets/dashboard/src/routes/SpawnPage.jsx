@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getConfig, getWorkspaces, spawnSessions } from '../lib/api.js';
+import { getConfig, spawnSessions } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useRequireConfig } from '../contexts/ConfigContext.jsx';
+import { useSessions } from '../contexts/SessionsContext.jsx';
 
 const STEPS = ['Target', 'Command', 'Review'];
 const TOTAL_STEPS = STEPS.length;
@@ -21,6 +22,7 @@ export default function SpawnPage() {
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
+  const prefillApplied = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [results, setResults] = useState(null);
@@ -28,6 +30,7 @@ export default function SpawnPage() {
   const [showAgentError, setShowAgentError] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
+  const { workspaces, loading: sessionsLoading, refresh } = useSessions();
 
   useEffect(() => {
     let active = true;
@@ -66,39 +69,37 @@ export default function SpawnPage() {
   }, []);
 
   useEffect(() => {
-    let active = true;
+    if (prefillApplied.current) return;
+    const workspaceId = searchParams.get('workspace_id');
+    if (!workspaceId) return;
+    setPrefillWorkspaceId(workspaceId);
 
-    const checkParams = async () => {
-      const workspaceId = searchParams.get('workspace_id');
-      if (!workspaceId) return;
-      setPrefillWorkspaceId(workspaceId);
+    const urlRepo = searchParams.get('repo');
+    const urlBranch = searchParams.get('branch');
+    let prefillRepo = urlRepo;
+    let prefillBranch = urlBranch;
 
-      let prefillRepo = searchParams.get('repo');
-      let prefillBranch = searchParams.get('branch');
+    if ((!prefillRepo || !prefillBranch) && sessionsLoading) {
+      return;
+    }
 
-      if (!prefillRepo || !prefillBranch) {
-        try {
-          const workspaces = await getWorkspaces();
-          const workspace = workspaces.find((ws) => ws.id === workspaceId);
-          if (workspace) {
-            prefillRepo = prefillRepo || workspace.repo;
-            prefillBranch = prefillBranch || workspace.branch;
-          }
-        } catch (err) {
-          console.error('Failed to fetch workspace details:', err);
-        }
+    let workspaceFound = false;
+    if (!prefillRepo || !prefillBranch) {
+      const workspace = workspaces.find((ws) => ws.id === workspaceId);
+      if (workspace) {
+        workspaceFound = true;
+        prefillRepo = prefillRepo || workspace.repo;
+        prefillBranch = prefillBranch || workspace.branch;
       }
+    }
 
-      if (!active) return;
-      if (prefillRepo) setRepo(prefillRepo);
-      if (prefillBranch) setBranch(prefillBranch);
-    };
+    if (prefillRepo && prefillRepo !== repo) setRepo(prefillRepo);
+    if (prefillBranch && prefillBranch !== branch) setBranch(prefillBranch);
 
-    checkParams();
-    return () => {
-      active = false;
-    };
-  }, [searchParams]);
+    if (prefillRepo && prefillBranch) {
+      prefillApplied.current = true;
+    }
+  }, [searchParams, workspaces, sessionsLoading, repo, branch]);
 
   const agentList = useMemo(() => {
     return agents.map((agent) => ({
@@ -207,6 +208,7 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || ''
       });
       setResults(response);
+      refresh(true);
 
       // Clear collapsed state for reused workspace IDs so new sessions are visible
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id))];

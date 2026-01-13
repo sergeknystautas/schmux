@@ -10,6 +10,7 @@ export default class TerminalStream {
     this.followCheckbox = options.followCheckbox || null;
     this.onStatusChange = options.onStatusChange || (() => {});
     this.onResume = options.onResume || (() => {});
+    this.terminalSize = options.terminalSize || null;
 
     this.terminal = null;
     this.tmuxCols = null;
@@ -23,22 +24,12 @@ export default class TerminalStream {
       return null;
     }
 
-    let cols;
-    let rows;
-    try {
-      const resp = await fetch('/api/config');
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch config: ${resp.status}`);
-      }
-      const config = await resp.json();
-      if (!config.terminal || typeof config.terminal.width !== 'number' || typeof config.terminal.height !== 'number') {
-        throw new Error('Config missing terminal.width or terminal.height');
-      }
-      cols = config.terminal.width;
-      rows = config.terminal.height;
-    } catch (e) {
-      this.containerElement.textContent = `Error: ${e.message}`;
-      console.error('Failed to load terminal size from config:', e);
+    const cols = this.terminalSize?.width;
+    const rows = this.terminalSize?.height;
+    if (typeof cols !== 'number' || typeof rows !== 'number') {
+      const message = 'Terminal size is unavailable in config';
+      this.containerElement.textContent = `Error: ${message}`;
+      console.error(message);
       return null;
     }
 

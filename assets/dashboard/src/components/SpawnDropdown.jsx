@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { spawnSessions } from '../lib/api.js';
 import { useToast } from './ToastProvider.jsx';
+import { useSessions } from '../contexts/SessionsContext.jsx';
 
 export default function SpawnDropdown({ workspace, commands, disabled }) {
   const { success, error: toastError } = useToast();
+  const { refresh, waitForSession } = useSessions();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [spawning, setSpawning] = useState(false);
@@ -67,6 +69,8 @@ export default function SpawnDropdown({ workspace, commands, disabled }) {
         toastError(`Failed to spawn ${command.name}: ${result.error}`);
       } else {
         success(`Spawned ${command.name} session`);
+        await refresh(true);
+        await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }
     } catch (err) {

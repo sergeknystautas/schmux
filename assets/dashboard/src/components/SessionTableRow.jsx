@@ -1,11 +1,12 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils.js';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
 import Tooltip from './Tooltip.jsx';
 
 export default function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const { viewedSessions } = useViewedSessions();
+  const navigate = useNavigate();
 
   const statusClass = sess.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sess.running ? 'Running' : 'Stopped';
@@ -24,7 +25,7 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose, current
           <Tooltip content="View session">
             <button
               className="session-table__name-link"
-              onClick={() => window.location.href = `/sessions/${sess.id}`}
+              onClick={() => navigate(`/sessions/${sess.id}`)}
             >
               <span className={sess.nickname ? '' : 'mono'}>{displayName}</span>
             </button>
@@ -39,7 +40,7 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose, current
           <Tooltip content="View session">
             <button
               className="session-table__name-link"
-              onClick={() => window.location.href = `/sessions/${sess.id}`}
+              onClick={() => navigate(`/sessions/${sess.id}`)}
               style={{ fontSize: '0.75rem', color: 'var(--color-text-subtle)' }}
             >
               {sess.id}

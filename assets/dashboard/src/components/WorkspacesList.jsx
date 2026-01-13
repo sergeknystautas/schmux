@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getWorkspaces, getSessions, disposeSession, disposeWorkspace, openVSCode } from '../lib/api.js';
+import { disposeSession, disposeWorkspace, openVSCode } from '../lib/api.js';
 import { copyToClipboard } from '../lib/utils.js';
 import { useToast } from './ToastProvider.jsx';
 import { useModal } from './ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
+import { useSessions } from '../contexts/SessionsContext.jsx';
 import WorkspaceTableRow from './WorkspaceTableRow.jsx';
 import SessionTableRow from './SessionTableRow.jsx';
 import Tooltip from './Tooltip.jsx';
@@ -33,12 +34,10 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   showControls = true,
 }, ref) {
   const { config, getRepoName } = useConfig();
+  const { workspaces: allWorkspaces, loading, error, refresh } = useSessions();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const navigate = useNavigate();
-  const [allWorkspaces, setAllWorkspaces] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [expanded, setExpanded] = useLocalStorage('workspace-expanded', {});
   const [vsCodeResult, setVSCodeResult] = useState(null);
   const [vsCodeLoading, setVSCodeLoading] = useState(null); // Track which workspace is loading
@@ -47,55 +46,6 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   const commands = React.useMemo(() => {
     return (config?.agents || []).filter(a => a.agentic === false);
   }, [config?.agents]);
-
-  const loadWorkspaces = useCallback(async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-    }
-    setError('');
-    try {
-      // Fetch both: all workspaces (including empty) and workspaces with sessions
-      const [allWorkspaces, workspacesWithSessions] = await Promise.all([
-        getWorkspaces(),
-        getSessions()
-      ]);
-
-      // Create a map of workspace ID -> sessions for quick lookup
-      const sessionsMap = {};
-      workspacesWithSessions.forEach(ws => {
-        sessionsMap[ws.id] = ws.sessions || [];
-      });
-
-      // Merge: add sessions to each workspace from the sessions map
-      const merged = allWorkspaces.map(ws => ({
-        ...ws,
-        sessions: sessionsMap[ws.id] || []
-      }));
-
-      setAllWorkspaces(merged);
-    } catch (err) {
-      if (!silent) {
-        setError(err.message || 'Failed to load workspaces');
-      }
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    loadWorkspaces();
-  }, [loadWorkspaces]);
-
-  // Auto-refresh (silent mode - no flicker)
-  useEffect(() => {
-    const pollInterval = config.internal?.sessions_poll_interval_ms || 5000;
-    const interval = setInterval(() => {
-      loadWorkspaces(true);
-    }, pollInterval);
-    return () => clearInterval(interval);
-  }, [loadWorkspaces, config]);
 
   const toggleExpanded = (workspaceId) => {
     setExpanded((curr) => ({ ...curr, [workspaceId]: !curr[workspaceId] }));
@@ -145,7 +95,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     try {
       await disposeSession(sessionId);
       success('Session disposed');
-      loadWorkspaces();
+      refresh();
     } catch (err) {
       toastError(`Failed to dispose: ${err.message}`);
     }
@@ -163,7 +113,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     try {
       await disposeWorkspace(workspaceId);
       success('Workspace disposed');
-      loadWorkspaces();
+      refresh();
     } catch (err) {
       // Display detailed error message from backend
       toastError(err.message || 'Failed to dispose workspace');
@@ -336,7 +286,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
             <div className="empty-state__icon">⚠️</div>
             <h3 className="empty-state__title">Failed to load workspaces</h3>
             <p className="empty-state__description">{error}</p>
-            <button className="btn btn--primary" onClick={() => loadWorkspaces()}>
+            <button className="btn btn--primary" onClick={() => refresh()}>
               Try Again
             </button>
           </div>

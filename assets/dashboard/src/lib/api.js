@@ -4,12 +4,6 @@ export async function getSessions() {
   return response.json();
 }
 
-export async function getWorkspaces() {
-  const response = await fetch('/api/workspaces');
-  if (!response.ok) throw new Error('Failed to fetch workspaces');
-  return response.json();
-}
-
 export async function getConfig() {
   const response = await fetch('/api/config');
   if (!response.ok) throw new Error('Failed to fetch config');
