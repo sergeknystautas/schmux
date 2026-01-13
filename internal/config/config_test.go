@@ -491,7 +491,7 @@ func TestFindRepo(t *testing.T) {
 	}
 }
 
-func TestFindAgent(t *testing.T) {
+func TestGetAgentConfig(t *testing.T) {
 	cfg := &Config{
 		Agents: []Agent{
 			{Name: "codex", Command: "codex"},
@@ -499,7 +499,7 @@ func TestFindAgent(t *testing.T) {
 		},
 	}
 
-	agent, found := cfg.FindAgent("codex")
+	agent, found := cfg.GetAgentConfig("codex")
 	if !found {
 		t.Error("expected to find codex")
 	}
@@ -507,8 +507,68 @@ func TestFindAgent(t *testing.T) {
 		t.Errorf("expected name codex, got %s", agent.Name)
 	}
 
-	_, found = cfg.FindAgent("nonexistent")
+	_, found = cfg.GetAgentConfig("nonexistent")
 	if found {
 		t.Error("expected not to find nonexistent agent")
 	}
+}
+
+func TestGetAgentDetect(t *testing.T) {
+	trueVal := true
+	falseVal := false
+	nilVal := (*bool)(nil)
+
+	cfg := &Config{
+		Agents: []Agent{
+			{Name: "codex", Command: "codex", Agentic: &trueVal},
+			{Name: "claude", Command: "claude", Agentic: nilVal}, // defaults to true
+			{Name: "tool", Command: "tool", Agentic: &falseVal},
+		},
+	}
+
+	t.Run("returns agent as detect.Agent when found", func(t *testing.T) {
+		agent, found := cfg.GetAgentDetect("codex")
+		if !found {
+			t.Fatal("expected to find codex")
+		}
+		if agent.Name != "codex" {
+			t.Errorf("expected name codex, got %s", agent.Name)
+		}
+		if agent.Command != "codex" {
+			t.Errorf("expected command codex, got %s", agent.Command)
+		}
+		if agent.Source != "config" {
+			t.Errorf("expected source config, got %s", agent.Source)
+		}
+		if !agent.Agentic {
+			t.Error("expected agentic true")
+		}
+	})
+
+	t.Run("defaults agentic to true when nil", func(t *testing.T) {
+		agent, found := cfg.GetAgentDetect("claude")
+		if !found {
+			t.Fatal("expected to find claude")
+		}
+		if !agent.Agentic {
+			t.Error("expected agentic true when nil in config")
+		}
+	})
+
+	t.Run("preserves agentic false", func(t *testing.T) {
+		agent, found := cfg.GetAgentDetect("tool")
+		if !found {
+			t.Fatal("expected to find tool")
+		}
+		if agent.Agentic {
+			t.Error("expected agentic false")
+		}
+	})
+
+	t.Run("returns not found for unknown agent", func(t *testing.T) {
+		_, found := cfg.GetAgentDetect("unknown")
+		if found {
+			t.Error("expected not to find unknown agent")
+		}
+	})
 }

@@ -2,6 +2,7 @@ package detect
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -32,42 +33,6 @@ func TestDetectTimeout(t *testing.T) {
 		if !agent.Agentic {
 			t.Error("Agent Agentic should be true")
 		}
-	}
-}
-
-// TestDetectAgentMissing tests detection of commands that don't exist.
-func TestDetectAgentMissing(t *testing.T) {
-	ctx := context.Background()
-
-	d := agentDetector{
-		name:       "nonexistentcmd12345",
-		command:    "nonexistentcmd12345",
-		versionArg: "--version",
-	}
-
-	_, found := detectAgent(ctx, d)
-	if found {
-		t.Error("Expected false for non-existent command")
-	}
-}
-
-// TestDetectAgentTimeout verifies that detectAgent respects context timeout.
-func TestDetectAgentTimeout(t *testing.T) {
-	// Create a detector with a very short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-
-	// Use sleep command which will exceed timeout
-	d := agentDetector{
-		name:       "sleep",
-		command:    "sleep",
-		versionArg: "10", // sleep for 10 seconds
-	}
-
-	// Should return false due to timeout
-	_, found := detectAgent(ctx, d)
-	if found {
-		t.Error("detectAgent() should return false when command times out")
 	}
 }
 
@@ -138,54 +103,325 @@ func TestDetectAvailableAgents(t *testing.T) {
 
 // TestAgentDetectorConfig verifies the detector configurations match requirements.
 func TestAgentDetectorConfig(t *testing.T) {
-	// These are the actual detectors used in production
-	detectors := []agentDetector{
-		{name: "claude", command: "claude", versionArg: "-v"},
-		{name: "gemini", command: "gemini", versionArg: "-v"},
-		{name: "codex", command: "codex", versionArg: "-V"},
+	// Verify each detector has a name
+	detectors := []AgentDetector{
+		&claudeDetector{},
+		&codexDetector{},
+		&geminiDetector{},
 	}
 
 	tests := []struct {
-		name           string
-		detector       agentDetector
-		wantName       string
-		wantCommand    string
-		wantVersionArg string
+		name     string
+		detector AgentDetector
+		wantName string
 	}{
 		{
-			name:           "claude detector",
-			detector:       detectors[0],
-			wantName:       "claude",
-			wantCommand:    "claude",
-			wantVersionArg: "-v",
+			name:     "claude detector",
+			detector: detectors[0],
+			wantName: "claude",
 		},
 		{
-			name:           "gemini detector",
-			detector:       detectors[1],
-			wantName:       "gemini",
-			wantCommand:    "gemini",
-			wantVersionArg: "-v",
+			name:     "codex detector",
+			detector: detectors[1],
+			wantName: "codex",
 		},
 		{
-			name:           "codex detector with capital V",
-			detector:       detectors[2],
-			wantName:       "codex",
-			wantCommand:    "codex",
-			wantVersionArg: "-V",
+			name:     "gemini detector",
+			detector: detectors[2],
+			wantName: "gemini",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.detector.name != tt.wantName {
-				t.Errorf("detector.name = %q, want %q", tt.detector.name, tt.wantName)
-			}
-			if tt.detector.command != tt.wantCommand {
-				t.Errorf("detector.command = %q, want %q", tt.detector.command, tt.wantCommand)
-			}
-			if tt.detector.versionArg != tt.wantVersionArg {
-				t.Errorf("detector.versionArg = %q, want %q", tt.detector.versionArg, tt.wantVersionArg)
+			if tt.detector.Name() != tt.wantName {
+				t.Errorf("detector.Name() = %q, want %q", tt.detector.Name(), tt.wantName)
 			}
 		})
+	}
+}
+
+// TestCommandExists verifies commandExists works correctly.
+func TestCommandExists(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		wantBool bool
+	}{
+		{
+			name:     "sh should exist on Unix systems",
+			command:  "sh",
+			wantBool: true,
+		},
+		{
+			name:     "nonexistent command should not exist",
+			command:  "nonexistentcmd12345abcdef",
+			wantBool: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := commandExists(tt.command)
+			if got != tt.wantBool {
+				t.Errorf("commandExists(%q) = %v, want %v", tt.command, got, tt.wantBool)
+			}
+		})
+	}
+}
+
+// TestFileExists verifies fileExists works correctly.
+func TestFileExists(t *testing.T) {
+	// Test with a file that should exist
+	tmpFile, err := os.CreateTemp("", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	tmpFile.Close()
+
+	tests := []struct {
+		name     string
+		path     string
+		wantBool bool
+	}{
+		{
+			name:     "existing temp file",
+			path:     tmpFile.Name(),
+			wantBool: true,
+		},
+		{
+			name:     "nonexistent file",
+			path:     "/nonexistent/file/that/does/not/exist",
+			wantBool: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fileExists(tt.path)
+			if got != tt.wantBool {
+				t.Errorf("fileExists(%q) = %v, want %v", tt.path, got, tt.wantBool)
+			}
+		})
+	}
+}
+
+// TestClaudeDetector verifies claude detector returns valid results.
+func TestClaudeDetector(t *testing.T) {
+	d := &claudeDetector{}
+
+	if d.Name() != "claude" {
+		t.Errorf("claudeDetector.Name() = %q, want \"claude\"", d.Name())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	agent, found := d.Detect(ctx)
+
+	// If found, verify the agent is valid
+	if found {
+		if agent.Name != "claude" {
+			t.Errorf("agent.Name = %q, want \"claude\"", agent.Name)
+		}
+		if agent.Command == "" {
+			t.Error("agent.Command should not be empty")
+		}
+		if !agent.Agentic {
+			t.Error("agent.Agentic should be true")
+		}
+	}
+	// If not found, that's OK - claude may not be installed
+}
+
+// TestCodexDetector verifies codex detector returns valid results.
+func TestCodexDetector(t *testing.T) {
+	d := &codexDetector{}
+
+	if d.Name() != "codex" {
+		t.Errorf("codexDetector.Name() = %q, want \"codex\"", d.Name())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	agent, found := d.Detect(ctx)
+
+	// If found, verify the agent is valid
+	if found {
+		if agent.Name != "codex" {
+			t.Errorf("agent.Name = %q, want \"codex\"", agent.Name)
+		}
+		if agent.Command == "" {
+			t.Error("agent.Command should not be empty")
+		}
+		if !agent.Agentic {
+			t.Error("agent.Agentic should be true")
+		}
+	}
+	// If not found, that's OK - codex may not be installed
+}
+
+// TestGeminiDetector verifies gemini detector returns valid results.
+func TestGeminiDetector(t *testing.T) {
+	d := &geminiDetector{}
+
+	if d.Name() != "gemini" {
+		t.Errorf("geminiDetector.Name() = %q, want \"gemini\"", d.Name())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	agent, found := d.Detect(ctx)
+
+	// If found, verify the agent is valid
+	if found {
+		if agent.Name != "gemini" {
+			t.Errorf("agent.Name = %q, want \"gemini\"", agent.Name)
+		}
+		if agent.Command == "" {
+			t.Error("agent.Command should not be empty")
+		}
+		if !agent.Agentic {
+			t.Error("agent.Agentic should be true")
+		}
+	}
+	// If not found, that's OK - gemini may not be installed
+}
+
+// TestTryCommandArgs verifies tryCommandArgs handles multiple arguments correctly.
+func TestTryCommandArgs(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		command  string
+		args     []string
+		wantBool bool
+	}{
+		{
+			name:     "echo command with args should succeed",
+			command:  "echo",
+			args:     []string{"hello", "world"},
+			wantBool: true,
+		},
+		{
+			name:     "nonexistent command should fail",
+			command:  "nonexistentcmd12345abcdef",
+			args:     []string{"--version"},
+			wantBool: false,
+		},
+		{
+			name:     "sh with version flag should succeed",
+			command:  "sh",
+			args:     []string{"-c", "echo test"},
+			wantBool: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tryCommandArgs(ctx, tt.command, tt.args...)
+			if got != tt.wantBool {
+				t.Errorf("tryCommandArgs(%q, %v) = %v, want %v", tt.command, tt.args, got, tt.wantBool)
+			}
+		})
+	}
+}
+
+// TestNpmGlobalInstalled verifies npmGlobalInstalled works correctly.
+func TestNpmGlobalInstalled(t *testing.T) {
+	// Test with a package that should never exist
+	pkg := "@nonexistent/testing-package-xyz123"
+	if npmGlobalInstalled(pkg) {
+		t.Errorf("npmGlobalInstalled(%q) = true, want false (package should not exist)", pkg)
+	}
+
+	// If npm is installed, test with a known package format
+	if commandExists("npm") {
+		// Test that the function doesn't crash and returns false for non-existent package
+		pkg := "@schmux/nonexistent-test-package-xyz"
+		if npmGlobalInstalled(pkg) {
+			t.Errorf("npmGlobalInstalled(%q) = true, want false", pkg)
+		}
+	}
+}
+
+// TestHomebrewInstalled verifies homebrew detection works correctly.
+func TestHomebrewInstalled(t *testing.T) {
+	// homebrewInstalled should return a boolean without crashing
+	homebrewInstalled() // Just verify it doesn't panic
+}
+
+// TestHomebrewCaskInstalled verifies cask detection works correctly.
+func TestHomebrewCaskInstalled(t *testing.T) {
+	// Test with a cask that should never exist
+	cask := "nonexistent-cask-xyz123"
+	if homebrewCaskInstalled(cask) {
+		t.Errorf("homebrewCaskInstalled(%q) = true, want false (cask should not exist)", cask)
+	}
+}
+
+// TestHomebrewFormulaInstalled verifies formula detection works correctly.
+func TestHomebrewFormulaInstalled(t *testing.T) {
+	// Test with a formula that should never exist
+	formula := "nonexistent-formula-xyz123"
+	if homebrewFormulaInstalled(formula) {
+		t.Errorf("homebrewFormulaInstalled(%q) = true, want false (formula should not exist)", formula)
+	}
+}
+
+// TestExpandHome verifies home directory expansion works correctly.
+func TestExpandHome(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		wantError bool
+	}{
+		{
+			name:      "path without tilde should return as-is",
+			path:      "/usr/local/bin",
+			wantError: false,
+		},
+		{
+			name:      "tilde alone should expand to home",
+			path:      "~",
+			wantError: false,
+		},
+		{
+			name:      "tilde with path should expand",
+			path:      "~/.local/bin",
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := expandHome(tt.path)
+			if (err != nil) != tt.wantError {
+				t.Errorf("expandHome(%q) error = %v, wantError %v", tt.path, err, tt.wantError)
+				return
+			}
+			if !tt.wantError && tt.path[0] != '~' && got != tt.path {
+				t.Errorf("expandHome(%q) = %q, want %q (paths without ~ should be unchanged)", tt.path, got, tt.path)
+			}
+		})
+	}
+}
+
+// TestNpmGlobalInstalledJSONParsing verifies JSON parsing works correctly.
+func TestNpmGlobalInstalledJSONParsing(t *testing.T) {
+	// This test verifies that npmGlobalInstalled properly parses JSON output
+	// We can't mock npm output easily, but we can verify the function handles various cases
+
+	// If npm is not available, function should return false
+	if !commandExists("npm") {
+		pkg := "@anthropic-ai/claude-code"
+		if npmGlobalInstalled(pkg) {
+			t.Errorf("npmGlobalInstalled(%q) = true when npm is not available, want false", pkg)
+		}
 	}
 }

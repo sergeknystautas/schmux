@@ -46,7 +46,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // prompt is only used if the agent is agentic (takes prompts).
 func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
 	// Find agent config
-	agent, found := m.config.FindAgent(agentName)
+	agent, found := m.config.GetAgentConfig(agentName)
 	if !found {
 		return nil, fmt.Errorf("agent not found: %s", agentName)
 	}

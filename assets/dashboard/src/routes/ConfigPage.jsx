@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfig, updateConfig } from '../lib/api.js';
+import { getConfig, updateConfig, detectAgents } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
@@ -17,6 +17,7 @@ export default function ConfigPage() {
   const [showSetupComplete, setShowSetupComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const { success, error: toastError } = useToast();
@@ -249,6 +250,30 @@ export default function ConfigPage() {
     const confirmed = await confirm('Remove agent?', `Remove "${name}" from the config?`);
     if (confirmed) {
       setAgents(agents.filter(a => a.name !== name));
+    }
+  };
+
+  const handleDetectAgents = async () => {
+    const confirmed = await confirm(
+      'Auto-detect Agents?',
+      'This will replace all agent entries with auto-detected ones. Continue?'
+    );
+    if (!confirmed) return;
+
+    setDetecting(true);
+    try {
+      const result = await detectAgents();
+      // Validate detected agent data
+      const agents = (result.agents || []).filter(agent => {
+        return agent && typeof agent.name === 'string' && agent.name.trim() &&
+                      typeof agent.command === 'string' && agent.command.trim();
+      });
+      setAgents(agents);
+      success(`Detected ${agents.length} agent(s)`);
+    } catch (err) {
+      toastError(err.message || 'Failed to detect agents');
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -487,6 +512,17 @@ export default function ConfigPage() {
               <p className="wizard-step-content__description">
                 Configure the AI coding agents that take prompts and spawn multiple parallel sessions.
               </p>
+
+              <div style={{ marginBottom: 'var(--spacing-md)' }}>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={handleDetectAgents}
+                  disabled={detecting}
+                >
+                  {detecting ? 'Detecting...' : 'Auto-detect Agents'}
+                </button>
+              </div>
 
               {agents.length === 0 ? (
                 <div className="empty-state-hint">

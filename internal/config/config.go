@@ -37,6 +37,7 @@ type Config struct {
 	WorkspacePath string             `json:"workspace_path"`
 	Repos         []Repo             `json:"repos"`
 	Agents        []Agent            `json:"agents"`
+	Tools         []Tool             `json:"tools"` // detected CLI tools (populated by auto-detection)
 	Terminal      *TerminalSize      `json:"terminal,omitempty"`
 	Internal      *InternalIntervals `json:"internal,omitempty"`
 }
@@ -78,6 +79,15 @@ type Agent struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
 	Agentic *bool  `json:"agentic"` // true = takes prompt (agent), false = command only, nil = defaults to true
+}
+
+// Tool represents a detected CLI tool (AI coding agents, etc.)
+// This is populated by auto-detection and tracks what's actually installed.
+type Tool struct {
+	Name    string `json:"name"`    // e.g., "claude", "codex", "gemini", "cursor"
+	Command string `json:"command"` // e.g., "claude", "npx @google/gemini-cli"
+	Source  string `json:"source"`  // detection source, e.g., "npm global package @anthropic-ai/claude-code"
+	Agentic bool   `json:"agentic"` // true = this is an agentic tool (takes prompts)
 }
 
 // Load loads the configuration from ~/.schmux/config.json.
@@ -171,6 +181,16 @@ func (c *Config) GetAgents() []Agent {
 	return c.Agents
 }
 
+// GetTools returns the list of detected tools.
+func (c *Config) GetTools() []Tool {
+	return c.Tools
+}
+
+// SetTools sets the list of detected tools.
+func (c *Config) SetTools(tools []Tool) {
+	c.Tools = tools
+}
+
 // FindRepo finds a repository by name.
 func (c *Config) FindRepo(name string) (Repo, bool) {
 	for _, repo := range c.Repos {
@@ -181,14 +201,35 @@ func (c *Config) FindRepo(name string) (Repo, bool) {
 	return Repo{}, false
 }
 
-// FindAgent finds an agent by name.
-func (c *Config) FindAgent(name string) (Agent, bool) {
+// GetAgentConfig finds an agent by name and returns it as a config.Agent.
+func (c *Config) GetAgentConfig(name string) (Agent, bool) {
 	for _, agent := range c.Agents {
 		if agent.Name == name {
 			return agent, true
 		}
 	}
 	return Agent{}, false
+}
+
+// GetAgentDetect finds an agent by name and returns it as a detect.Agent for execution.
+// Returns detect.Agent with the agent's command and agentic flag.
+func (c *Config) GetAgentDetect(name string) (detect.Agent, bool) {
+	agent, found := c.GetAgentConfig(name)
+	if !found {
+		return detect.Agent{}, false
+	}
+
+	agentic := true
+	if agent.Agentic != nil {
+		agentic = *agent.Agentic
+	}
+
+	return detect.Agent{
+		Name:    agent.Name,
+		Command: agent.Command,
+		Source:  "config", // from user config
+		Agentic: agentic,
+	}, true
 }
 
 // GetTerminalSize returns the terminal size. Returns 0,0 if not configured.
@@ -216,7 +257,7 @@ func (c *Config) GetTerminalBootstrapLines() int {
 	return c.Terminal.BootstrapLines
 }
 
-// Reload reloads the configuration from disk and updates this Config struct in place.
+// Reload reloads the configuration from disk and replaces this Config struct.
 func (c *Config) Reload() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -240,12 +281,8 @@ func (c *Config) Reload() error {
 		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
 	}
 
-	// Update the existing config in place
-	c.WorkspacePath = newCfg.WorkspacePath
-	c.Repos = newCfg.Repos
-	c.Agents = newCfg.Agents
-	c.Terminal = newCfg.Terminal
-	c.Internal = newCfg.Internal
+	// Replace entire config
+	*c = newCfg
 
 	return nil
 }
@@ -354,9 +391,21 @@ func EnsureExists() (bool, error) {
 		})
 	}
 
+	// Convert detect.Agent to config.Tool (same data, different purpose)
+	var tools []Tool
+	for _, da := range detectedAgents {
+		tools = append(tools, Tool{
+			Name:    da.Name,
+			Command: da.Command,
+			Source:  da.Source,
+			Agentic: da.Agentic,
+		})
+	}
+
 	// Create default config with empty workspace path (user will set in wizard)
 	cfg := CreateDefault("")
 	cfg.Agents = agents
+	cfg.Tools = tools
 
 	// Save config
 	if err := cfg.Save(); err != nil {

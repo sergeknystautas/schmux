@@ -95,3 +95,19 @@ export async function openVSCode(workspaceId) {
   }
   return response.json();
 }
+
+/**
+ * Detects available AI agents on the system.
+ * Returns a list of detected agents with their names, commands, and agentic flags.
+ * @returns {Promise<{agents: Array<{name: string, command: string, agentic: boolean}>>>}
+ */
+export async function detectAgents() {
+  const response = await fetch('/api/detect-agents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    throw new Error('Failed to detect agents');
+  }
+  return response.json();
+}

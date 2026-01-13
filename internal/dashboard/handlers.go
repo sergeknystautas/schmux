@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sergek/schmux/internal/config"
+	"github.com/sergek/schmux/internal/detect"
 )
 
 // handleApp serves the React application entry point for UI routes.
@@ -276,7 +277,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Check if any agentic agents are being spawned (require prompt)
 	hasAgentic := false
 	for agentName := range req.Agents {
-		if agent, found := s.config.FindAgent(agentName); found && agent.Agentic != nil && *agent.Agentic {
+		if agent, found := s.config.GetAgentConfig(agentName); found && agent.Agentic != nil && *agent.Agentic {
 			hasAgentic = true
 			break
 		}
@@ -308,7 +309,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	for agentName, count := range req.Agents {
 		// Get agent config to check if it's agentic
-		agent, found := s.config.FindAgent(agentName)
+		agent, found := s.config.GetAgentConfig(agentName)
 		if !found {
 			results = append(results, SessionResult{
 				Agent: agentName,
@@ -475,6 +476,71 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleDetectAgents runs agent detection and returns the detected agents.
+func (s *Server) handleDetectAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type AgentResponse struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Agentic *bool  `json:"agentic,omitempty"`
+	}
+
+	type Response struct {
+		Agents []AgentResponse `json:"agents"`
+	}
+
+	// Run detection with a reasonable timeout
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	detectedAgents, err := detect.DetectAvailableAgentsContext(ctx, false)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			http.Error(w, "Detection timed out. Some agents may not be available or took too long to respond.", http.StatusGatewayTimeout)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Detection failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert detected agents to config.Tool format and update config
+	tools := make([]config.Tool, len(detectedAgents))
+	for i, da := range detectedAgents {
+		tools[i] = config.Tool{
+			Name:    da.Name,
+			Command: da.Command,
+			Source:  da.Source,
+			Agentic: da.Agentic,
+		}
+	}
+	s.config.SetTools(tools)
+	if err := s.config.Save(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save detected tools: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to response format (for agents)
+	agentResp := make([]AgentResponse, len(detectedAgents))
+	for i, da := range detectedAgents {
+		agentic := da.Agentic
+		agentResp[i] = AgentResponse{
+			Name:    da.Name,
+			Command: da.Command,
+			Agentic: &agentic,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(Response{Agents: agentResp}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
 // handleConfigGet returns the current config.
 func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	type RepoResponse struct {
@@ -586,21 +652,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current config values as defaults
+	// Reload config from disk to get all current values (including tools, etc.)
+	if err := s.config.Reload(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	cfg := s.config
-	workspacePath := cfg.GetWorkspacePath()
-	repos := cfg.GetRepos()
-	agents := cfg.GetAgents()
-	width, height := cfg.GetTerminalSize()
-	seedLines := cfg.GetTerminalSeedLines()
-	bootstrapLines := cfg.GetTerminalBootstrapLines()
-	mtimePollIntervalMs := cfg.GetMtimePollIntervalMs()
-	sessionsPollIntervalMs := cfg.GetSessionsPollIntervalMs()
-	viewedBufferMs := cfg.GetViewedBufferMs()
-	sessionSeenIntervalMs := cfg.GetSessionSeenIntervalMs()
-	gitStatusPollIntervalMs := cfg.GetGitStatusPollIntervalMs()
-	gitCloneTimeoutSeconds := cfg.GetGitCloneTimeoutSeconds()
-	gitStatusTimeoutSeconds := cfg.GetGitStatusTimeoutSeconds()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
@@ -616,8 +674,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if len(newPath) > 0 && newPath[0] == '~' && homeDir != "" {
 			newPath = filepath.Join(homeDir, newPath[1:])
 		}
-		pathChanged = (newPath != workspacePath && (sessionCount > 0 || workspaceCount > 0))
-		workspacePath = newPath
+		pathChanged = (newPath != cfg.GetWorkspacePath() && (sessionCount > 0 || workspaceCount > 0))
+		cfg.WorkspacePath = newPath
 	}
 
 	if req.Repos != nil {
@@ -632,9 +690,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		repos = make([]config.Repo, len(req.Repos))
+		cfg.Repos = make([]config.Repo, len(req.Repos))
 		for i, r := range req.Repos {
-			repos[i] = config.Repo{Name: r.Name, URL: r.URL}
+			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL}
 		}
 	}
 
@@ -650,85 +708,64 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		agents = make([]config.Agent, len(req.Agents))
+		cfg.Agents = make([]config.Agent, len(req.Agents))
 		for i, a := range req.Agents {
-			agents[i] = config.Agent{Name: a.Name, Command: a.Command, Agentic: a.Agentic}
+			cfg.Agents[i] = config.Agent{Name: a.Name, Command: a.Command, Agentic: a.Agentic}
 		}
 	}
 
 	if req.Terminal != nil {
+		if cfg.Terminal == nil {
+			cfg.Terminal = &config.TerminalSize{}
+		}
 		if req.Terminal.Width != nil && *req.Terminal.Width > 0 {
-			width = *req.Terminal.Width
+			cfg.Terminal.Width = *req.Terminal.Width
 		}
 		if req.Terminal.Height != nil && *req.Terminal.Height > 0 {
-			height = *req.Terminal.Height
+			cfg.Terminal.Height = *req.Terminal.Height
 		}
 		if req.Terminal.SeedLines != nil && *req.Terminal.SeedLines > 0 {
-			seedLines = *req.Terminal.SeedLines
+			cfg.Terminal.SeedLines = *req.Terminal.SeedLines
 		}
 		if req.Terminal.BootstrapLines != nil && *req.Terminal.BootstrapLines > 0 {
-			bootstrapLines = *req.Terminal.BootstrapLines
+			cfg.Terminal.BootstrapLines = *req.Terminal.BootstrapLines
 		}
 	}
 
 	if req.Internal != nil {
+		if cfg.Internal == nil {
+			cfg.Internal = &config.InternalIntervals{}
+		}
+		if cfg.Internal.Timeouts == nil {
+			cfg.Internal.Timeouts = &config.Timeouts{}
+		}
 		if req.Internal.MtimePollIntervalMs != nil && *req.Internal.MtimePollIntervalMs > 0 {
-			mtimePollIntervalMs = *req.Internal.MtimePollIntervalMs
+			cfg.Internal.MtimePollIntervalMs = *req.Internal.MtimePollIntervalMs
 		}
 		if req.Internal.SessionsPollIntervalMs != nil && *req.Internal.SessionsPollIntervalMs > 0 {
-			sessionsPollIntervalMs = *req.Internal.SessionsPollIntervalMs
+			cfg.Internal.SessionsPollIntervalMs = *req.Internal.SessionsPollIntervalMs
 		}
 		if req.Internal.ViewedBufferMs != nil && *req.Internal.ViewedBufferMs > 0 {
-			viewedBufferMs = *req.Internal.ViewedBufferMs
+			cfg.Internal.ViewedBufferMs = *req.Internal.ViewedBufferMs
 		}
 		if req.Internal.SessionSeenIntervalMs != nil && *req.Internal.SessionSeenIntervalMs > 0 {
-			sessionSeenIntervalMs = *req.Internal.SessionSeenIntervalMs
+			cfg.Internal.SessionSeenIntervalMs = *req.Internal.SessionSeenIntervalMs
 		}
 		if req.Internal.GitStatusPollIntervalMs != nil && *req.Internal.GitStatusPollIntervalMs > 0 {
-			gitStatusPollIntervalMs = *req.Internal.GitStatusPollIntervalMs
+			cfg.Internal.GitStatusPollIntervalMs = *req.Internal.GitStatusPollIntervalMs
 		}
 		if req.Internal.GitCloneTimeoutSeconds != nil && *req.Internal.GitCloneTimeoutSeconds > 0 {
-			gitCloneTimeoutSeconds = *req.Internal.GitCloneTimeoutSeconds
+			cfg.Internal.Timeouts.GitCloneSeconds = *req.Internal.GitCloneTimeoutSeconds
 		}
 		if req.Internal.GitStatusTimeoutSeconds != nil && *req.Internal.GitStatusTimeoutSeconds > 0 {
-			gitStatusTimeoutSeconds = *req.Internal.GitStatusTimeoutSeconds
+			cfg.Internal.Timeouts.GitStatusSeconds = *req.Internal.GitStatusTimeoutSeconds
 		}
-	}
-
-	// Create updated config
-	newCfg := &config.Config{
-		WorkspacePath: workspacePath,
-		Repos:         repos,
-		Agents:        agents,
-		Terminal: &config.TerminalSize{
-			Width:          width,
-			Height:         height,
-			SeedLines:      seedLines,
-			BootstrapLines: bootstrapLines,
-		},
-		Internal: &config.InternalIntervals{
-			MtimePollIntervalMs:     mtimePollIntervalMs,
-			SessionsPollIntervalMs:  sessionsPollIntervalMs,
-			ViewedBufferMs:          viewedBufferMs,
-			SessionSeenIntervalMs:   sessionSeenIntervalMs,
-			GitStatusPollIntervalMs: gitStatusPollIntervalMs,
-			Timeouts: &config.Timeouts{
-				GitCloneSeconds:  gitCloneTimeoutSeconds,
-				GitStatusSeconds: gitStatusTimeoutSeconds,
-			},
-		},
 	}
 
 	// Save config
-	if err := newCfg.Save(); err != nil {
+	if err := cfg.Save(); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
-	}
-
-	// Reload the in-memory config from disk
-	if err := s.config.Reload(); err != nil {
-		// Log the error but don't fail the request - the file was saved successfully
-		fmt.Printf("Warning: failed to reload config: %v\n", err)
 	}
 
 	// Return warning if path changed with existing sessions/workspaces
