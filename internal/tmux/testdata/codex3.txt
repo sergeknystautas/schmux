@@ -1,5 +1,3 @@
-  [38;5;6msample2.txt[39m, etc.). Then I can read them and propose a robust extractor + tests.
-
   If you prefer a different folder, tell me the path and I’ll use it.
 
 [48;2;52;52;52m
@@ -16,7 +14,7 @@
 
   If you want to mirror that for sample files, run something like:
 
-  tmux capture-pane -e -p -S -100 -t <session> > internal/dashboard/testdata/sample1.txt
+  tmux capture-pane -e -p -S -100 -t <session> > internal/tmux/testdata/sample1.txt
 
   That will match what the server sees. If you want to include more context for edge cases, bump [38;5;6m-100[39m to [38;5;6m-200[39m or [38;5;6m-300[39m.
 
@@ -24,7 +22,7 @@
 [1;2m› [0m[48;2;52;52;52mwell yes obviously the go code we are working on runs it.
 
 
-[2m[49m• [0mGot it. If you save a few [38;5;6mtmux capture-pane -e -p -S -100[39m outputs into [38;5;6minternal/dashboard/testdata/[39m, I can read them
+[2m[49m• [0mGot it. If you save a few [38;5;6mtmux capture-pane -e -p -S -100[39m outputs into [38;5;6minternal/tmux/testdata/[39m, I can read them
   and propose a better [38;5;6mextractLatestResponse[39m plus tests.
 
 [48;2;52;52;52m
@@ -64,13 +62,13 @@
 [48;2;52;52;52m
 [1;2m› [0m[48;2;52;52;52mok I tried to run the command you gave and this is what I got (plus what you told me to run)
 
-  tmux capture-pane -e -p -S -100 -t "codex" internal/dashboard/testdata/codex1.txt
+  tmux capture-pane -e -p -S -100 -t "codex" internal/tmux/testdata/codex1.txt
   command capture-pane: too many arguments (need at most 0)
 
 
 [2m[49m• [0mYou need shell redirection. Run:
 
-  tmux capture-pane -e -p -S -100 -t "codex" > internal/dashboard/testdata/codex1.txt
+  tmux capture-pane -e -p -S -100 -t "codex" > internal/tmux/testdata/codex1.txt
 
   If you want more lines, change [38;5;6m-100[39m to [38;5;6m-200[39m or [38;5;6m-300[39m.
 
@@ -135,6 +133,8 @@
   I can draft the extractor + tests based on these three. Just say the word.
 
 [48;2;52;52;52m
-[1m›[0m[48;2;52;52;52m [2mSummarize recent commits[0m[48;2;52;52;52m
+[1m›[0m[48;2;52;52;52m ok cool.  Well, I'm trying to get some more variations.
 
-[49m  [2m88% context left · ? for shortcuts[0m
+  There's a chance I can continue to add this over time, but this will give you more for your analysis.
+
+[49m  [2m88% context left[0m

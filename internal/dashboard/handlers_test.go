@@ -4,77 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/tmux"
 	"github.com/sergek/schmux/internal/workspace"
 )
-
-func TestExtractLatestResponse(t *testing.T) {
-	fixtures := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "claude1", in: "claude1.txt", want: "claude1.want.txt"},
-		{name: "claude2", in: "claude2.txt", want: "claude2.want.txt"},
-		{name: "claude3", in: "claude3.txt", want: "claude3.want.txt"},
-		{name: "claude4", in: "claude4.txt", want: "claude4.want.txt"},
-		{name: "codex1", in: "codex1.txt", want: "codex1.want.txt"},
-		{name: "codex2", in: "codex2.txt", want: "codex2.want.txt"},
-		{name: "codex3", in: "codex3.txt", want: "codex3.want.txt"},
-	}
-
-	for _, tt := range fixtures {
-		t.Run(tt.name, func(t *testing.T) {
-			inputPath := filepath.Join("testdata", tt.in)
-			inputRaw, err := os.ReadFile(inputPath)
-			if err != nil {
-				t.Fatalf("read input: %v", err)
-			}
-
-			wantPath := filepath.Join("testdata", tt.want)
-			wantRaw, err := os.ReadFile(wantPath)
-			if err != nil {
-				t.Fatalf("read want: %v", err)
-			}
-
-			input := tmux.StripAnsi(string(inputRaw))
-			lines := strings.Split(input, "\n")
-			got := extractLatestResponse(lines)
-			want := strings.TrimRight(string(wantRaw), "\n")
-
-			if got != want {
-				t.Errorf("extractLatestResponse() mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
-			}
-		})
-	}
-}
-
-func TestExtractLatestResponseCapsContent(t *testing.T) {
-	var lines []string
-	for i := 1; i <= 100; i++ {
-		lines = append(lines, "line "+strconv.Itoa(i))
-	}
-	lines = append(lines, "❯")
-
-	got := extractLatestResponse(lines)
-	gotLines := strings.Split(got, "\n")
-	if len(gotLines) != 80 {
-		t.Fatalf("expected 80 lines, got %d", len(gotLines))
-	}
-
-	if gotLines[0] != "line 21" || gotLines[79] != "line 100" {
-		t.Fatalf("unexpected line range: %q ... %q", gotLines[0], gotLines[79])
-	}
-}
 
 func TestHandleHasNudgenik(t *testing.T) {
 	// SPIKE: Test that hasNudgenik always returns true (CLI tools available)

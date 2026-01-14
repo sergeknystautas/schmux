@@ -463,6 +463,15 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if err != nil {
 					break
 				}
+				// Clear nudge on enter key
+				if sess.Nudge != "" && strings.Contains(msg.Data, "\r") {
+					sess.Nudge = ""
+					if err := s.state.UpdateSession(*sess); err != nil {
+						fmt.Printf("Error clearing nudge: %v\n", err)
+					} else if err := s.state.Save(); err != nil {
+						fmt.Printf("Error saving nudge clear: %v\n", err)
+					}
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
 				if err := tmux.SendKeys(ctx, sess.TmuxSession, msg.Data); err != nil {
 					cancel()

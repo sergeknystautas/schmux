@@ -696,11 +696,6 @@ body {
     table-layout: fixed;
 }
 
-.session-table th:nth-child(1),
-.session-table td:nth-child(1) {
-    width: 35%;
-}
-
 .session-table th:nth-child(2),
 .session-table td:nth-child(2) {
     width: 15%;
@@ -741,9 +736,30 @@ body {
     background-color: var(--color-surface-alt);
 }
 
+.session-row-group:hover tr {
+    background-color: var(--color-surface-alt);
+}
+
 .session-row--current {
     background-color: var(--color-accent-subtle);
     font-weight: 500;
+}
+
+.session-row:not(.session-row--nudge) td {
+    padding-bottom: var(--spacing-sm);
+}
+
+.session-row--has-nudge td {
+    border-bottom: none;
+}
+
+.session-row--nudge td {
+    padding-top: var(--spacing-xs);
+    padding-bottom: var(--spacing-xs);
+}
+
+.session-row--nudge-empty td {
+    color: transparent;
 }
 
 .session-table__actions {
@@ -2022,4 +2038,3 @@ a:hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
-

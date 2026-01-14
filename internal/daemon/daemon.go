@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/dashboard"
+	"github.com/sergek/schmux/internal/nudgenik"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
 	"github.com/sergek/schmux/internal/tmux"
@@ -22,6 +24,9 @@ import (
 const (
 	pidFileName   = "daemon.pid"
 	dashboardPort = 7337
+
+	// Inactivity threshold before asking NudgeNik
+	nudgeInactivityThreshold = 15 * time.Second
 )
 
 var (
@@ -347,6 +352,9 @@ func Run(background bool) error {
 		}
 	}()
 
+	// Start background goroutine to check for inactive sessions and ask NudgeNik
+	go startNudgeNikChecker(shutdownCtx, cfg, st, sm)
+
 	// Bootstrap log streams for active sessions with missing pipe-pane.
 	seedLines := cfg.GetTerminalSeedLines()
 	if seedLines <= 0 {
@@ -495,4 +503,87 @@ func checkTmux() error {
 		return fmt.Errorf("tmux command produced no output")
 	}
 	return nil
+}
+
+// startNudgeNikChecker starts a background goroutine that checks for inactive sessions
+// and automatically asks NudgeNik for consultation.
+func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager) {
+	// Check every 15 seconds
+	pollInterval := 15 * time.Second
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	// Wait a bit before first check to let daemon start
+	select {
+	case <-time.After(10 * time.Second):
+		// Ready to start checking
+	case <-ctx.Done():
+		return
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			checkInactiveSessionsForNudge(ctx, cfg, st, sm)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
+func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager) {
+	now := time.Now()
+	sessions := st.GetSessions()
+
+	for _, sess := range sessions {
+		// Skip if already has a nudge
+		if sess.Nudge != "" {
+			continue
+		}
+
+		// Skip if session is not running
+		timeoutCtx, cancel := context.WithTimeout(ctx, cfg.TmuxQueryTimeout())
+		running := sm.IsRunning(timeoutCtx, sess.ID)
+		cancel()
+		if !running {
+			continue
+		}
+
+		// Check if inactive for threshold
+		if !sess.LastOutputAt.IsZero() && now.Sub(sess.LastOutputAt) < nudgeInactivityThreshold {
+			continue
+		}
+
+		// Session is inactive and has no nudge, ask NudgeNik
+		fmt.Printf("[nudgenik] asking for session %s\n", sess.ID)
+		nudge := askNudgeNikForSession(ctx, cfg, sess)
+		if nudge != "" {
+			sess.Nudge = nudge
+			if err := st.UpdateSession(sess); err != nil {
+				fmt.Printf("[nudgenik] failed to save nudge for %s: %v\n", sess.ID, err)
+			} else if err := st.Save(); err != nil {
+				fmt.Printf("[nudgenik] failed to persist state for %s: %v\n", sess.ID, err)
+			} else {
+				fmt.Printf("[nudgenik] saved nudge for %s\n", sess.ID)
+			}
+		}
+	}
+}
+
+// askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
+func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session) string {
+	response, err := nudgenik.AskForSession(ctx, cfg, sess)
+	if err != nil {
+		switch {
+		case errors.Is(err, nudgenik.ErrNoResponse):
+			fmt.Printf("[nudgenik] no response extracted from session %s\n", sess.ID)
+		case errors.Is(err, nudgenik.ErrAgentNotFound):
+			fmt.Printf("[nudgenik] claude agent not found in config\n")
+		default:
+			fmt.Printf("[nudgenik] failed to ask for session %s: %v\n", sess.ID, err)
+		}
+		return ""
+	}
+	return response
 }

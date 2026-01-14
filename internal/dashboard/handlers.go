@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,16 +18,7 @@ import (
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/oneshot"
-	"github.com/sergek/schmux/internal/tmux"
-)
-
-const (
-	// NudgeNik prompt prefix
-	nudgenikPrompt = "What do you think this coding agent needs to move forward (direct answer only, no meta commentary):\n\n"
-
-	// Maximum lines to extract from terminal output
-	maxExtractedLines = 80
+	"github.com/sergek/schmux/internal/nudgenik"
 )
 
 // handleApp serves the React application entry point for UI routes.
@@ -95,6 +87,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		LastOutputAt string `json:"last_output_at,omitempty"`
 		Running      bool   `json:"running"`
 		AttachCmd    string `json:"attach_cmd"`
+		NudgeState   string `json:"nudge_state,omitempty"`
+		NudgeSummary string `json:"nudge_summary,omitempty"`
 	}
 
 	type WorkspaceResponse struct {
@@ -140,6 +134,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
 		running := s.session.IsRunning(ctx, sess.ID)
 		cancel()
+		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
 			ID:           sess.ID,
 			Agent:        sess.Agent,
@@ -149,6 +144,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			LastOutputAt: lastOutputAt,
 			Running:      running,
 			AttachCmd:    attachCmd,
+			NudgeState:   nudgeState,
+			NudgeSummary: nudgeSummary,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}
@@ -179,6 +176,31 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+type nudgenikPayload struct {
+	State   string `json:"state"`
+	Summary string `json:"summary"`
+}
+
+func parseNudgeSummary(nudge string) (string, string) {
+	trimmed := strings.TrimSpace(nudge)
+	if trimmed == "" {
+		return "", ""
+	}
+
+	if strings.HasPrefix(trimmed, "```") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```json"))
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "```"))
+	}
+
+	var payload nudgenikPayload
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return "", ""
+	}
+
+	return strings.TrimSpace(payload.State), strings.TrimSpace(payload.Summary)
 }
 
 // handleWorkspacesScan scans the workspace directory and reconciles with state.
@@ -435,75 +457,6 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-
-// extractLatestResponse extracts the latest meaningful response from captured lines.
-func extractLatestResponse(lines []string) string {
-
-	promptIdx := len(lines)
-	for i := len(lines) - 1; i >= 0; i-- {
-		if isPromptLine(lines[i]) {
-			promptIdx = i
-			break
-		}
-	}
-
-	var response []string
-	contentCount := 0
-	for i := promptIdx - 1; i >= 0; i-- {
-		text := strings.TrimSpace(lines[i])
-		if text == "" {
-			continue
-		}
-		if isPromptLine(text) {
-			continue
-		}
-		if isSeparatorLine(text) {
-			continue
-		}
-		if isAgentStatusLine(text) {
-			continue
-		}
-
-		response = append([]string{text}, response...)
-		contentCount++
-		if contentCount >= maxExtractedLines {
-			break
-		}
-	}
-
-	return strings.Join(response, "\n")
-}
-
-// isSeparatorLine returns true if the line is mostly repeated separator characters.
-func isSeparatorLine(text string) bool {
-	if len(text) < 10 {
-		return false
-	}
-	runes := []rune(text)
-	// Check if 80%+ of the line is the same character (dashes, equals, etc.)
-	firstChar := runes[0]
-	count := 0
-	for _, c := range runes {
-		if c == firstChar {
-			count++
-		}
-	}
-	return float64(count)/float64(len(runes)) > 0.8
-}
-
-// isPromptLine returns true if the line looks like a shell prompt.
-func isPromptLine(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	return strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›")
-}
-
-// isAgentStatusLine returns true if the line looks like agent UI noise.
-func isAgentStatusLine(text string) bool {
-	// Filter out Claude Code's vertical bar status lines (⎿)
-	trimmed := strings.TrimSpace(text)
-	return strings.HasPrefix(trimmed, "⎿")
 }
 
 // handleConfig returns the config (repos and agents) for the spawn form,
@@ -1098,48 +1051,20 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Capture recent output from tmux
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
-	content, err := tmux.CaptureLastLines(ctx, sess.TmuxSession, 100)
-	cancel()
+	ctx := context.Background()
+	response, err := nudgenik.AskForSession(ctx, s.config, sess)
 	if err != nil {
-		log.Printf("[ask-nudgenik] failed to capture session %s: %v", sessionID, err)
-		http.Error(w, fmt.Sprintf("Failed to capture session: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Strip ANSI escape sequences
-	content = tmux.StripAnsi(content)
-
-	// Extract latest response (skip UI/noise lines)
-	lines := strings.Split(content, "\n")
-	extractedResponse := extractLatestResponse(lines)
-
-	if extractedResponse == "" {
-		log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
-		http.Error(w, "No response found in session output", http.StatusBadRequest)
-		return
-	}
-
-	// Build the prompt with NudgeNik-specific prefix
-	input := nudgenikPrompt + extractedResponse
-
-	// Get the claude agent from detected tools
-	agent, found := s.config.GetAgentDetect("claude")
-	if !found {
-		log.Printf("[ask-nudgenik] claude agent not found in config")
-		http.Error(w, "Claude agent not found. Please run agent detection first.", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Execute the agent using oneshot mechanism
-	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	response, err := oneshot.Execute(ctx, agent.Name, agent.Command, input)
-	if err != nil {
-		log.Printf("[ask-nudgenik] oneshot execution failed: %v", err)
-		http.Error(w, fmt.Sprintf("Agent execution failed: %v", err), http.StatusInternalServerError)
+		switch {
+		case errors.Is(err, nudgenik.ErrNoResponse):
+			log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
+			http.Error(w, "No response found in session output", http.StatusBadRequest)
+		case errors.Is(err, nudgenik.ErrAgentNotFound):
+			log.Printf("[ask-nudgenik] claude agent not found in config")
+			http.Error(w, "Claude agent not found. Please run agent detection first.", http.StatusServiceUnavailable)
+		default:
+			log.Printf("[ask-nudgenik] failed to ask for session %s: %v", sessionID, err)
+			http.Error(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
+		}
 		return
 	}
 

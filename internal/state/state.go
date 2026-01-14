@@ -37,8 +37,9 @@ type Session struct {
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession  string    `json:"tmux_session"`
 	CreatedAt    time.Time `json:"created_at"`
-	Pid          int       `json:"pid"` // PID of the agent process from tmux pane
-	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
+	Pid          int       `json:"pid"`             // PID of the agent process from tmux pane
+	LastOutputAt time.Time `json:"-"`               // Last time terminal had new output (in-memory only, not persisted)
+	Nudge        string    `json:"nudge,omitempty"` // NudgeNik consultation result
 }
 
 // New creates a new empty State instance.

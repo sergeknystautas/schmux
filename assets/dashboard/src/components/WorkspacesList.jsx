@@ -335,17 +335,15 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
                         <th className="text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {sessions.map((sess) => (
-                        <SessionTableRow
-                          key={sess.id}
-                          sess={sess}
-                          currentSessionId={currentSessionId}
-                          onCopyAttach={handleCopyAttach}
-                          onDispose={handleDispose}
-                        />
-                      ))}
-                    </tbody>
+                    {sessions.map((sess) => (
+                      <SessionTableRow
+                        key={sess.id}
+                        sess={sess}
+                        currentSessionId={currentSessionId}
+                        onCopyAttach={handleCopyAttach}
+                        onDispose={handleDispose}
+                      />
+                    ))}
                   </table>
                 ) : (
                   <p style={{ padding: '1rem', color: 'var(--color-text-subtle)' }}>No sessions in this workspace</p>

@@ -39,26 +39,26 @@
 
 [38;2;255;255;255m⏺[39m Let me look at the test fixtures to understand the expected behavior:
 
-[38;2;78;186;101m⏺[39m [1mBash[0m(ls -la /Users/sergek/dev/schmux-workspaces/schmux-003/internal/dashboard/testdata/)
+[38;2;78;186;101m⏺[39m [1mBash[0m(ls -la /Users/sergek/dev/schmux-workspaces/schmux-003/internal/tmux/testdata/)
   ⎿  total 216
      drwxr-xr-x@ 17 sergek  staff   544 Jan 11 16:02 .
      drwxr-xr-x@  7 sergek  staff   224 Jan 11 16:01 ..
      [2m… +15 lines (ctrl+o to expand)[0m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
-[38;2;78;186;101m⏺[39m [1mRead[0m(internal/dashboard/testdata/claude1.txt)
+[38;2;78;186;101m⏺[39m [1mRead[0m(internal/tmux/testdata/claude1.txt)
   ⎿  Read [1m41[0m lines
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
-[38;2;78;186;101m⏺[39m [1mRead[0m(internal/dashboard/testdata/claude1.want.txt)
+[38;2;78;186;101m⏺[39m [1mRead[0m(internal/tmux/testdata/claude1.want.txt)
   ⎿  Read [1m11[0m lines
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
-[38;2;78;186;101m⏺[39m [1mRead[0m(internal/dashboard/testdata/codex2.txt)
+[38;2;78;186;101m⏺[39m [1mRead[0m(internal/tmux/testdata/codex2.txt)
   ⎿  Read [1m141[0m lines
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
-[38;2;78;186;101m⏺[39m [1mRead[0m(internal/dashboard/testdata/codex2.want.txt)
+[38;2;78;186;101m⏺[39m [1mRead[0m(internal/tmux/testdata/codex2.want.txt)
   ⎿  Read [1m70[0m lines
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 

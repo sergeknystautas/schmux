@@ -1,27 +1,3 @@
-explicit Enter (C-m). internal/dashboard/handlers.go:490-492, internal/tmux/tmux.go:153-160.
-Assumptions / questions
-- Should the extractor explicitly skip known status formats (e.g. [GLM-…], repo/status bars), or should it be
-heuristic-only?
-- Do you expect nudgenik to auto-submit on newline, or should we append Enter explicitly?
-If you want, I can propose fixes, but I won’t change code unless you explicitly ask to implement.
-making a useful function?  Do you need any help understanding the context and what we're trying to do?
-• Got it. I can propose a more reliable extraction strategy, but I’ll need a bit more context to make it useful.
-Quick questions:
-- What exact output patterns do you want to ignore? Examples of “noise” lines (status bars, progress spinners,
-separators, prompts) would help.
-- What should be considered the “latest response”: last paragraph, last multi‑line block, or last block before a
-status bar?
-- Do you need to preserve code blocks verbatim (including lines that start with $, >, #, etc.)?
-- Any typical agents besides nudgenik with distinct UI markers?
-- Is “response” always plain text, or can it include markdown tables, bullets, etc.?
-If you can paste a few real captured outputs (good and bad), I can propose a solid heuristic and updated tests (no
-code changes unless you say “implement”).
-idea is that it's a tmux session with the typing at the bottom (though the "bottom" is not always clear" and the user
-typing area can be variable height.
-but ultimately we want some good amount of content from the agentic coding agent that sits above the area where the
-user is typing.
-it can be all sorts of content.  bullet points, text, markdown tables, code changes.
-• Thanks, that helps. I can take a shot at a more robust extractor, but I need a few real examples to calibrate the
 heuristics.
 Could you share 3–5 representative captures (raw text is best, screenshots ok if text isn’t available):
 - One “good” response with a clear user input area at the bottom
@@ -31,7 +7,7 @@ Could you share 3–5 representative captures (raw text is best, screenshots ok 
 If raw text is possible, a tmux capture-pane excerpt around the boundary is ideal. Once I see those patterns, I’ll
 propose a concrete extraction strategy and updated tests (still no code changes unless you say “implement”).
 what's best for you?
-• Yes — easiest is to drop raw capture samples into files. Best spot: internal/dashboard/testdata/ (e.g., sample1.txt,
+• Yes — easiest is to drop raw capture samples into files. Best spot: internal/tmux/testdata/ (e.g., sample1.txt,
 sample2.txt, etc.). Then I can read them and propose a robust extractor + tests.
 If you prefer a different folder, tell me the path and I’ll use it.
 run a bunch of sessions and just send them to the test files
@@ -40,9 +16,9 @@ run a bunch of sessions and just send them to the test files
 Specifically CaptureLastLines(ctx, sess.TmuxSession, 100), so it captures the last 100 lines including ANSI sequences.
 Then it strips ANSI.
 If you want to mirror that for sample files, run something like:
-tmux capture-pane -e -p -S -100 -t <session> > internal/dashboard/testdata/sample1.txt
+tmux capture-pane -e -p -S -100 -t <session> > internal/tmux/testdata/sample1.txt
 That will match what the server sees. If you want to include more context for edge cases, bump -100 to -200 or -300.
-• Got it. If you save a few tmux capture-pane -e -p -S -100 outputs into internal/dashboard/testdata/, I can read them
+• Got it. If you save a few tmux capture-pane -e -p -S -100 outputs into internal/tmux/testdata/, I can read them
 and propose a better extractLatestResponse plus tests.
 • Because the extraction is UI/agent‑specific heuristic (status bars, prompts, layout) used only by the dashboard
 endpoint, not a generic tmux utility. If you want it reusable across backends, we can move it into internal/tmux or a
@@ -57,8 +33,8 @@ If you want that change, just say “implement” and I’ll do it (with the “
 files here
 • Understood. Once you drop the files in, tell me the filenames and I’ll take a look. If you want a specific directory,
 just point me to it.
-tmux capture-pane -e -p -S -100 -t "codex" internal/dashboard/testdata/codex1.txt
+tmux capture-pane -e -p -S -100 -t "codex" internal/tmux/testdata/codex1.txt
 command capture-pane: too many arguments (need at most 0)
 • You need shell redirection. Run:
-tmux capture-pane -e -p -S -100 -t "codex" > internal/dashboard/testdata/codex1.txt
+tmux capture-pane -e -p -S -100 -t "codex" > internal/tmux/testdata/codex1.txt
 If you want more lines, change -100 to -200 or -300.

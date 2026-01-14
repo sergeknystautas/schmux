@@ -57,15 +57,15 @@
 [2m  │ import re, pathlib[0m
 [2m  │[0m
 [2m  │ … +49 lines[0m
-[2m  └ wrote internal/dashboard/testdata/claude1.txt.want.txt[0m
-    [2mwrote internal/dashboard/testdata/claude2.txt.want.txt[0m
+[2m  └ wrote internal/tmux/testdata/claude1.txt.want.txt[0m
+    [2mwrote internal/tmux/testdata/claude2.txt.want.txt[0m
     [2m… +3 lines[0m
-    [2mwrote internal/dashboard/testdata/codex2.txt.want.txt[0m
-    [2mwrote internal/dashboard/testdata/codex3.txt.want.txt[0m
+    [2mwrote internal/tmux/testdata/codex2.txt.want.txt[0m
+    [2mwrote internal/tmux/testdata/codex3.txt.want.txt[0m
 
 [1m[38;5;2m•[0m [1mRan[0m python - <<[2m'PY'[0m
 [2m  │ import pathlib[0m
-[2m  │ root = pathlib.Path('internal/dashboard/testdata')[0m
+[2m  │ root = pathlib.Path('internal/tmux/testdata')[0m
 [2m  │ … +5 lines[0m
 [2m  └ codex2.txt.want.txt -> codex2.txt.want.txt[0m
     [2mcodex3.txt.want.txt -> codex3.txt.want.txt[0m
@@ -75,7 +75,7 @@
 
 [1m[38;5;2m•[0m [1mRan[0m python - <<[2m'PY'[0m
 [2m  │ import pathlib[0m
-[2m  │ root = pathlib.Path('internal/dashboard/testdata')[0m
+[2m  │ root = pathlib.Path('internal/tmux/testdata')[0m
 [2m  │ … +6 lines[0m
 [2m  └ codex2.txt.want.txt -> codex2.want.txt[0m
     [2mcodex3.txt.want.txt -> codex3.want.txt[0m
@@ -104,7 +104,7 @@
     [2m M internal/dashboard/handlers.go[0m
     [2m… +4 lines[0m
     [2m?? internal/dashboard/handlers_test.go[0m
-    [2m?? internal/dashboard/testdata/[0m
+    [2m?? internal/tmux/testdata/[0m
 
 [2m• [3mI'll explain the key changes like revising extractLatestResponse to scan up to 80 non-noise lines, skipping prompts[0m
   [2;3mand separators, and adding the isPromptLine helper. I'll detail updated files including testdata with non-ASCII golden
@@ -116,14 +116,14 @@
 
 • [0mUpdated [38;5;6mextractLatestResponse[39m to walk upward from the last prompt and collect up to 80 non‑noise lines, skipping only
   blanks/separator lines and prompts (no hard boundary stops), matching the “grab a good amount” requirement. Added
-  fixture-based tests that use your [38;5;6minternal/dashboard/testdata/*.txt[39m captures plus generated [38;5;6m*.want.txt[39m goldens, and a
+  fixture-based tests that use your [38;5;6minternal/tmux/testdata/*.txt[39m captures plus generated [38;5;6m*.want.txt[39m goldens, and a
   cap test to ensure the 80‑line limit holds.
 
   Details:
 
   - [38;5;6minternal/dashboard/handlers.go[39m: new prompt‑anchored scan, max 80 content lines, and [38;5;6misPromptLine[39m helper.
   - [38;5;6minternal/dashboard/handlers_test.go[39m: fixture + golden comparisons using [38;5;6mtmux.StripAnsi[39m, plus cap test.
-  - [38;5;6minternal/dashboard/testdata/*.want.txt[39m: expected outputs for the 7 samples.
+  - [38;5;6minternal/tmux/testdata/*.want.txt[39m: expected outputs for the 7 samples.
 
   Tests:
 
@@ -131,7 +131,7 @@
 
   Next steps (optional):
 
-  [38;5;12m1. [39mAdd more samples in [38;5;6minternal/dashboard/testdata/[39m and regenerate/adjust the [38;5;6m*.want.txt[39m expectations.
+  [38;5;12m1. [39mAdd more samples in [38;5;6minternal/tmux/testdata/[39m and regenerate/adjust the [38;5;6m*.want.txt[39m expectations.
   [38;5;12m2. [39mRun [38;5;6mgo test ./...[39m if you want broader coverage.
 
 [48;2;52;52;52m

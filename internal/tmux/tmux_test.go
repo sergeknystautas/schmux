@@ -2,6 +2,9 @@ package tmux
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -281,6 +284,69 @@ func TestContextCancellation(t *testing.T) {
 			t.Log("may succeed if context wasn't cancelled fast enough")
 		}
 	})
+}
+
+func TestExtractLatestResponse(t *testing.T) {
+	fixtures := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "claude1", in: "claude1.txt", want: "claude1.want.txt"},
+		{name: "claude2", in: "claude2.txt", want: "claude2.want.txt"},
+		{name: "claude3", in: "claude3.txt", want: "claude3.want.txt"},
+		{name: "claude4", in: "claude4.txt", want: "claude4.want.txt"},
+		{name: "claude6", in: "claude6.txt", want: "claude6.want.txt"},
+		{name: "claude7", in: "claude7.txt", want: "claude7.want.txt"},
+		{name: "claude8", in: "claude8.txt", want: "claude8.want.txt"},
+		{name: "codex1", in: "codex1.txt", want: "codex1.want.txt"},
+		{name: "codex2", in: "codex2.txt", want: "codex2.want.txt"},
+		{name: "codex3", in: "codex3.txt", want: "codex3.want.txt"},
+	}
+
+	for _, tt := range fixtures {
+		t.Run(tt.name, func(t *testing.T) {
+			inputPath := filepath.Join("testdata", tt.in)
+			inputRaw, err := os.ReadFile(inputPath)
+			if err != nil {
+				t.Fatalf("read input: %v", err)
+			}
+
+			wantPath := filepath.Join("testdata", tt.want)
+			wantRaw, err := os.ReadFile(wantPath)
+			if err != nil {
+				t.Fatalf("read want: %v", err)
+			}
+
+			input := StripAnsi(string(inputRaw))
+			lines := strings.Split(input, "\n")
+			got := ExtractLatestResponse(lines)
+			want := strings.TrimRight(string(wantRaw), "\n")
+
+			if got != want {
+				t.Errorf("extractLatestResponse() mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+			}
+		})
+	}
+}
+
+func TestExtractLatestResponseCapsContent(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 100; i++ {
+		lines = append(lines, "line "+strconv.Itoa(i))
+	}
+	lines = append(lines, "❯")
+
+	got := ExtractLatestResponse(lines)
+	gotLines := strings.Split(got, "\n")
+	if len(gotLines) != MaxExtractedLines {
+		t.Fatalf("expected %d lines, got %d", MaxExtractedLines, len(gotLines))
+	}
+
+	expectedStart := 100 - MaxExtractedLines + 1
+	if gotLines[0] != "line "+strconv.Itoa(expectedStart) || gotLines[len(gotLines)-1] != "line 100" {
+		t.Fatalf("unexpected line range: %q ... %q", gotLines[0], gotLines[len(gotLines)-1])
+	}
 }
 
 // Tests that require tmux to be installed - skipped by default

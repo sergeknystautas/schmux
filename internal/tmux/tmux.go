@@ -301,3 +301,141 @@ func GetCursorPosition(ctx context.Context, sessionName string) (x, y int, err e
 
 	return x, y, nil
 }
+
+const (
+	// MaxExtractedLines is the maximum number of lines to extract from terminal output.
+	MaxExtractedLines = 40
+)
+
+// ExtractLatestResponse extracts the latest meaningful response from captured tmux lines.
+func ExtractLatestResponse(lines []string) string {
+	promptIdx := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if IsPromptLine(lines[i]) {
+			promptIdx = i
+			break
+		}
+	}
+
+	var response []string
+	contentCount := 0
+	for i := promptIdx - 1; i >= 0; i-- {
+		text := strings.TrimSpace(lines[i])
+		if text == "" {
+			continue
+		}
+		if IsPromptLine(text) {
+			continue
+		}
+		if IsSeparatorLine(text) {
+			continue
+		}
+		if IsAgentStatusLine(text) {
+			continue
+		}
+
+		response = append([]string{text}, response...)
+		contentCount++
+		if contentCount >= MaxExtractedLines {
+			break
+		}
+	}
+
+	choices := extractChoiceLines(lines, promptIdx)
+	if len(choices) > 0 {
+		response = append(response, choices...)
+	}
+
+	return strings.Join(response, "\n")
+}
+
+func extractChoiceLines(lines []string, promptIdx int) []string {
+	if promptIdx < 0 || promptIdx >= len(lines) {
+		return nil
+	}
+
+	var choices []string
+	for i := promptIdx; i < len(lines); i++ {
+		text := strings.TrimSpace(lines[i])
+		if text == "" {
+			if len(choices) > 0 {
+				break
+			}
+			continue
+		}
+
+		if !IsChoiceLine(text) {
+			if len(choices) > 0 {
+				break
+			}
+			continue
+		}
+
+		choices = append(choices, text)
+	}
+
+	if len(choices) < 2 {
+		return nil
+	}
+
+	return choices
+}
+
+// IsSeparatorLine returns true if the line is mostly repeated separator characters.
+func IsSeparatorLine(text string) bool {
+	if len(text) < 10 {
+		return false
+	}
+	runes := []rune(text)
+	// Check if 80%+ of the line is the same character (dashes, equals, etc.)
+	firstChar := runes[0]
+	count := 0
+	for _, c := range runes {
+		if c == firstChar {
+			count++
+		}
+	}
+	return float64(count)/float64(len(runes)) > 0.8
+}
+
+// IsPromptLine returns true if the line looks like a shell prompt.
+func IsPromptLine(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›")
+}
+
+// IsChoiceLine returns true if the line looks like a prompt choice entry.
+func IsChoiceLine(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+
+	if strings.HasPrefix(trimmed, "❯") || strings.HasPrefix(trimmed, "›") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "❯"), "›"))
+	}
+
+	if trimmed == "" {
+		return false
+	}
+
+	dot := strings.IndexAny(trimmed, ".)")
+	if dot <= 0 {
+		return false
+	}
+
+	for _, r := range trimmed[:dot] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// IsAgentStatusLine returns true if the line looks like agent UI noise.
+func IsAgentStatusLine(text string) bool {
+	// Filter out Claude Code's vertical bar status lines (⎿)
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "⎿")
+}

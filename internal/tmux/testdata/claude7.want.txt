@@ -1,0 +1,43 @@
+So the plan:
+1. Add builtin_commands.json file in the codebase
+2. Add /api/builtin-commands endpoint
+3. Merge built-in + user commands in WorkspacesList.jsx before passing to SpawnDropdown
+That way the quick-run dropdown will show both user-defined and built-in commands.
+Proceed?
+⏺ Right. Two places:
+1. SpawnDropdown (WorkspacesList.jsx:46-48) - quick run menu
+2. SpawnPage (SpawnPage.jsx:46-50) - spawn wizard command dropdown
+Both filter config.agents for agentic === false.
+So the plan:
+1. Add builtin_commands.json file in the codebase
+2. Add /api/builtin-commands endpoint
+3. Merge built-in + user commands in both WorkspacesList.jsx AND SpawnPage.jsx
+Proceed?
+⏺ Read(internal/dashboard/server.go)
+⏺ Creating the builtin commands JSON file:
+⏺ Write(internal/dashboard/builtin_commands.json)
+Create file internal/dashboard/builtin_commands.json
+[
+{
+"name": "code review - local",
+"prompt": "please use the code review ai plugin to evaluate the local changes"
+},
+{
+"name": "code review - branch",
+"prompt": "please use the code review ai plugin to evaluate the current branch"
+},
+{
+"name": "git commit",
+"prompt": "please create a thorough git commit. do not include the generated and co-authored lines. please keep
+the message focused whenever possible on the features, not just describe code changes."
+},
+{
+"name": "merge in main",
+"prompt": "please merge main into this branch. Each individual commit should be preserved, and resolve as many
+merge conflicts as you can without user input."
+}
+]
+Do you want to create builtin_commands.json?
+❯ 1. Yes
+2. Yes, allow all edits during this session (shift+tab)
+3. No

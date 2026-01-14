@@ -1,0 +1,43 @@
+518 +     envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
+519 +   }
+520 +
+521 +   return finalCmd, envVars, nil
+522 + }
+⏺ Let me check the imports in manager.go and add the detect package if needed:
+⏺ Read(internal/session/manager.go)
+⏺ Update(internal/session/manager.go)
+12
+13     "github.com/google/uuid"
+14     "github.com/sergek/schmux/internal/config"
+15 +   "github.com/sergek/schmux/internal/detect"
+16     "github.com/sergek/schmux/internal/state"
+17     "github.com/sergek/schmux/internal/tmux"
+18     "github.com/sergek/schmux/internal/workspace"
+⏺ Bash(go build ./...)
+⏺ Bash(go test ./... -v)
+?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
+=== RUN   TestAttachCommand_Run
+… +729 lines (ctrl+o to expand)
+⏺ Task Output 593eba69-2d64-4718-a4ad-e3d69b1226f5
+⏺ Bash(go test ./... -v 2>&1 | tail -30)
+--- PASS: TestClient_GetSessions/returns_error_on_non-200_status (0.00s)
+=== RUN   TestClient_Spawn
+… +27 lines (ctrl+o to expand)
+⏺ All tests pass. Now let me add tests for the variants functionality:
+⏺ Write(internal/detect/variants_test.go)
+package detect
+import (
+"context"
+"testing"
+)
+func TestGetBuiltinVariants(t *testing.T) {
+variants := GetBuiltinVariants()
+… +192 lines (ctrl+o to expand)
+⏺ Bash(go test ./internal/detect/... -v)
+Bash command
+go test ./internal/detect/... -v
+Run detect package tests
+Do you want to proceed?
+❯ 1. Yes
+2. Yes, and don't ask again for go test commands in /Users/sergek/dev/schmux-workspaces/schmux-003
+3. No
