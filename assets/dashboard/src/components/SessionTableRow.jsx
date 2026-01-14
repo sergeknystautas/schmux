@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils.js';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
+import { useConfig } from '../contexts/ConfigContext.jsx';
 import Tooltip from './Tooltip.jsx';
 
 const nudgeStateEmoji = {
@@ -21,8 +22,24 @@ function formatNudgeSummary(summary) {
   return text;
 }
 
+// Simple component that cycles through loading frames like npm/bun
+function WorkingSpinner() {
+  const [frame, setFrame] = useState(0);
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame((prev) => (prev + 1) % frames.length);
+    }, 140); // 140ms per frame for a more relaxed animation
+    return () => clearInterval(interval);
+  }, []);
+
+  return <span style={{ fontFamily: 'monospace' }}>{frames[frame]}</span>;
+}
+
 export default function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const { viewedSessions } = useViewedSessions();
+  const { config } = useConfig();
   const navigate = useNavigate();
 
   const statusClass = sess.running ? 'status-pill--running' : 'status-pill--stopped';
@@ -36,7 +53,26 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose, current
   const lastViewedAt = viewedSessions[sess.id] || 0;
   const lastOutputTime = sess.last_output_at ? new Date(sess.last_output_at).getTime() : 0;
   const hasNewUpdates = lastOutputTime > 0 && lastOutputTime > lastViewedAt;
-  const nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+
+  // Check if this is an agentic session
+  const agentConfig = (config?.agents || []).find(a => a.name === sess.agent);
+  const isAgentic = agentConfig?.agentic !== false; // Default to true if not explicitly false
+
+  // Determine nudge preview content
+  let nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+  let nudgePreviewElement = null;
+
+  // If no nudge but this is an agentic session, show "Working..."
+  if (!nudgePreview && isAgentic) {
+    nudgePreviewElement = (
+      <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+        <WorkingSpinner />
+        <span>Working...</span>
+      </span>
+    );
+  } else if (nudgePreview) {
+    nudgePreviewElement = nudgePreview;
+  }
 
   return (
     <tbody className="session-row-group">
@@ -135,19 +171,18 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose, current
           </div>
         </td>
       </tr>
-      <tr className={`session-row session-row--nudge${isCurrent ? ' session-row--current' : ''}${nudgePreview ? '' : ' session-row--nudge-empty'}`}>
+      <tr className={`session-row session-row--nudge${isCurrent ? ' session-row--current' : ''}${nudgePreviewElement ? '' : ' session-row--nudge-empty'}`}>
         <td colSpan="5">
           <Link
             to={`/sessions/${sess.id}`}
             style={{
               fontSize: '0.75rem',
-              color: nudgePreview ? 'var(--color-text-muted)' : 'transparent',
-              fontStyle: 'italic',
+              color: nudgePreviewElement ? 'var(--color-text-muted)' : 'transparent',
               textDecoration: 'none',
               whiteSpace: 'normal',
             }}
           >
-            {nudgePreview || 'placeholder'}
+            {nudgePreviewElement || 'placeholder'}
           </Link>
         </td>
       </tr>
