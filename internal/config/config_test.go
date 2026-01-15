@@ -572,3 +572,156 @@ func TestGetAgentDetect(t *testing.T) {
 		}
 	})
 }
+
+func TestVariantSecrets(t *testing.T) {
+	// Create a temporary directory for secrets
+	tmpDir := t.TempDir()
+
+	// Mock the home directory to point to temp dir
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	t.Run("LoadVariantSecrets returns empty map when file doesn't exist", func(t *testing.T) {
+		secrets, err := LoadVariantSecrets()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(secrets) != 0 {
+			t.Errorf("expected empty map, got %d entries", len(secrets))
+		}
+	})
+
+	t.Run("SaveVariantSecrets and LoadVariantSecrets roundtrip", func(t *testing.T) {
+		secrets := VariantSecrets{
+			"kimi-thinking": {
+				"ANTHROPIC_AUTH_TOKEN": "sk-test-key-12345",
+			},
+			"glm-4.7": {
+				"ANTHROPIC_AUTH_TOKEN": "another-test-key",
+			},
+		}
+
+		// Save secrets
+		if err := SaveVariantSecrets(secrets); err != nil {
+			t.Fatalf("failed to save secrets: %v", err)
+		}
+
+		// Load secrets
+		loaded, err := LoadVariantSecrets()
+		if err != nil {
+			t.Fatalf("failed to load secrets: %v", err)
+		}
+
+		// Verify contents
+		if len(loaded) != 2 {
+			t.Fatalf("expected 2 variants, got %d", len(loaded))
+		}
+
+		if loaded["kimi-thinking"]["ANTHROPIC_AUTH_TOKEN"] != "sk-test-key-12345" {
+			t.Errorf("kimi-thinking token mismatch")
+		}
+
+		if loaded["glm-4.7"]["ANTHROPIC_AUTH_TOKEN"] != "another-test-key" {
+			t.Errorf("glm-4.7 token mismatch")
+		}
+	})
+
+	t.Run("SetVariantSecret sets a single secret", func(t *testing.T) {
+		// Set a secret
+		if err := SetVariantSecret("minimax", "ANTHROPIC_AUTH_TOKEN", "test-token"); err != nil {
+			t.Fatalf("failed to set secret: %v", err)
+		}
+
+		// Load and verify
+		loaded, err := LoadVariantSecrets()
+		if err != nil {
+			t.Fatalf("failed to load secrets: %v", err)
+		}
+
+		if loaded["minimax"]["ANTHROPIC_AUTH_TOKEN"] != "test-token" {
+			t.Errorf("minimax token mismatch: got %q", loaded["minimax"]["ANTHROPIC_AUTH_TOKEN"])
+		}
+	})
+
+	t.Run("GetVariantSecret retrieves a single secret", func(t *testing.T) {
+		// Set up a secret first
+		if err := SetVariantSecret("test-variant", "API_KEY", "secret-value"); err != nil {
+			t.Fatalf("failed to set secret: %v", err)
+		}
+
+		// Get the secret
+		value, err := GetVariantSecret("test-variant", "API_KEY")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		if value != "secret-value" {
+			t.Errorf("expected secret-value, got %q", value)
+		}
+	})
+
+	t.Run("GetVariantSecret returns empty string for missing secret", func(t *testing.T) {
+		value, err := GetVariantSecret("nonexistent-variant", "API_KEY")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if value != "" {
+			t.Errorf("expected empty string, got %q", value)
+		}
+	})
+
+	t.Run("GetVariantSecretsForVariant returns all secrets for a variant", func(t *testing.T) {
+		// Set up multiple secrets for a variant
+		if err := SetVariantSecret("multi-secret", "KEY1", "value1"); err != nil {
+			t.Fatalf("failed to set secret: %v", err)
+		}
+		if err := SetVariantSecret("multi-secret", "KEY2", "value2"); err != nil {
+			t.Fatalf("failed to set secret: %v", err)
+		}
+
+		// Get all secrets for the variant
+		secrets, err := GetVariantSecretsForVariant("multi-secret")
+		if err != nil {
+			t.Fatalf("failed to get variant secrets: %v", err)
+		}
+
+		if len(secrets) != 2 {
+			t.Fatalf("expected 2 secrets, got %d", len(secrets))
+		}
+
+		if secrets["KEY1"] != "value1" {
+			t.Errorf("KEY1 mismatch: got %q", secrets["KEY1"])
+		}
+		if secrets["KEY2"] != "value2" {
+			t.Errorf("KEY2 mismatch: got %q", secrets["KEY2"])
+		}
+	})
+
+	t.Run("secrets file has correct permissions (0600)", func(t *testing.T) {
+		// Save some secrets
+		secrets := VariantSecrets{
+			"test": {"KEY": "value"},
+		}
+		if err := SaveVariantSecrets(secrets); err != nil {
+			t.Fatalf("failed to save secrets: %v", err)
+		}
+
+		// Check file permissions
+		path, err := GetVariantSecretsPath()
+		if err != nil {
+			t.Fatalf("failed to get secrets path: %v", err)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("failed to stat secrets file: %v", err)
+		}
+
+		// On Unix, 0600 = rw-------
+		if info.Mode().Perm() != 0600 {
+			t.Errorf("secrets file has incorrect permissions: got %v, want 0600", info.Mode().Perm())
+		}
+	})
+}

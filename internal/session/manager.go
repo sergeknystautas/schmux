@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sergek/schmux/internal/config"
+	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/state"
 	"github.com/sergek/schmux/internal/tmux"
 	"github.com/sergek/schmux/internal/workspace"
@@ -45,14 +46,49 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // nickname is an optional human-friendly name for the session.
 // prompt is only used if the agent is agentic (takes prompts).
 func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
-	// Find agent config
-	agent, found := m.config.GetAgentConfig(agentName)
-	if !found {
-		return nil, fmt.Errorf("agent not found: %s", agentName)
+	// Check if agentName is a variant first
+	variant, isVariant := detect.GetVariantByName(agentName)
+
+	var agent config.Agent
+	var agentCmd string
+	var envVars []string
+	var err error
+
+	if isVariant {
+		// Resolve variant using detect package
+		resolved, err := detect.ResolveVariant(ctx, variant, m)
+		if err != nil {
+			return nil, err
+		}
+		// Append prompt to the variant command
+		agentCmd = fmt.Sprintf("%s %s", resolved.Command, strconv.Quote(prompt))
+		envVars = resolved.EnvVars
+		// Create a synthetic agent for tracking
+		agent = config.Agent{
+			Name:    agentName,
+			Command: agentCmd,
+			Agentic: func() *bool { v := true; return &v }(), // variants are always agentic
+		}
+	} else {
+		// Find agent config
+		var found bool
+		agent, found = m.config.GetAgentConfig(agentName)
+		if !found {
+			return nil, fmt.Errorf("agent not found: %s", agentName)
+		}
+
+		// Build command based on whether agent is agentic
+		isAgentic := agent.Agentic != nil && *agent.Agentic
+		if isAgentic {
+			// Agentic: append prompt to command, properly quote the prompt to prevent command injection
+			agentCmd = fmt.Sprintf("%s %s", agent.Command, strconv.Quote(prompt))
+		} else {
+			// Non-agentic: run command as-is without prompt
+			agentCmd = agent.Command
+		}
 	}
 
 	var w *state.Workspace
-	var err error
 
 	if workspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
@@ -67,17 +103,6 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 		if err != nil {
 			return nil, fmt.Errorf("failed to get workspace: %w", err)
 		}
-	}
-
-	// Build command based on whether agent is agentic
-	var command string
-	isAgentic := agent.Agentic != nil && *agent.Agentic
-	if isAgentic {
-		// Agentic: append prompt to command, properly quote the prompt to prevent command injection
-		command = fmt.Sprintf("%s %s", agent.Command, strconv.Quote(prompt))
-	} else {
-		// Non-agentic: run command as-is without prompt
-		command = agent.Command
 	}
 
 	// Create session ID
@@ -95,8 +120,8 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 		tmuxSession = sanitizeNickname(uniqueNickname)
 	}
 
-	// Create tmux session
-	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, command); err != nil {
+	// Create tmux session with or without environment variables
+	if err := tmux.CreateSessionWithEnv(ctx, tmuxSession, w.Path, agentCmd, envVars); err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
@@ -461,4 +486,20 @@ func (m *Manager) generateUniqueNickname(baseNickname string) string {
 	}
 	// Fallback: use base nickname with a UUID suffix (should never happen in practice)
 	return fmt.Sprintf("%s-%s", baseNickname, uuid.New().String()[:8])
+}
+
+// GetBaseToolCommand implements detect.VariantResolver.
+// Returns the command for the base tool, or false if not found.
+func (m *Manager) GetBaseToolCommand(baseTool string) (string, bool) {
+	agent, found := m.config.GetAgentDetect(baseTool)
+	if !found {
+		return "", false
+	}
+	return agent.Command, true
+}
+
+// GetVariantSecrets implements detect.VariantResolver.
+// Returns user-provided secrets for a variant.
+func (m *Manager) GetVariantSecrets(variantName string) (map[string]string, error) {
+	return config.GetVariantSecretsForVariant(variantName)
 }

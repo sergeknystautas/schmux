@@ -40,6 +40,7 @@ type Config struct {
 	Tools         []Tool             `json:"tools"` // detected CLI tools (populated by auto-detection)
 	Terminal      *TerminalSize      `json:"terminal,omitempty"`
 	Internal      *InternalIntervals `json:"internal,omitempty"`
+	Variants      []VariantConfig    `json:"variants,omitempty"` // user-configured variant overrides
 }
 
 // TerminalSize represents terminal dimensions.
@@ -89,6 +90,17 @@ type Tool struct {
 	Source  string `json:"source"`  // detection source, e.g., "npm global package @anthropic-ai/claude-code"
 	Agentic bool   `json:"agentic"` // true = this is an agentic tool (takes prompts)
 }
+
+// VariantConfig represents a user-configured LLM variant in config.json.
+// Currently unused - reserved for future customization (e.g., disabling variants).
+type VariantConfig struct {
+	Name    string `json:"name"`              // e.g., "kimi-thinking", "glm-4.7"
+	Enabled *bool  `json:"enabled,omitempty"` // nil = enabled by default; false = disabled
+}
+
+// VariantSecrets stores API keys and other sensitive data for variants.
+// This is stored in ~/.schmux/secrets.json, never in config.json.
+type VariantSecrets map[string]map[string]string // variant name -> key -> value
 
 // Load loads the configuration from ~/.schmux/config.json.
 func Load() (*Config, error) {
@@ -526,4 +538,114 @@ func (c *Config) TmuxQueryTimeout() time.Duration {
 // TmuxOperationTimeout returns the tmux operation timeout as a time.Duration.
 func (c *Config) TmuxOperationTimeout() time.Duration {
 	return time.Duration(c.GetTmuxOperationTimeoutSeconds()) * time.Second
+}
+
+// ===== Variant Secrets Management =====
+
+// GetVariantSecretsPath returns the path to the secrets file.
+func GetVariantSecretsPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, ".schmux", "secrets.json"), nil
+}
+
+// LoadVariantSecrets loads variant secrets from ~/.schmux/secrets.json.
+// Returns an empty map if the file doesn't exist.
+func LoadVariantSecrets() (VariantSecrets, error) {
+	path, err := GetVariantSecretsPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No secrets file yet, return empty map
+			return VariantSecrets{}, nil
+		}
+		return nil, fmt.Errorf("failed to read secrets file: %w", err)
+	}
+
+	var secrets VariantSecrets
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		return nil, fmt.Errorf("failed to parse secrets file: %w", err)
+	}
+
+	return secrets, nil
+}
+
+// SaveVariantSecrets saves variant secrets to ~/.schmux/secrets.json.
+// Creates the file and directory if needed.
+func SaveVariantSecrets(secrets VariantSecrets) error {
+	path, err := GetVariantSecretsPath()
+	if err != nil {
+		return err
+	}
+
+	// Ensure directory exists
+	schmuxDir := filepath.Dir(path)
+	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		return fmt.Errorf("failed to create schmux directory: %w", err)
+	}
+
+	// Marshal with indentation
+	data, err := json.MarshalIndent(secrets, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal secrets: %w", err)
+	}
+
+	// Write to temp file first, then rename for atomicity
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil { // 0600 = user read/write only
+		return fmt.Errorf("failed to write secrets: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to save secrets: %w", err)
+	}
+
+	return nil
+}
+
+// SetVariantSecret sets a single secret value for a variant.
+// Updates the secrets file atomically.
+func SetVariantSecret(variantName, key, value string) error {
+	secrets, err := LoadVariantSecrets()
+	if err != nil {
+		return err
+	}
+
+	if secrets[variantName] == nil {
+		secrets[variantName] = make(map[string]string)
+	}
+	secrets[variantName][key] = value
+
+	return SaveVariantSecrets(secrets)
+}
+
+// GetVariantSecret retrieves a single secret value for a variant.
+// Returns empty string if the secret doesn't exist.
+func GetVariantSecret(variantName, key string) (string, error) {
+	secrets, err := LoadVariantSecrets()
+	if err != nil {
+		return "", err
+	}
+
+	if secrets[variantName] == nil {
+		return "", nil
+	}
+	return secrets[variantName][key], nil
+}
+
+// GetVariantSecrets retrieves all secrets for a variant.
+// Returns nil if the variant has no secrets configured.
+func GetVariantSecretsForVariant(variantName string) (map[string]string, error) {
+	secrets, err := LoadVariantSecrets()
+	if err != nil {
+		return nil, err
+	}
+	return secrets[variantName], nil
 }

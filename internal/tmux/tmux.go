@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -16,16 +17,26 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07
 
 // CreateSession creates a new tmux session with the given name, directory, and command.
 func CreateSession(ctx context.Context, name, dir, command string) error {
+	return CreateSessionWithEnv(ctx, name, dir, command, nil)
+}
+
+// CreateSessionWithEnv creates a new tmux session with environment variables.
+// The env slice should be in the format ["KEY=value", ...].
+// If env is nil or empty, behaves like CreateSession.
+func CreateSessionWithEnv(ctx context.Context, name, dir, command string, env []string) error {
 	// tmux new-session -d -s <name> -c <dir> <command>
 	args := []string{
 		"new-session",
 		"-d",       // detached
 		"-s", name, // session name
-		"-c", dir, // working directory
-		command, // command to run
+		"-c", dir,  // working directory
+		command,    // command to run
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
 	}
