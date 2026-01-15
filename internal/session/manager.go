@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,9 @@ const (
 	// maxNicknameAttempts is the maximum number of attempts to find a unique nickname
 	// before falling back to a UUID suffix.
 	maxNicknameAttempts = 100
+
+	// processKillGracePeriod is how long to wait for SIGTERM before SIGKILL
+	processKillGracePeriod = 100 * time.Millisecond
 )
 
 // Manager manages sessions.
@@ -173,6 +177,95 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	return true
 }
 
+// killProcessGroup kills a process and its entire process group.
+// On Unix, a negative PID to syscall.Kill signals the entire process group.
+func killProcessGroup(pid int) error {
+	// First try to kill the process group (negative PID)
+	// Use syscall.Kill directly since os.FindProcess doesn't handle negative PIDs correctly
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err == nil {
+		// Successfully sent SIGTERM to process group
+		// Wait for graceful shutdown
+		time.Sleep(processKillGracePeriod)
+
+		// Check if process group is still alive and force kill if needed
+		if err := syscall.Kill(-pid, syscall.Signal(0)); err == nil {
+			// Process group still exists, send SIGKILL
+			if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+				// Log but don't fail - process may have exited
+				fmt.Printf("warning: failed to send SIGKILL to process group %d: %v\n", -pid, err)
+			}
+		}
+		return nil
+	}
+
+	// Fallback: process group may not exist, try killing the process directly
+	// Check if process exists first
+	if err := syscall.Kill(pid, syscall.Signal(0)); err != nil {
+		// Process doesn't exist, nothing to do
+		return nil
+	}
+
+	// Send SIGTERM for graceful shutdown
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		// Process may already be dead, which is fine
+		return nil
+	}
+
+	// Wait for graceful shutdown
+	time.Sleep(processKillGracePeriod)
+
+	// Force kill if still running
+	if err := syscall.Kill(pid, syscall.Signal(0)); err == nil {
+		// Process still exists, send SIGKILL
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			fmt.Printf("warning: failed to send SIGKILL to process %d: %v\n", pid, err)
+		}
+	}
+
+	return nil
+}
+
+// findProcessesInWorkspace finds all processes with a working directory in the given workspace path.
+// Returns a list of PIDs. Returns empty slice if no processes found (not an error).
+func findProcessesInWorkspace(workspacePath string) ([]int, error) {
+	// Normalize workspace path for proper matching
+	workspacePath = filepath.Clean(workspacePath)
+	// Ensure path ends with separator for proper prefix matching
+	workspacePrefix := workspacePath + string(filepath.Separator)
+
+	// Use ps to find processes with cwd matching the workspace path
+	cmd := exec.Command("ps", "-eo", "pid,cwd")
+	output, err := cmd.Output()
+	// If ps fails, return empty (no processes to kill)
+	// This handles cases where ps returns exit status 1 due to no matches
+	if err != nil {
+		return nil, nil
+	}
+
+	var pids []int
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pidStr := fields[0]
+		cwd := fields[1]
+
+		// Check if the working directory matches or is within the workspace
+		// Use proper path separator to avoid matching similar paths (e.g., /workspace vs /workspace-backup)
+		if cwd == workspacePath || strings.HasPrefix(cwd, workspacePrefix) {
+			pid, err := strconv.Atoi(pidStr)
+			if err != nil {
+				continue
+			}
+			pids = append(pids, pid)
+		}
+	}
+
+	return pids, nil
+}
+
 // Dispose disposes of a session.
 func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
@@ -180,12 +273,55 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	// Kill tmux session (ignore error if already gone)
-	tmux.KillSession(ctx, sess.TmuxSession)
+	// Track what we've done for the summary
+	var warnings []string
+	processesKilled := 0
+	orphanKilled := 0
+	tmuxKilled := false
+
+	// Get the workspace for process cleanup fallback
+	ws, found := m.workspace.GetByID(sess.WorkspaceID)
+	if found {
+		// Step 1: Kill the tracked process group (if we have a PID)
+		if sess.Pid > 0 {
+			if err := killProcessGroup(sess.Pid); err != nil {
+				warnings = append(warnings, fmt.Sprintf("failed to kill process group %d: %v", sess.Pid, err))
+			} else {
+				processesKilled = 1
+			}
+		}
+
+		// Step 2: Fallback - find and kill any orphaned processes in the workspace directory
+		// This catches processes that may have escaped the process group
+		// Check context before doing expensive process scan
+		if ctx.Err() == nil {
+			orphanPIDs, _ := findProcessesInWorkspace(ws.Path)
+			for _, pid := range orphanPIDs {
+				// Check context before each kill
+				if ctx.Err() != nil {
+					break
+				}
+				// Skip the tracked PID since we already tried to kill it
+				if sess.Pid > 0 && pid == sess.Pid {
+					continue
+				}
+				if err := killProcessGroup(pid); err != nil {
+					warnings = append(warnings, fmt.Sprintf("failed to kill orphaned process %d: %v", pid, err))
+				} else {
+					orphanKilled++
+				}
+			}
+		}
+	}
+
+	// Step 3: Kill tmux session (ignore error if already gone - that's success)
+	if err := tmux.KillSession(ctx, sess.TmuxSession); err == nil {
+		tmuxKilled = true
+	}
 
 	// Delete log file for this session
 	if err := m.deleteLogFile(sessionID); err != nil {
-		fmt.Printf("warning: failed to delete log file: %v\n", err)
+		warnings = append(warnings, fmt.Sprintf("failed to delete log file: %v", err))
 	}
 
 	// Note: workspace is NOT cleaned up on session disposal.
@@ -197,6 +333,21 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Print summary
+	summary := fmt.Sprintf("Disposed session %s: killed %d process group", sessionID, processesKilled)
+	if orphanKilled > 0 {
+		summary += fmt.Sprintf(" + %d orphaned process(es)", orphanKilled)
+	}
+	if tmuxKilled {
+		summary += " + tmux session"
+	}
+	fmt.Printf("%s\n", summary)
+
+	// Print warnings if any
+	for _, w := range warnings {
+		fmt.Printf("  warning: %s\n", w)
 	}
 
 	return nil
