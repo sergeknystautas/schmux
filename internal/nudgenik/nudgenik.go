@@ -78,15 +78,11 @@ func AskForSession(ctx context.Context, cfg *config.Config, sess state.Session) 
 	}
 
 	input := Prompt + extracted
-	agent, found := cfg.GetAgentDetect("claude")
-	if !found {
-		return "", ErrAgentNotFound
-	}
 
 	timeoutCtx, cancel = context.WithTimeout(ctx, defaultOneshotTimeout)
 	defer cancel()
 
-	response, err := oneshot.Execute(timeoutCtx, agent.Name, agent.Command, input)
+	response, err := oneshot.Execute(timeoutCtx, "glm-4.7", "glm-4.7", input)
 	if err != nil {
 		return "", fmt.Errorf("oneshot execute: %w", err)
 	}

@@ -74,8 +74,11 @@ func buildOneShotCommand(agentName, agentCommand string) ([]string, error) {
 			}
 		}
 		newArgs = filtered
+	case "glm-4.7":
+		// glm-4.7 takes prompt directly, no additional args needed
+		newArgs = append(existingArgs, "-p")
 	default:
-		return nil, fmt.Errorf("unknown agent: %s (supported: claude, codex, gemini)", agentName)
+		return nil, fmt.Errorf("unknown agent: %s (supported: claude, codex, gemini, glm-4.7)", agentName)
 	}
 
 	result := append([]string{baseCmd}, newArgs...)
