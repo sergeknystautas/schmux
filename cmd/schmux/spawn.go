@@ -35,8 +35,8 @@ func (cmd *SpawnCommand) Run(args []string) error {
 	)
 
 	fs := flag.NewFlagSet("spawn", flag.ExitOnError)
-	fs.StringVar(&targetFlag, "a", "", "Run target name (required)")
-	fs.StringVar(&targetFlag, "agent", "", "Run target name (required)")
+	fs.StringVar(&targetFlag, "t", "", "Run target name (required)")
+	fs.StringVar(&targetFlag, "target", "", "Run target name (required)")
 	fs.StringVar(&promptFlag, "p", "", "Prompt for promptable targets")
 	fs.StringVar(&promptFlag, "prompt", "", "Prompt for promptable targets")
 	fs.StringVar(&workspaceFlag, "w", "", "Workspace path (e.g., . or ~/ws/myproject-001)")
@@ -55,7 +55,7 @@ func (cmd *SpawnCommand) Run(args []string) error {
 
 	// Validate required flags
 	if targetFlag == "" {
-		return fmt.Errorf("required flag -a (--agent) not provided")
+		return fmt.Errorf("required flag -t (--target) not provided")
 	}
 
 	// Check if daemon is running
@@ -217,9 +217,9 @@ func (cmd *SpawnCommand) outputHuman(results []cli.SpawnResult, workspaceOrRepo 
 	fmt.Println("Spawn results:")
 	for _, result := range results {
 		if result.Error != "" {
-			fmt.Printf("  [%s] Error: %s\n", result.Agent, result.Error)
+			fmt.Printf("  [%s] Error: %s\n", result.Target, result.Error)
 		} else {
-			fmt.Printf("  [%s] Session: %s\n", result.Agent, result.SessionID)
+			fmt.Printf("  [%s] Session: %s\n", result.Target, result.SessionID)
 			fmt.Printf("        Workspace: %s\n", result.WorkspaceID)
 			fmt.Printf("        Attach: schmux attach %s\n", result.SessionID)
 		}

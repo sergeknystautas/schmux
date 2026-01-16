@@ -30,31 +30,31 @@ var (
 	}
 )
 
-// Agent represents a detected AI agent tool.
-type Agent struct {
+// Tool represents a detected AI coding tool.
+type Tool struct {
 	Name    string
 	Command string
 	Source  string // detection source
 	Agentic bool
 }
 
-// AgentDetector defines the interface for detecting AI agent tools.
-// Each detector knows the specific ways its agent might be installed.
-type AgentDetector interface {
-	// Detect attempts to find the agent and returns its info if found.
-	// Returns (agent, true) if found, (Agent{}, false) otherwise.
-	Detect(ctx context.Context) (Agent, bool)
+// ToolDetector defines the interface for detecting AI coding tools.
+// Each detector knows the specific ways its tool might be installed.
+type ToolDetector interface {
+	// Detect attempts to find the tool and returns its info if found.
+	// Returns (tool, true) if found, (Tool{}, false) otherwise.
+	Detect(ctx context.Context) (Tool, bool)
 
-	// Name returns the agent name for logging/reporting.
+	// Name returns the tool name for logging/reporting.
 	Name() string
 }
 
-// DetectAvailableAgents runs all registered detectors concurrently and returns available agents.
+// DetectAvailableTools runs all registered detectors concurrently and returns available tools.
 // All detectors run in parallel with a shared timeout.
 // Always logs progress using log.Printf; if printProgress is true, also prints to stdout.
-func DetectAvailableAgents(printProgress bool) []Agent {
-	log.Printf("[detect] Starting agent detection...")
-	detectors := []AgentDetector{
+func DetectAvailableTools(printProgress bool) []Tool {
+	log.Printf("[detect] Starting tool detection...")
+	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
 		&geminiDetector{},
@@ -64,7 +64,7 @@ func DetectAvailableAgents(printProgress bool) []Agent {
 	defer cancel()
 
 	type result struct {
-		agent Agent
+		tool Tool
 		found bool
 		name  string // detector name for not-found message
 	}
@@ -73,10 +73,10 @@ func DetectAvailableAgents(printProgress bool) []Agent {
 	var wg sync.WaitGroup
 	for _, detector := range detectors {
 		wg.Add(1)
-		go func(d AgentDetector) {
+		go func(d ToolDetector) {
 			defer wg.Done()
-			agent, found := d.Detect(ctx)
-			results <- result{agent, found, d.Name()}
+			tool, found := d.Detect(ctx)
+			results <- result{tool, found, d.Name()}
 		}(detector)
 	}
 
@@ -85,14 +85,14 @@ func DetectAvailableAgents(printProgress bool) []Agent {
 		close(results)
 	}()
 
-	var agents []Agent
+	var tools []Tool
 	for r := range results {
 		if r.found {
 			// Detector already logged the specifics
 			if printProgress {
-				fmt.Printf("  Detecting %s... found (command: %s)\n", r.agent.Name, r.agent.Command)
+				fmt.Printf("  Detecting %s... found (command: %s)\n", r.tool.Name, r.tool.Command)
 			}
-			agents = append(agents, r.agent)
+			tools = append(tools, r.tool)
 		} else {
 			log.Printf("[detect] %s not found (tried all detection methods)", r.name)
 			if printProgress {
@@ -101,28 +101,28 @@ func DetectAvailableAgents(printProgress bool) []Agent {
 		}
 	}
 
-	log.Printf("[detect] Detection complete: found %d agent(s)", len(agents))
-	return agents
+	log.Printf("[detect] Detection complete: found %d tool(s)", len(tools))
+	return tools
 }
 
 // DetectAndPrint runs detection and prints progress messages to stdout.
-// Returns the detected agents for use in config.
-func DetectAndPrint() []Agent {
-	return DetectAvailableAgents(true)
+// Returns the detected tools for use in config.
+func DetectAndPrint() []Tool {
+	return DetectAvailableTools(true)
 }
 
-// DetectAvailableAgentsContext runs all registered detectors concurrently with the given context.
-// Returns available agents or an error if context is canceled.
-func DetectAvailableAgentsContext(ctx context.Context, printProgress bool) ([]Agent, error) {
-	log.Printf("[detect] Starting agent detection...")
-	detectors := []AgentDetector{
+// DetectAvailableToolsContext runs all registered detectors concurrently with the given context.
+// Returns available tools or an error if context is canceled.
+func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Tool, error) {
+	log.Printf("[detect] Starting tool detection...")
+	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
 		&geminiDetector{},
 	}
 
 	type result struct {
-		agent Agent
+		tool Tool
 		found bool
 		name  string // detector name for not-found message
 	}
@@ -131,10 +131,10 @@ func DetectAvailableAgentsContext(ctx context.Context, printProgress bool) ([]Ag
 	var wg sync.WaitGroup
 	for _, detector := range detectors {
 		wg.Add(1)
-		go func(d AgentDetector) {
+		go func(d ToolDetector) {
 			defer wg.Done()
-			agent, found := d.Detect(ctx)
-			results <- result{agent, found, d.Name()}
+			tool, found := d.Detect(ctx)
+			results <- result{tool, found, d.Name()}
 		}(detector)
 	}
 
@@ -143,14 +143,14 @@ func DetectAvailableAgentsContext(ctx context.Context, printProgress bool) ([]Ag
 		close(results)
 	}()
 
-	var agents []Agent
+	var tools []Tool
 	for r := range results {
 		if r.found {
 			// Detector already logged the specifics
 			if printProgress {
-				fmt.Printf("  Detecting %s... found (command: %s)\n", r.agent.Name, r.agent.Command)
+				fmt.Printf("  Detecting %s... found (command: %s)\n", r.tool.Name, r.tool.Command)
 			}
-			agents = append(agents, r.agent)
+			tools = append(tools, r.tool)
 		} else {
 			log.Printf("[detect] %s not found (tried all detection methods)", r.name)
 			if printProgress {
@@ -164,28 +164,28 @@ func DetectAvailableAgentsContext(ctx context.Context, printProgress bool) ([]Ag
 		return nil, ctx.Err()
 	}
 
-	log.Printf("[detect] Detection complete: found %d agent(s)", len(agents))
-	return agents, nil
+	log.Printf("[detect] Detection complete: found %d tool(s)", len(tools))
+	return tools, nil
 }
 
-// FindDetectedAgent finds a detected agent by name.
-func FindDetectedAgent(ctx context.Context, name string) (Agent, bool, error) {
-	agents, err := DetectAvailableAgentsContext(ctx, false)
+// FindDetectedTool finds a detected tool by name.
+func FindDetectedTool(ctx context.Context, name string) (Tool, bool, error) {
+	tools, err := DetectAvailableToolsContext(ctx, false)
 	if err != nil {
-		return Agent{}, false, err
+		return Tool{}, false, err
 	}
-	agent, found := FindAgentInList(agents, name)
-	return agent, found, nil
+	tool, found := FindToolInList(tools, name)
+	return tool, found, nil
 }
 
-// FindAgentInList finds a detected agent by name in a list.
-func FindAgentInList(agents []Agent, name string) (Agent, bool) {
-	for _, agent := range agents {
-		if agent.Name == name {
-			return agent, true
+// FindToolInList finds a detected tool by name in a list.
+func FindToolInList(tools []Tool, name string) (Tool, bool) {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return tool, true
 		}
 	}
-	return Agent{}, false
+	return Tool{}, false
 }
 
 var detectTimeout = 3 * time.Second // 3 seconds (increased for multiple detection methods)
@@ -343,12 +343,12 @@ type claudeDetector struct{}
 
 func (d *claudeDetector) Name() string { return "claude" }
 
-func (d *claudeDetector) Detect(ctx context.Context) (Agent, bool) {
+func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try claude command in PATH
 	if commandExists("claude") {
 		if tryCommand(ctx, "claude", "-v") {
 			log.Printf("[detect] claude: found via PATH (command: claude)")
-			return Agent{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
+			return Tool{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
 		}
 	}
 
@@ -357,7 +357,7 @@ func (d *claudeDetector) Detect(ctx context.Context) (Agent, bool) {
 		cmd := filepath.Join(homeDirOrTilde(), ".local", "bin", "claude")
 		if tryCommand(ctx, cmd, "-v") {
 			log.Printf("[detect] claude: found via native install (command: %s)", cmd)
-			return Agent{Name: "claude", Command: cmd, Source: "native install (~/.local/bin/claude)", Agentic: true}, true
+			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.local/bin/claude)", Agentic: true}, true
 		}
 	}
 
@@ -366,23 +366,23 @@ func (d *claudeDetector) Detect(ctx context.Context) (Agent, bool) {
 		cmd := filepath.Join(homeDirOrTilde(), ".claude", "local", "claude")
 		if tryCommand(ctx, cmd, "-v") {
 			log.Printf("[detect] claude: found via alternative native install (command: %s)", cmd)
-			return Agent{Name: "claude", Command: cmd, Source: "native install (~/.claude/local/claude)", Agentic: true}, true
+			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.claude/local/claude)", Agentic: true}, true
 		}
 	}
 
 	// Method 4: Check Homebrew cask
 	if homebrewCaskInstalled(ctx, "claude-code") {
 		log.Printf("[detect] claude: found via Homebrew cask (command: claude)")
-		return Agent{Name: "claude", Command: "claude", Source: "Homebrew cask claude-code", Agentic: true}, true
+		return Tool{Name: "claude", Command: "claude", Source: "Homebrew cask claude-code", Agentic: true}, true
 	}
 
 	// Method 5: Check npm global
 	if npmGlobalInstalled(ctx, "@anthropic-ai/claude-code") {
 		log.Printf("[detect] claude: found via npm global package @anthropic-ai/claude-code (command: claude)")
-		return Agent{Name: "claude", Command: "claude", Source: "npm global package @anthropic-ai/claude-code", Agentic: true}, true
+		return Tool{Name: "claude", Command: "claude", Source: "npm global package @anthropic-ai/claude-code", Agentic: true}, true
 	}
 
-	return Agent{}, false
+	return Tool{}, false
 }
 
 // ===== Codex Detector =====
@@ -391,28 +391,28 @@ type codexDetector struct{}
 
 func (d *codexDetector) Name() string { return "codex" }
 
-func (d *codexDetector) Detect(ctx context.Context) (Agent, bool) {
+func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try codex command in PATH
 	if commandExists("codex") {
 		if tryCommand(ctx, "codex", "-V") {
 			log.Printf("[detect] codex: found via PATH (command: codex)")
-			return Agent{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
+			return Tool{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check npm global (primary installation method)
 	if npmGlobalInstalled(ctx, "@openai/codex") {
 		log.Printf("[detect] codex: found via npm global package @openai/codex (command: codex)")
-		return Agent{Name: "codex", Command: "codex", Source: "npm global package @openai/codex", Agentic: true}, true
+		return Tool{Name: "codex", Command: "codex", Source: "npm global package @openai/codex", Agentic: true}, true
 	}
 
 	// Method 3: Check Homebrew formula (if available)
 	if homebrewFormulaInstalled(ctx, "codex") {
 		log.Printf("[detect] codex: found via Homebrew formula (command: codex)")
-		return Agent{Name: "codex", Command: "codex", Source: "Homebrew formula codex", Agentic: true}, true
+		return Tool{Name: "codex", Command: "codex", Source: "Homebrew formula codex", Agentic: true}, true
 	}
 
-	return Agent{}, false
+	return Tool{}, false
 }
 
 // ===== Gemini Detector =====
@@ -421,28 +421,28 @@ type geminiDetector struct{}
 
 func (d *geminiDetector) Name() string { return "gemini" }
 
-func (d *geminiDetector) Detect(ctx context.Context) (Agent, bool) {
+func (d *geminiDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try gemini command in PATH
 	if commandExists("gemini") {
 		if tryCommand(ctx, "gemini", "-v") {
 			log.Printf("[detect] gemini: found via PATH (command: gemini)")
-			return Agent{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
+			return Tool{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check Homebrew formula (common installation method)
 	if homebrewFormulaInstalled(ctx, "gemini-cli") {
 		log.Printf("[detect] gemini: found via Homebrew formula gemini-cli (command: gemini)")
-		return Agent{Name: "gemini", Command: "gemini -i", Source: "Homebrew formula gemini-cli", Agentic: true}, true
+		return Tool{Name: "gemini", Command: "gemini -i", Source: "Homebrew formula gemini-cli", Agentic: true}, true
 	}
 
 	// Method 3: Check npm global
 	if npmGlobalInstalled(ctx, "@google/gemini-cli") {
 		log.Printf("[detect] gemini: found via npm global package @google/gemini-cli (command: gemini)")
-		return Agent{Name: "gemini", Command: "gemini -i", Source: "npm global package @google/gemini-cli", Agentic: true}, true
+		return Tool{Name: "gemini", Command: "gemini -i", Source: "npm global package @google/gemini-cli", Agentic: true}, true
 	}
 
-	return Agent{}, false
+	return Tool{}, false
 }
 
 // ===== Helper for home directory =====

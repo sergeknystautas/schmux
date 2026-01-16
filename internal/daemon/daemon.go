@@ -297,7 +297,7 @@ func Run(background bool) error {
 
 	// Detect run targets once on daemon start and persist to config
 	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	detectedTargets, err := detect.DetectAvailableAgentsContext(detectCtx, false)
+	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)
 	cancel()
 	if err != nil {
 		fmt.Printf("warning: failed to detect run targets: %v\n", err)

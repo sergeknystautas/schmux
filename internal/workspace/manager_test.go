@@ -289,7 +289,7 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	sess := state.Session{
 		ID:          "sess-001",
 		WorkspaceID: workspaceID,
-		Agent:       "test-agent",
+		Target:       "test-agent",
 	}
 	st.AddSession(sess)
 

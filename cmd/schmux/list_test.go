@@ -76,7 +76,7 @@ func TestListOutputHuman(t *testing.T) {
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-001-abc123",
-					Agent:     "glm",
+					Target:     "glm",
 					Nickname:  "reviewer",
 					Running:   true,
 					CreatedAt: "2026-01-10T10:00:00",
@@ -94,7 +94,7 @@ func TestListOutputHuman(t *testing.T) {
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-002-def456",
-					Agent:     "claude",
+					Target:     "claude",
 					Nickname:  "",
 					Running:   false,
 					CreatedAt: "2026-01-10T11:00:00",
@@ -151,7 +151,7 @@ func TestListCommand_Run(t *testing.T) {
 					GitAhead:  0,
 					GitBehind: 0,
 					Sessions: []cli.Session{
-						{ID: "test-001-abc", Agent: "claude", Running: true},
+						{ID: "test-001-abc", Target: "claude", Running: true},
 					},
 				},
 			},
@@ -179,7 +179,7 @@ func TestListCommand_Run(t *testing.T) {
 					ID:     "test-001",
 					Branch: "main",
 					Sessions: []cli.Session{
-						{ID: "test-001-abc", Agent: "claude"},
+						{ID: "test-001-abc", Target: "claude"},
 					},
 				},
 			},

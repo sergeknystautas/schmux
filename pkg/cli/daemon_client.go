@@ -333,7 +333,7 @@ type Workspace struct {
 type Session struct {
 	ID           string `json:"id"`
 	WorkspaceID  string `json:"workspace_id"`
-	Agent        string `json:"agent"`
+	Target       string `json:"target"`
 	Branch       string `json:"branch"`
 	Nickname     string `json:"nickname,omitempty"`
 	CreatedAt    string `json:"created_at"`
@@ -369,7 +369,7 @@ type SpawnRequest struct {
 type SpawnResult struct {
 	SessionID   string `json:"session_id,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
-	Agent       string `json:"agent"`
+	Target      string `json:"target"`
 	Error       string `json:"error,omitempty"`
 }
 

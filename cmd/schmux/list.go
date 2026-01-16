@@ -87,7 +87,7 @@ func (cmd *ListCommand) outputHuman(sessions []cli.WorkspaceWithSessions) error 
 			if sess.Running {
 				status = "running"
 			}
-			name := sess.Agent
+			name := sess.Target
 			if sess.Nickname != "" {
 				name = sess.Nickname
 			}

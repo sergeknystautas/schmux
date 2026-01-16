@@ -222,15 +222,15 @@ func splitRunTargets(targets []RunTarget) (user []RunTarget, detected []RunTarge
 
 // MergeDetectedRunTargets replaces detected run targets with the latest detected tools,
 // preserving user-defined run targets.
-func MergeDetectedRunTargets(existing []RunTarget, detectedAgents []detect.Agent) []RunTarget {
+func MergeDetectedRunTargets(existing []RunTarget, detectedTools []detect.Tool) []RunTarget {
 	user, _ := splitRunTargets(existing)
-	merged := make([]RunTarget, 0, len(user)+len(detectedAgents))
+	merged := make([]RunTarget, 0, len(user)+len(detectedTools))
 	merged = append(merged, user...)
-	for _, agent := range detectedAgents {
+	for _, tool := range detectedTools {
 		merged = append(merged, RunTarget{
-			Name:    agent.Name,
+			Name:    tool.Name,
 			Type:    RunTargetTypePromptable,
-			Command: agent.Command,
+			Command: tool.Command,
 			Source:  RunTargetSourceDetected,
 		})
 	}

@@ -84,7 +84,7 @@ func IsVariantName(name string) bool {
 }
 
 // GetAvailableVariants returns variants whose base tool is detected.
-func GetAvailableVariants(detected []Agent) []Variant {
+func GetAvailableVariants(detected []Tool) []Variant {
 	tools := make(map[string]bool, len(detected))
 	for _, tool := range detected {
 		tools[tool.Name] = true

@@ -28,7 +28,7 @@ func (c *Config) GetMergedVariants() []detect.Variant {
 }
 
 // GetAvailableVariants returns merged variants whose base tool is detected.
-func (c *Config) GetAvailableVariants(detected []detect.Agent) []detect.Variant {
+func (c *Config) GetAvailableVariants(detected []detect.Tool) []detect.Variant {
 	overrides := c.variantOverrides()
 	available := detect.GetAvailableVariants(detected)
 	out := make([]detect.Variant, 0, len(available))

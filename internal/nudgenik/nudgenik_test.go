@@ -43,7 +43,7 @@ func TestAskForSessionAgentMissing(t *testing.T) {
 	setupFakeTmux(t)
 	t.Setenv("TMUX_FAKE_OUTPUT", "hello\n❯\n")
 
-	if _, found, err := detect.FindDetectedAgent(context.Background(), "claude"); err == nil && found {
+	if _, found, err := detect.FindDetectedTool(context.Background(), "claude"); err == nil && found {
 		t.Skip("claude detected; skipping missing agent test")
 	}
 

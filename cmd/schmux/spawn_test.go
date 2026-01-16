@@ -209,22 +209,22 @@ func TestSpawnCommand_Run(t *testing.T) {
 		errContains  string
 	}{
 		{
-			name:        "requires agent flag",
+			name:        "requires target flag",
 			args:        []string{},
 			isRunning:   true,
 			wantErr:     true,
-			errContains: "required flag -a",
+			errContains: "required flag -t",
 		},
 		{
 			name:        "daemon not running",
-			args:        []string{"-a", "test"},
+			args:        []string{"-t", "test"},
 			isRunning:   false,
 			wantErr:     true,
 			errContains: "daemon is not running",
 		},
 		{
 			name:      "spawn with repo flag (skip workspace check)",
-			args:      []string{"-r", "schmux", "-a", "claude", "-p", "test"},
+			args:      []string{"-r", "schmux", "-t", "claude", "-p", "test"},
 			isRunning: true,
 			config: &cli.Config{
 				RunTargets: []cli.RunTarget{
@@ -235,13 +235,13 @@ func TestSpawnCommand_Run(t *testing.T) {
 				},
 			},
 			spawnResults: []cli.SpawnResult{
-				{SessionID: "new-001", WorkspaceID: "schmux-001", Agent: "claude"},
+				{SessionID: "new-001", WorkspaceID: "schmux-001", Target: "claude"},
 			},
 			wantErr: false,
 		},
 		{
 			name:      "spawn with promptable target without prompt (repo flag)",
-			args:      []string{"-r", "schmux", "-a", "claude"},
+			args:      []string{"-r", "schmux", "-t", "claude"},
 			isRunning: true,
 			config: &cli.Config{
 				RunTargets: []cli.RunTarget{
@@ -256,7 +256,7 @@ func TestSpawnCommand_Run(t *testing.T) {
 		},
 		{
 			name:      "spawn with invalid repo",
-			args:      []string{"-r", "unknown", "-a", "test"},
+			args:      []string{"-r", "unknown", "-t", "test"},
 			isRunning: true,
 			config: &cli.Config{
 				Repos: []cli.Repo{
@@ -345,8 +345,8 @@ func TestSpawnCommand_OutputHuman(t *testing.T) {
 	cmd := &SpawnCommand{}
 
 	results := []cli.SpawnResult{
-		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Agent: "claude"},
-		{SessionID: "ws-002-def", WorkspaceID: "ws-002", Agent: "glm", Error: "some error"},
+		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Target: "claude"},
+		{SessionID: "ws-002-def", WorkspaceID: "ws-002", Target: "glm", Error: "some error"},
 	}
 
 	// Capture output
@@ -370,7 +370,7 @@ func TestSpawnCommand_OutputJSON(t *testing.T) {
 	cmd := &SpawnCommand{}
 
 	results := []cli.SpawnResult{
-		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Agent: "claude"},
+		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Target: "claude"},
 	}
 
 	// Capture output

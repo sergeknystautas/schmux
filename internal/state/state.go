@@ -30,15 +30,15 @@ type Workspace struct {
 	GitBehind int    `json:"-"`
 }
 
-// Session represents an agent session.
+// Session represents a run target session.
 type Session struct {
 	ID           string    `json:"id"`
 	WorkspaceID  string    `json:"workspace_id"`
-	Agent        string    `json:"agent"`
+	Target       string    `json:"target"`
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession  string    `json:"tmux_session"`
 	CreatedAt    time.Time `json:"created_at"`
-	Pid          int       `json:"pid"`             // PID of the agent process from tmux pane
+	Pid          int       `json:"pid"`             // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`               // Last time terminal had new output (in-memory only, not persisted)
 	Nudge        string    `json:"nudge,omitempty"` // NudgeNik consultation result
 }

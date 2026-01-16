@@ -81,7 +81,7 @@ func TestAddAndGetSession(t *testing.T) {
 	sess := Session{
 		ID:          "session-001",
 		WorkspaceID: "test-001",
-		Agent:       "claude",
+		Target:       "claude",
 		TmuxSession: "schmux-test-001-abc123",
 		CreatedAt:   time.Now(),
 	}
@@ -96,8 +96,8 @@ func TestAddAndGetSession(t *testing.T) {
 	if retrieved.ID != sess.ID {
 		t.Errorf("expected ID %s, got %s", sess.ID, retrieved.ID)
 	}
-	if retrieved.Agent != sess.Agent {
-		t.Errorf("expected Agent %s, got %s", sess.Agent, retrieved.Agent)
+	if retrieved.Target != sess.Target {
+		t.Errorf("expected Target %s, got %s", sess.Target, retrieved.Target)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestRemoveSession(t *testing.T) {
 	sess := Session{
 		ID:          "session-002",
 		WorkspaceID: "test-001",
-		Agent:       "codex",
+		Target:       "codex",
 		TmuxSession: "schmux-test-001-def456",
 		CreatedAt:   time.Now(),
 	}
@@ -130,8 +130,8 @@ func TestGetSessions(t *testing.T) {
 	s.Sessions = []Session{}
 
 	sessions := []Session{
-		{ID: "s1", WorkspaceID: "w1", Agent: "a1", TmuxSession: "t1", CreatedAt: time.Now()},
-		{ID: "s2", WorkspaceID: "w2", Agent: "a2", TmuxSession: "t2", CreatedAt: time.Now()},
+		{ID: "s1", WorkspaceID: "w1", Target: "a1", TmuxSession: "t1", CreatedAt: time.Now()},
+		{ID: "s2", WorkspaceID: "w2", Target: "a2", TmuxSession: "t2", CreatedAt: time.Now()},
 	}
 
 	for _, sess := range sessions {
@@ -171,7 +171,7 @@ func TestUpdateSessionNotFound(t *testing.T) {
 	sess := Session{
 		ID:          "nonexistent",
 		WorkspaceID: "test-001",
-		Agent:       "claude",
+		Target:       "claude",
 		TmuxSession: "test",
 		CreatedAt:   time.Now(),
 	}

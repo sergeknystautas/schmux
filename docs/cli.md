@@ -10,7 +10,7 @@ schmux status             # Show daemon status and dashboard URL
 schmux daemon-run         # Run daemon in foreground (debugging)
 
 # Session Management
-schmux spawn -a <target> [flags]          # Spawn a new session
+schmux spawn -t <target> [flags]          # Spawn a new session
 schmux list [--json]                     # List all sessions
 schmux attach <session-id>                # Attach to a session
 schmux dispose <session-id>               # Dispose a session
@@ -25,22 +25,22 @@ schmux help                               # Show help message
 **Common spawn patterns:**
 ```bash
 # In current workspace (auto-detected)
-schmux spawn -a claude -p "do a code review"
+schmux spawn -t claude -p "do a code review"
 
 # In specific workspace
-schmux spawn -w . -a kimi-thinking -p "do a code review"
+schmux spawn -w . -t kimi-thinking -p "do a code review"
 
 # In new workspace
-schmux spawn -r schmux -a glm-4.7 -p "implement X"
+schmux spawn -r schmux -t glm-4.7 -p "implement X"
 
 # With branch
-schmux spawn -r schmux -b feature-x -a codex -p "implement X"
+schmux spawn -r schmux -b feature-x -t codex -p "implement X"
 ```
 
 **Spawn flags:**
 | Flag | Description |
 |------|-------------|
-| `-a, --agent` | Run target name (required) |
+| `-t, --target` | Run target name (required) |
 | `-p, --prompt` | Prompt for promptable targets |
 | `-w, --workspace` | Workspace path (e.g., `.`) |
 | `-r, --repo` | Repo name (creates new workspace) |
@@ -124,13 +124,13 @@ Spawn a new run target session.
 
 **Syntax:**
 ```bash
-schmux spawn -a <target> [flags]
+schmux spawn -t <target> [flags]
 ```
 
 **Required Flags:**
 | Flag | Description |
 |------|-------------|
-| `-a, --agent` | Run target name (user target, detected tool, or variant) |
+| `-t, --target` | Run target name (user target, detected tool, or variant) |
 
 **Optional Flags:**
 | Flag | Description |
@@ -152,25 +152,25 @@ schmux spawn -a <target> [flags]
 
 ```bash
 # Spawn in current workspace (simplest - no flags needed if in a workspace)
-schmux spawn -a claude -p "Please do a code review"
+schmux spawn -t claude -p "Please do a code review"
 
 # Explicit current workspace
-schmux spawn -w . -a kimi-thinking -p "do a code review"
+schmux spawn -w . -t kimi-thinking -p "do a code review"
 
 # Spawn in new workspace
-schmux spawn -r schmux -a glm-4.7 -p "Please do a code review"
+schmux spawn -r schmux -t glm-4.7 -p "Please do a code review"
 
 # With specific branch
-schmux spawn -r schmux -b feature-x -a codex -p "implement this feature"
+schmux spawn -r schmux -b feature-x -t codex -p "implement this feature"
 
 # With nickname
-schmux spawn -a glm-4.7 -n "reviewer" -p "check this PR"
+schmux spawn -t glm-4.7 -n "reviewer" -p "check this PR"
 
 # Spawn a command target (no prompt)
-schmux spawn -a zsh -n "shell"
+schmux spawn -t zsh -n "shell"
 
 # JSON output for scripting
-schmux spawn -a glm-4.7 -p "fix bug" --json
+schmux spawn -t glm-4.7 -p "fix bug" --json
 ```
 
 **Output:**
@@ -312,7 +312,7 @@ schmux help
 schmux start
 
 # Spawn a new session in a fresh workspace
-schmux spawn -r myproject -a claude -p "Add user authentication"
+schmux spawn -r myproject -t claude -p "Add user authentication"
 
 # Check status
 schmux list
@@ -325,7 +325,7 @@ schmux list
 cd ~/schmux-workspaces/myproject-001
 
 # Spawn another session in this workspace
-schmux spawn -a glm-4.7 -p "Review the changes"
+schmux spawn -t glm-4.7 -p "Review the changes"
 
 # List all sessions
 schmux list
@@ -335,10 +335,10 @@ schmux list
 
 ```bash
 # Spawn and get JSON output
-schmux spawn -a glm-4.7 -p "fix bug" --json > result.json
+schmux spawn -t glm-4.7 -p "fix bug" --json > result.json
 
 # Get session ID with jq
-SESSION_ID=$(schmux spawn -a glm-4.7 -p "fix bug" --json | jq -r '.[0].session_id')
+SESSION_ID=$(schmux spawn -t glm-4.7 -p "fix bug" --json | jq -r '.[0].session_id')
 
 # List all sessions as JSON
 schmux list --json
@@ -358,9 +358,9 @@ schmux attach $SESSION_ID
 
 ## Configuration
 
-The CLI reads configuration from `~/.schmux/config.json`. See the main [SPEC.md](SPEC.md) for configuration details.
+The CLI reads configuration from `~/.schmux/config.json`. See [docs/run-targets.md](run-targets.md) for run target rules and [docs/PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
 
-Run targets can be referenced by name in the `-a` flag. Detected tools and variants are also valid targets.
+Run targets can be referenced by name in the `-t` flag. Detected tools and variants are also valid targets.
 
 **Example config:**
 ```json

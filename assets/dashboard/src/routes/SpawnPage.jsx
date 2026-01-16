@@ -311,7 +311,7 @@ export default function SpawnPage() {
                     <span className="badge badge--primary" style={{ marginRight: 'var(--spacing-sm)' }}>{index + 1}</span>
                     <span className="mono">{r.workspace_id}</span>
                     <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>
-                    <span>{r.agent}</span>
+                    <span>{r.target}</span>
                     {r.nickname && <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>}
                     {r.nickname && <span style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>{r.nickname}</span>}
                   </div>
@@ -324,8 +324,8 @@ export default function SpawnPage() {
             <div className="results-panel">
               <div className="results-panel__title text-error">{errorCount} error(s)</div>
               {results.filter((r) => r.error).map((r) => (
-                <div className="results-panel__item results-panel__item--error" key={`${r.agent}-${r.error}`}>
-                  <div><strong>{r.agent}:</strong> {r.error}</div>
+                <div className="results-panel__item results-panel__item--error" key={`${r.target}-${r.error}`}>
+                  <div><strong>{r.target}:</strong> {r.error}</div>
                   {(r.prompt || repo || branch || r.workspace_id) && (
                     <div style={{ marginTop: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
                       {repo && <div>Repo: {repo}</div>}
@@ -465,26 +465,26 @@ export default function SpawnPage() {
                     </div>
                   </div>
 
-                  {/* Agent Grid */}
-                  <div className="agent-grid">
+                  {/* Run Target Grid */}
+                  <div className="run-target-grid">
                     {promptableList.map((item) => (
-                      <div className="agent-card" key={item.name}>
-                        <div className="agent-card__label">{item.label}</div>
+                      <div className="run-target-card" key={item.name}>
+                        <div className="run-target-card__label">{item.label}</div>
                         {item.kind === 'variant' && !item.configured && (
-                          <div className="agent-card__note">Configure in Settings</div>
+                          <div className="run-target-card__note">Configure in Settings</div>
                         )}
-                        <div className="agent-card__control">
+                        <div className="run-target-card__control">
                           <button
-                            className="agent-card__btn"
+                            className="run-target-card__btn"
                             onClick={() => updateTargetCount(item.name, -1)}
                             aria-label={`Decrease ${item.label} count`}
                             disabled={item.kind === 'variant' && !item.configured}
                           >
                             −
                           </button>
-                          <span className="agent-card__count">{item.count}</span>
+                          <span className="run-target-card__count">{item.count}</span>
                           <button
-                            className="agent-card__btn"
+                            className="run-target-card__btn"
                             onClick={() => updateTargetCount(item.name, 1)}
                             aria-label={`Increase ${item.label} count`}
                             disabled={item.kind === 'variant' && !item.configured}

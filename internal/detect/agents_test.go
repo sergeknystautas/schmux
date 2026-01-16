@@ -15,7 +15,7 @@ func TestDetectTimeout(t *testing.T) {
 	detectTimeout = 100 * time.Millisecond
 
 	start := time.Now()
-	agents := DetectAvailableAgents(false)
+	agents := DetectAvailableTools(false)
 	elapsed := time.Since(start)
 
 	if elapsed > 500*time.Millisecond {
@@ -64,18 +64,18 @@ func TestDetectAndPrint(t *testing.T) {
 	}
 }
 
-// TestDetectAvailableAgents verifies concurrent detection works correctly.
-func TestDetectAvailableAgents(t *testing.T) {
+// TestDetectAvailableTools verifies concurrent detection works correctly.
+func TestDetectAvailableTools(t *testing.T) {
 	oldTimeout := detectTimeout
 	defer func() { detectTimeout = oldTimeout }()
 
 	detectTimeout = 500 * time.Millisecond
 
-	agents := DetectAvailableAgents(false)
+	agents := DetectAvailableTools(false)
 
 	// Should return a slice (may be empty if no tools found)
 	if agents == nil {
-		t.Error("DetectAvailableAgents() should never return nil")
+		t.Error("DetectAvailableTools() should never return nil")
 	}
 
 	// Verify no duplicates
@@ -101,10 +101,10 @@ func TestDetectAvailableAgents(t *testing.T) {
 	}
 }
 
-// TestAgentDetectorConfig verifies the detector configurations match requirements.
-func TestAgentDetectorConfig(t *testing.T) {
+// TestToolDetectorConfig verifies the detector configurations match requirements.
+func TestToolDetectorConfig(t *testing.T) {
 	// Verify each detector has a name
-	detectors := []AgentDetector{
+	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
 		&geminiDetector{},
@@ -112,7 +112,7 @@ func TestAgentDetectorConfig(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		detector AgentDetector
+		detector ToolDetector
 		wantName string
 	}{
 		{

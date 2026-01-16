@@ -54,7 +54,7 @@ func (m *MockDaemonClient) Spawn(ctx context.Context, req cli.SpawnRequest) ([]c
 		{
 			SessionID:   "test-session-123",
 			WorkspaceID: "test-workspace-001",
-			Agent:       "test-agent",
+			Target:      "test-agent",
 		},
 	}, nil
 }

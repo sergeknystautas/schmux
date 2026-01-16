@@ -215,7 +215,7 @@ func TestClient_GetSessions(t *testing.T) {
 			ID:   "ws-001",
 			Path: "/path/to/ws-001",
 			Sessions: []Session{
-				{ID: "ws-001-abc", Agent: "claude"},
+				{ID: "ws-001-abc", Target: "claude"},
 			},
 		},
 	}
@@ -266,7 +266,7 @@ func TestClient_Spawn(t *testing.T) {
 		Targets: map[string]int{"claude": 1},
 	}
 	expectedResults := []SpawnResult{
-		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Agent: "claude"},
+		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Target: "claude"},
 	}
 
 	t.Run("returns results on success", func(t *testing.T) {

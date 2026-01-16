@@ -85,7 +85,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	// Group sessions by workspace
 	type SessionResponse struct {
 		ID           string `json:"id"`
-		Agent        string `json:"agent"`
+		Target       string `json:"target"`
 		Branch       string `json:"branch"`
 		Nickname     string `json:"nickname,omitempty"`
 		CreatedAt    string `json:"created_at"`
@@ -142,7 +142,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
 			ID:           sess.ID,
-			Agent:        sess.Agent,
+			Target:       sess.Target,
 			Branch:       wsResp.Branch,
 			Nickname:     sess.Nickname,
 			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
@@ -169,11 +169,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		sort.Slice(response[i].Sessions, func(j, k int) bool {
 			nameJ := response[i].Sessions[j].Nickname
 			if nameJ == "" {
-				nameJ = response[i].Sessions[j].Agent
+				nameJ = response[i].Sessions[j].Target
 			}
 			nameK := response[i].Sessions[k].Nickname
 			if nameK == "" {
-				nameK = response[i].Sessions[k].Agent
+				nameK = response[i].Sessions[k].Target
 			}
 			return nameJ < nameK
 		})
@@ -275,7 +275,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	type SessionResult struct {
 		SessionID   string `json:"session_id"`
 		WorkspaceID string `json:"workspace_id"`
-		Agent       string `json:"agent"`
+		Target      string `json:"target"`
 		Prompt      string `json:"prompt,omitempty"`
 		Nickname    string `json:"nickname,omitempty"`
 		Error       string `json:"error,omitempty"`
@@ -296,22 +296,22 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		promptable, found := getTargetPromptable(s.config, detected, targetName)
 		if !found {
 			results = append(results, SessionResult{
-				Agent: targetName,
-				Error: fmt.Sprintf("target not found: %s", targetName),
+				Target: targetName,
+				Error:  fmt.Sprintf("target not found: %s", targetName),
 			})
 			continue
 		}
 		if promptable && strings.TrimSpace(req.Prompt) == "" {
 			results = append(results, SessionResult{
-				Agent: targetName,
-				Error: "prompt is required for promptable targets",
+				Target: targetName,
+				Error:  "prompt is required for promptable targets",
 			})
 			continue
 		}
 		if !promptable && strings.TrimSpace(req.Prompt) != "" {
 			results = append(results, SessionResult{
-				Agent: targetName,
-				Error: "prompt is not allowed for command targets",
+				Target: targetName,
+				Error:  "prompt is not allowed for command targets",
 			})
 			continue
 		}
@@ -332,7 +332,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
-					Agent:    targetName,
+					Target:   targetName,
 					Prompt:   req.Prompt,
 					Nickname: nickname,
 					Error:    err.Error(),
@@ -341,7 +341,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				results = append(results, SessionResult{
 					SessionID:   sess.ID,
 					WorkspaceID: sess.WorkspaceID,
-					Agent:       targetName,
+					Target:      targetName,
 					Prompt:      req.Prompt,
 					Nickname:    nickname,
 				})
@@ -352,9 +352,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Log the results
 	for _, r := range results {
 		if r.Error != "" {
-			log.Printf("[spawn] error: agent=%s error=%s", r.Agent, r.Error)
+			log.Printf("[spawn] error: target=%s error=%s", r.Target, r.Error)
 		} else {
-			log.Printf("[spawn] success: agent=%s session_id=%s workspace_id=%s", r.Agent, r.SessionID, r.WorkspaceID)
+			log.Printf("[spawn] success: target=%s session_id=%s workspace_id=%s", r.Target, r.SessionID, r.WorkspaceID)
 		}
 	}
 
@@ -487,11 +487,11 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 		Tools []ToolResponse `json:"tools"`
 	}
 
-	var detectedTools []detect.Agent
+	var detectedTools []detect.Tool
 	switch r.Method {
 	case http.MethodGet:
 		for _, target := range s.config.GetDetectedRunTargets() {
-			detectedTools = append(detectedTools, detect.Agent{
+			detectedTools = append(detectedTools, detect.Tool{
 				Name:    target.Name,
 				Command: target.Command,
 				Source:  "config",
@@ -747,8 +747,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			userTargets[i] = config.RunTarget{Name: t.Name, Type: t.Type, Command: t.Command, Source: source}
 		}
-		detectedAgents := detectedAgentsFromRunTargets(cfg.GetDetectedRunTargets())
-		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedAgents)
+		detectedTools := detectedToolsFromRunTargets(cfg.GetDetectedRunTargets())
+		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedTools)
 	}
 
 	if req.QuickLaunch != nil {
@@ -896,7 +896,7 @@ func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
 		Configured      bool     `json:"configured"`
 	}
 
-	available := s.config.GetAvailableVariants(detectedAgentsFromConfig(s.config))
+	available := s.config.GetAvailableVariants(detectedToolsFromConfig(s.config))
 	resp := make([]VariantResponse, 0, len(available))
 	for _, variant := range available {
 		configured, err := variantConfigured(variant)
@@ -918,21 +918,21 @@ func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"variants": resp})
 }
 
-func detectedAgentsFromConfig(cfg *config.Config) []detect.Agent {
-	return detectedAgentsFromRunTargets(cfg.GetDetectedRunTargets())
+func detectedToolsFromConfig(cfg *config.Config) []detect.Tool {
+	return detectedToolsFromRunTargets(cfg.GetDetectedRunTargets())
 }
 
-func detectedAgentsFromRunTargets(targets []config.RunTarget) []detect.Agent {
-	agents := make([]detect.Agent, 0, len(targets))
+func detectedToolsFromRunTargets(targets []config.RunTarget) []detect.Tool {
+	tools := make([]detect.Tool, 0, len(targets))
 	for _, target := range targets {
-		agents = append(agents, detect.Agent{
+		tools = append(tools, detect.Tool{
 			Name:    target.Name,
 			Command: target.Command,
 			Source:  "config",
 			Agentic: true,
 		})
 	}
-	return agents
+	return tools
 }
 
 // handleVariant handles variant secret/configured requests.

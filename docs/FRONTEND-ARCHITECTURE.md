@@ -30,7 +30,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 **Key Characteristics:**
 - Dashboard-style UI for observability and orchestration
 - Real-time terminal streaming via WebSocket
-- CLI-first philosophy (web is secondary to CLI)
+- CLI and web are first-class; web emphasizes observability and orchestration
 - Minimal dependencies, maximal control
 - No build step in development (Vite HMR)
 

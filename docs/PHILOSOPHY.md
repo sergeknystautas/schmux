@@ -73,7 +73,7 @@ schmux is deliberately *not* trying to be:
 - **Dashboard shows real-time terminal output** via WebSocket
 - **Last activity**: when the agent last produced output
 - **When you last viewed**: timestamp of when you last looked at the session
-- **Nudgenik**: summarizes the agent's state — blocked, wants feedback, working, or done
+- **NudgeNik**: summarizes the agent's state — blocked, wants feedback, working, or done
 
 **Problem:** Even with visibility, there's grunt work—spinning up sessions, creating workspaces, typing the same prompts. These small tasks steal attention from the actual problem you're trying to solve.
 

@@ -353,8 +353,8 @@ export default function SessionDetailPage() {
           </div>
 
           <div className="metadata-field">
-            <span className="metadata-field__label">Agent</span>
-            <span className="metadata-field__value">{sessionData.agent}</span>
+            <span className="metadata-field__label">Target</span>
+            <span className="metadata-field__value">{sessionData.target}</span>
           </div>
 
           {sessionData.nickname ? (

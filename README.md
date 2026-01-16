@@ -152,10 +152,11 @@ Then start the daemon:
 
 ## Documentation
 
+- [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) - Product philosophy (source of truth)
 - [docs/cli.md](docs/cli.md) - CLI command reference
 - [docs/frontend-architecture.md](docs/frontend-architecture.md) - Web UI architecture
 - [docs/web-ux.md](docs/web-ux.md) - UI/UX patterns and design system
-- [SPEC.md](SPEC.md) - Full feature specification
+- [SPEC.md](SPEC.md) - Feature specification (keep aligned with philosophy)
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Guide to contribute to this codebase
 
 ## Development

@@ -1,6 +1,8 @@
 # schmux - Smart Cognitive Hub on tmux
 
-## Specification v0.8
+## Specification v1.0
+
+**Source of truth:** If anything here conflicts with [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md), the philosophy doc wins.
 
 ### Overview
 
@@ -8,7 +10,7 @@ A Golang application that orchestrates multiple run targets (detected tools like
 
 **Core concepts:**
 - Run multiple run targets simultaneously on the same codebase
-- Each target gets its own isolated workspace directory
+- Each target runs in a real filesystem workspace directory (git-based, non-containerized)
 - Monitor all targets from a web dashboard with live terminal output
 - Compare results across targets by viewing git diffs
 
@@ -16,7 +18,7 @@ A Golang application that orchestrates multiple run targets (detected tools like
 
 ### Configuration
 
-Configuration lives at `~/.schmux/config.json`. You can edit it directly or use the web dashboard's settings page.
+Configuration lives at `~/.schmux/config.json`. You can edit it directly or use the web dashboard's settings page. Secrets can be placed in `~/.schmux/secrets.json` for local-only values.
 
 ```json
 {
@@ -70,7 +72,7 @@ Workspaces are directories where targets do their work.
 **Git behavior:**
 - New workspaces clone fresh and pull latest
 - Existing workspaces skip git operations (safe for concurrent targets)
-- Disposing a workspace resets git state (`git checkout -- .`)
+- Disposal is blocked if a workspace has uncommitted or unpushed changes; no automatic git reset
 
 ---
 
@@ -87,7 +89,7 @@ A session is one target running in one workspace.
 **Session lifecycle:**
 - Target runs in a tmux session (persists after process exits)
 - Dashboard shows real-time terminal output
-- Mark sessions as done when finished (disposes the tmux session)
+- Mark sessions as done when finished; tmux sessions are disposed explicitly
 
 ---
 
@@ -117,36 +119,40 @@ First-time users see a setup wizard to configure workspace path, repos, and run 
 
 ### CLI Commands
 
-```
-schmux start          # start daemon in background
-schmux stop           # stop daemon
-schmux status         # show daemon status, web dashboard URL
-schmux daemon-run     # run daemon in foreground (debug)
+For full syntax, flags, and examples, see [docs/cli.md](docs/cli.md).
+
+```bash
+# Daemon Management
+schmux start              # Start daemon in background
+schmux stop               # Stop daemon
+schmux status             # Show daemon status and dashboard URL
+schmux daemon-run         # Run daemon in foreground (debugging)
+
+# Session Management
+schmux spawn -a <target> [flags]          # Spawn a new session
+schmux list [--json]                     # List all sessions
+schmux attach <session-id>                # Attach to a session
+schmux dispose <session-id>               # Dispose a session
+
+# Workspace Management
+schmux refresh-overlay <workspace-id>     # Refresh overlay files for a workspace
+
+# Help
+schmux help                               # Show help message
 ```
 
 ---
 
 ## Future Scope
 
-### v0.9 - Richer collaboration
+### v1.1 - Production polish
+
+- **Documentation** - Installation guide, tutorials, examples
+
+### v1.2 - Workflow tools
 
 - **Copy between sessions** - Share text/output from one session to another
 - **Batch grouping** - See which sessions were started together
-
-### v1.0 - Production polish
-
-- **Completion detection** - Know when targets finish vs waiting for input
-- **Easy target config** - Add new LLMs without wrapper scripts
-- **Documentation** - Installation guide, tutorials, examples
-
-### v1.1 - Workflow tools
-
-- **Saved prompts** - Reuse common task prompts
-- **Better terminal** - Full interactive terminal in browser
-
-### v1.9 - Descoped
-
-- **CLI spawning** - `schmux run` commands (use web dashboard instead)
 
 ### v2.0+ - Future ideas
 

@@ -35,7 +35,7 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
 
   const statusClass = sess.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sess.running ? 'Running' : 'Stopped';
-  const displayName = sess.nickname || sess.agent;
+  const displayName = sess.nickname || sess.target;
   const isCurrent = currentSessionId === sess.id;
   const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '📝') : null;
   const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
@@ -45,7 +45,7 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const lastOutputTime = sess.last_output_at ? new Date(sess.last_output_at).getTime() : 0;
   const hasNewUpdates = lastOutputTime > 0 && lastOutputTime > lastViewedAt;
 
-  const runTarget = (config?.run_targets || []).find(t => t.name === sess.agent);
+  const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
   const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
   // Determine nudge preview content
@@ -79,7 +79,7 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
             </Tooltip>
             {sess.nickname ? (
               <span className="badge badge--secondary" style={{ fontSize: '0.75rem' }}>
-                {sess.agent}
+                {sess.target}
               </span>
             ) : null}
           </div>

@@ -142,7 +142,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	sess := state.Session{
 		ID:          sessionID,
 		WorkspaceID: w.ID,
-		Agent:       targetName,
+		Target:      targetName,
 		Nickname:    uniqueNickname,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),

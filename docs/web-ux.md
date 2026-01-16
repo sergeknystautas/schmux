@@ -30,8 +30,8 @@ Primary flows:
 3. **Destructive actions are slow, safe, and obvious**
    - "Dispose" is always clearly destructive; never hidden in ambiguous menus.
    - Confirmations describe *effects*, not just "Are you sure?"
-4. **CLI-first, web-secondary**
-   - The CLI is the primary interface for power users.
+4. **CLI and web are first-class**
+   - The CLI is fast, composable, and scriptable.
    - The web dashboard is for observability and visual orchestration.
    - Keyboard accessibility is basic (tab navigation, focus states, Esc to close modals).
 5. **Accessible by default**
@@ -245,4 +245,3 @@ Preferred stack (opinionated, modern, maintainable):
 Acceptable alternative (if you refuse a build step):
 - HTMX + server-rendered templates + a small component JS layer  
 …but you still must implement the same component inventory + rules above.
-
