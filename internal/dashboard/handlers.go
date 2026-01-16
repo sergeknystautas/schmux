@@ -541,6 +541,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		BootstrapLines int `json:"bootstrap_lines"`
 	}
 
+	type NudgenikResponse struct {
+		Target string `json:"target,omitempty"`
+	}
+
 	type InternalResponse struct {
 		MtimePollIntervalMs     int  `json:"mtime_poll_interval_ms"`
 		SessionsPollIntervalMs  int  `json:"sessions_poll_interval_ms"`
@@ -558,6 +562,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		RunTargets    []RunTargetResponse    `json:"run_targets"`
 		QuickLaunch   []QuickLaunchResponse  `json:"quick_launch"`
 		Variants      []config.VariantConfig `json:"variants,omitempty"`
+		Nudgenik      NudgenikResponse       `json:"nudgenik"`
 		Terminal      TerminalResponse       `json:"terminal"`
 		Internal      InternalResponse       `json:"internal"`
 		NeedsRestart  bool                   `json:"needs_restart"`
@@ -590,6 +595,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		RunTargets:    runTargetResp,
 		QuickLaunch:   quickLaunchResp,
 		Variants:      s.config.GetVariantConfigs(),
+		Nudgenik:      NudgenikResponse{Target: s.config.GetNudgenikTarget()},
 		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Internal: InternalResponse{
 			MtimePollIntervalMs:     s.config.GetMtimePollIntervalMs(),
@@ -631,6 +637,9 @@ type ConfigUpdateRequest struct {
 		Enabled *bool             `json:"enabled,omitempty"`
 		Env     map[string]string `json:"env,omitempty"`
 	} `json:"variants,omitempty"`
+	Nudgenik *struct {
+		Target *string `json:"target,omitempty"`
+	} `json:"nudgenik,omitempty"`
 	Terminal *struct {
 		Width          *int `json:"width,omitempty"`
 		Height         *int `json:"height,omitempty"`
@@ -653,12 +662,14 @@ type ConfigUpdateRequest struct {
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[config] invalid JSON payload: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
 	if err := s.config.Reload(); err != nil {
+		log.Printf("[config] failed to reload config: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -746,6 +757,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Nudgenik != nil {
+		target := ""
+		if req.Nudgenik.Target != nil {
+			target = strings.TrimSpace(*req.Nudgenik.Target)
+		}
+		if target == "" {
+			cfg.Nudgenik = nil
+		} else {
+			cfg.Nudgenik = &config.NudgenikConfig{Target: target}
+		}
+	}
+
 	if req.Terminal != nil {
 		if cfg.Terminal == nil {
 			cfg.Terminal = &config.TerminalSize{}
@@ -803,12 +826,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := cfg.Validate(); err != nil {
+		log.Printf("[config] validation error: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Save config
 	if err := cfg.Save(); err != nil {
+		log.Printf("[config] failed to save config: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -946,6 +971,10 @@ func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		case http.MethodDelete:
+			if targetInUseByNudgenikOrQuickLaunch(s.config, variant.Name) {
+				http.Error(w, "variant is in use by nudgenik or quick launch", http.StatusBadRequest)
+				return
+			}
 			if err := config.DeleteVariantSecrets(variant.Name); err != nil {
 				http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
 				return
@@ -959,6 +988,21 @@ func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unknown variant action", http.StatusNotFound)
 	}
+}
+
+func targetInUseByNudgenikOrQuickLaunch(cfg *config.Config, targetName string) bool {
+	if cfg == nil || targetName == "" {
+		return false
+	}
+	if cfg.GetNudgenikTarget() == targetName {
+		return true
+	}
+	for _, preset := range cfg.GetQuickLaunch() {
+		if preset.Target == targetName {
+			return true
+		}
+	}
+	return false
 }
 
 func variantConfigured(variant detect.Variant) (bool, error) {
@@ -1278,8 +1322,10 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
 			http.Error(w, "No response found in session output", http.StatusBadRequest)
-		case errors.Is(err, nudgenik.ErrAgentNotFound):
-			log.Printf("[ask-nudgenik] claude agent not found in config")
+		case errors.Is(err, nudgenik.ErrTargetNotFound):
+			log.Printf("[ask-nudgenik] target not found in config")
+		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
+			log.Printf("[ask-nudgenik] target missing required secrets")
 			http.Error(w, "Claude agent not found. Please run agent detection first.", http.StatusServiceUnavailable)
 		default:
 			log.Printf("[ask-nudgenik] failed to ask for session %s: %v", sessionID, err)

@@ -100,12 +100,17 @@ If you prefer to configure manually, create `~/.schmux/config.json`:
       "prompt": "Please review these changes."
     }
   ],
+  "nudgenik": {
+    "target": "kimi-thinking"
+  },
   "terminal": {
     "width": 120,
     "height": 40,
     "seed_lines": 100
   }
 }
+
+NudgeNik uses `nudgenik.target` to select a promptable target (detected tool, variant, or user promptable). If omitted, it defaults to the detected `claude` tool.
 ```
 
 Then start the daemon:

@@ -49,6 +49,35 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string, env ma
 	return parseResponse(agentName, string(rawOutput)), nil
 }
 
+// ExecuteCommand runs an arbitrary promptable command in one-shot mode, appending the prompt as the final argument.
+// This is used for user-defined promptable run targets.
+func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]string) (string, error) {
+	if command == "" {
+		return "", fmt.Errorf("command cannot be empty")
+	}
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
+
+	execCmd := exec.CommandContext(ctx, parts[0], append(parts[1:], prompt)...)
+	if len(env) > 0 {
+		execCmd.Env = mergeEnv(env)
+	}
+
+	rawOutput, err := execCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("command: one-shot execution failed (command: %s): %w\noutput: %s",
+			strings.Join(append(parts, "<prompt>"), " "), err, string(rawOutput))
+	}
+
+	return string(rawOutput), nil
+}
+
 func mergeEnv(extra map[string]string) []string {
 	base := make(map[string]string)
 	for _, entry := range os.Environ() {

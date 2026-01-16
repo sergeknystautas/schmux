@@ -121,6 +121,67 @@ func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, variants []
 	return nil
 }
 
+func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget, variants []VariantConfig) error {
+	if nudgenik == nil {
+		return nil
+	}
+	targetName := strings.TrimSpace(nudgenik.Target)
+	if targetName == "" {
+		return nil
+	}
+
+	variantEnabled := make(map[string]bool)
+	for _, v := range variants {
+		enabled := true
+		if v.Enabled != nil {
+			enabled = *v.Enabled
+		}
+		variantEnabled[v.Name] = enabled
+	}
+
+	promptable, ok := quickLaunchTargetPromptable(targetName, targets, variantEnabled)
+	if !ok {
+		return fmt.Errorf("%w: nudgenik target not found: %s", ErrInvalidConfig, targetName)
+	}
+	if !promptable {
+		return fmt.Errorf("%w: nudgenik target %s must be promptable", ErrInvalidConfig, targetName)
+	}
+	return nil
+}
+
+func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget, variants []VariantConfig) error {
+	variantEnabled := make(map[string]bool)
+	for _, v := range variants {
+		enabled := true
+		if v.Enabled != nil {
+			enabled = *v.Enabled
+		}
+		variantEnabled[v.Name] = enabled
+	}
+
+	for _, preset := range presets {
+		name := strings.TrimSpace(preset.Name)
+		targetName := strings.TrimSpace(preset.Target)
+		if name == "" || targetName == "" {
+			continue
+		}
+		if _, ok := quickLaunchTargetPromptable(targetName, targets, variantEnabled); !ok {
+			return fmt.Errorf("%w: quick launch target not found: %s", ErrInvalidConfig, targetName)
+		}
+	}
+	return nil
+}
+
+func validateRunTargetDependencies(targets []RunTarget, variants []VariantConfig, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig) error {
+	if err := validateQuickLaunchTargets(quickLaunch, targets, variants); err != nil {
+		return err
+	}
+	if err := validateNudgenikConfig(nudgenik, targets, variants); err != nil {
+		return err
+	}
+	return nil
+}
+
 func quickLaunchTargetPromptable(targetName string, targets []RunTarget, variantEnabled map[string]bool) (bool, bool) {
 	if detect.IsVariantName(targetName) {
 		if enabled, ok := variantEnabled[targetName]; ok && !enabled {

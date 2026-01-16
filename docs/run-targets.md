@@ -43,6 +43,7 @@ Contexts:
    - Used by schmuX itself for background or one-shot tasks.
    - **Restricted to Detected Tools only** (and their variants).
    - Uses **oneshot** mode for detected tools.
+   - NudgeNik uses `nudgenik.target` (must be promptable); defaults to detected `claude`.
 
 2) **Wizard**
    - Interactive flow for users to start a session.

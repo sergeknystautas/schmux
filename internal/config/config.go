@@ -37,6 +37,7 @@ type Config struct {
 	RunTargets    []RunTarget        `json:"run_targets"`
 	QuickLaunch   []QuickLaunch      `json:"quick_launch"`
 	Variants      []VariantConfig    `json:"variants,omitempty"`
+	Nudgenik      *NudgenikConfig    `json:"nudgenik,omitempty"`
 	Terminal      *TerminalSize      `json:"terminal,omitempty"`
 	Internal      *InternalIntervals `json:"internal,omitempty"`
 	NetworkAccess bool               `json:"network_access,omitempty"` // true = bind to 0.0.0.0 (LAN), false = 127.0.0.1 (localhost only)
@@ -95,6 +96,11 @@ type VariantConfig struct {
 	Name    string            `json:"name"`
 	Enabled *bool             `json:"enabled,omitempty"` // nil = enabled by default
 	Env     map[string]string `json:"env,omitempty"`     // overrides
+}
+
+// NudgenikConfig represents configuration for the NudgeNik assistant.
+type NudgenikConfig struct {
+	Target string `json:"target,omitempty"`
 }
 
 const (
@@ -156,6 +162,9 @@ func Load() (*Config, error) {
 	if err := validateQuickLaunch(cfg.QuickLaunch, cfg.RunTargets, cfg.Variants); err != nil {
 		return nil, err
 	}
+	if err := validateRunTargetDependencies(cfg.RunTargets, cfg.Variants, cfg.QuickLaunch, cfg.Nudgenik); err != nil {
+		return nil, err
+	}
 
 	// Expand workspace path (handle ~) - allow empty during wizard setup
 	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
@@ -190,6 +199,9 @@ func (c *Config) Validate() error {
 	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets, c.Variants); err != nil {
 		return err
 	}
+	if err := validateRunTargetDependencies(c.RunTargets, c.Variants, c.QuickLaunch, c.Nudgenik); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -211,6 +223,14 @@ func (c *Config) GetRunTargets() []RunTarget {
 // GetQuickLaunch returns the list of quick launch presets.
 func (c *Config) GetQuickLaunch() []QuickLaunch {
 	return c.QuickLaunch
+}
+
+// GetNudgenikTarget returns the configured nudgenik target name, if any.
+func (c *Config) GetNudgenikTarget() string {
+	if c == nil || c.Nudgenik == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Nudgenik.Target)
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

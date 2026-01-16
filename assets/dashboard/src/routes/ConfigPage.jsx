@@ -31,6 +31,7 @@ export default function ConfigPage() {
   const [detectedTargets, setDetectedTargets] = useState([]);
   const [quickLaunch, setQuickLaunch] = useState([]);
   const [availableVariants, setAvailableVariants] = useState([]);
+  const [nudgenikTarget, setNudgenikTarget] = useState('');
 
   // Terminal state
   const [terminalWidth, setTerminalWidth] = useState('120');
@@ -87,6 +88,7 @@ export default function ConfigPage() {
         setCommandTargets(commandItems);
         setDetectedTargets(detectedItems);
         setQuickLaunch(data.quick_launch || []);
+        setNudgenikTarget(data.nudgenik?.target || '');
 
         setMtimePollInterval(data.internal?.mtime_poll_interval_ms || 5000);
         setSessionsPollInterval(data.internal?.sessions_poll_interval_ms || 5000);
@@ -182,6 +184,7 @@ export default function ConfigPage() {
         repos: repos,
         run_targets: runTargets,
         quick_launch: quickLaunch,
+        nudgenik: { target: nudgenikTarget || '' },
         internal: {
           mtime_poll_interval_ms: mtimePollInterval,
           sessions_poll_interval_ms: sessionsPollInterval,
@@ -279,7 +282,22 @@ export default function ConfigPage() {
     setNewPromptableCommand('');
   };
 
+  const checkTargetUsage = (targetName) => {
+    const inQuickLaunch = quickLaunch.some((preset) => preset.target === targetName);
+    const inNudgenik = nudgenikTarget && nudgenikTarget === targetName;
+    return { inQuickLaunch, inNudgenik };
+  };
+
   const removePromptableTarget = async (name) => {
+    const usage = checkTargetUsage(name);
+    if (usage.inQuickLaunch || usage.inNudgenik) {
+      const reasons = [
+        usage.inQuickLaunch ? 'quick launch preset' : null,
+        usage.inNudgenik ? 'nudgenik target' : null
+      ].filter(Boolean).join(' and ');
+      toastError(`Cannot remove "${name}" while used by ${reasons}.`);
+      return;
+    }
     const confirmed = await confirm('Remove run target?', `Remove "${name}" from the config?`);
     if (confirmed) {
       setPromptableTargets(promptableTargets.filter(t => t.name !== name));
@@ -307,6 +325,15 @@ export default function ConfigPage() {
   };
 
   const removeCommand = async (name) => {
+    const usage = checkTargetUsage(name);
+    if (usage.inQuickLaunch || usage.inNudgenik) {
+      const reasons = [
+        usage.inQuickLaunch ? 'quick launch preset' : null,
+        usage.inNudgenik ? 'nudgenik target' : null
+      ].filter(Boolean).join(' and ');
+      toastError(`Cannot remove "${name}" while used by ${reasons}.`);
+      return;
+    }
     const confirmed = await confirm('Remove command?', `Remove "${name}" from the config?`);
     if (confirmed) {
       setCommandTargets(commandTargets.filter(c => c.name !== name));
@@ -355,6 +382,17 @@ export default function ConfigPage() {
   const [variantModal, setVariantModal] = useState(null);
 
   const openVariantModal = (variant, mode) => {
+    if (mode === 'remove') {
+      const usage = checkTargetUsage(variant.name);
+      if (usage.inQuickLaunch || usage.inNudgenik) {
+        const reasons = [
+          usage.inQuickLaunch ? 'quick launch preset' : null,
+          usage.inNudgenik ? 'nudgenik target' : null
+        ].filter(Boolean).join(' and ');
+        toastError(`Cannot remove variant "${variant.display_name}" while used by ${reasons}.`);
+        return;
+      }
+    }
     const values = {};
     for (const key of variant.required_secrets || []) {
       values[key] = '';
@@ -421,6 +459,7 @@ export default function ConfigPage() {
   ]);
 
   const commandTargetNames = new Set(commandTargets.map((target) => target.name));
+  const nudgenikTargetMissing = nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -921,6 +960,45 @@ export default function ConfigPage() {
               <p className="wizard-step-content__description">
                 Terminal dimensions and internal timing intervals. You can leave these as defaults unless you have specific needs.
               </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">NudgeNik</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={nudgenikTarget}
+                      onChange={(e) => setNudgenikTarget(e.target.value)}
+                    >
+                      <option value="">Auto (detected claude)</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Variants">
+                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
+                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Used when schmuX asks NudgeNik for session feedback. Must be promptable.
+                    </p>
+                    {nudgenikTargetMissing && (
+                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">

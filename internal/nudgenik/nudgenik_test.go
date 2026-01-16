@@ -51,7 +51,7 @@ func TestAskForSessionAgentMissing(t *testing.T) {
 	sess := state.Session{ID: "sess-2", TmuxSession: "sess-2"}
 
 	_, err := AskForSession(context.Background(), cfg, sess)
-	if !errors.Is(err, ErrAgentNotFound) {
-		t.Fatalf("expected ErrAgentNotFound, got %v", err)
+	if !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound, got %v", err)
 	}
 }

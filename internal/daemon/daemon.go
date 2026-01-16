@@ -578,7 +578,13 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		}
 
 		// Session is inactive and has no nudge, ask NudgeNik
-		fmt.Printf("[nudgenik] asking for session %s\n", sess.ID)
+		targetName := "claude"
+		if cfg != nil {
+			if configured := cfg.GetNudgenikTarget(); configured != "" {
+				targetName = configured
+			}
+		}
+		fmt.Printf("[nudgenik] asking %s for session %s\n", targetName, sess.ID)
 		nudge := askNudgeNikForSession(ctx, cfg, sess)
 		if nudge != "" {
 			sess.Nudge = nudge
@@ -600,8 +606,10 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 		switch {
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			fmt.Printf("[nudgenik] no response extracted from session %s\n", sess.ID)
-		case errors.Is(err, nudgenik.ErrAgentNotFound):
-			fmt.Printf("[nudgenik] claude agent not found in config\n")
+		case errors.Is(err, nudgenik.ErrTargetNotFound):
+			fmt.Printf("[nudgenik] target not found in config\n")
+		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
+			fmt.Printf("[nudgenik] target missing required secrets\n")
 		default:
 			fmt.Printf("[nudgenik] failed to ask for session %s: %v\n", sess.ID, err)
 		}

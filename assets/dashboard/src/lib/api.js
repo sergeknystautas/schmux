@@ -72,8 +72,18 @@ export async function updateConfig(request) {
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.detail || response.statusText || 'Failed to update config');
+    let message = response.statusText || 'Failed to update config';
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const err = await response.json();
+      message = err.detail || err.error || message;
+    } else {
+      const text = await response.text();
+      if (text) {
+        message = text;
+      }
+    }
+    throw new Error(message);
   }
   return response.json();
 }
