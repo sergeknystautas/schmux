@@ -9,10 +9,10 @@ export function ViewedSessionsProvider({ children }) {
   const { config } = useConfig();
 
   const markAsViewed = useCallback((sessionId) => {
-    // Add buffer to avoid spurious "New" badges from xterm.js control sequences on focus
-    const buffer = config.internal?.viewed_buffer_ms || 5000;
+    // Read config at call time to avoid recreating this function when config changes
+    const buffer = config?.internal?.viewed_buffer_ms || 5000;
     setViewedSessions((prev) => ({ ...prev, [sessionId]: Date.now() + buffer }));
-  }, [config.internal?.viewed_buffer_ms, setViewedSessions]);
+  }, []); // Empty deps - function is stable, reads config dynamically
 
   return (
     <ViewedSessionsContext.Provider value={{ viewedSessions, markAsViewed }}>

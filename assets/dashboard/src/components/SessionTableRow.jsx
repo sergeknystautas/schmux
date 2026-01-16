@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils.js';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
@@ -22,22 +22,13 @@ function formatNudgeSummary(summary) {
   return text;
 }
 
-// Simple component that cycles through loading frames like npm/bun
+// Simple spinner using CSS animation (no JavaScript interval)
+// CSS animation is much more efficient than setInterval per-row
 function WorkingSpinner() {
-  const [frame, setFrame] = useState(0);
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((prev) => (prev + 1) % frames.length);
-    }, 140); // 140ms per frame for a more relaxed animation
-    return () => clearInterval(interval);
-  }, []);
-
-  return <span style={{ fontFamily: 'monospace' }}>{frames[frame]}</span>;
+  return <span className="working-spinner"></span>;
 }
 
-export default function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
+function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const { viewedSessions } = useViewedSessions();
   const { config } = useConfig();
   const navigate = useNavigate();
@@ -188,3 +179,5 @@ export default function SessionTableRow({ sess, onCopyAttach, onDispose, current
     </tbody>
   );
 }
+
+export default SessionTableRow;

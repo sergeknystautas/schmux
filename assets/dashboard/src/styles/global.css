@@ -1238,6 +1238,32 @@ body {
     to { transform: rotate(360deg); }
 }
 
+/* Working spinner animation - cycles through frames using CSS content */
+@keyframes working-spinner {
+    0% { content: '⠋'; }
+    10% { content: '⠙'; }
+    20% { content: '⠹'; }
+    30% { content: '⠸'; }
+    40% { content: '⠼'; }
+    50% { content: '⠴'; }
+    60% { content: '⠦'; }
+    70% { content: '⠧'; }
+    80% { content: '⠇'; }
+    90% { content: '⠏'; }
+    100% { content: '⠋'; }
+}
+
+.working-spinner {
+    font-family: monospace;
+    animation: working-spinner 1.4s steps(10) infinite;
+}
+
+/* Use ::after to animate the content */
+.working-spinner::after {
+    content: '⠋';
+    animation: working-spinner 1.4s steps(10) infinite;
+}
+
 /* Toast Notifications */
 .toast-container {
     position: fixed;

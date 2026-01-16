@@ -93,7 +93,7 @@ export default function SessionDetailPage() {
     }, seenInterval);
 
     return () => clearInterval(interval);
-  }, [sessionId, wsStatus, markAsViewed, config]);
+  }, [sessionId, markAsViewed]); // Only depends on stable markAsViewed
 
   const toggleSidebar = () => {
     const wasAtBottom = terminalStreamRef.current?.isAtBottom?.(10) || false;
