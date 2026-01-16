@@ -72,8 +72,18 @@ export async function updateConfig(request) {
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.detail || response.statusText || 'Failed to update config');
+    let message = response.statusText || 'Failed to update config';
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const err = await response.json();
+      message = err.detail || err.error || message;
+    } else {
+      const text = await response.text();
+      if (text) {
+        message = text;
+      }
+    }
+    throw new Error(message);
   }
   return response.json();
 }
@@ -91,17 +101,44 @@ export async function openVSCode(workspaceId) {
 }
 
 /**
- * Detects available AI agents on the system.
- * Returns a list of detected agents with their names, commands, and agentic flags.
- * @returns {Promise<{agents: Array<{name: string, command: string, agentic: boolean}>>>}
+ * Detects available tools on the system.
+ * Returns a list of detected tools with their names, commands, and sources.
+ * @returns {Promise<{tools: Array<{name: string, command: string, source: string}>>>}
  */
-export async function detectAgents() {
-  const response = await fetch('/api/detect-agents', {
+export async function detectTools() {
+  const response = await fetch('/api/detect-tools');
+  if (!response.ok) {
+    throw new Error('Failed to detect tools');
+  }
+  return response.json();
+}
+
+export async function getVariants() {
+  const response = await fetch('/api/variants');
+  if (!response.ok) throw new Error('Failed to fetch variants');
+  return response.json();
+}
+
+export async function configureVariantSecrets(variantName, secrets) {
+  const response = await fetch(`/api/variants/${variantName}/secrets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secrets })
   });
   if (!response.ok) {
-    throw new Error('Failed to detect agents');
+    const err = await response.text();
+    throw new Error(err || 'Failed to save variant secrets');
+  }
+  return response.json();
+}
+
+export async function removeVariantSecrets(variantName) {
+  const response = await fetch(`/api/variants/${variantName}/secrets`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || 'Failed to remove variant secrets');
   }
   return response.json();
 }

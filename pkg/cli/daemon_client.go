@@ -246,10 +246,12 @@ func (c *Client) ScanWorkspaces(ctx context.Context) (*ScanResult, error) {
 
 // Config represents the daemon configuration.
 type Config struct {
-	WorkspacePath string         `json:"workspace_path"`
-	Repos         []Repo         `json:"repos"`
-	Agents        []Agent        `json:"agents"`
-	Terminal      TerminalConfig `json:"terminal"`
+	WorkspacePath string          `json:"workspace_path"`
+	Repos         []Repo          `json:"repos"`
+	RunTargets    []RunTarget     `json:"run_targets"`
+	QuickLaunch   []QuickLaunch   `json:"quick_launch"`
+	Variants      []VariantConfig `json:"variants,omitempty"`
+	Terminal      TerminalConfig  `json:"terminal"`
 }
 
 // Repo represents a git repository configuration.
@@ -258,11 +260,25 @@ type Repo struct {
 	URL  string `json:"url"`
 }
 
-// Agent represents an AI agent configuration.
-type Agent struct {
+// RunTarget represents a user-supplied run target.
+type RunTarget struct {
 	Name    string `json:"name"`
+	Type    string `json:"type"`
 	Command string `json:"command"`
-	Agentic *bool  `json:"agentic,omitempty"`
+}
+
+// QuickLaunch represents a saved run preset.
+type QuickLaunch struct {
+	Name   string  `json:"name"`
+	Target string  `json:"target"`
+	Prompt *string `json:"prompt"`
+}
+
+// VariantConfig represents a variant config entry.
+type VariantConfig struct {
+	Name    string            `json:"name"`
+	Enabled *bool             `json:"enabled,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // TerminalConfig represents terminal dimensions.
@@ -315,7 +331,7 @@ type SpawnRequest struct {
 	Branch      string         `json:"branch"`
 	Prompt      string         `json:"prompt"`
 	Nickname    string         `json:"nickname,omitempty"`
-	Agents      map[string]int `json:"agents"`
+	Targets     map[string]int `json:"targets"`
 	WorkspaceID string         `json:"workspace_id,omitempty"`
 }
 

@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/sergek/schmux/internal/detect"
 )
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
 // Returns the parsed response string from the agent.
-func Execute(ctx context.Context, agentName, agentCommand, prompt string) (string, error) {
+func Execute(ctx context.Context, agentName, agentCommand, prompt string, env map[string]string) (string, error) {
 	// Validate inputs
 	if agentName == "" {
 		return "", fmt.Errorf("agent name cannot be empty")
@@ -24,13 +27,16 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string) (strin
 	}
 
 	// Build command parts safely
-	cmdParts, err := buildOneShotCommand(agentName, agentCommand)
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot)
 	if err != nil {
 		return "", err
 	}
 
 	// Build exec command with prompt as final argument (safe from shell injection)
 	execCmd := exec.CommandContext(ctx, cmdParts[0], append(cmdParts[1:], prompt)...)
+	if len(env) > 0 {
+		execCmd.Env = mergeEnv(env)
+	}
 
 	// Capture stdout and stderr
 	rawOutput, err := execCmd.CombinedOutput()
@@ -43,46 +49,51 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string) (strin
 	return parseResponse(agentName, string(rawOutput)), nil
 }
 
-// buildOneShotCommand builds the one-shot command parts for the given agent name and detected binary.
-// Returns command parts where the first element is the binary and the rest are arguments.
-func buildOneShotCommand(agentName, agentCommand string) ([]string, error) {
-	// Split the agent command into base binary and existing arguments
-	// This handles cases like "claude" or "/home/user/.local/bin/claude"
-	parts := strings.Fields(agentCommand)
+// ExecuteCommand runs an arbitrary promptable command in one-shot mode, appending the prompt as the final argument.
+// This is used for user-defined promptable run targets.
+func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]string) (string, error) {
+	if command == "" {
+		return "", fmt.Errorf("command cannot be empty")
+	}
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+
+	parts := strings.Fields(command)
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("agent %s: empty command", agentName)
+		return "", fmt.Errorf("command cannot be empty")
 	}
 
-	baseCmd := parts[0]
-	existingArgs := parts[1:]
+	execCmd := exec.CommandContext(ctx, parts[0], append(parts[1:], prompt)...)
+	if len(env) > 0 {
+		execCmd.Env = mergeEnv(env)
+	}
 
-	var newArgs []string
-	switch agentName {
-	case "claude":
-		// claude -p --model haiku, preserving any existing args from detection
-		newArgs = append(existingArgs, "-p", "--model", "haiku")
-	case "codex":
-		// codex exec --json, preserving any existing args
-		newArgs = append(existingArgs, "exec", "--json")
-	case "gemini":
-		// gemini interactive is "gemini -i", one-shot is just "gemini"
-		// Remove the -i flag if present
-		var filtered []string
-		for _, arg := range existingArgs {
-			if arg != "-i" {
-				filtered = append(filtered, arg)
-			}
+	rawOutput, err := execCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("command: one-shot execution failed (command: %s): %w\noutput: %s",
+			strings.Join(append(parts, "<prompt>"), " "), err, string(rawOutput))
+	}
+
+	return string(rawOutput), nil
+}
+
+func mergeEnv(extra map[string]string) []string {
+	base := make(map[string]string)
+	for _, entry := range os.Environ() {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 {
+			base[parts[0]] = parts[1]
 		}
-		newArgs = filtered
-	case "glm-4.7":
-		// glm-4.7 takes prompt directly, no additional args needed
-		newArgs = append(existingArgs, "-p")
-	default:
-		return nil, fmt.Errorf("unknown agent: %s (supported: claude, codex, gemini, glm-4.7)", agentName)
 	}
-
-	result := append([]string{baseCmd}, newArgs...)
-	return result, nil
+	for k, v := range extra {
+		base[k] = v
+	}
+	result := make([]string, 0, len(base))
+	for k, v := range base {
+		result = append(result, fmt.Sprintf("%s=%s", k, v))
+	}
+	return result
 }
 
 // parseResponse parses the raw output from an agent into a clean response string.

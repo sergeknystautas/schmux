@@ -11,7 +11,7 @@ export default function TipsPage() {
       </div>
 
       <div className={styles.tipsSection}>
-        <p>Welcome to schmux! Here are some tips to help you get the most out of running AI agents in tmux sessions.</p>
+        <p>Welcome to schmux! Here are some tips to help you get the most out of running promptable targets in tmux sessions.</p>
 
         <h2>tmux</h2>
         <p>Every schmux session runs in its own tmux session. You can attach directly from your terminal to interact with the agent in real-time.</p>

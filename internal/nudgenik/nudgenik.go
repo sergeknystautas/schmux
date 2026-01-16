@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sergek/schmux/internal/config"
+	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/oneshot"
 	"github.com/sergek/schmux/internal/state"
 	"github.com/sergek/schmux/internal/tmux"
@@ -57,8 +58,9 @@ Here is the agent’s last response:
 )
 
 var (
-	ErrNoResponse    = errors.New("no response extracted")
-	ErrAgentNotFound = errors.New("claude agent not found")
+	ErrNoResponse      = errors.New("no response extracted")
+	ErrTargetNotFound  = errors.New("nudgenik target not found")
+	ErrTargetNoSecrets = errors.New("nudgenik target missing required secrets")
 )
 
 // AskForSession captures the latest session output and asks NudgeNik for feedback.
@@ -79,13 +81,121 @@ func AskForSession(ctx context.Context, cfg *config.Config, sess state.Session) 
 
 	input := Prompt + extracted
 
+	targetName := "claude"
+	if cfg != nil {
+		if configured := cfg.GetNudgenikTarget(); configured != "" {
+			targetName = configured
+		}
+	}
+
+	resolved, err := resolveNudgenikTarget(cfg, targetName)
+	if err != nil {
+		return "", err
+	}
+	if !resolved.Promptable {
+		return "", fmt.Errorf("nudgenik target %s must be promptable", resolved.Name)
+	}
+
 	timeoutCtx, cancel = context.WithTimeout(ctx, defaultOneshotTimeout)
 	defer cancel()
 
-	response, err := oneshot.Execute(timeoutCtx, "glm-4.7", "glm-4.7", input)
+	var response string
+	if resolved.Kind == targetKindUser {
+		response, err = oneshot.ExecuteCommand(timeoutCtx, resolved.Command, input, resolved.Env)
+	} else {
+		response, err = oneshot.Execute(timeoutCtx, resolved.ToolName, resolved.Command, input, resolved.Env)
+	}
 	if err != nil {
 		return "", fmt.Errorf("oneshot execute: %w", err)
 	}
 
 	return response, nil
+}
+
+type nudgenikTarget struct {
+	Name       string
+	Kind       string
+	ToolName   string
+	Command    string
+	Promptable bool
+	Env        map[string]string
+}
+
+const (
+	targetKindDetected = "detected"
+	targetKindVariant  = "variant"
+	targetKindUser     = "user"
+)
+
+func resolveNudgenikTarget(cfg *config.Config, targetName string) (nudgenikTarget, error) {
+	if cfg == nil {
+		return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+	}
+
+	for _, variant := range cfg.GetMergedVariants() {
+		if variant.Name != targetName {
+			continue
+		}
+		baseTarget, found := cfg.GetDetectedRunTarget(variant.BaseTool)
+		if !found {
+			return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+		}
+		secrets, err := config.GetVariantSecrets(variant.Name)
+		if err != nil {
+			return nudgenikTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
+		}
+		if err := ensureVariantSecrets(variant, secrets); err != nil {
+			return nudgenikTarget{}, err
+		}
+		return nudgenikTarget{
+			Name:       variant.Name,
+			Kind:       targetKindVariant,
+			ToolName:   variant.BaseTool,
+			Command:    baseTarget.Command,
+			Promptable: true,
+			Env:        mergeEnvMaps(variant.Env, secrets),
+		}, nil
+	}
+
+	if target, found := cfg.GetRunTarget(targetName); found {
+		kind := targetKindUser
+		toolName := ""
+		if target.Source == config.RunTargetSourceDetected {
+			kind = targetKindDetected
+			toolName = target.Name
+		}
+		return nudgenikTarget{
+			Name:       target.Name,
+			Kind:       kind,
+			ToolName:   toolName,
+			Command:    target.Command,
+			Promptable: target.Type == config.RunTargetTypePromptable,
+		}, nil
+	}
+
+	return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+}
+
+func mergeEnvMaps(base, overrides map[string]string) map[string]string {
+	if base == nil && overrides == nil {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overrides))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overrides {
+		out[k] = v
+	}
+	return out
+}
+
+func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
+	for _, key := range variant.RequiredSecrets {
+		val := strings.TrimSpace(secrets[key])
+		if val == "" {
+			return fmt.Errorf("%w: %s", ErrTargetNoSecrets, variant.Name)
+		}
+	}
+	return nil
 }

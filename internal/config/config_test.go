@@ -23,9 +23,8 @@ func TestLoad(t *testing.T) {
 		Repos: []Repo{
 			{Name: "myproject", URL: "git@github.com:user/myproject.git"},
 		},
-		Agents: []Agent{
-			{Name: "codex", Command: "codex"},
-			{Name: "claude", Command: "claude"},
+		RunTargets: []RunTarget{
+			{Name: "glm-4.7", Type: RunTargetTypePromptable, Command: "~/bin/glm-4.7"},
 		},
 		Terminal: &TerminalSize{
 			Width:     120,
@@ -72,14 +71,14 @@ func TestGetRepos(t *testing.T) {
 	}
 }
 
-func TestGetAgents(t *testing.T) {
-	agents := []Agent{
-		{Name: "claude", Command: "claude"},
-		{Name: "codex", Command: "codex"},
+func TestGetRunTargets(t *testing.T) {
+	targets := []RunTarget{
+		{Name: "glm-4.7", Type: RunTargetTypePromptable, Command: "~/bin/glm-4.7"},
+		{Name: "zsh", Type: RunTargetTypeCommand, Command: "zsh"},
 	}
-	cfg := &Config{Agents: agents}
+	cfg := &Config{RunTargets: targets}
 
-	got := cfg.GetAgents()
+	got := cfg.GetRunTargets()
 	if len(got) != 2 {
 		t.Errorf("len = %d, want 2", len(got))
 	}
@@ -383,92 +382,6 @@ func TestGetTmuxOperationTimeoutSeconds(t *testing.T) {
 	})
 }
 
-func TestValidateConfig(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     Config
-		wantErr bool
-	}{
-		{
-			name: "valid config",
-			cfg: Config{
-				WorkspacePath: "/tmp/workspaces",
-				Repos:         []Repo{{Name: "test", URL: "git@github.com:test/test.git"}},
-				Agents:        []Agent{{Name: "test-agent", Command: "test"}},
-			},
-			wantErr: false,
-		},
-		{
-			name:    "missing workspace path",
-			cfg:     Config{WorkspacePath: ""},
-			wantErr: true,
-		},
-		{
-			name: "missing repo name",
-			cfg: Config{
-				WorkspacePath: "/tmp/workspaces",
-				Repos:         []Repo{{Name: "", URL: "git@github.com:test/test.git"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "missing repo URL",
-			cfg: Config{
-				WorkspacePath: "/tmp/workspaces",
-				Repos:         []Repo{{Name: "test", URL: ""}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "missing agent name",
-			cfg: Config{
-				WorkspacePath: "/tmp/workspaces",
-				Agents:        []Agent{{Name: "", Command: "test"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "missing agent command",
-			cfg: Config{
-				WorkspacePath: "/tmp/workspaces",
-				Agents:        []Agent{{Name: "test", Command: ""}},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := tt.cfg
-
-			// Check workspace path
-			if cfg.WorkspacePath == "" && !tt.wantErr {
-				t.Error("expected no error for missing workspace path")
-			}
-
-			// Check repos
-			for _, repo := range cfg.Repos {
-				if repo.Name == "" && !tt.wantErr {
-					t.Error("expected no error for missing repo name")
-				}
-				if repo.URL == "" && !tt.wantErr {
-					t.Error("expected no error for missing repo URL")
-				}
-			}
-
-			// Check agents
-			for _, agent := range cfg.Agents {
-				if agent.Name == "" && !tt.wantErr {
-					t.Error("expected no error for missing agent name")
-				}
-				if agent.Command == "" && !tt.wantErr {
-					t.Error("expected no error for missing agent command")
-				}
-			}
-		})
-	}
-}
-
 func TestFindRepo(t *testing.T) {
 	cfg := &Config{
 		Repos: []Repo{
@@ -489,86 +402,4 @@ func TestFindRepo(t *testing.T) {
 	if found {
 		t.Error("expected not to find nonexistent repo")
 	}
-}
-
-func TestGetAgentConfig(t *testing.T) {
-	cfg := &Config{
-		Agents: []Agent{
-			{Name: "codex", Command: "codex"},
-			{Name: "claude", Command: "claude"},
-		},
-	}
-
-	agent, found := cfg.GetAgentConfig("codex")
-	if !found {
-		t.Error("expected to find codex")
-	}
-	if agent.Name != "codex" {
-		t.Errorf("expected name codex, got %s", agent.Name)
-	}
-
-	_, found = cfg.GetAgentConfig("nonexistent")
-	if found {
-		t.Error("expected not to find nonexistent agent")
-	}
-}
-
-func TestGetAgentDetect(t *testing.T) {
-	trueVal := true
-	falseVal := false
-	nilVal := (*bool)(nil)
-
-	cfg := &Config{
-		Agents: []Agent{
-			{Name: "codex", Command: "codex", Agentic: &trueVal},
-			{Name: "claude", Command: "claude", Agentic: nilVal}, // defaults to true
-			{Name: "tool", Command: "tool", Agentic: &falseVal},
-		},
-	}
-
-	t.Run("returns agent as detect.Agent when found", func(t *testing.T) {
-		agent, found := cfg.GetAgentDetect("codex")
-		if !found {
-			t.Fatal("expected to find codex")
-		}
-		if agent.Name != "codex" {
-			t.Errorf("expected name codex, got %s", agent.Name)
-		}
-		if agent.Command != "codex" {
-			t.Errorf("expected command codex, got %s", agent.Command)
-		}
-		if agent.Source != "config" {
-			t.Errorf("expected source config, got %s", agent.Source)
-		}
-		if !agent.Agentic {
-			t.Error("expected agentic true")
-		}
-	})
-
-	t.Run("defaults agentic to true when nil", func(t *testing.T) {
-		agent, found := cfg.GetAgentDetect("claude")
-		if !found {
-			t.Fatal("expected to find claude")
-		}
-		if !agent.Agentic {
-			t.Error("expected agentic true when nil in config")
-		}
-	})
-
-	t.Run("preserves agentic false", func(t *testing.T) {
-		agent, found := cfg.GetAgentDetect("tool")
-		if !found {
-			t.Fatal("expected to find tool")
-		}
-		if agent.Agentic {
-			t.Error("expected agentic false")
-		}
-	})
-
-	t.Run("returns not found for unknown agent", func(t *testing.T) {
-		_, found := cfg.GetAgentDetect("unknown")
-		if found {
-			t.Error("expected not to find unknown agent")
-		}
-	})
 }

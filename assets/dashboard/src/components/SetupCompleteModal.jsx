@@ -8,7 +8,7 @@ export default function SetupCompleteModal({ onClose }) {
           <h2 className="modal__title" id="setup-modal-title">Setup Complete! 🎉</h2>
         </div>
         <div className="modal__body">
-          <p>schmux is ready to go. Spawn your first session to start working with AI agents.</p>
+          <p>schmux is ready to go. Spawn your first session to start working with run targets.</p>
         </div>
         <div className="modal__footer">
           <button className="btn btn--primary" onClick={onClose}>

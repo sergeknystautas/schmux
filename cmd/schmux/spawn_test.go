@@ -138,30 +138,30 @@ func TestAutoDetectWorkspace(t *testing.T) {
 	}
 }
 
-func TestFindAgent(t *testing.T) {
+func TestFindRunTarget(t *testing.T) {
 	cfg := &cli.Config{
-		Agents: []cli.Agent{
-			{Name: "claude", Command: "claude", Agentic: boolPtr(true)},
-			{Name: "zsh", Command: "zsh", Agentic: boolPtr(false)},
+		RunTargets: []cli.RunTarget{
+			{Name: "claude", Type: "promptable", Command: "claude"},
+			{Name: "zsh", Type: "command", Command: "zsh"},
 		},
 	}
 
 	cmd := &SpawnCommand{}
 
-	t.Run("finds existing agent", func(t *testing.T) {
-		agent, found := cmd.findAgent("claude", cfg)
+	t.Run("finds existing target", func(t *testing.T) {
+		target, found := cmd.findRunTarget("claude", cfg)
 		if !found {
-			t.Fatal("agent not found")
+			t.Fatal("target not found")
 		}
-		if agent.Name != "claude" {
-			t.Errorf("got name %q, want %q", agent.Name, "claude")
+		if target.Name != "claude" {
+			t.Errorf("got name %q, want %q", target.Name, "claude")
 		}
 	})
 
-	t.Run("agent not found", func(t *testing.T) {
-		_, found := cmd.findAgent("nonexistent", cfg)
+	t.Run("target not found", func(t *testing.T) {
+		_, found := cmd.findRunTarget("nonexistent", cfg)
 		if found {
-			t.Error("expected agent not to be found")
+			t.Error("expected target not to be found")
 		}
 	})
 }
@@ -193,14 +193,8 @@ func TestFindRepo(t *testing.T) {
 	})
 }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 // TestSpawnCommand_Run tests the spawn command Run method
 func TestSpawnCommand_Run(t *testing.T) {
-	agenticTrue := true
-
 	tests := []struct {
 		name         string
 		args         []string
@@ -233,8 +227,8 @@ func TestSpawnCommand_Run(t *testing.T) {
 			args:      []string{"-r", "schmux", "-a", "claude", "-p", "test"},
 			isRunning: true,
 			config: &cli.Config{
-				Agents: []cli.Agent{
-					{Name: "claude", Agentic: &agenticTrue},
+				RunTargets: []cli.RunTarget{
+					{Name: "claude", Type: "promptable", Command: "claude"},
 				},
 				Repos: []cli.Repo{
 					{Name: "schmux", URL: "https://github.com/user/schmux.git"},
@@ -246,19 +240,19 @@ func TestSpawnCommand_Run(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "spawn with agentic agent without prompt (repo flag)",
+			name:      "spawn with promptable target without prompt (repo flag)",
 			args:      []string{"-r", "schmux", "-a", "claude"},
 			isRunning: true,
 			config: &cli.Config{
-				Agents: []cli.Agent{
-					{Name: "claude", Agentic: &agenticTrue},
+				RunTargets: []cli.RunTarget{
+					{Name: "claude", Type: "promptable", Command: "claude"},
 				},
 				Repos: []cli.Repo{
 					{Name: "schmux", URL: "https://github.com/user/schmux.git"},
 				},
 			},
 			wantErr:     true,
-			errContains: "prompt (-p/--prompt) is required",
+			errContains: "prompt (-p/--prompt) is required for promptable targets",
 		},
 		{
 			name:      "spawn with invalid repo",

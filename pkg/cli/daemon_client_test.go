@@ -98,8 +98,8 @@ func TestClient_GetConfig(t *testing.T) {
 		Repos: []Repo{
 			{Name: "test", URL: "git@github.com:test/test.git"},
 		},
-		Agents: []Agent{
-			{Name: "claude", Command: "claude"},
+		RunTargets: []RunTarget{
+			{Name: "glm-4.7", Type: "promptable", Command: "~/bin/glm-4.7"},
 		},
 	}
 
@@ -260,10 +260,10 @@ func TestClient_GetSessions(t *testing.T) {
 
 func TestClient_Spawn(t *testing.T) {
 	req := SpawnRequest{
-		Repo:   "test",
-		Branch: "main",
-		Prompt: "test prompt",
-		Agents: map[string]int{"claude": 1},
+		Repo:    "test",
+		Branch:  "main",
+		Prompt:  "test prompt",
+		Targets: map[string]int{"claude": 1},
 	}
 	expectedResults := []SpawnResult{
 		{SessionID: "ws-001-abc", WorkspaceID: "ws-001", Agent: "claude"},

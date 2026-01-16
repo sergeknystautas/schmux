@@ -1,22 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getConfig, spawnSessions } from '../lib/api.js';
+import { getConfig, spawnSessions, detectTools, getVariants } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useRequireConfig } from '../contexts/ConfigContext.jsx';
 import { useSessions } from '../contexts/SessionsContext.jsx';
 
-const STEPS = ['Target', 'Command', 'Review'];
+const STEPS = ['Repository', 'Targets', 'Review'];
 const TOTAL_STEPS = STEPS.length;
 
 export default function SpawnPage() {
   useRequireConfig();
   const [currentStep, setCurrentStep] = useState(1);
   const [repos, setRepos] = useState([]);
-  const [agents, setAgents] = useState([]);
-  const [commands, setCommands] = useState([]);
-  const [agentCounts, setAgentCounts] = useState({});
+  const [promptableTargets, setPromptableTargets] = useState([]);
+  const [commandTargets, setCommandTargets] = useState([]);
+  const [detectedTools, setDetectedTools] = useState([]);
+  const [availableVariants, setAvailableVariants] = useState([]);
+  const [targetCounts, setTargetCounts] = useState({});
   const [selectedCommand, setSelectedCommand] = useState('');
-  const [spawnMode, setSpawnMode] = useState(null); // 'agent' | 'command' | null
+  const [spawnMode, setSpawnMode] = useState(null); // 'promptable' | 'command' | null
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
   const [prompt, setPrompt] = useState('');
@@ -27,7 +29,7 @@ export default function SpawnPage() {
   const [configError, setConfigError] = useState('');
   const [results, setResults] = useState(null);
   const [spawning, setSpawning] = useState(false);
-  const [showAgentError, setShowAgentError] = useState(false);
+  const [showTargetError, setShowTargetError] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
   const { workspaces, loading: sessionsLoading, refresh } = useSessions();
@@ -43,17 +45,18 @@ export default function SpawnPage() {
         if (!active) return;
         setRepos(config.repos || []);
 
-        // Separate agents and commands
-        const agentItems = (config.agents || []).filter(a => a.agentic !== false);
-        const commandItems = (config.agents || []).filter(a => a.agentic === false);
-        setAgents(agentItems);
-        setCommands(commandItems);
+        const promptableItems = (config.run_targets || []).filter(t => t.type === 'promptable' && t.source !== 'detected');
+        const commandItems = (config.run_targets || []).filter(t => t.type === 'command' && t.source !== 'detected');
+        setPromptableTargets(promptableItems);
+        setCommandTargets(commandItems);
 
-        const counts = {};
-        agentItems.forEach((agent) => {
-          counts[agent.name] = 0;
-        });
-        setAgentCounts(counts);
+        const toolResult = await detectTools();
+        if (!active) return;
+        setDetectedTools(toolResult.tools || []);
+
+        const variantResult = await getVariants();
+        if (!active) return;
+        setAvailableVariants(variantResult.variants || []);
       } catch (err) {
         if (!active) return;
         setConfigError(err.message || 'Failed to load config');
@@ -101,46 +104,84 @@ export default function SpawnPage() {
     }
   }, [searchParams, workspaces, sessionsLoading, repo, branch]);
 
-  const agentList = useMemo(() => {
-    return agents.map((agent) => ({
-      ...agent,
-      count: agentCounts[agent.name] || 0
+  const promptableList = useMemo(() => {
+    const items = [
+      ...detectedTools.map((tool) => ({
+        name: tool.name,
+        label: tool.name,
+        kind: 'tool'
+      })),
+      ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
+        name: variant.name,
+        label: variant.display_name,
+        kind: 'variant',
+        configured: variant.configured
+      })),
+      ...promptableTargets.map((target) => ({
+        name: target.name,
+        label: target.name,
+        kind: 'run_target'
+      }))
+    ];
+    return items.map((item) => ({
+      ...item,
+      count: targetCounts[item.name] || 0
     }));
-  }, [agents, agentCounts]);
+  }, [detectedTools, availableVariants, promptableTargets, targetCounts]);
 
-  const totalAgentCount = useMemo(() => {
-    return Object.values(agentCounts).reduce((sum, count) => sum + count, 0);
-  }, [agentCounts]);
+  useEffect(() => {
+    setTargetCounts((current) => {
+      const next = { ...current };
+      let changed = false;
+      promptableList.forEach((item) => {
+        if (next[item.name] === undefined) {
+          next[item.name] = 0;
+          changed = true;
+        }
+      });
+      Object.keys(next).forEach((name) => {
+        if (!promptableList.find((item) => item.name === name)) {
+          delete next[name];
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [promptableList]);
 
-  const updateAgentCount = (name, delta) => {
-    setAgentCounts((current) => {
+  const totalPromptableCount = useMemo(() => {
+    return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
+  }, [targetCounts]);
+
+  const updateTargetCount = (name, delta) => {
+    setTargetCounts((current) => {
       const next = Math.max(0, Math.min(10, (current[name] || 0) + delta));
       return { ...current, [name]: next };
     });
-    setShowAgentError(false);
+    setShowTargetError(false);
   };
 
   const applyPreset = (preset) => {
     if (preset === 'each') {
       const next = {};
-      agents.forEach((agent) => {
-        next[agent.name] = 1;
+      promptableList.forEach((item) => {
+        next[item.name] = 1;
       });
-      setAgentCounts(next);
+      setTargetCounts(next);
     } else if (preset === 'review') {
       const next = {};
-      agents.forEach((agent) => {
-        next[agent.name] = agent.name.includes('claude') ? 2 : 0;
+      promptableList.forEach((item) => {
+        next[item.name] = item.name.includes('claude') ? 2 : 0;
       });
-      setAgentCounts(next);
+      setTargetCounts(next);
     } else if (preset === 'reset') {
       const next = {};
-      agents.forEach((agent) => {
-        next[agent.name] = 0;
+      promptableList.forEach((item) => {
+        next[item.name] = 0;
       });
-      setAgentCounts(next);
+      setTargetCounts(next);
     }
-    setShowAgentError(false);
+    setShowTargetError(false);
   };
 
   const validateStep = () => {
@@ -156,10 +197,10 @@ export default function SpawnPage() {
     }
 
     if (currentStep === 2) {
-      if (spawnMode === 'agent') {
-        if (totalAgentCount === 0) {
-          toastError('Please select at least one agent');
-          setShowAgentError(true);
+      if (spawnMode === 'promptable') {
+        if (totalPromptableCount === 0) {
+          toastError('Please select at least one target');
+          setShowTargetError(true);
           return false;
         }
         if (!prompt.trim()) {
@@ -186,13 +227,13 @@ export default function SpawnPage() {
   };
 
   const handleSpawn = async () => {
-    let selectedAgents = {};
+    let selectedTargets = {};
 
     if (spawnMode === 'command') {
-      selectedAgents[selectedCommand] = 1;
+      selectedTargets[selectedCommand] = 1;
     } else {
-      Object.entries(agentCounts).forEach(([name, count]) => {
-        if (count > 0) selectedAgents[name] = count;
+      Object.entries(targetCounts).forEach(([name, count]) => {
+        if (count > 0) selectedTargets[name] = count;
       });
     }
 
@@ -202,9 +243,9 @@ export default function SpawnPage() {
       const response = await spawnSessions({
         repo,
         branch,
-        prompt: spawnMode === 'agent' ? prompt : '',
+        prompt: spawnMode === 'promptable' ? prompt : '',
         nickname: nickname.trim(),
-        agents: selectedAgents,
+        targets: selectedTargets,
         workspace_id: prefillWorkspaceId || ''
       });
       setResults(response);
@@ -381,38 +422,38 @@ export default function SpawnPage() {
                 <div className="button-group">
                   <button
                     type="button"
-                    className={`btn${spawnMode === 'agent' ? ' btn--primary' : ''}`}
+                    className={`btn${spawnMode === 'promptable' ? ' btn--primary' : ''}`}
                     onClick={() => {
-                      if (agents.length > 0) {
-                        setSpawnMode('agent');
-                        setShowAgentError(false);
+                      if (promptableList.length > 0) {
+                        setSpawnMode('promptable');
+                        setShowTargetError(false);
                       }
                     }}
-                    disabled={agents.length === 0}
+                    disabled={promptableList.length === 0}
                   >
-                    Coding Agent
+                    Promptable
                   </button>
                   <button
                     type="button"
                     className={`btn${spawnMode === 'command' ? ' btn--primary' : ''}`}
                     onClick={() => {
-                      if (commands.length > 0) setSpawnMode('command');
+                      if (commandTargets.length > 0) setSpawnMode('command');
                     }}
-                    disabled={commands.length === 0}
+                    disabled={commandTargets.length === 0}
                   >
                     Command
                   </button>
                 </div>
-                {spawnMode === 'agent' && agents.length === 0 && (
-                  <p className="form-group__hint">No agents configured. Add some in the configuration page first.</p>
+                {spawnMode === 'promptable' && promptableList.length === 0 && (
+                  <p className="form-group__hint">No promptable targets available. Add run targets or install a detected tool.</p>
                 )}
-                {spawnMode === 'command' && commands.length === 0 && (
+                {spawnMode === 'command' && commandTargets.length === 0 && (
                   <p className="form-group__hint">No commands configured. Add some in the configuration page first.</p>
                 )}
               </div>
 
               {/* Content that shows AFTER selection */}
-              {spawnMode === 'agent' && agents.length > 0 && (
+              {spawnMode === 'promptable' && promptableList.length > 0 && (
                 <>
                   {/* Presets - first, so you can quickly set then adjust */}
                   <div className="form-group">
@@ -426,21 +467,38 @@ export default function SpawnPage() {
 
                   {/* Agent Grid */}
                   <div className="agent-grid">
-                    {agentList.map((agent) => (
-                      <div className="agent-card" key={agent.name}>
-                        <div className="agent-card__label">{agent.name}</div>
+                    {promptableList.map((item) => (
+                      <div className="agent-card" key={item.name}>
+                        <div className="agent-card__label">{item.label}</div>
+                        {item.kind === 'variant' && !item.configured && (
+                          <div className="agent-card__note">Configure in Settings</div>
+                        )}
                         <div className="agent-card__control">
-                          <button className="agent-card__btn" onClick={() => updateAgentCount(agent.name, -1)} aria-label={`Decrease ${agent.name} count`}>−</button>
-                          <span className="agent-card__count">{agent.count}</span>
-                          <button className="agent-card__btn" onClick={() => updateAgentCount(agent.name, 1)} aria-label={`Increase ${agent.name} count`}>+</button>
+                          <button
+                            className="agent-card__btn"
+                            onClick={() => updateTargetCount(item.name, -1)}
+                            aria-label={`Decrease ${item.label} count`}
+                            disabled={item.kind === 'variant' && !item.configured}
+                          >
+                            −
+                          </button>
+                          <span className="agent-card__count">{item.count}</span>
+                          <button
+                            className="agent-card__btn"
+                            onClick={() => updateTargetCount(item.name, 1)}
+                            aria-label={`Increase ${item.label} count`}
+                            disabled={item.kind === 'variant' && !item.configured}
+                          >
+                            +
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  {showAgentError && (
+                  {showTargetError && (
                     <div className="form-group__error">
-                      Please select at least one agent
+                      Please select at least one target
                     </div>
                   )}
 
@@ -454,16 +512,16 @@ export default function SpawnPage() {
                       id="prompt"
                       className="textarea"
                       rows={8}
-                      placeholder="Describe the task you want the agents to work on..."
+                      placeholder="Describe the task you want the targets to work on..."
                       value={prompt}
                       onChange={(event) => setPrompt(event.target.value)}
                     />
-                    <p className="form-group__hint">Be specific about what you want the agents to do. This prompt will be sent to all spawned agents.</p>
+                    <p className="form-group__hint">This prompt will be sent to all spawned promptable targets.</p>
                   </div>
                 </>
               )}
 
-              {spawnMode === 'command' && commands.length > 0 && (
+              {spawnMode === 'command' && commandTargets.length > 0 && (
                 <div className="form-group">
                   <label htmlFor="command" className="form-group__label">Command</label>
                   <select
@@ -474,7 +532,7 @@ export default function SpawnPage() {
                     onChange={(event) => setSelectedCommand(event.target.value)}
                   >
                     <option value="">Select a command...</option>
-                    {commands.map((cmd) => (
+                    {commandTargets.map((cmd) => (
                       <option key={cmd.name} value={cmd.name}>
                         {cmd.name}
                       </option>
@@ -505,12 +563,12 @@ export default function SpawnPage() {
                     <span className="metadata-field__label">Workspace</span>
                     <span className="metadata-field__value">{prefillWorkspaceId || 'New workspace'}</span>
                   </div>
-                  {spawnMode === 'agent' ? (
+                  {spawnMode === 'promptable' ? (
                     <>
                       <div className="metadata-field">
-                        <span className="metadata-field__label">Agents</span>
+                        <span className="metadata-field__label">Targets</span>
                         <span className="metadata-field__value">
-                          {Object.entries(agentCounts)
+                          {Object.entries(targetCounts)
                             .filter(([_, count]) => count > 0)
                             .map(([name, count]) => `${count}× ${name}`)
                             .join(', ')}
@@ -524,7 +582,7 @@ export default function SpawnPage() {
                   ) : (
                     <div className="metadata-field">
                       <span className="metadata-field__label">Command</span>
-                      <span className="metadata-field__value mono">{commands.find(c => c.name === selectedCommand)?.command}</span>
+                      <span className="metadata-field__value mono">{commandTargets.find(c => c.name === selectedCommand)?.command}</span>
                     </div>
                   )}
                 </div>

@@ -45,16 +45,15 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   const lastOutputTime = sess.last_output_at ? new Date(sess.last_output_at).getTime() : 0;
   const hasNewUpdates = lastOutputTime > 0 && lastOutputTime > lastViewedAt;
 
-  // Check if this is an agentic session
-  const agentConfig = (config?.agents || []).find(a => a.name === sess.agent);
-  const isAgentic = agentConfig?.agentic !== false; // Default to true if not explicitly false
+  const runTarget = (config?.run_targets || []).find(t => t.name === sess.agent);
+  const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
   // Determine nudge preview content
   let nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
   let nudgePreviewElement = null;
 
   // If no nudge but this is an agentic session, show "Working..."
-  if (!nudgePreview && isAgentic) {
+  if (!nudgePreview && isPromptable) {
     nudgePreviewElement = (
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
         <WorkingSpinner />

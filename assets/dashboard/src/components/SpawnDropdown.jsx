@@ -5,7 +5,7 @@ import { spawnSessions } from '../lib/api.js';
 import { useToast } from './ToastProvider.jsx';
 import { useSessions } from '../contexts/SessionsContext.jsx';
 
-export default function SpawnDropdown({ workspace, commands, disabled }) {
+export default function SpawnDropdown({ workspace, quickLaunch, disabled }) {
   const { success, error: toastError } = useToast();
   const { refresh, waitForSession } = useSessions();
   const navigate = useNavigate();
@@ -49,7 +49,7 @@ export default function SpawnDropdown({ workspace, commands, disabled }) {
     navigate(`/spawn?workspace_id=${workspace.id}`);
   };
 
-  const handleCommandSpawn = async (command, event) => {
+  const handleQuickLaunchSpawn = async (preset, event) => {
     event.stopPropagation();
     setIsOpen(false);
     setSpawning(true);
@@ -58,17 +58,17 @@ export default function SpawnDropdown({ workspace, commands, disabled }) {
       const response = await spawnSessions({
         repo: workspace.repo,
         branch: workspace.branch,
-        prompt: '',
+        prompt: preset.prompt || '',
         nickname: '',
-        agents: { [command.name]: 1 },
+        targets: { [preset.target]: 1 },
         workspace_id: workspace.id,
       });
 
       const result = response[0];
       if (result.error) {
-        toastError(`Failed to spawn ${command.name}: ${result.error}`);
+        toastError(`Failed to spawn ${preset.name}: ${result.error}`);
       } else {
-        success(`Spawned ${command.name} session`);
+        success(`Spawned ${preset.name} session`);
         await refresh(true);
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
@@ -80,7 +80,7 @@ export default function SpawnDropdown({ workspace, commands, disabled }) {
     }
   };
 
-  const hasCommands = commands && commands.length > 0;
+  const hasQuickLaunch = quickLaunch && quickLaunch.length > 0;
 
   const menu = isOpen && !spawning && (
     <div
@@ -101,26 +101,26 @@ export default function SpawnDropdown({ workspace, commands, disabled }) {
         <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
       </button>
 
-      {hasCommands && (
+      {hasQuickLaunch && (
         <>
           <div className="spawn-dropdown__separator" role="separator"></div>
-          {commands.map((command) => (
+          {quickLaunch.map((preset) => (
             <button
-              key={command.name}
+              key={preset.name}
               className="spawn-dropdown__item"
-              onClick={(e) => handleCommandSpawn(command, e)}
+              onClick={(e) => handleQuickLaunchSpawn(preset, e)}
               role="menuitem"
             >
-              <span className="spawn-dropdown__item-label">{command.name}</span>
-              <span className="spawn-dropdown__item-hint mono">{command.command}</span>
+              <span className="spawn-dropdown__item-label">{preset.name}</span>
+              <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
             </button>
           ))}
         </>
       )}
 
-      {!hasCommands && (
+      {!hasQuickLaunch && (
         <div className="spawn-dropdown__empty">
-          No commands configured
+          No quick launch presets
         </div>
       )}
     </div>

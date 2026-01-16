@@ -47,15 +47,13 @@ export function ConfigProvider({ children }) {
   }, [loadConfig]);
 
   // Compute whether app is configured
-  // App is "not configured" if: empty workspace path, no repos, or no agents
+  // App is "not configured" if: empty workspace path or no repos
   const isNotConfigured = useMemo(() => {
     if (loading || error) return false;
     const wsPath = config?.workspace_path || '';
     return !wsPath.trim() ||
            !config?.repos ||
-           config.repos.length === 0 ||
-           !config?.agents ||
-           config.agents.length === 0;
+           config.repos.length === 0;
   }, [config, loading, error]);
 
   // Helper to get repo name from URL

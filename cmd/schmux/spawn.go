@@ -25,7 +25,7 @@ func NewSpawnCommand(client cli.DaemonClient) *SpawnCommand {
 // Run executes the spawn command.
 func (cmd *SpawnCommand) Run(args []string) error {
 	var (
-		agentFlag     string
+		targetFlag    string
 		promptFlag    string
 		workspaceFlag string
 		repoFlag      string
@@ -35,10 +35,10 @@ func (cmd *SpawnCommand) Run(args []string) error {
 	)
 
 	fs := flag.NewFlagSet("spawn", flag.ExitOnError)
-	fs.StringVar(&agentFlag, "a", "", "Agent name or command (required)")
-	fs.StringVar(&agentFlag, "agent", "", "Agent name or command (required)")
-	fs.StringVar(&promptFlag, "p", "", "Prompt for agentic agents")
-	fs.StringVar(&promptFlag, "prompt", "", "Prompt for agentic agents")
+	fs.StringVar(&targetFlag, "a", "", "Run target name (required)")
+	fs.StringVar(&targetFlag, "agent", "", "Run target name (required)")
+	fs.StringVar(&promptFlag, "p", "", "Prompt for promptable targets")
+	fs.StringVar(&promptFlag, "prompt", "", "Prompt for promptable targets")
 	fs.StringVar(&workspaceFlag, "w", "", "Workspace path (e.g., . or ~/ws/myproject-001)")
 	fs.StringVar(&workspaceFlag, "workspace", "", "Workspace path (e.g., . or ~/ws/myproject-001)")
 	fs.StringVar(&repoFlag, "r", "", "Repo name from config (for new workspace)")
@@ -54,7 +54,7 @@ func (cmd *SpawnCommand) Run(args []string) error {
 	}
 
 	// Validate required flags
-	if agentFlag == "" {
+	if targetFlag == "" {
 		return fmt.Errorf("required flag -a (--agent) not provided")
 	}
 
@@ -63,7 +63,7 @@ func (cmd *SpawnCommand) Run(args []string) error {
 		return fmt.Errorf("daemon is not running. Start it with: schmux start")
 	}
 
-	// Get config to validate agent/repo
+	// Get config to validate target/repo
 	cfg, err := cmd.client.GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -94,23 +94,13 @@ func (cmd *SpawnCommand) Run(args []string) error {
 		}
 	}
 
-	// Check if agent is agentic
-	isAgentic := false
-	agent, found := cmd.findAgent(agentFlag, cfg)
-	if found {
-		if agent.Agentic != nil {
-			isAgentic = *agent.Agentic
-		} else {
-			isAgentic = true // default to agentic for configured agents
+	if target, found := cmd.findRunTarget(targetFlag, cfg); found {
+		if target.Type == "command" && promptFlag != "" {
+			return fmt.Errorf("prompt (-p/--prompt) is not allowed for command targets")
 		}
-	} else {
-		// Not a configured agent - treat as command (non-agentic)
-		isAgentic = false
-	}
-
-	// Validate prompt for agentic agents
-	if isAgentic && promptFlag == "" {
-		return fmt.Errorf("prompt (-p/--prompt) is required for agentic agents")
+		if target.Type == "promptable" && promptFlag == "" {
+			return fmt.Errorf("prompt (-p/--prompt) is required for promptable targets")
+		}
 	}
 
 	// Build spawn request
@@ -120,7 +110,7 @@ func (cmd *SpawnCommand) Run(args []string) error {
 		Prompt:      promptFlag,
 		Nickname:    nicknameFlag,
 		WorkspaceID: workspaceID,
-		Agents:      map[string]int{agentFlag: 1},
+		Targets:     map[string]int{targetFlag: 1},
 	}
 
 	results, err := cmd.client.Spawn(context.Background(), req)
@@ -202,11 +192,11 @@ func (cmd *SpawnCommand) autoDetectWorkspace(cfg *cli.Config) (workspaceID, repo
 	return "", "", fmt.Errorf("not in a workspace directory")
 }
 
-// findAgent finds an agent by name in config.
-func (cmd *SpawnCommand) findAgent(name string, cfg *cli.Config) (*cli.Agent, bool) {
-	for _, agent := range cfg.Agents {
-		if agent.Name == name {
-			return &agent, true
+// findRunTarget finds a run target by name in config.
+func (cmd *SpawnCommand) findRunTarget(name string, cfg *cli.Config) (*cli.RunTarget, bool) {
+	for _, target := range cfg.RunTargets {
+		if target.Name == name {
+			return &target, true
 		}
 	}
 	return nil, false

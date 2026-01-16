@@ -10,7 +10,7 @@ schmux status             # Show daemon status and dashboard URL
 schmux daemon-run         # Run daemon in foreground (debugging)
 
 # Session Management
-schmux spawn -a <agent> [flags]           # Spawn a new session
+schmux spawn -a <target> [flags]          # Spawn a new session
 schmux list [--json]                     # List all sessions
 schmux attach <session-id>                # Attach to a session
 schmux dispose <session-id>               # Dispose a session
@@ -22,23 +22,23 @@ schmux help                               # Show help message
 **Common spawn patterns:**
 ```bash
 # In current workspace (auto-detected)
-schmux spawn -a glm -p "do a code review"
+schmux spawn -a claude -p "do a code review"
 
 # In specific workspace
-schmux spawn -w . -a glm -p "do a code review"
+schmux spawn -w . -a kimi-thinking -p "do a code review"
 
 # In new workspace
-schmux spawn -r schmux -a glm -p "implement X"
+schmux spawn -r schmux -a glm-4.7 -p "implement X"
 
 # With branch
-schmux spawn -r schmux -b feature-x -a glm -p "implement X"
+schmux spawn -r schmux -b feature-x -a codex -p "implement X"
 ```
 
 **Spawn flags:**
 | Flag | Description |
 |------|-------------|
-| `-a, --agent` | Agent name or command (required) |
-| `-p, --prompt` | Prompt for agentic agents |
+| `-a, --agent` | Run target name (required) |
+| `-p, --prompt` | Prompt for promptable targets |
 | `-w, --workspace` | Workspace path (e.g., `.`) |
 | `-r, --repo` | Repo name (creates new workspace) |
 | `-b, --branch` | Git branch (default: main) |
@@ -51,7 +51,7 @@ schmux spawn -r schmux -b feature-x -a glm -p "implement X"
 
 ### Overview
 
-The schmux CLI provides commands for managing the daemon and spawning AI coding agent sessions in tmux workspaces.
+The schmux CLI provides commands for managing the daemon and spawning run-target sessions in tmux workspaces.
 
 **Requirements:**
 - The daemon must be running for session commands (`spawn`, `list`, `attach`, `dispose`)
@@ -117,22 +117,22 @@ Useful for seeing debug output directly in the terminal.
 
 ### `schmux spawn`
 
-Spawn a new AI agent or command session.
+Spawn a new run target session.
 
 **Syntax:**
 ```bash
-schmux spawn -a <agent-or-command> [flags]
+schmux spawn -a <target> [flags]
 ```
 
 **Required Flags:**
 | Flag | Description |
 |------|-------------|
-| `-a, --agent` | Agent name from config, or arbitrary command |
+| `-a, --agent` | Run target name (user target, detected tool, or variant) |
 
 **Optional Flags:**
 | Flag | Description |
 |------|-------------|
-| `-p, --prompt` | Prompt for agentic agents (required if agent is agentic) |
+| `-p, --prompt` | Prompt for promptable targets (required if target is promptable) |
 | `-w, --workspace` | Workspace path (e.g., `.` for current dir, or `~/ws/myproject-001`) |
 | `-r, --repo` | Repo name from config (creates new workspace) |
 | `-b, --branch` | Git branch (default: `main`) |
@@ -149,31 +149,31 @@ schmux spawn -a <agent-or-command> [flags]
 
 ```bash
 # Spawn in current workspace (simplest - no flags needed if in a workspace)
-schmux spawn -a glm -p "Please do a code review"
+schmux spawn -a claude -p "Please do a code review"
 
 # Explicit current workspace
-schmux spawn -w . -a glm -p "do a code review"
+schmux spawn -w . -a kimi-thinking -p "do a code review"
 
 # Spawn in new workspace
-schmux spawn -r schmux -a glm -p "Please do a code review"
+schmux spawn -r schmux -a glm-4.7 -p "Please do a code review"
 
 # With specific branch
-schmux spawn -r schmux -b feature-x -a glm -p "implement this feature"
+schmux spawn -r schmux -b feature-x -a codex -p "implement this feature"
 
 # With nickname
-schmux spawn -a glm -n "reviewer" -p "check this PR"
+schmux spawn -a glm-4.7 -n "reviewer" -p "check this PR"
 
-# Spawn a non-agentic command
-schmux spawn -a "npm test" -n "test runner"
+# Spawn a command target (no prompt)
+schmux spawn -a zsh -n "shell"
 
 # JSON output for scripting
-schmux spawn -a glm -p "fix bug" --json
+schmux spawn -a glm-4.7 -p "fix bug" --json
 ```
 
 **Output:**
 ```
 Spawn results:
-  [glm] Session: schmux-001-abc12345
+  [glm-4.7] Session: schmux-001-abc12345
         Workspace: schmux-001
         Attach: schmux attach schmux-001-abc12345
 ```
@@ -204,7 +204,7 @@ schmux list --json
 Sessions:
 
 schmux-001 (main) [dirty]
-  [schmux-001-abc12345] glm - running
+  [schmux-001-abc12345] glm-4.7 - running
   [schmux-001-def67890] claude - stopped
 
 myproject-002 (feature-x) [ahead 3]
@@ -287,7 +287,7 @@ schmux list
 cd ~/schmux-workspaces/myproject-001
 
 # Spawn another session in this workspace
-schmux spawn -a glm -p "Review the changes"
+schmux spawn -a glm-4.7 -p "Review the changes"
 
 # List all sessions
 schmux list
@@ -297,10 +297,10 @@ schmux list
 
 ```bash
 # Spawn and get JSON output
-schmux spawn -a glm -p "fix bug" --json > result.json
+schmux spawn -a glm-4.7 -p "fix bug" --json > result.json
 
 # Get session ID with jq
-SESSION_ID=$(schmux spawn -a glm -p "fix bug" --json | jq -r '.[0].session_id')
+SESSION_ID=$(schmux spawn -a glm-4.7 -p "fix bug" --json | jq -r '.[0].session_id')
 
 # List all sessions as JSON
 schmux list --json
@@ -322,7 +322,7 @@ schmux attach $SESSION_ID
 
 The CLI reads configuration from `~/.schmux/config.json`. See the main [SPEC.md](SPEC.md) for configuration details.
 
-Configured agents can be referenced by name in the `-a` flag. Commands not in the config can also be used directly.
+Run targets can be referenced by name in the `-a` flag. Detected tools and variants are also valid targets.
 
 **Example config:**
 ```json
@@ -331,9 +331,12 @@ Configured agents can be referenced by name in the `-a` flag. Commands not in th
   "repos": [
     {"name": "schmux", "url": "git@github.com:user/schmux.git"}
   ],
-  "agents": [
-    {"name": "claude", "command": "claude"},
-    {"name": "glm", "command": "/path/to/glm", "agentic": true}
+  "run_targets": [
+    {"name": "glm-4.7-cli", "type": "promptable", "command": "/path/to/glm-4.7"},
+    {"name": "zsh", "type": "command", "command": "zsh"}
+  ],
+  "quick_launch": [
+    {"name": "Review: Kimi", "target": "kimi-thinking", "prompt": "Please review these changes."}
   ]
 }
 ```

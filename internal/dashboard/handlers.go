@@ -232,7 +232,7 @@ type SpawnRequest struct {
 	Branch      string         `json:"branch"`
 	Prompt      string         `json:"prompt"`
 	Nickname    string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
-	Agents      map[string]int `json:"agents"`                 // agent name -> quantity
+	Targets     map[string]int `json:"targets"`                // target name -> quantity
 	WorkspaceID string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 }
 
@@ -261,21 +261,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(req.Agents) == 0 {
-		http.Error(w, "at least one agent is required", http.StatusBadRequest)
-		return
-	}
-
-	// Check if any agentic agents are being spawned (require prompt)
-	hasAgentic := false
-	for agentName := range req.Agents {
-		if agent, found := s.config.GetAgentConfig(agentName); found && agent.Agentic != nil && *agent.Agentic {
-			hasAgentic = true
-			break
-		}
-	}
-	if hasAgentic && req.Prompt == "" {
-		http.Error(w, "prompt is required when spawning agentic agents", http.StatusBadRequest)
+	if len(req.Targets) == 0 {
+		http.Error(w, "at least one target is required", http.StatusBadRequest)
 		return
 	}
 
@@ -294,27 +281,38 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
 	}
-	log.Printf("[spawn] request: repo=%s branch=%s workspace_id=%s agents=%v prompt=%q",
-		req.Repo, req.Branch, req.WorkspaceID, req.Agents, promptPreview)
+	log.Printf("[spawn] request: repo=%s branch=%s workspace_id=%s targets=%v prompt=%q",
+		req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
 
 	results := make([]SessionResult, 0)
 
-	for agentName, count := range req.Agents {
-		// Get agent config to check if it's agentic
-		agent, found := s.config.GetAgentConfig(agentName)
+	detected := s.config.GetDetectedRunTargets()
+	for targetName, count := range req.Targets {
+		promptable, found := getTargetPromptable(s.config, detected, targetName)
 		if !found {
 			results = append(results, SessionResult{
-				Agent: agentName,
-				Error: fmt.Sprintf("agent not found: %s", agentName),
+				Agent: targetName,
+				Error: fmt.Sprintf("target not found: %s", targetName),
+			})
+			continue
+		}
+		if promptable && strings.TrimSpace(req.Prompt) == "" {
+			results = append(results, SessionResult{
+				Agent: targetName,
+				Error: "prompt is required for promptable targets",
+			})
+			continue
+		}
+		if !promptable && strings.TrimSpace(req.Prompt) != "" {
+			results = append(results, SessionResult{
+				Agent: targetName,
+				Error: "prompt is not allowed for command targets",
 			})
 			continue
 		}
 
-		isAgentic := agent.Agentic != nil && *agent.Agentic
-
-		// Non-agentic commands spawn single instance (ignore count)
 		spawnCount := count
-		if !isAgentic {
+		if !promptable {
 			spawnCount = 1
 		}
 
@@ -325,11 +323,11 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			}
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutSeconds())*time.Second)
-			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, agentName, req.Prompt, nickname, req.WorkspaceID)
+			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID)
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
-					Agent:    agentName,
+					Agent:    targetName,
 					Prompt:   req.Prompt,
 					Nickname: nickname,
 					Error:    err.Error(),
@@ -338,7 +336,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				results = append(results, SessionResult{
 					SessionID:   sess.ID,
 					WorkspaceID: sess.WorkspaceID,
-					Agent:       agentName,
+					Agent:       targetName,
 					Prompt:      req.Prompt,
 					Nickname:    nickname,
 				})
@@ -472,66 +470,45 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDetectAgents runs agent detection and returns the detected agents.
-func (s *Server) handleDetectAgents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+// handleDetectTools returns detected targets from config (GET only).
+func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
+	type ToolResponse struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Source  string `json:"source"`
+	}
+
+	type Response struct {
+		Tools []ToolResponse `json:"tools"`
+	}
+
+	var detectedTools []detect.Agent
+	switch r.Method {
+	case http.MethodGet:
+		for _, target := range s.config.GetDetectedRunTargets() {
+			detectedTools = append(detectedTools, detect.Agent{
+				Name:    target.Name,
+				Command: target.Command,
+				Source:  "config",
+				Agentic: true,
+			})
+		}
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	type AgentResponse struct {
-		Name    string `json:"name"`
-		Command string `json:"command"`
-		Agentic *bool  `json:"agentic,omitempty"`
-	}
-
-	type Response struct {
-		Agents []AgentResponse `json:"agents"`
-	}
-
-	// Run detection with a reasonable timeout
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	detectedAgents, err := detect.DetectAvailableAgentsContext(ctx, false)
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			http.Error(w, "Detection timed out. Some agents may not be available or took too long to respond.", http.StatusGatewayTimeout)
-			return
-		}
-		http.Error(w, fmt.Sprintf("Detection failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Convert detected agents to config.Tool format and update config
-	tools := make([]config.Tool, len(detectedAgents))
-	for i, da := range detectedAgents {
-		tools[i] = config.Tool{
-			Name:    da.Name,
-			Command: da.Command,
-			Source:  da.Source,
-			Agentic: da.Agentic,
-		}
-	}
-	s.config.SetTools(tools)
-	if err := s.config.Save(); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save detected tools: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Convert to response format (for agents)
-	agentResp := make([]AgentResponse, len(detectedAgents))
-	for i, da := range detectedAgents {
-		agentic := da.Agentic
-		agentResp[i] = AgentResponse{
-			Name:    da.Name,
-			Command: da.Command,
-			Agentic: &agentic,
+	toolResp := make([]ToolResponse, len(detectedTools))
+	for i, dt := range detectedTools {
+		toolResp[i] = ToolResponse{
+			Name:    dt.Name,
+			Command: dt.Command,
+			Source:  dt.Source,
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(Response{Agents: agentResp}); err != nil {
+	if err := json.NewEncoder(w).Encode(Response{Tools: toolResp}); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -544,10 +521,17 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		URL  string `json:"url"`
 	}
 
-	type AgentResponse struct {
+	type RunTargetResponse struct {
 		Name    string `json:"name"`
+		Type    string `json:"type"`
 		Command string `json:"command"`
-		Agentic *bool  `json:"agentic,omitempty"` // true = takes prompt, false = command only
+		Source  string `json:"source,omitempty"`
+	}
+
+	type QuickLaunchResponse struct {
+		Name   string  `json:"name"`
+		Target string  `json:"target"`
+		Prompt *string `json:"prompt"`
 	}
 
 	type TerminalResponse struct {
@@ -555,6 +539,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		Height         int `json:"height"`
 		SeedLines      int `json:"seed_lines"`
 		BootstrapLines int `json:"bootstrap_lines"`
+	}
+
+	type NudgenikResponse struct {
+		Target string `json:"target,omitempty"`
 	}
 
 	type InternalResponse struct {
@@ -569,16 +557,20 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type ConfigResponse struct {
-		WorkspacePath string           `json:"workspace_path"`
-		Repos         []RepoResponse   `json:"repos"`
-		Agents        []AgentResponse  `json:"agents"`
-		Terminal      TerminalResponse `json:"terminal"`
-		Internal      InternalResponse `json:"internal"`
-		NeedsRestart  bool             `json:"needs_restart"`
+		WorkspacePath string                 `json:"workspace_path"`
+		Repos         []RepoResponse         `json:"repos"`
+		RunTargets    []RunTargetResponse    `json:"run_targets"`
+		QuickLaunch   []QuickLaunchResponse  `json:"quick_launch"`
+		Variants      []config.VariantConfig `json:"variants,omitempty"`
+		Nudgenik      NudgenikResponse       `json:"nudgenik"`
+		Terminal      TerminalResponse       `json:"terminal"`
+		Internal      InternalResponse       `json:"internal"`
+		NeedsRestart  bool                   `json:"needs_restart"`
 	}
 
 	repos := s.config.GetRepos()
-	agents := s.config.GetAgents()
+	runTargets := s.config.GetRunTargets()
+	quickLaunch := s.config.GetQuickLaunch()
 	width, height := s.config.GetTerminalSize()
 	seedLines := s.config.GetTerminalSeedLines()
 	bootstrapLines := s.config.GetTerminalBootstrapLines()
@@ -588,15 +580,22 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		repoResp[i] = RepoResponse{Name: repo.Name, URL: repo.URL}
 	}
 
-	agentResp := make([]AgentResponse, len(agents))
-	for i, agent := range agents {
-		agentResp[i] = AgentResponse{Name: agent.Name, Command: agent.Command, Agentic: agent.Agentic}
+	runTargetResp := make([]RunTargetResponse, len(runTargets))
+	for i, target := range runTargets {
+		runTargetResp[i] = RunTargetResponse{Name: target.Name, Type: target.Type, Command: target.Command, Source: target.Source}
+	}
+	quickLaunchResp := make([]QuickLaunchResponse, len(quickLaunch))
+	for i, preset := range quickLaunch {
+		quickLaunchResp[i] = QuickLaunchResponse{Name: preset.Name, Target: preset.Target, Prompt: preset.Prompt}
 	}
 
 	response := ConfigResponse{
 		WorkspacePath: s.config.GetWorkspacePath(),
 		Repos:         repoResp,
-		Agents:        agentResp,
+		RunTargets:    runTargetResp,
+		QuickLaunch:   quickLaunchResp,
+		Variants:      s.config.GetVariantConfigs(),
+		Nudgenik:      NudgenikResponse{Target: s.config.GetNudgenikTarget()},
 		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Internal: InternalResponse{
 			MtimePollIntervalMs:     s.config.GetMtimePollIntervalMs(),
@@ -622,11 +621,25 @@ type ConfigUpdateRequest struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
 	} `json:"repos,omitempty"`
-	Agents []struct {
+	RunTargets []struct {
 		Name    string `json:"name"`
+		Type    string `json:"type"`
 		Command string `json:"command"`
-		Agentic *bool  `json:"agentic,omitempty"`
-	} `json:"agents,omitempty"`
+		Source  string `json:"source,omitempty"`
+	} `json:"run_targets,omitempty"`
+	QuickLaunch []struct {
+		Name   string  `json:"name"`
+		Target string  `json:"target"`
+		Prompt *string `json:"prompt"`
+	} `json:"quick_launch,omitempty"`
+	Variants []struct {
+		Name    string            `json:"name"`
+		Enabled *bool             `json:"enabled,omitempty"`
+		Env     map[string]string `json:"env,omitempty"`
+	} `json:"variants,omitempty"`
+	Nudgenik *struct {
+		Target *string `json:"target,omitempty"`
+	} `json:"nudgenik,omitempty"`
 	Terminal *struct {
 		Width          *int `json:"width,omitempty"`
 		Height         *int `json:"height,omitempty"`
@@ -649,12 +662,14 @@ type ConfigUpdateRequest struct {
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[config] invalid JSON payload: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
 	if err := s.config.Reload(); err != nil {
+		log.Printf("[config] failed to reload config: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -697,21 +712,60 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Agents != nil {
-		// Validate agents
-		for _, agent := range req.Agents {
-			if agent.Name == "" {
-				http.Error(w, "agent name is required", http.StatusBadRequest)
+	if req.RunTargets != nil {
+		for _, target := range req.RunTargets {
+			if target.Name == "" {
+				http.Error(w, "run target name is required", http.StatusBadRequest)
 				return
 			}
-			if agent.Command == "" {
-				http.Error(w, fmt.Sprintf("agent command is required for %s", agent.Name), http.StatusBadRequest)
+			if target.Command == "" {
+				http.Error(w, fmt.Sprintf("run target command is required for %s", target.Name), http.StatusBadRequest)
+				return
+			}
+			if target.Source == config.RunTargetSourceDetected {
+				http.Error(w, fmt.Sprintf("run target %s cannot be marked as detected", target.Name), http.StatusBadRequest)
+				return
+			}
+			if target.Source != "" && target.Source != config.RunTargetSourceUser {
+				http.Error(w, fmt.Sprintf("run target %s has invalid source %q", target.Name, target.Source), http.StatusBadRequest)
 				return
 			}
 		}
-		cfg.Agents = make([]config.Agent, len(req.Agents))
-		for i, a := range req.Agents {
-			cfg.Agents[i] = config.Agent{Name: a.Name, Command: a.Command, Agentic: a.Agentic}
+		userTargets := make([]config.RunTarget, len(req.RunTargets))
+		for i, t := range req.RunTargets {
+			source := t.Source
+			if source == "" {
+				source = config.RunTargetSourceUser
+			}
+			userTargets[i] = config.RunTarget{Name: t.Name, Type: t.Type, Command: t.Command, Source: source}
+		}
+		detectedAgents := detectedAgentsFromRunTargets(cfg.GetDetectedRunTargets())
+		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedAgents)
+	}
+
+	if req.QuickLaunch != nil {
+		cfg.QuickLaunch = make([]config.QuickLaunch, len(req.QuickLaunch))
+		for i, q := range req.QuickLaunch {
+			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Target: q.Target, Prompt: q.Prompt}
+		}
+	}
+
+	if req.Variants != nil {
+		cfg.Variants = make([]config.VariantConfig, len(req.Variants))
+		for i, v := range req.Variants {
+			cfg.Variants[i] = config.VariantConfig{Name: v.Name, Enabled: v.Enabled, Env: v.Env}
+		}
+	}
+
+	if req.Nudgenik != nil {
+		target := ""
+		if req.Nudgenik.Target != nil {
+			target = strings.TrimSpace(*req.Nudgenik.Target)
+		}
+		if target == "" {
+			cfg.Nudgenik = nil
+		} else {
+			cfg.Nudgenik = &config.NudgenikConfig{Target: target}
 		}
 	}
 
@@ -771,8 +825,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := cfg.Validate(); err != nil {
+		log.Printf("[config] validation error: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
+		return
+	}
+
 	// Save config
 	if err := cfg.Save(); err != nil {
+		log.Printf("[config] failed to save config: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -801,6 +862,170 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		"status":  "ok",
 		"message": "Config saved and reloaded. Changes are now in effect.",
 	})
+}
+
+// handleVariants lists available variants.
+func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type VariantResponse struct {
+		Name            string   `json:"name"`
+		DisplayName     string   `json:"display_name"`
+		BaseTool        string   `json:"base_tool"`
+		RequiredSecrets []string `json:"required_secrets"`
+		UsageURL        string   `json:"usage_url"`
+		Configured      bool     `json:"configured"`
+	}
+
+	available := s.config.GetAvailableVariants(detectedAgentsFromConfig(s.config))
+	resp := make([]VariantResponse, 0, len(available))
+	for _, variant := range available {
+		configured, err := variantConfigured(variant)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		resp = append(resp, VariantResponse{
+			Name:            variant.Name,
+			DisplayName:     variant.DisplayName,
+			BaseTool:        variant.BaseTool,
+			RequiredSecrets: variant.RequiredSecrets,
+			UsageURL:        variant.UsageURL,
+			Configured:      configured,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"variants": resp})
+}
+
+func detectedAgentsFromConfig(cfg *config.Config) []detect.Agent {
+	return detectedAgentsFromRunTargets(cfg.GetDetectedRunTargets())
+}
+
+func detectedAgentsFromRunTargets(targets []config.RunTarget) []detect.Agent {
+	agents := make([]detect.Agent, 0, len(targets))
+	for _, target := range targets {
+		agents = append(agents, detect.Agent{
+			Name:    target.Name,
+			Command: target.Command,
+			Source:  "config",
+			Agentic: true,
+		})
+	}
+	return agents
+}
+
+// handleVariant handles variant secret/configured requests.
+func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/variants/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		http.Error(w, "variant name and action required", http.StatusBadRequest)
+		return
+	}
+	name := parts[0]
+	action := parts[1]
+
+	variant, ok := detect.FindVariant(name)
+	if !ok {
+		http.Error(w, "variant not found", http.StatusNotFound)
+		return
+	}
+
+	switch action {
+	case "configured":
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		configured, err := variantConfigured(variant)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"configured": configured})
+	case "secrets":
+		switch r.Method {
+		case http.MethodPost:
+			type SecretsRequest struct {
+				Secrets map[string]string `json:"secrets"`
+			}
+			var req SecretsRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+				return
+			}
+			if err := validateVariantSecrets(variant, req.Secrets); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := config.SaveVariantSecrets(variant.Name, req.Secrets); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		case http.MethodDelete:
+			if targetInUseByNudgenikOrQuickLaunch(s.config, variant.Name) {
+				http.Error(w, "variant is in use by nudgenik or quick launch", http.StatusBadRequest)
+				return
+			}
+			if err := config.DeleteVariantSecrets(variant.Name); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	default:
+		http.Error(w, "unknown variant action", http.StatusNotFound)
+	}
+}
+
+func targetInUseByNudgenikOrQuickLaunch(cfg *config.Config, targetName string) bool {
+	if cfg == nil || targetName == "" {
+		return false
+	}
+	if cfg.GetNudgenikTarget() == targetName {
+		return true
+	}
+	for _, preset := range cfg.GetQuickLaunch() {
+		if preset.Target == targetName {
+			return true
+		}
+	}
+	return false
+}
+
+func variantConfigured(variant detect.Variant) (bool, error) {
+	secrets, err := config.GetVariantSecrets(variant.Name)
+	if err != nil {
+		return false, err
+	}
+	for _, key := range variant.RequiredSecrets {
+		if strings.TrimSpace(secrets[key]) == "" {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func validateVariantSecrets(variant detect.Variant, secrets map[string]string) error {
+	for _, key := range variant.RequiredSecrets {
+		val := strings.TrimSpace(secrets[key])
+		if val == "" {
+			return fmt.Errorf("missing required secret %s", key)
+		}
+	}
+	return nil
 }
 
 // handleDiff returns git diff for a workspace.
@@ -933,6 +1158,32 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func getTargetPromptable(cfg *config.Config, detected []config.RunTarget, name string) (bool, bool) {
+	if detect.IsVariantName(name) {
+		for _, v := range cfg.GetVariantConfigs() {
+			if v.Name == name {
+				if v.Enabled != nil && !*v.Enabled {
+					return false, false
+				}
+				break
+			}
+		}
+		return true, true
+	}
+	if detect.IsBuiltinToolName(name) {
+		for _, target := range detected {
+			if target.Name == name {
+				return true, true
+			}
+		}
+		return true, false
+	}
+	if target, found := cfg.GetRunTarget(name); found {
+		return target.Type == config.RunTargetTypePromptable, true
+	}
+	return false, false
 }
 
 // getFileContent gets file content from a specific git tree-ish.
@@ -1071,8 +1322,10 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
 			http.Error(w, "No response found in session output", http.StatusBadRequest)
-		case errors.Is(err, nudgenik.ErrAgentNotFound):
-			log.Printf("[ask-nudgenik] claude agent not found in config")
+		case errors.Is(err, nudgenik.ErrTargetNotFound):
+			log.Printf("[ask-nudgenik] target not found in config")
+		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
+			log.Printf("[ask-nudgenik] target missing required secrets")
 			http.Error(w, "Claude agent not found. Please run agent detection first.", http.StatusServiceUnavailable)
 		default:
 			log.Printf("[ask-nudgenik] failed to ask for session %s: %v", sessionID, err)

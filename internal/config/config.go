@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/sergek/schmux/internal/detect"
 )
 
 var (
@@ -36,8 +34,10 @@ const (
 type Config struct {
 	WorkspacePath string             `json:"workspace_path"`
 	Repos         []Repo             `json:"repos"`
-	Agents        []Agent            `json:"agents"`
-	Tools         []Tool             `json:"tools"` // detected CLI tools (populated by auto-detection)
+	RunTargets    []RunTarget        `json:"run_targets"`
+	QuickLaunch   []QuickLaunch      `json:"quick_launch"`
+	Variants      []VariantConfig    `json:"variants,omitempty"`
+	Nudgenik      *NudgenikConfig    `json:"nudgenik,omitempty"`
 	Terminal      *TerminalSize      `json:"terminal,omitempty"`
 	Internal      *InternalIntervals `json:"internal,omitempty"`
 	NetworkAccess bool               `json:"network_access,omitempty"` // true = bind to 0.0.0.0 (LAN), false = 127.0.0.1 (localhost only)
@@ -75,21 +75,40 @@ type Repo struct {
 	URL  string `json:"url"`
 }
 
-// Agent represents an AI agent configuration.
-type Agent struct {
+// RunTarget represents a user-supplied run target.
+type RunTarget struct {
 	Name    string `json:"name"`
-	Command string `json:"command"`
-	Agentic *bool  `json:"agentic"` // true = takes prompt (agent), false = command only, nil = defaults to true
+	Type    string `json:"type"`    // "promptable" or "command"
+	Command string `json:"command"` // shell command to run
+	Source  string `json:"source,omitempty"`
 }
 
-// Tool represents a detected CLI tool (AI coding agents, etc.)
-// This is populated by auto-detection and tracks what's actually installed.
-type Tool struct {
-	Name    string `json:"name"`    // e.g., "claude", "codex", "gemini", "cursor"
-	Command string `json:"command"` // e.g., "claude", "npx @google/gemini-cli"
-	Source  string `json:"source"`  // detection source, e.g., "npm global package @anthropic-ai/claude-code"
-	Agentic bool   `json:"agentic"` // true = this is an agentic tool (takes prompts)
+// QuickLaunch represents a saved run preset.
+type QuickLaunch struct {
+	Name   string  `json:"name"`
+	Target string  `json:"target"`
+	Prompt *string `json:"prompt"`
 }
+
+// VariantConfig represents a variant in config.json.
+// Used when users customize or disable variants.
+type VariantConfig struct {
+	Name    string            `json:"name"`
+	Enabled *bool             `json:"enabled,omitempty"` // nil = enabled by default
+	Env     map[string]string `json:"env,omitempty"`     // overrides
+}
+
+// NudgenikConfig represents configuration for the NudgeNik assistant.
+type NudgenikConfig struct {
+	Target string `json:"target,omitempty"`
+}
+
+const (
+	RunTargetTypePromptable = "promptable"
+	RunTargetTypeCommand    = "command"
+	RunTargetSourceUser     = "user"
+	RunTargetSourceDetected = "detected"
+)
 
 // Load loads the configuration from ~/.schmux/config.json.
 func Load() (*Config, error) {
@@ -106,7 +125,7 @@ func Load() (*Config, error) {
 			exampleConfig := fmt.Sprintf(`{
   "workspace_path": "~/schmux-workspaces",
   "repos": [{"name": "myproject", "url": "git@github.com:user/myproject.git"}],
-  "agents": [{"name": "claude", "command": "claude"}],
+  "run_targets": [{"name": "glm-4.7", "type": "promptable", "command": "~/bin/glm-4.7"}],
   "terminal": {"width": %d, "height": %d, "seed_lines": %d}
 }`, DefaultTerminalWidth, DefaultTerminalHeight, DefaultTerminalSeedLines)
 			return nil, fmt.Errorf("%w: %s\n\nNo config file found. Please create it manually:\n\n  %s\n\nExample config:\n%s\n",
@@ -120,6 +139,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	normalizeRunTargets(cfg.RunTargets)
+
 	// Validate config (workspace_path can be empty during wizard setup)
 	// Validate repos
 	for _, repo := range cfg.Repos {
@@ -130,19 +151,19 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("%w: repo URL is required for %s", ErrInvalidConfig, repo.Name)
 		}
 	}
-	// Validate agents and set default for agentic
-	for i := range cfg.Agents {
-		if cfg.Agents[i].Name == "" {
-			return nil, fmt.Errorf("%w: agent name is required", ErrInvalidConfig)
-		}
-		if cfg.Agents[i].Command == "" {
-			return nil, fmt.Errorf("%w: agent command is required for %s", ErrInvalidConfig, cfg.Agents[i].Name)
-		}
-		// Default agentic to true for backward compatibility
-		if cfg.Agents[i].Agentic == nil {
-			trueVal := true
-			cfg.Agents[i].Agentic = &trueVal
-		}
+	if err := validateRunTargets(cfg.RunTargets); err != nil {
+		return nil, err
+	}
+
+	if err := validateVariantConfigs(cfg.Variants); err != nil {
+		return nil, err
+	}
+
+	if err := validateQuickLaunch(cfg.QuickLaunch, cfg.RunTargets, cfg.Variants); err != nil {
+		return nil, err
+	}
+	if err := validateRunTargetDependencies(cfg.RunTargets, cfg.Variants, cfg.QuickLaunch, cfg.Nudgenik); err != nil {
+		return nil, err
 	}
 
 	// Expand workspace path (handle ~) - allow empty during wizard setup
@@ -167,6 +188,23 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
+// Validate validates run targets, variants, and quick launch presets.
+func (c *Config) Validate() error {
+	if err := validateRunTargets(c.RunTargets); err != nil {
+		return err
+	}
+	if err := validateVariantConfigs(c.Variants); err != nil {
+		return err
+	}
+	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets, c.Variants); err != nil {
+		return err
+	}
+	if err := validateRunTargetDependencies(c.RunTargets, c.Variants, c.QuickLaunch, c.Nudgenik); err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetWorkspacePath returns the workspace directory path.
 func (c *Config) GetWorkspacePath() string {
 	return c.WorkspacePath
@@ -177,19 +215,43 @@ func (c *Config) GetRepos() []Repo {
 	return c.Repos
 }
 
-// GetAgents returns the list of agents.
-func (c *Config) GetAgents() []Agent {
-	return c.Agents
+// GetRunTargets returns the list of run targets.
+func (c *Config) GetRunTargets() []RunTarget {
+	return c.RunTargets
 }
 
-// GetTools returns the list of detected tools.
-func (c *Config) GetTools() []Tool {
-	return c.Tools
+// GetQuickLaunch returns the list of quick launch presets.
+func (c *Config) GetQuickLaunch() []QuickLaunch {
+	return c.QuickLaunch
 }
 
-// SetTools sets the list of detected tools.
-func (c *Config) SetTools(tools []Tool) {
-	c.Tools = tools
+// GetNudgenikTarget returns the configured nudgenik target name, if any.
+func (c *Config) GetNudgenikTarget() string {
+	if c == nil || c.Nudgenik == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Nudgenik.Target)
+}
+
+// GetDetectedRunTarget finds a detected run target by name.
+func (c *Config) GetDetectedRunTarget(name string) (RunTarget, bool) {
+	for _, target := range c.RunTargets {
+		if target.Name == name && target.Source == RunTargetSourceDetected {
+			return target, true
+		}
+	}
+	return RunTarget{}, false
+}
+
+// GetDetectedRunTargets returns detected run targets.
+func (c *Config) GetDetectedRunTargets() []RunTarget {
+	var out []RunTarget
+	for _, target := range c.RunTargets {
+		if target.Source == RunTargetSourceDetected {
+			out = append(out, target)
+		}
+	}
+	return out
 }
 
 // FindRepo finds a repository by name.
@@ -202,35 +264,14 @@ func (c *Config) FindRepo(name string) (Repo, bool) {
 	return Repo{}, false
 }
 
-// GetAgentConfig finds an agent by name and returns it as a config.Agent.
-func (c *Config) GetAgentConfig(name string) (Agent, bool) {
-	for _, agent := range c.Agents {
-		if agent.Name == name {
-			return agent, true
+// GetRunTarget finds a run target by name.
+func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
+	for _, target := range c.RunTargets {
+		if target.Name == name {
+			return target, true
 		}
 	}
-	return Agent{}, false
-}
-
-// GetAgentDetect finds an agent by name and returns it as a detect.Agent for execution.
-// Returns detect.Agent with the agent's command and agentic flag.
-func (c *Config) GetAgentDetect(name string) (detect.Agent, bool) {
-	agent, found := c.GetAgentConfig(name)
-	if !found {
-		return detect.Agent{}, false
-	}
-
-	agentic := true
-	if agent.Agentic != nil {
-		agentic = *agent.Agentic
-	}
-
-	return detect.Agent{
-		Name:    agent.Name,
-		Command: agent.Command,
-		Source:  "config", // from user config
-		Agentic: agentic,
-	}, true
+	return RunTarget{}, false
 }
 
 // GetTerminalSize returns the terminal size. Returns 0,0 if not configured.
@@ -293,7 +334,8 @@ func CreateDefault(workspacePath string) *Config {
 	return &Config{
 		WorkspacePath: workspacePath,
 		Repos:         []Repo{},
-		Agents:        []Agent{},
+		RunTargets:    []RunTarget{},
+		QuickLaunch:   []QuickLaunch{},
 		Terminal: &TerminalSize{
 			Width:     DefaultTerminalWidth,
 			Height:    DefaultTerminalHeight,
@@ -378,35 +420,8 @@ func EnsureExists() (bool, error) {
 	}
 
 	// Detect available AI agent tools
-	fmt.Println("Detecting available AI agent tools...")
-	detectedAgents := detect.DetectAndPrint()
-
-	// Convert detect.Agent to config.Agent
-	var agents []Agent
-	for _, da := range detectedAgents {
-		agentic := da.Agentic
-		agents = append(agents, Agent{
-			Name:    da.Name,
-			Command: da.Command,
-			Agentic: &agentic,
-		})
-	}
-
-	// Convert detect.Agent to config.Tool (same data, different purpose)
-	var tools []Tool
-	for _, da := range detectedAgents {
-		tools = append(tools, Tool{
-			Name:    da.Name,
-			Command: da.Command,
-			Source:  da.Source,
-			Agentic: da.Agentic,
-		})
-	}
-
 	// Create default config with empty workspace path (user will set in wizard)
 	cfg := CreateDefault("")
-	cfg.Agents = agents
-	cfg.Tools = tools
 
 	// Save config
 	if err := cfg.Save(); err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sergek/schmux/internal/config"
+	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/state"
 	"github.com/sergek/schmux/internal/tmux"
 	"github.com/sergek/schmux/internal/workspace"
@@ -34,6 +36,21 @@ type Manager struct {
 	workspace workspace.WorkspaceManager
 }
 
+// ResolvedTarget is a resolved run target with command and env info.
+type ResolvedTarget struct {
+	Name       string
+	Kind       string
+	Command    string
+	Promptable bool
+	Env        map[string]string
+}
+
+const (
+	TargetKindDetected = "detected"
+	TargetKindVariant  = "variant"
+	TargetKindUser     = "user"
+)
+
 // New creates a new session manager.
 func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager) *Manager {
 	return &Manager{
@@ -47,16 +64,14 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // If workspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
 // Otherwise, find or create a workspace by repoURL/branch.
 // nickname is an optional human-friendly name for the session.
-// prompt is only used if the agent is agentic (takes prompts).
-func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt, nickname string, workspaceID string) (*state.Session, error) {
-	// Find agent config
-	agent, found := m.config.GetAgentConfig(agentName)
-	if !found {
-		return nil, fmt.Errorf("agent not found: %s", agentName)
+// prompt is only used if the target is promptable.
+func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string) (*state.Session, error) {
+	resolved, err := m.ResolveTarget(ctx, targetName)
+	if err != nil {
+		return nil, err
 	}
 
 	var w *state.Workspace
-	var err error
 
 	if workspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
@@ -73,15 +88,9 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 		}
 	}
 
-	// Build command based on whether agent is agentic
-	var command string
-	isAgentic := agent.Agentic != nil && *agent.Agentic
-	if isAgentic {
-		// Agentic: append prompt to command, properly quote the prompt to prevent command injection
-		command = fmt.Sprintf("%s %s", agent.Command, strconv.Quote(prompt))
-	} else {
-		// Non-agentic: run command as-is without prompt
-		command = agent.Command
+	command, err := buildCommand(resolved, prompt)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create session ID
@@ -133,7 +142,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 	sess := state.Session{
 		ID:          sessionID,
 		WorkspaceID: w.ID,
-		Agent:       agentName,
+		Agent:       targetName,
 		Nickname:    uniqueNickname,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),
@@ -148,6 +157,108 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, agentName, prompt,
 	}
 
 	return &sess, nil
+}
+
+// ResolveTarget resolves a target name to a command and env.
+func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedTarget, error) {
+	for _, variant := range m.config.GetMergedVariants() {
+		if variant.Name == targetName {
+			baseTarget, found := m.config.GetDetectedRunTarget(variant.BaseTool)
+			if !found {
+				return ResolvedTarget{}, fmt.Errorf("variant %s requires base tool %s which is not available", variant.Name, variant.BaseTool)
+			}
+			secrets, err := config.GetVariantSecrets(variant.Name)
+			if err != nil {
+				return ResolvedTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
+			}
+			if err := ensureVariantSecrets(variant, secrets); err != nil {
+				return ResolvedTarget{}, err
+			}
+			env := mergeEnvMaps(variant.Env, secrets)
+			return ResolvedTarget{
+				Name:       variant.Name,
+				Kind:       TargetKindVariant,
+				Command:    baseTarget.Command,
+				Promptable: true,
+				Env:        env,
+			}, nil
+		}
+	}
+
+	if target, found := m.config.GetRunTarget(targetName); found {
+		kind := TargetKindUser
+		if target.Source == config.RunTargetSourceDetected {
+			kind = TargetKindDetected
+		}
+		return ResolvedTarget{
+			Name:       target.Name,
+			Kind:       kind,
+			Command:    target.Command,
+			Promptable: target.Type == config.RunTargetTypePromptable,
+		}, nil
+	}
+
+	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
+}
+
+func buildCommand(target ResolvedTarget, prompt string) (string, error) {
+	trimmedPrompt := strings.TrimSpace(prompt)
+	if target.Promptable {
+		if trimmedPrompt == "" {
+			return "", fmt.Errorf("prompt is required for target %s", target.Name)
+		}
+		command := fmt.Sprintf("%s %s", target.Command, strconv.Quote(prompt))
+		if len(target.Env) > 0 {
+			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil
+		}
+		return command, nil
+	}
+
+	if trimmedPrompt != "" {
+		return "", fmt.Errorf("prompt is not allowed for command target %s", target.Name)
+	}
+	if len(target.Env) > 0 {
+		return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), target.Command), nil
+	}
+	return target.Command, nil
+}
+
+func buildEnvPrefix(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, strconv.Quote(env[k])))
+	}
+	return strings.Join(parts, " ")
+}
+
+func mergeEnvMaps(base, overrides map[string]string) map[string]string {
+	if base == nil && overrides == nil {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overrides))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overrides {
+		out[k] = v
+	}
+	return out
+}
+
+func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
+	for _, key := range variant.RequiredSecrets {
+		val := strings.TrimSpace(secrets[key])
+		if val == "" {
+			return fmt.Errorf("variant %s missing required secret %s", variant.Name, key)
+		}
+	}
+	return nil
 }
 
 // IsRunning checks if the agent process is still running.

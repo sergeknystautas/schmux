@@ -4,9 +4,9 @@
 
 **Smart Cognitive Hub on tmux**
 
-Orchestrate multiple AI coding agents across tmux sessions with a web dashboard for monitoring and management.
+Orchestrate multiple run targets across tmux sessions with a web dashboard for monitoring and management.
 
-schmux lets you spin up multiple AI coding agents (Claude, Codex, and others) working on the same task in parallel. Each agent runs in its own tmux session on a managed clone of your git repository. A web dashboard lets you spawn sessions, monitor terminal output, and manage workspaces.
+schmux lets you spin up multiple run targets (detected tools like Claude, Codex, Gemini, plus user-defined commands) working on the same task in parallel. Each target runs in its own tmux session on a managed clone of your git repository. A web dashboard lets you spawn sessions, monitor terminal output, and manage workspaces.
 
 ## Who is this for?
 
@@ -31,10 +31,11 @@ You'll need:
 3. **tmux** - [Homepage](https://github.com/tmux/tmux) or `brew install tmux`
 4. **git** - Usually pre-installed, or `brew install git`
    - Note: schmux runs git commands locally in your workspaces, so it will work with whatever authentication you have configured (SSH keys, HTTPS tokens, credential helpers, etc.)
-5. **AI agent CLIs** - At least one of:
-   - [Claude Code](https://claude.ai/code) (Anthropic's official CLI)
-   - [Codex](https://github.com/xyz) (or your preferred agent)
-   - Any CLI that takes a prompt as an argument
+5. **Detected tool CLIs** - At least one of:
+   - [Claude Code](https://claude.ai/code)
+   - Codex
+   - Gemini
+   - Or any CLI you want to add as a run target
 
 ### Installation
 
@@ -61,7 +62,7 @@ mv schmux /usr/local/bin/
 2. **Follow the prompts** to configure:
    - Where to store workspace directories (default: `~/schmux-workspaces`)
    - Git repositories you want to work with
-   - AI agents you want to use
+   - Run targets and quick launch presets
 
 3. **Open the dashboard** at `http://localhost:7337`
 
@@ -80,22 +81,36 @@ If you prefer to configure manually, create `~/.schmux/config.json`:
       "url": "git@github.com:user/myproject.git"
     }
   ],
-  "agents": [
+  "run_targets": [
     {
-      "name": "claude",
-      "command": "claude"
+      "name": "glm-4.7-cli",
+      "type": "promptable",
+      "command": "~/bin/glm-4.7"
     },
     {
-      "name": "codex",
-      "command": "codex"
+      "name": "zsh",
+      "type": "command",
+      "command": "zsh"
     }
   ],
+  "quick_launch": [
+    {
+      "name": "Review: Kimi",
+      "target": "kimi-thinking",
+      "prompt": "Please review these changes."
+    }
+  ],
+  "nudgenik": {
+    "target": "kimi-thinking"
+  },
   "terminal": {
     "width": 120,
     "height": 40,
     "seed_lines": 100
   }
 }
+
+NudgeNik uses `nudgenik.target` to select a promptable target (detected tool, variant, or user promptable). If omitted, it defaults to the detected `claude` tool.
 ```
 
 Then start the daemon:
@@ -112,20 +127,20 @@ Then start the daemon:
 **Problem**: `config file not found: ~/.schmux/config.json`
 - **Solution**: Run `./schmux start` - it will offer to create a config for you
 
-**Problem**: `agent command is required for X`
-- **Solution**: Make sure each agent in your config has both `name` and `command` fields
+**Problem**: `run target command is required for X`
+- **Solution**: Make sure each run target has `name`, `type`, and `command`
 
 **Problem**: Dashboard shows "Disconnected"
 - **Solution**: Check if daemon is running with `./schmux status`
 
 ## Features
 
-- **Multi-agent orchestration** - Run Claude, Codex, and friends simultaneously
-- **Multi-agent per directory** - Spawn reviewers or subagents on existing workspaces
+- **Multi-target orchestration** - Run Claude, Codex, and friends simultaneously
+- **Multi-target per directory** - Spawn reviewers or subtargets on existing workspaces
 - **Workspace management** - Auto git clone/checkout/pull for clean working directories
-- **tmux integration** - Each agent in its own session, attach anytime
-- **Web dashboard** - Watch your agents work (or panic) in real-time
-- **Session persistence** - Survives agent completion for review and resume
+- **tmux integration** - Each target in its own session, attach anytime
+- **Web dashboard** - Watch your targets work (or panic) in real-time
+- **Session persistence** - Survives target completion for review and resume
 
 ## Status
 
