@@ -42,10 +42,9 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   const [vsCodeResult, setVSCodeResult] = useState(null);
   const [vsCodeLoading, setVSCodeLoading] = useState(null); // Track which workspace is loading
 
-  // Extract commands (non-agentic agents) from config for quick spawn
-  const commands = React.useMemo(() => {
-    return (config?.agents || []).filter(a => a.agentic === false);
-  }, [config?.agents]);
+  const quickLaunch = React.useMemo(() => {
+    return config?.quick_launch || [];
+  }, [config?.quick_launch]);
 
   const toggleExpanded = (workspaceId) => {
     setExpanded((curr) => ({ ...curr, [workspaceId]: !curr[workspaceId] }));
@@ -175,7 +174,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
           Diff
         </button>
       </Tooltip>
-      <SpawnDropdown workspace={workspace} commands={commands} />
+      <SpawnDropdown workspace={workspace} quickLaunch={quickLaunch} />
       <Tooltip content="Dispose workspace and all sessions" variant="warning">
         <button
           className="btn btn--sm btn--ghost btn--danger btn--bordered"

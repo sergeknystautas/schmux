@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
+	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/state"
 )
 
@@ -41,6 +42,10 @@ func TestAskForSessionNoResponse(t *testing.T) {
 func TestAskForSessionAgentMissing(t *testing.T) {
 	setupFakeTmux(t)
 	t.Setenv("TMUX_FAKE_OUTPUT", "hello\n❯\n")
+
+	if _, found, err := detect.FindDetectedAgent(context.Background(), "claude"); err == nil && found {
+		t.Skip("claude detected; skipping missing agent test")
+	}
 
 	cfg := &config.Config{}
 	sess := state.Session{ID: "sess-2", TmuxSession: "sess-2"}

@@ -334,9 +334,10 @@ func TestTryCommandArgs(t *testing.T) {
 
 // TestNpmGlobalInstalled verifies npmGlobalInstalled works correctly.
 func TestNpmGlobalInstalled(t *testing.T) {
+	ctx := context.Background()
 	// Test with a package that should never exist
 	pkg := "@nonexistent/testing-package-xyz123"
-	if npmGlobalInstalled(pkg) {
+	if npmGlobalInstalled(ctx, pkg) {
 		t.Errorf("npmGlobalInstalled(%q) = true, want false (package should not exist)", pkg)
 	}
 
@@ -344,7 +345,7 @@ func TestNpmGlobalInstalled(t *testing.T) {
 	if commandExists("npm") {
 		// Test that the function doesn't crash and returns false for non-existent package
 		pkg := "@schmux/nonexistent-test-package-xyz"
-		if npmGlobalInstalled(pkg) {
+		if npmGlobalInstalled(ctx, pkg) {
 			t.Errorf("npmGlobalInstalled(%q) = true, want false", pkg)
 		}
 	}
@@ -358,18 +359,20 @@ func TestHomebrewInstalled(t *testing.T) {
 
 // TestHomebrewCaskInstalled verifies cask detection works correctly.
 func TestHomebrewCaskInstalled(t *testing.T) {
+	ctx := context.Background()
 	// Test with a cask that should never exist
 	cask := "nonexistent-cask-xyz123"
-	if homebrewCaskInstalled(cask) {
+	if homebrewCaskInstalled(ctx, cask) {
 		t.Errorf("homebrewCaskInstalled(%q) = true, want false (cask should not exist)", cask)
 	}
 }
 
 // TestHomebrewFormulaInstalled verifies formula detection works correctly.
 func TestHomebrewFormulaInstalled(t *testing.T) {
+	ctx := context.Background()
 	// Test with a formula that should never exist
 	formula := "nonexistent-formula-xyz123"
-	if homebrewFormulaInstalled(formula) {
+	if homebrewFormulaInstalled(ctx, formula) {
 		t.Errorf("homebrewFormulaInstalled(%q) = true, want false (formula should not exist)", formula)
 	}
 }
@@ -420,7 +423,7 @@ func TestNpmGlobalInstalledJSONParsing(t *testing.T) {
 	// If npm is not available, function should return false
 	if !commandExists("npm") {
 		pkg := "@anthropic-ai/claude-code"
-		if npmGlobalInstalled(pkg) {
+		if npmGlobalInstalled(context.Background(), pkg) {
 			t.Errorf("npmGlobalInstalled(%q) = true when npm is not available, want false", pkg)
 		}
 	}

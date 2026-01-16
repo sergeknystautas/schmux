@@ -11,11 +11,11 @@ import (
 
 // State represents the application state.
 type State struct {
-	Workspaces  []Workspace `json:"workspaces"`
-	Sessions    []Session   `json:"sessions"`
-	NeedsRestart bool       `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	path        string      // path to the state file
-	mu          sync.RWMutex
+	Workspaces   []Workspace `json:"workspaces"`
+	Sessions     []Session   `json:"sessions"`
+	NeedsRestart bool        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	path         string      // path to the state file
+	mu           sync.RWMutex
 }
 
 // Workspace represents a workspace directory state.

@@ -168,6 +168,26 @@ func DetectAvailableAgentsContext(ctx context.Context, printProgress bool) ([]Ag
 	return agents, nil
 }
 
+// FindDetectedAgent finds a detected agent by name.
+func FindDetectedAgent(ctx context.Context, name string) (Agent, bool, error) {
+	agents, err := DetectAvailableAgentsContext(ctx, false)
+	if err != nil {
+		return Agent{}, false, err
+	}
+	agent, found := FindAgentInList(agents, name)
+	return agent, found, nil
+}
+
+// FindAgentInList finds a detected agent by name in a list.
+func FindAgentInList(agents []Agent, name string) (Agent, bool) {
+	for _, agent := range agents {
+		if agent.Name == name {
+			return agent, true
+		}
+	}
+	return Agent{}, false
+}
+
 var detectTimeout = 3 * time.Second // 3 seconds (increased for multiple detection methods)
 
 // ===== Shared Detection Utilities =====
@@ -253,11 +273,11 @@ func homebrewInstalled() bool {
 }
 
 // homebrewCaskInstalled checks if a Homebrew cask is installed.
-func homebrewCaskInstalled(cask string) bool {
+func homebrewCaskInstalled(ctx context.Context, cask string) bool {
 	if !homebrewInstalled() {
 		return false
 	}
-	cmd := exec.Command("brew", "list", "--cask")
+	cmd := exec.CommandContext(ctx, "brew", "list", "--cask")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -271,11 +291,11 @@ func homebrewCaskInstalled(cask string) bool {
 }
 
 // homebrewFormulaInstalled checks if a Homebrew formula is installed.
-func homebrewFormulaInstalled(formula string) bool {
+func homebrewFormulaInstalled(ctx context.Context, formula string) bool {
 	if !homebrewInstalled() {
 		return false
 	}
-	cmd := exec.Command("brew", "list", "--formula")
+	cmd := exec.CommandContext(ctx, "brew", "list", "--formula")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -294,11 +314,11 @@ func npmInstalled() bool {
 }
 
 // npmGlobalInstalled checks if an npm package is installed globally.
-func npmGlobalInstalled(pkg string) bool {
+func npmGlobalInstalled(ctx context.Context, pkg string) bool {
 	if !npmInstalled() {
 		return false
 	}
-	cmd := exec.Command("npm", "list", "-g", "--depth=0", "--json")
+	cmd := exec.CommandContext(ctx, "npm", "list", "-g", "--depth=0", "--json")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -351,13 +371,13 @@ func (d *claudeDetector) Detect(ctx context.Context) (Agent, bool) {
 	}
 
 	// Method 4: Check Homebrew cask
-	if homebrewCaskInstalled("claude-code") {
+	if homebrewCaskInstalled(ctx, "claude-code") {
 		log.Printf("[detect] claude: found via Homebrew cask (command: claude)")
 		return Agent{Name: "claude", Command: "claude", Source: "Homebrew cask claude-code", Agentic: true}, true
 	}
 
 	// Method 5: Check npm global
-	if npmGlobalInstalled("@anthropic-ai/claude-code") {
+	if npmGlobalInstalled(ctx, "@anthropic-ai/claude-code") {
 		log.Printf("[detect] claude: found via npm global package @anthropic-ai/claude-code (command: claude)")
 		return Agent{Name: "claude", Command: "claude", Source: "npm global package @anthropic-ai/claude-code", Agentic: true}, true
 	}
@@ -381,13 +401,13 @@ func (d *codexDetector) Detect(ctx context.Context) (Agent, bool) {
 	}
 
 	// Method 2: Check npm global (primary installation method)
-	if npmGlobalInstalled("@openai/codex") {
+	if npmGlobalInstalled(ctx, "@openai/codex") {
 		log.Printf("[detect] codex: found via npm global package @openai/codex (command: codex)")
 		return Agent{Name: "codex", Command: "codex", Source: "npm global package @openai/codex", Agentic: true}, true
 	}
 
 	// Method 3: Check Homebrew formula (if available)
-	if homebrewFormulaInstalled("codex") {
+	if homebrewFormulaInstalled(ctx, "codex") {
 		log.Printf("[detect] codex: found via Homebrew formula (command: codex)")
 		return Agent{Name: "codex", Command: "codex", Source: "Homebrew formula codex", Agentic: true}, true
 	}
@@ -411,13 +431,13 @@ func (d *geminiDetector) Detect(ctx context.Context) (Agent, bool) {
 	}
 
 	// Method 2: Check Homebrew formula (common installation method)
-	if homebrewFormulaInstalled("gemini-cli") {
+	if homebrewFormulaInstalled(ctx, "gemini-cli") {
 		log.Printf("[detect] gemini: found via Homebrew formula gemini-cli (command: gemini)")
 		return Agent{Name: "gemini", Command: "gemini -i", Source: "Homebrew formula gemini-cli", Agentic: true}, true
 	}
 
 	// Method 3: Check npm global
-	if npmGlobalInstalled("@google/gemini-cli") {
+	if npmGlobalInstalled(ctx, "@google/gemini-cli") {
 		log.Printf("[detect] gemini: found via npm global package @google/gemini-cli (command: gemini)")
 		return Agent{Name: "gemini", Command: "gemini -i", Source: "npm global package @google/gemini-cli", Agentic: true}, true
 	}

@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/sergek/schmux/internal/detect"
 )
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
 // Returns the parsed response string from the agent.
-func Execute(ctx context.Context, agentName, agentCommand, prompt string) (string, error) {
+func Execute(ctx context.Context, agentName, agentCommand, prompt string, env map[string]string) (string, error) {
 	// Validate inputs
 	if agentName == "" {
 		return "", fmt.Errorf("agent name cannot be empty")
@@ -24,13 +27,16 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string) (strin
 	}
 
 	// Build command parts safely
-	cmdParts, err := buildOneShotCommand(agentName, agentCommand)
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot)
 	if err != nil {
 		return "", err
 	}
 
 	// Build exec command with prompt as final argument (safe from shell injection)
 	execCmd := exec.CommandContext(ctx, cmdParts[0], append(cmdParts[1:], prompt)...)
+	if len(env) > 0 {
+		execCmd.Env = mergeEnv(env)
+	}
 
 	// Capture stdout and stderr
 	rawOutput, err := execCmd.CombinedOutput()
@@ -43,43 +49,22 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string) (strin
 	return parseResponse(agentName, string(rawOutput)), nil
 }
 
-// buildOneShotCommand builds the one-shot command parts for the given agent name and detected binary.
-// Returns command parts where the first element is the binary and the rest are arguments.
-func buildOneShotCommand(agentName, agentCommand string) ([]string, error) {
-	// Split the agent command into base binary and existing arguments
-	// This handles cases like "claude" or "/home/user/.local/bin/claude"
-	parts := strings.Fields(agentCommand)
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("agent %s: empty command", agentName)
-	}
-
-	baseCmd := parts[0]
-	existingArgs := parts[1:]
-
-	var newArgs []string
-	switch agentName {
-	case "claude":
-		// claude -p --model haiku, preserving any existing args from detection
-		newArgs = append(existingArgs, "-p", "--model", "haiku")
-	case "codex":
-		// codex exec --json, preserving any existing args
-		newArgs = append(existingArgs, "exec", "--json")
-	case "gemini":
-		// gemini interactive is "gemini -i", one-shot is just "gemini"
-		// Remove the -i flag if present
-		var filtered []string
-		for _, arg := range existingArgs {
-			if arg != "-i" {
-				filtered = append(filtered, arg)
-			}
+func mergeEnv(extra map[string]string) []string {
+	base := make(map[string]string)
+	for _, entry := range os.Environ() {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 {
+			base[parts[0]] = parts[1]
 		}
-		newArgs = filtered
-	default:
-		return nil, fmt.Errorf("unknown agent: %s (supported: claude, codex, gemini)", agentName)
 	}
-
-	result := append([]string{baseCmd}, newArgs...)
-	return result, nil
+	for k, v := range extra {
+		base[k] = v
+	}
+	result := make([]string, 0, len(base))
+	for k, v := range base {
+		result = append(result, fmt.Sprintf("%s=%s", k, v))
+	}
+	return result
 }
 
 // parseResponse parses the raw output from an agent into a clean response string.

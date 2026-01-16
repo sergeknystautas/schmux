@@ -15,8 +15,8 @@ import (
 func TestNew(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
-		Agents: []config.Agent{
-			{Name: "test", Command: "test"},
+		RunTargets: []config.RunTarget{
+			{Name: "test", Type: config.RunTargetTypePromptable, Command: "test"},
 		},
 	}
 	st := state.New("")

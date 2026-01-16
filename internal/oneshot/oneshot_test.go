@@ -3,6 +3,8 @@ package oneshot
 import (
 	"context"
 	"testing"
+
+	"github.com/sergek/schmux/internal/detect"
 )
 
 func TestBuildOneShotCommand(t *testing.T) {
@@ -18,14 +20,14 @@ func TestBuildOneShotCommand(t *testing.T) {
 			name:         "claude simple",
 			agentName:    "claude",
 			agentCommand: "claude",
-			want:         []string{"claude", "-p", "--model", "haiku"},
+			want:         []string{"claude", "-p"},
 			wantErr:      false,
 		},
 		{
 			name:         "claude with path",
 			agentName:    "claude",
 			agentCommand: "/home/user/.local/bin/claude",
-			want:         []string{"/home/user/.local/bin/claude", "-p", "--model", "haiku"},
+			want:         []string{"/home/user/.local/bin/claude", "-p"},
 			wantErr:      false,
 		},
 		{
@@ -55,7 +57,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentCommand: "unknown",
 			want:         nil,
 			wantErr:      true,
-			errContains:  "unknown agent",
+			errContains:  "unknown tool",
 		},
 		{
 			name:         "empty command",
@@ -76,7 +78,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildOneShotCommand(tt.agentName, tt.agentCommand)
+			got, err := detect.BuildCommandParts(tt.agentName, tt.agentCommand, detect.ToolModeOneshot)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildOneShotCommand() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -133,7 +135,7 @@ func TestExecuteInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt)
+			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Execute() error = %v, wantErr %v", err, tt.wantErr)
 				return

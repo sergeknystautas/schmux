@@ -4,6 +4,8 @@
 
 This spec describes the built-in commands feature, which provides a library of pre-defined command templates that users can quickly run without having to configure custom commands in their config file.
 
+Note: The config schema now uses `run_targets` and `quick_launch` instead of `agents`/`commands`. References below should be read with that mapping in mind.
+
 ## Problem Statement
 
 Users want to run common AI coding tasks (code review, git commit, etc.) quickly without having to:

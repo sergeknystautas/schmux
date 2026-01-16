@@ -14,6 +14,7 @@ import (
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/dashboard"
+	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/nudgenik"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
@@ -287,6 +288,21 @@ func Run(background bool) error {
 	// Create managers
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
+
+	// Detect run targets once on daemon start and persist to config
+	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	detectedTargets, err := detect.DetectAvailableAgentsContext(detectCtx, false)
+	cancel()
+	if err != nil {
+		fmt.Printf("warning: failed to detect run targets: %v\n", err)
+	} else {
+		cfg.RunTargets = config.MergeDetectedRunTargets(cfg.RunTargets, detectedTargets)
+		if err := cfg.Validate(); err != nil {
+			fmt.Printf("warning: failed to validate config after detection: %v\n", err)
+		} else if err := cfg.Save(); err != nil {
+			fmt.Printf("warning: failed to save config after detection: %v\n", err)
+		}
+	}
 
 	// Initialize LastOutputAt from log file mtimes for existing sessions
 	for _, sess := range st.GetSessions() {
