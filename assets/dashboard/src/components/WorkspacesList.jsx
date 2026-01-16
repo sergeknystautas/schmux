@@ -40,8 +40,9 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   const navigate = useNavigate();
   const [expanded, setExpanded] = useLocalStorage('workspace-expanded', {});
   const [vsCodeResult, setVSCodeResult] = useState(null);
-  const [vsCodeLoading, setVSCodeLoading] = useState(null); // Track which workspace is loading
-  const [refreshOverlayLoading, setRefreshOverlayLoading] = useState(null); // Track which workspace is refreshing overlay
+  const [openingVSCode, setOpeningVSCode] = useState(null); // Track which workspace is opening VS Code
+  const [refreshingOverlay, setRefreshingOverlay] = useState(null); // Track which workspace is refreshing overlay
+  const [overlayRefreshResult, setOverlayRefreshResult] = useState(null); // Result of overlay refresh
 
   const quickLaunch = React.useMemo(() => {
     return config?.quick_launch || [];
@@ -121,27 +122,27 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   };
 
   const handleOpenVSCode = async (workspace) => {
-    setVSCodeLoading(workspace.id);
+    setOpeningVSCode(workspace.id);
     try {
       const result = await openVSCode(workspace.id);
       setVSCodeResult(result);
     } catch (err) {
       setVSCodeResult({ success: false, message: err.message });
     } finally {
-      setVSCodeLoading(null);
+      setOpeningVSCode(null);
     }
   };
 
   const handleRefreshOverlay = async (workspace) => {
-    setRefreshOverlayLoading(workspace.id);
+    setRefreshingOverlay(workspace.id);
     try {
       await refreshOverlay(workspace.id);
-      success('Overlay refreshed successfully');
+      setOverlayRefreshResult({ success: true, workspaceId: workspace.id });
       refresh();
     } catch (err) {
-      toastError(err.message || 'Failed to refresh overlay');
+      setOverlayRefreshResult({ success: false, message: err.message || 'Failed to refresh overlay' });
     } finally {
-      setRefreshOverlayLoading(null);
+      setRefreshingOverlay(null);
     }
   };
 
@@ -150,14 +151,14 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
       <Tooltip content="Open in VS Code">
         <button
           className="btn btn--sm btn--ghost btn--bordered"
-          disabled={vsCodeLoading === workspace.id}
+          disabled={openingVSCode === workspace.id}
           onClick={(event) => {
             event.stopPropagation();
             handleOpenVSCode(workspace);
           }}
           aria-label={`Open ${workspace.id} in VS Code`}
         >
-          {vsCodeLoading === workspace.id ? (
+          {openingVSCode === workspace.id ? (
             <>
               <div className="spinner--small"></div>
               Opening...
@@ -175,14 +176,14 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
       <Tooltip content="Refresh overlay files">
         <button
           className="btn btn--sm btn--ghost btn--bordered"
-          disabled={refreshOverlayLoading === workspace.id || workspace.session_count > 0}
+          disabled={refreshingOverlay === workspace.id}
           onClick={(event) => {
             event.stopPropagation();
             handleRefreshOverlay(workspace);
           }}
           aria-label={`Refresh overlay for ${workspace.id}`}
         >
-          {refreshOverlayLoading === workspace.id ? (
+          {refreshingOverlay === workspace.id ? (
             <>
               <div className="spinner--small"></div>
               Refreshing...
@@ -403,6 +404,30 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
           message={vsCodeResult.message}
           onClose={() => setVSCodeResult(null)}
         />
+      )}
+
+      {overlayRefreshResult && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="overlay-modal-title">
+          <div className="modal">
+            <div className="modal__header">
+              <h2 className="modal__title" id="overlay-modal-title">
+                {overlayRefreshResult.success ? 'Overlay refreshed' : 'Overlay refresh failed'}
+              </h2>
+            </div>
+            <div className="modal__body">
+              {overlayRefreshResult.success ? (
+                <p>Overlay files have been refreshed for workspace <strong>{overlayRefreshResult.workspaceId}</strong>.</p>
+              ) : (
+                <p>{overlayRefreshResult.message}</p>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn btn--primary" onClick={() => setOverlayRefreshResult(null)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
