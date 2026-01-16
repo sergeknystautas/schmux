@@ -160,3 +160,16 @@ export async function refreshOverlay(workspaceId) {
   }
   return response.json();
 }
+
+/**
+ * Fetches the list of built-in quick launch presets.
+ * Returns a list of preset templates with names, targets, and prompts.
+ * @returns {Promise<Array<{name: string, target: string, prompt: string}>>}
+ */
+export async function getBuiltinQuickLaunch() {
+  const response = await fetch('/api/builtin-quick-launch');
+  if (!response.ok) {
+    throw new Error('Failed to fetch built-in quick launch presets');
+  }
+  return response.json();
+}

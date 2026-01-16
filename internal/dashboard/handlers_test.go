@@ -104,3 +104,88 @@ func TestHandleAskNudgenik(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleBuiltinQuickLaunch(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("")
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm)
+
+	t.Run("GET request returns presets", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleBuiltinQuickLaunch(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+
+		var presets []BuiltinQuickLaunch
+		if err := json.NewDecoder(rr.Body).Decode(&presets); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		// Check that we got some presets (the file has 4 entries)
+		if len(presets) == 0 {
+			t.Error("expected at least one preset, got none")
+		}
+
+		// Verify each preset has non-empty name, target, and prompt
+		for _, preset := range presets {
+			if preset.Name == "" {
+				t.Errorf("preset has empty name: %+v", preset)
+			}
+			if preset.Target == "" {
+				t.Errorf("preset %q has empty target", preset.Name)
+			}
+			if preset.Prompt == "" {
+				t.Errorf("preset %q has empty prompt", preset.Name)
+			}
+		}
+	})
+
+	t.Run("POST request is rejected", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/builtin-quick-launch", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleBuiltinQuickLaunch(rr, req)
+
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", rr.Code)
+		}
+	})
+
+	t.Run("response contains expected presets", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleBuiltinQuickLaunch(rr, req)
+
+		var presets []BuiltinQuickLaunch
+		if err := json.NewDecoder(rr.Body).Decode(&presets); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		// Check for known preset names from builtin_quick_launch.json
+		presetNames := make(map[string]bool)
+		for _, preset := range presets {
+			presetNames[preset.Name] = true
+		}
+
+		expectedNames := []string{
+			"code review - local",
+			"code review - branch",
+			"git commit",
+			"merge in main",
+		}
+
+		for _, expected := range expectedNames {
+			if !presetNames[expected] {
+				t.Errorf("expected to find preset %q, but it was not found", expected)
+			}
+		}
+	})
+}

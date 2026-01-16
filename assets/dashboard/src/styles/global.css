@@ -2003,6 +2003,79 @@ a:hover {
     }
 }
 
+/* Quick launch cookbook section */
+.quick-launch-editor__cookbook {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.quick-launch-editor__section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0 0 var(--spacing-xs) 0;
+}
+
+.quick-launch-editor__section-description {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0 0 var(--spacing-md) 0;
+}
+
+.quick-launch-editor__cookbook-selected {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--color-primary);
+    background-opacity: 0.1;
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
+}
+
+.quick-launch-editor__cookbook-label {
+    font-size: 0.875rem;
+    color: var(--color-text);
+}
+
+.quick-launch-editor__cookbook-clear {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+}
+
+.quick-launch-editor__cookbook-clear:hover {
+    background-color: var(--color-surface-alt);
+    color: var(--color-text);
+}
+
+.quick-launch-editor__item--cookbook {
+    border-color: var(--color-border);
+}
+
+.quick-launch-editor__item--cookbook.quick-launch-editor__item--selected {
+    border-color: var(--color-primary);
+    background-color: var(--color-primary);
+    background-opacity: 0.05;
+}
+
+.quick-launch-editor__item-status {
+    font-size: 0.8125rem;
+    color: var(--color-success);
+    font-weight: 500;
+}
+
+.quick-launch-editor__item-detail--prompt {
+    font-family: var(--font-sans);
+    font-style: italic;
+}
+
 /* Empty state hint */
 .empty-state-hint {
     padding: var(--spacing-lg);

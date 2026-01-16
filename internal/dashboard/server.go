@@ -65,6 +65,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/detect-agents", s.withCORS(s.handleDetectTools))
 	mux.HandleFunc("/api/variants", s.withCORS(s.handleVariants))
 	mux.HandleFunc("/api/variants/", s.withCORS(s.handleVariant))
+	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.handleBuiltinQuickLaunch))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.handleDiff))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.handleOpenVSCode))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.handleOverlays))

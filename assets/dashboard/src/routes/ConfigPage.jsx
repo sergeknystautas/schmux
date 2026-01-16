@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays } from '../lib/api.js';
+import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
 import { useConfig } from '../contexts/ConfigContext.jsx';
@@ -30,6 +30,7 @@ export default function ConfigPage() {
   const [commandTargets, setCommandTargets] = useState([]);
   const [detectedTargets, setDetectedTargets] = useState([]);
   const [quickLaunch, setQuickLaunch] = useState([]);
+  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState([]); // Built-in quick launch presets
   const [availableVariants, setAvailableVariants] = useState([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
 
@@ -65,6 +66,7 @@ export default function ConfigPage() {
   const [newQuickLaunchName, setNewQuickLaunchName] = useState('');
   const [newQuickLaunchTarget, setNewQuickLaunchTarget] = useState('');
   const [newQuickLaunchPrompt, setNewQuickLaunchPrompt] = useState('');
+  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState(null); // Track which cookbook template is being added
 
   // Validation state per step
   const [stepErrors, setStepErrors] = useState({ 1: null, 2: null, 3: null, 4: null, 5: null, 6: null });
@@ -141,6 +143,27 @@ export default function ConfigPage() {
     };
 
     loadOverlays();
+    return () => { active = false };
+  }, []);
+
+  // Load built-in quick launch templates
+  useEffect(() => {
+    let active = true;
+
+    const loadBuiltinQuickLaunch = async () => {
+      try {
+        const data = await getBuiltinQuickLaunch();
+        if (active) {
+          setBuiltinQuickLaunch(data || []);
+        }
+      } catch (err) {
+        if (!active) return;
+        console.warn('Failed to load built-in quick launch templates:', err);
+        // Continue without built-in templates
+      }
+    };
+
+    loadBuiltinQuickLaunch();
     return () => { active = false };
   }, []);
 
@@ -938,11 +961,29 @@ export default function ConfigPage() {
                 )}
 
                 <div className="quick-launch-editor__form">
+                  {selectedCookbookTemplate && (
+                    <div className="quick-launch-editor__cookbook-selected">
+                      <span className="quick-launch-editor__cookbook-label">
+                        Adding from Cookbook: <strong>{selectedCookbookTemplate.name}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        className="quick-launch-editor__cookbook-clear"
+                        onClick={() => {
+                          setSelectedCookbookTemplate(null);
+                          setNewQuickLaunchName('');
+                          setNewQuickLaunchPrompt('');
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
                   <div className="quick-launch-editor__row">
                     <input
                       type="text"
                       className="input quick-launch-editor__name"
-                      placeholder="Preset name (optional)"
+                      placeholder="Preset name"
                       value={newQuickLaunchName}
                       onChange={(e) => setNewQuickLaunchName(e.target.value)}
                     />
@@ -958,39 +999,111 @@ export default function ConfigPage() {
                       }}
                     >
                       <option value="">Select target...</option>
-                      <optgroup label="Promptable Targets">
-                        {[
-                          ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
-                          ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
-                            value: variant.name,
-                            label: variant.display_name
-                          })),
-                          ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
-                        ].map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Command Targets">
-                        {commandTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
-                        ))}
-                      </optgroup>
+                      {selectedCookbookTemplate ? (
+                        // When adding from Cookbook, only show promptable targets
+                        <>
+                          <optgroup label="Promptable Targets">
+                            {[
+                              ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
+                              ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
+                                value: variant.name,
+                                label: variant.display_name
+                              })),
+                              ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
+                            ].map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </optgroup>
+                        </>
+                      ) : (
+                        // Normal mode: show all targets
+                        <>
+                          <optgroup label="Promptable Targets">
+                            {[
+                              ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
+                              ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
+                                value: variant.name,
+                                label: variant.display_name
+                              })),
+                              ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
+                            ].map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Command Targets">
+                            {commandTargets.map((target) => (
+                              <option key={target.name} value={target.name}>{target.name}</option>
+                            ))}
+                          </optgroup>
+                        </>
+                      )}
                     </select>
                     <button type="button" className="btn btn--primary" onClick={addQuickLaunch}>Add</button>
                   </div>
 
-                  {promptableTargetNames.has(newQuickLaunchTarget) && (
+                  {/* Show prompt for Cookbook OR when promptable target is selected */}
+                  {(selectedCookbookTemplate || promptableTargetNames.has(newQuickLaunchTarget)) && (
                     <div className="quick-launch-editor__prompt">
-                      <label className="form-group__label">Preset prompt</label>
+                      <label className="form-group__label">
+                        {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Preset prompt'}
+                      </label>
                       <textarea
                         className="input quick-launch-editor__prompt-input"
-                        placeholder="Prompt"
+                        placeholder={selectedCookbookTemplate ? '' : 'Prompt'}
                         value={newQuickLaunchPrompt}
                         onChange={(e) => setNewQuickLaunchPrompt(e.target.value)}
+                        rows={6}
                       />
                     </div>
                   )}
                 </div>
+
+                {/* Cookbook Section */}
+                {builtinQuickLaunch.length > 0 && (
+                  <div className="quick-launch-editor__cookbook">
+                    <h3 className="quick-launch-editor__section-title">Cookbook</h3>
+                    <p className="quick-launch-editor__section-description">
+                      Pre-configured quick launch recipes. Click to add to your quick launch with your chosen target.
+                    </p>
+                    <div className="quick-launch-editor__list">
+                      {builtinQuickLaunch.map((template) => {
+                        const isAdded = quickLaunch.some(p => p.name === template.name);
+                        const isSelected = selectedCookbookTemplate?.name === template.name;
+                        return (
+                          <div
+                            className={`quick-launch-editor__item quick-launch-editor__item--cookbook${isSelected ? ' quick-launch-editor__item--selected' : ''}`}
+                            key={`cookbook-${template.name}`}
+                          >
+                            <div className="quick-launch-editor__item-main">
+                              <span className="quick-launch-editor__item-name">{template.name}</span>
+                              <span className="quick-launch-editor__item-detail quick-launch-editor__item-detail--prompt">
+                                {template.prompt.slice(0, 80)}
+                                {template.prompt.length > 80 ? '...' : ''}
+                              </span>
+                            </div>
+                            {isAdded ? (
+                              <span className="quick-launch-editor__item-status">Added</span>
+                            ) : (
+                              <button
+                                className="btn"
+                                onClick={() => {
+                                  // Pre-fill the form with this template
+                                  setSelectedCookbookTemplate(template);
+                                  setNewQuickLaunchName(template.name);
+                                  setNewQuickLaunchPrompt(template.prompt);
+                                  // Focus on target select
+                                  document.querySelector('.quick-launch-editor__select')?.focus();
+                                }}
+                              >
+                                Add
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

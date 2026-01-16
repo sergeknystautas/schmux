@@ -1,0 +1,22 @@
+[
+  {
+    "name": "code review - local",
+    "target": "claude",
+    "prompt": "please use the code review ai plugin to evaluate the local changes"
+  },
+  {
+    "name": "code review - branch",
+    "target": "claude",
+    "prompt": "please use the code review ai plugin to evaluate the current branch"
+  },
+  {
+    "name": "git commit",
+    "target": "claude",
+    "prompt": "please create a thorough git commit. do not include the generated and co-authored lines. please keep the message focused whenever possible on the features, not just describe code changes."
+  },
+  {
+    "name": "merge in main",
+    "target": "claude",
+    "prompt": "please merge main into this branch. Each individual commit should be preserved, and resolve as many merge conflicts as you can without user input."
+  }
+]
