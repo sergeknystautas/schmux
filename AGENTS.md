@@ -11,7 +11,7 @@
   - `internal/tmux/` — tmux integration and process inspection.
   - `internal/config/`, `internal/state/` — config/state IO.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/JS) served by the daemon.
-- Docs: `README.md`, `docs/cli.md`, `docs/frontend-architecture.md`, `docs/web-ux.md`, `SPEC.md`, `CONTRIBUTING.md`.
+- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
 
 ## Build, Test, and Development Commands
 
@@ -29,7 +29,7 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 - Go: keep changes `gofmt`-clean (`gofmt -w .` or `go fmt ./...`).
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
-- Frontend assets live in `assets/dashboard/`; keep HTML/CSS/JS minimal and consistent with `docs/frontend-architecture.md`.
+- Frontend assets live in `assets/dashboard/`; keep HTML/CSS/JS minimal and consistent with `docs/dev/react.md`.
 
 ## Testing Guidelines
 
@@ -40,7 +40,7 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 ## Commit & Pull Request Guidelines
 
 - Commits: short, imperative subject lines (e.g., “Implement v0.5 spec”, “Polish README”); keep unrelated changes split.
-- PRs: describe **what** changed and **why**, link to `SPEC.md` sections when applicable, and list manual verification steps.
+- PRs: describe **what** changed and **why**, link to relevant docs when applicable, and list manual verification steps.
 - UI changes: include screenshots or a short screen recording of the dashboard views you touched.
 
 ## Configuration & Safety Notes
