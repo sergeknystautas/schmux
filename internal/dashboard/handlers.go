@@ -280,7 +280,24 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]SessionResult, 0)
 
+	// Calculate total sessions to spawn for global nickname numbering
+	totalToSpawn := 0
 	detected := s.config.GetDetectedRunTargets()
+	for targetName, count := range req.Targets {
+		promptable, found := getTargetPromptable(s.config, detected, targetName)
+		if !found || (promptable && strings.TrimSpace(req.Prompt) == "") || (!promptable && strings.TrimSpace(req.Prompt) != "") {
+			continue
+		}
+		spawnCount := count
+		if !promptable {
+			spawnCount = 1
+		}
+		totalToSpawn += spawnCount
+	}
+
+	// Global counter for nickname numbering across all targets
+	globalIndex := 0
+
 	for targetName, count := range req.Targets {
 		promptable, found := getTargetPromptable(s.config, detected, targetName)
 		if !found {
@@ -311,9 +328,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for i := 0; i < spawnCount; i++ {
-			nickname := req.Nickname
-			if nickname != "" && spawnCount > 1 {
-				nickname = fmt.Sprintf("%s (%d)", nickname, i+1)
+			globalIndex++
+			var nickname string
+			if req.Nickname != "" && totalToSpawn > 1 {
+				nickname = fmt.Sprintf("%s (%d)", req.Nickname, globalIndex)
+			} else {
+				nickname = req.Nickname
 			}
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutSeconds())*time.Second)
@@ -332,7 +352,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 					WorkspaceID: sess.WorkspaceID,
 					Target:      targetName,
 					Prompt:      req.Prompt,
-					Nickname:    nickname,
+					Nickname:    sess.Nickname, // Return actual nickname, not input
 				})
 			}
 		}
