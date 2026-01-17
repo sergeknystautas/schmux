@@ -14,6 +14,10 @@ import (
 )
 
 func TestNudgenikClassification(t *testing.T) {
+	// Use pass^k testing (k=3) to reduce variance from nondeterministic LLM responses.
+	// See: https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents
+	const passRuns = 3
+
 	// Load config to access variants and run targets
 	cfg, err := config.Load()
 	if err != nil {
@@ -30,11 +34,19 @@ func TestNudgenikClassification(t *testing.T) {
 		capture   string
 		wantState string
 	}{
+		{"claude1.txt", "Needs Feature Clarification"},
+		{"claude2.txt", "Needs Authorization"},
+		{"claude3.txt", "Needs Feature Clarification"},
 		{"claude5.txt", "Completed"},
+		{"claude6.txt", "Needs Authorization"},
+		{"claude7.txt", "Needs Authorization"},
+		{"claude8.txt", "Needs Authorization"},
 		{"claude9.txt", "Needs Authorization"},
 		{"claude10.txt", "Needs Authorization"},
 		{"claude11.txt", "Completed"},
 		{"claude12.txt", "Needs Authorization"},
+		{"codex1.txt", "Needs User Testing"},
+		{"codex2.txt", "Needs Feature Clarification"},
 		{"codex4.txt", "Completed"},
 		{"codex5.txt", "Completed"},
 		{"codex13.txt", "Needs Authorization"},
@@ -63,19 +75,21 @@ func TestNudgenikClassification(t *testing.T) {
 				t.Logf("Extracted content preview:\n%s", preview)
 			}
 
-			result, err := AskForExtracted(context.Background(), cfg, extracted)
-			if err != nil {
-				t.Fatalf("ask nudgenik: %v", err)
-			}
+			for run := 1; run <= passRuns; run++ {
+				result, err := AskForExtracted(context.Background(), cfg, extracted)
+				if err != nil {
+					t.Fatalf("ask nudgenik (run %d/%d): %v", run, passRuns, err)
+				}
 
-			// Check state
-			if result.State != tt.wantState {
-				t.Errorf("state = %q, want %q\nconfidence: %s\nsummary: %s",
-					result.State, tt.wantState, result.Confidence, result.Summary)
-			}
+				// Check state
+				if result.State != tt.wantState {
+					t.Errorf("run %d/%d state = %q, want %q\nconfidence: %s\nsummary: %s",
+						run, passRuns, result.State, tt.wantState, result.Confidence, result.Summary)
+				}
 
-			if testing.Verbose() {
-				t.Logf("Result: state=%s confidence=%s", result.State, result.Confidence)
+				if testing.Verbose() {
+					t.Logf("Run %d/%d result: state=%s confidence=%s", run, passRuns, result.State, result.Confidence)
+				}
 			}
 		})
 	}
