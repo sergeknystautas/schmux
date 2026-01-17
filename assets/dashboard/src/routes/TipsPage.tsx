@@ -1,6 +1,6 @@
 import React from 'react';
 import styles from '../styles/tips.module.css';
-import { useRequireConfig } from '../contexts/ConfigContext.jsx';
+import { useRequireConfig } from '../contexts/ConfigContext'
 
 export default function TipsPage() {
   useRequireConfig();

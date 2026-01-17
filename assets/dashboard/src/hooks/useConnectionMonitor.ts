@@ -7,7 +7,7 @@ export default function useConnectionMonitor() {
 
   useEffect(() => {
     let active = true;
-    let intervalId;
+    let intervalId: number | undefined;
 
     const check = async () => {
       try {
@@ -21,11 +21,11 @@ export default function useConnectionMonitor() {
     };
 
     check();
-    intervalId = setInterval(check, CHECK_INTERVAL);
+    intervalId = window.setInterval(check, CHECK_INTERVAL);
 
     return () => {
       active = false;
-      if (intervalId) clearInterval(intervalId);
+      if (intervalId) window.clearInterval(intervalId);
     };
   }, []);
 

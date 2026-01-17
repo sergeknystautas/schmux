@@ -13,10 +13,12 @@ func main() {
 	var skipInstall bool
 	var runTests bool
 	var runBuild bool
+	var skipTypecheck bool
 
 	flag.BoolVar(&skipInstall, "skip-install", false, "skip npm install step")
 	flag.BoolVar(&runTests, "test", false, "run go test ./...")
 	flag.BoolVar(&runBuild, "build", false, "run go build ./cmd/schmux")
+	flag.BoolVar(&skipTypecheck, "skip-typecheck", false, "skip npm run typecheck in assets/dashboard")
 	flag.Parse()
 
 	repoRoot, err := findRepoRoot()
@@ -34,6 +36,12 @@ func main() {
 	if !skipInstall {
 		if err := runCmd(frontendDir, npmPath, "install"); err != nil {
 			fatalf("npm install failed: %v", err)
+		}
+	}
+
+	if !skipTypecheck {
+		if err := runCmd(frontendDir, npmPath, "run", "typecheck"); err != nil {
+			fatalf("npm run typecheck failed: %v", err)
 		}
 	}
 

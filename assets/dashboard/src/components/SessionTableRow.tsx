@@ -1,9 +1,10 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatRelativeTime, formatTimestamp } from '../lib/utils.js';
-import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
-import Tooltip from './Tooltip.jsx';
+import { formatRelativeTime, formatTimestamp } from '../lib/utils';
+import { useViewedSessions } from '../contexts/ViewedSessionsContext';
+import { useConfig } from '../contexts/ConfigContext';
+import Tooltip from './Tooltip';
+import type { SessionResponse } from '../lib/types';
 
 const nudgeStateEmoji = {
   'Needs Authorization': '⛔️',
@@ -12,7 +13,7 @@ const nudgeStateEmoji = {
   'Completed': '✅',
 };
 
-function formatNudgeSummary(summary) {
+function formatNudgeSummary(summary?: string) {
   if (!summary) return null;
 
   let text = summary.trim();
@@ -28,7 +29,14 @@ function WorkingSpinner() {
   return <span className="working-spinner"></span>;
 }
 
-function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
+type SessionTableRowProps = {
+  sess: SessionResponse;
+  onCopyAttach: (command: string) => void;
+  onDispose: (sessionId: string) => void;
+  currentSessionId?: string;
+};
+
+function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }: SessionTableRowProps) {
   const { viewedSessions } = useViewedSessions();
   const { config } = useConfig();
   const navigate = useNavigate();
@@ -162,7 +170,7 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
         </td>
       </tr>
       <tr className={`session-row session-row--nudge${isCurrent ? ' session-row--current' : ''}${nudgePreviewElement ? '' : ' session-row--nudge-empty'}`}>
-        <td colSpan="5">
+        <td colSpan={5}>
           <Link
             to={`/sessions/${sess.id}`}
             style={{

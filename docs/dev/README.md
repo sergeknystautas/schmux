@@ -130,7 +130,7 @@ schmux/
 │   ├── spawn.html             # Spawn form
 │   ├── terminal.html          # Terminal view
 │   ├── styles.css             # Styles
-│   └── app.js                 # JavaScript
+│   └── app.ts                # TypeScript
 ├── README.md                   # Project overview
 └── docs/                       # Documentation
 ```

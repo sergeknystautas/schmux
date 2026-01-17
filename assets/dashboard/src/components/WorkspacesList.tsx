@@ -1,17 +1,35 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { disposeSession, disposeWorkspace, openVSCode, refreshOverlay } from '../lib/api.js';
-import { copyToClipboard } from '../lib/utils.js';
-import { useToast } from './ToastProvider.jsx';
-import { useModal } from './ModalProvider.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
-import { useSessions } from '../contexts/SessionsContext.jsx';
-import WorkspaceTableRow from './WorkspaceTableRow.jsx';
-import SessionTableRow from './SessionTableRow.jsx';
-import Tooltip from './Tooltip.jsx';
-import SpawnDropdown from './SpawnDropdown.jsx';
-import VSCodeResultModal from './VSCodeResultModal.jsx';
-import useLocalStorage from '../hooks/useLocalStorage.js';
+import { disposeSession, disposeWorkspace, openVSCode, refreshOverlay } from '../lib/api'
+import { copyToClipboard } from '../lib/utils'
+import { useToast } from './ToastProvider'
+import { useModal } from './ModalProvider'
+import { useConfig } from '../contexts/ConfigContext'
+import { useSessions } from '../contexts/SessionsContext'
+import WorkspaceTableRow from './WorkspaceTableRow'
+import SessionTableRow from './SessionTableRow'
+import Tooltip from './Tooltip'
+import SpawnDropdown from './SpawnDropdown'
+import VSCodeResultModal from './VSCodeResultModal'
+import useLocalStorage from '../hooks/useLocalStorage'
+import type { OpenVSCodeResponse, QuickLaunchPreset, SessionResponse, WorkspaceResponse } from '../lib/types';
+
+type WorkspaceFilters = {
+  status?: string;
+  repo?: string;
+};
+
+export type WorkspacesListHandle = {
+  disposeSession: (sessionId: string) => void;
+};
+
+type WorkspacesListProps = {
+  workspaceId?: string;
+  currentSessionId?: string;
+  filters?: WorkspaceFilters | null;
+  onFilterChange?: (key: keyof WorkspaceFilters, value: string) => void;
+  showControls?: boolean;
+};
 
 /**
  * WorkspacesList - Displays workspaces with their sessions
@@ -26,7 +44,7 @@ import useLocalStorage from '../hooks/useLocalStorage.js';
  * - onFilterChange: Optional - callback when filters change
  * - showControls: Optional - show expand/collapse controls
  */
-const WorkspacesListInner = React.forwardRef(function WorkspacesList({
+const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesListProps>(function WorkspacesList({
   workspaceId,
   currentSessionId,
   filters = null,
@@ -38,17 +56,17 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useLocalStorage('workspace-expanded', {});
-  const [vsCodeResult, setVSCodeResult] = useState(null);
-  const [openingVSCode, setOpeningVSCode] = useState(null); // Track which workspace is opening VS Code
-  const [refreshingOverlay, setRefreshingOverlay] = useState(null); // Track which workspace is refreshing overlay
-  const [overlayRefreshResult, setOverlayRefreshResult] = useState(null); // Result of overlay refresh
+  const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>('workspace-expanded', {});
+  const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
+  const [openingVSCode, setOpeningVSCode] = useState<string | null>(null); // Track which workspace is opening VS Code
+  const [refreshingOverlay, setRefreshingOverlay] = useState<string | null>(null); // Track which workspace is refreshing overlay
+  const [overlayRefreshResult, setOverlayRefreshResult] = useState<{ success: boolean; message?: string; workspaceId?: string } | null>(null); // Result of overlay refresh
 
-  const quickLaunch = React.useMemo(() => {
+  const quickLaunch = React.useMemo<QuickLaunchPreset[]>(() => {
     return config?.quick_launch || [];
   }, [config?.quick_launch]);
 
-  const toggleExpanded = (workspaceId) => {
+  const toggleExpanded = (workspaceId: string) => {
     setExpanded((curr) => ({ ...curr, [workspaceId]: !curr[workspaceId] }));
   };
 
@@ -64,13 +82,13 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     setExpanded({});
   };
 
-  const updateFilter = (key, value) => {
+  const updateFilter = (key: keyof WorkspaceFilters, value: string) => {
     if (onFilterChange) {
       onFilterChange(key, value);
     }
   };
 
-  const handleCopyAttach = async (command) => {
+  const handleCopyAttach = async (command: string) => {
     const ok = await copyToClipboard(command);
     if (ok) {
       success('Copied attach command');
@@ -79,7 +97,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     }
   };
 
-  const handleDispose = async (sessionId) => {
+  const handleDispose = async (sessionId: string) => {
     // Find session to get nickname for display
     let sessionDisplay = sessionId;
     for (const ws of allWorkspaces) {
@@ -107,7 +125,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     disposeSession: handleDispose
   }), [handleDispose]);
 
-  const handleDisposeWorkspace = async (workspaceId) => {
+  const handleDisposeWorkspace = async (workspaceId: string) => {
     const accepted = await confirm(`Dispose workspace ${workspaceId}?`, { danger: true });
     if (!accepted) return;
 
@@ -121,7 +139,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     }
   };
 
-  const handleOpenVSCode = async (workspace) => {
+  const handleOpenVSCode = async (workspace: WorkspaceResponse) => {
     setOpeningVSCode(workspace.id);
     try {
       const result = await openVSCode(workspace.id);
@@ -133,7 +151,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     }
   };
 
-  const handleRefreshOverlay = async (workspace) => {
+  const handleRefreshOverlay = async (workspace: WorkspaceResponse) => {
     setRefreshingOverlay(workspace.id);
     try {
       await refreshOverlay(workspace.id);
@@ -146,7 +164,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
     }
   };
 
-  const renderWorkspaceActions = (workspace) => (
+  const renderWorkspaceActions = (workspace: WorkspaceResponse) => (
     <>
       <Tooltip content="Open in VS Code">
         <button
@@ -360,7 +378,7 @@ const WorkspacesListInner = React.forwardRef(function WorkspacesList({
         )}
 
         {filteredWorkspaces.map((ws) => {
-          let sessions = ws.sessions || [];
+          let sessions: SessionResponse[] = ws.sessions || [];
           if (filters?.status) {
             sessions = sessions.filter((s) =>
               filters.status === 'running' ? s.running : !s.running

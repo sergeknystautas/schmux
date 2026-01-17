@@ -1,7 +1,8 @@
 import React from 'react';
-import { extractRepoName } from '../lib/utils.js';
+import { extractRepoName } from '../lib/utils';
+import type { ScanResult, ScanWorkspace } from '../lib/types';
 
-function getWorkspaceChanges(oldWs, newWs) {
+function getWorkspaceChanges(oldWs: ScanWorkspace, newWs: ScanWorkspace) {
   const changes = [];
   if (oldWs.branch !== newWs.branch) {
     changes.push(`branch: ${oldWs.branch} → ${newWs.branch}`);
@@ -12,7 +13,12 @@ function getWorkspaceChanges(oldWs, newWs) {
   return changes;
 }
 
-export default function ScanResultsModal({ result, onClose }) {
+type ScanResultsModalProps = {
+  result: ScanResult;
+  onClose: () => void;
+};
+
+export default function ScanResultsModal({ result, onClose }: ScanResultsModalProps) {
   const hasChanges = result.added.length > 0 || result.updated.length > 0 || result.removed.length > 0;
 
   return (

@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { scanWorkspaces } from '../lib/api.js';
-import { useToast } from '../components/ToastProvider.jsx';
-import { useConfig, useRequireConfig } from '../contexts/ConfigContext.jsx';
-import WorkspacesList from '../components/WorkspacesList.jsx';
-import ScanResultsModal from '../components/ScanResultsModal.jsx';
-import useLocalStorage from '../hooks/useLocalStorage.js';
+import { scanWorkspaces } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
+import { useRequireConfig } from '../contexts/ConfigContext';
+import WorkspacesList from '../components/WorkspacesList';
+import ScanResultsModal from '../components/ScanResultsModal';
+import useLocalStorage from '../hooks/useLocalStorage';
+import type { ScanResult } from '../lib/types';
 
 export default function SessionsPage() {
-  const { config } = useConfig();
   useRequireConfig();
   const { error: toastError } = useToast();
-  const [filters, setFilters] = useLocalStorage('sessions-filters', { status: '', repo: '' });
-  const [scanResult, setScanResult] = useState(null);
+  const [filters, setFilters] = useLocalStorage<{ status: string; repo: string }>('sessions-filters', { status: '', repo: '' });
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
 
-  const updateFilter = (key, value) => {
+  const updateFilter = (key: 'status' | 'repo', value: string) => {
     setFilters((prev) => ({
       ...prev,
       [key]: value || ''

@@ -1,6 +1,10 @@
 import React from 'react';
 
-export default function SetupCompleteModal({ onClose }) {
+type SetupCompleteModalProps = {
+  onClose: () => void;
+};
+
+export default function SetupCompleteModal({ onClose }: SetupCompleteModalProps) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="setup-modal-title">
       <div className="modal">

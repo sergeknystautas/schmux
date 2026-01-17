@@ -10,14 +10,17 @@ import { useEffect, useState, useCallback } from 'react';
  * @param {any} initialValue - Default value if nothing in storage
  * @returns {[any, Function, Function]} - [value, setValue, removeValue]
  */
-export default function useLocalStorage(key, initialValue) {
+export default function useLocalStorage<T>(
+  key: string,
+  initialValue: T
+): [T, (value: T | ((prev: T) => T)) => void, () => void] {
   const storageKey = `schmux:${key}`;
 
   // Initialize from localStorage or use initialValue
-  const [storedValue, setStoredValue] = useState(() => {
+  const [storedValue, setStoredValue] = useState<T>(() => {
     try {
       const item = window.localStorage.getItem(storageKey);
-      return item ? JSON.parse(item) : initialValue;
+      return item ? (JSON.parse(item) as T) : initialValue;
     } catch (error) {
       console.error(`Error reading localStorage key "${storageKey}":`, error);
       return initialValue;
@@ -26,7 +29,7 @@ export default function useLocalStorage(key, initialValue) {
 
   // Return a wrapped version of useState's setter function that
   // persists the new value to localStorage
-  const setValue = useCallback((value) => {
+  const setValue = useCallback((value: T | ((prev: T) => T)) => {
     try {
       // Allow value to be a function so we have same API as useState
       const valueToStore = value instanceof Function ? value(storedValue) : value;
@@ -56,10 +59,10 @@ export default function useLocalStorage(key, initialValue) {
 
   // Listen for changes in other tabs/windows
   useEffect(() => {
-    const handleStorageChange = (event) => {
+    const handleStorageChange = (event: StorageEvent) => {
       if (event.key === storageKey && event.newValue !== null) {
         try {
-          setStoredValue(JSON.parse(event.newValue));
+          setStoredValue(JSON.parse(event.newValue) as T);
         } catch (error) {
           console.error(`Error parsing localStorage value for "${storageKey}":`, error);
         }

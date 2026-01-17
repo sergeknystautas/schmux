@@ -5,7 +5,7 @@
  * Import and wrap any interactive element to add intelligent, accessible tooltips.
  */
 
-import Tooltip from './Tooltip.jsx';
+import Tooltip from './Tooltip'
 
 /* =============================================================================
  * BASIC USAGE

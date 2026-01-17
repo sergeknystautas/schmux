@@ -1,8 +1,18 @@
 import React from 'react';
-import { extractRepoName } from '../lib/utils.js';
-import Tooltip from './Tooltip.jsx';
+import { extractRepoName } from '../lib/utils';
+import Tooltip from './Tooltip';
+import type { WorkspaceResponse } from '../lib/types';
 
-export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessionCount, actions, sessions }) {
+type WorkspaceTableRowProps = {
+  workspace: WorkspaceResponse;
+  onToggle: () => void;
+  expanded?: boolean;
+  sessionCount: number;
+  actions?: React.ReactNode;
+  sessions?: React.ReactNode;
+};
+
+export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessionCount, actions, sessions }: WorkspaceTableRowProps) {
   const repoName = extractRepoName(workspace.repo);
 
   // Build git status indicators - always show both behind and ahead

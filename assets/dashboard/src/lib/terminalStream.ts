@@ -1,7 +1,36 @@
 import { Terminal } from '@xterm/xterm';
+import type { TerminalSize } from './types';
+
+type TerminalStreamOptions = {
+  followTail?: boolean;
+  followCheckbox?: HTMLInputElement | null;
+  onStatusChange?: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
+  onResume?: (showing: boolean) => void;
+  terminalSize?: TerminalSize | null;
+};
+
+type TerminalOutputMessage = {
+  type?: 'append' | 'full' | string;
+  content?: string;
+};
 
 export default class TerminalStream {
-  constructor(sessionId, containerElement, options = {}) {
+  sessionId: string;
+  containerElement: HTMLElement;
+  ws: WebSocket | null;
+  connected: boolean;
+  followTail: boolean;
+  followCheckbox: HTMLInputElement | null;
+  onStatusChange: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
+  onResume: (showing: boolean) => void;
+  terminalSize: TerminalSize | null;
+  terminal: Terminal | null;
+  tmuxCols: number | null;
+  tmuxRows: number | null;
+  baseFontSize: number;
+  initialized: Promise<Terminal | null>;
+
+  constructor(sessionId: string, containerElement: HTMLElement, options: TerminalStreamOptions = {}) {
     this.sessionId = sessionId;
     this.containerElement = containerElement;
     this.ws = null;
@@ -15,11 +44,12 @@ export default class TerminalStream {
     this.terminal = null;
     this.tmuxCols = null;
     this.tmuxRows = null;
+    this.baseFontSize = 14;
 
     this.initialized = this.initTerminal();
   }
 
-  async initTerminal() {
+  async initTerminal(): Promise<Terminal | null> {
     if (!this.containerElement) {
       return null;
     }
@@ -35,8 +65,6 @@ export default class TerminalStream {
 
     this.tmuxCols = cols;
     this.tmuxRows = rows;
-    this.baseFontSize = 14;
-
     this.terminal = new Terminal({
       cols,
       rows,
@@ -181,6 +209,7 @@ export default class TerminalStream {
       if (this.terminal) {
         this.terminal.writeln('\x1b[91mWebSocket error\x1b[0m');
       }
+      this.onStatusChange('error');
     };
   }
 
@@ -190,14 +219,14 @@ export default class TerminalStream {
     }
   }
 
-  sendInput(data) {
+  sendInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'input', data }));
     }
   }
 
-  handleOutput(data) {
-    let msg;
+  handleOutput(data: string) {
+    let msg: TerminalOutputMessage;
     try {
       msg = JSON.parse(data);
     } catch {
@@ -222,13 +251,13 @@ export default class TerminalStream {
     }
   }
 
-  setFollow(follow) {
+  setFollow(follow: boolean) {
     this.followTail = follow;
     if (this.followCheckbox) this.followCheckbox.checked = follow;
     this.onResume(!follow);
   }
 
-  isAtBottom(threshold = 0) {
+  isAtBottom(threshold = 0): boolean {
     if (!this.terminal) return true;
     const buffer = this.terminal.buffer.active;
     return buffer.viewportY >= buffer.baseY - threshold;

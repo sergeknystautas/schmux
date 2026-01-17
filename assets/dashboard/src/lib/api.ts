@@ -1,16 +1,32 @@
-export async function getSessions() {
+import type {
+  ApiError,
+  BuiltinQuickLaunchPreset,
+  ConfigResponse,
+  ConfigUpdateRequest,
+  DetectToolsResponse,
+  DiffResponse,
+  OpenVSCodeResponse,
+  OverlaysResponse,
+  ScanResult,
+  SpawnRequest,
+  SpawnResult,
+  VariantsResponse,
+  WorkspaceResponse,
+} from './types';
+
+export async function getSessions(): Promise<WorkspaceResponse[]> {
   const response = await fetch('/api/sessions');
   if (!response.ok) throw new Error('Failed to fetch sessions');
   return response.json();
 }
 
-export async function getConfig() {
+export async function getConfig(): Promise<ConfigResponse> {
   const response = await fetch('/api/config');
   if (!response.ok) throw new Error('Failed to fetch config');
   return response.json();
 }
 
-export async function spawnSessions(request) {
+export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[]> {
   const response = await fetch('/api/spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -20,13 +36,13 @@ export async function spawnSessions(request) {
   return response.json();
 }
 
-export async function disposeSession(sessionId) {
+export async function disposeSession(sessionId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
   if (!response.ok) throw new Error('Failed to dispose session');
   return response.json();
 }
 
-export async function updateNickname(sessionId, nickname) {
+export async function updateNickname(sessionId: string, nickname: string): Promise<{ status: string }> {
   const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -35,7 +51,7 @@ export async function updateNickname(sessionId, nickname) {
   if (!response.ok) {
     if (response.status === 409) {
       const err = await response.json();
-      const error = new Error(err.error || 'Nickname already in use');
+      const error = new Error(err.error || 'Nickname already in use') as ApiError;
       error.isConflict = true;
       throw error;
     }
@@ -44,7 +60,7 @@ export async function updateNickname(sessionId, nickname) {
   return response.json();
 }
 
-export async function disposeWorkspace(workspaceId) {
+export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/dispose-workspace/${workspaceId}`, { method: 'POST' });
   if (!response.ok) {
     const err = await response.json();
@@ -53,19 +69,19 @@ export async function disposeWorkspace(workspaceId) {
   return response.json();
 }
 
-export async function getDiff(workspaceId) {
+export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   const response = await fetch(`/api/diff/${workspaceId}`);
   if (!response.ok) throw new Error('Failed to fetch diff');
   return response.json();
 }
 
-export async function scanWorkspaces() {
+export async function scanWorkspaces(): Promise<ScanResult> {
   const response = await fetch('/api/workspaces/scan', { method: 'POST' });
   if (!response.ok) throw new Error('Failed to scan workspaces');
   return response.json();
 }
 
-export async function updateConfig(request) {
+export async function updateConfig(request: ConfigUpdateRequest): Promise<{ status: string; message?: string; warning?: string }> {
   const response = await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,7 +104,7 @@ export async function updateConfig(request) {
   return response.json();
 }
 
-export async function openVSCode(workspaceId) {
+export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
   const response = await fetch(`/api/open-vscode/${workspaceId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
@@ -103,9 +119,8 @@ export async function openVSCode(workspaceId) {
 /**
  * Detects available tools on the system.
  * Returns a list of detected tools with their names, commands, and sources.
- * @returns {Promise<{tools: Array<{name: string, command: string, source: string}>>>}
  */
-export async function detectTools() {
+export async function detectTools(): Promise<DetectToolsResponse> {
   const response = await fetch('/api/detect-tools');
   if (!response.ok) {
     throw new Error('Failed to detect tools');
@@ -113,13 +128,13 @@ export async function detectTools() {
   return response.json();
 }
 
-export async function getVariants() {
+export async function getVariants(): Promise<VariantsResponse> {
   const response = await fetch('/api/variants');
   if (!response.ok) throw new Error('Failed to fetch variants');
   return response.json();
 }
 
-export async function configureVariantSecrets(variantName, secrets) {
+export async function configureVariantSecrets(variantName: string, secrets: Record<string, string>): Promise<{ status: string }> {
   const response = await fetch(`/api/variants/${variantName}/secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -132,7 +147,7 @@ export async function configureVariantSecrets(variantName, secrets) {
   return response.json();
 }
 
-export async function removeVariantSecrets(variantName) {
+export async function removeVariantSecrets(variantName: string): Promise<{ status: string }> {
   const response = await fetch(`/api/variants/${variantName}/secrets`, {
     method: 'DELETE'
   });
@@ -143,13 +158,13 @@ export async function removeVariantSecrets(variantName) {
   return response.json();
 }
 
-export async function getOverlays() {
+export async function getOverlays(): Promise<OverlaysResponse> {
   const response = await fetch('/api/overlays');
   if (!response.ok) throw new Error('Failed to fetch overlays');
   return response.json();
 }
 
-export async function refreshOverlay(workspaceId) {
+export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
@@ -164,9 +179,8 @@ export async function refreshOverlay(workspaceId) {
 /**
  * Fetches the list of built-in quick launch presets.
  * Returns a list of preset templates with names, targets, and prompts.
- * @returns {Promise<Array<{name: string, target: string, prompt: string}>>}
  */
-export async function getBuiltinQuickLaunch() {
+export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchPreset[]> {
   const response = await fetch('/api/builtin-quick-launch');
   if (!response.ok) {
     throw new Error('Failed to fetch built-in quick launch presets');

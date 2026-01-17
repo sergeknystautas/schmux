@@ -1,18 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { spawnSessions } from '../lib/api.js';
-import { useToast } from './ToastProvider.jsx';
-import { useSessions } from '../contexts/SessionsContext.jsx';
+import { spawnSessions } from '../lib/api'
+import { useToast } from './ToastProvider'
+import { useSessions } from '../contexts/SessionsContext'
+import type { QuickLaunchPreset, WorkspaceResponse } from '../lib/types';
 
-export default function SpawnDropdown({ workspace, quickLaunch, disabled }) {
+type SpawnDropdownProps = {
+  workspace: WorkspaceResponse;
+  quickLaunch: QuickLaunchPreset[];
+  disabled?: boolean;
+};
+
+export default function SpawnDropdown({ workspace, quickLaunch, disabled }: SpawnDropdownProps) {
   const { success, error: toastError } = useToast();
   const { refresh, waitForSession } = useSessions();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [spawning, setSpawning] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
-  const toggleRef = useRef(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
 
   // Calculate menu position when dropdown opens
   useEffect(() => {
@@ -27,9 +34,10 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }) {
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = (event: MouseEvent) => {
       // Check if click is outside the toggle button
-      if (toggleRef.current && !toggleRef.current.contains(event.target)) {
+      const target = event.target as Node | null;
+      if (toggleRef.current && target && !toggleRef.current.contains(target)) {
         setIsOpen(false);
       }
     };
@@ -43,13 +51,13 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }) {
     };
   }, [isOpen]);
 
-  const handleCustomSpawn = (event) => {
+  const handleCustomSpawn = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setIsOpen(false);
     navigate(`/spawn?workspace_id=${workspace.id}`);
   };
 
-  const handleQuickLaunchSpawn = async (preset, event) => {
+  const handleQuickLaunchSpawn = async (preset: QuickLaunchPreset, event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setIsOpen(false);
     setSpawning(true);

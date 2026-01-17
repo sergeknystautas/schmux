@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getConfig, spawnSessions, detectTools, getVariants } from '../lib/api.js';
-import { useToast } from '../components/ToastProvider.jsx';
-import { useRequireConfig } from '../contexts/ConfigContext.jsx';
-import { useSessions } from '../contexts/SessionsContext.jsx';
+import { getConfig, spawnSessions, detectTools, getVariants } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
+import { useRequireConfig } from '../contexts/ConfigContext';
+import { useSessions } from '../contexts/SessionsContext';
+import type { DetectTool, RepoResponse, RunTargetResponse, SpawnResult, VariantResponse } from '../lib/types';
 
 const STEPS = ['Repository', 'Targets', 'Review'];
 const TOTAL_STEPS = STEPS.length;
@@ -11,14 +12,14 @@ const TOTAL_STEPS = STEPS.length;
 export default function SpawnPage() {
   useRequireConfig();
   const [currentStep, setCurrentStep] = useState(1);
-  const [repos, setRepos] = useState([]);
-  const [promptableTargets, setPromptableTargets] = useState([]);
-  const [commandTargets, setCommandTargets] = useState([]);
-  const [detectedTools, setDetectedTools] = useState([]);
-  const [availableVariants, setAvailableVariants] = useState([]);
-  const [targetCounts, setTargetCounts] = useState({});
+  const [repos, setRepos] = useState<RepoResponse[]>([]);
+  const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
+  const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
+  const [detectedTools, setDetectedTools] = useState<DetectTool[]>([]);
+  const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
+  const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
   const [selectedCommand, setSelectedCommand] = useState('');
-  const [spawnMode, setSpawnMode] = useState(null); // 'promptable' | 'command' | null
+  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command' | null>(null); // 'promptable' | 'command' | null
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
   const [newRepoName, setNewRepoName] = useState('');
@@ -28,7 +29,7 @@ export default function SpawnPage() {
   const prefillApplied = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
-  const [results, setResults] = useState(null);
+  const [results, setResults] = useState<SpawnResult[] | null>(null);
   const [spawning, setSpawning] = useState(false);
   const [showTargetError, setShowTargetError] = useState(false);
   const [searchParams] = useSearchParams();
@@ -105,23 +106,31 @@ export default function SpawnPage() {
     }
   }, [searchParams, workspaces, sessionsLoading, repo, branch]);
 
-  const promptableList = useMemo(() => {
+  type PromptableListItem = {
+    name: string;
+    label: string;
+    kind: 'tool' | 'variant' | 'run_target';
+    configured?: boolean;
+    count: number;
+  };
+
+  const promptableList = useMemo<PromptableListItem[]>(() => {
     const items = [
       ...detectedTools.map((tool) => ({
         name: tool.name,
         label: tool.name,
-        kind: 'tool'
+        kind: 'tool' as const
       })),
       ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
         name: variant.name,
         label: variant.display_name,
-        kind: 'variant',
+        kind: 'variant' as const,
         configured: variant.configured
       })),
       ...promptableTargets.map((target) => ({
         name: target.name,
         label: target.name,
-        kind: 'run_target'
+        kind: 'run_target' as const
       }))
     ];
     return items.map((item) => ({
@@ -154,7 +163,7 @@ export default function SpawnPage() {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
   }, [targetCounts]);
 
-  const updateTargetCount = (name, delta) => {
+  const updateTargetCount = (name: string, delta: number) => {
     setTargetCounts((current) => {
       const next = Math.max(0, Math.min(10, (current[name] || 0) + delta));
       return { ...current, [name]: next };
@@ -162,7 +171,7 @@ export default function SpawnPage() {
     setShowTargetError(false);
   };
 
-  const applyPreset = (preset) => {
+  const applyPreset = (preset: 'each' | 'review' | 'reset') => {
     if (preset === 'each') {
       const next = {};
       promptableList.forEach((item) => {
@@ -232,7 +241,7 @@ export default function SpawnPage() {
   };
 
   const handleSpawn = async () => {
-    let selectedTargets = {};
+    const selectedTargets: Record<string, number> = {};
 
     if (spawnMode === 'command') {
       selectedTargets[selectedCommand] = 1;
@@ -262,9 +271,9 @@ export default function SpawnPage() {
       refresh(true);
 
       // Clear collapsed state for reused workspace IDs so new sessions are visible
-      const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id))];
+      const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
       const expandedKey = 'schmux:workspace-expanded';
-      const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}');
+      const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}') as Record<string, boolean>;
       let changed = false;
       workspaceIds.forEach(id => {
         if (expanded[id] === false) {

@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch } from '../lib/api.js';
-import { useToast } from '../components/ToastProvider.jsx';
-import { useModal } from '../components/ModalProvider.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
-import SetupCompleteModal from '../components/SetupCompleteModal.jsx';
+import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
+import { useConfig } from '../contexts/ConfigContext';
+import SetupCompleteModal from '../components/SetupCompleteModal';
+import type {
+  BuiltinQuickLaunchPreset,
+  ConfigResponse,
+  ConfigUpdateRequest,
+  OverlayInfo,
+  QuickLaunchPreset,
+  RepoResponse,
+  RunTargetResponse,
+  VariantResponse,
+} from '../lib/types';
 
 const TOTAL_STEPS = 6;
 const TABS = ['Workspace', 'Repositories', 'Run Targets', 'Variants', 'Quick Launch', 'Advanced'];
@@ -13,13 +23,41 @@ const TABS = ['Workspace', 'Repositories', 'Run Targets', 'Variants', 'Quick Lau
 const TAB_SLUGS = ['workspace', 'repos', 'targets', 'variants', 'quicklaunch', 'advanced'];
 
 // Helper: step number -> slug
-const stepToSlug = (step) => TAB_SLUGS[step - 1];
+const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 
 // Helper: slug -> step number
-const slugToStep = (slug) => {
+const slugToStep = (slug: string | null) => {
   const index = TAB_SLUGS.indexOf(slug);
   return index >= 0 ? index + 1 : 1;
 };
+
+type ConfigSnapshot = {
+  workspacePath: string;
+  repos: RepoResponse[];
+  promptableTargets: RunTargetResponse[];
+  commandTargets: RunTargetResponse[];
+  quickLaunch: QuickLaunchPreset[];
+  nudgenikTarget: string;
+  terminalWidth: string;
+  terminalHeight: string;
+  terminalSeedLines: string;
+  terminalBootstrapLines: string;
+  mtimePollInterval: number;
+  sessionsPollInterval: number;
+  viewedBuffer: number;
+  sessionSeenInterval: number;
+  gitStatusPollInterval: number;
+  gitCloneTimeout: number;
+  gitStatusTimeout: number;
+  networkAccess: boolean;
+};
+
+type VariantModalState = {
+  variant: VariantResponse;
+  mode: 'add' | 'remove' | 'update';
+  values: Record<string, string>;
+  error: string;
+} | null;
 
 export default function ConfigPage() {
   const navigate = useNavigate();
@@ -63,13 +101,13 @@ export default function ConfigPage() {
 
   // Form state
   const [workspacePath, setWorkspacePath] = useState('');
-  const [repos, setRepos] = useState([]);
-  const [promptableTargets, setPromptableTargets] = useState([]);
-  const [commandTargets, setCommandTargets] = useState([]);
-  const [detectedTargets, setDetectedTargets] = useState([]);
-  const [quickLaunch, setQuickLaunch] = useState([]);
-  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState([]); // Built-in quick launch presets
-  const [availableVariants, setAvailableVariants] = useState([]);
+  const [repos, setRepos] = useState<RepoResponse[]>([]);
+  const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
+  const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
+  const [detectedTargets, setDetectedTargets] = useState<RunTargetResponse[]>([]);
+  const [quickLaunch, setQuickLaunch] = useState<QuickLaunchPreset[]>([]);
+  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchPreset[]>([]); // Built-in quick launch presets
+  const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
 
   // Terminal state
@@ -91,11 +129,11 @@ export default function ConfigPage() {
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
 
   // Overlays state
-  const [overlays, setOverlays] = useState([]);
+  const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
 
   // Original config for change detection (in non-wizard mode)
-  const [originalConfig, setOriginalConfig] = useState(null);
+  const [originalConfig, setOriginalConfig] = useState<ConfigSnapshot | null>(null);
 
   // Check if current config differs from original
   const hasChanges = () => {
@@ -124,7 +162,7 @@ export default function ConfigPage() {
     };
 
     // Deep comparison for arrays
-    const arraysMatch = (a, b) => {
+    const arraysMatch = (a: unknown[], b: unknown[]) => {
       if (a.length !== b.length) return false;
       return a.every((item, i) => JSON.stringify(item) === JSON.stringify(b[i]));
     };
@@ -161,10 +199,10 @@ export default function ConfigPage() {
   const [newQuickLaunchName, setNewQuickLaunchName] = useState('');
   const [newQuickLaunchTarget, setNewQuickLaunchTarget] = useState('');
   const [newQuickLaunchPrompt, setNewQuickLaunchPrompt] = useState('');
-  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState(null); // Track which cookbook template is being added
+  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState<BuiltinQuickLaunchPreset | null>(null); // Track which cookbook template is being added
 
   // Validation state per step
-  const [stepErrors, setStepErrors] = useState({ 1: null, 2: null, 3: null, 4: null, 5: null, 6: null });
+  const [stepErrors, setStepErrors] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null, 5: null, 6: null });
 
   useEffect(() => {
     let active = true;
@@ -173,7 +211,7 @@ export default function ConfigPage() {
       setLoading(true);
       setError('');
       try {
-        const data = await getConfig();
+        const data: ConfigResponse = await getConfig();
         if (!active) return;
         setWorkspacePath(data.workspace_path || '');
         setTerminalWidth(String(data.terminal?.width || 120));
@@ -297,7 +335,7 @@ export default function ConfigPage() {
   };
 
   // Validation for each step - returns true if valid, also sets error state
-  const validateStep = (step) => {
+  const validateStep = (step: number) => {
     let error = null;
 
     if (step === 1) {
@@ -348,7 +386,7 @@ export default function ConfigPage() {
         ...commandTargets.map(t => ({ ...t, type: 'command' }))
       ];
 
-      const updateRequest = {
+      const updateRequest: ConfigUpdateRequest = {
         workspace_path: workspacePath,
         terminal: { width, height, seed_lines: seedLines, bootstrap_lines: parseInt(terminalBootstrapLines) },
         repos: repos,
@@ -471,7 +509,7 @@ export default function ConfigPage() {
       toastError('Run target name already exists');
       return;
     }
-    setPromptableTargets([...promptableTargets, { name: newPromptableName, command: newPromptableCommand }]);
+    setPromptableTargets([...promptableTargets, { name: newPromptableName, command: newPromptableCommand, type: 'promptable', source: 'manual' }]);
     setNewPromptableName('');
     setNewPromptableCommand('');
   };
@@ -513,7 +551,7 @@ export default function ConfigPage() {
       toastError('Run target name already exists');
       return;
     }
-    setCommandTargets([...commandTargets, { name: newCommandName, command: newCommandCommand }]);
+    setCommandTargets([...commandTargets, { name: newCommandName, command: newCommandCommand, type: 'command', source: 'manual' }]);
     setNewCommandName('');
     setNewCommandCommand('');
   };
@@ -573,9 +611,9 @@ export default function ConfigPage() {
     }
   };
 
-  const [variantModal, setVariantModal] = useState(null);
+  const [variantModal, setVariantModal] = useState<VariantModalState>(null);
 
-  const openVariantModal = (variant, mode) => {
+  const openVariantModal = (variant: VariantResponse, mode: 'add' | 'remove' | 'update') => {
     if (mode === 'remove') {
       const usage = checkTargetUsage(variant.name);
       if (usage.inQuickLaunch || usage.inNudgenik) {
@@ -587,7 +625,7 @@ export default function ConfigPage() {
         return;
       }
     }
-    const values = {};
+    const values: Record<string, string> = {};
     for (const key of variant.required_secrets || []) {
       values[key] = '';
     }
@@ -598,11 +636,14 @@ export default function ConfigPage() {
     setVariantModal(null);
   };
 
-  const updateVariantValue = (key, value) => {
-    setVariantModal((current) => ({
-      ...current,
-      values: { ...current.values, [key]: value }
-    }));
+  const updateVariantValue = (key: string, value: string) => {
+    setVariantModal((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        values: { ...current.values, [key]: value }
+      };
+    });
   };
 
   const saveVariantModal = async () => {
@@ -616,20 +657,26 @@ export default function ConfigPage() {
         success(`Removed secrets for ${variant.display_name}`);
         closeVariantModal();
       } catch (err) {
-        setVariantModal((current) => ({
-          ...current,
-          error: err.message || 'Failed to remove variant secrets'
-        }));
+        setVariantModal((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            error: err.message || 'Failed to remove variant secrets'
+          };
+        });
       }
       return;
     }
 
     const missingKey = (variant.required_secrets || []).find((key) => !values[key]?.trim());
     if (missingKey) {
-      setVariantModal((current) => ({
-        ...current,
-        error: `Missing required secret ${missingKey}`
-      }));
+      setVariantModal((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          error: `Missing required secret ${missingKey}`
+        };
+      });
       return;
     }
 
@@ -639,10 +686,13 @@ export default function ConfigPage() {
       success(`Saved secrets for ${variant.display_name}`);
       closeVariantModal();
     } catch (err) {
-      setVariantModal((current) => ({
-        ...current,
-        error: err.message || 'Failed to save variant secrets'
-      }));
+      setVariantModal((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          error: err.message || 'Failed to save variant secrets'
+        };
+      });
     }
   };
 
@@ -1205,7 +1255,7 @@ export default function ConfigPage() {
                                   setNewQuickLaunchName(template.name);
                                   setNewQuickLaunchPrompt(template.prompt);
                                   // Focus on target select
-                                  document.querySelector('.quick-launch-editor__select')?.focus();
+                                  (document.querySelector('.quick-launch-editor__select') as HTMLSelectElement | null)?.focus();
                                 }}
                               >
                                 Add

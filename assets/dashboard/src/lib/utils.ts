@@ -1,12 +1,12 @@
-export function formatTimestamp(timestamp) {
+export function formatTimestamp(timestamp: string | number | Date): string {
   const date = new Date(timestamp);
   return date.toLocaleString();
 }
 
-export function formatRelativeTime(timestamp) {
+export function formatRelativeTime(timestamp: string | number | Date): string {
   const date = new Date(timestamp);
   const now = new Date();
-  const diff = now - date;
+  const diff = now.getTime() - date.getTime();
 
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -24,7 +24,7 @@ export function extractRepoName(repoUrl) {
   return repoUrl.split('/').pop().replace('.git', '');
 }
 
-export async function copyToClipboard(text) {
+export async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -33,7 +33,7 @@ export async function copyToClipboard(text) {
   }
 }
 
-export function truncateStart(text, maxLength = 40) {
+export function truncateStart(text: string, maxLength = 40): string {
   if (text.length <= maxLength) return text;
   const suffix = text.slice(-maxLength + 3);
   return '...' + suffix;

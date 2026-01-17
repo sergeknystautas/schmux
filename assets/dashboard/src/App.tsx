@@ -1,18 +1,18 @@
 import { Routes, Route } from 'react-router-dom';
-import AppShell from './components/AppShell.jsx';
-import ToastProvider from './components/ToastProvider.jsx';
-import ModalProvider from './components/ModalProvider.jsx';
-import { ConfigProvider } from './contexts/ConfigContext.jsx';
-import { SessionsProvider } from './contexts/SessionsContext.jsx';
-import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext.jsx';
-import SessionsPage from './routes/SessionsPage.jsx';
-import SpawnPage from './routes/SpawnPage.jsx';
-import TipsPage from './routes/TipsPage.jsx';
-import ConfigPage from './routes/ConfigPage.jsx';
-import SessionDetailPage from './routes/SessionDetailPage.jsx';
-import DiffPage from './routes/DiffPage.jsx';
-import LegacyTerminalPage from './routes/LegacyTerminalPage.jsx';
-import NotFoundPage from './routes/NotFoundPage.jsx';
+import AppShell from './components/AppShell'
+import ToastProvider from './components/ToastProvider'
+import ModalProvider from './components/ModalProvider'
+import { ConfigProvider } from './contexts/ConfigContext'
+import { SessionsProvider } from './contexts/SessionsContext'
+import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext'
+import SessionsPage from './routes/SessionsPage'
+import SpawnPage from './routes/SpawnPage'
+import TipsPage from './routes/TipsPage'
+import ConfigPage from './routes/ConfigPage'
+import SessionDetailPage from './routes/SessionDetailPage'
+import DiffPage from './routes/DiffPage'
+import LegacyTerminalPage from './routes/LegacyTerminalPage'
+import NotFoundPage from './routes/NotFoundPage'
 
 export default function App() {
   return (

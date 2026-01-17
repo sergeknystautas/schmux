@@ -1,12 +1,22 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getSessions } from '../lib/api.js';
-import { useConfig } from './ConfigContext.jsx';
+import { getSessions } from '../lib/api';
+import { useConfig } from './ConfigContext';
+import type { SessionWithWorkspace, WorkspaceResponse } from '../lib/types';
 
-const SessionsContext = createContext(null);
+type SessionsContextValue = {
+  workspaces: WorkspaceResponse[];
+  loading: boolean;
+  error: string;
+  refresh: (silent?: boolean) => Promise<WorkspaceResponse[] | null>;
+  waitForSession: (sessionId: string, opts?: { timeoutMs?: number; intervalMs?: number }) => Promise<boolean>;
+  sessionsById: Record<string, SessionWithWorkspace>;
+};
 
-export function SessionsProvider({ children }) {
+const SessionsContext = createContext<SessionsContextValue | null>(null);
+
+export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const { config } = useConfig();
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -44,7 +54,7 @@ export function SessionsProvider({ children }) {
   }, [loadSessions, config]);
 
   const sessionsById = useMemo(() => {
-    const map = {};
+    const map: Record<string, SessionWithWorkspace> = {};
     workspaces.forEach((ws) => {
       (ws.sessions || []).forEach((sess) => {
         map[sess.id] = {
@@ -59,7 +69,7 @@ export function SessionsProvider({ children }) {
     return map;
   }, [workspaces]);
 
-  const waitForSession = useCallback(async (sessionId, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
+  const waitForSession = useCallback(async (sessionId: string, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
     if (!sessionId) return false;
     if (sessionsById[sessionId]) return true;
 

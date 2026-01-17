@@ -1,18 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactDiffViewer from 'react-diff-viewer-continued';
-import { getDiff } from '../lib/api.js';
-import { copyToClipboard } from '../lib/utils.js';
-import useTheme from '../hooks/useTheme.js';
-import useLocalStorage from '../hooks/useLocalStorage.js';
-import { useToast } from '../components/ToastProvider.jsx';
-import WorkspacesList from '../components/WorkspacesList.jsx';
+import { getDiff } from '../lib/api';
+import useTheme from '../hooks/useTheme';
+import WorkspacesList from '../components/WorkspacesList';
+import type { DiffResponse } from '../lib/types';
 
 export default function DiffPage() {
   const { workspaceId } = useParams();
   const { theme } = useTheme();
-  const { success, error: toastError } = useToast();
-  const [diffData, setDiffData] = useState(null);
+  const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
@@ -22,7 +19,7 @@ export default function DiffPage() {
       setLoading(true);
       setError('');
       try {
-        const data = await getDiff(workspaceId);
+        const data = await getDiff(workspaceId || '');
         setDiffData(data);
         if (data.files?.length > 0) {
           setSelectedFileIndex(0);
@@ -37,15 +34,6 @@ export default function DiffPage() {
   }, [workspaceId]);
 
   const selectedFile = diffData?.files?.[selectedFileIndex];
-
-  const handleCopyAttach = async (command) => {
-    const ok = await copyToClipboard(command);
-    if (ok) {
-      success('Copied attach command');
-    } else {
-      toastError('Failed to copy');
-    }
-  };
 
   if (loading) {
     return (

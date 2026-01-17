@@ -59,7 +59,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 
 - **Bundler:** Vite
 - **Module System:** ES Modules
-- **Language:** JavaScript (JSX) — TypeScript migration planned
+- **Language:** TypeScript (TSX)
 - **Package Manager:** npm
 
 ---
@@ -107,41 +107,41 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 ```
 assets/dashboard/
 ├── src/
-│   ├── main.jsx              # App entry point
-│   ├── App.jsx               # Root component with routing
+│   ├── main.tsx              # App entry point
+│   ├── App.tsx               # Root component with routing
 │   │
 │   ├── components/           # Reusable UI components
-│   │   ├── AppShell.jsx      # Layout wrapper
-│   │   ├── ErrorBoundary.jsx # Error catching (planned)
-│   │   ├── LoadingState.jsx  # Loading indicator (planned)
-│   │   ├── ErrorState.jsx    # Error display (planned)
-│   │   ├── EmptyState.jsx    # Empty data display (planned)
-│   │   ├── ModalProvider.jsx # Modal dialogs
-│   │   ├── ToastProvider.jsx # Toast notifications
-│   │   ├── Tooltip.jsx       # Custom tooltip
-│   │   ├── SessionTableRow.jsx    # Session list item
-│   │   └── WorkspaceTableRow.jsx  # Workspace list item
+│   │   ├── AppShell.tsx      # Layout wrapper
+│   │   ├── ErrorBoundary.tsx # Error catching (planned)
+│   │   ├── LoadingState.tsx  # Loading indicator (planned)
+│   │   ├── ErrorState.tsx    # Error display (planned)
+│   │   ├── EmptyState.tsx    # Empty data display (planned)
+│   │   ├── ModalProvider.tsx # Modal dialogs
+│   │   ├── ToastProvider.tsx # Toast notifications
+│   │   ├── Tooltip.tsx       # Custom tooltip
+│   │   ├── SessionTableRow.tsx    # Session list item
+│   │   └── WorkspaceTableRow.tsx  # Workspace list item
 │   │
 │   ├── contexts/             # React Context providers
-│   │   ├── ConfigContext.jsx      # Daemon configuration
-│   │   └── ViewedSessionsContext.jsx  # Session view tracking
+│   │   ├── ConfigContext.tsx      # Daemon configuration
+│   │   └── ViewedSessionsContext.tsx  # Session view tracking
 │   │
 │   ├── hooks/                # Custom React hooks
-│   │   ├── useConnectionMonitor.js  # Health check polling
-│   │   ├── useTheme.js             # Theme toggle
-│   │   └── useAsyncEffect.js       # AbortController wrapper (planned)
+│   │   ├── useConnectionMonitor.ts  # Health check polling
+│   │   ├── useTheme.ts             # Theme toggle
+│   │   └── useAsyncEffect.ts       # AbortController wrapper (planned)
 │   │
 │   ├── lib/                  # Utilities and libraries
-│   │   ├── api.js            # API layer (fetch wrappers)
-│   │   ├── terminalStream.js # xterm.js WebSocket wrapper
-│   │   └── utils.js          # Helper functions
+│   │   ├── api.ts            # API layer (fetch wrappers)
+│   │   ├── terminalStream.ts # xterm.js WebSocket wrapper
+│   │   └── utils.ts          # Helper functions
 │   │
 │   ├── routes/               # Page components
-│   │   ├── SessionsPage.jsx        # Sessions/workspaces list view
-│   │   ├── SessionDetailPage.jsx   # Session terminal view
-│   │   ├── SpawnPage.jsx           # Multi-step spawn wizard
-│   │   ├── DiffPage.jsx            # Git diff viewer
-│   │   └── TipsPage.jsx            # Help/tips content
+│   │   ├── SessionsPage.tsx        # Sessions/workspaces list view
+│   │   ├── SessionDetailPage.tsx   # Session terminal view
+│   │   ├── SpawnPage.tsx           # Multi-step spawn wizard
+│   │   ├── DiffPage.tsx            # Git diff viewer
+│   │   └── TipsPage.tsx            # Help/tips content
 │   │
 │   └── styles/               # Global styles
 │       ├── global.css        # Design tokens & base styles
@@ -162,7 +162,7 @@ assets/dashboard/
 
 Components that define page structure and navigation.
 
-**Example:** `AppShell.jsx`
+**Example:** `AppShell.tsx`
 
 ```jsx
 export default function AppShell() {
@@ -185,7 +185,7 @@ export default function AppShell() {
 
 Components that implement specific features or views.
 
-**Examples:** `SessionsPage.jsx`, `SessionDetailPage.jsx`
+**Examples:** `SessionsPage.tsx`, `SessionDetailPage.tsx`
 
 **Characteristics:**
 - May contain business logic
@@ -197,7 +197,7 @@ Components that implement specific features or views.
 
 Components that provide context or services to children.
 
-**Examples:** `ToastProvider.jsx`, `ModalProvider.jsx`, `ConfigProvider.jsx`
+**Examples:** `ToastProvider.tsx`, `ModalProvider.tsx`, `ConfigProvider.tsx`
 
 **Characteristics:**
 - Wrap application or feature subtree
@@ -208,7 +208,7 @@ Components that provide context or services to children.
 
 Reusable presentational components.
 
-**Examples:** `Tooltip.jsx`, `LoadingState.jsx` (planned)
+**Examples:** `Tooltip.tsx`, `LoadingState.tsx` (planned)
 
 **Characteristics:**
 - Highly reusable
@@ -375,7 +375,7 @@ Most styles are **global** with specific class names. Only `tips.module.css` use
 
 ### API Layer
 
-All API calls go through `lib/api.js`:
+All API calls go through `lib/api.ts`:
 
 ```js
 export async function getSessions() {
@@ -420,7 +420,7 @@ useEffect(() => {
 
 ### WebSocket Integration
 
-Terminal streaming uses `lib/terminalStream.js` class:
+Terminal streaming uses `lib/terminalStream.ts` class:
 
 ```js
 class TerminalStream {
@@ -490,22 +490,22 @@ navigate('/sessions/abc123');
 
 This section documents significant architectural decisions and the reasoning behind them.
 
-### Decision 1: JavaScript over TypeScript
+### Decision 1: TypeScript Adoption
 
-**Status:** Being reconsidered — TypeScript migration planned
+**Status:** Implemented — TypeScript migration complete
 
-**Original Rationale:**
-- Quick prototyping
-- Smaller dependency footprint
-- No compile step in development
+**Rationale:**
+- Type safety prevents bugs and improves code quality
+- Better IDE support with autocomplete and refactoring
+- Industry standard for React applications
+- Self-documenting code with type definitions
+- Easier onboarding for new developers
 
-**Current Thinking:**
-- Codebase has grown beyond prototype phase
-- Type safety would prevent bugs
-- Better IDE support and refactoring
-- Industry standard for React apps
-
-**Decision:** Migrate to TypeScript incrementally.
+**Implementation:**
+- All `.jsx` files migrated to `.tsx`
+- All `.js` files migrated to `.ts`
+- Type definitions added for API responses and component props
+- tsconfig.json configured for Vite compatibility
 
 ---
 
@@ -770,11 +770,11 @@ useEffect(() => {
 
 ---
 
-### 7. PropTypes without TypeScript
+### 7. Type Safety with TypeScript
 
-**❌ Current state:** No prop validation at all
+**✅ Current state:** TypeScript provides compile-time type checking
 
-**✅ Solution:** Migrate to TypeScript
+All components have properly typed props, preventing entire classes of runtime errors.
 
 ---
 
@@ -782,12 +782,7 @@ useEffect(() => {
 
 ### Short Term (High Priority)
 
-- [ ] TypeScript adoption
-- [ ] Error boundaries
-- [ ] Fix state mutation patterns
-- [ ] Standardize navigation
-
-- [ ] TypeScript adoption
+- [x] TypeScript adoption
 - [ ] Error boundaries
 - [ ] Fix state mutation patterns
 - [ ] Standardize navigation

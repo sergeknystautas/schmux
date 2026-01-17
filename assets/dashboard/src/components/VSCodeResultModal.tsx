@@ -1,6 +1,12 @@
 import React from 'react';
 
-export default function VSCodeResultModal({ success, message, onClose }) {
+type VSCodeResultModalProps = {
+  success: boolean;
+  message: string;
+  onClose: () => void;
+};
+
+export default function VSCodeResultModal({ success, message, onClose }: VSCodeResultModalProps) {
   const title = success ? 'VS Code opened' : 'Unable to open VS Code';
   const lines = message.split('\n');
 

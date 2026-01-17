@@ -1,9 +1,9 @@
 import React from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import useConnectionMonitor from '../hooks/useConnectionMonitor.js';
-import useTheme from '../hooks/useTheme.js';
-import Tooltip from './Tooltip.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
+import { NavLink, Outlet } from 'react-router-dom';
+import useConnectionMonitor from '../hooks/useConnectionMonitor'
+import useTheme from '../hooks/useTheme'
+import Tooltip from './Tooltip'
+import { useConfig } from '../contexts/ConfigContext'
 
 const navItems = [
   { to: '/sessions', label: 'Sessions', icon: (
@@ -37,8 +37,6 @@ export default function AppShell() {
   const connected = useConnectionMonitor();
   const { toggleTheme } = useTheme();
   const { isNotConfigured } = useConfig();
-  const location = useLocation();
-
   return (
     <div className="app-shell">
       <header className="app-shell__header">

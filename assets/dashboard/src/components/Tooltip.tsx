@@ -13,6 +13,18 @@ import React, { useState, useRef, useEffect } from 'react';
  * @param {number} props.delay - Delay before showing (ms)
  * @param {string} props.className - Additional classes for the trigger wrapper
  */
+type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right';
+type TooltipVariant = 'default' | 'warning' | 'error';
+
+type TooltipProps = {
+  children: React.ReactElement;
+  content: React.ReactNode;
+  placement?: TooltipPlacement;
+  variant?: TooltipVariant;
+  delay?: number;
+  className?: string;
+};
+
 export default function Tooltip({
   children,
   content,
@@ -20,16 +32,16 @@ export default function Tooltip({
   variant = 'default',
   delay = 300,
   className = '',
-}) {
+}: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, arrowOffset: 0 });
   const [actualPlacement, setActualPlacement] = useState(placement);
-  const triggerRef = useRef(null);
-  const tooltipRef = useRef(null);
-  const timeoutRef = useRef(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showTooltip = () => {
-    timeoutRef.current = setTimeout(() => {
+    timeoutRef.current = window.setTimeout(() => {
       setIsVisible(true);
     }, delay);
   };
@@ -41,7 +53,7 @@ export default function Tooltip({
     setIsVisible(false);
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape' && isVisible) {
       hideTooltip();
     }
@@ -88,7 +100,7 @@ export default function Tooltip({
     // Calculate arrow position to center it on the trigger
     // For top/bottom: where is the trigger's center relative to tooltip's left edge?
     // For left/right: where is the trigger's center relative to tooltip's top edge?
-    const getArrowPosition = (placement, pos) => {
+    const getArrowPosition = (placement: TooltipPlacement, pos: { top: number; left: number }) => {
       const triggerCenter = trigger.left + trigger.width / 2;
       const triggerCenterY = trigger.top + trigger.height / 2;
 
@@ -107,7 +119,7 @@ export default function Tooltip({
     };
 
     // Check if preferred placement fits in viewport
-    const fitsInViewport = (pos) => {
+    const fitsInViewport = (pos: { top: number; left: number }) => {
       return (
         pos.top >= 0 &&
         pos.left >= 0 &&
@@ -121,7 +133,7 @@ export default function Tooltip({
     let finalPos = positions[placement];
 
     // If it doesn't fit, try alternative placements in order
-    const placementOrder = {
+    const placementOrder: Record<TooltipPlacement, TooltipPlacement[]> = {
       top: ['top', 'bottom', 'left', 'right'],
       bottom: ['bottom', 'top', 'left', 'right'],
       left: ['left', 'right', 'top', 'bottom'],
@@ -165,13 +177,13 @@ export default function Tooltip({
     'aria-describedby': isVisible ? 'tooltip-content' : undefined,
   });
 
-  const variantClasses = {
+  const variantClasses: Record<TooltipVariant, string> = {
     default: 'tooltip-react--default',
     warning: 'tooltip-react--warning',
     error: 'tooltip-react--error',
   };
 
-  const placementArrowClasses = {
+  const placementArrowClasses: Record<TooltipPlacement, string> = {
     top: 'tooltip-react__arrow--top',
     bottom: 'tooltip-react__arrow--bottom',
     left: 'tooltip-react__arrow--left',

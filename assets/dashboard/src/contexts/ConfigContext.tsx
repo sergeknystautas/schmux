@@ -1,22 +1,50 @@
 import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfig } from '../lib/api.js';
+import { getConfig } from '../lib/api';
+import type { ConfigResponse } from '../lib/types';
 
-const ConfigContext = createContext();
+type ConfigContextValue = {
+  config: ConfigResponse;
+  loading: boolean;
+  error: string | null;
+  isNotConfigured: boolean;
+  isFirstRun: boolean;
+  completeFirstRun: () => void;
+  reloadConfig: () => Promise<void>;
+  getRepoName: (repoUrl: string) => string;
+};
 
-const DEFAULT_CONFIG = {
+const ConfigContext = createContext<ConfigContextValue | null>(null);
+
+const DEFAULT_CONFIG: ConfigResponse = {
+  workspace_path: '',
+  repos: [],
+  run_targets: [],
+  quick_launch: [],
+  nudgenik: { target: '' },
+  terminal: {
+    width: 120,
+    height: 40,
+    seed_lines: 100,
+    bootstrap_lines: 20000,
+  },
   internal: {
     mtime_poll_interval_ms: 5000,
     sessions_poll_interval_ms: 5000,
     viewed_buffer_ms: 5000,
     session_seen_interval_ms: 2000,
-  }
+    git_status_poll_interval_ms: 10000,
+    git_clone_timeout_seconds: 300,
+    git_status_timeout_seconds: 30,
+    network_access: false,
+  },
+  needs_restart: false,
 };
 
-export function ConfigProvider({ children }) {
+export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [isFirstRun, setIsFirstRun] = useState(false);
 
   const loadConfig = useCallback(async () => {
@@ -57,7 +85,7 @@ export function ConfigProvider({ children }) {
   }, [config, loading, error]);
 
   // Helper to get repo name from URL
-  const getRepoName = useCallback((repoUrl) => {
+  const getRepoName = useCallback((repoUrl: string) => {
     if (!repoUrl) return repoUrl;
     const repo = config?.repos?.find(r => r.url === repoUrl);
     return repo?.name || repoUrl;
@@ -82,7 +110,11 @@ export function ConfigProvider({ children }) {
 }
 
 export function useConfig() {
-  return useContext(ConfigContext);
+  const ctx = useContext(ConfigContext);
+  if (!ctx) {
+    throw new Error('useConfig must be used within a ConfigProvider');
+  }
+  return ctx;
 }
 
 // Hook to redirect to /config if not configured

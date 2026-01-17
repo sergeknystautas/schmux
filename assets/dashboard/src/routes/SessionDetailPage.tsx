@@ -1,33 +1,34 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
-import TerminalStream from '../lib/terminalStream.js';
-import { updateNickname } from '../lib/api.js';
-import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils.js';
-import { useToast } from '../components/ToastProvider.jsx';
-import { useModal } from '../components/ModalProvider.jsx';
-import { useConfig } from '../contexts/ConfigContext.jsx';
-import { useSessions } from '../contexts/SessionsContext.jsx';
-import { useViewedSessions } from '../contexts/ViewedSessionsContext.jsx';
-import Tooltip from '../components/Tooltip.jsx';
-import useLocalStorage from '../hooks/useLocalStorage.js';
-import WorkspacesList from '../components/WorkspacesList.jsx';
+import TerminalStream from '../lib/terminalStream';
+import { updateNickname } from '../lib/api';
+import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
+import { useToast } from '../components/ToastProvider';
+import { useModal } from '../components/ModalProvider';
+import { useConfig } from '../contexts/ConfigContext';
+import { useSessions } from '../contexts/SessionsContext';
+import { useViewedSessions } from '../contexts/ViewedSessionsContext';
+import Tooltip from '../components/Tooltip';
+import useLocalStorage from '../hooks/useLocalStorage';
+import WorkspacesList, { type WorkspacesListHandle } from '../components/WorkspacesList';
+import type { NudgenikResult } from '../lib/types';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
   const { config, loading: configLoading } = useConfig();
   const { sessionsById, workspaces, loading: sessionsLoading, error: sessionsError, refresh } = useSessions();
   const navigate = useNavigate();
-  const [wsStatus, setWsStatus] = useState('connecting');
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'>('connecting');
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('sessionSidebarCollapsed', false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>('sessionSidebarCollapsed', false);
   const [nudgenikLoading, setNudgenikLoading] = useState(false);
-  const [nudgenikResult, setNudgenikResult] = useState(null);
-  const [workspaceId, setWorkspaceId] = useState(null);
-  const terminalRef = useRef(null);
-  const terminalStreamRef = useRef(null);
-  const workspacesListRef = useRef(null);
+  const [nudgenikResult, setNudgenikResult] = useState<NudgenikResult | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const terminalRef = useRef<HTMLDivElement | null>(null);
+  const terminalStreamRef = useRef<TerminalStream | null>(null);
+  const workspacesListRef = useRef<WorkspacesListHandle | null>(null);
   const { success, error: toastError } = useToast();
   const { prompt } = useModal();
   const { markAsViewed } = useViewedSessions();
@@ -97,7 +98,9 @@ export default function SessionDetailPage() {
     const seenInterval = config.internal?.session_seen_interval_ms || 2000;
     const interval = setInterval(() => {
       if (wsStatus === 'connected') {
-        markAsViewed(sessionId);
+        if (sessionId) {
+          markAsViewed(sessionId);
+        }
       }
     }, seenInterval);
 
@@ -126,10 +129,11 @@ export default function SessionDetailPage() {
   };
 
   const handleDispose = () => {
+    if (!sessionId) return;
     workspacesListRef.current?.disposeSession(sessionId);
   };
 
-  const handleFollowChange = (event) => {
+  const handleFollowChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const follow = event.target.checked;
     if (terminalStreamRef.current) {
       terminalStreamRef.current.setFollow(follow);
@@ -139,6 +143,7 @@ export default function SessionDetailPage() {
   };
 
   const handleEditNickname = async () => {
+    if (!sessionId || !sessionData) return;
     let newNickname = sessionData.nickname || '';
     let errorMessage = '';
 
@@ -171,16 +176,8 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleSessionCopyAttach = async (command) => {
-    const ok = await copyToClipboard(command);
-    if (ok) {
-      success('Copied attach command');
-    } else {
-      toastError('Failed to copy');
-    }
-  };
-
   const handleAskNudgenik = async () => {
+    if (!sessionId) return;
     setNudgenikLoading(true);
     try {
       const resp = await fetch(`/api/askNudgenik/${sessionId}`);
