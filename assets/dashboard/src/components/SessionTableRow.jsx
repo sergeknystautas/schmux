@@ -53,7 +53,7 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }) {
   let nudgePreviewElement = null;
 
   // If no nudge but this is an agentic session, show "Working..."
-  if (!nudgePreview && isPromptable) {
+  if (!nudgePreview && isPromptable && sess.running) {
     nudgePreviewElement = (
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
         <WorkingSpinner />
