@@ -505,7 +505,7 @@ This section documents significant architectural decisions and the reasoning beh
 - Better IDE support and refactoring
 - Industry standard for React apps
 
-**Decision:** Migrate to TypeScript incrementally. See `REACT-IMPROVEMENTS.md` for plan.
+**Decision:** Migrate to TypeScript incrementally.
 
 ---
 
@@ -774,7 +774,7 @@ useEffect(() => {
 
 **❌ Current state:** No prop validation at all
 
-**✅ Solution:** Migrate to TypeScript (see REACT-IMPROVEMENTS.md)
+**✅ Solution:** Migrate to TypeScript
 
 ---
 
@@ -782,7 +782,10 @@ useEffect(() => {
 
 ### Short Term (High Priority)
 
-See `REACT-IMPROVEMENTS.md` for detailed task list.
+- [ ] TypeScript adoption
+- [ ] Error boundaries
+- [ ] Fix state mutation patterns
+- [ ] Standardize navigation
 
 - [ ] TypeScript adoption
 - [ ] Error boundaries
@@ -810,10 +813,9 @@ See `REACT-IMPROVEMENTS.md` for detailed task list.
 When making changes to the frontend:
 
 1. **Read this document** — Understand the patterns and conventions
-2. **Check REACT-IMPROVEMENTS.md** — See if there's an existing task
-3. **Follow existing patterns** — Match the code style and architecture
-4. **Document new decisions** — Add to the "Decisions & Rationale" section
-5. **Update this document** — Keep it in sync with codebase changes
+2. **Follow existing patterns** — Match the code style and architecture
+3. **Document new decisions** — Add to the "Decisions & Rationale" section
+4. **Update this document** — Keep it in sync with codebase changes
 
 ---
 
@@ -823,5 +825,4 @@ When making changes to the frontend:
 - [React Router Documentation](https://reactrouter.com/)
 - [Vite Documentation](https://vitejs.dev/)
 - [xterm.js Documentation](https://xtermjs.org/)
-- [REACT-IMPROVEMENTS.md](../REACT-IMPROVEMENTS.md) — Task tracker for frontend improvements
-- [docs/web-ux.md](web-ux.md) — UI/UX patterns and design system
+- [docs/web.md](../web.md) — Web dashboard UX and design system

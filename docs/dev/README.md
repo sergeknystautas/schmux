@@ -131,9 +131,8 @@ schmux/
 │   ├── terminal.html          # Terminal view
 │   ├── styles.css             # Styles
 │   └── app.js                 # JavaScript
-├── SPEC.md                     # Feature specification
 ├── README.md                   # Project overview
-└── CONTRIBUTING.md             # This file
+└── docs/                       # Documentation
 ```
 
 ### Making Changes

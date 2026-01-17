@@ -1,4 +1,12 @@
-# schmux CLI Reference
+# CLI
+
+**Problem:** Some tasks are faster from a terminal; others benefit from visual UI. Tools that force you into one interface create friction when the other would be better for the job.
+
+The CLI is for **speed and scripting** — quick commands from the terminal with composable operations and JSON output for automation.
+
+The web dashboard is for **observability and orchestration** — visual monitoring, real-time terminal streaming, and interactive session management.
+
+---
 
 ## Quick Reference
 
@@ -36,29 +44,6 @@ schmux spawn -r schmux -t glm-4.7 -p "implement X"
 # With branch
 schmux spawn -r schmux -b feature-x -t codex -p "implement X"
 ```
-
-**Spawn flags:**
-| Flag | Description |
-|------|-------------|
-| `-t, --target` | Run target name (required) |
-| `-p, --prompt` | Prompt for promptable targets |
-| `-w, --workspace` | Workspace path (e.g., `.`) |
-| `-r, --repo` | Repo name (creates new workspace) |
-| `-b, --branch` | Git branch (default: main) |
-| `-n, --nickname` | Session nickname |
-| `--json` | JSON output |
-
----
-
-## Detailed Documentation
-
-### Overview
-
-The schmux CLI provides commands for managing the daemon and spawning run-target sessions in tmux workspaces.
-
-**Requirements:**
-- The daemon must be running for session commands (`spawn`, `list`, `attach`, `dispose`)
-- Use `schmux start` to start the daemon in the background
 
 ---
 
@@ -291,18 +276,6 @@ Overlay refreshed successfully for workspace myproject-001
 
 ---
 
-## Help
-
-### `schmux help`
-
-Show help message with all commands.
-
-```bash
-schmux help
-```
-
----
-
 ## Common Workflows
 
 ### Starting Fresh
@@ -358,7 +331,7 @@ schmux attach $SESSION_ID
 
 ## Configuration
 
-The CLI reads configuration from `~/.schmux/config.json`. See [docs/run-targets.md](run-targets.md) for run target rules and [docs/PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
+The CLI reads configuration from `~/.schmux/config.json`. See [targets.md](targets.md) for run target configuration and [PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
 
 Run targets can be referenced by name in the `-t` flag. Detected tools and variants are also valid targets.
 
@@ -378,3 +351,19 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and varia
   ]
 }
 ```
+
+---
+
+## When to Use CLI vs Web
+
+**Use the CLI when:**
+- You're already in a terminal
+- You need quick, one-off operations
+- You're scripting or automating
+- You want JSON output for processing
+
+**Use the web dashboard when:**
+- You need to monitor many sessions at once
+- You want real-time terminal output
+- You're comparing results across agents
+- You prefer visual interaction

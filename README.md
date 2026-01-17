@@ -134,7 +134,7 @@ Then start the daemon:
 - **Solution**: Check if daemon is running with `./schmux status`
 
 **Problem**: I want local config files in each workspace
-- **Solution**: Use workspace overlays - see `docs/workspace-overlays-spec.md` for details
+- **Solution**: Use workspace overlays - see `docs/workspaces.md` for details
 
 ## Features
 
@@ -153,11 +153,13 @@ Then start the daemon:
 ## Documentation
 
 - [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) - Product philosophy (source of truth)
+- [docs/workspaces.md](docs/workspaces.md) - Workspace management
+- [docs/targets.md](docs/targets.md) - Run targets and multi-agent coordination
+- [docs/sessions.md](docs/sessions.md) - Session lifecycle and management
+- [docs/web.md](docs/web.md) - Web dashboard
 - [docs/cli.md](docs/cli.md) - CLI command reference
-- [docs/frontend-architecture.md](docs/frontend-architecture.md) - Web UI architecture
-- [docs/web-ux.md](docs/web-ux.md) - UI/UX patterns and design system
-- [SPEC.md](SPEC.md) - Feature specification (keep aligned with philosophy)
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Guide to contribute to this codebase
+- [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
+- [docs/dev/README.md](docs/dev/README.md) - Contributor guide
 
 ## Development
 
