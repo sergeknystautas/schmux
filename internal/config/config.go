@@ -41,6 +41,10 @@ type Config struct {
 	Terminal      *TerminalSize      `json:"terminal,omitempty"`
 	Internal      *InternalIntervals `json:"internal,omitempty"`
 	NetworkAccess bool               `json:"network_access,omitempty"` // true = bind to 0.0.0.0 (LAN), false = 127.0.0.1 (localhost only)
+
+	// path is the file path where this config was loaded from or should be saved to.
+	// Not serialized to JSON.
+	path string `json:"-"`
 }
 
 // TerminalSize represents terminal dimensions.
@@ -119,7 +123,7 @@ func Load() (*Config, error) {
 
 	configPath := filepath.Join(homeDir, ".schmux", "config.json")
 
-	data, err := os.ReadFile(configPath)
+	cfg, err := LoadFrom(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			exampleConfig := fmt.Sprintf(`{
@@ -131,44 +135,7 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("%w: %s\n\nNo config file found. Please create it manually:\n\n  %s\n\nExample config:\n%s\n",
 				ErrConfigNotFound, configPath, configPath, exampleConfig)
 		}
-		return nil, fmt.Errorf("failed to read config: %w", err)
-	}
-
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
-	}
-
-	normalizeRunTargets(cfg.RunTargets)
-
-	// Validate config (workspace_path can be empty during wizard setup)
-	// Validate repos
-	for _, repo := range cfg.Repos {
-		if repo.Name == "" {
-			return nil, fmt.Errorf("%w: repo name is required", ErrInvalidConfig)
-		}
-		if repo.URL == "" {
-			return nil, fmt.Errorf("%w: repo URL is required for %s", ErrInvalidConfig, repo.Name)
-		}
-	}
-	if err := validateRunTargets(cfg.RunTargets); err != nil {
 		return nil, err
-	}
-
-	if err := validateVariantConfigs(cfg.Variants); err != nil {
-		return nil, err
-	}
-
-	if err := validateQuickLaunch(cfg.QuickLaunch, cfg.RunTargets, cfg.Variants); err != nil {
-		return nil, err
-	}
-	if err := validateRunTargetDependencies(cfg.RunTargets, cfg.Variants, cfg.QuickLaunch, cfg.Nudgenik); err != nil {
-		return nil, err
-	}
-
-	// Expand workspace path (handle ~) - allow empty during wizard setup
-	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
-		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
 	}
 
 	// Validate terminal config (width, height, and seed_lines are required)
@@ -185,7 +152,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("%w: terminal.seed_lines must be > 0", ErrInvalidConfig)
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
 // Validate validates run targets, variants, and quick launch presets.
@@ -301,12 +268,14 @@ func (c *Config) GetTerminalBootstrapLines() int {
 
 // Reload reloads the configuration from disk and replaces this Config struct.
 func (c *Config) Reload() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+	configPath := c.path
+	if configPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		configPath = filepath.Join(homeDir, ".schmux", "config.json")
 	}
-
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -318,10 +287,19 @@ func (c *Config) Reload() error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
 	// Expand workspace path (handle ~)
 	if newCfg.WorkspacePath != "" && newCfg.WorkspacePath[0] == '~' {
 		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
 	}
+
+	// Preserve the existing path
+	existingPath := c.path
+	newCfg.path = existingPath
 
 	// Replace entire config
 	*c = newCfg
@@ -344,19 +322,66 @@ func CreateDefault(workspacePath string) *Config {
 	}
 }
 
-// Save writes the config to ~/.schmux/config.json.
-func (c *Config) Save() error {
+// LoadFrom loads the configuration from a specific path.
+// The path is stored so that subsequent Save() calls write to the same location.
+func LoadFrom(configPath string) (*Config, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+
+	normalizeRunTargets(cfg.RunTargets)
+
+	// Store the config path so Save() writes to the same location
+	cfg.path = configPath
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	schmuxDir := filepath.Join(homeDir, ".schmux")
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		return fmt.Errorf("failed to create schmux directory: %w", err)
+	// Validate config (workspace_path can be empty during wizard setup)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
-	configPath := filepath.Join(schmuxDir, "config.json")
+	// Expand workspace path (handle ~) - allow empty during wizard setup
+	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
+		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
+	}
+
+	return &cfg, nil
+}
+
+// SetPath sets the file path for this config. Used in tests to specify where Save() should write.
+func (c *Config) SetPath(p string) {
+	c.path = p
+}
+
+// Save writes the config to the path it was loaded from.
+// If no path is set, uses the default ~/.schmux/config.json.
+func (c *Config) Save() error {
+	configPath := c.path
+	if configPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		configPath = filepath.Join(homeDir, ".schmux", "config.json")
+	}
+
+	// Ensure the directory exists
+	schmuxDir := filepath.Dir(configPath)
+	if schmuxDir != "." && schmuxDir != "" {
+		if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+	}
 
 	// Marshal with indentation for readability
 	data, err := json.MarshalIndent(c, "", "  ")

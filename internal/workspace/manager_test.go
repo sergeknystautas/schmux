@@ -651,7 +651,18 @@ func TestGetOrCreate_LocalRepo(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{WorkspacePath: tmpDir}
+	cfg := &config.Config{
+		WorkspacePath: tmpDir,
+		Repos:         []config.Repo{},
+		RunTargets:    []config.RunTarget{},
+		QuickLaunch:   []config.QuickLaunch{},
+		Terminal: &config.TerminalSize{
+			Width:     120,
+			Height:    40,
+			SeedLines: 100,
+		},
+	}
+	cfg.SetPath(filepath.Join(tmpDir, "config.json"))
 	st := state.New(statePath)
 	m := New(cfg, st, statePath)
 

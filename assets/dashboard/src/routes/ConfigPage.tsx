@@ -509,7 +509,7 @@ export default function ConfigPage() {
       toastError('Run target name already exists');
       return;
     }
-    setPromptableTargets([...promptableTargets, { name: newPromptableName, command: newPromptableCommand, type: 'promptable', source: 'manual' }]);
+    setPromptableTargets([...promptableTargets, { name: newPromptableName, command: newPromptableCommand, type: 'promptable', source: 'user' }]);
     setNewPromptableName('');
     setNewPromptableCommand('');
   };
@@ -551,7 +551,7 @@ export default function ConfigPage() {
       toastError('Run target name already exists');
       return;
     }
-    setCommandTargets([...commandTargets, { name: newCommandName, command: newCommandCommand, type: 'command', source: 'manual' }]);
+    setCommandTargets([...commandTargets, { name: newCommandName, command: newCommandCommand, type: 'command', source: 'user' }]);
     setNewCommandName('');
     setNewCommandCommand('');
   };
