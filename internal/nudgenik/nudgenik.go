@@ -36,6 +36,8 @@ Choose exactly ONE state from the list below:
 
 If multiple states appear applicable, choose the primary blocking or terminal state.
 
+Compacted results should be considered Needs Feature Clarification.
+
 When to choose "Needs Authorization" (must follow these):
 - Any response that includes a menu, numbered choices, or a confirmation prompt (e.g., "Do you want to proceed?", "Proceed?", "Choose an option", "What do you want to do?").
 - Any response that indicates a rate limit with options to wait/upgrade.

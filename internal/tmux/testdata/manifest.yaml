@@ -1,0 +1,66 @@
+version: 1
+cases:
+  - id: claude-01
+    capture: claude-01.txt
+    want_state: Needs Feature Clarification
+    notes: After claude compacts things
+  - id: claude-02
+    capture: claude-02.txt
+    want_state: Needs Feature Clarification
+    notes: Asking what to do next with options
+  - id: claude-03
+    capture: claude-03.txt
+    want_state: Needs Feature Clarification
+    notes: Clarification request about next steps
+  - id: claude-05
+    capture: claude-05.txt
+    want_state: Completed
+    notes: Code analysis comparison
+  - id: claude-06
+    capture: claude-06.txt
+    want_state: Needs Authorization
+    notes: Permission to run tests
+  - id: claude-07
+    capture: claude-07.txt
+    want_state: Needs Authorization
+    notes: Confirmation prompt
+  - id: claude-08
+    capture: claude-08.txt
+    want_state: Needs Authorization
+    notes: Confirmation prompt
+  - id: claude-09
+    capture: claude-09.txt
+    want_state: Needs Authorization
+    notes: Rate limit prompt with choices
+  - id: claude-10
+    capture: claude-10.txt
+    want_state: Needs Authorization
+    notes: Permission prompt
+  - id: claude-11
+    capture: claude-11.txt
+    want_state: Completed
+    notes: Diff with status
+  - id: claude-12
+    capture: claude-12.txt
+    want_state: Needs Authorization
+    notes: Trust folder prompt
+  - id: claude-13
+    capture: claude-13.txt
+    want_state: Needs Authorization
+    notes: Commit summary with proceed prompt
+  - id: codex-01
+    capture: codex-01.txt
+    want_state: Needs User Testing
+    notes: Requests user testing
+  - id: codex-02
+    capture: codex-02.txt
+    want_state: Needs Feature Clarification
+    notes: Asks clarifying questions
+  - id: codex-04
+    capture: codex-04.txt
+    want_state: Completed
+    notes: Work summary with next steps
+  - id: codex-05
+    capture: codex-05.txt
+    want_state: Completed
+    notes: Summary offering further help

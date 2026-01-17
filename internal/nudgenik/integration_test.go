@@ -4,19 +4,33 @@ package nudgenik
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sort"
+	"sync"
 	"testing"
 
 	"github.com/sergek/schmux/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNudgenikClassification(t *testing.T) {
 	// Use pass^k testing (k=3) to reduce variance from nondeterministic LLM responses.
 	// See: https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents
-	const passRuns = 3
+	passRuns := 3
+	if raw := strings.TrimSpace(os.Getenv("NUDGENIK_PASS_K")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			t.Fatalf("NUDGENIK_PASS_K must be an integer: %v", err)
+		}
+		if parsed <= 0 {
+			t.Fatalf("NUDGENIK_PASS_K must be positive, got %d", parsed)
+		}
+		passRuns = parsed
+	}
 
 	// Load config to access variants and run targets
 	cfg, err := config.Load()
@@ -30,32 +44,21 @@ func TestNudgenikClassification(t *testing.T) {
 		t.Fatalf("nudgenik_target not set in config.json (set to a variant name like \"claude-opus\")")
 	}
 
-	fixtures := []struct {
+	cases := loadNudgenikManifest(t)
+
+	type summaryRow struct {
 		capture   string
 		wantState string
-	}{
-		{"claude1.txt", "Needs Feature Clarification"},
-		{"claude2.txt", "Needs Authorization"},
-		{"claude3.txt", "Needs Feature Clarification"},
-		{"claude5.txt", "Completed"},
-		{"claude6.txt", "Needs Authorization"},
-		{"claude7.txt", "Needs Authorization"},
-		{"claude8.txt", "Needs Authorization"},
-		{"claude9.txt", "Needs Authorization"},
-		{"claude10.txt", "Needs Authorization"},
-		{"claude11.txt", "Completed"},
-		{"claude12.txt", "Needs Authorization"},
-		{"codex1.txt", "Needs User Testing"},
-		{"codex2.txt", "Needs Feature Clarification"},
-		{"codex4.txt", "Completed"},
-		{"codex5.txt", "Completed"},
-		{"codex13.txt", "Needs Authorization"},
+		gotStates map[string]int
 	}
+	var summaries []summaryRow
+	var summariesMu sync.Mutex
 
-	for _, tt := range fixtures {
-		t.Run(tt.capture, func(t *testing.T) {
+	for _, tt := range cases {
+		t.Run(tt.Capture, func(t *testing.T) {
+			t.Parallel()
 			// Read capture
-			path := filepath.Join("../tmux/testdata", tt.capture)
+			path := filepath.Join("../tmux/testdata", tt.Capture)
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("read capture: %v", err)
@@ -75,6 +78,7 @@ func TestNudgenikClassification(t *testing.T) {
 				t.Logf("Extracted content preview:\n%s", preview)
 			}
 
+			gotStates := make(map[string]int)
 			for run := 1; run <= passRuns; run++ {
 				result, err := AskForExtracted(context.Background(), cfg, extracted)
 				if err != nil {
@@ -82,15 +86,122 @@ func TestNudgenikClassification(t *testing.T) {
 				}
 
 				// Check state
-				if result.State != tt.wantState {
+				gotStates[result.State]++
+				if result.State != tt.WantState {
 					t.Errorf("run %d/%d state = %q, want %q\nconfidence: %s\nsummary: %s",
-						run, passRuns, result.State, tt.wantState, result.Confidence, result.Summary)
+						run, passRuns, result.State, tt.WantState, result.Confidence, result.Summary)
 				}
 
 				if testing.Verbose() {
 					t.Logf("Run %d/%d result: state=%s confidence=%s", run, passRuns, result.State, result.Confidence)
 				}
 			}
+
+			summariesMu.Lock()
+			summaries = append(summaries, summaryRow{
+				capture:   tt.Capture,
+				wantState: tt.WantState,
+				gotStates: gotStates,
+			})
+			summariesMu.Unlock()
 		})
 	}
+
+	t.Cleanup(func() {
+		summariesMu.Lock()
+		defer summariesMu.Unlock()
+
+		if len(summaries) == 0 {
+			return
+		}
+
+		sort.Slice(summaries, func(i, j int) bool {
+			return summaries[i].capture < summaries[j].capture
+		})
+
+		fileWidth := len("FILE")
+		wantWidth := len("WANT")
+		gotWidth := len("GOT")
+		for _, row := range summaries {
+			if len(row.capture) > fileWidth {
+				fileWidth = len(row.capture)
+			}
+			if len(row.wantState) > wantWidth {
+				wantWidth = len(row.wantState)
+			}
+			gotText := formatGotStates(row.gotStates)
+			if len(gotText) > gotWidth {
+				gotWidth = len(gotText)
+			}
+		}
+
+		fmt.Println()
+		fmt.Println("Nudgenik classification summary:")
+		fmt.Printf("%-*s  %-*s  %-*s  %s\n", fileWidth, "FILE", wantWidth, "WANT", gotWidth, "GOT", "STATUS")
+		for _, row := range summaries {
+			gotText := formatGotStates(row.gotStates)
+			status := "FAIL"
+			if row.gotStates[row.wantState] == passRuns && len(row.gotStates) == 1 {
+				status = "PASS"
+			}
+			fmt.Printf("%-*s  %-*s  %-*s  %s\n", fileWidth, row.capture, wantWidth, row.wantState, gotWidth, gotText, status)
+		}
+	})
+}
+
+type nudgenikManifest struct {
+	Version int                  `yaml:"version"`
+	Cases   []nudgenikTestCase   `yaml:"cases"`
+}
+
+type nudgenikTestCase struct {
+	ID        string `yaml:"id"`
+	Capture   string `yaml:"capture"`
+	WantState string `yaml:"want_state"`
+	Notes     string `yaml:"notes"`
+}
+
+func loadNudgenikManifest(t *testing.T) []nudgenikTestCase {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "tmux", "testdata", "manifest.yaml"))
+	if err != nil {
+		t.Fatalf("read nudgenik manifest: %v", err)
+	}
+
+	var manifest nudgenikManifest
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse nudgenik manifest: %v", err)
+	}
+
+	if len(manifest.Cases) == 0 {
+		t.Fatalf("nudgenik manifest has no cases")
+	}
+
+	for i, tc := range manifest.Cases {
+		if strings.TrimSpace(tc.Capture) == "" {
+			t.Fatalf("nudgenik manifest case %d missing capture", i)
+		}
+		if strings.TrimSpace(tc.WantState) == "" {
+			t.Fatalf("nudgenik manifest case %d missing want_state", i)
+		}
+	}
+
+	return manifest.Cases
+}
+
+func formatGotStates(gotStates map[string]int) string {
+	if len(gotStates) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(gotStates))
+	for state := range gotStates {
+		keys = append(keys, state)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, state := range keys {
+		parts = append(parts, fmt.Sprintf("%s x%d", state, gotStates[state]))
+	}
+	return strings.Join(parts, ", ")
 }

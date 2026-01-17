@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestStripAnsi(t *testing.T) {
@@ -287,40 +289,19 @@ func TestContextCancellation(t *testing.T) {
 }
 
 func TestExtractLatestResponse(t *testing.T) {
-	fixtures := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "claude1", in: "claude1.txt", want: "claude1.want.txt"},
-		{name: "claude2", in: "claude2.txt", want: "claude2.want.txt"},
-		{name: "claude3", in: "claude3.txt", want: "claude3.want.txt"},
-		{name: "claude4", in: "claude4.txt", want: "claude4.want.txt"},
-		{name: "claude5", in: "claude5.txt", want: "claude5.want.txt"},
-		{name: "claude6", in: "claude6.txt", want: "claude6.want.txt"},
-		{name: "claude7", in: "claude7.txt", want: "claude7.want.txt"},
-		{name: "claude8", in: "claude8.txt", want: "claude8.want.txt"},
-		{name: "claude9", in: "claude9.txt", want: "claude9.want.txt"},
-		{name: "claude10", in: "claude10.txt", want: "claude10.want.txt"},
-		{name: "claude11", in: "claude11.txt", want: "claude11.want.txt"},
-		{name: "claude12", in: "claude12.txt", want: "claude12.want.txt"},
-		{name: "codex1", in: "codex1.txt", want: "codex1.want.txt"},
-		{name: "codex2", in: "codex2.txt", want: "codex2.want.txt"},
-		{name: "codex3", in: "codex3.txt", want: "codex3.want.txt"},
-		{name: "codex4", in: "codex4.txt", want: "codex4.want.txt"},
-		{name: "codex5", in: "codex5.txt", want: "codex5.want.txt"},
-		{name: "codex13", in: "codex13.txt", want: "codex13.want.txt"},
-	}
+	cases := loadNudgenikManifest(t)
 
-	for _, tt := range fixtures {
-		t.Run(tt.name, func(t *testing.T) {
-			inputPath := filepath.Join("testdata", tt.in)
+	for _, tc := range cases {
+		name := strings.TrimSuffix(tc.Capture, ".txt")
+		want := strings.TrimSuffix(tc.Capture, ".txt") + ".want.txt"
+		t.Run(name, func(t *testing.T) {
+			inputPath := filepath.Join("testdata", tc.Capture)
 			inputRaw, err := os.ReadFile(inputPath)
 			if err != nil {
 				t.Fatalf("read input: %v", err)
 			}
 
-			wantPath := filepath.Join("testdata", tt.want)
+			wantPath := filepath.Join("testdata", want)
 			wantRaw, err := os.ReadFile(wantPath)
 			if err != nil {
 				t.Fatalf("read want: %v", err)
@@ -345,14 +326,10 @@ func TestUpdateGoldenFiles(t *testing.T) {
 		t.Skip("set UPDATE_GOLDEN=1 to regenerate golden files")
 	}
 
-	files := []string{
-		"claude1.txt", "claude2.txt", "claude3.txt", "claude4.txt", "claude5.txt",
-		"claude6.txt", "claude7.txt", "claude8.txt", "claude9.txt", "claude10.txt",
-		"claude11.txt", "claude12.txt",
-		"codex1.txt", "codex2.txt", "codex3.txt", "codex4.txt", "codex5.txt", "codex13.txt",
-	}
+	cases := loadNudgenikManifest(t)
 
-	for _, f := range files {
+	for _, tc := range cases {
+		f := tc.Capture
 		inputPath := filepath.Join("testdata", f)
 		inputRaw, err := os.ReadFile(inputPath)
 		if err != nil {
@@ -372,6 +349,48 @@ func TestUpdateGoldenFiles(t *testing.T) {
 			t.Logf("updated %s", wantFile)
 		}
 	}
+}
+
+type nudgenikManifest struct {
+	Version int                `yaml:"version"`
+	Cases   []nudgenikTestCase `yaml:"cases"`
+}
+
+type nudgenikTestCase struct {
+	ID        string `yaml:"id"`
+	Capture   string `yaml:"capture"`
+	WantState string `yaml:"want_state"`
+	Notes     string `yaml:"notes"`
+}
+
+func loadNudgenikManifest(t *testing.T) []nudgenikTestCase {
+	t.Helper()
+
+	path := filepath.Join("testdata", "manifest.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read nudgenik manifest: %v", err)
+	}
+
+	var manifest nudgenikManifest
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse nudgenik manifest: %v", err)
+	}
+
+	if len(manifest.Cases) == 0 {
+		t.Fatalf("nudgenik manifest has no cases")
+	}
+
+	for i, tc := range manifest.Cases {
+		if strings.TrimSpace(tc.Capture) == "" {
+			t.Fatalf("nudgenik manifest case %d missing capture", i)
+		}
+		if !strings.HasSuffix(tc.Capture, ".txt") {
+			t.Fatalf("nudgenik manifest case %d capture must be .txt: %q", i, tc.Capture)
+		}
+	}
+
+	return manifest.Cases
 }
 
 func TestExtractLatestResponseCapsContent(t *testing.T) {

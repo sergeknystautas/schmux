@@ -4,6 +4,7 @@ Raw terminal captures from coding agents (Claude, Codex) used to test the `Extra
 
 ## File Structure
 
+- `manifest.yaml` - Source of truth for test cases (capture file, expected NudgeNik state, notes)
 - `*.txt` - Raw terminal captures (input)
 - `*.want.txt` - Expected extraction output (golden files)
 
@@ -18,23 +19,20 @@ tmux ls
 Capture the session to a file:
 
 ```bash
-tmux capture-pane -e -p -S -100 -t "session name" > internal/tmux/testdata/claudeN.txt
+tmux capture-pane -e -p -S -100 -t "session name" > internal/tmux/testdata/claude-01.txt
 ```
 
 ## Naming Convention
 
 Files are named by agent type followed by an incremental number:
-- `claude1.txt`, `claude2.txt`, ...
-- `codex1.txt`, `codex2.txt`, ...
+- `claude-01.txt`, `claude-02.txt`, ...
+- `codex-01.txt`, `codex-02.txt`, ...
 
 ## Adding New Test Cases
 
 1. Capture terminal output (see above)
 
-2. Add the fixture to `TestExtractLatestResponse` in `tmux_test.go`:
-   ```go
-   {name: "claude99", in: "claude99.txt", want: "claude99.want.txt"},
-   ```
+2. Add the case to `manifest.yaml` (capture file, expected NudgeNik state, notes).
 
 3. Generate the `.want.txt` file:
    ```bash
@@ -55,19 +53,7 @@ Then review the diffs to ensure changes are expected.
 
 ## Test Fixtures
 
-| Capture | Description | Expected NudgeNik State |
-|---------|-------------|------------------------|
-| claude1-4 | Various working states | - |
-| claude5 | Code analysis comparison | Completed |
-| claude6-8 | Various working states | - |
-| claude9 | Rate limit prompt | Needs Authorization |
-| claude10 | Permission prompt | Needs Authorization |
-| claude11 | Diff with status | Completed |
-| claude12 | Trust folder prompt | Needs Authorization |
-| codex1-3 | Codex working states | - |
-| codex4 | Work summary | Completed |
-| codex5 | Summary with offer | Completed |
-| codex13 | Commit with Proceed? | Needs Authorization |
+See `manifest.yaml` for the full list of captures, expected states, and notes.
 
 ## How Extraction Works
 
@@ -77,3 +63,29 @@ The `ExtractLatestResponse` function:
 3. Appends any choice menu lines after the prompt
 
 The extracted content is sent to NudgeNik for agent state classification.
+
+## NudgeNik Integration Tests
+
+The integration test (`internal/nudgenik/integration_test.go`) reads cases from `manifest.yaml`.
+
+### Configuration
+
+- `NUDGENIK_PASS_K` (default: 3): number of repeated runs per capture (pass^k).
+
+### Parallel execution
+
+Fixtures run in parallel. Use `-parallel N` to cap concurrency:
+
+```bash
+go test -tags=integration -parallel 8 ./internal/nudgenik
+```
+
+### Output summary
+
+The integration test prints a summary table at the end:
+
+```
+Nudgenik classification summary:
+FILE         WANT                       GOT                                      STATUS
+claude-01.txt  Needs Feature Clarification Needs User Testing x2, Completed x1    FAIL
+```
