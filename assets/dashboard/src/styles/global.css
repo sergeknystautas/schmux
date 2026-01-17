@@ -356,6 +356,19 @@ body {
     background-color: var(--color-surface-alt);
 }
 
+/* Disabled buttons */
+.btn:disabled,
+.btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.btn:disabled:hover,
+.btn[disabled]:hover {
+    background-color: inherit;
+}
+
 .btn--bordered {
     border: 1px solid var(--color-border);
 }

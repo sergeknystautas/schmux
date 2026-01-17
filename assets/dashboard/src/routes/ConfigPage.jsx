@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch } from '../lib/api.js';
 import { useToast } from '../components/ToastProvider.jsx';
 import { useModal } from '../components/ModalProvider.jsx';
@@ -9,8 +9,21 @@ import SetupCompleteModal from '../components/SetupCompleteModal.jsx';
 const TOTAL_STEPS = 6;
 const TABS = ['Workspace', 'Repositories', 'Run Targets', 'Variants', 'Quick Launch', 'Advanced'];
 
+// Map step number to URL slug
+const TAB_SLUGS = ['workspace', 'repos', 'targets', 'variants', 'quicklaunch', 'advanced'];
+
+// Helper: step number -> slug
+const stepToSlug = (step) => TAB_SLUGS[step - 1];
+
+// Helper: slug -> step number
+const slugToStep = (slug) => {
+  const index = TAB_SLUGS.indexOf(slug);
+  return index >= 0 ? index + 1 : 1;
+};
+
 export default function ConfigPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
   const { confirm } = useModal();
   const [showSetupComplete, setShowSetupComplete] = useState(false);
@@ -21,7 +34,32 @@ export default function ConfigPage() {
   const { success, error: toastError } = useToast();
 
   // Wizard state
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(() => {
+    // Initialize from URL on mount
+    const tabFromUrl = searchParams.get('tab');
+    return tabFromUrl ? slugToStep(tabFromUrl) : 1;
+  });
+
+  // Sync currentStep with URL (only in non-wizard mode)
+  useEffect(() => {
+    if (!isFirstRun) {
+      const slug = stepToSlug(currentStep);
+      setSearchParams({ tab: slug });
+    }
+  }, [currentStep, isFirstRun, setSearchParams]);
+
+  // Browser close/refresh warning
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!isFirstRun && hasChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isFirstRun]); // Dependency doesn't include hasChanges values - function reads current state
 
   // Form state
   const [workspacePath, setWorkspacePath] = useState('');
@@ -55,6 +93,63 @@ export default function ConfigPage() {
   // Overlays state
   const [overlays, setOverlays] = useState([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
+
+  // Original config for change detection (in non-wizard mode)
+  const [originalConfig, setOriginalConfig] = useState(null);
+
+  // Check if current config differs from original
+  const hasChanges = () => {
+    if (isFirstRun || !originalConfig) return false;
+
+    // Compare all relevant fields
+    const current = {
+      workspacePath,
+      repos,
+      promptableTargets,
+      commandTargets,
+      quickLaunch,
+      nudgenikTarget,
+      terminalWidth,
+      terminalHeight,
+      terminalSeedLines,
+      terminalBootstrapLines,
+      mtimePollInterval,
+      sessionsPollInterval,
+      viewedBuffer,
+      sessionSeenInterval,
+      gitStatusPollInterval,
+      gitCloneTimeout,
+      gitStatusTimeout,
+      networkAccess,
+    };
+
+    // Deep comparison for arrays
+    const arraysMatch = (a, b) => {
+      if (a.length !== b.length) return false;
+      return a.every((item, i) => JSON.stringify(item) === JSON.stringify(b[i]));
+    };
+
+    return (
+      current.workspacePath !== originalConfig.workspacePath ||
+      !arraysMatch(current.repos, originalConfig.repos) ||
+      !arraysMatch(current.promptableTargets, originalConfig.promptableTargets) ||
+      !arraysMatch(current.commandTargets, originalConfig.commandTargets) ||
+      !arraysMatch(current.quickLaunch, originalConfig.quickLaunch) ||
+      current.nudgenikTarget !== originalConfig.nudgenikTarget ||
+      current.terminalWidth !== originalConfig.terminalWidth ||
+      current.terminalHeight !== originalConfig.terminalHeight ||
+      current.terminalSeedLines !== originalConfig.terminalSeedLines ||
+      current.terminalBootstrapLines !== originalConfig.terminalBootstrapLines ||
+      current.mtimePollInterval !== originalConfig.mtimePollInterval ||
+      current.sessionsPollInterval !== originalConfig.sessionsPollInterval ||
+      current.viewedBuffer !== originalConfig.viewedBuffer ||
+      current.sessionSeenInterval !== originalConfig.sessionSeenInterval ||
+      current.gitStatusPollInterval !== originalConfig.gitStatusPollInterval ||
+      current.gitCloneTimeout !== originalConfig.gitCloneTimeout ||
+      current.gitStatusTimeout !== originalConfig.gitStatusTimeout ||
+      current.networkAccess !== originalConfig.networkAccess
+    );
+  };
 
   // Input states for new items
   const [newRepoName, setNewRepoName] = useState('');
@@ -107,6 +202,31 @@ export default function ConfigPage() {
         setNetworkAccess(netAccess);
         setOriginalNetworkAccess(netAccess);
         setApiNeedsRestart(data.needs_restart || false);
+
+        // Set original config for change detection (non-wizard mode)
+        if (!isFirstRun) {
+          setOriginalConfig({
+            workspacePath: data.workspace_path || '',
+            repos: data.repos || [],
+            promptableTargets: promptableItems,
+            commandTargets: commandItems,
+            quickLaunch: data.quick_launch || [],
+            nudgenikTarget: data.nudgenik?.target || '',
+            terminalWidth: String(data.terminal?.width || 120),
+            terminalHeight: String(data.terminal?.height || 40),
+            terminalSeedLines: String(data.terminal?.seed_lines || 100),
+            terminalBootstrapLines: String(data.terminal?.bootstrap_lines || 20000),
+            mtimePollInterval: data.internal?.mtime_poll_interval_ms || 5000,
+            sessionsPollInterval: data.internal?.sessions_poll_interval_ms || 5000,
+            viewedBuffer: data.internal?.viewed_buffer_ms || 5000,
+            sessionSeenInterval: data.internal?.session_seen_interval_ms || 2000,
+            gitStatusPollInterval: data.internal?.git_status_poll_interval_ms || 10000,
+            gitCloneTimeout: data.internal?.git_clone_timeout_seconds || 300,
+            gitStatusTimeout: data.internal?.git_status_timeout_seconds || 30,
+            networkAccess: netAccess,
+          });
+        }
+
         const variantData = await getVariants();
         if (active) {
           setAvailableVariants(variantData.variants || []);
@@ -254,6 +374,30 @@ export default function ConfigPage() {
       const reloaded = await getConfig();
       setApiNeedsRestart(reloaded.needs_restart || false);
       setOriginalNetworkAccess(networkAccess);
+
+      // Update original config after successful save (non-wizard mode)
+      if (!isFirstRun) {
+        setOriginalConfig({
+          workspacePath,
+          repos,
+          promptableTargets,
+          commandTargets,
+          quickLaunch,
+          nudgenikTarget,
+          terminalWidth,
+          terminalHeight,
+          terminalSeedLines,
+          terminalBootstrapLines,
+          mtimePollInterval,
+          sessionsPollInterval,
+          viewedBuffer,
+          sessionSeenInterval,
+          gitStatusPollInterval,
+          gitCloneTimeout,
+          gitStatusTimeout,
+          networkAccess,
+        });
+      }
 
       if (result.warning && !isFirstRun) {
         setWarning(result.warning);
@@ -579,57 +723,26 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {/* Steps navigation */}
-      {isFirstRun ? (
-        <div className="wizard__steps">
-          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
-            const isCompleted = stepNum < currentStep;
-            const isCurrent = stepNum === currentStep;
-            const isValid = stepValid[stepNum];
-            const stepLabel = TABS[stepNum - 1];
+      {/* Steps navigation - always use wizard__steps style now */}
+      <div className="wizard__steps">
+        {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
+          const isCompleted = isFirstRun && stepNum < currentStep;
+          const isCurrent = stepNum === currentStep;
+          const stepLabel = TABS[stepNum - 1];
 
-            return (
-              <div
-                key={stepNum}
-                className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
-                data-step={stepNum}
-                onClick={() => {
-                  if (isCompleted || (isValid && stepNum === currentStep + 1)) {
-                    setCurrentStep(stepNum);
-                  }
-                }}
-                style={{
-                  cursor: (isCompleted || (isValid && stepNum === currentStep + 1)) ? 'pointer' : 'not-allowed',
-                  opacity: (!isCompleted && !isValid && stepNum !== currentStep) ? 0.5 : 1
-                }}
-              >
-                <span className="wizard__step-number">{stepNum}</span>
-                <span className="wizard__step-label">{stepLabel}</span>
-                {isCompleted && <span className="wizard__step-check">✓</span>}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="config-tabs" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          {TABS.map((tab, index) => {
-            const stepNum = index + 1;
-            const isCurrent = stepNum === currentStep;
-            const isValid = stepValid[stepNum];
-
-            return (
-              <button
-                key={stepNum}
-                className={`config-tab ${isCurrent ? 'config-tab--active' : ''}`}
-                onClick={() => setCurrentStep(stepNum)}
-              >
-                <span className="config-tab__label">{tab}</span>
-                {isValid && <span className="config-tab__check">✓</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
+          return (
+            <div
+              key={stepNum}
+              className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
+              data-step={stepNum}
+              onClick={() => setCurrentStep(stepNum)}
+              style={{ cursor: 'pointer' }}
+            >
+              {stepLabel}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Wizard content */}
       <div className="wizard">
@@ -1337,54 +1450,6 @@ export default function ConfigPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="settings-section">
-                <div className="settings-section__header">
-                  <h3 className="settings-section__title">Workspace Overlays</h3>
-                </div>
-                <div className="settings-section__body">
-                  <p style={{ marginBottom: 'var(--spacing-md)', color: 'var(--color-text-secondary)' }}>
-                    Overlays allow you to copy local-only files (like .env files) to new workspaces automatically.
-                    Files are stored in <code style={{ fontSize: '0.9em' }}>~/.schmux/overlays/&lt;repo-name&gt;/</code> and are only copied if covered by .gitignore.
-                  </p>
-
-                  {loadingOverlays ? (
-                    <div className="loading-state" style={{ padding: 'var(--spacing-md)' }}>
-                      <div className="spinner spinner--sm"></div>
-                      <span style={{ fontSize: '0.9em' }}>Loading overlay info...</span>
-                    </div>
-                  ) : overlays.length === 0 ? (
-                    <div className="empty-state-hint">
-                      No repositories configured yet. Add repositories in the Repositories tab to set up overlays.
-                    </div>
-                  ) : (
-                    <div className="item-list">
-                      {overlays.map((overlay) => (
-                        <div className="item-list__item" key={overlay.repo_name}>
-                          <div className="item-list__item-primary">
-                            <span className="item-list__item-name">{overlay.repo_name}</span>
-                            <span className="item-list__item-detail">{overlay.path}</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-                            {overlay.exists ? (
-                              <span className="badge badge--success" style={{ fontSize: '0.85em' }}>
-                                {overlay.file_count} {overlay.file_count === 1 ? 'file' : 'files'}
-                              </span>
-                            ) : (
-                              <span className="badge badge--secondary" style={{ fontSize: '0.85em' }}>
-                                Missing
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="form-group__hint" style={{ marginTop: 'var(--spacing-md)' }}>
-                    Create overlay directories manually. Only files covered by .gitignore will be copied.
-                  </p>
-                </div>
-              </div>
               {stepErrors[6] && (
                 <p className="form-group__error">{stepErrors[6]}</p>
               )}
@@ -1395,7 +1460,7 @@ export default function ConfigPage() {
         {/* Unified wizard footer navigation */}
         <div className="wizard__actions">
           <div className="wizard__actions-left">
-            {currentStep > 1 && (
+            {isFirstRun && currentStep > 1 && (
               <button
                 className="btn"
                 onClick={prevStep}
@@ -1403,9 +1468,6 @@ export default function ConfigPage() {
               >
                 ← Back
               </button>
-            )}
-            {!isFirstRun && currentStep === 1 && (
-              <span className="wizard__hint">Use tabs above to navigate between sections</span>
             )}
           </div>
           <div className="wizard__actions-right">
@@ -1422,7 +1484,7 @@ export default function ConfigPage() {
                   }
                 }
               }}
-              disabled={saving}
+              disabled={saving || (!isFirstRun && !hasChanges())}
             >
               {saving ? 'Saving...' : isFirstRun ?
                 (currentStep === TOTAL_STEPS ? 'Finish Setup' : 'Next →') :
