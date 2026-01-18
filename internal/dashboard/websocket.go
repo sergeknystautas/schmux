@@ -463,8 +463,8 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if err != nil {
 					break
 				}
-				// Clear nudge on enter key
-				if sess.Nudge != "" && strings.Contains(msg.Data, "\r") {
+				// Clear nudge on enter, tab, or shift-tab
+				if sess.Nudge != "" && (strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z")) {
 					sess.Nudge = ""
 					if err := s.state.UpdateSession(*sess); err != nil {
 						fmt.Printf("Error clearing nudge: %v\n", err)
