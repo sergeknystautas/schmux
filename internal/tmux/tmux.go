@@ -75,13 +75,13 @@ func CaptureOutput(ctx context.Context, name string) (string, error) {
 	// tmux capture-pane -e -p -S - -t <name>
 	// -e includes escape sequences for colors/attributes
 	// -p outputs to stdout
-	// -S - captures from the start of the scrollback buffer (= prefix for exact match)
+	// -S - captures from the start of the scrollback buffer (capture-pane does not support = prefix)
 	args := []string{
 		"capture-pane",
-		"-e",            // include escape sequences
-		"-p",            // output to stdout
-		"-S", "-",       // start from beginning of scrollback
-		"-t", "=" + name, // target session/pane
+		"-e",          // include escape sequences
+		"-p",          // output to stdout
+		"-S", "-",     // start from beginning of scrollback
+		"-t", name,    // target session/pane
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
@@ -102,10 +102,10 @@ func CaptureLastLines(ctx context.Context, name string, lines int) (string, erro
 	}
 	args := []string{
 		"capture-pane",
-		"-e",                      // include escape sequences
-		"-p",                      // output to stdout
+		"-e",                        // include escape sequences
+		"-p",                        // output to stdout
 		"-S", fmt.Sprintf("-%d", lines),
-		"-t", "=" + name, // target session/pane
+		"-t", name,  // target session/pane
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
@@ -156,8 +156,8 @@ func ListSessions(ctx context.Context) ([]string, error) {
 
 // SendKeys sends keys to a tmux session (useful for interactive commands).
 func SendKeys(ctx context.Context, name, keys string) error {
-	// tmux send-keys -t <name> <keys> (= prefix for exact match)
-	args := []string{"send-keys", "-t", "=" + name, keys}
+	// tmux send-keys -t <name> <keys> (send-keys does not support = prefix)
+	args := []string{"send-keys", "-t", name, keys}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -169,8 +169,8 @@ func SendKeys(ctx context.Context, name, keys string) error {
 
 // SendLiteral sends literal text to a tmux session (spaces/newlines are treated as text).
 func SendLiteral(ctx context.Context, name, text string) error {
-	// tmux send-keys -l -t <name> <text> (= prefix for exact match)
-	args := []string{"send-keys", "-l", "-t", "=" + name, text}
+	// tmux send-keys -l -t <name> <text> (send-keys does not support = prefix)
+	args := []string{"send-keys", "-l", "-t", name, text}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -192,7 +192,8 @@ func StripAnsi(text string) string {
 
 // SetWindowSizeManual forces tmux to ignore client resize requests.
 func SetWindowSizeManual(ctx context.Context, sessionName string) error {
-	args := []string{"set-option", "-t", "=" + sessionName, "window-size", "manual"}
+	// set-option does not support = prefix for session target
+	args := []string{"set-option", "-t", sessionName, "window-size", "manual"}
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to set window-size manual: %w: %s", err, string(output))
