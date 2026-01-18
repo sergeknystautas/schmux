@@ -19,35 +19,58 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
   const [isOpen, setIsOpen] = useState(false);
   const [spawning, setSpawning] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const [placementAbove, setPlacementAbove] = useState(false);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Calculate menu position when dropdown opens
   useEffect(() => {
     if (isOpen && toggleRef.current) {
       const rect = toggleRef.current.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 4,
-        left: rect.right,
-      });
+      const gap = 4;
+      // Estimate menu height based on items, or use actual measurement if available
+      const estimatedMenuHeight = menuRef.current?.offsetHeight ||
+        Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
+
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+
+      // Flip above if not enough space below and more space above
+      const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+      setPlacementAbove(shouldPlaceAbove);
+
+      if (shouldPlaceAbove) {
+        setMenuPosition({
+          top: rect.top - gap,
+          left: rect.right,
+        });
+      } else {
+        setMenuPosition({
+          top: rect.bottom + gap,
+          left: rect.right,
+        });
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, quickLaunch?.length]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      // Check if click is outside the toggle button
       const target = event.target as Node | null;
-      if (toggleRef.current && target && !toggleRef.current.contains(target)) {
-        setIsOpen(false);
-      }
+      if (!target) return;
+      // Keep open if click is inside toggle or menu
+      if (toggleRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setIsOpen(false);
     };
 
     if (isOpen) {
-      document.addEventListener('click', handleClickOutside);
+      // Use capture phase so we receive the event before stopPropagation() on other buttons
+      document.addEventListener('click', handleClickOutside, true);
     }
 
     return () => {
-      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside, true);
     };
   }, [isOpen]);
 
@@ -92,11 +115,13 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
 
   const menu = isOpen && !spawning && (
     <div
-      className="spawn-dropdown__menu spawn-dropdown__menu--portal"
+      ref={menuRef}
+      className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
       role="menu"
       style={{
         position: 'fixed',
-        top: `${menuPosition.top}px`,
+        top: placementAbove ? 'auto' : `${menuPosition.top}px`,
+        bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
         right: `${window.innerWidth - menuPosition.left}px`,
       }}
     >
