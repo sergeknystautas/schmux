@@ -255,7 +255,7 @@ Provides daemon configuration loaded at startup.
 
 ```jsx
 const { config, loading, error } = useConfig();
-// config.internal.sessions_poll_interval_ms
+// config.sessions.dashboard_poll_interval_ms
 // config.terminal.width/height
 ```
 

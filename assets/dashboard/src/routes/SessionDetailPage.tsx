@@ -95,7 +95,7 @@ export default function SessionDetailPage() {
 
   // Keep marking as viewed while WebSocket is connected (you're seeing output live)
   useEffect(() => {
-    const seenInterval = config.internal?.session_seen_interval_ms || 2000;
+    const seenInterval = config.nudgenik?.seen_interval_ms || 2000;
     const interval = setInterval(() => {
       if (wsStatus === 'connected') {
         if (sessionId) {

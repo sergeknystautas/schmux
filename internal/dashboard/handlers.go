@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergek/schmux/internal/api/contracts"
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/detect"
 	"github.com/sergek/schmux/internal/nudgenik"
@@ -136,7 +137,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if !sess.LastOutputAt.IsZero() {
 			lastOutputAt = sess.LastOutputAt.Format("2006-01-02T15:04:05")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 		running := s.session.IsRunning(ctx, sess.ID)
 		cancel()
 		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
@@ -336,7 +337,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				nickname = req.Nickname
 			}
 			// Session spawn needs a longer timeout for git operations
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutSeconds())*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID)
 			cancel()
 			if err != nil {
@@ -385,7 +386,7 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
 		log.Printf("[dispose] error: session_id=%s error=%v", sessionID, err)
@@ -452,7 +453,7 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update nickname (and rename tmux session)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	err := s.session.RenameSession(ctx, sessionID, req.Nickname)
 	cancel()
 	if err != nil {
@@ -530,60 +531,6 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 
 // handleConfigGet returns the current config.
 func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	type RepoResponse struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	}
-
-	type RunTargetResponse struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		Command string `json:"command"`
-		Source  string `json:"source,omitempty"`
-	}
-
-	type QuickLaunchResponse struct {
-		Name   string  `json:"name"`
-		Target string  `json:"target"`
-		Prompt *string `json:"prompt"`
-	}
-
-	type TerminalResponse struct {
-		Width          int `json:"width"`
-		Height         int `json:"height"`
-		SeedLines      int `json:"seed_lines"`
-		BootstrapLines int `json:"bootstrap_lines"`
-	}
-
-	type NudgenikResponse struct {
-		Target string `json:"target,omitempty"`
-	}
-
-	type InternalResponse struct {
-		MtimePollIntervalMs     int  `json:"mtime_poll_interval_ms"`
-		SessionsPollIntervalMs  int  `json:"sessions_poll_interval_ms"`
-		ViewedBufferMs          int  `json:"viewed_buffer_ms"`
-		SessionSeenIntervalMs   int  `json:"session_seen_interval_ms"`
-		GitStatusPollIntervalMs int  `json:"git_status_poll_interval_ms"`
-		GitCloneTimeoutSeconds  int  `json:"git_clone_timeout_seconds"`
-		GitStatusTimeoutSeconds int  `json:"git_status_timeout_seconds"`
-		MaxLogSizeMB            int  `json:"max_log_size_mb,omitempty"`
-		RotatedLogSizeMB        int  `json:"rotated_log_size_mb,omitempty"`
-		NetworkAccess           bool `json:"network_access"`
-	}
-
-	type ConfigResponse struct {
-		WorkspacePath string                 `json:"workspace_path"`
-		Repos         []RepoResponse         `json:"repos"`
-		RunTargets    []RunTargetResponse    `json:"run_targets"`
-		QuickLaunch   []QuickLaunchResponse  `json:"quick_launch"`
-		Variants      []config.VariantConfig `json:"variants,omitempty"`
-		Nudgenik      NudgenikResponse       `json:"nudgenik"`
-		Terminal      TerminalResponse       `json:"terminal"`
-		Internal      InternalResponse       `json:"internal"`
-		NeedsRestart  bool                   `json:"needs_restart"`
-	}
-
 	repos := s.config.GetRepos()
 	runTargets := s.config.GetRunTargets()
 	quickLaunch := s.config.GetQuickLaunch()
@@ -591,39 +538,52 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	seedLines := s.config.GetTerminalSeedLines()
 	bootstrapLines := s.config.GetTerminalBootstrapLines()
 
-	repoResp := make([]RepoResponse, len(repos))
+	repoResp := make([]contracts.Repo, len(repos))
 	for i, repo := range repos {
-		repoResp[i] = RepoResponse{Name: repo.Name, URL: repo.URL}
+		repoResp[i] = contracts.Repo{Name: repo.Name, URL: repo.URL}
 	}
 
-	runTargetResp := make([]RunTargetResponse, len(runTargets))
+	runTargetResp := make([]contracts.RunTarget, len(runTargets))
 	for i, target := range runTargets {
-		runTargetResp[i] = RunTargetResponse{Name: target.Name, Type: target.Type, Command: target.Command, Source: target.Source}
+		runTargetResp[i] = contracts.RunTarget{Name: target.Name, Type: target.Type, Command: target.Command, Source: target.Source}
 	}
-	quickLaunchResp := make([]QuickLaunchResponse, len(quickLaunch))
+	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
 	for i, preset := range quickLaunch {
-		quickLaunchResp[i] = QuickLaunchResponse{Name: preset.Name, Target: preset.Target, Prompt: preset.Prompt}
+		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: preset.Prompt}
 	}
 
-	response := ConfigResponse{
+	variants := make([]contracts.Variant, len(s.config.GetVariantConfigs()))
+	for i, variant := range s.config.GetVariantConfigs() {
+		variants[i] = contracts.Variant{Name: variant.Name, Enabled: variant.Enabled, Env: variant.Env}
+	}
+
+	response := contracts.ConfigResponse{
 		WorkspacePath: s.config.GetWorkspacePath(),
 		Repos:         repoResp,
 		RunTargets:    runTargetResp,
 		QuickLaunch:   quickLaunchResp,
-		Variants:      s.config.GetVariantConfigs(),
-		Nudgenik:      NudgenikResponse{Target: s.config.GetNudgenikTarget()},
-		Terminal:      TerminalResponse{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
-		Internal: InternalResponse{
-			MtimePollIntervalMs:     s.config.GetMtimePollIntervalMs(),
-			SessionsPollIntervalMs:  s.config.GetSessionsPollIntervalMs(),
-			ViewedBufferMs:          s.config.GetViewedBufferMs(),
-			SessionSeenIntervalMs:   s.config.GetSessionSeenIntervalMs(),
+		Variants:      variants,
+		Terminal:      contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
+		Nudgenik: contracts.Nudgenik{
+			Target:         s.config.GetNudgenikTarget(),
+			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
+			SeenIntervalMs: s.config.GetNudgenikSeenIntervalMs(),
+		},
+		Sessions: contracts.Sessions{
+			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
-			GitCloneTimeoutSeconds:  s.config.GetGitCloneTimeoutSeconds(),
-			GitStatusTimeoutSeconds: s.config.GetGitStatusTimeoutSeconds(),
-			MaxLogSizeMB:            int(s.config.GetMaxLogSizeMB()),
-			RotatedLogSizeMB:        int(s.config.GetRotatedLogSizeMB()),
-			NetworkAccess:           s.config.GetNetworkAccess(),
+			GitCloneTimeoutMs:       s.config.GetGitCloneTimeoutMs(),
+			GitStatusTimeoutMs:      s.config.GetGitStatusTimeoutMs(),
+		},
+		Xterm: contracts.Xterm{
+			MtimePollIntervalMs: s.config.GetXtermMtimePollIntervalMs(),
+			QueryTimeoutMs:      s.config.GetXtermQueryTimeoutMs(),
+			OperationTimeoutMs:  s.config.GetXtermOperationTimeoutMs(),
+			MaxLogSizeMB:        int(s.config.GetXtermMaxLogSizeMB()),
+			RotatedLogSizeMB:    int(s.config.GetXtermRotatedLogSizeMB()),
+		},
+		AccessControl: contracts.AccessControl{
+			NetworkAccess: s.config.GetNetworkAccess(),
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
@@ -632,55 +592,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// ConfigUpdateRequest represents a request to update the config.
-type ConfigUpdateRequest struct {
-	WorkspacePath *string `json:"workspace_path,omitempty"`
-	Repos         []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	} `json:"repos,omitempty"`
-	RunTargets []struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		Command string `json:"command"`
-		Source  string `json:"source,omitempty"`
-	} `json:"run_targets,omitempty"`
-	QuickLaunch []struct {
-		Name   string  `json:"name"`
-		Target string  `json:"target"`
-		Prompt *string `json:"prompt"`
-	} `json:"quick_launch,omitempty"`
-	Variants []struct {
-		Name    string            `json:"name"`
-		Enabled *bool             `json:"enabled,omitempty"`
-		Env     map[string]string `json:"env,omitempty"`
-	} `json:"variants,omitempty"`
-	Nudgenik *struct {
-		Target *string `json:"target,omitempty"`
-	} `json:"nudgenik,omitempty"`
-	Terminal *struct {
-		Width          *int `json:"width,omitempty"`
-		Height         *int `json:"height,omitempty"`
-		SeedLines      *int `json:"seed_lines,omitempty"`
-		BootstrapLines *int `json:"bootstrap_lines,omitempty"`
-	} `json:"terminal,omitempty"`
-	Internal *struct {
-		MtimePollIntervalMs     *int  `json:"mtime_poll_interval_ms,omitempty"`
-		SessionsPollIntervalMs  *int  `json:"sessions_poll_interval_ms,omitempty"`
-		ViewedBufferMs          *int  `json:"viewed_buffer_ms,omitempty"`
-		SessionSeenIntervalMs   *int  `json:"session_seen_interval_ms,omitempty"`
-		GitStatusPollIntervalMs *int  `json:"git_status_poll_interval_ms,omitempty"`
-		GitCloneTimeoutSeconds  *int  `json:"git_clone_timeout_seconds,omitempty"`
-		GitStatusTimeoutSeconds *int  `json:"git_status_timeout_seconds,omitempty"`
-		MaxLogSizeMB            *int  `json:"max_log_size_mb,omitempty"`
-		RotatedLogSizeMB        *int  `json:"rotated_log_size_mb,omitempty"`
-		NetworkAccess           *bool `json:"network_access,omitempty"`
-	} `json:"internal,omitempty"`
-}
-
 // handleConfigUpdate handles config update requests.
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
-	var req ConfigUpdateRequest
+	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("[config] invalid JSON payload: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
@@ -781,14 +695,21 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Nudgenik != nil {
-		target := ""
-		if req.Nudgenik.Target != nil {
-			target = strings.TrimSpace(*req.Nudgenik.Target)
+		if cfg.Nudgenik == nil {
+			cfg.Nudgenik = &config.NudgenikConfig{}
 		}
-		if target == "" {
+		if req.Nudgenik.Target != nil {
+			target := strings.TrimSpace(*req.Nudgenik.Target)
+			cfg.Nudgenik.Target = target
+		}
+		if req.Nudgenik.ViewedBufferMs != nil && *req.Nudgenik.ViewedBufferMs > 0 {
+			cfg.Nudgenik.ViewedBufferMs = *req.Nudgenik.ViewedBufferMs
+		}
+		if req.Nudgenik.SeenIntervalMs != nil && *req.Nudgenik.SeenIntervalMs > 0 {
+			cfg.Nudgenik.SeenIntervalMs = *req.Nudgenik.SeenIntervalMs
+		}
+		if cfg.Nudgenik.Target == "" && cfg.Nudgenik.ViewedBufferMs <= 0 && cfg.Nudgenik.SeenIntervalMs <= 0 {
 			cfg.Nudgenik = nil
-		} else {
-			cfg.Nudgenik = &config.NudgenikConfig{Target: target}
 		}
 	}
 
@@ -810,48 +731,55 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Internal != nil {
-		if cfg.Internal == nil {
-			cfg.Internal = &config.InternalIntervals{}
+	if req.Sessions != nil {
+		if cfg.Sessions == nil {
+			cfg.Sessions = &config.SessionsConfig{}
 		}
-		if cfg.Internal.Timeouts == nil {
-			cfg.Internal.Timeouts = &config.Timeouts{}
+		if req.Sessions.DashboardPollIntervalMs != nil && *req.Sessions.DashboardPollIntervalMs > 0 {
+			cfg.Sessions.DashboardPollIntervalMs = *req.Sessions.DashboardPollIntervalMs
 		}
-		if req.Internal.MtimePollIntervalMs != nil && *req.Internal.MtimePollIntervalMs > 0 {
-			cfg.Internal.MtimePollIntervalMs = *req.Internal.MtimePollIntervalMs
+		if req.Sessions.GitStatusPollIntervalMs != nil && *req.Sessions.GitStatusPollIntervalMs > 0 {
+			cfg.Sessions.GitStatusPollIntervalMs = *req.Sessions.GitStatusPollIntervalMs
 		}
-		if req.Internal.SessionsPollIntervalMs != nil && *req.Internal.SessionsPollIntervalMs > 0 {
-			cfg.Internal.SessionsPollIntervalMs = *req.Internal.SessionsPollIntervalMs
+		if req.Sessions.GitCloneTimeoutMs != nil && *req.Sessions.GitCloneTimeoutMs > 0 {
+			cfg.Sessions.GitCloneTimeoutMs = *req.Sessions.GitCloneTimeoutMs
 		}
-		if req.Internal.ViewedBufferMs != nil && *req.Internal.ViewedBufferMs > 0 {
-			cfg.Internal.ViewedBufferMs = *req.Internal.ViewedBufferMs
+		if req.Sessions.GitStatusTimeoutMs != nil && *req.Sessions.GitStatusTimeoutMs > 0 {
+			cfg.Sessions.GitStatusTimeoutMs = *req.Sessions.GitStatusTimeoutMs
 		}
-		if req.Internal.SessionSeenIntervalMs != nil && *req.Internal.SessionSeenIntervalMs > 0 {
-			cfg.Internal.SessionSeenIntervalMs = *req.Internal.SessionSeenIntervalMs
+	}
+
+	if req.Xterm != nil {
+		if cfg.Xterm == nil {
+			cfg.Xterm = &config.XtermConfig{}
 		}
-		if req.Internal.GitStatusPollIntervalMs != nil && *req.Internal.GitStatusPollIntervalMs > 0 {
-			cfg.Internal.GitStatusPollIntervalMs = *req.Internal.GitStatusPollIntervalMs
+		if req.Xterm.MtimePollIntervalMs != nil && *req.Xterm.MtimePollIntervalMs > 0 {
+			cfg.Xterm.MtimePollIntervalMs = *req.Xterm.MtimePollIntervalMs
 		}
-		if req.Internal.GitCloneTimeoutSeconds != nil && *req.Internal.GitCloneTimeoutSeconds > 0 {
-			cfg.Internal.Timeouts.GitCloneSeconds = *req.Internal.GitCloneTimeoutSeconds
+		if req.Xterm.QueryTimeoutMs != nil && *req.Xterm.QueryTimeoutMs > 0 {
+			cfg.Xterm.QueryTimeoutMs = *req.Xterm.QueryTimeoutMs
 		}
-		if req.Internal.GitStatusTimeoutSeconds != nil && *req.Internal.GitStatusTimeoutSeconds > 0 {
-			cfg.Internal.Timeouts.GitStatusSeconds = *req.Internal.GitStatusTimeoutSeconds
+		if req.Xterm.OperationTimeoutMs != nil && *req.Xterm.OperationTimeoutMs > 0 {
+			cfg.Xterm.OperationTimeoutMs = *req.Xterm.OperationTimeoutMs
 		}
-		if req.Internal.MaxLogSizeMB != nil && *req.Internal.MaxLogSizeMB > 0 {
-			cfg.Internal.MaxLogSizeMB = *req.Internal.MaxLogSizeMB
+		if req.Xterm.MaxLogSizeMB != nil && *req.Xterm.MaxLogSizeMB > 0 {
+			cfg.Xterm.MaxLogSizeMB = *req.Xterm.MaxLogSizeMB
 		}
-		if req.Internal.RotatedLogSizeMB != nil && *req.Internal.RotatedLogSizeMB > 0 {
-			cfg.Internal.RotatedLogSizeMB = *req.Internal.RotatedLogSizeMB
+		if req.Xterm.RotatedLogSizeMB != nil && *req.Xterm.RotatedLogSizeMB > 0 {
+			cfg.Xterm.RotatedLogSizeMB = *req.Xterm.RotatedLogSizeMB
 		}
-		if req.Internal.NetworkAccess != nil {
-			// Check if network access is changing
-			if *req.Internal.NetworkAccess != cfg.NetworkAccess {
-				s.state.SetNeedsRestart(true)
-				s.state.Save()
-			}
-			cfg.NetworkAccess = *req.Internal.NetworkAccess
+	}
+
+	if req.AccessControl != nil && req.AccessControl.NetworkAccess != nil {
+		if cfg.AccessControl == nil {
+			cfg.AccessControl = &config.AccessControlConfig{}
 		}
+		// Check if network access is changing
+		if *req.AccessControl.NetworkAccess != cfg.AccessControl.NetworkAccess {
+			s.state.SetNeedsRestart(true)
+			s.state.Save()
+		}
+		cfg.AccessControl.NetworkAccess = *req.AccessControl.NetworkAccess
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -1106,7 +1034,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// --numstat shows: added/deleted lines filename
 	// -z uses null terminators for parsing
 	// --find-renames finds renames
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
 	output, err := cmd.Output()
 	cancel()
@@ -1134,7 +1062,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		// Skip if file was deleted (added is "-")
 		if added == "-" {
 			// For deleted files, get old content
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 			oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
 			cancel()
 			files = append(files, FileDiff{
@@ -1146,7 +1074,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if file is new (deleted is "0" and file doesn't exist in HEAD)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 		newContent := s.getFileContent(ctx, ws.Path, filePath, "worktree")
 		oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
 		cancel()
@@ -1166,7 +1094,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	// Get untracked files
 	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
-	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutSeconds())*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	untrackedCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "ls-files", "--others", "--exclude-standard")
 	untrackedOutput, err := untrackedCmd.Output()
 	cancel()
@@ -1460,7 +1388,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	defer cancel()
 
 	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {

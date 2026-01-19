@@ -43,12 +43,14 @@ type ConfigSnapshot = {
   terminalSeedLines: string;
   terminalBootstrapLines: string;
   mtimePollInterval: number;
-  sessionsPollInterval: number;
+  dashboardPollInterval: number;
   viewedBuffer: number;
-  sessionSeenInterval: number;
+  nudgenikSeenInterval: number;
   gitStatusPollInterval: number;
   gitCloneTimeout: number;
   gitStatusTimeout: number;
+  xtermQueryTimeout: number;
+  xtermOperationTimeout: number;
   maxLogSizeMB: number;
   rotatedLogSizeMB: number;
   networkAccess: boolean;
@@ -118,18 +120,19 @@ export default function ConfigPage() {
   const [terminalSeedLines, setTerminalSeedLines] = useState('100');
   const [terminalBootstrapLines, setTerminalBootstrapLines] = useState('20000');
 
-  // Internal settings state
+  // Advanced settings state
   const [mtimePollInterval, setMtimePollInterval] = useState(5000);
-  const [sessionsPollInterval, setSessionsPollInterval] = useState(5000);
+  const [dashboardPollInterval, setDashboardPollInterval] = useState(5000);
   const [viewedBuffer, setViewedBuffer] = useState(5000);
-  const [sessionSeenInterval, setSessionSeenInterval] = useState(2000);
+  const [nudgenikSeenInterval, setNudgenikSeenInterval] = useState(2000);
   const [gitStatusPollInterval, setGitStatusPollInterval] = useState(10000);
-  const [gitCloneTimeout, setGitCloneTimeout] = useState(300);
-  const [gitStatusTimeout, setGitStatusTimeout] = useState(30);
+  const [gitCloneTimeout, setGitCloneTimeout] = useState(300000);
+  const [gitStatusTimeout, setGitStatusTimeout] = useState(30000);
+  const [xtermQueryTimeout, setXtermQueryTimeout] = useState(5000);
+  const [xtermOperationTimeout, setXtermOperationTimeout] = useState(10000);
   const [maxLogSizeMB, setMaxLogSizeMB] = useState(50);
   const [rotatedLogSizeMB, setRotatedLogSizeMB] = useState(1);
   const [networkAccess, setNetworkAccess] = useState(false);
-  const [originalNetworkAccess, setOriginalNetworkAccess] = useState(false);
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
 
   // Overlays state
@@ -156,12 +159,14 @@ export default function ConfigPage() {
       terminalSeedLines,
       terminalBootstrapLines,
       mtimePollInterval,
-      sessionsPollInterval,
+      dashboardPollInterval,
       viewedBuffer,
-      sessionSeenInterval,
+      nudgenikSeenInterval,
       gitStatusPollInterval,
       gitCloneTimeout,
       gitStatusTimeout,
+      xtermQueryTimeout,
+      xtermOperationTimeout,
       maxLogSizeMB,
       rotatedLogSizeMB,
       networkAccess,
@@ -185,12 +190,14 @@ export default function ConfigPage() {
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
       current.terminalBootstrapLines !== originalConfig.terminalBootstrapLines ||
       current.mtimePollInterval !== originalConfig.mtimePollInterval ||
-      current.sessionsPollInterval !== originalConfig.sessionsPollInterval ||
+      current.dashboardPollInterval !== originalConfig.dashboardPollInterval ||
       current.viewedBuffer !== originalConfig.viewedBuffer ||
-      current.sessionSeenInterval !== originalConfig.sessionSeenInterval ||
+      current.nudgenikSeenInterval !== originalConfig.nudgenikSeenInterval ||
       current.gitStatusPollInterval !== originalConfig.gitStatusPollInterval ||
       current.gitCloneTimeout !== originalConfig.gitCloneTimeout ||
       current.gitStatusTimeout !== originalConfig.gitStatusTimeout ||
+      current.xtermQueryTimeout !== originalConfig.xtermQueryTimeout ||
+      current.xtermOperationTimeout !== originalConfig.xtermOperationTimeout ||
       current.maxLogSizeMB !== originalConfig.maxLogSizeMB ||
       current.rotatedLogSizeMB !== originalConfig.rotatedLogSizeMB ||
       current.networkAccess !== originalConfig.networkAccess
@@ -237,18 +244,19 @@ export default function ConfigPage() {
         setQuickLaunch(data.quick_launch || []);
         setNudgenikTarget(data.nudgenik?.target || '');
 
-        setMtimePollInterval(data.internal?.mtime_poll_interval_ms || 5000);
-        setSessionsPollInterval(data.internal?.sessions_poll_interval_ms || 5000);
-        setViewedBuffer(data.internal?.viewed_buffer_ms || 5000);
-        setSessionSeenInterval(data.internal?.session_seen_interval_ms || 2000);
-        setGitStatusPollInterval(data.internal?.git_status_poll_interval_ms || 10000);
-        setGitCloneTimeout(data.internal?.git_clone_timeout_seconds || 300);
-        setGitStatusTimeout(data.internal?.git_status_timeout_seconds || 30);
-        setMaxLogSizeMB(data.internal?.max_log_size_mb || 50);
-        setRotatedLogSizeMB(data.internal?.rotated_log_size_mb || 1);
-        const netAccess = data.internal?.network_access || false;
+        setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
+        setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
+        setViewedBuffer(data.nudgenik?.viewed_buffer_ms || 5000);
+        setNudgenikSeenInterval(data.nudgenik?.seen_interval_ms || 2000);
+        setGitStatusPollInterval(data.sessions?.git_status_poll_interval_ms || 10000);
+        setGitCloneTimeout(data.sessions?.git_clone_timeout_ms || 300000);
+        setGitStatusTimeout(data.sessions?.git_status_timeout_ms || 30000);
+        setXtermQueryTimeout(data.xterm?.query_timeout_ms || 5000);
+        setXtermOperationTimeout(data.xterm?.operation_timeout_ms || 10000);
+        setMaxLogSizeMB(data.xterm?.max_log_size_mb || 50);
+        setRotatedLogSizeMB(data.xterm?.rotated_log_size_mb || 1);
+        const netAccess = data.access_control?.network_access || false;
         setNetworkAccess(netAccess);
-        setOriginalNetworkAccess(netAccess);
         setApiNeedsRestart(data.needs_restart || false);
 
         // Set original config for change detection (non-wizard mode)
@@ -264,15 +272,17 @@ export default function ConfigPage() {
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
             terminalBootstrapLines: String(data.terminal?.bootstrap_lines || 20000),
-            mtimePollInterval: data.internal?.mtime_poll_interval_ms || 5000,
-            sessionsPollInterval: data.internal?.sessions_poll_interval_ms || 5000,
-            viewedBuffer: data.internal?.viewed_buffer_ms || 5000,
-            sessionSeenInterval: data.internal?.session_seen_interval_ms || 2000,
-            gitStatusPollInterval: data.internal?.git_status_poll_interval_ms || 10000,
-            gitCloneTimeout: data.internal?.git_clone_timeout_seconds || 300,
-            gitStatusTimeout: data.internal?.git_status_timeout_seconds || 30,
-            maxLogSizeMB: data.internal?.max_log_size_mb || 50,
-            rotatedLogSizeMB: data.internal?.rotated_log_size_mb || 1,
+            mtimePollInterval: data.xterm?.mtime_poll_interval_ms || 5000,
+            dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
+            viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
+            nudgenikSeenInterval: data.nudgenik?.seen_interval_ms || 2000,
+            gitStatusPollInterval: data.sessions?.git_status_poll_interval_ms || 10000,
+            gitCloneTimeout: data.sessions?.git_clone_timeout_ms || 300000,
+            gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
+            xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
+            xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
+            maxLogSizeMB: data.xterm?.max_log_size_mb || 50,
+            rotatedLogSizeMB: data.xterm?.rotated_log_size_mb || 1,
             networkAccess: netAccess,
           });
         }
@@ -402,19 +412,27 @@ export default function ConfigPage() {
         repos: repos,
         run_targets: runTargets,
         quick_launch: quickLaunch,
-        nudgenik: { target: nudgenikTarget || '' },
-        internal: {
-          mtime_poll_interval_ms: mtimePollInterval,
-          sessions_poll_interval_ms: sessionsPollInterval,
+        nudgenik: {
+          target: nudgenikTarget || '',
           viewed_buffer_ms: viewedBuffer,
-          session_seen_interval_ms: sessionSeenInterval,
+          seen_interval_ms: nudgenikSeenInterval,
+        },
+        sessions: {
+          dashboard_poll_interval_ms: dashboardPollInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
-          git_clone_timeout_seconds: gitCloneTimeout,
-          git_status_timeout_seconds: gitStatusTimeout,
+          git_clone_timeout_ms: gitCloneTimeout,
+          git_status_timeout_ms: gitStatusTimeout,
+        },
+        xterm: {
+          mtime_poll_interval_ms: mtimePollInterval,
+          query_timeout_ms: xtermQueryTimeout,
+          operation_timeout_ms: xtermOperationTimeout,
           max_log_size_mb: maxLogSizeMB,
           rotated_log_size_mb: rotatedLogSizeMB,
+        },
+        access_control: {
           network_access: networkAccess,
-        }
+        },
       };
 
       const result = await updateConfig(updateRequest);
@@ -423,7 +441,6 @@ export default function ConfigPage() {
       // Reload config to get updated needs_restart flag from server
       const reloaded = await getConfig();
       setApiNeedsRestart(reloaded.needs_restart || false);
-      setOriginalNetworkAccess(networkAccess);
 
       // Update original config after successful save (non-wizard mode)
       if (!isFirstRun) {
@@ -439,12 +456,14 @@ export default function ConfigPage() {
           terminalSeedLines,
           terminalBootstrapLines,
           mtimePollInterval,
-          sessionsPollInterval,
+          dashboardPollInterval,
           viewedBuffer,
-          sessionSeenInterval,
+          nudgenikSeenInterval,
           gitStatusPollInterval,
           gitCloneTimeout,
           gitStatusTimeout,
+          xtermQueryTimeout,
+          xtermOperationTimeout,
           maxLogSizeMB,
           rotatedLogSizeMB,
           networkAccess,
@@ -1307,7 +1326,7 @@ export default function ConfigPage() {
             <div className="wizard-step-content" data-step="5">
               <h2 className="wizard-step-content__title">Advanced Settings</h2>
               <p className="wizard-step-content__description">
-                Terminal dimensions and internal timing intervals. You can leave these as defaults unless you have specific needs.
+                Terminal dimensions and advanced timing controls. You can leave these as defaults unless you have specific needs.
               </p>
 
               <div className="settings-section">
@@ -1444,11 +1463,11 @@ export default function ConfigPage() {
 
               <div className="settings-section">
                 <div className="settings-section__header">
-                  <h3 className="settings-section__title">Internal Settings</h3>
+                  <h3 className="settings-section__title">Advanced Settings</h3>
                 </div>
                 <div className="settings-section__body">
                   <div className="form-group">
-                    <label className="form-group__label">Mtime Poll Interval (ms)</label>
+                    <label className="form-group__label">Xterm Mtime Poll Interval (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
@@ -1460,19 +1479,19 @@ export default function ConfigPage() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-group__label">Sessions Poll Interval (ms)</label>
+                    <label className="form-group__label">Dashboard Poll Interval (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
                       min="100"
-                      value={sessionsPollInterval === 0 ? '' : sessionsPollInterval}
-                      onChange={(e) => setSessionsPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                      value={dashboardPollInterval === 0 ? '' : dashboardPollInterval}
+                      onChange={(e) => setDashboardPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
                     />
                     <p className="form-group__hint">How often to refresh sessions list</p>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-group__label">Viewed Buffer (ms)</label>
+                    <label className="form-group__label">NudgeNik Viewed Buffer (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
@@ -1484,13 +1503,13 @@ export default function ConfigPage() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-group__label">Session Seen Interval (ms)</label>
+                    <label className="form-group__label">NudgeNik Seen Interval (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
                       min="100"
-                      value={sessionSeenInterval === 0 ? '' : sessionSeenInterval}
-                      onChange={(e) => setSessionSeenInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 2000)}
+                      value={nudgenikSeenInterval === 0 ? '' : nudgenikSeenInterval}
+                      onChange={(e) => setNudgenikSeenInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 2000)}
                     />
                     <p className="form-group__hint">How often to check for session activity</p>
                   </div>
@@ -1508,27 +1527,51 @@ export default function ConfigPage() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-group__label">Git Clone Timeout (seconds)</label>
+                    <label className="form-group__label">Git Clone Timeout (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
-                      min="10"
+                      min="100"
                       value={gitCloneTimeout === 0 ? '' : gitCloneTimeout}
-                      onChange={(e) => setGitCloneTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 300)}
+                      onChange={(e) => setGitCloneTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 300000)}
                     />
-                    <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300s = 5 min)</p>
+                    <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300000ms = 5 min)</p>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-group__label">Git Status Timeout (seconds)</label>
+                    <label className="form-group__label">Git Status Timeout (ms)</label>
                     <input
                       type="number"
                       className="input input--compact"
-                      min="5"
+                      min="100"
                       value={gitStatusTimeout === 0 ? '' : gitStatusTimeout}
-                      onChange={(e) => setGitStatusTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 30)}
+                      onChange={(e) => setGitStatusTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 30000)}
                     />
-                    <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30s)</p>
+                    <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30000ms)</p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Xterm Query Timeout (ms)</label>
+                    <input
+                      type="number"
+                      className="input input--compact"
+                      min="100"
+                      value={xtermQueryTimeout === 0 ? '' : xtermQueryTimeout}
+                      onChange={(e) => setXtermQueryTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                    />
+                    <p className="form-group__hint">Maximum time to wait for xterm query operations (default: 5000ms)</p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Xterm Operation Timeout (ms)</label>
+                    <input
+                      type="number"
+                      className="input input--compact"
+                      min="100"
+                      value={xtermOperationTimeout === 0 ? '' : xtermOperationTimeout}
+                      onChange={(e) => setXtermOperationTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
+                    />
+                    <p className="form-group__hint">Maximum time to wait for xterm operations (default: 10000ms)</p>
                   </div>
 
                   <div className="form-group">

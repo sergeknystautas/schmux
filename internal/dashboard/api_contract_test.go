@@ -175,7 +175,7 @@ func TestAPIContract_ConfigGet(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	required := []string{"workspace_path", "repos", "run_targets", "quick_launch", "nudgenik", "terminal", "internal", "needs_restart"}
+	required := []string{"workspace_path", "repos", "run_targets", "quick_launch", "nudgenik", "terminal", "sessions", "xterm", "access_control", "needs_restart"}
 	for _, key := range required {
 		if _, ok := resp[key]; !ok {
 			t.Fatalf("expected key %q in config response", key)
@@ -215,7 +215,7 @@ func TestAPIContract_SessionsShape(t *testing.T) {
 	sess := state.Session{
 		ID:          "sess-1",
 		WorkspaceID: "ws-1",
-		Target:       "command",
+		Target:      "command",
 		TmuxSession: "tmux-1",
 		CreatedAt:   time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		Pid:         999999,
@@ -328,7 +328,7 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 		sess := state.Session{
 			ID:          "dead-session",
 			WorkspaceID: "ws-dead",
-			Target:       "command",
+			Target:      "command",
 			TmuxSession: "tmux-dead",
 			CreatedAt:   time.Now(),
 			Pid:         999999,
