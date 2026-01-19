@@ -268,14 +268,23 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 
 	m.logger.Printf("preparing workspace: id=%s branch=%s", workspaceID, branch)
 
-	// Fetch latest
-	if err := m.gitFetch(ctx, w.Path); err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
+	hasOrigin := m.gitHasOriginRemote(ctx, w.Path)
+	if hasOrigin {
+		// Fetch latest
+		if err := m.gitFetch(ctx, w.Path); err != nil {
+			return fmt.Errorf("git fetch failed: %w", err)
+		}
+	} else {
+		m.logger.Printf("no origin remote, skipping fetch")
 	}
 
-	// Checkout branch
-	if err := m.gitCheckout(ctx, w.Path, branch); err != nil {
-		return fmt.Errorf("git checkout failed: %w", err)
+	remoteBranchExists := false
+	if hasOrigin {
+		var err error
+		remoteBranchExists, err = m.gitRemoteBranchExists(ctx, w.Path, branch)
+		if err != nil {
+			return fmt.Errorf("git remote branch check failed: %w", err)
+		}
 	}
 
 	// Discard any local changes (must happen before pull)
@@ -288,9 +297,18 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
+	// Checkout/reset branch after cleaning
+	if err := m.gitCheckoutBranch(ctx, w.Path, branch, remoteBranchExists); err != nil {
+		return fmt.Errorf("git checkout failed: %w", err)
+	}
+
 	// Pull with rebase (working dir is now clean)
-	if err := m.gitPullRebase(ctx, w.Path, branch); err != nil {
-		return fmt.Errorf("git pull --rebase failed (conflicts?): %w", err)
+	if remoteBranchExists {
+		if err := m.gitPullRebase(ctx, w.Path, branch); err != nil {
+			return fmt.Errorf("git pull --rebase failed (conflicts?): %w", err)
+		}
+	} else {
+		m.logger.Printf("no origin/%s remote ref, skipping pull", branch)
 	}
 
 	m.logger.Printf("workspace prepared: id=%s branch=%s", workspaceID, branch)
@@ -416,22 +434,17 @@ func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 	return nil
 }
 
-// gitCheckout runs git checkout, falling back to creating a new branch if needed.
-func (m *Manager) gitCheckout(ctx context.Context, dir, branch string) error {
-	// Try regular checkout first (handles existing local/remote branches)
-	args := []string{"checkout", branch}
+// gitCheckoutBranch runs git checkout -B, optionally resetting to origin/<branch>.
+func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, remoteBranchExists bool) error {
+	args := []string{"checkout", "-B", branch}
+	if remoteBranchExists {
+		args = append(args, "origin/"+branch)
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
-	if _, err := cmd.CombinedOutput(); err != nil {
-		// If checkout failed, try creating a new branch
-		args = []string{"checkout", "-b", branch}
-		cmd = exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = dir
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git checkout failed: %w: %s", err, string(output))
-		}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout failed: %w: %s", err, string(output))
 	}
 
 	return nil
@@ -460,6 +473,29 @@ func (m *Manager) gitPullRebase(ctx context.Context, dir, branch string) error {
 	}
 
 	return nil
+}
+
+// gitHasOriginRemote checks if the repo has an origin remote configured.
+func (m *Manager) gitHasOriginRemote(ctx context.Context, dir string) bool {
+	remoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+	remoteCmd.Dir = dir
+	return remoteCmd.Run() == nil
+}
+
+// gitRemoteBranchExists checks for refs/remotes/origin/<branch>.
+func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string) (bool, error) {
+	ref := "refs/remotes/origin/" + branch
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
+	cmd.Dir = dir
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git show-ref failed: %w", err)
+	}
+
+	return true, nil
 }
 
 // gitCheckoutDot runs git checkout -- .
