@@ -158,6 +158,7 @@ Then start the daemon:
 - [docs/sessions.md](docs/sessions.md) - Session lifecycle and management
 - [docs/web.md](docs/web.md) - Web dashboard
 - [docs/cli.md](docs/cli.md) - CLI command reference
+- [docs/api.md](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
 - [docs/dev/README.md](docs/dev/README.md) - Contributor guide
 

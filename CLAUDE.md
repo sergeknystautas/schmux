@@ -68,7 +68,7 @@ go test -cover ./...
 
 ## Web Dashboard Guidelines
 
-See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. Key principles:
+See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. For API contracts, see `docs/api.md`. Key principles:
 
 - **CLI-first**: web dashboard is for observability/orchestration
 - **Status-first**: running/stopped/error visually consistent everywhere
@@ -87,6 +87,7 @@ Routes:
 - `docs/PHILOSOPHY.md` - Product philosophy (source of truth)
 - `docs/cli.md` - CLI command reference
 - `docs/web.md` - Web dashboard UX
+- `docs/api.md` - Daemon HTTP API contract (client-agnostic)
 - `docs/dev/react.md` - React architecture
 - `docs/dev/architecture.md` - Backend architecture
 - `AGENTS.md` - Architecture guidelines (for non-Claude agents)

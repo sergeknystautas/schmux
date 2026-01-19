@@ -1,0 +1,40 @@
+// Dump daemon logs
+// Copy config.json, state.json
+// Run tmux ls and capture output
+// Capture API responses
+// Write to testdata/failures/<test-name>/
+}
+---
+File Changes Summary
+┌────────────────────────────────┬────────┬──────────────────────────┐
+│              File              │ Action │         Purpose          │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/config/config.go      │ Modify │ Add env override support │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/state/state.go        │ Modify │ Add env override support │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/daemon/daemon.go      │ Modify │ Use env-aware loaders    │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/e2e/e2e_test.go       │ Create │ Main E2E test suite      │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/e2e/e2e.go            │ Create │ Test harness and helpers │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ internal/e2e/testdata/.gitkeep │ Create │ For failure artifacts    │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ Dockerfile.e2e                 │ Create │ E2E test environment     │
+├────────────────────────────────┼────────┼──────────────────────────┤
+│ .github/workflows/e2e.yml      │ Create │ CI automation            │
+└────────────────────────────────┴────────┴──────────────────────────┘
+---
+Order of Implementation
+1. Add env override support to config/state (enables isolation)
+2. Create test harness (internal/e2e/e2e.go)
+3. Implement daemon lifecycle test
+4. Implement workspace creation test
+5. Implement two sessions naming test
+6. Implement session teardown test
+7. Create Dockerfile and verify local E2E runs
+8. Add GitHub Actions workflow
+---
+Ready to proceed with implementation when you confirm. Any adjustments to the approach?
+✻ Brewed for 3m 14s

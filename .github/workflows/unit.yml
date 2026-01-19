@@ -19,5 +19,8 @@ jobs:
           go-version: '1.23'
           cache: true
 
+      - name: Enforce API doc updates
+        run: scripts/check-api-docs.sh
+
       - name: Run tests
         run: go test -v ./...
