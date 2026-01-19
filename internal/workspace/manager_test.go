@@ -751,6 +751,53 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 	t.Log("gitPullRebase() takes branch parameter - explicitly pulls from origin/<branch>")
 }
 
+func TestGitRemoteBranchExists(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	runGit(t, remoteDir, "checkout", "-b", "feature")
+	writeFile(t, remoteDir, "feature.txt", "feature")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "feature")
+	runGit(t, remoteDir, "checkout", "main")
+
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	exists, err := m.gitRemoteBranchExists(ctx, cloneDir, "main")
+	if err != nil {
+		t.Fatalf("gitRemoteBranchExists(main) error: %v", err)
+	}
+	if !exists {
+		t.Error("gitRemoteBranchExists(main) expected true")
+	}
+
+	exists, err = m.gitRemoteBranchExists(ctx, cloneDir, "feature")
+	if err != nil {
+		t.Fatalf("gitRemoteBranchExists(feature) error: %v", err)
+	}
+	if !exists {
+		t.Error("gitRemoteBranchExists(feature) expected true")
+	}
+
+	exists, err = m.gitRemoteBranchExists(ctx, cloneDir, "missing-branch")
+	if err != nil {
+		t.Fatalf("gitRemoteBranchExists(missing-branch) error: %v", err)
+	}
+	if exists {
+		t.Error("gitRemoteBranchExists(missing-branch) expected false")
+	}
+}
+
 func TestGetOrCreate_LocalRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
