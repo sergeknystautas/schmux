@@ -215,23 +215,16 @@ func (e *Env) CreateConfig(workspacePath string) {
 		e.T.Fatalf("Failed to create .schmux dir: %v", err)
 	}
 
-	cfg := &config.Config{
-		WorkspacePath: workspacePath,
-		Repos:         []config.Repo{},
-		RunTargets: []config.RunTarget{
-			// Keep the session alive long enough for pipe-pane and tmux assertions.
-			{Name: "echo", Type: "command", Command: "sh -c 'echo hello; sleep 600'", Source: "user"},
-			// Echoes input back for websocket output tests.
-			{Name: "cat", Type: "command", Command: "cat", Source: "user"},
-		},
-		Terminal: &config.TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
-		},
+	configPath := filepath.Join(schmuxDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = workspacePath
+	cfg.RunTargets = []config.RunTarget{
+		// Keep the session alive long enough for pipe-pane and tmux assertions.
+		{Name: "echo", Type: "command", Command: "sh -c 'echo hello; sleep 600'", Source: "user"},
+		// Echoes input back for websocket output tests.
+		{Name: "cat", Type: "command", Command: "cat", Source: "user"},
 	}
 
-	cfg.SetPath(filepath.Join(schmuxDir, "config.json"))
 	if err := cfg.Save(); err != nil {
 		e.T.Fatalf("Failed to save config: %v", err)
 	}
@@ -327,7 +320,7 @@ func (e *Env) AddRepoToConfig(name, url string) {
 	schmuxDir := filepath.Join(homeDir, ".schmux")
 	configPath := filepath.Join(schmuxDir, "config.json")
 
-	cfg, err := config.LoadFrom(configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		e.T.Fatalf("Failed to load config: %v", err)
 	}
