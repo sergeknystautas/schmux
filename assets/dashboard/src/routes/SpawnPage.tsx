@@ -211,6 +211,10 @@ export default function SpawnPage() {
     }
 
     if (currentStep === 2) {
+      if (!spawnMode) {
+        toastError('Please select a mode (Promptable or Command)');
+        return false;
+      }
       if (spawnMode === 'promptable') {
         if (totalPromptableCount === 0) {
           toastError('Please select at least one target');
