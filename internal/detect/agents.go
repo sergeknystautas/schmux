@@ -85,7 +85,7 @@ func DetectAvailableTools(printProgress bool) []Tool {
 		close(results)
 	}()
 
-	var tools []Tool
+	tools := []Tool{}
 	for r := range results {
 		if r.found {
 			// Detector already logged the specifics
@@ -143,7 +143,7 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 		close(results)
 	}()
 
-	var tools []Tool
+	tools := []Tool{}
 	for r := range results {
 		if r.found {
 			// Detector already logged the specifics

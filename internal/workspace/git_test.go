@@ -25,8 +25,8 @@ func gitTestWorkTree(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Initialize repo
-	runGit(t, dir, "init")
+	// Initialize repo on main branch
+	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.email", "test@test.com")
 	runGit(t, dir, "config", "user.name", "Test User")
 
