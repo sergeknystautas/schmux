@@ -92,6 +92,50 @@ For manual verification of the full system:
 
 ---
 
+## End-to-End (E2E) Testing
+
+E2E tests validate the full system: CLI → daemon → tmux → HTTP API.
+
+### Running E2E Tests
+
+**In Docker (recommended):**
+```bash
+# Build and run E2E tests in Docker
+docker build -f Dockerfile.e2e -t schmux-e2e .
+docker run --rm schmux-e2e
+
+# Or with artifact capture on failure
+docker run --rm -v $(pwd)/artifacts:/home/e2e/internal/e2e/testdata/failures schmux-e2e
+```
+
+**Locally (requires schmux binary in PATH):**
+```bash
+# Build schmux first
+go build -o schmux ./cmd/schmux
+
+# Run E2E tests
+go test -v ./internal/e2e
+```
+
+### What E2E Tests Validate
+
+- Daemon lifecycle (start/stop/health endpoint)
+- Workspace creation from local git repos
+- Session spawning with unique nicknames
+- Naming consistency across CLI, tmux, and API
+- Session disposal and cleanup
+
+### E2E Test Isolation
+
+E2E tests run in Docker containers. The container provides all isolation:
+- Container's `~/.schmux/` is isolated from host
+- Container's port 7337 is isolated
+- Container's tmux server is isolated
+
+For full details, see `docs/dev/e2e.md`.
+
+---
+
 ## Adding Tests
 
 When adding new functionality:

@@ -1,0 +1,66 @@
+# E2E Test Docker Image for schmux
+# This image provides an isolated environment for running end-to-end tests.
+# The container itself provides isolation - no need for HOME overrides.
+
+FROM golang:1.23-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /src
+
+# Copy source code
+COPY . .
+
+# Build the schmux binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o schmux ./cmd/schmux
+
+# Build the dashboard (requires Node.js)
+FROM node:20-bookworm AS dashboard-builder
+
+WORKDIR /src
+COPY --from=builder /src /src
+COPY assets/dashboard/package*.json assets/dashboard/
+RUN cd assets/dashboard && npm ci
+RUN cd assets/dashboard && npm run build
+
+# Final E2E test image
+FROM golang:1.23-bookworm
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    curl \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up a non-root user for running tests
+RUN useradd -m -u 1000 e2e
+
+# Copy built assets from previous stages
+COPY --from=builder /src/schmux /usr/local/bin/schmux
+COPY --from=dashboard-builder /src/assets/dashboard/dist /usr/local/share/schmux/dashboard
+
+# Copy source code for running tests (go.mod, internal/e2e, etc.)
+COPY --from=builder /src /tmp/src
+RUN chown -R e2e:e2e /tmp/src
+USER e2e
+WORKDIR /home/e2e
+RUN cp -r /tmp/src src && rm -rf /tmp/src
+
+# Add schmux to PATH
+ENV PATH="/usr/local/bin:${PATH}"
+# Disable Go build cache to avoid permission issues in container
+ENV GOCACHE=/tmp/go-cache
+
+# Verify installation
+RUN tmux -V
+
+# Default command runs E2E tests
+WORKDIR /home/e2e/src
+CMD ["go", "test", "-v", "./internal/e2e"]
