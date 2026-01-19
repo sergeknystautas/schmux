@@ -295,28 +295,6 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		totalToSpawn += spawnCount
 	}
 
-	// Look up repo URL from config if repo name is provided
-	repoURL := req.Repo
-	if req.Repo != "" && req.WorkspaceID == "" {
-		// Find repo by name in config
-		if repo, found := s.config.FindRepo(req.Repo); found {
-			repoURL = repo.URL
-		} else {
-			// Repo not found, return error for all targets
-			results := make([]SessionResult, 0)
-			for targetName := range req.Targets {
-				results = append(results, SessionResult{
-					Target: targetName,
-					Error:  fmt.Sprintf("repo not found in config: %s", req.Repo),
-				})
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(results)
-			return
-		}
-	}
-
 	// Global counter for nickname numbering across all targets
 	globalIndex := 0
 
@@ -359,7 +337,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			}
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutSeconds())*time.Second)
-			sess, err := s.session.Spawn(ctx, repoURL, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID)
+			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID)
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{

@@ -332,11 +332,11 @@ func (e *Env) AddRepoToConfig(name, url string) {
 }
 
 // SpawnSession spawns a new session via the daemon API directly.
-// repoName should be the name of a repo in config.
+// repoURL should be a repo URL (contract pre-2093ccf).
 // Returns the session ID from the API response (or empty if spawn failed).
-func (e *Env) SpawnSession(repoName, branch, target, prompt, nickname string) string {
+func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) string {
 	e.T.Helper()
-	e.T.Logf("Spawning session via API: repo=%s branch=%s target=%s nickname=%s", repoName, branch, target, nickname)
+	e.T.Logf("Spawning session via API: repo=%s branch=%s target=%s nickname=%s", repoURL, branch, target, nickname)
 
 	// Spawn via API using repo/branch
 	type SpawnRequest struct {
@@ -348,7 +348,7 @@ func (e *Env) SpawnSession(repoName, branch, target, prompt, nickname string) st
 	}
 
 	spawnReqBody := SpawnRequest{
-		Repo:     repoName,
+		Repo:     repoURL,
 		Branch:   branch,
 		Prompt:   prompt,
 		Nickname: nickname,

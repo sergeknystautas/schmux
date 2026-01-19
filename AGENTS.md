@@ -11,7 +11,7 @@
   - `internal/tmux/` — tmux integration and process inspection.
   - `internal/config/`, `internal/state/` — config/state IO.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/TypeScript) served by the daemon.
-- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
+- Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
 
 ## Build, Test, and Development Commands
 

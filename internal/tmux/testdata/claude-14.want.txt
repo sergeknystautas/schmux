@@ -1,0 +1,40 @@
+- DefaultMaxLogSizeMB = 50, DefaultRotatedLogSizeMB = 1
+- Added GetMaxLogSizeMB(), GetRotatedLogSizeMB() helpers
+2. WebSocket Registry (internal/dashboard/server.go):
+- wsConns map tracks active connections per session
+- RegisterWebSocket(), UnregisterWebSocket(), BroadcastToSession()
+3. Rotation Logic (internal/dashboard/websocket.go):
+- Check on new WebSocket connection
+- Broadcast "reconnect" to existing connections
+- rotateLogFile(): stop pipe-pane → copy tail to temp → replace → restart pipe-pane
+- Uses findSafeStartPoint() to avoid mid-line corruption
+4. Frontend: UI controls for both config values
+5. Documentation: Added log rotation section to docs/sessions.md
+What More Could Be Done
+┌──────────────────┬───────────────────────────────┬────────────────────────────────────────────────────────┐
+│       Area       │            Status             │                         Notes                          │
+├──────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Rotation trigger │ On new WebSocket only         │ Could also add periodic checks or daemon startup check │
+├──────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Safe start point │ Uses findSafeStartPoint       │ Good - avoids mid-line corruption                      │
+├──────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Error recovery   │ Continues on rotation failure │ Good - session remains usable                          │
+├──────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Metrics/logging  │ Printf statements             │ Good for debugging                                     │
+├──────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Tests            │ Not visible                   │ Consider adding unit tests for rotateLogFile()         │
+└──────────────────┴───────────────────────────────┴────────────────────────────────────────────────────────┘
+Potential Considerations
+1. Race condition: If multiple WebSocket connections connect simultaneously while rotation is in progress, only the
+first one triggers rotation. The registry cleanup (delete(s.wsConns, sessionID)) prevents double-rotation, but the
+second connection might race with the rotation. The current implementation handles this reasonably - the second
+connection will just connect to the already-rotated smaller file.
+2. Edge case: Very active sessions could grow the log again between rotation and the new connection reading the seed
+data. This is acceptable given the constraints.
+3. No rotation history: Old logs are discarded, not archived. This is by design for keeping recent context only.
+---
+What would you like to do next? Options:
+- Add tests for the rotation logic
+- Consider additional rotation triggers (daemon startup, periodic)
+- Address something else
+✻ Cooked for 50s

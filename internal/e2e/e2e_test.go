@@ -62,9 +62,9 @@ func TestE2EFullLifecycle(t *testing.T) {
 	var session1ID, session2ID string
 	t.Run("04_SpawnTwoSessions", func(t *testing.T) {
 		// Spawn session 1
-		env.SpawnSession("test-repo", "main", "echo", "", "agent-one")
+		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", "agent-one")
 		// Spawn session 2
-		env.SpawnSession("test-repo", "main", "echo", "", "agent-two")
+		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", "agent-two")
 
 		// Verify sessions via API
 		sessions := env.GetAPISessions()
@@ -277,8 +277,8 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 
 	t.Run("SpawnSessions", func(t *testing.T) {
 		// Spawn two sessions with distinct nicknames
-		env.SpawnSession("naming-test-repo", "main", "echo", "", "alpha")
-		env.SpawnSession("naming-test-repo", "main", "echo", "", "beta")
+		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", "alpha")
+		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", "beta")
 	})
 
 	t.Run("VerifyCLI", func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestE2ETwitterStream(t *testing.T) {
 
 	var sessionID string
 	t.Run("SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession("ws-test-repo", "main", "cat", "", "ws-echo")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-test-repo", "main", "cat", "", "ws-echo")
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
