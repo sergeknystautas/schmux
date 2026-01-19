@@ -1,0 +1,140 @@
+
+  [1mTest structure:[0m
+  [32m// E2E suite setup with temp HOME[39m
+  [34mfunc[33m TestE2EFullLifecycle(t *testing.T)[39m
+
+  [32m// Individual test cases (can be run standalone)[39m
+  [34mfunc[33m TestE2EDaemonLifecycle(t *testing.T)[39m
+  [34mfunc[33m TestE2EWorkspaceCreation(t *testing.T)[39m
+  [34mfunc[33m TestE2ETwoSessionsNaming(t *testing.T)[39m
+  [34mfunc[33m TestE2ESessionTeardown(t *testing.T)[39m
+
+  [1mTest harness helpers:[0m
+  [32m// e2e.go - Test environment setup[39m
+  [34mtype[39m E2EEnv [34mstruct[39m {
+      TempHome     [34mstring[39m
+      ConfigPath   [34mstring[39m
+      StatePath    [34mstring[39m
+      DaemonRunner *DaemonRunner
+  }
+
+  [34mfunc[33m NewE2EEnv(t *testing.T) *E2EEnv[39m
+  [34mfunc[33m (e *E2EEnv) Cleanup()[39m
+  [34mfunc[33m (e *E2EEnv) DaemonStart()[39m
+  [34mfunc[33m (e *E2EEnv) DaemonStop()[39m
+  [34mfunc[33m (e *E2EEnv) SpawnSession(...) *state.Session[39m
+  [34mfunc[33m (e *E2EEnv) ListSessions() []state.Session[39m
+  [34mfunc[33m (e *E2EEnv) DisposeSession(id [34mstring[33m)[39m
+  [34mfunc[33m (e *E2EEnv) GetTmuxSessions() []string[39m
+  [34mfunc[33m (e *E2EEnv) GetAPISessions() []APISession[39m
+  [34mfunc[33m (e *E2EEnv) CreateLocalGitRepo(name [34mstring[33m) string[39m
+
+  [1mPhase 3: Docker Image & GitHub Actions[0m
+
+  [1mNew file: [38;2;177;185;249mDockerfile.e2e[0m
+  [34mFROM[39m golang:[32m1.23[39m-bookworm
+  [34mRUN[39m apt-get update && apt-get install -y tmux git curl
+  [34mRUN[39m npm install -g npm@latest
+  [34mWORKDIR[39m /src
+  [34mCOPY[39m . .
+  [34mRUN[39m go build -o schmux ./cmd/schmux
+  [34mRUN[39m go run ./cmd/build-dashboard
+
+  [1mNew file: [38;2;177;185;249m.github/workflows/e2e.yml[0m
+  [36mname:[39m [31mE2E[39m [31mTests[39m
+  [36mon:[39m [[31mpush[39m, [31mpull_request[39m]
+  [36mjobs:[39m
+    [36me2e:[39m
+      [36mruns-on:[39m [31mubuntu-latest[39m
+      [36msteps:[39m
+        - [36muses:[39m [31mactions/checkout@v4[39m
+        - [36mname:[39m [31mBuild[39m [31mE2E[39m [31mimage[39m
+          [36mrun:[39m [31mdocker[39m [31mbuild[39m [31m-f[39m [31mDockerfile.e2e[39m [31m-t[39m [31mschmux-e2e[39m [31m.[39m
+        - [36mname:[39m [31mRun[39m [31mE2E[39m [31mtests[39m
+          [36mrun:[39m [31mdocker[39m [31mrun[39m [31m--rm[39m [31mschmux-e2e[39m [31mgo[39m [31mtest[39m [31m./internal/e2e[39m [31m-v[39m
+        - [36mname:[39m [31mUpload[39m [31martifacts[39m [31mon[39m [31mfailure[39m
+          [36mif:[39m [31mfailure()[39m
+          [36muses:[39m [31mactions/upload-artifact@v4[39m
+
+  [1mPhase 4: Test Cases Implementation[0m
+
+  [1mTest 1: Daemon Lifecycle[0m
+  - Start daemon via [38;2;177;185;249mschmux start[39m
+  - Verify [38;2;177;185;249m/api/healthz[39m returns [38;2;177;185;249m{"status": "ok"}[39m
+  - Stop daemon via [38;2;177;185;249mschmux stop[39m
+  - Verify health endpoint no longer reachable
+
+  [1mTest 2: Workspace Creation[0m
+  - Create local temp git repo with test content
+  - Spawn session into that repo
+  - Verify workspace entry in state.json
+  - Verify directory exists and is a git repo
+
+  [1mTest 3: Two Sessions Naming Guarantees[0m
+  - Spawn session 1 with nickname "agent-1"
+  - Spawn session 2 with nickname "agent-2"
+  - Verify CLI list output shows exact names
+  - Verify [38;2;177;185;249mtmux ls[39m shows exact names (sanitized)
+  - Verify API [38;2;177;185;249m/api/sessions[39m returns both nicknames
+  - Verify nicknames are unique (no conflicts)
+
+  [1mTest 4: Session Teardown[0m
+  - Dispose both sessions
+  - Verify [38;2;177;185;249mtmux ls[39m no longer shows them
+  - Verify API list returns empty
+  - Verify state.json has no sessions
+
+  [1mPhase 5: Artifact Capture on Failure[0m
+
+  [1mAdd test helpers:[0m
+  [34mfunc[33m (e *E2EEnv) CaptureArtifacts(t *testing.T)[39m {
+      [32m// Dump daemon logs[39m
+      [32m// Copy config.json, state.json[39m
+      [32m// Run tmux ls and capture output[39m
+      [32m// Capture API responses[39m
+      [32m// Write to testdata/failures/<test-name>/[39m
+  }
+
+  ---
+  [1mFile Changes Summary[0m
+  ┌────────────────────────────────┬────────┬──────────────────────────┐
+  │              File              │ Action │         Purpose          │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/config/config.go[39m      │ Modify │ Add env override support │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/state/state.go[39m        │ Modify │ Add env override support │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/daemon/daemon.go[39m      │ Modify │ Use env-aware loaders    │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/e2e/e2e_test.go[39m       │ Create │ Main E2E test suite      │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/e2e/e2e.go[39m            │ Create │ Test harness and helpers │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249minternal/e2e/testdata/.gitkeep[39m │ Create │ For failure artifacts    │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249mDockerfile.e2e[39m                 │ Create │ E2E test environment     │
+  ├────────────────────────────────┼────────┼──────────────────────────┤
+  │ [38;2;177;185;249m.github/workflows/e2e.yml[39m      │ Create │ CI automation            │
+  └────────────────────────────────┴────────┴──────────────────────────┘
+  ---
+  [1mOrder of Implementation[0m
+
+  1. Add env override support to config/state (enables isolation)
+  2. Create test harness ([38;2;177;185;249minternal/e2e/e2e.go[39m)
+  3. Implement daemon lifecycle test
+  4. Implement workspace creation test
+  5. Implement two sessions naming test
+  6. Implement session teardown test
+  7. Create Dockerfile and verify local E2E runs
+  8. Add GitHub Actions workflow
+
+  ---
+  Ready to proceed with implementation when you confirm. Any adjustments to the approach?
+
+[38;2;153;153;153m✻[39m [38;2;153;153;153mBrewed for 3m 14s[39m
+
+[2m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m❯ [2mgo ahead and implement it                                                                                      ↵ send[0m
+[2m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m  [38;2;153;153;153m[glm-4.7] 📁 schmux-002 | 🌿 main (29%)[39m
+

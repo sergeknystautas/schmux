@@ -48,6 +48,14 @@ cases:
     capture: claude-13.txt
     want_state: Needs Authorization
     notes: Commit summary with proceed prompt
+  - id: claude-14
+    capture: claude-14.txt
+    want_state: Needs Feature Clarification
+    notes: agent reviewed changes and asking for next steps
+  - id: claude-15
+    capture: claude-15.txt
+    want_state: Needs Feature Clarification
+    notes: presenting plan to make feature
   - id: codex-01
     capture: codex-01.txt
     want_state: Needs User Testing
