@@ -83,7 +83,7 @@ type Result struct {
 
 // AskForSession captures the latest session output and asks NudgeNik for feedback.
 func AskForSession(ctx context.Context, cfg *config.Config, sess state.Session) (Result, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.TmuxOperationTimeout())
+	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.XtermOperationTimeout())
 	content, err := tmux.CaptureLastLines(timeoutCtx, sess.TmuxSession, 100)
 	cancel()
 	if err != nil {

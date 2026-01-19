@@ -207,18 +207,22 @@ Response:
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
   "variants":[{"name":"...","enabled":true,"env":{"KEY":"VALUE"}}],
-  "nudgenik":{"target":"optional"},
+  "nudgenik":{"target":"optional","viewed_buffer_ms":0,"seen_interval_ms":0},
   "terminal":{"width":0,"height":0,"seed_lines":0,"bootstrap_lines":0},
-  "internal":{
-    "mtime_poll_interval_ms":0,
-    "sessions_poll_interval_ms":0,
-    "viewed_buffer_ms":0,
-    "session_seen_interval_ms":0,
+  "sessions":{
+    "dashboard_poll_interval_ms":0,
     "git_status_poll_interval_ms":0,
-    "git_clone_timeout_seconds":0,
-    "git_status_timeout_seconds":0,
+    "git_clone_timeout_ms":0,
+    "git_status_timeout_ms":0
+  },
+  "xterm":{
+    "mtime_poll_interval_ms":0,
+    "query_timeout_ms":0,
+    "operation_timeout_ms":0,
     "max_log_size_mb":0,
-    "rotated_log_size_mb":0,
+    "rotated_log_size_mb":0
+  },
+  "access_control":{
     "network_access":false
   },
   "needs_restart":false
@@ -236,18 +240,22 @@ Request:
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
   "variants":[{"name":"...","enabled":true,"env":{"KEY":"VALUE"}}],
-  "nudgenik":{"target":"optional"},
+  "nudgenik":{"target":"optional","viewed_buffer_ms":0,"seen_interval_ms":0},
   "terminal":{"width":120,"height":30,"seed_lines":1000,"bootstrap_lines":200},
-  "internal":{
-    "mtime_poll_interval_ms":0,
-    "sessions_poll_interval_ms":0,
-    "viewed_buffer_ms":0,
-    "session_seen_interval_ms":0,
+  "sessions":{
+    "dashboard_poll_interval_ms":0,
     "git_status_poll_interval_ms":0,
-    "git_clone_timeout_seconds":0,
-    "git_status_timeout_seconds":0,
+    "git_clone_timeout_ms":0,
+    "git_status_timeout_ms":0
+  },
+  "xterm":{
+    "mtime_poll_interval_ms":0,
+    "query_timeout_ms":0,
+    "operation_timeout_ms":0,
     "max_log_size_mb":0,
-    "rotated_log_size_mb":0,
+    "rotated_log_size_mb":0
+  },
+  "access_control":{
     "network_access":false
   }
 }

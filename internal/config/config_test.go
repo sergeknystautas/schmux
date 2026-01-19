@@ -230,12 +230,12 @@ func TestConfigExists(t *testing.T) {
 	})
 }
 
-func TestGetMtimePollIntervalMs(t *testing.T) {
+func TestGetXtermMtimePollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{MtimePollIntervalMs: 1000},
+			Xterm: &XtermConfig{MtimePollIntervalMs: 1000},
 		}
-		got := cfg.GetMtimePollIntervalMs()
+		got := cfg.GetXtermMtimePollIntervalMs()
 		if got != 1000 {
 			t.Errorf("got %d, want 1000", got)
 		}
@@ -243,19 +243,19 @@ func TestGetMtimePollIntervalMs(t *testing.T) {
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetMtimePollIntervalMs()
+		got := cfg.GetXtermMtimePollIntervalMs()
 		if got != 5000 {
 			t.Errorf("got %d, want 5000 (default)", got)
 		}
 	})
 }
 
-func TestGetSessionsPollIntervalMs(t *testing.T) {
+func TestGetDashboardPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{SessionsPollIntervalMs: 2000},
+			Sessions: &SessionsConfig{DashboardPollIntervalMs: 2000},
 		}
-		got := cfg.GetSessionsPollIntervalMs()
+		got := cfg.GetDashboardPollIntervalMs()
 		if got != 2000 {
 			t.Errorf("got %d, want 2000", got)
 		}
@@ -263,19 +263,19 @@ func TestGetSessionsPollIntervalMs(t *testing.T) {
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetSessionsPollIntervalMs()
+		got := cfg.GetDashboardPollIntervalMs()
 		if got != 5000 {
 			t.Errorf("got %d, want 5000 (default)", got)
 		}
 	})
 }
 
-func TestGetViewedBufferMs(t *testing.T) {
+func TestGetNudgenikViewedBufferMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{ViewedBufferMs: 3000},
+			Nudgenik: &NudgenikConfig{ViewedBufferMs: 3000},
 		}
-		got := cfg.GetViewedBufferMs()
+		got := cfg.GetNudgenikViewedBufferMs()
 		if got != 3000 {
 			t.Errorf("got %d, want 3000", got)
 		}
@@ -283,19 +283,19 @@ func TestGetViewedBufferMs(t *testing.T) {
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetViewedBufferMs()
+		got := cfg.GetNudgenikViewedBufferMs()
 		if got != 5000 {
 			t.Errorf("got %d, want 5000 (default)", got)
 		}
 	})
 }
 
-func TestGetSessionSeenIntervalMs(t *testing.T) {
+func TestGetNudgenikSeenIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{SessionSeenIntervalMs: 1500},
+			Nudgenik: &NudgenikConfig{SeenIntervalMs: 1500},
 		}
-		got := cfg.GetSessionSeenIntervalMs()
+		got := cfg.GetNudgenikSeenIntervalMs()
 		if got != 1500 {
 			t.Errorf("got %d, want 1500", got)
 		}
@@ -303,7 +303,7 @@ func TestGetSessionSeenIntervalMs(t *testing.T) {
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetSessionSeenIntervalMs()
+		got := cfg.GetNudgenikSeenIntervalMs()
 		if got != 2000 {
 			t.Errorf("got %d, want 2000 (default)", got)
 		}
@@ -313,7 +313,7 @@ func TestGetSessionSeenIntervalMs(t *testing.T) {
 func TestGetGitStatusPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{GitStatusPollIntervalMs: 5000},
+			Sessions: &SessionsConfig{GitStatusPollIntervalMs: 5000},
 		}
 		got := cfg.GetGitStatusPollIntervalMs()
 		if got != 5000 {
@@ -330,119 +330,82 @@ func TestGetGitStatusPollIntervalMs(t *testing.T) {
 	})
 }
 
-func TestGetTimeouts(t *testing.T) {
-	t.Run("returns configured timeouts", func(t *testing.T) {
-		expected := &Timeouts{
-			GitCloneSeconds:      600,
-			GitStatusSeconds:     60,
-			TmuxQuerySeconds:     10,
-			TmuxOperationSeconds: 20,
-		}
-		cfg := &Config{
-			Internal: &InternalIntervals{Timeouts: expected},
-		}
-		got := cfg.GetTimeouts()
-		if got.GitCloneSeconds != 600 {
-			t.Errorf("GitCloneSeconds = %d, want 600", got.GitCloneSeconds)
-		}
-	})
-
-	t.Run("returns defaults when not configured", func(t *testing.T) {
-		cfg := &Config{}
-		got := cfg.GetTimeouts()
-		if got.GitCloneSeconds != DefaultGitCloneTimeoutSeconds {
-			t.Errorf("GitCloneSeconds = %d, want %d", got.GitCloneSeconds, DefaultGitCloneTimeoutSeconds)
-		}
-		if got.GitStatusSeconds != DefaultGitStatusTimeoutSeconds {
-			t.Errorf("GitStatusSeconds = %d, want %d", got.GitStatusSeconds, DefaultGitStatusTimeoutSeconds)
-		}
-	})
-}
-
-func TestGetGitCloneTimeoutSeconds(t *testing.T) {
+func TestGetGitCloneTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{
-				Timeouts: &Timeouts{GitCloneSeconds: 600},
-			},
+			Sessions: &SessionsConfig{GitCloneTimeoutMs: 600000},
 		}
-		got := cfg.GetGitCloneTimeoutSeconds()
-		if got != 600 {
-			t.Errorf("got %d, want 600", got)
+		got := cfg.GetGitCloneTimeoutMs()
+		if got != 600000 {
+			t.Errorf("got %d, want 600000", got)
 		}
 	})
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetGitCloneTimeoutSeconds()
-		if got != DefaultGitCloneTimeoutSeconds {
-			t.Errorf("got %d, want %d", got, DefaultGitCloneTimeoutSeconds)
+		got := cfg.GetGitCloneTimeoutMs()
+		if got != DefaultGitCloneTimeoutMs {
+			t.Errorf("got %d, want %d", got, DefaultGitCloneTimeoutMs)
 		}
 	})
 }
 
-func TestGetGitStatusTimeoutSeconds(t *testing.T) {
+func TestGetGitStatusTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{
-				Timeouts: &Timeouts{GitStatusSeconds: 60},
-			},
+			Sessions: &SessionsConfig{GitStatusTimeoutMs: 60000},
 		}
-		got := cfg.GetGitStatusTimeoutSeconds()
-		if got != 60 {
-			t.Errorf("got %d, want 60", got)
+		got := cfg.GetGitStatusTimeoutMs()
+		if got != 60000 {
+			t.Errorf("got %d, want 60000", got)
 		}
 	})
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetGitStatusTimeoutSeconds()
-		if got != DefaultGitStatusTimeoutSeconds {
-			t.Errorf("got %d, want %d", got, DefaultGitStatusTimeoutSeconds)
+		got := cfg.GetGitStatusTimeoutMs()
+		if got != DefaultGitStatusTimeoutMs {
+			t.Errorf("got %d, want %d", got, DefaultGitStatusTimeoutMs)
 		}
 	})
 }
 
-func TestGetTmuxQueryTimeoutSeconds(t *testing.T) {
+func TestGetXtermQueryTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{
-				Timeouts: &Timeouts{TmuxQuerySeconds: 10},
-			},
+			Xterm: &XtermConfig{QueryTimeoutMs: 10000},
 		}
-		got := cfg.GetTmuxQueryTimeoutSeconds()
-		if got != 10 {
-			t.Errorf("got %d, want 10", got)
+		got := cfg.GetXtermQueryTimeoutMs()
+		if got != 10000 {
+			t.Errorf("got %d, want 10000", got)
 		}
 	})
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetTmuxQueryTimeoutSeconds()
-		if got != DefaultTmuxQueryTimeoutSeconds {
-			t.Errorf("got %d, want %d", got, DefaultTmuxQueryTimeoutSeconds)
+		got := cfg.GetXtermQueryTimeoutMs()
+		if got != DefaultXtermQueryTimeoutMs {
+			t.Errorf("got %d, want %d", got, DefaultXtermQueryTimeoutMs)
 		}
 	})
 }
 
-func TestGetTmuxOperationTimeoutSeconds(t *testing.T) {
+func TestGetXtermOperationTimeoutMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{
-			Internal: &InternalIntervals{
-				Timeouts: &Timeouts{TmuxOperationSeconds: 20},
-			},
+			Xterm: &XtermConfig{OperationTimeoutMs: 20000},
 		}
-		got := cfg.GetTmuxOperationTimeoutSeconds()
-		if got != 20 {
-			t.Errorf("got %d, want 20", got)
+		got := cfg.GetXtermOperationTimeoutMs()
+		if got != 20000 {
+			t.Errorf("got %d, want 20000", got)
 		}
 	})
 
 	t.Run("returns default when not configured", func(t *testing.T) {
 		cfg := &Config{}
-		got := cfg.GetTmuxOperationTimeoutSeconds()
-		if got != DefaultTmuxOperationTimeoutSeconds {
-			t.Errorf("got %d, want %d", got, DefaultTmuxOperationTimeoutSeconds)
+		got := cfg.GetXtermOperationTimeoutMs()
+		if got != DefaultXtermOperationTimeoutMs {
+			t.Errorf("got %d, want %d", got, DefaultXtermOperationTimeoutMs)
 		}
 	})
 }

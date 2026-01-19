@@ -15,7 +15,7 @@ export function ViewedSessionsProvider({ children }: { children: React.ReactNode
 
   const markAsViewed = useCallback((sessionId: string) => {
     // Read config at call time to avoid recreating this function when config changes
-    const buffer = config?.internal?.viewed_buffer_ms || 5000;
+    const buffer = config?.nudgenik?.viewed_buffer_ms || 5000;
     setViewedSessions((prev) => ({ ...prev, [sessionId]: Date.now() + buffer }));
   }, []); // Empty deps - function is stable, reads config dynamically
 

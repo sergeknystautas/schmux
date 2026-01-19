@@ -54,58 +54,7 @@ export interface BuiltinQuickLaunchPreset {
   prompt: string;
 }
 
-export interface ConfigResponse {
-  workspace_path: string;
-  repos: RepoResponse[];
-  run_targets: RunTargetResponse[];
-  quick_launch: QuickLaunchPreset[];
-  nudgenik: { target?: string };
-  terminal: {
-    width: number;
-    height: number;
-    seed_lines: number;
-    bootstrap_lines: number;
-  };
-  internal: {
-    mtime_poll_interval_ms: number;
-    sessions_poll_interval_ms: number;
-    viewed_buffer_ms: number;
-    session_seen_interval_ms: number;
-    git_status_poll_interval_ms: number;
-    git_clone_timeout_seconds: number;
-    git_status_timeout_seconds: number;
-    max_log_size_mb?: number;
-    rotated_log_size_mb?: number;
-    network_access: boolean;
-  };
-  needs_restart: boolean;
-}
-
-export interface ConfigUpdateRequest {
-  workspace_path: string;
-  terminal: {
-    width: number;
-    height: number;
-    seed_lines: number;
-    bootstrap_lines: number;
-  };
-  repos: RepoResponse[];
-  run_targets: Array<RunTargetResponse & { type: string }>;
-  quick_launch: QuickLaunchPreset[];
-  nudgenik: { target: string };
-  internal: {
-    mtime_poll_interval_ms: number;
-    sessions_poll_interval_ms: number;
-    viewed_buffer_ms: number;
-    session_seen_interval_ms: number;
-    git_status_poll_interval_ms: number;
-    git_clone_timeout_seconds: number;
-    git_status_timeout_seconds: number;
-    max_log_size_mb?: number;
-    rotated_log_size_mb?: number;
-    network_access: boolean;
-  };
-}
+export type { ConfigResponse, ConfigUpdateRequest } from './types.generated';
 
 export interface SpawnRequest {
   repo: string;

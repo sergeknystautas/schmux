@@ -27,24 +27,25 @@ const (
 	DefaultMaxLogSizeMB     = 50 // 50MB
 	DefaultRotatedLogSizeMB = 1  // 1MB
 
-	// Default timeout values in seconds
-	DefaultGitCloneTimeoutSeconds      = 300 // 5 minutes
-	DefaultGitStatusTimeoutSeconds     = 30  // 30 seconds
-	DefaultTmuxQueryTimeoutSeconds     = 5   // 5 seconds
-	DefaultTmuxOperationTimeoutSeconds = 10  // 10 seconds
+	// Default timeout values in milliseconds
+	DefaultGitCloneTimeoutMs       = 300000 // 5 minutes
+	DefaultGitStatusTimeoutMs      = 30000  // 30 seconds
+	DefaultXtermQueryTimeoutMs     = 5000   // 5 seconds
+	DefaultXtermOperationTimeoutMs = 10000  // 10 seconds
 )
 
 // Config represents the application configuration.
 type Config struct {
-	WorkspacePath string             `json:"workspace_path"`
-	Repos         []Repo             `json:"repos"`
-	RunTargets    []RunTarget        `json:"run_targets"`
-	QuickLaunch   []QuickLaunch      `json:"quick_launch"`
-	Variants      []VariantConfig    `json:"variants,omitempty"`
-	Nudgenik      *NudgenikConfig    `json:"nudgenik,omitempty"`
-	Terminal      *TerminalSize      `json:"terminal,omitempty"`
-	Internal      *InternalIntervals `json:"internal,omitempty"`
-	NetworkAccess bool               `json:"network_access,omitempty"` // true = bind to 0.0.0.0 (LAN), false = 127.0.0.1 (localhost only)
+	WorkspacePath string               `json:"workspace_path"`
+	Repos         []Repo               `json:"repos"`
+	RunTargets    []RunTarget          `json:"run_targets"`
+	QuickLaunch   []QuickLaunch        `json:"quick_launch"`
+	Variants      []VariantConfig      `json:"variants,omitempty"`
+	Terminal      *TerminalSize        `json:"terminal,omitempty"`
+	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
+	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
+	Xterm         *XtermConfig         `json:"xterm,omitempty"`
+	AccessControl *AccessControlConfig `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -59,24 +60,33 @@ type TerminalSize struct {
 	BootstrapLines int `json:"bootstrap_lines,omitempty"`
 }
 
-// InternalIntervals represents timing intervals for internal polling and caching.
-type InternalIntervals struct {
-	MtimePollIntervalMs     int       `json:"mtime_poll_interval_ms"`
-	SessionsPollIntervalMs  int       `json:"sessions_poll_interval_ms"`
-	ViewedBufferMs          int       `json:"viewed_buffer_ms"`
-	SessionSeenIntervalMs   int       `json:"session_seen_interval_ms"`
-	GitStatusPollIntervalMs int       `json:"git_status_poll_interval_ms"`
-	MaxLogSizeMB            int       `json:"max_log_size_mb,omitempty"`         // max log size before rotation
-	RotatedLogSizeMB        int       `json:"rotated_log_size_mb,omitempty"`     // target size after rotation (keeps tail)
-	Timeouts                *Timeouts `json:"timeouts,omitempty"`
+// NudgenikConfig represents configuration for the NudgeNik assistant.
+type NudgenikConfig struct {
+	Target         string `json:"target,omitempty"`
+	ViewedBufferMs int    `json:"viewed_buffer_ms,omitempty"`
+	SeenIntervalMs int    `json:"seen_interval_ms,omitempty"`
 }
 
-// Timeouts represents timeout values for external operations (in seconds).
-type Timeouts struct {
-	GitCloneSeconds      int `json:"git_clone_seconds"`      // default: 300 (5 min)
-	GitStatusSeconds     int `json:"git_status_seconds"`     // default: 30
-	TmuxQuerySeconds     int `json:"tmux_query_seconds"`     // default: 5
-	TmuxOperationSeconds int `json:"tmux_operation_seconds"` // default: 10
+// SessionsConfig represents session and git-related timing configuration.
+type SessionsConfig struct {
+	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
+	GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
+	GitCloneTimeoutMs       int `json:"git_clone_timeout_ms"`
+	GitStatusTimeoutMs      int `json:"git_status_timeout_ms"`
+}
+
+// XtermConfig represents terminal capture, timeouts, and log rotation settings.
+type XtermConfig struct {
+	MtimePollIntervalMs int `json:"mtime_poll_interval_ms"`
+	QueryTimeoutMs      int `json:"query_timeout_ms"`
+	OperationTimeoutMs  int `json:"operation_timeout_ms"`
+	MaxLogSizeMB        int `json:"max_log_size_mb,omitempty"`     // max log size before rotation
+	RotatedLogSizeMB    int `json:"rotated_log_size_mb,omitempty"` // target size after rotation (keeps tail)
+}
+
+// AccessControlConfig controls external access.
+type AccessControlConfig struct {
+	NetworkAccess bool `json:"network_access"`
 }
 
 // Repo represents a git repository configuration.
@@ -108,18 +118,12 @@ type VariantConfig struct {
 	Env     map[string]string `json:"env,omitempty"`     // overrides
 }
 
-// NudgenikConfig represents configuration for the NudgeNik assistant.
-type NudgenikConfig struct {
-	Target string `json:"target,omitempty"`
-}
-
 const (
 	RunTargetTypePromptable = "promptable"
 	RunTargetTypeCommand    = "command"
 	RunTargetSourceUser     = "user"
 	RunTargetSourceDetected = "detected"
 )
-
 
 // Validate validates the config including terminal settings, run targets, variants, and quick launch presets.
 func (c *Config) Validate() error {
@@ -430,132 +434,119 @@ func EnsureExists() (bool, error) {
 	return true, nil
 }
 
-// GetMtimePollIntervalMs returns the mtime polling interval in ms. Defaults to 5000ms.
-func (c *Config) GetMtimePollIntervalMs() int {
-	if c.Internal == nil || c.Internal.MtimePollIntervalMs <= 0 {
+// GetXtermMtimePollIntervalMs returns the mtime polling interval in ms. Defaults to 5000ms.
+func (c *Config) GetXtermMtimePollIntervalMs() int {
+	if c.Xterm == nil || c.Xterm.MtimePollIntervalMs <= 0 {
 		return 5000
 	}
-	return c.Internal.MtimePollIntervalMs
+	return c.Xterm.MtimePollIntervalMs
 }
 
-// GetSessionsPollIntervalMs returns the sessions API polling interval in ms. Defaults to 5000ms.
-func (c *Config) GetSessionsPollIntervalMs() int {
-	if c.Internal == nil || c.Internal.SessionsPollIntervalMs <= 0 {
+// GetDashboardPollIntervalMs returns the dashboard sessions polling interval in ms. Defaults to 5000ms.
+func (c *Config) GetDashboardPollIntervalMs() int {
+	if c.Sessions == nil || c.Sessions.DashboardPollIntervalMs <= 0 {
 		return 5000
 	}
-	return c.Internal.SessionsPollIntervalMs
+	return c.Sessions.DashboardPollIntervalMs
 }
 
-// GetViewedBufferMs returns the viewed timestamp buffer in ms. Defaults to 5000ms.
-func (c *Config) GetViewedBufferMs() int {
-	if c.Internal == nil || c.Internal.ViewedBufferMs <= 0 {
+// GetNudgenikViewedBufferMs returns the viewed timestamp buffer in ms. Defaults to 5000ms.
+func (c *Config) GetNudgenikViewedBufferMs() int {
+	if c.Nudgenik == nil || c.Nudgenik.ViewedBufferMs <= 0 {
 		return 5000
 	}
-	return c.Internal.ViewedBufferMs
+	return c.Nudgenik.ViewedBufferMs
 }
 
-// GetSessionSeenIntervalMs returns the interval for marking sessions as viewed in ms. Defaults to 2000ms.
-func (c *Config) GetSessionSeenIntervalMs() int {
-	if c.Internal == nil || c.Internal.SessionSeenIntervalMs <= 0 {
+// GetNudgenikSeenIntervalMs returns the interval for marking sessions as seen in ms. Defaults to 2000ms.
+func (c *Config) GetNudgenikSeenIntervalMs() int {
+	if c.Nudgenik == nil || c.Nudgenik.SeenIntervalMs <= 0 {
 		return 2000
 	}
-	return c.Internal.SessionSeenIntervalMs
+	return c.Nudgenik.SeenIntervalMs
 }
 
 // GetGitStatusPollIntervalMs returns the git status polling interval in ms. Defaults to 10000ms.
 func (c *Config) GetGitStatusPollIntervalMs() int {
-	if c.Internal == nil || c.Internal.GitStatusPollIntervalMs <= 0 {
+	if c.Sessions == nil || c.Sessions.GitStatusPollIntervalMs <= 0 {
 		return 10000
 	}
-	return c.Internal.GitStatusPollIntervalMs
+	return c.Sessions.GitStatusPollIntervalMs
 }
 
-// GetMaxLogSizeMB returns the max log size in MB before rotation. Defaults to 50MB.
-func (c *Config) GetMaxLogSizeMB() int64 {
-	if c.Internal == nil || c.Internal.MaxLogSizeMB <= 0 {
+// GetXtermMaxLogSizeMB returns the max log size in MB before rotation. Defaults to 50MB.
+func (c *Config) GetXtermMaxLogSizeMB() int64 {
+	if c.Xterm == nil || c.Xterm.MaxLogSizeMB <= 0 {
 		return DefaultMaxLogSizeMB
 	}
-	return int64(c.Internal.MaxLogSizeMB)
+	return int64(c.Xterm.MaxLogSizeMB)
 }
 
-// GetRotatedLogSizeMB returns the target log size in MB after rotation. Defaults to 1MB.
-func (c *Config) GetRotatedLogSizeMB() int64 {
-	if c.Internal == nil || c.Internal.RotatedLogSizeMB <= 0 {
+// GetXtermRotatedLogSizeMB returns the target log size in MB after rotation. Defaults to 1MB.
+func (c *Config) GetXtermRotatedLogSizeMB() int64 {
+	if c.Xterm == nil || c.Xterm.RotatedLogSizeMB <= 0 {
 		return DefaultRotatedLogSizeMB
 	}
-	return int64(c.Internal.RotatedLogSizeMB)
+	return int64(c.Xterm.RotatedLogSizeMB)
 }
 
-// GetTimeouts returns the Timeouts config, or defaults if not set.
-func (c *Config) GetTimeouts() *Timeouts {
-	// Return existing Timeouts if available
-	if c.Internal != nil && c.Internal.Timeouts != nil {
-		return c.Internal.Timeouts
+// GetGitCloneTimeoutMs returns the git clone timeout in ms. Defaults to 300000 (5 min).
+func (c *Config) GetGitCloneTimeoutMs() int {
+	if c.Sessions == nil || c.Sessions.GitCloneTimeoutMs <= 0 {
+		return DefaultGitCloneTimeoutMs
 	}
-
-	// Return defaults
-	return &Timeouts{
-		GitCloneSeconds:      DefaultGitCloneTimeoutSeconds,
-		GitStatusSeconds:     DefaultGitStatusTimeoutSeconds,
-		TmuxQuerySeconds:     DefaultTmuxQueryTimeoutSeconds,
-		TmuxOperationSeconds: DefaultTmuxOperationTimeoutSeconds,
-	}
+	return c.Sessions.GitCloneTimeoutMs
 }
 
-// GetGitCloneTimeoutSeconds returns the git clone timeout in seconds. Defaults to 300 (5 min).
-func (c *Config) GetGitCloneTimeoutSeconds() int {
-	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.GitCloneSeconds <= 0 {
-		return DefaultGitCloneTimeoutSeconds
+// GetGitStatusTimeoutMs returns the git status timeout in ms. Defaults to 30000.
+func (c *Config) GetGitStatusTimeoutMs() int {
+	if c.Sessions == nil || c.Sessions.GitStatusTimeoutMs <= 0 {
+		return DefaultGitStatusTimeoutMs
 	}
-	return c.Internal.Timeouts.GitCloneSeconds
+	return c.Sessions.GitStatusTimeoutMs
 }
 
-// GetGitStatusTimeoutSeconds returns the git status timeout in seconds. Defaults to 30.
-func (c *Config) GetGitStatusTimeoutSeconds() int {
-	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.GitStatusSeconds <= 0 {
-		return DefaultGitStatusTimeoutSeconds
+// GetXtermQueryTimeoutMs returns the xterm query timeout in ms. Defaults to 5000.
+func (c *Config) GetXtermQueryTimeoutMs() int {
+	if c.Xterm == nil || c.Xterm.QueryTimeoutMs <= 0 {
+		return DefaultXtermQueryTimeoutMs
 	}
-	return c.Internal.Timeouts.GitStatusSeconds
+	return c.Xterm.QueryTimeoutMs
 }
 
-// GetTmuxQueryTimeoutSeconds returns the tmux query timeout in seconds. Defaults to 5.
-func (c *Config) GetTmuxQueryTimeoutSeconds() int {
-	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.TmuxQuerySeconds <= 0 {
-		return DefaultTmuxQueryTimeoutSeconds
+// GetXtermOperationTimeoutMs returns the xterm operation timeout in ms. Defaults to 10000.
+func (c *Config) GetXtermOperationTimeoutMs() int {
+	if c.Xterm == nil || c.Xterm.OperationTimeoutMs <= 0 {
+		return DefaultXtermOperationTimeoutMs
 	}
-	return c.Internal.Timeouts.TmuxQuerySeconds
-}
-
-// GetTmuxOperationTimeoutSeconds returns the tmux operation timeout in seconds. Defaults to 10.
-func (c *Config) GetTmuxOperationTimeoutSeconds() int {
-	if c.Internal == nil || c.Internal.Timeouts == nil || c.Internal.Timeouts.TmuxOperationSeconds <= 0 {
-		return DefaultTmuxOperationTimeoutSeconds
-	}
-	return c.Internal.Timeouts.TmuxOperationSeconds
+	return c.Xterm.OperationTimeoutMs
 }
 
 // GitCloneTimeout returns the git clone timeout as a time.Duration.
 func (c *Config) GitCloneTimeout() time.Duration {
-	return time.Duration(c.GetGitCloneTimeoutSeconds()) * time.Second
+	return time.Duration(c.GetGitCloneTimeoutMs()) * time.Millisecond
 }
 
 // GitStatusTimeout returns the git status timeout as a time.Duration.
 func (c *Config) GitStatusTimeout() time.Duration {
-	return time.Duration(c.GetGitStatusTimeoutSeconds()) * time.Second
+	return time.Duration(c.GetGitStatusTimeoutMs()) * time.Millisecond
 }
 
-// TmuxQueryTimeout returns the tmux query timeout as a time.Duration.
-func (c *Config) TmuxQueryTimeout() time.Duration {
-	return time.Duration(c.GetTmuxQueryTimeoutSeconds()) * time.Second
+// XtermQueryTimeout returns the xterm query timeout as a time.Duration.
+func (c *Config) XtermQueryTimeout() time.Duration {
+	return time.Duration(c.GetXtermQueryTimeoutMs()) * time.Millisecond
 }
 
-// TmuxOperationTimeout returns the tmux operation timeout as a time.Duration.
-func (c *Config) TmuxOperationTimeout() time.Duration {
-	return time.Duration(c.GetTmuxOperationTimeoutSeconds()) * time.Second
+// XtermOperationTimeout returns the xterm operation timeout as a time.Duration.
+func (c *Config) XtermOperationTimeout() time.Duration {
+	return time.Duration(c.GetXtermOperationTimeoutMs()) * time.Millisecond
 }
 
 // GetNetworkAccess returns whether the dashboard should be accessible from the local network.
 // Defaults to false (localhost only).
 func (c *Config) GetNetworkAccess() bool {
-	return c.NetworkAccess
+	if c.AccessControl == nil {
+		return false
+	}
+	return c.AccessControl.NetworkAccess
 }

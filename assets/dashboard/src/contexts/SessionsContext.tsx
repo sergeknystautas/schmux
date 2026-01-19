@@ -46,7 +46,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   }, [loadSessions]);
 
   useEffect(() => {
-    const pollInterval = config.internal?.sessions_poll_interval_ms || 5000;
+    const pollInterval = config.sessions?.dashboard_poll_interval_ms || 5000;
     const interval = setInterval(() => {
       loadSessions(true);
     }, pollInterval);
