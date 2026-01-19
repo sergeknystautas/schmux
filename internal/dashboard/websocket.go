@@ -243,7 +243,7 @@ func (s *Server) rotateLogFile(ctx context.Context, sessionID, logPath string) e
 	}
 
 	// 2. Copy the last ~N MB to a temp file
-	keepSize := s.config.GetRotatedLogSizeMB() * 1024 * 1024 // Convert MB to bytes
+	keepSize := s.config.GetXtermRotatedLogSizeMB() * 1024 * 1024 // Convert MB to bytes
 	srcFile, err := os.Open(logPath)
 	if err != nil {
 		// If we can't open the file, try restarting pipe-pane anyway
@@ -358,7 +358,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check if session is already dead before doing anything else
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 	if !s.session.IsRunning(ctx, sessionID) {
 		cancel()
 		http.Error(w, "session not running", http.StatusGone)
@@ -387,7 +387,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	rotationLock.Lock()
 
 	// Check log file size and rotate if over threshold
-	maxLogSize := s.config.GetMaxLogSizeMB() * 1024 * 1024 // Convert MB to bytes
+	maxLogSize := s.config.GetXtermMaxLogSizeMB() * 1024 * 1024 // Convert MB to bytes
 	if fileInfo, err := os.Stat(logPath); err == nil && fileInfo.Size() > maxLogSize {
 		fmt.Printf("[ws %s] log file size %.2f MB exceeds threshold %.2f MB, rotating\n",
 			sessionID[:8], float64(fileInfo.Size())/(1024*1024), float64(maxLogSize)/(1024*1024))
@@ -399,7 +399,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 
 		// Rotate the log file
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 		if err := s.rotateLogFile(ctx, sessionID, logPath); err != nil {
 			cancel()
 			fmt.Printf("[ws %s] log rotation failed: %v\n", sessionID[:8], err)
@@ -577,7 +577,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				continue
 			}
 			// Check if session is still running
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxQueryTimeoutSeconds())*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 			if !s.session.IsRunning(ctx, sessionID) {
 				cancel()
 				sendOutput("append", "\n[Session ended]")
@@ -610,7 +610,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 						fmt.Printf("Error saving nudge clear: %v\n", err)
 					}
 				}
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetTmuxOperationTimeoutSeconds())*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 				if err := tmux.SendKeys(ctx, sess.TmuxSession, msg.Data); err != nil {
 					cancel()
 					fmt.Printf("Error sending keys to tmux: %v\n", err)
