@@ -280,7 +280,7 @@ export default function SpawnPage() {
       const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}') as Record<string, boolean>;
       let changed = false;
       workspaceIds.forEach(id => {
-        if (expanded[id] === false) {
+        if (expanded[id] !== true) {
           expanded[id] = true;
           changed = true;
         }
