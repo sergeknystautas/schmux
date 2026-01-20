@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sergek/schmux/internal/assets"
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/dashboard"
-	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/nudgenik"
-	"github.com/sergek/schmux/internal/session"
-	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/tmux"
-	"github.com/sergek/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/assets"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/dashboard"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 const (

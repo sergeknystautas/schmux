@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sergek/schmux/internal/version"
+	"github.com/sergeknystautas/schmux/internal/version"
 )
 
 const (
 	// GitHubReleaseURLTemplate is the URL template for downloading dashboard assets.
 	// %s is replaced with the version (without 'v' prefix).
-	GitHubReleaseURLTemplate = "https://github.com/sergek/schmux/releases/download/v%s/dashboard-assets.tar.gz"
+	GitHubReleaseURLTemplate = "https://github.com/sergeknystautas/schmux/releases/download/v%s/dashboard-assets.tar.gz"
 )
 
 // GetUserAssetsDir returns the path to the user's cached dashboard assets.

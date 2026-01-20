@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // AttachCommand implements the attach command.

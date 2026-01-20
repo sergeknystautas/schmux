@@ -79,11 +79,11 @@
   ⎿  Added [1m1[0m line
      [38;2;153;153;153m 12 [38;2;255;255;255m                                                                                                        [39m
      [38;2;153;153;153m 13 [38;2;255;255;255m    "github.com/google/uuid"                                                                            [39m
-     [38;2;153;153;153m 14 [38;2;255;255;255m    "github.com/sergek/schmux/internal/config"                                                          [39m
-     [38;2;255;255;255m[48;2;34;92;43m 15 +   "github.com/sergek/schmux/internal/detect"                                                          [39m[49m
-     [38;2;153;153;153m 16 [38;2;255;255;255m    "github.com/sergek/schmux/internal/state"                                                           [39m
-     [38;2;153;153;153m 17 [38;2;255;255;255m    "github.com/sergek/schmux/internal/tmux"                                                            [39m
-     [38;2;153;153;153m 18 [38;2;255;255;255m    "github.com/sergek/schmux/internal/workspace"                                                       [39m
+     [38;2;153;153;153m 14 [38;2;255;255;255m    "github.com/sergeknystautas/schmux/internal/config"                                                          [39m
+     [38;2;255;255;255m[48;2;34;92;43m 15 +   "github.com/sergeknystautas/schmux/internal/detect"                                                          [39m[49m
+     [38;2;153;153;153m 16 [38;2;255;255;255m    "github.com/sergeknystautas/schmux/internal/state"                                                           [39m
+     [38;2;153;153;153m 17 [38;2;255;255;255m    "github.com/sergeknystautas/schmux/internal/tmux"                                                            [39m
+     [38;2;153;153;153m 18 [38;2;255;255;255m    "github.com/sergeknystautas/schmux/internal/workspace"                                                       [39m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
 [38;2;78;186;101m⏺[39m [1mBash[0m(go build ./...)
@@ -91,8 +91,8 @@
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
 [38;2;78;186;101m⏺[39m [1mBash[0m(go test ./... -v)
-  ⎿  ?          github.com/sergek/schmux/cmd/build-dashboard    [no test files]
-     ?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
+  ⎿  ?          github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files]
+     ?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
      === RUN   TestAttachCommand_Run
      [2m… +729 lines (ctrl+o to expand)[0m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m

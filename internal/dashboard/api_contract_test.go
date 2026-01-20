@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/session"
-	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {

@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/tmux"
-	"github.com/sergek/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 const (

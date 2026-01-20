@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sergek/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // findLastNLinesOffset finds the byte offset for the last N lines in a file.

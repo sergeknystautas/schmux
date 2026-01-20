@@ -8,14 +8,14 @@
 ⏺ Update(internal/session/manager.go)
 12
 13     "github.com/google/uuid"
-14     "github.com/sergek/schmux/internal/config"
-15 +   "github.com/sergek/schmux/internal/detect"
-16     "github.com/sergek/schmux/internal/state"
-17     "github.com/sergek/schmux/internal/tmux"
-18     "github.com/sergek/schmux/internal/workspace"
+14     "github.com/sergeknystautas/schmux/internal/config"
+15 +   "github.com/sergeknystautas/schmux/internal/detect"
+16     "github.com/sergeknystautas/schmux/internal/state"
+17     "github.com/sergeknystautas/schmux/internal/tmux"
+18     "github.com/sergeknystautas/schmux/internal/workspace"
 ⏺ Bash(go build ./...)
 ⏺ Bash(go test ./... -v)
-?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
+?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
 === RUN   TestAttachCommand_Run
 … +729 lines (ctrl+o to expand)
 ⏺ Task Output 593eba69-2d64-4718-a4ad-e3d69b1226f5

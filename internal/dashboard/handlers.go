@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sergek/schmux/internal/api/contracts"
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/nudgenik"
-	"github.com/sergek/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 //go:embed builtin_quick_launch.json

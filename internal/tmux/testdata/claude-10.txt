@@ -115,9 +115,9 @@
 [38;2;255;255;255m⏺[39m Now let me run the Go tests and build the dashboard to verify everything works.
 
 [38;2;78;186;101m⏺[39m [1mBash[0m(go test ./... 2>&1 | tail -20)
-  ⎿  ?          github.com/sergek/schmux/cmd/build-dashboard    [no test files]
-     ?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
-     ok         github.com/sergek/schmux/cmd/schmux     (cached)
+  ⎿  ?          github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files]
+     ?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
+     ok         github.com/sergeknystautas/schmux/cmd/schmux     (cached)
      [2m… +14 lines (ctrl+o to expand)[0m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 

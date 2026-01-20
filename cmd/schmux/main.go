@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/daemon"
-	"github.com/sergek/schmux/internal/version"
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/daemon"
+	"github.com/sergeknystautas/schmux/internal/version"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 func main() {

@@ -2,9 +2,9 @@
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
 [38;2;78;186;101m⏺[39m [1mBash[0m(go test ./... 2>&1 | head -100)
-  ⎿  ?          github.com/sergek/schmux/cmd/build-dashboard    [no test files]
-     ?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
-     # github.com/sergek/schmux/internal/config [github.com/sergek/schmux/internal/config.test]
+  ⎿  ?          github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files]
+     ?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
+     # github.com/sergeknystautas/schmux/internal/config [github.com/sergeknystautas/schmux/internal/config.test]
      [2m… +76 lines (ctrl+o to expand)[0m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
@@ -20,7 +20,7 @@
      [38;2;153;153;153m  6 [38;2;255;255;255m    "path/filepath"                                                                                     [39m
      [38;2;153;153;153m  7 [38;2;255;255;255m    "testing"                                                                                           [39m
      [38;2;255;255;255m[48;2;34;92;43m  8 +                                                                                                       [39m[49m
-     [38;2;255;255;255m[48;2;34;92;43m  9 +   "github.com/sergek/schmux/internal/runtarget"                                                       [39m[49m
+     [38;2;255;255;255m[48;2;34;92;43m  9 +   "github.com/sergeknystautas/schmux/internal/runtarget"                                                       [39m[49m
      [38;2;153;153;153m 10 [38;2;255;255;255m  )                                                                                                     [39m
      [38;2;153;153;153m 11 [38;2;255;255;255m                                                                                                        [39m
      [38;2;153;153;153m 12 [38;2;255;255;255m  func TestLoad(t *testing.T) {                                                                         [39m

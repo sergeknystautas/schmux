@@ -13,7 +13,7 @@ operation not permitted
 ✔ You approved codex to run go test ./internal/dashboard -run TestExtractLatestResponse and applied the execpolicy
 amendment
 • Ran go test ./internal/dashboard -run TestExtractLatestResponse
-└ ok      github.com/sergek/schmux/internal/dashboard    0.329s
+└ ok      github.com/sergeknystautas/schmux/internal/dashboard    0.329s
 • Ran git status --short
 └  M assets/dashboard/src/routes/SessionDetailPage.jsx
 M internal/dashboard/handlers.go

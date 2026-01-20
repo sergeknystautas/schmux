@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // SpawnCommand implements the spawn command.

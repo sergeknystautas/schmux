@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // RefreshOverlayCommand implements the refresh-overlay command.

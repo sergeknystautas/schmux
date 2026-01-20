@@ -40,9 +40,9 @@
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
 [38;2;78;186;101m⏺[39m [1mBash[0m(go test ./... 2>&1 | head -50) [38;2;153;153;153mtimeout: 1m 0s[39m
-  ⎿  ?          github.com/sergek/schmux/cmd/build-dashboard    [no test files]
-     ?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
-     # github.com/sergek/schmux/internal/detect [github.com/sergek/schmux/internal/detect.test]
+  ⎿  ?          github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files]
+     ?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
+     # github.com/sergeknystautas/schmux/internal/detect [github.com/sergeknystautas/schmux/internal/detect.test]
      [2m… +57 lines (ctrl+o to expand)[0m
   ⎿  [38;2;153;153;153mRunning [1mPostToolUse[0m[38;2;153;153;153m hooks… (1/2 done)[39m
 
