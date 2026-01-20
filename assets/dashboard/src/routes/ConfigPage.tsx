@@ -1365,12 +1365,74 @@ export default function ConfigPage() {
                       <p className="form-group__error">Selected target is not available or not promptable.</p>
                     )}
                   </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Viewed Buffer (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={viewedBuffer === 0 ? '' : viewedBuffer}
+                        onChange={(e) => setViewedBuffer(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                      />
+                      <p className="form-group__hint">Time to keep session marked as "viewed" after last check</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Seen Interval (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={nudgenikSeenInterval === 0 ? '' : nudgenikSeenInterval}
+                        onChange={(e) => setNudgenikSeenInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 2000)}
+                      />
+                      <p className="form-group__hint">How often to check for session activity</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">
-                  <h3 className="settings-section__title">Terminal Settings</h3>
+                  <h3 className="settings-section__title">Access Control</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Dashboard Access</label>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center', fontSize: '0.9rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
+                        <input
+                          type="radio"
+                          name="networkAccess"
+                          checked={!networkAccess}
+                          onChange={() => setNetworkAccess(false)}
+                        />
+                        <span>Local access only</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
+                        <input
+                          type="radio"
+                          name="networkAccess"
+                          checked={networkAccess}
+                          onChange={() => setNetworkAccess(true)}
+                        />
+                        <span>Local network access</span>
+                      </label>
+                    </div>
+                    <p className="form-group__hint">
+                      {!networkAccess
+                        ? 'Dashboard accessible only from this computer (localhost).'
+                        : 'Dashboard accessible from other devices on your local network.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Terminal</h3>
                 </div>
                 <div className="settings-section__body">
                   <div className="form-row">
@@ -1427,179 +1489,137 @@ export default function ConfigPage() {
 
               <div className="settings-section">
                 <div className="settings-section__header">
-                  <h3 className="settings-section__title">Network Access</h3>
+                  <h3 className="settings-section__title">Sessions</h3>
                 </div>
                 <div className="settings-section__body">
-                  <div className="form-group">
-                    <label className="form-group__label">Dashboard Access</label>
-                    <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center', fontSize: '0.9rem' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
-                        <input
-                          type="radio"
-                          name="networkAccess"
-                          checked={!networkAccess}
-                          onChange={() => setNetworkAccess(false)}
-                        />
-                        <span>Local access only</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
-                        <input
-                          type="radio"
-                          name="networkAccess"
-                          checked={networkAccess}
-                          onChange={() => setNetworkAccess(true)}
-                        />
-                        <span>Local network access</span>
-                      </label>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Dashboard Poll Interval (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={dashboardPollInterval === 0 ? '' : dashboardPollInterval}
+                        onChange={(e) => setDashboardPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                      />
+                      <p className="form-group__hint">How often to refresh sessions list</p>
                     </div>
-                    <p className="form-group__hint">
-                      {!networkAccess
-                        ? 'Dashboard accessible only from this computer (localhost).'
-                        : 'Dashboard accessible from other devices on your local network.'}
-                    </p>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Git Status Poll Interval (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={gitStatusPollInterval === 0 ? '' : gitStatusPollInterval}
+                        onChange={(e) => setGitStatusPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
+                      />
+                      <p className="form-group__hint">How often to refresh git status (dirty, ahead, behind)</p>
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Git Clone Timeout (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={gitCloneTimeout === 0 ? '' : gitCloneTimeout}
+                        onChange={(e) => setGitCloneTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 300000)}
+                      />
+                      <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300000ms = 5 min)</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Git Status Timeout (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={gitStatusTimeout === 0 ? '' : gitStatusTimeout}
+                        onChange={(e) => setGitStatusTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 30000)}
+                      />
+                      <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30000ms)</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">
-                  <h3 className="settings-section__title">Advanced Settings</h3>
+                  <h3 className="settings-section__title">Xterm</h3>
                 </div>
                 <div className="settings-section__body">
-                  <div className="form-group">
-                    <label className="form-group__label">Xterm Mtime Poll Interval (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={mtimePollInterval === 0 ? '' : mtimePollInterval}
-                      onChange={(e) => setMtimePollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
-                    />
-                    <p className="form-group__hint">How often to check log file mtimes for new output</p>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Mtime Poll Interval (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={mtimePollInterval === 0 ? '' : mtimePollInterval}
+                        onChange={(e) => setMtimePollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                      />
+                      <p className="form-group__hint">How often to check log file mtimes for new output</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Query Timeout (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={xtermQueryTimeout === 0 ? '' : xtermQueryTimeout}
+                        onChange={(e) => setXtermQueryTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                      />
+                      <p className="form-group__hint">Maximum time to wait for xterm query operations (default: 5000ms)</p>
+                    </div>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-group__label">Dashboard Poll Interval (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={dashboardPollInterval === 0 ? '' : dashboardPollInterval}
-                      onChange={(e) => setDashboardPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
-                    />
-                    <p className="form-group__hint">How often to refresh sessions list</p>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Operation Timeout (ms)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="100"
+                        value={xtermOperationTimeout === 0 ? '' : xtermOperationTimeout}
+                        onChange={(e) => setXtermOperationTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
+                      />
+                      <p className="form-group__hint">Maximum time to wait for xterm operations (default: 10000ms)</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-group__label">Max Log Size (MB)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="1"
+                        value={maxLogSizeMB === 0 ? '' : maxLogSizeMB}
+                        onChange={(e) => setMaxLogSizeMB(e.target.value === '' ? 0 : parseInt(e.target.value) || 50)}
+                      />
+                      <p className="form-group__hint">Maximum log file size before rotation (default: 50MB)</p>
+                    </div>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-group__label">NudgeNik Viewed Buffer (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={viewedBuffer === 0 ? '' : viewedBuffer}
-                      onChange={(e) => setViewedBuffer(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
-                    />
-                    <p className="form-group__hint">Time to keep session marked as "viewed" after last check</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">NudgeNik Seen Interval (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={nudgenikSeenInterval === 0 ? '' : nudgenikSeenInterval}
-                      onChange={(e) => setNudgenikSeenInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 2000)}
-                    />
-                    <p className="form-group__hint">How often to check for session activity</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Git Status Poll Interval (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={gitStatusPollInterval === 0 ? '' : gitStatusPollInterval}
-                      onChange={(e) => setGitStatusPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
-                    />
-                    <p className="form-group__hint">How often to refresh git status (dirty, ahead, behind)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Git Clone Timeout (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={gitCloneTimeout === 0 ? '' : gitCloneTimeout}
-                      onChange={(e) => setGitCloneTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 300000)}
-                    />
-                    <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300000ms = 5 min)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Git Status Timeout (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={gitStatusTimeout === 0 ? '' : gitStatusTimeout}
-                      onChange={(e) => setGitStatusTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 30000)}
-                    />
-                    <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30000ms)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Xterm Query Timeout (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={xtermQueryTimeout === 0 ? '' : xtermQueryTimeout}
-                      onChange={(e) => setXtermQueryTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
-                    />
-                    <p className="form-group__hint">Maximum time to wait for xterm query operations (default: 5000ms)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Xterm Operation Timeout (ms)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="100"
-                      value={xtermOperationTimeout === 0 ? '' : xtermOperationTimeout}
-                      onChange={(e) => setXtermOperationTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
-                    />
-                    <p className="form-group__hint">Maximum time to wait for xterm operations (default: 10000ms)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Max Log Size (MB)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="1"
-                      value={maxLogSizeMB === 0 ? '' : maxLogSizeMB}
-                      onChange={(e) => setMaxLogSizeMB(e.target.value === '' ? 0 : parseInt(e.target.value) || 50)}
-                    />
-                    <p className="form-group__hint">Maximum log file size before rotation (default: 50MB)</p>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-group__label">Rotated Log Size (MB)</label>
-                    <input
-                      type="number"
-                      className="input input--compact"
-                      min="1"
-                      max={maxLogSizeMB}
-                      value={rotatedLogSizeMB === 0 ? '' : rotatedLogSizeMB}
-                      onChange={(e) => setRotatedLogSizeMB(e.target.value === '' ? 0 : Math.min(parseInt(e.target.value) || 1, maxLogSizeMB))}
-                    />
-                    <p className="form-group__hint">Target log size after rotation - keeps the tail (default: 1MB)</p>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Rotated Log Size (MB)</label>
+                      <input
+                        type="number"
+                        className="input input--compact"
+                        min="1"
+                        max={maxLogSizeMB}
+                        value={rotatedLogSizeMB === 0 ? '' : rotatedLogSizeMB}
+                        onChange={(e) => setRotatedLogSizeMB(e.target.value === '' ? 0 : Math.min(parseInt(e.target.value) || 1, maxLogSizeMB))}
+                      />
+                      <p className="form-group__hint">Target log size after rotation - keeps the tail (default: 1MB)</p>
+                    </div>
                   </div>
                 </div>
               </div>
+
               {stepErrors[5] && (
                 <p className="form-group__error">{stepErrors[5]}</p>
               )}
