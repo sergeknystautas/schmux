@@ -20,7 +20,7 @@ Then it's time for you to work with schmux!
 
 ## Quick Start
 
-Get up and running with schmux in 5 minutes.
+Get up and running with schmux in 5 minutes.  Works on Mac, Linux, or Windows (WSL only).
 
 ### Prerequisites
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sergek/schmux/internal/assets"
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/session"
 	"github.com/sergek/schmux/internal/state"
@@ -159,21 +160,24 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// getAssetPath returns the path to the assets directory.
-// Tries multiple locations to support different deployment scenarios.
-func (s *Server) getAssetPath() string {
-	// List of candidate paths in order of preference
+// getDashboardDistPath returns the path to the built dashboard assets.
+// Checks locations in order: user cache (~/.schmux/dashboard), then local dev path.
+func (s *Server) getDashboardDistPath() string {
+	// 1. User cache (downloaded assets)
+	if userAssetsDir, err := assets.GetUserAssetsDir(); err == nil {
+		if _, err := os.Stat(filepath.Join(userAssetsDir, "index.html")); err == nil {
+			return userAssetsDir
+		}
+	}
+
+	// 2. Local dev paths
 	candidates := []string{
-		// Relative to current working directory (for development)
-		"./assets/dashboard",
-		// Relative to executable (for installed binary)
-		filepath.Join(filepath.Dir(os.Args[0]), "../assets/dashboard"),
-		// Absolute path from module root (if working dir is set correctly)
-		filepath.Join(".", "assets", "dashboard"),
+		"./assets/dashboard/dist",
+		filepath.Join(filepath.Dir(os.Args[0]), "../assets/dashboard/dist"),
 	}
 
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
+		if _, err := os.Stat(filepath.Join(candidate, "index.html")); err == nil {
 			return candidate
 		}
 	}
@@ -181,12 +185,6 @@ func (s *Server) getAssetPath() string {
 	// Fallback - return first candidate even if it doesn't exist
 	// (will result in 404s but won't crash)
 	return candidates[0]
-}
-
-// getDashboardDistPath returns the path to the built dashboard assets.
-func (s *Server) getDashboardDistPath() string {
-	assetPath := s.getAssetPath()
-	return filepath.Join(assetPath, "dist")
 }
 
 // RegisterWebSocket registers a WebSocket connection for a session.

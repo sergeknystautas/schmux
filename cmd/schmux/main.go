@@ -6,6 +6,7 @@ import (
 
 	"github.com/sergek/schmux/internal/config"
 	"github.com/sergek/schmux/internal/daemon"
+	"github.com/sergek/schmux/internal/version"
 	"github.com/sergek/schmux/pkg/cli"
 )
 
@@ -79,6 +80,9 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "version", "-v", "--version":
+		fmt.Printf("schmux v%s\n", version.Version)
+
 	case "help", "-h", "--help":
 		printUsage()
 
@@ -150,7 +154,8 @@ func printUsage() {
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
 	fmt.Println()
-	fmt.Println("Help:")
+	fmt.Println("Other:")
+	fmt.Println("  version     Show version")
 	fmt.Println("  help        Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
