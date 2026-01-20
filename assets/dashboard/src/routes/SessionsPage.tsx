@@ -5,13 +5,13 @@ import { useToast } from '../components/ToastProvider';
 import { useRequireConfig } from '../contexts/ConfigContext';
 import WorkspacesList from '../components/WorkspacesList';
 import ScanResultsModal from '../components/ScanResultsModal';
-import useLocalStorage from '../hooks/useLocalStorage';
+import useLocalStorage, { SESSIONS_FILTERS_KEY } from '../hooks/useLocalStorage';
 import type { ScanResult } from '../lib/types';
 
 export default function SessionsPage() {
   useRequireConfig();
   const { error: toastError } = useToast();
-  const [filters, setFilters] = useLocalStorage<{ status: string; repo: string }>('sessions-filters', { status: '', repo: '' });
+  const [filters, setFilters] = useLocalStorage<{ status: string; repo: string }>(SESSIONS_FILTERS_KEY, { status: '', repo: '' });
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
 

@@ -11,7 +11,7 @@ import SessionTableRow from './SessionTableRow'
 import Tooltip from './Tooltip'
 import SpawnDropdown from './SpawnDropdown'
 import VSCodeResultModal from './VSCodeResultModal'
-import useLocalStorage from '../hooks/useLocalStorage'
+import useLocalStorage, { WORKSPACE_EXPANDED_KEY } from '../hooks/useLocalStorage'
 import type { OpenVSCodeResponse, QuickLaunchPreset, SessionResponse, WorkspaceResponse } from '../lib/types';
 
 type WorkspaceFilters = {
@@ -56,7 +56,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>('workspace-expanded', {});
+  const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>(WORKSPACE_EXPANDED_KEY, {});
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState<string | null>(null); // Track which workspace is opening VS Code
   const [refreshingOverlay, setRefreshingOverlay] = useState<string | null>(null); // Track which workspace is refreshing overlay

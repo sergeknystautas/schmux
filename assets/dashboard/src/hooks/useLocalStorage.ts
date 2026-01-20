@@ -1,6 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 
 /**
+ * localStorage keys used across the app.
+ * These are unprefixed - useLocalStorage auto-adds 'schmux:' prefix.
+ * For direct localStorage access, add the 'schmux:' prefix yourself.
+ */
+export const SESSIONS_FILTERS_KEY = 'sessions-filters';
+export const WORKSPACE_EXPANDED_KEY = 'workspace-expanded';
+export const VIEWED_SESSIONS_KEY = 'viewedSessions';
+export const SESSION_SIDEBAR_COLLAPSED_KEY = 'sessionSidebarCollapsed';
+
+/**
  * React hook for syncing state to localStorage with cross-tab support.
  *
  * The storage event only fires in OTHER tabs/windows, not the one that made

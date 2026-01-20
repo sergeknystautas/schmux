@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useCallback } from 'react';
 import { useConfig } from './ConfigContext';
-import useLocalStorage from '../hooks/useLocalStorage';
+import useLocalStorage, { VIEWED_SESSIONS_KEY } from '../hooks/useLocalStorage';
 
 type ViewedSessionsContextValue = {
   viewedSessions: Record<string, number>;
@@ -10,7 +10,7 @@ type ViewedSessionsContextValue = {
 const ViewedSessionsContext = createContext<ViewedSessionsContextValue | null>(null);
 
 export function ViewedSessionsProvider({ children }: { children: React.ReactNode }) {
-  const [viewedSessions, setViewedSessions] = useLocalStorage<Record<string, number>>('viewedSessions', {});
+  const [viewedSessions, setViewedSessions] = useLocalStorage<Record<string, number>>(VIEWED_SESSIONS_KEY, {});
   const { config } = useConfig();
 
   const markAsViewed = useCallback((sessionId: string) => {

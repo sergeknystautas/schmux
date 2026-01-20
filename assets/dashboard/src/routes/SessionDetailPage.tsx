@@ -10,7 +10,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import Tooltip from '../components/Tooltip';
-import useLocalStorage from '../hooks/useLocalStorage';
+import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspacesList, { type WorkspacesListHandle } from '../components/WorkspacesList';
 import type { NudgenikResult } from '../lib/types';
 
@@ -22,7 +22,7 @@ export default function SessionDetailPage() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'>('connecting');
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>('sessionSidebarCollapsed', false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(SESSION_SIDEBAR_COLLAPSED_KEY, false);
   const [nudgenikLoading, setNudgenikLoading] = useState(false);
   const [nudgenikResult, setNudgenikResult] = useState<NudgenikResult | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);

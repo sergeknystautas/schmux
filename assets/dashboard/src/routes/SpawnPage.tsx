@@ -276,7 +276,7 @@ export default function SpawnPage() {
 
       // Clear collapsed state for reused workspace IDs so new sessions are visible
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
-      const expandedKey = 'schmux:workspace-expanded';
+      const expandedKey = 'schmux:workspace-expanded'; // Must use full key here since we're accessing localStorage directly, not via useLocalStorage hook
       const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}') as Record<string, boolean>;
       let changed = false;
       workspaceIds.forEach(id => {
