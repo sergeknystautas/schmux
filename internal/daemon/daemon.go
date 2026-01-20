@@ -56,7 +56,7 @@ type Daemon struct {
 // before they diverge.
 func ValidateReadyToRun() error {
 	// Check tmux dependency before forking
-	if err := checkTmux(); err != nil {
+	if err := tmux.TmuxChecker.Check(); err != nil {
 		return err
 	}
 
@@ -514,20 +514,6 @@ func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manag
 	}
 	cancel()
 	fmt.Printf("[bootstrap] %s: pipe-pane started\n", sess.ID)
-	return nil
-}
-
-// checkTmux verifies that tmux is installed and accessible.
-func checkTmux() error {
-	cmd := exec.Command("tmux", "-V")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
-	}
-	// tmux -V outputs version info like "tmux 3.3a", this confirms it's working
-	if len(output) == 0 {
-		return fmt.Errorf("tmux command produced no output")
-	}
 	return nil
 }
 

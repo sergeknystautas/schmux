@@ -47,6 +47,30 @@ This document defines the agreed end-to-end (E2E) testing approach for schmux.
 
 ---
 
+## How to Run
+
+### Locally (Required before pushing)
+
+E2E tests MUST be run locally via Docker before pushing changes:
+
+```bash
+# Build the E2E Docker image
+docker build -f Dockerfile.e2e -t schmux-e2e .
+
+# Run the E2E tests
+docker run --rm schmux-e2e
+```
+
+The Docker image includes:
+- Go compiler and test tools
+- tmux, git, curl, bash
+- Node.js + npm for dashboard build
+- Pre-built schmux binary and dashboard assets
+
+Tests run inside the container with full isolation from your host environment.
+
+---
+
 ## Required Behaviors to Validate
 
 1. **Daemon lifecycle**

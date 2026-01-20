@@ -10,6 +10,31 @@ import (
 	"strings"
 )
 
+// Checker verifies tmux is available and functional.
+type Checker interface {
+	Check() error
+}
+
+// TmuxChecker is the default checker used at runtime.
+// Tests can override this with a mock implementation.
+var TmuxChecker Checker = &defaultChecker{}
+
+// defaultChecker implements Checker by running tmux -V.
+type defaultChecker struct{}
+
+func (c *defaultChecker) Check() error {
+	cmd := exec.Command("tmux", "-V")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tmux is not installed or not accessible.\n-> %w", err)
+	}
+	// tmux -V outputs version info like "tmux 3.3a", this confirms it's working
+	if len(output) == 0 {
+		return fmt.Errorf("tmux command produced no output")
+	}
+	return nil
+}
+
 // ANSI escape sequence regex for stripping terminal codes.
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
