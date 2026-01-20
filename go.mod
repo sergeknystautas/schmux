@@ -1,4 +1,4 @@
-module github.com/sergek/schmux
+module github.com/sergeknystautas/schmux
 
 go 1.23.3
 

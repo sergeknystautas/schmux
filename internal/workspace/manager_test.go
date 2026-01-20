@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func TestExtractWorkspaceNumber(t *testing.T) {

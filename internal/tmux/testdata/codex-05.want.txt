@@ -17,11 +17,11 @@
 • Ran gofmt -w internal/dashboard/handlers.go
 └ (no output)
 • Ran go test ./...
-└ ?       github.com/sergek/schmux/cmd/build-dashboard    [no test files]
-?       github.com/sergek/schmux/cmd/scan-ansi    [no test files]
+└ ?       github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files]
+?       github.com/sergeknystautas/schmux/cmd/scan-ansi    [no test files]
 … +10 lines
-ok      github.com/sergek/schmux/internal/workspace    (cached)
-ok      github.com/sergek/schmux/pkg/cli    (cached)
+ok      github.com/sergeknystautas/schmux/internal/workspace    (cached)
+ok      github.com/sergeknystautas/schmux/pkg/cli    (cached)
 • Manual detection is removed. /api/detect-tools is now GET-only and served from config, and the client no longer has a
 refresh call.
 Changes:

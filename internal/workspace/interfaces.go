@@ -3,8 +3,8 @@ package workspace
 import (
 	"context"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // ScanResult represents the results of a workspace scan operation.

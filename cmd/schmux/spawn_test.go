@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 func TestParseTmuxSession(t *testing.T) {

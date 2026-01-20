@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sergek/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
 type fieldDef struct {

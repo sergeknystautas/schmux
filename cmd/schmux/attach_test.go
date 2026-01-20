@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // TestAttachCommand_Run tests the attach command Run method

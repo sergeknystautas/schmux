@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sergek/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

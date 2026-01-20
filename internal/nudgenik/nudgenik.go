@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/oneshot"
-	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 const (

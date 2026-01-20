@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // MockDaemonClient is a mock implementation of DaemonClient for testing.

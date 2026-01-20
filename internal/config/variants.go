@@ -3,7 +3,7 @@ package config
 import (
 	"sort"
 
-	"github.com/sergek/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 // GetVariantConfigs returns the variant configs.

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sergek/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.

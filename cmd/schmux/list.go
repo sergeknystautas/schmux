@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sergek/schmux/pkg/cli"
+	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
 // ListCommand implements the list command.

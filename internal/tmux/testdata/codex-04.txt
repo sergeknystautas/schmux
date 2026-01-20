@@ -97,7 +97,7 @@
   [1mamendment[0m
 
 [1m[38;5;2m•[0m [1mRan[0m go test ./internal/dashboard -run TestExtractLatestResponse
-[2m  └ ok      github.com/sergek/schmux/internal/dashboard    0.329s[0m
+[2m  └ ok      github.com/sergeknystautas/schmux/internal/dashboard    0.329s[0m
 
 [1m[38;5;2m•[0m [1mRan[0m git status --short
 [2m  └  M assets/dashboard/src/routes/SessionDetailPage.jsx[0m

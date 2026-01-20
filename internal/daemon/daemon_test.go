@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergek/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 func TestStatus(t *testing.T) {

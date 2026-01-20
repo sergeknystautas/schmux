@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sergek/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 func validateRunTargets(targets []RunTarget) error {

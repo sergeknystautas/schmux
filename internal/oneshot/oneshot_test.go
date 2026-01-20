@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sergek/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
 func TestBuildOneShotCommand(t *testing.T) {

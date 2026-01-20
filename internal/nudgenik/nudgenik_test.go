@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/detect"
-	"github.com/sergek/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func setupFakeTmux(t *testing.T) {

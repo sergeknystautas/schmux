@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergek/schmux/internal/config"
-	"github.com/sergek/schmux/internal/state"
-	"github.com/sergek/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 func TestNew(t *testing.T) {

@@ -30,8 +30,8 @@
 885               </button>
 ⏺ Now let me run the Go tests and build the dashboard to verify everything works.
 ⏺ Bash(go test ./... 2>&1 | tail -20)
-?          github.com/sergek/schmux/cmd/scan-ansi  [no test files]
-ok         github.com/sergek/schmux/cmd/schmux     (cached)
+?          github.com/sergeknystautas/schmux/cmd/scan-ansi  [no test files]
+ok         github.com/sergeknystautas/schmux/cmd/schmux     (cached)
 … +14 lines (ctrl+o to expand)
 ⏺ Bash(go run ./cmd/build-dashboard 2>&1)
 Bash command

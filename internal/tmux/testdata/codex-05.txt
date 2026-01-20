@@ -88,11 +88,11 @@ ror)[39m
 [2m  └ (no output)[0m
 
 [1m[38;5;2m•[0m [1mRan[0m go test ./...
-[2m  └ ?       github.com/sergek/schmux/cmd/build-dashboard    [no test files][0m
-    [2m?       github.com/sergek/schmux/cmd/scan-ansi    [no test files][0m
+[2m  └ ?       github.com/sergeknystautas/schmux/cmd/build-dashboard    [no test files][0m
+    [2m?       github.com/sergeknystautas/schmux/cmd/scan-ansi    [no test files][0m
     [2m… +10 lines[0m
-    [2mok      github.com/sergek/schmux/internal/workspace    (cached)[0m
-    [2mok      github.com/sergek/schmux/pkg/cli    (cached)[0m
+    [2mok      github.com/sergeknystautas/schmux/internal/workspace    (cached)[0m
+    [2mok      github.com/sergeknystautas/schmux/pkg/cli    (cached)[0m
 
 [2m─ Worked for 32s ───────────────────────────────────────────────────────────────────────────────────────────────────────
 

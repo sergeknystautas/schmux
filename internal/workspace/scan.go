@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sergek/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // Scan scans the workspace directory and reconciles state with filesystem.
