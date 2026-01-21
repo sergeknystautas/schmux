@@ -72,7 +72,7 @@ func EnsureAssets() error {
 	url := fmt.Sprintf(GitHubReleaseURLTemplate, version.Version)
 	fmt.Printf("Downloading dashboard assets v%s...\n", version.Version)
 
-	if err := downloadAndExtract(url, assetsDir); err != nil {
+	if err := DownloadAndExtract(url, assetsDir); err != nil {
 		return fmt.Errorf("failed to download dashboard assets: %w", err)
 	}
 
@@ -86,8 +86,8 @@ func EnsureAssets() error {
 	return nil
 }
 
-// downloadAndExtract downloads a tar.gz file and extracts it to destDir.
-func downloadAndExtract(url, destDir string) error {
+// DownloadAndExtract downloads a tar.gz file and extracts it to destDir.
+func DownloadAndExtract(url, destDir string) error {
 	// Download to temp file
 	tmpFile, err := os.CreateTemp("", "schmux-assets-*.tar.gz")
 	if err != nil {
@@ -115,6 +115,12 @@ func downloadAndExtract(url, destDir string) error {
 	}
 	tmpFile.Close()
 
+	return ExtractTarGzToDir(tmpPath, destDir)
+}
+
+// ExtractTarGzToDir extracts a tar.gz file to the destination directory atomically.
+// It extracts to a temp directory first, then moves to the final location.
+func ExtractTarGzToDir(tarGzPath, destDir string) error {
 	// Extract to temp directory first (atomic operation)
 	tmpDir, err := os.MkdirTemp("", "schmux-assets-")
 	if err != nil {
@@ -122,7 +128,7 @@ func downloadAndExtract(url, destDir string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := extractTarGz(tmpPath, tmpDir); err != nil {
+	if err := extractTarGz(tarGzPath, tmpDir); err != nil {
 		return fmt.Errorf("failed to extract: %w", err)
 	}
 

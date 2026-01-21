@@ -228,7 +228,7 @@ func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
 	sess := state.Session{
 		ID:          "sess-001",
 		WorkspaceID: "test-001",
-		Target:       "test-agent",
+		Target:      "test-agent",
 	}
 	st.AddSession(sess)
 

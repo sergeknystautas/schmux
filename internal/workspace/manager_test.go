@@ -290,7 +290,7 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	sess := state.Session{
 		ID:          "sess-001",
 		WorkspaceID: workspaceID,
-		Target:       "test-agent",
+		Target:      "test-agent",
 	}
 	st.AddSession(sess)
 
@@ -533,25 +533,25 @@ func TestCreateLocalRepo(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:    "creates first workspace",
+			name:     "creates first workspace",
 			repoName: "myproject",
-			branch:  "main",
-			wantID:  "myproject-001",
-			wantErr: false,
+			branch:   "main",
+			wantID:   "myproject-001",
+			wantErr:  false,
 		},
 		{
-			name:    "creates second workspace",
+			name:     "creates second workspace",
 			repoName: "myproject",
-			branch:  "main",
-			wantID:  "myproject-002",
-			wantErr: false,
+			branch:   "main",
+			wantID:   "myproject-002",
+			wantErr:  false,
 		},
 		{
-			name:    "creates workspace with different name",
+			name:     "creates workspace with different name",
 			repoName: "otherproject",
-			branch:  "main",
-			wantID:  "otherproject-001",
-			wantErr: false,
+			branch:   "main",
+			wantID:   "otherproject-001",
+			wantErr:  false,
 		},
 		{
 			name:        "empty repo name errors",

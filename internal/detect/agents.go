@@ -64,7 +64,7 @@ func DetectAvailableTools(printProgress bool) []Tool {
 	defer cancel()
 
 	type result struct {
-		tool Tool
+		tool  Tool
 		found bool
 		name  string // detector name for not-found message
 	}
@@ -122,7 +122,7 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 	}
 
 	type result struct {
-		tool Tool
+		tool  Tool
 		found bool
 		name  string // detector name for not-found message
 	}

@@ -20,43 +20,37 @@ Then it's time for you to work with schmux!
 
 ## Quick Start
 
-Get up and running with schmux in 5 minutes.  Works on Mac, Linux, or Windows (WSL only).
+Get up and running with schmux in 5 minutes. Works on Mac, Linux, or Windows (WSL only).
 
 ### Prerequisites
 
 You'll need:
 
-1. **Go 1.21+** - [Download here](https://go.dev/dl/) or `brew install go`
-2. **Node.js 18+ & npm** - [Download here](https://nodejs.org/) or `brew install node` (for building the React dashboard)
-3. **tmux** - [Homepage](https://github.com/tmux/tmux) or `brew install tmux`
-4. **git** - Usually pre-installed, or `brew install git`
+1. [**tmux**](https://github.com/tmux/tmux) - `brew install tmux`, `apt install tmux`, or whatever your package manager.
+2. [**git**](https://git-scm.com/) - usually pre-installed or available with your favorite package manager.
    - Note: schmux runs git commands locally in your workspaces, so it will work with whatever authentication you have configured (SSH keys, HTTPS tokens, credential helpers, etc.)
-5. **Detected tool CLIs** - At least one of:
+3. **Run target CLIs** - At least one of:
    - [Claude Code](https://claude.ai/code)
-   - Codex
-   - Gemini
+   - [Codex](https://openai.com/codex/)
+   - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
    - Or any CLI you want to add as a run target
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/schmux.git
-cd schmux
-
-# Build the React dashboard and binary
-go run ./cmd/build-dashboard
-
-# The ./schmux binary is now ready to use
-# (Optional) Install to your PATH
-mv schmux /usr/local/bin/
+# One-line install (downloads binary + dashboard assets)
+curl -fsSL https://raw.githubusercontent.com/sergeknystautas/schmux/main/install.sh | bash
 ```
+
+This installs to `~/.local/bin/schmux`. Make sure it's in your PATH, then run `schmux update` anytime to get the latest version.
+
+To build from source instead, see [Contributing](docs/dev/README.md).
 
 ### First-Time Setup
 
 1. **Start schmux** - It will guide you through creating a config file:
    ```bash
-   ./schmux start
+   schmux start
    ```
 
 2. **Follow the prompts** to configure:
@@ -68,87 +62,37 @@ mv schmux /usr/local/bin/
 
 4. **Spawn your first session** via the web UI
 
-### Manual Configuration
-
-If you prefer to configure manually, create `~/.schmux/config.json`:
-
-```json
-{
-  "workspace_path": "~/schmux-workspaces",
-  "repos": [
-    {
-      "name": "myproject",
-      "url": "git@github.com:user/myproject.git"
-    }
-  ],
-  "run_targets": [
-    {
-      "name": "glm-4.7-cli",
-      "type": "promptable",
-      "command": "~/bin/glm-4.7"
-    },
-    {
-      "name": "zsh",
-      "type": "command",
-      "command": "zsh"
-    }
-  ],
-  "quick_launch": [
-    {
-      "name": "Review: Kimi",
-      "target": "kimi-thinking",
-      "prompt": "Please review these changes."
-    }
-  ],
-  "nudgenik": {
-    "target": "kimi-thinking"
-  },
-  "terminal": {
-    "width": 120,
-    "height": 40,
-    "seed_lines": 100
-  }
-}
-
-NudgeNik uses `nudgenik.target` to select a promptable target (detected tool, variant, or user promptable). If omitted, it defaults to the detected `claude` tool.
-```
-
-Then start the daemon:
-```bash
-./schmux start
-./schmux status  # Shows dashboard URL
-```
-
 ### Common Issues
 
 **Problem**: `tmux is not installed or not accessible`
 - **Solution**: Install tmux (`brew install tmux` on macOS)
 
 **Problem**: `config file not found: ~/.schmux/config.json`
-- **Solution**: Run `./schmux start` - it will offer to create a config for you
+- **Solution**: Run `schmux start` - it will offer to create a config for you
 
 **Problem**: `run target command is required for X`
 - **Solution**: Make sure each run target has `name`, `type`, and `command`
 
 **Problem**: Dashboard shows "Disconnected"
-- **Solution**: Check if daemon is running with `./schmux status`
+- **Solution**: Check if daemon is running with `schmux status`
 
 **Problem**: I want local config files in each workspace
 - **Solution**: Use workspace overlays - see `docs/workspaces.md` for details
 
 ## Features
 
-- **Multi-target orchestration** - Run Claude, Codex, and friends simultaneously
-- **Multi-target per directory** - Spawn reviewers or subtargets on existing workspaces
+- **Multi-agent orchestration** - Run Claude, Codex, and friends simultaneously
+- **Multi-agent per directory** - Spawn reviewers or subtargets on existing workspaces
 - **Workspace management** - Auto git clone/checkout/pull for clean working directories
 - **Workspace overlays** - Auto-copy local-only files (`.env`, config) to new workspaces
 - **tmux integration** - Each target in its own session, attach anytime
-- **Web dashboard** - Watch your targets work (or panic) in real-time
-- **Session persistence** - Survives target completion for review and resume
+- **Web dashboard** - Watch agents work in real-time
+- **Full CLI capabilities** - Spawn and manage sessions and workspaces from your terminal
+- **Session multitasking** - See when an agent is done, usually with a summary on what it needs.
 
 ## Status
 
-**v0.5** - Mostly working, occasionally on fire
+**v0.9.3** - Nearly ready for prime time
 
 ## Documentation
 
@@ -161,16 +105,6 @@ Then start the daemon:
 - [docs/api.md](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
 - [docs/dev/README.md](docs/dev/README.md) - Contributor guide
-
-## Development
-
-Cross-platform dashboard build helper (runs npm build, with optional Go test/build):
-
-```bash
-go run ./cmd/build-dashboard
-go run ./cmd/build-dashboard -test -build
-go run ./cmd/build-dashboard -skip-install
-```
 
 ## License
 

@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -244,11 +243,6 @@ func Run(background bool) error {
 	schmuxDir := filepath.Join(homeDir, ".schmux")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
-	}
-
-	// Ensure dashboard assets are available (downloads if needed)
-	if err := assets.EnsureAssets(); err != nil {
-		return fmt.Errorf("failed to ensure dashboard assets: %w", err)
 	}
 
 	pidFile := filepath.Join(schmuxDir, pidFileName)

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
-	"sort"
 	"sync"
 	"testing"
 
@@ -155,8 +155,8 @@ func TestNudgenikClassification(t *testing.T) {
 }
 
 type nudgenikManifest struct {
-	Version int                  `yaml:"version"`
-	Cases   []nudgenikTestCase   `yaml:"cases"`
+	Version int                `yaml:"version"`
+	Cases   []nudgenikTestCase `yaml:"cases"`
 }
 
 type nudgenikTestCase struct {

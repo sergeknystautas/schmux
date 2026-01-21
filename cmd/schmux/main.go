@@ -6,6 +6,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/daemon"
+	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/pkg/cli"
 )
@@ -83,6 +84,12 @@ func main() {
 	case "version", "-v", "--version":
 		fmt.Printf("schmux v%s\n", version.Version)
 
+	case "update":
+		if err := update.Update(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "help", "-h", "--help":
 		printUsage()
 
@@ -156,6 +163,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Other:")
 	fmt.Println("  version     Show version")
+	fmt.Println("  update      Update schmux to the latest version")
 	fmt.Println("  help        Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")

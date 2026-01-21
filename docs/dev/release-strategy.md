@@ -1,29 +1,18 @@
 # Release Strategy
 
-This document specifies how schmux is distributed to end users, covering versioning, release artifacts, and the runtime asset download mechanism.
+This document specifies how schmux is distributed to end users, covering versioning, release artifacts, installation, and self-updating.
 
 ## Problem Statement
 
-schmux has a React dashboard that must be built via npm before the Go binary can serve it. The built assets (`assets/dashboard/dist/`) are gitignored and not committed to the repository.
-
-This creates a problem for `go install`:
-
-```bash
-go install github.com/schmux/schmux/cmd/schmux@latest
-```
-
-`go install` fetches source code only—it cannot run npm build steps. Users who install this way get a binary with no dashboard assets.
+schmux needs to be distributed to Mac and Linux users who may not have Go installed. The previous `go install` approach only works for Go developers and still requires workarounds for dashboard assets.
 
 ## Solution Overview
 
-**Runtime asset download**: The binary downloads pre-built dashboard assets from GitHub Releases on first run.
+**Pre-built binaries with self-update**: Release platform-specific binaries via GitHub Releases. Users install via a simple curl script, and the binary can update itself.
 
-1. Each GitHub Release includes a `dashboard-assets.tar.gz` artifact
-2. The binary has its version compiled in (e.g., `1.2.3`)
-3. On startup, if assets are missing or outdated, the binary fetches the matching version from GitHub Releases
-4. Assets are cached in `~/.schmux/dashboard/`
-
-This allows `go install` to work while keeping built assets out of git.
+1. GitHub Actions builds binaries for all platforms on tag push
+2. Install script detects OS/arch and downloads the correct binary
+3. `schmux update` checks for new versions and replaces itself
 
 ## Versioning Strategy
 
@@ -41,7 +30,7 @@ git push origin v1.2.3
 Version is injected at build time via ldflags:
 
 ```bash
-go build -ldflags "-X github.com/schmux/schmux/internal/version.Version=1.2.3" ./cmd/schmux
+go build -ldflags "-X github.com/sergeknystautas/schmux/internal/version.Version=1.2.3" ./cmd/schmux
 ```
 
 ### Version Package
@@ -61,25 +50,31 @@ var Version = "dev"
 - Git tags: `v1.2.3` (with `v` prefix, Go convention)
 - Dev builds: `dev` (default when not set via ldflags)
 
+## Platform Matrix
+
+Binaries are built for:
+
+| OS | Architecture | Binary Name |
+|----|--------------|-------------|
+| macOS | Intel | `schmux-darwin-amd64` |
+| macOS | Apple Silicon | `schmux-darwin-arm64` |
+| Linux | x86_64 | `schmux-linux-amd64` |
+| Linux | ARM64 | `schmux-linux-arm64` |
+
 ## Release Artifacts
 
 Each GitHub Release (e.g., `v1.2.3`) includes:
 
-| Artifact | Contents | Purpose |
-|----------|----------|---------|
-| Source code (zip/tar.gz) | Repository snapshot | Automatic, provided by GitHub |
-| `dashboard-assets.tar.gz` | Built `dist/` contents | Downloaded by binary at runtime |
+| Artifact | Purpose |
+|----------|---------|
+| `schmux-darwin-amd64` | macOS Intel binary |
+| `schmux-darwin-arm64` | macOS Apple Silicon binary |
+| `schmux-linux-amd64` | Linux x86_64 binary |
+| `schmux-linux-arm64` | Linux ARM64 binary |
+| `dashboard-assets.tar.gz` | Pre-built React dashboard |
+| `checksums.txt` | SHA256 checksums for all artifacts |
 
-The `dashboard-assets.tar.gz` contains the Vite build output:
-
-```
-dashboard-assets.tar.gz
-├── index.html
-└── assets/
-    ├── index-[hash].js
-    ├── index-[hash].css
-    └── ...
-```
+Dashboard assets are distributed separately from the binary. The install script and `schmux update` command download both the binary and assets, extracting assets to `~/.schmux/dashboard/`.
 
 ## CI/Release Workflow
 
@@ -123,10 +118,33 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          LDFLAGS="-X github.com/sergeknystautas/schmux/internal/version.Version=${VERSION}"
+
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o schmux-darwin-amd64 ./cmd/schmux
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o schmux-darwin-arm64 ./cmd/schmux
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o schmux-linux-amd64 ./cmd/schmux
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o schmux-linux-arm64 ./cmd/schmux
+
+      - name: Generate checksums
+        run: sha256sum schmux-* dashboard-assets.tar.gz > checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dashboard-assets.tar.gz
+          files: |
+            schmux-darwin-amd64
+            schmux-darwin-arm64
+            schmux-linux-amd64
+            schmux-linux-arm64
+            dashboard-assets.tar.gz
+            checksums.txt
           generate_release_notes: true
 ```
 
@@ -141,163 +159,259 @@ jobs:
 3. CI automatically:
    - Builds dashboard assets
    - Runs tests
-   - Creates GitHub Release with `dashboard-assets.tar.gz`
+   - Cross-compiles binaries for all platforms
+   - Generates checksums
+   - Creates GitHub Release with all artifacts
 
-## Binary Behavior
+## Installation
 
-### Asset Resolution Order
+### Install Script
 
-When the dashboard server needs assets, it checks locations in this order:
+Users install via curl one-liner:
 
-1. **User cache**: `~/.schmux/dashboard/` (downloaded assets)
-2. **Local dev path**: `./assets/dashboard/dist/` (for development)
-
-```go
-func getDashboardDistPath() string {
-    // 1. User cache (downloaded assets)
-    homeDir, _ := os.UserHomeDir()
-    userAssets := filepath.Join(homeDir, ".schmux", "dashboard")
-    if fileExists(filepath.Join(userAssets, "index.html")) {
-        return userAssets
-    }
-
-    // 2. Local dev path
-    localDev := "./assets/dashboard/dist"
-    if fileExists(filepath.Join(localDev, "index.html")) {
-        return localDev
-    }
-
-    return "" // Not found, will trigger download
-}
+```bash
+curl -fsSL https://raw.githubusercontent.com/sergeknystautas/schmux/main/install.sh | bash
 ```
 
-### Asset Download Logic
+The install script:
 
-On daemon start, before starting the HTTP server:
+1. Detects OS (`darwin` or `linux`)
+2. Detects architecture (`amd64` or `arm64`)
+3. Fetches latest release version from GitHub API
+4. Downloads the correct binary
+5. Verifies checksum
+6. Installs to `~/.local/bin/schmux` (or `/usr/local/bin` with sudo)
+7. Prints success message with next steps
+
+```bash
+#!/bin/bash
+set -e
+
+# Detect platform
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+case "$OS" in
+  darwin|linux) ;;
+  *) echo "Unsupported OS: $OS"; exit 1 ;;
+esac
+
+# Get latest version
+LATEST=$(curl -fsSL https://api.github.com/repos/sergeknystautas/schmux/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+
+# Download binary
+BINARY="schmux-${OS}-${ARCH}"
+URL="https://github.com/sergeknystautas/schmux/releases/download/v${LATEST}/${BINARY}"
+
+echo "Downloading schmux v${LATEST} for ${OS}/${ARCH}..."
+curl -fsSL -o /tmp/schmux "$URL"
+chmod +x /tmp/schmux
+
+# Install
+INSTALL_DIR="${HOME}/.local/bin"
+mkdir -p "$INSTALL_DIR"
+mv /tmp/schmux "$INSTALL_DIR/schmux"
+
+echo "Installed schmux v${LATEST} to ${INSTALL_DIR}/schmux"
+echo ""
+echo "Make sure ${INSTALL_DIR} is in your PATH:"
+echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+```
+
+### Homebrew (Mac)
+
+For Mac users who prefer Homebrew, a tap can be added later:
+
+```bash
+brew tap anthropics/tap
+brew install schmux
+```
+
+This is not in initial scope but can be added by creating a `homebrew-tap` repository with a formula that points to the GitHub Release binaries.
+
+## Self-Update
+
+### `schmux update` Command
+
+The binary can update itself:
+
+```bash
+$ schmux update
+Current version: 1.2.3
+Checking for updates...
+New version available: 1.3.0
+Downloading schmux v1.3.0...
+Updated successfully. Restart schmux to use the new version.
+```
+
+### Implementation
 
 ```go
-func (d *Daemon) ensureDashboardAssets() error {
-    // Dev builds skip download
-    if version.Version == "dev" {
+// internal/update/update.go
+package update
+
+func Update() error {
+    current := version.Version
+    if current == "dev" {
+        return fmt.Errorf("cannot update dev builds")
+    }
+
+    // Get latest release from GitHub API
+    latest, err := getLatestVersion()
+    if err != nil {
+        return fmt.Errorf("failed to check for updates: %w", err)
+    }
+
+    if latest == current {
+        fmt.Println("Already up to date.")
         return nil
     }
 
-    assetsDir := filepath.Join(os.UserHomeDir(), ".schmux", "dashboard")
-    versionFile := filepath.Join(assetsDir, ".version")
+    fmt.Printf("New version available: %s\n", latest)
+    fmt.Printf("Downloading schmux v%s...\n", latest)
 
-    // Check if correct version already cached
-    if data, err := os.ReadFile(versionFile); err == nil {
-        if strings.TrimSpace(string(data)) == version.Version {
-            return nil // Already have correct version
-        }
-    }
+    // Determine platform
+    goos := runtime.GOOS
+    goarch := runtime.GOARCH
+    binary := fmt.Sprintf("schmux-%s-%s", goos, goarch)
 
-    // Download from GitHub Release
+    // Download to temp file
     url := fmt.Sprintf(
-        "https://github.com/schmux/schmux/releases/download/v%s/dashboard-assets.tar.gz",
-        version.Version,
+        "https://github.com/sergeknystautas/schmux/releases/download/v%s/%s",
+        latest, binary,
     )
 
-    fmt.Printf("Downloading dashboard assets v%s...\n", version.Version)
+    tmpFile, err := downloadToTemp(url)
+    if err != nil {
+        return fmt.Errorf("download failed: %w", err)
+    }
+    defer os.Remove(tmpFile)
 
-    if err := downloadAndExtract(url, assetsDir); err != nil {
-        return fmt.Errorf("failed to download dashboard assets: %w", err)
+    // Get current executable path
+    execPath, err := os.Executable()
+    if err != nil {
+        return fmt.Errorf("cannot determine executable path: %w", err)
+    }
+    execPath, err = filepath.EvalSymlinks(execPath)
+    if err != nil {
+        return fmt.Errorf("cannot resolve executable path: %w", err)
     }
 
-    // Write version marker
-    if err := os.WriteFile(versionFile, []byte(version.Version), 0644); err != nil {
-        return fmt.Errorf("failed to write version file: %w", err)
+    // Replace current binary
+    if err := replaceBinary(tmpFile, execPath); err != nil {
+        return fmt.Errorf("failed to replace binary: %w", err)
     }
 
-    fmt.Printf("Dashboard assets v%s installed.\n", version.Version)
+    fmt.Println("Updated successfully. Restart schmux to use the new version.")
     return nil
+}
+
+func getLatestVersion() (string, error) {
+    resp, err := http.Get("https://api.github.com/repos/sergeknystautas/schmux/releases/latest")
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
+
+    var release struct {
+        TagName string `json:"tag_name"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+        return "", err
+    }
+
+    // Strip "v" prefix
+    return strings.TrimPrefix(release.TagName, "v"), nil
+}
+
+func replaceBinary(src, dst string) error {
+    // Make new binary executable
+    if err := os.Chmod(src, 0755); err != nil {
+        return err
+    }
+
+    // On Unix, we can rename over a running binary
+    return os.Rename(src, dst)
 }
 ```
 
-### Caching
+### Update Check on Startup (Optional)
 
-- Assets cached in `~/.schmux/dashboard/`
-- Version tracked in `~/.schmux/dashboard/.version`
-- Cache is per-user, survives binary upgrades
-- Cache invalidated when binary version changes
+The daemon can optionally check for updates on startup and notify the user:
 
-## Code Changes Required
+```
+$ schmux start
+A new version of schmux is available (1.3.0). Run 'schmux update' to upgrade.
+Starting daemon...
+```
+
+This is a passive notification only—no automatic updates.
+
+## Code Structure
 
 ### New Files
 
 | File | Purpose |
 |------|---------|
 | `internal/version/version.go` | Version constant (set via ldflags) |
-| `internal/assets/download.go` | Asset download and extraction logic |
+| `internal/update/update.go` | Self-update logic |
+| `install.sh` | Installation script |
 | `.github/workflows/release.yml` | CI release workflow |
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `internal/daemon/daemon.go` | Call `ensureDashboardAssets()` on startup |
-| `internal/dashboard/server.go` | Update `getDashboardDistPath()` to check user cache first |
-| `cmd/schmux/main.go` | Add `--version` flag support |
-
-### File Structure
-
-```
-internal/
-├── version/
-│   └── version.go          # Version constant
-├── assets/
-│   └── download.go         # Download/extract logic
-├── daemon/
-│   └── daemon.go           # Modified: calls ensureDashboardAssets()
-└── dashboard/
-    └── server.go           # Modified: updated asset resolution
-
-.github/
-└── workflows/
-    └── release.yml         # New: release automation
-```
+| `cmd/schmux/main.go` | Add `update` command, `--version` flag |
 
 ## User Experience
 
 ### Fresh Install
 
 ```bash
-$ go install github.com/schmux/schmux/cmd/schmux@latest
-$ schmux start
-Downloading dashboard assets v1.2.3...
-Dashboard assets v1.2.3 installed.
-Starting daemon...
-Dashboard available at http://localhost:7337
-```
+$ curl -fsSL https://raw.githubusercontent.com/sergeknystautas/schmux/main/install.sh | bash
+Downloading schmux v1.2.3 for darwin/arm64...
+Installed schmux v1.2.3 to /Users/you/.local/bin/schmux
 
-### Subsequent Runs
+Make sure /Users/you/.local/bin is in your PATH:
+  export PATH="$HOME/.local/bin:$PATH"
 
-```bash
 $ schmux start
 Starting daemon...
 Dashboard available at http://localhost:7337
 ```
 
-No download—assets already cached.
-
-### Upgrade
-
-```bash
-$ go install github.com/schmux/schmux/cmd/schmux@latest  # Gets v1.3.0
-$ schmux start
-Downloading dashboard assets v1.3.0...
-Dashboard assets v1.3.0 installed.
-Starting daemon...
-Dashboard available at http://localhost:7337
-```
-
-Binary version changed, so new assets are fetched.
-
-### Version Check
+### Check Version
 
 ```bash
 $ schmux --version
 schmux v1.2.3
+```
+
+### Update
+
+```bash
+$ schmux update
+Current version: 1.2.3
+Checking for updates...
+New version available: 1.3.0
+Downloading schmux v1.3.0...
+Updated successfully. Restart schmux to use the new version.
+```
+
+### Already Up to Date
+
+```bash
+$ schmux update
+Current version: 1.3.0
+Checking for updates...
+Already up to date.
 ```
 
 ## Development Workflow
@@ -308,130 +422,48 @@ Local development remains unchanged:
 # Build dashboard locally
 go run ./cmd/build-dashboard
 
-# Run daemon (uses local ./assets/dashboard/dist/)
+# Run daemon
 go run ./cmd/schmux start
 ```
 
-The asset resolution checks `./assets/dashboard/dist/` as a fallback, so local dev works without downloading.
-
-For dev builds (version = "dev"), the download step is skipped entirely.
-
-### Testing Release Behavior Locally
-
-To test the download mechanism locally:
+For dev builds (version = "dev"), the `update` command is disabled:
 
 ```bash
-# Build with a specific version
-go build -ldflags "-X github.com/schmux/schmux/internal/version.Version=1.2.3" ./cmd/schmux
-
-# Clear cache
-rm -rf ~/.schmux/dashboard
-
-# Run (will attempt download)
-./schmux start
-```
-
-## Error Handling
-
-### Network Failure
-
-```
-$ schmux start
-Downloading dashboard assets v1.2.3...
-Error: failed to download dashboard assets: Get "https://...": dial tcp: no such host
-
-Dashboard assets are required. Please check your network connection and try again.
-Alternatively, build from source: go run ./cmd/build-dashboard && go run ./cmd/schmux start
-```
-
-### Missing Release Artifact
-
-If the release exists but `dashboard-assets.tar.gz` is missing:
-
-```
-$ schmux start
-Downloading dashboard assets v1.2.3...
-Error: failed to download dashboard assets: 404 Not Found
-
-This version's dashboard assets are not available.
-Please report this issue or build from source.
-```
-
-### Corrupted Download
-
-If extraction fails, the partial download is cleaned up:
-
-```go
-func downloadAndExtract(url, destDir string) error {
-    // Download to temp file
-    tmpFile, err := os.CreateTemp("", "schmux-assets-*.tar.gz")
-    if err != nil {
-        return err
-    }
-    defer os.Remove(tmpFile.Name())
-
-    // ... download ...
-
-    // Extract to temp directory first
-    tmpDir, err := os.MkdirTemp("", "schmux-assets-")
-    if err != nil {
-        return err
-    }
-    defer os.RemoveAll(tmpDir)
-
-    // ... extract ...
-
-    // Only move to final location if extraction succeeded
-    os.RemoveAll(destDir)
-    return os.Rename(tmpDir, destDir)
-}
-```
-
-### Offline Mode (Future Enhancement)
-
-Not in initial scope, but could add:
-
-```bash
-$ schmux start --offline
-Error: Dashboard assets not found and --offline specified.
-Run without --offline to download, or build from source.
+$ go run ./cmd/schmux update
+Error: cannot update dev builds
 ```
 
 ## Security Considerations
 
 ### Download Source
 
-Assets are only downloaded from the official GitHub Releases URL:
+Binaries are only downloaded from official GitHub Releases:
 
 ```
-https://github.com/schmux/schmux/releases/download/v{VERSION}/dashboard-assets.tar.gz
+https://github.com/sergeknystautas/schmux/releases/download/v{VERSION}/schmux-{OS}-{ARCH}
 ```
-
-The URL is constructed from the compiled-in version, not user input.
 
 ### HTTPS Only
 
-All downloads use HTTPS. HTTP is not supported.
+All downloads use HTTPS.
 
-### No Code Execution
+### Checksum Verification
 
-Downloaded assets are static files (HTML, JS, CSS) served by the Go HTTP server. The binary does not execute downloaded code.
+The install script and update command should verify SHA256 checksums against `checksums.txt` from the release.
 
-### Checksum Verification (Future Enhancement)
+### Binary Replacement
 
-Not in initial scope, but could add SHA256 verification:
-
-1. Publish `dashboard-assets.tar.gz.sha256` alongside the tarball
-2. Verify checksum after download, before extraction
+The update command replaces the binary at its current location. This requires write permission to that location. If installed system-wide, `schmux update` may need sudo.
 
 ## Summary
 
 | Aspect | Approach |
 |--------|----------|
-| Distribution | `go install` + runtime asset download |
+| Distribution | Pre-built binaries via GitHub Releases |
+| Installation | `curl \| bash` install script |
+| Updates | `schmux update` self-updates |
 | Version source | Git tags (`v1.2.3`) |
 | Version in binary | ldflags injection |
-| Asset storage | `~/.schmux/dashboard/` |
-| Asset source | GitHub Releases |
-| Dev workflow | Unchanged (local `dist/` fallback) |
+| Platforms | darwin/linux × amd64/arm64 |
+| Dashboard assets | Downloaded separately to ~/.schmux/dashboard/ |
 | CI | GitHub Actions on tag push |

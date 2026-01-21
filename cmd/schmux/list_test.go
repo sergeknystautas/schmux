@@ -76,7 +76,7 @@ func TestListOutputHuman(t *testing.T) {
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-001-abc123",
-					Target:     "glm",
+					Target:    "glm",
 					Nickname:  "reviewer",
 					Running:   true,
 					CreatedAt: "2026-01-10T10:00:00",
@@ -94,7 +94,7 @@ func TestListOutputHuman(t *testing.T) {
 			Sessions: []cli.Session{
 				{
 					ID:        "schmux-002-def456",
-					Target:     "claude",
+					Target:    "claude",
 					Nickname:  "",
 					Running:   false,
 					CreatedAt: "2026-01-10T11:00:00",
