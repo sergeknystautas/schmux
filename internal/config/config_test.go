@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sergeknystautas/schmux/internal/version"
 )
 
 func TestLoad(t *testing.T) {
@@ -429,5 +431,132 @@ func TestFindRepo(t *testing.T) {
 	_, found = cfg.FindRepo("nonexistent")
 	if found {
 		t.Error("expected not to find nonexistent repo")
+	}
+}
+
+func TestConfigVersion_CreateDefault(t *testing.T) {
+	cfg := CreateDefault("/tmp/test-config.json")
+
+	if cfg.ConfigVersion != version.Version {
+		t.Errorf("ConfigVersion = %q, want %q", cfg.ConfigVersion, version.Version)
+	}
+}
+
+func TestConfigVersion_LoadWithoutVersion_BackwardsCompatible(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a config without config_version (old format)
+	oldConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"repos": [],
+		"run_targets": [],
+		"quick_launch": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Should load successfully
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// ConfigVersion should be empty (old config)
+	if cfg.ConfigVersion != "" {
+		t.Errorf("ConfigVersion = %q, want empty (old config)", cfg.ConfigVersion)
+	}
+}
+
+func TestConfigVersion_SaveUpdatesToCurrentVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a config with an old version
+	oldConfig := `{
+		"config_version": "1.0.0",
+		"workspace_path": "/tmp/workspaces",
+		"repos": [],
+		"run_targets": [],
+		"quick_launch": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Initially has old version
+	if cfg.ConfigVersion != "1.0.0" {
+		t.Errorf("ConfigVersion before Save = %q, want 1.0.0", cfg.ConfigVersion)
+	}
+
+	// Save should update version
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Reload to verify
+	cfg2, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() after save failed: %v", err)
+	}
+
+	// Version should now be current
+	if cfg2.ConfigVersion != version.Version {
+		t.Errorf("ConfigVersion after Save = %q, want %q", cfg2.ConfigVersion, version.Version)
+	}
+}
+
+func TestConfigVersion_MigrateCalled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a valid config
+	validConfig := Config{
+		WorkspacePath: tmpDir,
+		Repos:         []Repo{},
+		RunTargets:    []RunTarget{},
+		Terminal: &TerminalSize{
+			Width:     120,
+			Height:    40,
+			SeedLines: 100,
+		},
+	}
+
+	data, err := json.MarshalIndent(validConfig, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Load should call Migrate() and not error
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify config loaded correctly
+	if cfg.WorkspacePath != tmpDir {
+		t.Errorf("WorkspacePath = %q, want %q", cfg.WorkspacePath, tmpDir)
 	}
 }

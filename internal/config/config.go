@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/version"
 )
 
 var (
@@ -36,16 +38,17 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	WorkspacePath string               `json:"workspace_path"`
-	Repos         []Repo               `json:"repos"`
-	RunTargets    []RunTarget          `json:"run_targets"`
-	QuickLaunch   []QuickLaunch        `json:"quick_launch"`
-	Variants      []VariantConfig      `json:"variants,omitempty"`
-	Terminal      *TerminalSize        `json:"terminal,omitempty"`
-	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
-	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
-	Xterm         *XtermConfig         `json:"xterm,omitempty"`
-	AccessControl *AccessControlConfig `json:"access_control,omitempty"`
+	ConfigVersion  string               `json:"config_version,omitempty"`
+	WorkspacePath  string               `json:"workspace_path"`
+	Repos          []Repo               `json:"repos"`
+	RunTargets     []RunTarget          `json:"run_targets"`
+	QuickLaunch    []QuickLaunch        `json:"quick_launch"`
+	Variants       []VariantConfig      `json:"variants,omitempty"`
+	Terminal       *TerminalSize        `json:"terminal,omitempty"`
+	Nudgenik       *NudgenikConfig      `json:"nudgenik,omitempty"`
+	Sessions       *SessionsConfig      `json:"sessions,omitempty"`
+	Xterm          *XtermConfig         `json:"xterm,omitempty"`
+	AccessControl  *AccessControlConfig `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -290,6 +293,7 @@ func (c *Config) Reload() error {
 // The path is stored so that subsequent Save() calls write to the same location.
 func CreateDefault(configPath string) *Config {
 	return &Config{
+		ConfigVersion: version.Version,
 		WorkspacePath: "",
 		Repos:         []Repo{},
 		RunTargets:    []RunTarget{},
@@ -316,6 +320,11 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
+	// Apply migrations before validation
+	if err := cfg.Migrate(); err != nil {
+		return nil, fmt.Errorf("config migration failed: %w", err)
+	}
+
 	normalizeRunTargets(cfg.RunTargets)
 
 	// Store the config path so Save() writes to the same location
@@ -339,11 +348,38 @@ func Load(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Migrate applies config migrations to roll the config forward to the current version.
+// For now, this is a no-op. When we add config changes in the future, add migration
+// logic here keyed by the config's version.
+//
+// Example using semver.Compare:
+//
+//	// semver.Compare returns -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+//	// Versions must have a "v" prefix for comparison
+//	fromVersion := c.ConfigVersion
+//	if fromVersion == "" {
+//	    fromVersion = "v0.0.0"
+//	} else if !strings.HasPrefix(fromVersion, "v") {
+//	    fromVersion = "v" + fromVersion
+//	}
+//	if semver.Compare(fromVersion, "v1.5.0") < 0 {
+//	    // Migrate from pre-1.5.0 format
+//	    cfg.SomeNewField = defaultValue
+//	}
+func (c *Config) Migrate() error {
+	// No migrations yet - config version tracking is newly added
+	// Add migration logic here as config schema evolves
+	return nil
+}
+
 // Save writes the config to the path it was loaded from or created with.
 func (c *Config) Save() error {
 	if c.path == "" {
 		return fmt.Errorf("config path not set: use Load() or CreateDefault() with a path")
 	}
+
+	// Update config version to current binary version
+	c.ConfigVersion = version.Version
 
 	// Ensure the directory exists
 	schmuxDir := filepath.Dir(c.path)
