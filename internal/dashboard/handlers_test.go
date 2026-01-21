@@ -54,7 +54,7 @@ func TestHandleAskNudgenik(t *testing.T) {
 	testSession := state.Session{
 		ID:          "test-session-123",
 		WorkspaceID: "test-workspace",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "test-tmux-session",
 	}
 	st.AddSession(testSession)

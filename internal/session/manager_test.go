@@ -50,7 +50,7 @@ func TestGetAttachCommand(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-001",
 		WorkspaceID: "test-001",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-001-abc123",
 	}
 
@@ -120,7 +120,7 @@ func TestGetSession(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-002",
 		WorkspaceID: "test-002",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-002-def456",
 	}
 
@@ -153,7 +153,7 @@ func TestIsRunning(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-003",
 		WorkspaceID: "test-003",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-003-ghi789",
 	}
 
@@ -174,7 +174,7 @@ func TestIsRunning(t *testing.T) {
 		sessNoPid := state.Session{
 			ID:          "session-nopid",
 			WorkspaceID: "test-nopid",
-			Target:       "test",
+			Target:      "test",
 			TmuxSession: "nonexistent-tmux-session",
 			Pid:         0,
 		}
@@ -199,7 +199,7 @@ func TestGetOutput(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-004",
 		WorkspaceID: "test-004",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-004-jkl012",
 	}
 
@@ -289,7 +289,7 @@ func TestRenameSession(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-005",
 		WorkspaceID: "test-005",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-005-mno345",
 		Nickname:    "old-name",
 	}
@@ -322,7 +322,7 @@ func TestDispose(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-006",
 		WorkspaceID: "test-006",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-006-pqr678",
 	}
 
@@ -341,7 +341,7 @@ func TestDispose(t *testing.T) {
 		sess2 := state.Session{
 			ID:          "session-007",
 			WorkspaceID: "test-007",
-			Target:       "test",
+			Target:      "test",
 			TmuxSession: "schmux-test-007-stu901",
 		}
 		st.AddSession(sess2)
@@ -371,7 +371,7 @@ func TestEnsurePipePane(t *testing.T) {
 	sess := state.Session{
 		ID:          "session-008",
 		WorkspaceID: "test-008",
-		Target:       "test",
+		Target:      "test",
 		TmuxSession: "schmux-test-008-vwx234",
 	}
 

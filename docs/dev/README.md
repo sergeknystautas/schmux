@@ -2,11 +2,36 @@
 
 ## Prerequisites
 
-- **Go 1.21+** - [Download](https://go.dev/dl/)
+### Runtime Dependencies
+
+These are needed to run schmux (whether installed via script or built from source):
+
 - **tmux** - Required for session management
   - macOS: `brew install tmux`
   - Linux: `apt install tmux` or equivalent
 - **git** - For workspace management
+
+### Development Dependencies
+
+These are additionally needed to build schmux from source:
+
+- **Go 1.21+** - [Download](https://go.dev/dl/)
+  - macOS: `brew install go`
+  - Linux: See [official install guide](https://go.dev/doc/install)
+- **Node.js 18+ & npm** - For building the React dashboard
+  - macOS: `brew install node`
+  - Linux: `apt install nodejs npm` or use [nvm](https://github.com/nvm-sh/nvm)
+
+### Verify Your Setup
+
+```bash
+# Check versions
+go version      # go1.21+ required
+node --version  # v18+ required
+npm --version
+tmux -V
+git --version
+```
 
 ## Building from Source
 
@@ -15,17 +40,32 @@
 git clone https://github.com/sergeknystautas/schmux.git
 cd schmux
 
-# Download dependencies
-go mod download
+# Build dashboard (npm install + vite build) and Go binary
+go run ./cmd/build-dashboard
 
-# Build the binary
-go build ./cmd/schmux
-
-# (Optional) Install to your PATH
-go install ./cmd/schmux
+# The ./schmux binary is now ready
+./schmux version
 ```
 
-The `schmux` binary will be created in the current directory.
+### Build Options
+
+```bash
+# Full build with tests
+go run ./cmd/build-dashboard -test -build
+
+# Skip npm install (if node_modules exists)
+go run ./cmd/build-dashboard -skip-install
+
+# Just build Go binary (if dashboard already built)
+go build ./cmd/schmux
+```
+
+### What Gets Built
+
+1. **Dashboard assets** (`assets/dashboard/dist/`) - React app built with Vite
+2. **Go binary** (`./schmux`) - CLI and daemon
+
+The binary serves dashboard assets from `./assets/dashboard/dist/` during development, or from `~/.schmux/dashboard/` for installed versions.
 
 ## Quick Start
 

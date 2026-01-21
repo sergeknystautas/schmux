@@ -81,7 +81,7 @@ func TestAddAndGetSession(t *testing.T) {
 	sess := Session{
 		ID:          "session-001",
 		WorkspaceID: "test-001",
-		Target:       "claude",
+		Target:      "claude",
 		TmuxSession: "schmux-test-001-abc123",
 		CreatedAt:   time.Now(),
 	}
@@ -107,7 +107,7 @@ func TestRemoveSession(t *testing.T) {
 	sess := Session{
 		ID:          "session-002",
 		WorkspaceID: "test-001",
-		Target:       "codex",
+		Target:      "codex",
 		TmuxSession: "schmux-test-001-def456",
 		CreatedAt:   time.Now(),
 	}
@@ -171,7 +171,7 @@ func TestUpdateSessionNotFound(t *testing.T) {
 	sess := Session{
 		ID:          "nonexistent",
 		WorkspaceID: "test-001",
-		Target:       "claude",
+		Target:      "claude",
 		TmuxSession: "test",
 		CreatedAt:   time.Now(),
 	}

@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 const (

@@ -103,10 +103,10 @@ func CaptureOutput(ctx context.Context, name string) (string, error) {
 	// -S - captures from the start of the scrollback buffer (capture-pane does not support = prefix)
 	args := []string{
 		"capture-pane",
-		"-e",          // include escape sequences
-		"-p",          // output to stdout
-		"-S", "-",     // start from beginning of scrollback
-		"-t", name,    // target session/pane
+		"-e",      // include escape sequences
+		"-p",      // output to stdout
+		"-S", "-", // start from beginning of scrollback
+		"-t", name, // target session/pane
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
@@ -127,10 +127,10 @@ func CaptureLastLines(ctx context.Context, name string, lines int) (string, erro
 	}
 	args := []string{
 		"capture-pane",
-		"-e",                        // include escape sequences
-		"-p",                        // output to stdout
+		"-e", // include escape sequences
+		"-p", // output to stdout
 		"-S", fmt.Sprintf("-%d", lines),
-		"-t", name,  // target session/pane
+		"-t", name, // target session/pane
 	}
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)

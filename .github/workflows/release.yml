@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Build dashboard assets
         run: |
@@ -34,8 +34,31 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          LDFLAGS="-X github.com/sergeknystautas/schmux/internal/version.Version=${VERSION}"
+
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o schmux-darwin-amd64 ./cmd/schmux
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o schmux-darwin-arm64 ./cmd/schmux
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o schmux-linux-amd64 ./cmd/schmux
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o schmux-linux-arm64 ./cmd/schmux
+
+      - name: Generate checksums
+        run: sha256sum schmux-* dashboard-assets.tar.gz > checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dashboard-assets.tar.gz
+          files: |
+            schmux-darwin-amd64
+            schmux-darwin-arm64
+            schmux-linux-amd64
+            schmux-linux-arm64
+            dashboard-assets.tar.gz
+            checksums.txt
           generate_release_notes: true
