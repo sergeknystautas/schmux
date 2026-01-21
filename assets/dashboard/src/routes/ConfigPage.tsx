@@ -6,7 +6,7 @@ import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import SetupCompleteModal from '../components/SetupCompleteModal';
 import type {
-  BuiltinQuickLaunchPreset,
+  BuiltinQuickLaunchCookbook,
   ConfigResponse,
   ConfigUpdateRequest,
   OverlayInfo,
@@ -110,7 +110,7 @@ export default function ConfigPage() {
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
   const [detectedTargets, setDetectedTargets] = useState<RunTargetResponse[]>([]);
   const [quickLaunch, setQuickLaunch] = useState<QuickLaunchPreset[]>([]);
-  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchPreset[]>([]); // Built-in quick launch presets
+  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch presets
   const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
 
@@ -214,7 +214,7 @@ export default function ConfigPage() {
   const [newQuickLaunchName, setNewQuickLaunchName] = useState('');
   const [newQuickLaunchTarget, setNewQuickLaunchTarget] = useState('');
   const [newQuickLaunchPrompt, setNewQuickLaunchPrompt] = useState('');
-  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState<BuiltinQuickLaunchPreset | null>(null); // Track which cookbook template is being added
+  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState<BuiltinQuickLaunchCookbook | null>(null); // Track which cookbook template is being added
 
   // Validation state per step
   const [stepErrors, setStepErrors] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null, 5: null });

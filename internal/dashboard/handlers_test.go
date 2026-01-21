@@ -105,7 +105,7 @@ func TestHandleAskNudgenik(t *testing.T) {
 	}
 }
 
-func TestHandleBuiltinQuickLaunch(t *testing.T) {
+func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New("")
 	statePath := t.TempDir() + "/state.json"
@@ -123,12 +123,12 @@ func TestHandleBuiltinQuickLaunch(t *testing.T) {
 			t.Errorf("expected status 200, got %d", rr.Code)
 		}
 
-		var presets []BuiltinQuickLaunch
+		var presets []BuiltinQuickLaunchCookbook
 		if err := json.NewDecoder(rr.Body).Decode(&presets); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		// Check that we got some presets (the file has 4 entries)
+		// Check that we got some presets (the file has 5 entries)
 		if len(presets) == 0 {
 			t.Error("expected at least one preset, got none")
 		}
@@ -164,12 +164,12 @@ func TestHandleBuiltinQuickLaunch(t *testing.T) {
 
 		server.handleBuiltinQuickLaunch(rr, req)
 
-		var presets []BuiltinQuickLaunch
+		var presets []BuiltinQuickLaunchCookbook
 		if err := json.NewDecoder(rr.Body).Decode(&presets); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		// Check for known preset names from builtin_quick_launch.json
+		// Check for known cookbook names from cookbooks.json
 		presetNames := make(map[string]bool)
 		for _, preset := range presets {
 			presetNames[preset.Name] = true
@@ -180,6 +180,7 @@ func TestHandleBuiltinQuickLaunch(t *testing.T) {
 			"code review - branch",
 			"git commit",
 			"merge in main",
+			"tech writer",
 		}
 
 		for _, expected := range expectedNames {

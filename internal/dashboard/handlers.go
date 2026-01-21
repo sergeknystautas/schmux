@@ -24,8 +24,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
-//go:embed builtin_quick_launch.json
-var builtinQuickLaunchFS embed.FS
+//go:embed cookbooks.json
+var cookbooksFS embed.FS
 
 // handleApp serves the React application entry point for UI routes.
 func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
@@ -1406,15 +1406,15 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// BuiltinQuickLaunch represents a built-in quick launch preset.
+// BuiltinQuickLaunchCookbook represents a built-in quick launch cookbook entry.
 // These are predefined quick-run shortcuts that ship with schmux.
-type BuiltinQuickLaunch struct {
+type BuiltinQuickLaunchCookbook struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
 	Prompt string `json:"prompt"`
 }
 
-// handleBuiltinQuickLaunch returns the list of built-in quick launch presets.
+// handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
 func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1424,12 +1424,12 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	// Try embedded file first (production), fall back to filesystem (development)
 	var data []byte
 	var readErr error
-	data, readErr = builtinQuickLaunchFS.ReadFile("builtin_quick_launch.json")
+	data, readErr = cookbooksFS.ReadFile("cookbooks.json")
 	if readErr != nil {
 		// Fallback to filesystem for development
 		candidates := []string{
-			"./internal/dashboard/builtin_quick_launch.json",
-			filepath.Join(filepath.Dir(os.Args[0]), "../internal/dashboard/builtin_quick_launch.json"),
+			"./internal/dashboard/cookbooks.json",
+			filepath.Join(filepath.Dir(os.Args[0]), "../internal/dashboard/cookbooks.json"),
 		}
 		for _, candidate := range candidates {
 			data, readErr = os.ReadFile(candidate)
@@ -1439,36 +1439,36 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 		}
 		if readErr != nil {
 			log.Printf("[builtin-quick-launch] failed to read file: %v", readErr)
-			http.Error(w, "Failed to load built-in quick launch presets", http.StatusInternalServerError)
+			http.Error(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
 			return
 		}
 	}
 
-	var presets []BuiltinQuickLaunch
-	if err := json.Unmarshal(data, &presets); err != nil {
+	var cookbooks []BuiltinQuickLaunchCookbook
+	if err := json.Unmarshal(data, &cookbooks); err != nil {
 		log.Printf("[builtin-quick-launch] failed to parse: %v", err)
-		http.Error(w, "Failed to parse built-in quick launch presets", http.StatusInternalServerError)
+		http.Error(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
 		return
 	}
 
-	// Validate and filter presets
-	validPresets := make([]BuiltinQuickLaunch, 0, len(presets))
-	for _, preset := range presets {
-		if strings.TrimSpace(preset.Name) == "" {
-			log.Printf("[builtin-quick-launch] skipping preset with empty name")
+	// Validate and filter cookbooks
+	validCookbooks := make([]BuiltinQuickLaunchCookbook, 0, len(cookbooks))
+	for _, cookbook := range cookbooks {
+		if strings.TrimSpace(cookbook.Name) == "" {
+			log.Printf("[builtin-quick-launch] skipping cookbook with empty name")
 			continue
 		}
-		if strings.TrimSpace(preset.Target) == "" {
-			log.Printf("[builtin-quick-launch] skipping preset %q with empty target", preset.Name)
+		if strings.TrimSpace(cookbook.Target) == "" {
+			log.Printf("[builtin-quick-launch] skipping cookbook %q with empty target", cookbook.Name)
 			continue
 		}
-		if strings.TrimSpace(preset.Prompt) == "" {
-			log.Printf("[builtin-quick-launch] skipping preset %q with empty prompt", preset.Name)
+		if strings.TrimSpace(cookbook.Prompt) == "" {
+			log.Printf("[builtin-quick-launch] skipping cookbook %q with empty prompt", cookbook.Name)
 			continue
 		}
-		validPresets = append(validPresets, preset)
+		validCookbooks = append(validCookbooks, cookbook)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(validPresets)
+	json.NewEncoder(w).Encode(validCookbooks)
 }

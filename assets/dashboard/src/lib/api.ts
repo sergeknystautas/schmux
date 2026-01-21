@@ -1,6 +1,6 @@
 import type {
   ApiError,
-  BuiltinQuickLaunchPreset,
+  BuiltinQuickLaunchCookbook,
   ConfigResponse,
   ConfigUpdateRequest,
   DetectToolsResponse,
@@ -180,7 +180,7 @@ export async function refreshOverlay(workspaceId: string): Promise<{ status: str
  * Fetches the list of built-in quick launch presets.
  * Returns a list of preset templates with names, targets, and prompts.
  */
-export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchPreset[]> {
+export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookbook[]> {
   const response = await fetch('/api/builtin-quick-launch');
   if (!response.ok) {
     throw new Error('Failed to fetch built-in quick launch presets');

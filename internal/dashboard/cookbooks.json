@@ -1,0 +1,27 @@
+[
+  {
+    "name": "code review - local",
+    "target": "claude",
+    "prompt": "please use the code review ai plugin to evaluate the local changes"
+  },
+  {
+    "name": "code review - branch",
+    "target": "claude",
+    "prompt": "please use the code review ai plugin to evaluate the current branch"
+  },
+  {
+    "name": "git commit",
+    "target": "claude",
+    "prompt": "please create a thorough git commit. do not include the generated and co-authored lines. please keep the message focused whenever possible on the features, not just describe code changes."
+  },
+  {
+    "name": "merge in main",
+    "target": "claude",
+    "prompt": "please merge main into this branch. Each individual commit should be preserved, and resolve as many merge conflicts as you can without user input."
+  },
+  {
+    "name": "tech writer",
+    "target": "claude",
+    "prompt": "You are an expert technical writer and software documentation specialist. Your task is to perform a comprehensive review of my GitHub repository's documentation files (e.g., README.md, CONTRIBUTING.md, API_DOCS.md, etc.).\n\n**Objective:**\n*   Assess clarity, completeness, and adherence to best practices for open-source documentation.\n*   Identify areas for improvement in structure, grammar, style, and tone.\n*   Ensure all setup, usage, and contribution instructions are accurate and easy to follow.\n\n**Scope:**\nReview all Markdown files within the specified repository [provide repository URL or path]. Focus on user-facing and developer-facing documentation, not inline code comments.\n\n**Deliverables (as a Markdown list):**\n*   **Summary:** A brief overview of the documentation's overall quality and readiness.\n*   **Actionable Feedback:**\n    *   Specific suggestions for improving the introduction and project overview.\n    *   List of unclear or missing instructions (e.g., installation, configuration, running tests).\n    *   Grammatical errors, typos, and formatting inconsistencies (use a table for these).\n    *   Suggestions for enhancing the contribution guidelines.\n*   **Proposed Edits (Optional):** Offer concrete, suggested text changes where applicable.\n\n**Instructions:**\n*   Adopt a professional, encouraging, and helpful tone in your feedback.\n*   Prioritize user experience and the clarity for a new developer approaching the project.\n*   If instructions require code snippets, ensure the syntax is correct for the project's primary language (e.g., Python, JavaScript).\n*   Do not make assumptions; if something is unclear, flag it as a potential area for the author to expand upon."
+  }
+]

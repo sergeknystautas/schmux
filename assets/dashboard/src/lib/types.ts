@@ -48,7 +48,7 @@ export interface QuickLaunchPreset {
   prompt?: string | null;
 }
 
-export interface BuiltinQuickLaunchPreset {
+export interface BuiltinQuickLaunchCookbook {
   name: string;
   target: string;
   prompt: string;
