@@ -35,18 +35,18 @@ spawning → running → done → disposed
 Creates a fresh git clone with a clean slate:
 
 ```bash
-schmux spawn -a claude -r myproject -b feature-branch
+schmux spawn -t claude -r myproject -b feature-branch
 ```
 
 ### Existing Workspace
 Reuses directory; adds another agent to the mix:
 
 ```bash
-schmux spawn -a codex -w myproject-001
+schmux spawn -t codex -w myproject-001
 ```
 
 ### Options
-- `-a, --agent`: Which target to run (detected tool, variant, or user-defined)
+- `-t, --target`: Which target to run (detected tool, variant, or user-defined)
 - `-r, --repo`: Repository name (for new workspace)
 - `-b, --branch`: Git branch to checkout
 - `-w, --workspace`: Existing workspace ID
@@ -60,7 +60,7 @@ schmux spawn -a codex -w myproject-001
 Spawn multiple sessions at once:
 
 ```bash
-schmux spawn -a claude -a codex -a gemini -r myproject -b feature-x
+schmux spawn -t claude -t codex -t gemini -r myproject -b feature-x
 ```
 
 Dashboard also supports:

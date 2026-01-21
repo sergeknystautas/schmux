@@ -1,6 +1,6 @@
-# API Contract (pre-2093ccf)
+# API Contract
 
-This document defines the daemon HTTP API contract as it existed before commit 2093ccf (the E2E testing changes). It is intentionally client-agnostic. If behavior changes, update this doc first and treat any divergence as a breaking change.
+This document defines the daemon HTTP API contract. It is intentionally client-agnostic. If behavior changes, update this doc first and treat any divergence as a breaking change.
 
 Base URL: `http://localhost:7337`
 

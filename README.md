@@ -92,7 +92,16 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 
 ## Status
 
-**v0.9.3** - Nearly ready for prime time
+**v0.9.3** - Stable for daily use
+
+### Known Limitations
+- Windows support via WSL only (no native Windows support)
+- Dashboard runs locally only (no remote access by default)
+- See [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) for non-goals
+
+### Roadmap
+- v1.0: Enhanced NudgeNik capabilities
+- Future: Browser UI automation tests
 
 ## Documentation
 
@@ -105,6 +114,12 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 - [docs/api.md](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
 - [docs/dev/README.md](docs/dev/README.md) - Contributor guide
+
+## Getting Help
+
+- **Issues**: Bug reports and feature requests at [github.com/sergeknystautas/schmux/issues](https://github.com/sergeknystautas/schmux/issues)
+- **Discussions**: Questions and general discussion at [github.com/sergeknystautas/schmux/discussions](https://github.com/sergeknystautas/schmux/discussions)
+- **Documentation**: See the docs/ directory for complete guides and API reference
 
 ## License
 

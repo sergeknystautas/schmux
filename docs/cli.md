@@ -59,6 +59,8 @@ schmux start
 
 The daemon serves the web dashboard at `http://localhost:7337` and handles session spawning via the HTTP API.
 
+**Note**: If the daemon is already running, this command will exit with an error message. Use `schmux status` to check if the daemon is running.
+
 ---
 
 ### `schmux stop`

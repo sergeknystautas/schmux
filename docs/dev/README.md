@@ -82,13 +82,15 @@ Create `~/.schmux/config.json`:
       "url": "git@github.com:user/myproject.git"
     }
   ],
-  "agents": [
+  "run_targets": [
     {
       "name": "codex",
+      "type": "promptable",
       "command": "codex"
     },
     {
       "name": "claude",
+      "type": "promptable",
       "command": "claude"
     }
   ]
@@ -230,7 +232,7 @@ schmux/
 `~/.schmux/config.json` - Created manually, contains:
 - **workspace_path**: Directory for cloned repositories
 - **repos**: List of git repositories to work with
-- **agents**: Available AI agents (name + command)
+- **run_targets**: Available AI agents and commands (name + type + command)
 
 ### State File Location
 

@@ -1,7 +1,5 @@
 # Frontend Architecture
 
-**Last Updated:** 2025-01-08
-
 This document describes the architecture, patterns, and conventions for the Schmux React frontend. It serves as a reference for developers and a guide for future architectural decisions.
 
 ---
