@@ -82,16 +82,37 @@ func resolveViaShell(ctx context.Context, cmd string) (string, bool) {
 			continue
 		}
 
-		path := strings.TrimSpace(string(output))
-		if path != "" && path != cmd {
-			// Verify the resolved path is executable
-			if _, err := exec.LookPath(path); err == nil {
-				return path, true
+		result := strings.TrimSpace(string(output))
+		if result == "" || result == cmd {
+			continue
+		}
+
+		// Handle alias definitions like "alias code=code-fb" or "code: aliased to code-fb"
+		// Extract the target command from the alias
+		path := result
+		if strings.HasPrefix(result, "alias ") {
+			// Format: "alias code=code-fb" or "alias code='code-fb'"
+			if idx := strings.Index(result, "="); idx != -1 {
+				path = strings.Trim(result[idx+1:], "'\"")
 			}
-			// If it's an absolute path, check if it exists
-			if filepath.IsAbs(path) && fileExists(path) {
-				return path, true
+		} else if strings.Contains(result, ": aliased to ") {
+			// Format: "code: aliased to code-fb"
+			parts := strings.SplitN(result, ": aliased to ", 2)
+			if len(parts) == 2 {
+				path = strings.TrimSpace(parts[1])
 			}
+		}
+
+		// If the path is not absolute, try to resolve it via exec.LookPath
+		if !filepath.IsAbs(path) {
+			if resolved, err := exec.LookPath(path); err == nil {
+				return resolved, true
+			}
+		}
+
+		// If it's an absolute path, check if it exists and is executable
+		if filepath.IsAbs(path) && fileExists(path) {
+			return path, true
 		}
 	}
 
