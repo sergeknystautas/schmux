@@ -1901,7 +1901,7 @@ a:hover {
 .add-item-form {
     display: flex;
     gap: var(--spacing-sm);
-    align-items: flex-end;
+    align-items: center;
 }
 
 .add-item-form__inputs {
@@ -2161,7 +2161,7 @@ a:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
     border-top: 1px solid var(--color-border);
     gap: var(--spacing-md);
 }
