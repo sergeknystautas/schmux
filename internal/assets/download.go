@@ -178,8 +178,16 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return err
 		}
 
+		// Strip leading "./" or "/" from tar entry names
+		name := strings.TrimPrefix(header.Name, "./")
+		name = strings.TrimPrefix(name, "/")
+		if name == "" || name == "." {
+			// Skip root entries
+			continue
+		}
+
 		// Sanitize path to prevent path traversal
-		target := filepath.Join(destDir, header.Name)
+		target := filepath.Join(destDir, name)
 		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid tar path: %s", header.Name)
 		}

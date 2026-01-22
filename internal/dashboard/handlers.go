@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -215,10 +216,67 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// handleHealthz returns a simple health check response.
+// handleHealthz returns a simple health check response with version info.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	v := s.GetVersionInfo()
+	response := map[string]any{
+		"status": "ok",
+		"version": v.Current,
+	}
+	if v.Latest != "" {
+		response["latest_version"] = v.Latest
+		response["update_available"] = v.UpdateAvailable
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleUpdate triggers an update and shuts down the daemon.
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Prevent concurrent updates
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	if s.updateInProgress {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "update already in progress"})
+		return
+	}
+	s.updateInProgress = true
+
+	log.Printf("[update] update requested via web UI")
+
+	// Run update synchronously so we can report actual success/failure
+	if err := update.Update(); err != nil {
+		s.updateInProgress = false
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("update failed: %v", err)})
+		return
+	}
+
+	log.Printf("[update] successful, shutting down daemon")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"message": "Update successful. Restart schmux to use the new version.",
+	})
+
+	// Shutdown after sending response
+	if s.shutdown != nil {
+		go s.shutdown()
+	}
 }
 
 // SpawnRequest represents a request to spawn sessions.

@@ -15,12 +15,45 @@ General conventions:
 ## Endpoints
 
 ### GET /api/healthz
-Health check.
+Health check with version information.
 
 Response:
 ```json
-{"status":"ok"}
+{
+  "status":"ok",
+  "version":"1.0.0"
+}
 ```
+
+If a newer version is available, the response includes:
+```json
+{
+  "status":"ok",
+  "version":"0.9.0",
+  "latest_version":"1.0.0",
+  "update_available":true
+}
+```
+
+### POST /api/update
+Triggers a self-update to the latest version from GitHub releases.
+
+The update runs synchronously. On success, the daemon shuts down and must be restarted manually.
+
+Response (200):
+```json
+{
+  "status":"ok",
+  "message":"Update successful. Restart schmux to use the new version."
+}
+```
+
+Errors:
+- 405: "Method not allowed" (GET requests rejected)
+- 409 with JSON: `{"error":"update already in progress"}`
+- 500 with JSON: `{"error":"update failed: ..."}` (includes specific error reason)
+
+Note: Dev builds (version "dev") cannot be updated via this endpoint.
 
 ### GET /api/hasNudgenik
 Returns whether NudgeNik is available (currently always true).

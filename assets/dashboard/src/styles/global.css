@@ -186,6 +186,7 @@ body {
 
 /* Logo */
 .logo {
+    display: block;
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--color-text);
@@ -2343,4 +2344,52 @@ a:hover {
 .btn--disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Update Badge */
+.update-badge {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--color-warning);
+  border-radius: 50%;
+  margin-left: var(--spacing-sm);
+  animation: pulse 2s infinite;
+}
+
+/* Update Button */
+.update-btn {
+  position: relative;
+  color: var(--color-warning);
+}
+
+.update-btn:hover {
+  background-color: var(--color-warning-subtle);
+  color: var(--color-warning);
+}
+
+.icon-update {
+  width: 18px;
+  height: 18px;
+}
+
+.update-btn__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-warning);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.update-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Version display in nav header */
+.nav-header__version {
+  font-size: 0.7rem;
+  color: var(--color-text-faint);
+  margin-top: var(--spacing-xs);
 }
