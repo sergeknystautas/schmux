@@ -376,6 +376,33 @@ rm ~/.schmux/state.json
 rm -rf ~/dev/schmux-workspaces/*
 ```
 
+## Documentation Conventions
+
+### Shell Commands
+
+When documenting shell commands in markdown, **include inline `#` comments** within the code block:
+
+```bash
+# This is preferred - context stays with the command
+go run ./cmd/build-dashboard  # Builds dashboard (npm install + vite build)
+go test ./...                 # Run all tests
+./schmux start                # Start daemon in background
+```
+
+**Why?** Inline comments provide context that AI agents and readers need directly alongside the command, which is especially valuable when commands are copied or referenced programmatically. The comments are valid shell syntax and don't break execution.
+
+This convention is used by other high-visibility projects like:
+- [openai/openai-codex](https://github.com/openai/openai-codex)
+- [bead-community/bead](https://github.com/bead-community/bead)
+
+For longer explanations, use comment-only lines before the command:
+
+```bash
+# Run all unit tests with verbose output
+# This is useful when debugging test failures
+go test -v ./...
+```
+
 ## Code Style
 
 - Follow standard Go conventions
