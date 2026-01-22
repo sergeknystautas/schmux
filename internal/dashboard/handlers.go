@@ -1212,11 +1212,14 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run `code -n <path>` to open VS Code in a new window
-	// Use LookPath to check if code command exists
-	codePath, err := exec.LookPath("code")
-	if err != nil {
-		log.Printf("[open-vscode] VS Code command not found in PATH")
+	// Use ResolveVSCodePath to find VS Code command
+	// This handles PATH, shell aliases, and well-known installation locations
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	vscodePath, found := detect.ResolveVSCodePath(ctx)
+	if !found {
+		log.Printf("[open-vscode] VS Code command not found")
 		// Determine platform-specific keyboard shortcut
 		var shortcut string
 		if runtime.GOOS == "darwin" {
@@ -1228,14 +1231,16 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(OpenVSCodeResponse{
 			Success: false,
-			Message: fmt.Sprintf("VS Code command not found in PATH\n\nTo fix this:\nOpen VS Code, press %s, then run: Shell Command: Install 'code' command in PATH", shortcut),
+			Message: fmt.Sprintf("VS Code command not found\n\nTo fix this:\nOpen VS Code, press %s, then run: Shell Command: Install 'code' command in PATH", shortcut),
 		})
 		return
 	}
 
+	log.Printf("[open-vscode] found VS Code via %s: %s", vscodePath.Source, vscodePath.Path)
+
 	// Execute code command
 	// Note: We don't wait for the command to complete since VS Code opens as a separate process
-	cmd := exec.Command(codePath, "-n", ws.Path)
+	cmd := exec.Command(vscodePath.Path, "-n", ws.Path)
 	if err := cmd.Start(); err != nil {
 		log.Printf("[open-vscode] failed to launch: %v", err)
 		w.Header().Set("Content-Type", "application/json")
