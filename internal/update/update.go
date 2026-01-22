@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
@@ -59,7 +60,17 @@ func Update() error {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
 
-	if latest == current {
+	// Use semver comparison to check if update is needed
+	vLatest, err := semver.NewVersion("v" + latest)
+	if err != nil {
+		return fmt.Errorf("failed to parse latest version: %w", err)
+	}
+	vCurrent, err := semver.NewVersion("v" + current)
+	if err != nil {
+		return fmt.Errorf("failed to parse current version: %w", err)
+	}
+
+	if !vLatest.GreaterThan(vCurrent) {
 		fmt.Println("Already up to date.")
 		return nil
 	}
@@ -123,7 +134,19 @@ func CheckForUpdate() (latestVersion string, updateAvailable bool, err error) {
 		return "", false, err
 	}
 
-	return latest, latest != current, nil
+	// Parse versions with semver (add "v" prefix for semver package)
+	v1, err := semver.NewVersion("v" + latest)
+	if err != nil {
+		// If parsing fails, assume update not available
+		return latest, false, nil
+	}
+	v2, err := semver.NewVersion("v" + current)
+	if err != nil {
+		// If parsing fails, assume update not available
+		return latest, false, nil
+	}
+
+	return latest, v1.GreaterThan(v2), nil
 }
 
 // GetLatestVersion fetches the latest release version from GitHub.

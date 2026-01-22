@@ -63,4 +63,4 @@ RUN tmux -V
 
 # Default command runs E2E tests
 WORKDIR /home/e2e/src
-CMD ["go", "test", "-v", "./internal/e2e"]
+CMD ["go", "test", "-tags=e2e", "-v", "./internal/e2e"]

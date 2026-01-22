@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import useConnectionMonitor from '../hooks/useConnectionMonitor'
 import useTheme from '../hooks/useTheme'
+import useVersionInfo from '../hooks/useVersionInfo'
 import Tooltip from './Tooltip'
 import { useConfig } from '../contexts/ConfigContext'
 
@@ -37,16 +38,72 @@ export default function AppShell() {
   const connected = useConnectionMonitor();
   const { toggleTheme } = useTheme();
   const { isNotConfigured } = useConfig();
+  const { versionInfo } = useVersionInfo();
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleUpdate = async () => {
+    if (isUpdating) return;
+    if (!confirm('Update schmux to the latest version?\n\nThe dashboard will close after the update completes. You will need to restart the daemon.')) {
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const response = await fetch('/api/update', { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        alert(data.message || 'Update successful. Restart schmux to use the new version.');
+        // Note: button stays disabled since dashboard will close
+      } else {
+        alert(data.error || 'Update failed');
+        setIsUpdating(false);
+      }
+    } catch (err) {
+      alert('Update failed: ' + (err as Error).message);
+      setIsUpdating(false);
+    }
+  };
+
+  const showUpdateBadge = versionInfo?.update_available;
+
   return (
     <div className="app-shell">
       <nav className="app-shell__nav">
         <div className="nav-header">
-          <NavLink to="/sessions" className="logo">schmux</NavLink>
+          <NavLink to="/sessions" className="logo">
+            schmux
+            {showUpdateBadge && (
+              <span className="update-badge" title={`Update available: ${versionInfo.latest_version}`}></span>
+            )}
+          </NavLink>
+          <div className="nav-header__version">
+            {versionInfo?.version ? (versionInfo.version === 'dev' ? 'dev' : `v${versionInfo.version}`) : 'loading...'}
+          </div>
           <div className="nav-header__actions">
             <div className={`connection-pill ${connected ? 'connection-pill--connected' : 'connection-pill--offline'}`}>
               <span className="connection-pill__dot"></span>
               <span>{connected ? 'Connected' : 'Disconnected'}</span>
             </div>
+            {showUpdateBadge && (
+              <Tooltip content={`Update to v${versionInfo.latest_version}`}>
+                <button
+                  className="icon-btn update-btn"
+                  aria-label="Update schmux"
+                  onClick={handleUpdate}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <span className="update-btn__spinner"></span>
+                  ) : (
+                    <svg className="icon-update" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                      <path d="M3 3v5h5"></path>
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                      <path d="M16 21h5v-5"></path>
+                    </svg>
+                  )}
+                </button>
+              </Tooltip>
+            )}
             <Tooltip content="Toggle theme">
               <button id="themeToggle" className="icon-btn" aria-label="Toggle theme" onClick={toggleTheme}>
                 <span className="icon-theme"></span>

@@ -403,7 +403,13 @@ func Run(background bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)
+
+	// Log where dashboard assets are being served from
+	server.LogDashboardAssetPath()
+
+	// Start async version check
+	server.StartVersionCheck()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
