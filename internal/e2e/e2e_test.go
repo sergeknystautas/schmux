@@ -3,12 +3,44 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	requireDocker()
+	os.Exit(m.Run())
+}
+
+func requireDocker() {
+	if isRunningInDocker() {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "E2E tests must run in Docker. Please use the Docker runner.")
+	os.Exit(1)
+}
+
+func isRunningInDocker() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/run/.containerenv"); err == nil {
+		return true
+	}
+	data, err := os.ReadFile("/proc/1/cgroup")
+	if err != nil {
+		return false
+	}
+	cgroup := string(data)
+	return strings.Contains(cgroup, "docker") ||
+		strings.Contains(cgroup, "containerd") ||
+		strings.Contains(cgroup, "kubepods") ||
+		strings.Contains(cgroup, "podman")
+}
 
 // TestE2EFullLifecycle runs the full E2E test suite as one integrated test.
 // This validates the complete flow: daemon → workspace → sessions → cleanup.
