@@ -94,6 +94,8 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 
 **v0.9.3** - Stable for daily use
 
+See [CHANGES.md](CHANGES.md) for what's new in each release.
+
 ### Known Limitations
 - Windows support via WSL only (no native Windows support)
 - Dashboard runs locally only (no remote access by default)

@@ -150,13 +150,35 @@ jobs:
 
 ### Release Process
 
-1. Update version references if needed (CHANGELOG, etc.)
-2. Create and push tag:
+**Before tagging**, update documentation:
+
+1. **Update CHANGES.md** - Add a new entry at the top with a high-level description of what changed in this release:
+   ```markdown
+   ## Version 1.2.3 (2025-01-15)
+
+   - Added feature X for doing Y
+   - Fixed bug where Z would happen
+   - Improved performance of W
+   ```
+
+2. **Update README.md** - Ensure the latest version is reflected in the Status section:
+   ```markdown
+   ## Status
+
+   **v1.2.3** - Stable for daily use
+   ```
+
+3. **Add CHANGES.md link to README** - If not already present, add a link to CHANGES.md in the Documentation section or Status section so users can easily find what changed.
+
+**Then create and push the tag**:
+
+4. Create and push tag:
    ```bash
    git tag v1.2.3
    git push origin v1.2.3
    ```
-3. CI automatically:
+
+5. CI automatically:
    - Builds dashboard assets
    - Runs tests
    - Cross-compiles binaries for all platforms
