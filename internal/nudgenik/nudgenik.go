@@ -67,11 +67,20 @@ Here is the agent’s last response:
 )
 
 var (
+	ErrDisabled        = errors.New("nudgenik is disabled")
 	ErrNoResponse      = errors.New("no response extracted")
 	ErrTargetNotFound  = errors.New("nudgenik target not found")
 	ErrTargetNoSecrets = errors.New("nudgenik target missing required secrets")
 	ErrInvalidResponse = errors.New("invalid nudgenik response")
 )
+
+// IsEnabled returns true if nudgenik is enabled (has a configured target).
+func IsEnabled(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.GetNudgenikTarget() != ""
+}
 
 // Result is the parsed NudgeNik response.
 type Result struct {
@@ -109,14 +118,16 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 		return Result{}, ErrNoResponse
 	}
 
-	input := Prompt + extracted
-
-	targetName := "claude"
+	// Check if nudgenik is disabled (empty target)
+	targetName := ""
 	if cfg != nil {
-		if configured := cfg.GetNudgenikTarget(); configured != "" {
-			targetName = configured
-		}
+		targetName = cfg.GetNudgenikTarget()
 	}
+	if targetName == "" {
+		return Result{}, ErrDisabled
+	}
+
+	input := Prompt + extracted
 
 	resolved, err := resolveNudgenikTarget(cfg, targetName)
 	if err != nil {

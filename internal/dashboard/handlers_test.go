@@ -13,33 +13,62 @@ import (
 )
 
 func TestHandleHasNudgenik(t *testing.T) {
-	// SPIKE: Test that hasNudgenik always returns true (CLI tools available)
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, nil)
+	t.Run("disabled when no target configured", func(t *testing.T) {
+		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		st := state.New("")
+		statePath := t.TempDir() + "/state.json"
+		wm := workspace.New(cfg, st, statePath)
+		sm := session.New(cfg, st, statePath, wm)
+		server := NewServer(cfg, st, statePath, sm, wm, nil)
 
-	// Create a GET request
-	req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
-	rr := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
+		rr := httptest.NewRecorder()
 
-	server.handleHasNudgenik(rr, req)
+		server.handleHasNudgenik(rr, req)
 
-	// Check response
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
 
-	var resp map[string]bool
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+		var resp map[string]bool
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
 
-	if !resp["available"] {
-		t.Errorf("expected available=true, got %v", resp["available"])
-	}
+		if resp["available"] {
+			t.Errorf("expected available=false when no target configured, got %v", resp["available"])
+		}
+	})
+
+	t.Run("enabled when target configured", func(t *testing.T) {
+		cfg := &config.Config{
+			WorkspacePath: "/tmp/workspaces",
+			Nudgenik:      &config.NudgenikConfig{Target: "any-target"},
+		}
+		st := state.New("")
+		statePath := t.TempDir() + "/state.json"
+		wm := workspace.New(cfg, st, statePath)
+		sm := session.New(cfg, st, statePath, wm)
+		server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleHasNudgenik(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+
+		var resp map[string]bool
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if !resp["available"] {
+			t.Errorf("expected available=true when target configured, got %v", resp["available"])
+		}
+	})
 }
 
 func TestHandleAskNudgenik(t *testing.T) {

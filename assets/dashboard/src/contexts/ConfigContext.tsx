@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useMemo, useCall
 import { useNavigate } from 'react-router-dom';
 import { getConfig } from '../lib/api';
 import type { ConfigResponse } from '../lib/types';
+import { CONFIG_UPDATED_KEY } from '../lib/constants';
 
 type ConfigContextValue = {
   config: ConfigResponse;
@@ -71,13 +72,18 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    let active = true;
-
     loadConfig();
+  }, [loadConfig]);
 
-    return () => {
-      active = false;
+  // Listen for config changes from other tabs via localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === CONFIG_UPDATED_KEY) {
+        loadConfig();
+      }
     };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, [loadConfig]);
 
   // Compute whether app is configured

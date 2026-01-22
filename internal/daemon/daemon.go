@@ -551,6 +551,12 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 
 // checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
 func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager) {
+	// Check if nudgenik is enabled (non-empty target)
+	target := cfg.GetNudgenikTarget()
+	if target == "" {
+		return
+	}
+
 	now := time.Now()
 	sessions := st.GetSessions()
 
@@ -574,12 +580,7 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		}
 
 		// Session is inactive and has no nudge, ask NudgeNik
-		targetName := "claude"
-		if cfg != nil {
-			if configured := cfg.GetNudgenikTarget(); configured != "" {
-				targetName = configured
-			}
-		}
+		targetName := cfg.GetNudgenikTarget()
 		fmt.Printf("[nudgenik] asking %s for session %s\n", targetName, sess.ID)
 		nudge := askNudgeNikForSession(ctx, cfg, sess)
 		if nudge != "" {
@@ -600,6 +601,8 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 	result, err := nudgenik.AskForSession(ctx, cfg, sess)
 	if err != nil {
 		switch {
+		case errors.Is(err, nudgenik.ErrDisabled):
+			// Silently skip - nudgenik is disabled
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			fmt.Printf("[nudgenik] no response extracted from session %s\n", sess.ID)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):

@@ -12,7 +12,6 @@ import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import Tooltip from '../components/Tooltip';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspacesList, { type WorkspacesListHandle } from '../components/WorkspacesList';
-import type { NudgenikResult } from '../lib/types';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -23,8 +22,6 @@ export default function SessionDetailPage() {
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(SESSION_SIDEBAR_COLLAPSED_KEY, false);
-  const [nudgenikLoading, setNudgenikLoading] = useState(false);
-  const [nudgenikResult, setNudgenikResult] = useState<NudgenikResult | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
@@ -176,23 +173,6 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleAskNudgenik = async () => {
-    if (!sessionId) return;
-    setNudgenikLoading(true);
-    try {
-      const resp = await fetch(`/api/askNudgenik/${sessionId}`);
-      if (!resp.ok) {
-        throw new Error(`Failed to ask NudgeNik: ${resp.status}`);
-      }
-      const data = await resp.json();
-      setNudgenikResult(data || null);
-    } catch (err) {
-      toastError(`Failed to ask NudgeNik: ${err.message}`);
-    } finally {
-      setNudgenikLoading(false);
-    }
-  };
-
   if (sessionsLoading && !sessionData && !sessionsError) {
     return (
       <div className="loading-state">
@@ -286,21 +266,6 @@ export default function SessionDetailPage() {
                   <span className="status-pill__dot"></span>
                   <span>{wsStatus === 'connected' ? statusText : ''}</span>
                 </div>
-                <Tooltip content="Ask nudgenik what this agent needs">
-                  <button
-                    className="btn btn--sm btn--primary"
-                    onClick={handleAskNudgenik}
-                    disabled={nudgenikLoading}
-                    style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
-                  >
-                    {nudgenikLoading ? (
-                      <>
-                        <span className="spinner spinner--small"></span>
-                        Asking...
-                      </>
-                    ) : 'Ask Nudgenik'}
-                  </button>
-                </Tooltip>
               </div>
               <div className="log-viewer__actions">
                 <label className="toggle-switch">
@@ -441,48 +406,6 @@ export default function SessionDetailPage() {
         </aside>
       </div>
 
-      {nudgenikResult !== null && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="nudgenik-result-title">
-          <div className="modal modal--large">
-            <div className="modal__header">
-              <h2 className="modal__title" id="nudgenik-result-title">NudgeNik Response</h2>
-            </div>
-            <div className="modal__body">
-              <div className="metadata-field">
-                <span className="metadata-field__label">State</span>
-                <span className="metadata-field__value">{nudgenikResult.state || 'Unknown'}</span>
-              </div>
-              <div className="metadata-field">
-                <span className="metadata-field__label">Confidence</span>
-                <span className="metadata-field__value">{nudgenikResult.confidence || 'Unknown'}</span>
-              </div>
-              <div className="metadata-field">
-                <span className="metadata-field__label">Summary</span>
-                <span className="metadata-field__value">{nudgenikResult.summary || 'No summary provided'}</span>
-              </div>
-              <div className="metadata-field">
-                <span className="metadata-field__label">Evidence</span>
-                <div className="metadata-field__value">
-                  {nudgenikResult.evidence?.length ? (
-                    <ul className="nudgenik-modal__evidence">
-                      {nudgenikResult.evidence.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>None</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="modal__footer">
-              <button className="btn btn--primary" onClick={() => setNudgenikResult(null)}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
