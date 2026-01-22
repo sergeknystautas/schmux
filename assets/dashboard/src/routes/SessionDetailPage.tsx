@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
-import { updateNickname } from '../lib/api';
+import { updateNickname, getErrorMessage } from '../lib/api';
 import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -162,11 +162,11 @@ export default function SessionDetailPage() {
         refresh(true);
         return; // Success, exit loop
       } catch (err) {
-        if (err.isConflict) {
+        if ((err as { isConflict?: boolean }).isConflict) {
           // Show error and re-prompt
-          errorMessage = err.message;
+          errorMessage = getErrorMessage(err, 'Nickname conflict');
         } else {
-          toastError(`Failed to update nickname: ${err.message}`);
+          toastError(`Failed to update nickname: ${getErrorMessage(err, 'Unknown error')}`);
           return; // Other errors, don't re-prompt
         }
       }

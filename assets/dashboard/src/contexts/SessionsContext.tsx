@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getSessions } from '../lib/api';
+import { getSessions, getErrorMessage } from '../lib/api';
 import { useConfig } from './ConfigContext';
 import type { SessionWithWorkspace, WorkspaceResponse } from '../lib/types';
 
@@ -31,7 +31,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       return data;
     } catch (err) {
       if (!silent) {
-        setError(err.message || 'Failed to load sessions');
+        setError(getErrorMessage(err, 'Failed to load sessions'));
       }
       return null;
     } finally {

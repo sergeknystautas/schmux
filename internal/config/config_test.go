@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/version"
@@ -521,6 +522,194 @@ func TestConfigVersion_SaveUpdatesToCurrentVersion(t *testing.T) {
 	// Version should now be current
 	if cfg2.ConfigVersion != version.Version {
 		t.Errorf("ConfigVersion after Save = %q, want %q", cfg2.ConfigVersion, version.Version)
+	}
+}
+
+func TestLoad_JSONSyntaxErrorIncludesLineColumn(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "bad-config.json")
+
+	tests := []struct {
+		name         string
+		json         string
+		wantLine     int
+		wantCol      int
+		wantContains string
+	}{
+		{
+			name: "missing colon on line 3",
+			json: `{
+  "workspace_path": "/test",
+  "network" {
+    "port": 7337
+  }
+}`,
+			wantLine:     3,
+			wantCol:      13,
+			wantContains: "line 3",
+		},
+		{
+			name: "missing comma on line 2",
+			json: `{
+  "workspace_path": "/test"
+  "repos": []
+}`,
+			wantLine:     3,
+			wantCol:      3,
+			wantContains: "line 3",
+		},
+		{
+			name: "invalid value on line 4",
+			json: `{
+  "workspace_path": "/test",
+  "repos": [],
+  "terminal": invalid
+}`,
+			wantLine:     4,
+			wantCol:      15,
+			wantContains: "line 4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(configPath, []byte(tt.json), 0644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("Load() should have failed with invalid JSON")
+			}
+
+			errStr := err.Error()
+			if !strings.Contains(errStr, tt.wantContains) {
+				t.Errorf("error %q should contain %q", errStr, tt.wantContains)
+			}
+
+			// Verify it mentions column
+			if !strings.Contains(errStr, "column") {
+				t.Errorf("error %q should contain 'column'", errStr)
+			}
+		})
+	}
+}
+
+func TestLoad_JSONTypeErrorIncludesLineColumn(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "bad-config.json")
+
+	tests := []struct {
+		name         string
+		json         string
+		wantField    string
+		wantContains string
+	}{
+		{
+			name: "string instead of bool",
+			json: `{
+  "workspace_path": "/test",
+  "repos": [],
+  "run_targets": [],
+  "terminal": {"width": 120, "height": 40, "seed_lines": 100},
+  "access_control": {
+    "enabled": "true"
+  }
+}`,
+			wantField:    "access_control.enabled",
+			wantContains: "line",
+		},
+		{
+			name: "string instead of int",
+			json: `{
+  "workspace_path": "/test",
+  "repos": [],
+  "run_targets": [],
+  "terminal": {"width": "120", "height": 40, "seed_lines": 100}
+}`,
+			wantField:    "terminal.width",
+			wantContains: "line",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(configPath, []byte(tt.json), 0644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			_, err := Load(configPath)
+			if err == nil {
+				t.Fatal("Load() should have failed with type error")
+			}
+
+			errStr := err.Error()
+			if !strings.Contains(errStr, tt.wantField) {
+				t.Errorf("error %q should contain field %q", errStr, tt.wantField)
+			}
+			if !strings.Contains(errStr, tt.wantContains) {
+				t.Errorf("error %q should contain %q", errStr, tt.wantContains)
+			}
+			if !strings.Contains(errStr, "column") {
+				t.Errorf("error %q should contain 'column'", errStr)
+			}
+		})
+	}
+}
+
+func TestOffsetToLineCol(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		offset   int64
+		wantLine int
+		wantCol  int
+	}{
+		{
+			name:     "beginning of file",
+			data:     "hello\nworld",
+			offset:   0,
+			wantLine: 1,
+			wantCol:  1,
+		},
+		{
+			name:     "middle of first line",
+			data:     "hello\nworld",
+			offset:   3,
+			wantLine: 1,
+			wantCol:  4,
+		},
+		{
+			name:     "beginning of second line",
+			data:     "hello\nworld",
+			offset:   6,
+			wantLine: 2,
+			wantCol:  1,
+		},
+		{
+			name:     "middle of second line",
+			data:     "hello\nworld",
+			offset:   8,
+			wantLine: 2,
+			wantCol:  3,
+		},
+		{
+			name:     "multiline json",
+			data:     "{\n  \"key\": \"value\"\n}",
+			offset:   15,
+			wantLine: 2,
+			wantCol:  14,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line, col := offsetToLineCol([]byte(tt.data), tt.offset)
+			if line != tt.wantLine || col != tt.wantCol {
+				t.Errorf("offsetToLineCol(%q, %d) = (%d, %d), want (%d, %d)",
+					tt.data, tt.offset, line, col, tt.wantLine, tt.wantCol)
+			}
+		})
 	}
 }
 

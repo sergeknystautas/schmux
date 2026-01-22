@@ -14,6 +14,13 @@ import type {
   WorkspaceResponse,
 } from './types';
 
+// Extract error message from unknown catch value
+export function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return fallback;
+}
+
 export async function getSessions(): Promise<WorkspaceResponse[]> {
   const response = await fetch('/api/sessions');
   if (!response.ok) throw new Error('Failed to fetch sessions');
@@ -75,13 +82,21 @@ export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   return response.json();
 }
 
+export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
+  const response = await fetch('/auth/me');
+  if (!response.ok) {
+    throw new Error('Failed to fetch auth user');
+  }
+  return response.json();
+}
+
 export async function scanWorkspaces(): Promise<ScanResult> {
   const response = await fetch('/api/workspaces/scan', { method: 'POST' });
   if (!response.ok) throw new Error('Failed to scan workspaces');
   return response.json();
 }
 
-export async function updateConfig(request: ConfigUpdateRequest): Promise<{ status: string; message?: string; warning?: string }> {
+export async function updateConfig(request: ConfigUpdateRequest): Promise<{ status: string; message?: string; warning?: string; warnings?: string[] }> {
   const response = await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -100,6 +115,25 @@ export async function updateConfig(request: ConfigUpdateRequest): Promise<{ stat
       }
     }
     throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function getAuthSecretsStatus(): Promise<{ client_id_set: boolean; client_secret_set: boolean }> {
+  const response = await fetch('/api/auth/secrets');
+  if (!response.ok) throw new Error('Failed to fetch auth secrets');
+  return response.json();
+}
+
+export async function saveAuthSecrets(payload: { client_id: string; client_secret: string }): Promise<{ status: string }> {
+  const response = await fetch('/api/auth/secrets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || 'Failed to save auth secrets');
   }
   return response.json();
 }

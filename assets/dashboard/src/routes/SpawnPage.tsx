@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getConfig, spawnSessions, detectTools, getVariants } from '../lib/api';
+import { getConfig, spawnSessions, detectTools, getVariants, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -61,7 +61,7 @@ export default function SpawnPage() {
         setAvailableVariants(variantResult.variants || []);
       } catch (err) {
         if (!active) return;
-        setConfigError(err.message || 'Failed to load config');
+        setConfigError(getErrorMessage(err, 'Failed to load config'));
       } finally {
         if (active) setLoading(false);
       }
@@ -289,7 +289,7 @@ export default function SpawnPage() {
         localStorage.setItem(expandedKey, JSON.stringify(expanded));
       }
     } catch (err) {
-      toastError(`Failed to spawn: ${err.message}`);
+      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
     } finally {
       setSpawning(false);
     }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch } from '../lib/api';
+import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch, getAuthSecretsStatus, saveAuthSecrets, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -55,6 +55,12 @@ type ConfigSnapshot = {
   maxLogSizeMB: number;
   rotatedLogSizeMB: number;
   networkAccess: boolean;
+  authEnabled: boolean;
+  authProvider: string;
+  authPublicBaseURL: string;
+  authSessionTTLMinutes: number;
+  authTlsCertPath: string;
+  authTlsKeyPath: string;
 };
 
 type VariantModalState = {
@@ -134,6 +140,15 @@ export default function ConfigPage() {
   const [maxLogSizeMB, setMaxLogSizeMB] = useState(50);
   const [rotatedLogSizeMB, setRotatedLogSizeMB] = useState(1);
   const [networkAccess, setNetworkAccess] = useState(false);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [authProvider, setAuthProvider] = useState('github');
+  const [authPublicBaseURL, setAuthPublicBaseURL] = useState('');
+  const [authSessionTTLMinutes, setAuthSessionTTLMinutes] = useState(1440);
+  const [authTlsCertPath, setAuthTlsCertPath] = useState('');
+  const [authTlsKeyPath, setAuthTlsKeyPath] = useState('');
+  const [authClientIdSet, setAuthClientIdSet] = useState(false);
+  const [authClientSecretSet, setAuthClientSecretSet] = useState(false);
+  const [authWarnings, setAuthWarnings] = useState<string[]>([]);
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
 
   // Overlays state
@@ -171,6 +186,12 @@ export default function ConfigPage() {
       maxLogSizeMB,
       rotatedLogSizeMB,
       networkAccess,
+      authEnabled,
+      authProvider,
+      authPublicBaseURL,
+      authSessionTTLMinutes,
+      authTlsCertPath,
+      authTlsKeyPath,
     };
 
     // Deep comparison for arrays
@@ -201,7 +222,13 @@ export default function ConfigPage() {
       current.xtermOperationTimeout !== originalConfig.xtermOperationTimeout ||
       current.maxLogSizeMB !== originalConfig.maxLogSizeMB ||
       current.rotatedLogSizeMB !== originalConfig.rotatedLogSizeMB ||
-      current.networkAccess !== originalConfig.networkAccess
+      current.networkAccess !== originalConfig.networkAccess ||
+      current.authEnabled !== originalConfig.authEnabled ||
+      current.authProvider !== originalConfig.authProvider ||
+      current.authPublicBaseURL !== originalConfig.authPublicBaseURL ||
+      current.authSessionTTLMinutes !== originalConfig.authSessionTTLMinutes ||
+      current.authTlsCertPath !== originalConfig.authTlsCertPath ||
+      current.authTlsKeyPath !== originalConfig.authTlsKeyPath
     );
   };
 
@@ -219,6 +246,25 @@ export default function ConfigPage() {
 
   // Validation state per step
   const [stepErrors, setStepErrors] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null, 5: null });
+
+  const localAuthWarnings: string[] = [];
+  if (authEnabled) {
+    if (!authPublicBaseURL.trim()) {
+      localAuthWarnings.push('Public base URL is required when auth is enabled.');
+    } else if (!authPublicBaseURL.startsWith('https://') && !authPublicBaseURL.startsWith('http://localhost')) {
+      localAuthWarnings.push('Public base URL must be https (http://localhost allowed).');
+    }
+    if (!authTlsCertPath.trim()) {
+      localAuthWarnings.push('TLS cert path is required when auth is enabled.');
+    }
+    if (!authTlsKeyPath.trim()) {
+      localAuthWarnings.push('TLS key path is required when auth is enabled.');
+    }
+    if (!authClientIdSet || !authClientSecretSet) {
+      localAuthWarnings.push('GitHub client credentials are not configured.');
+    }
+  }
+  const combinedAuthWarnings = Array.from(new Set([...localAuthWarnings, ...authWarnings]));
 
   useEffect(() => {
     let active = true;
@@ -256,8 +302,15 @@ export default function ConfigPage() {
         setXtermOperationTimeout(data.xterm?.operation_timeout_ms || 10000);
         setMaxLogSizeMB(data.xterm?.max_log_size_mb || 50);
         setRotatedLogSizeMB(data.xterm?.rotated_log_size_mb || 1);
-        const netAccess = data.access_control?.network_access || false;
+        const netAccess = data.network?.bind_address === '0.0.0.0';
         setNetworkAccess(netAccess);
+        setAuthEnabled(data.access_control?.enabled || false);
+        setAuthProvider(data.access_control?.provider || 'github');
+        setAuthPublicBaseURL(data.network?.public_base_url || '');
+        setAuthSessionTTLMinutes(data.access_control?.session_ttl_minutes || 1440);
+        setAuthTlsCertPath(data.network?.tls?.cert_path || '');
+        setAuthTlsKeyPath(data.network?.tls?.key_path || '');
+        setAuthWarnings([]);
         setApiNeedsRestart(data.needs_restart || false);
 
         // Set original config for change detection (non-wizard mode)
@@ -285,6 +338,12 @@ export default function ConfigPage() {
             maxLogSizeMB: data.xterm?.max_log_size_mb || 50,
             rotatedLogSizeMB: data.xterm?.rotated_log_size_mb || 1,
             networkAccess: netAccess,
+            authEnabled: data.access_control?.enabled || false,
+            authProvider: data.access_control?.provider || 'github',
+            authPublicBaseURL: data.network?.public_base_url || '',
+            authSessionTTLMinutes: data.access_control?.session_ttl_minutes || 1440,
+            authTlsCertPath: data.network?.tls?.cert_path || '',
+            authTlsKeyPath: data.network?.tls?.key_path || '',
           });
         }
 
@@ -292,9 +351,16 @@ export default function ConfigPage() {
         if (active) {
           setAvailableVariants(variantData.variants || []);
         }
+
+        const authStatus = await getAuthSecretsStatus();
+        if (active) {
+          setAuthClientIdSet(!!authStatus.client_id_set);
+          setAuthClientSecretSet(!!authStatus.client_secret_set);
+        }
       } catch (err) {
         if (!active) return;
-        setError(err.message || 'Failed to load config');
+        const message = err instanceof Error ? err.message : 'Failed to load config';
+        setError(message);
       } finally {
         if (active) setLoading(false);
       }
@@ -353,7 +419,7 @@ export default function ConfigPage() {
       const variantData = await getVariants();
       setAvailableVariants(variantData.variants || []);
     } catch (err) {
-      toastError(err.message || 'Failed to load variants');
+      toastError(getErrorMessage(err, 'Failed to load variants'));
     }
   };
 
@@ -431,8 +497,18 @@ export default function ConfigPage() {
           max_log_size_mb: maxLogSizeMB,
           rotated_log_size_mb: rotatedLogSizeMB,
         },
+        network: {
+          bind_address: networkAccess ? '0.0.0.0' : '127.0.0.1',
+          public_base_url: authPublicBaseURL,
+          tls: {
+            cert_path: authTlsCertPath,
+            key_path: authTlsKeyPath,
+          },
+        },
         access_control: {
-          network_access: networkAccess,
+          enabled: authEnabled,
+          provider: authProvider,
+          session_ttl_minutes: authSessionTTLMinutes,
         },
       };
 
@@ -440,6 +516,7 @@ export default function ConfigPage() {
       reloadConfig();
       // Notify other tabs that config changed
       localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
+      setAuthWarnings(result.warnings || []);
 
       // Reload config to get updated needs_restart flag from server
       const reloaded = await getConfig();
@@ -470,6 +547,12 @@ export default function ConfigPage() {
           maxLogSizeMB,
           rotatedLogSizeMB,
           networkAccess,
+          authEnabled,
+          authProvider,
+          authPublicBaseURL,
+          authSessionTTLMinutes,
+          authTlsCertPath,
+          authTlsKeyPath,
         });
       }
 
@@ -480,7 +563,8 @@ export default function ConfigPage() {
       }
       return true;
     } catch (err) {
-      toastError(err.message || 'Failed to save config');
+      const message = err instanceof Error ? err.message : 'Failed to save config';
+      toastError(message);
       return false;
     } finally {
       setSaving(false);
@@ -717,7 +801,7 @@ export default function ConfigPage() {
           if (!current) return current;
           return {
             ...current,
-            error: err.message || 'Failed to remove variant secrets'
+            error: getErrorMessage(err, 'Failed to remove variant secrets')
           };
         });
       }
@@ -746,9 +830,45 @@ export default function ConfigPage() {
         if (!current) return current;
         return {
           ...current,
-          error: err.message || 'Failed to save variant secrets'
+          error: getErrorMessage(err, 'Failed to save variant secrets')
         };
       });
+    }
+  };
+
+  // Auth secrets modal
+  const [authSecretsModal, setAuthSecretsModal] = useState<{
+    clientId: string;
+    clientSecret: string;
+    error: string;
+  } | null>(null);
+
+  const openAuthSecretsModal = () => {
+    setAuthSecretsModal({ clientId: '', clientSecret: '', error: '' });
+  };
+
+  const closeAuthSecretsModal = () => {
+    setAuthSecretsModal(null);
+  };
+
+  const saveAuthSecretsModal = async () => {
+    if (!authSecretsModal) return;
+    const { clientId, clientSecret } = authSecretsModal;
+
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setAuthSecretsModal(current => current ? { ...current, error: 'Both client ID and client secret are required' } : null);
+      return;
+    }
+
+    try {
+      await saveAuthSecrets({ client_id: clientId.trim(), client_secret: clientSecret.trim() });
+      const authStatus = await getAuthSecretsStatus();
+      setAuthClientIdSet(!!authStatus.client_id_set);
+      setAuthClientSecretSet(!!authStatus.client_secret_set);
+      closeAuthSecretsModal();
+      success('GitHub credentials saved');
+    } catch (err) {
+      setAuthSecretsModal(current => current ? { ...current, error: getErrorMessage(err, 'Failed to save credentials') } : null);
     }
   };
 
@@ -1399,7 +1519,7 @@ export default function ConfigPage() {
 
               <div className="settings-section">
                 <div className="settings-section__header">
-                  <h3 className="settings-section__title">Access Control</h3>
+                  <h3 className="settings-section__title">Network</h3>
                 </div>
                 <div className="settings-section__body">
                   <div className="form-group">
@@ -1430,6 +1550,147 @@ export default function ConfigPage() {
                         : 'Dashboard accessible from other devices on your local network.'}
                     </p>
                   </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Authentication</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={authEnabled}
+                        onChange={(e) => setAuthEnabled(e.target.checked)}
+                      />
+                      <span>Enable GitHub authentication</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Require GitHub login to access the dashboard. Requires HTTPS.
+                    </p>
+                  </div>
+
+                  {authEnabled && (
+                    <>
+                      <div className="form-group">
+                        <label className="form-group__label">Dashboard URL</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="https://schmux.local:7337"
+                          value={authPublicBaseURL}
+                          onChange={(e) => setAuthPublicBaseURL(e.target.value)}
+                        />
+                        <p className="form-group__hint">The URL users will type to access schmux. Must be https.</p>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-group__label">TLS Cert Path</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="~/.schmux/tls/schmux.local.pem"
+                            value={authTlsCertPath}
+                            onChange={(e) => setAuthTlsCertPath(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-group__label">TLS Key Path</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="~/.schmux/tls/schmux.local-key.pem"
+                            value={authTlsKeyPath}
+                            onChange={(e) => setAuthTlsKeyPath(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <p className="form-group__hint" style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}>
+                        Use <code>mkcert</code> to generate local certificates, or run <code>schmux auth github</code> for guided setup.
+                      </p>
+
+                      <div className="form-group">
+                        <label className="form-group__label">Session TTL (minutes)</label>
+                        <input
+                          type="number"
+                          className="input input--compact"
+                          style={{ maxWidth: '120px' }}
+                          min="1"
+                          value={authSessionTTLMinutes}
+                          onChange={(e) => setAuthSessionTTLMinutes(parseInt(e.target.value) || 1440)}
+                        />
+                        <p className="form-group__hint">How long before requiring re-authentication.</p>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-group__label">GitHub OAuth Credentials</label>
+                        <div className="item-list" style={{ marginTop: 'var(--spacing-xs)' }}>
+                          <div className="item-list__item">
+                            <div className="item-list__item-primary">
+                              <span className="item-list__item-name">
+                                {authClientIdSet && authClientSecretSet ? (
+                                  <span style={{ color: 'var(--color-success)' }}>Configured</span>
+                                ) : (
+                                  <span style={{ color: 'var(--color-warning)' }}>Not configured</span>
+                                )}
+                              </span>
+                              <span className="item-list__item-detail">
+                                Create at github.com/settings/developers
+                              </span>
+                            </div>
+                            {authClientIdSet && authClientSecretSet ? (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={openAuthSecretsModal}
+                              >
+                                Update
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={openAuthSecretsModal}
+                              >
+                                Add
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="form-group__hint" style={{ marginTop: 'var(--spacing-sm)' }}>
+                          <p className="form-group__hint" style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}>
+                            To create or check on your GitHub OAuth credentials, follow these steps:
+                          </p>
+                          <ol style={{ margin: 0, paddingLeft: 'var(--spacing-lg)' }}>
+                            <li>Go to <a href="https://github.com/settings/developers" target="_blank" rel="noreferrer">github.com/settings/developers</a></li>
+                            <li>Click "New OAuth App" (or edit existing)</li>
+                            <li>Use these values:
+                              <ul style={{ marginTop: 'var(--spacing-xs)' }}>
+                                <li>Application name: <code>schmux</code></li>
+                                <li>Homepage URL: <code>{authPublicBaseURL || 'https://schmux.local:7337'}</code></li>
+                                <li>Callback URL: <code>{authPublicBaseURL ? `${authPublicBaseURL.replace(/\/+$/, '')}/auth/callback` : 'https://schmux.local:7337/auth/callback'}</code></li>
+                              </ul>
+                            </li>
+                            <li>Copy the Client ID and Client Secret</li>
+                          </ol>
+                        </div>
+                      </div>
+
+                      {combinedAuthWarnings.length > 0 && (
+                        <div className="form-group">
+                          <p className="form-group__error">Configuration issues:</p>
+                          <ul className="form-group__hint" style={{ color: 'var(--color-error)' }}>
+                            {combinedAuthWarnings.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1774,6 +2035,63 @@ export default function ConfigPage() {
                   : variantModal.mode === 'add'
                     ? 'Add'
                     : 'Update'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {authSecretsModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="auth-secrets-modal-title"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeAuthSecretsModal();
+          }}
+        >
+          <div className="modal">
+            <div className="modal__header">
+              <h2 className="modal__title" id="auth-secrets-modal-title">
+                GitHub OAuth Credentials
+              </h2>
+            </div>
+            <div className="modal__body">
+              <div className="form-group">
+                <label className="form-group__label">Client ID</label>
+                <input
+                  type="text"
+                  className="input"
+                  autoFocus
+                  placeholder="Ov23li..."
+                  value={authSecretsModal.clientId}
+                  onChange={(e) => setAuthSecretsModal(current => current ? { ...current, clientId: e.target.value } : null)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-group__label">Client Secret</label>
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Enter client secret"
+                  value={authSecretsModal.clientSecret}
+                  onChange={(e) => setAuthSecretsModal(current => current ? { ...current, clientSecret: e.target.value } : null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveAuthSecretsModal();
+                  }}
+                />
+              </div>
+              {authSecretsModal.error && (
+                <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)' }}>
+                  {authSecretsModal.error}
+                </p>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn" onClick={closeAuthSecretsModal}>Cancel</button>
+              <button className="btn btn--primary" onClick={saveAuthSecretsModal}>
+                Save
               </button>
             </div>
           </div>

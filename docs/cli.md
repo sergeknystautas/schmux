@@ -103,6 +103,56 @@ Useful for seeing debug output directly in the terminal.
 
 ---
 
+## Auth Commands
+
+### `schmux auth github`
+
+Interactive guided setup for GitHub OAuth authentication.
+
+```bash
+schmux auth github
+```
+
+This command walks you through a step-by-step wizard:
+
+1. **Hostname** - Choose the dashboard URL (e.g., `schmux.local`)
+2. **TLS Certificates** - Generate automatically with mkcert or provide your own
+3. **GitHub OAuth App** - Guided setup with exact values to copy
+4. **Additional Settings** - Network access and session TTL
+
+**Features:**
+- Auto-generates TLS certificates via mkcert (stored in `~/.schmux/tls/`)
+- Shows exact values to copy when creating the GitHub OAuth App
+- Detects existing configuration and uses as defaults
+- Validates certificate hostname match before saving
+
+**Example session:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ GitHub Authentication Setup                                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+GitHub auth lets you log into the schmux dashboard using your GitHub account.
+
+To set this up, you'll need:
+  1. A hostname for the dashboard (e.g., schmux.local)
+  2. TLS certificates for HTTPS
+  3. A GitHub OAuth App
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Step 1: Hostname                                                        │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Dashboard hostname: schmux.local
+```
+
+**After completion:**
+1. Add hostname to `/etc/hosts` if needed
+2. Restart daemon: `./schmux stop && ./schmux start`
+3. Open `https://<hostname>:7337` in your browser
+
+---
+
 ## Session Commands
 
 ### `schmux spawn`

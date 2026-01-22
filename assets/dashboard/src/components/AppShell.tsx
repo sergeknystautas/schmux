@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import useConnectionMonitor from '../hooks/useConnectionMonitor'
 import useTheme from '../hooks/useTheme'
 import useVersionInfo from '../hooks/useVersionInfo'
+import useAuthUser from '../hooks/useAuthUser'
 import Tooltip from './Tooltip'
 import { useConfig } from '../contexts/ConfigContext'
 
@@ -37,8 +38,9 @@ const navItems = [
 export default function AppShell() {
   const connected = useConnectionMonitor();
   const { toggleTheme } = useTheme();
-  const { isNotConfigured } = useConfig();
+  const { isNotConfigured, config } = useConfig();
   const { versionInfo } = useVersionInfo();
+  const authUser = useAuthUser(config.access_control?.enabled ?? false);
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleUpdate = async () => {
@@ -115,6 +117,16 @@ export default function AppShell() {
               </svg>
             </a>
           </div>
+          {authUser && (
+            <div className="nav-header__user">
+              {authUser.avatar_url ? (
+                <img className="nav-header__avatar" src={authUser.avatar_url} alt={authUser.login} />
+              ) : (
+                <span className="nav-header__avatar nav-header__avatar--placeholder" />
+              )}
+              <span className="nav-header__login">{authUser.login}</span>
+            </div>
+          )}
         </div>
         <hr className="nav-header__separator" />
         <ul className="nav-list">

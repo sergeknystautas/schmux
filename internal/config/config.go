@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,9 @@ const (
 	DefaultGitStatusTimeoutMs      = 30000  // 30 seconds
 	DefaultXtermQueryTimeoutMs     = 5000   // 5 seconds
 	DefaultXtermOperationTimeoutMs = 10000  // 10 seconds
+
+	// Default auth session TTL in minutes
+	DefaultAuthSessionTTLMinutes = 1440
 )
 
 // Config represents the application configuration.
@@ -48,6 +52,7 @@ type Config struct {
 	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
 	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
 	Xterm         *XtermConfig         `json:"xterm,omitempty"`
+	Network       *NetworkConfig       `json:"network,omitempty"`
 	AccessControl *AccessControlConfig `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
@@ -87,9 +92,25 @@ type XtermConfig struct {
 	RotatedLogSizeMB    int `json:"rotated_log_size_mb,omitempty"` // target size after rotation (keeps tail)
 }
 
-// AccessControlConfig controls external access.
+// NetworkConfig controls server binding and TLS.
+type NetworkConfig struct {
+	BindAddress   string     `json:"bind_address,omitempty"`
+	Port          int        `json:"port,omitempty"`
+	PublicBaseURL string     `json:"public_base_url,omitempty"`
+	TLS           *TLSConfig `json:"tls,omitempty"`
+}
+
+// TLSConfig holds TLS certificate paths.
+type TLSConfig struct {
+	CertPath string `json:"cert_path,omitempty"`
+	KeyPath  string `json:"key_path,omitempty"`
+}
+
+// AccessControlConfig controls authentication.
 type AccessControlConfig struct {
-	NetworkAccess bool `json:"network_access"`
+	Enabled           bool   `json:"enabled"`
+	Provider          string `json:"provider,omitempty"`
+	SessionTTLMinutes int    `json:"session_ttl_minutes,omitempty"`
 }
 
 // Repo represents a git repository configuration.
@@ -130,33 +151,59 @@ const (
 
 // Validate validates the config including terminal settings, run targets, variants, and quick launch presets.
 func (c *Config) Validate() error {
+	_, err := c.validate(true)
+	return err
+}
+
+// ValidateForSave validates the config but returns auth-related issues as warnings.
+func (c *Config) ValidateForSave() ([]string, error) {
+	return c.validate(false)
+}
+
+func (c *Config) validate(strict bool) ([]string, error) {
 	// Validate terminal config (required for daemon operation)
 	if c.Terminal == nil {
-		return fmt.Errorf("%w: terminal is required (set terminal.width, terminal.height, and terminal.seed_lines)", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: terminal is required (set terminal.width, terminal.height, and terminal.seed_lines)", ErrInvalidConfig)
 	}
 	if c.Terminal.Width <= 0 {
-		return fmt.Errorf("%w: terminal.width must be > 0", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: terminal.width must be > 0", ErrInvalidConfig)
 	}
 	if c.Terminal.Height <= 0 {
-		return fmt.Errorf("%w: terminal.height must be > 0", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: terminal.height must be > 0", ErrInvalidConfig)
 	}
 	if c.Terminal.SeedLines <= 0 {
-		return fmt.Errorf("%w: terminal.seed_lines must be > 0", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: terminal.seed_lines must be > 0", ErrInvalidConfig)
 	}
 
 	if err := validateRunTargets(c.RunTargets); err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateVariantConfigs(c.Variants); err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets, c.Variants); err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateRunTargetDependencies(c.RunTargets, c.Variants, c.QuickLaunch, c.Nudgenik); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	warnings, err := c.validateAccessControl(strict)
+	if err != nil {
+		return nil, err
+	}
+	return warnings, nil
+}
+
+func (c *Config) expandNetworkPaths(homeDir string) {
+	if homeDir == "" || c.Network == nil || c.Network.TLS == nil {
+		return
+	}
+	if strings.HasPrefix(c.Network.TLS.CertPath, "~") {
+		c.Network.TLS.CertPath = filepath.Join(homeDir, strings.TrimPrefix(c.Network.TLS.CertPath, "~"))
+	}
+	if strings.HasPrefix(c.Network.TLS.KeyPath, "~") {
+		c.Network.TLS.KeyPath = filepath.Join(homeDir, strings.TrimPrefix(c.Network.TLS.KeyPath, "~"))
+	}
 }
 
 // GetWorkspacePath returns the workspace directory path.
@@ -278,6 +325,7 @@ func (c *Config) Reload() error {
 	if newCfg.WorkspacePath != "" && newCfg.WorkspacePath[0] == '~' {
 		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
 	}
+	newCfg.expandNetworkPaths(homeDir)
 
 	// Preserve the existing path
 	existingPath := c.path
@@ -317,6 +365,16 @@ func Load(configPath string) (*Config, error) {
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		// Try to extract line and column from JSON errors
+		if syntaxErr, ok := err.(*json.SyntaxError); ok {
+			line, col := offsetToLineCol(data, syntaxErr.Offset)
+			return nil, fmt.Errorf("%w: %s (line %d, column %d)", ErrInvalidConfig, syntaxErr.Error(), line, col)
+		}
+		if typeErr, ok := err.(*json.UnmarshalTypeError); ok {
+			line, col := offsetToLineCol(data, typeErr.Offset)
+			return nil, fmt.Errorf("%w: field %q expects %s, got %s (line %d, column %d)",
+				ErrInvalidConfig, typeErr.Field, typeErr.Type, typeErr.Value, line, col)
+		}
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
@@ -344,6 +402,7 @@ func Load(configPath string) (*Config, error) {
 	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
 		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
 	}
+	cfg.expandNetworkPaths(homeDir)
 
 	return &cfg, nil
 }
@@ -578,11 +637,175 @@ func (c *Config) XtermOperationTimeout() time.Duration {
 	return time.Duration(c.GetXtermOperationTimeoutMs()) * time.Millisecond
 }
 
+// GetBindAddress returns the address to bind the server to.
+// Defaults to "127.0.0.1" (localhost only).
+func (c *Config) GetBindAddress() string {
+	if c.Network == nil || c.Network.BindAddress == "" {
+		return "127.0.0.1"
+	}
+	return c.Network.BindAddress
+}
+
 // GetNetworkAccess returns whether the dashboard should be accessible from the local network.
-// Defaults to false (localhost only).
+// This is a convenience method that checks if bind_address is "0.0.0.0".
 func (c *Config) GetNetworkAccess() bool {
+	return c.GetBindAddress() == "0.0.0.0"
+}
+
+// GetPort returns the dashboard port. Defaults to 7337.
+func (c *Config) GetPort() int {
+	if c.Network == nil || c.Network.Port <= 0 {
+		return 7337
+	}
+	return c.Network.Port
+}
+
+// GetPublicBaseURL returns the public base URL for the dashboard.
+func (c *Config) GetPublicBaseURL() string {
+	if c.Network == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Network.PublicBaseURL)
+}
+
+// GetTLSCertPath returns the TLS certificate path.
+func (c *Config) GetTLSCertPath() string {
+	if c.Network == nil || c.Network.TLS == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Network.TLS.CertPath)
+}
+
+// GetTLSKeyPath returns the TLS key path.
+func (c *Config) GetTLSKeyPath() string {
+	if c.Network == nil || c.Network.TLS == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Network.TLS.KeyPath)
+}
+
+// GetTLSEnabled returns whether TLS is configured.
+func (c *Config) GetTLSEnabled() bool {
+	return c.GetTLSCertPath() != "" && c.GetTLSKeyPath() != ""
+}
+
+// GetAuthEnabled returns whether auth is enabled.
+func (c *Config) GetAuthEnabled() bool {
 	if c.AccessControl == nil {
 		return false
 	}
-	return c.AccessControl.NetworkAccess
+	return c.AccessControl.Enabled
+}
+
+// GetAuthProvider returns the auth provider (default: github).
+func (c *Config) GetAuthProvider() string {
+	if c.AccessControl == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.AccessControl.Provider) == "" {
+		return "github"
+	}
+	return c.AccessControl.Provider
+}
+
+// GetAuthSessionTTLMinutes returns the session TTL in minutes.
+func (c *Config) GetAuthSessionTTLMinutes() int {
+	if c.AccessControl == nil || c.AccessControl.SessionTTLMinutes <= 0 {
+		return DefaultAuthSessionTTLMinutes
+	}
+	return c.AccessControl.SessionTTLMinutes
+}
+
+func (c *Config) validateAccessControl(strict bool) ([]string, error) {
+	if c.AccessControl == nil || !c.AccessControl.Enabled {
+		return nil, nil
+	}
+
+	var warnings []string
+	publicBaseURL := c.GetPublicBaseURL()
+	if publicBaseURL == "" {
+		warnings = append(warnings, "network.public_base_url is required when auth is enabled")
+	} else if !IsValidPublicBaseURL(publicBaseURL) {
+		warnings = append(warnings, "network.public_base_url must be https (http://localhost allowed)")
+	}
+
+	if provider := c.GetAuthProvider(); provider != "github" {
+		warnings = append(warnings, fmt.Sprintf("access_control.auth.provider must be \"github\" (got %q)", provider))
+	}
+
+	certPath := c.GetTLSCertPath()
+	keyPath := c.GetTLSKeyPath()
+	if certPath == "" {
+		warnings = append(warnings, "network.tls.cert_path is required when auth is enabled")
+	}
+	if keyPath == "" {
+		warnings = append(warnings, "network.tls.key_path is required when auth is enabled")
+	}
+	if certPath != "" {
+		if _, err := os.Stat(certPath); err != nil {
+			warnings = append(warnings, fmt.Sprintf("network.tls.cert_path not readable: %v", err))
+		}
+	}
+	if keyPath != "" {
+		if _, err := os.Stat(keyPath); err != nil {
+			warnings = append(warnings, fmt.Sprintf("network.tls.key_path not readable: %v", err))
+		}
+	}
+
+	secrets, err := GetAuthSecrets()
+	if err != nil {
+		if strict {
+			return nil, err
+		}
+		warnings = append(warnings, fmt.Sprintf("failed to read secrets.json: %v", err))
+	} else {
+		clientID := ""
+		clientSecret := ""
+		if secrets.GitHub != nil {
+			clientID = strings.TrimSpace(secrets.GitHub.ClientID)
+			clientSecret = strings.TrimSpace(secrets.GitHub.ClientSecret)
+		}
+		if clientID == "" {
+			warnings = append(warnings, "auth.github.client_id is required when auth is enabled")
+		}
+		if clientSecret == "" {
+			warnings = append(warnings, "auth.github.client_secret is required when auth is enabled")
+		}
+	}
+
+	if strict && len(warnings) > 0 {
+		return nil, fmt.Errorf("%w: auth config invalid: %s", ErrInvalidConfig, strings.Join(warnings, "; "))
+	}
+	return warnings, nil
+}
+
+// IsValidPublicBaseURL checks if a public base URL is valid for auth.
+func IsValidPublicBaseURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	if parsed.Scheme == "http" {
+		host := strings.Split(parsed.Host, ":")[0]
+		return host == "localhost"
+	}
+	return false
+}
+
+// offsetToLineCol converts a byte offset to line and column numbers (1-indexed).
+func offsetToLineCol(data []byte, offset int64) (line, col int) {
+	line = 1
+	col = 1
+	for i := int64(0); i < offset && i < int64(len(data)); i++ {
+		if data[i] == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	return line, col
 }

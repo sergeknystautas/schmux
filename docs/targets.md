@@ -69,14 +69,18 @@ Create `~/.schmux/secrets.json` to store variant API keys:
 
 ```json
 {
-  "kimi-thinking": {
-    "ANTHROPIC_AUTH_TOKEN": "sk-..."
-  },
-  "glm-4.7": {
-    "ANTHROPIC_AUTH_TOKEN": "..."
+  "variants": {
+    "kimi-thinking": {
+      "ANTHROPIC_AUTH_TOKEN": "sk-..."
+    },
+    "glm-4.7": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
+    }
   }
 }
 ```
+
+Legacy format (top-level variants map) is still supported and will be migrated on write.
 
 This file is:
 - Created automatically when you first configure a variant

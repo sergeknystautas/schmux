@@ -2360,7 +2360,35 @@ a:hover {
 
 /* Version display in nav header */
 .nav-header__version {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   font-size: 0.7rem;
   color: var(--color-text-faint);
   margin-top: var(--spacing-xs);
+}
+
+.nav-header__user {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-right: var(--spacing-xs);
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.nav-header__avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.nav-header__avatar--placeholder {
+  background: var(--color-surface-elevated);
+}
+
+.nav-header__login {
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
 }

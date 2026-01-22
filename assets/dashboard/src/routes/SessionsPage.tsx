@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { scanWorkspaces } from '../lib/api';
+import { scanWorkspaces, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig } from '../contexts/ConfigContext';
 import WorkspacesList from '../components/WorkspacesList';
@@ -28,7 +28,7 @@ export default function SessionsPage() {
       const result = await scanWorkspaces();
       setScanResult(result);
     } catch (err) {
-      toastError(`Failed to scan workspaces: ${err.message}`);
+      toastError(`Failed to scan workspaces: ${getErrorMessage(err, 'Unknown error')}`);
     } finally {
       setScanning(false);
     }

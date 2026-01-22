@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { disposeSession, disposeWorkspace, openVSCode, refreshOverlay } from '../lib/api'
+import { disposeSession, disposeWorkspace, openVSCode, refreshOverlay, getErrorMessage } from '../lib/api'
 import { copyToClipboard } from '../lib/utils'
 import { useToast } from './ToastProvider'
 import { useModal } from './ModalProvider'
@@ -116,7 +116,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
       success('Session disposed');
       refresh();
     } catch (err) {
-      toastError(`Failed to dispose: ${err.message}`);
+      toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
   };
 
@@ -135,7 +135,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
       refresh();
     } catch (err) {
       // Display detailed error message from backend
-      toastError(err.message || 'Failed to dispose workspace');
+      toastError(getErrorMessage(err, 'Failed to dispose workspace'));
     }
   };
 
@@ -145,7 +145,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
       const result = await openVSCode(workspace.id);
       setVSCodeResult(result);
     } catch (err) {
-      setVSCodeResult({ success: false, message: err.message });
+      setVSCodeResult({ success: false, message: getErrorMessage(err, 'Failed to open VS Code') });
     } finally {
       setOpeningVSCode(null);
     }
@@ -158,7 +158,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
       setOverlayRefreshResult({ success: true, workspaceId: workspace.id });
       refresh();
     } catch (err) {
-      setOverlayRefreshResult({ success: false, message: err.message || 'Failed to refresh overlay' });
+      setOverlayRefreshResult({ success: false, message: getErrorMessage(err, 'Failed to refresh overlay') });
     } finally {
       setRefreshingOverlay(null);
     }

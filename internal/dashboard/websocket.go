@@ -339,22 +339,18 @@ type WSOutputMessage struct {
 	Content string `json:"content"`
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Only allow connections from the dashboard itself (localhost)
-		origin := r.Header.Get("Origin")
-		return origin == "http://localhost:7337"
-	},
-}
-
 // handleTerminalWebSocket streams log file using byte-offset tracking.
 func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
 	if sessionID == "" {
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
+	}
+	if s.config.GetAuthEnabled() {
+		if _, err := s.authenticateRequest(r); err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	// Check if session is already dead before doing anything else
@@ -412,6 +408,20 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	// Release rotation lock before blocking on WebSocket upgrade
 	rotationLock.Unlock()
 
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if s.config.GetAuthEnabled() {
+				return s.isAllowedOrigin(origin)
+			}
+			if origin == "" {
+				return true
+			}
+			return s.isAllowedOrigin(origin)
+		},
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return

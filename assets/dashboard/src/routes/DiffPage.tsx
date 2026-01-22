@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactDiffViewer from 'react-diff-viewer-continued';
-import { getDiff } from '../lib/api';
+import { getDiff, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import WorkspacesList from '../components/WorkspacesList';
 import type { DiffResponse } from '../lib/types';
@@ -25,7 +25,7 @@ export default function DiffPage() {
           setSelectedFileIndex(0);
         }
       } catch (err) {
-        setError(err.message || 'Failed to load diff');
+        setError(getErrorMessage(err, 'Failed to load diff'));
       } finally {
         setLoading(false);
       }

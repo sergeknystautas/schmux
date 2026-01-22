@@ -133,6 +133,23 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "auth":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: schmux auth github")
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "github":
+			cmd := NewAuthGitHubCommand()
+			if err := cmd.Run(os.Args[3:]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown auth provider: %s\n", os.Args[2])
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -162,6 +179,7 @@ func printUsage() {
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
 	fmt.Println()
 	fmt.Println("Other:")
+	fmt.Println("  auth github  Configure GitHub auth")
 	fmt.Println("  version     Show version")
 	fmt.Println("  update      Update schmux to the latest version")
 	fmt.Println("  help        Show this help message")
@@ -172,4 +190,5 @@ func printUsage() {
 	fmt.Println("  schmux list                         # List all sessions")
 	fmt.Println("  schmux attach <session-id>           # Attach to a session")
 	fmt.Println("  schmux refresh-overlay <workspace>   # Refresh overlay files")
+	fmt.Println("  schmux auth github                   # Configure GitHub auth")
 }

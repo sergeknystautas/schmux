@@ -2,7 +2,7 @@
 
 This document defines the daemon HTTP API contract. It is intentionally client-agnostic. If behavior changes, update this doc first and treat any divergence as a breaking change.
 
-Base URL: `http://localhost:7337`
+Base URL: `http://localhost:7337` (or `https://<public_base_url>` when auth is enabled)
 
 Doc-gate policy:
 - Any API-affecting code change must update `docs/api.md`. CI enforces this rule.
@@ -10,7 +10,38 @@ Doc-gate policy:
 General conventions:
 - JSON requests/responses use `Content-Type: application/json`.
 - Many error responses use plain text via `http.Error`; do not assume JSON unless specified.
-- CORS: requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When `network_access` is enabled, any origin is allowed.
+- CORS: when auth is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When `bind_address` is `0.0.0.0`, any origin is allowed.
+- When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
+- When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
+
+## Auth Endpoints
+
+### GET /auth/login
+Redirects to GitHub OAuth.
+
+### GET /auth/callback
+OAuth callback endpoint. Exchanges the code, creates a session, and redirects to `/`.
+
+### POST /auth/logout
+Clears the auth session cookie.
+
+Response:
+```json
+{"status":"ok"}
+```
+
+### GET /auth/me
+Returns the current authenticated user.
+
+Response:
+```json
+{
+  "github_id":123,
+  "login":"octocat",
+  "name":"The Octocat",
+  "avatar_url":"https://..."
+}
+```
 
 ## Endpoints
 
@@ -255,8 +286,19 @@ Response:
     "max_log_size_mb":0,
     "rotated_log_size_mb":0
   },
+  "network":{
+    "bind_address":"127.0.0.1",
+    "port":7337,
+    "public_base_url":"https://schmux.local:7337",
+    "tls":{
+      "cert_path":"/path/to/schmux.local.pem",
+      "key_path":"/path/to/schmux.local-key.pem"
+    }
+  },
   "access_control":{
-    "network_access":false
+    "enabled":false,
+    "provider":"github",
+    "session_ttl_minutes":1440
   },
   "needs_restart":false
 }
@@ -288,27 +330,70 @@ Request:
     "max_log_size_mb":0,
     "rotated_log_size_mb":0
   },
+  "network":{
+    "bind_address":"127.0.0.1",
+    "port":7337,
+    "public_base_url":"https://schmux.local:7337",
+    "tls":{
+      "cert_path":"/path/to/schmux.local.pem",
+      "key_path":"/path/to/schmux.local-key.pem"
+    }
+  },
   "access_control":{
-    "network_access":false
+    "enabled":false,
+    "provider":"github",
+    "session_ttl_minutes":1440
   }
 }
 ```
 
 Response:
-- 200: `{"status":"ok","message":"Config saved and reloaded. Changes are now in effect."}`
+- 200: `{"status":"ok","message":"Config saved and reloaded. Changes are now in effect.","warnings":["optional warnings"]}`
 - 200 (warning when workspace_path changes with existing sessions/workspaces):
 ```json
 {
   "warning":"...",
   "session_count":0,
   "workspace_count":0,
-  "requires_restart":true
+  "requires_restart":true,
+  "warnings":["optional warnings"]
 }
 ```
 
 Errors:
 - 400 for validation errors (plain text)
 - 500 for save/reload errors (plain text)
+
+### GET /api/auth/secrets
+Returns whether GitHub auth secrets are configured (values are not returned).
+
+Response:
+```json
+{
+  "client_id_set":true,
+  "client_secret_set":true
+}
+```
+
+### POST /api/auth/secrets
+Saves GitHub auth secrets.
+
+Request:
+```json
+{
+  "client_id":"...",
+  "client_secret":"..."
+}
+```
+
+Response:
+```json
+{"status":"ok"}
+```
+
+Errors:
+- 400 for missing secrets (plain text)
+- 500 for save errors (plain text)
 
 ### GET /api/detect-tools
 Returns detected run targets.

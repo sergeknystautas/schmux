@@ -5,7 +5,122 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/config"
 )
+
+func TestIsAllowedOrigin(t *testing.T) {
+	t.Run("empty origin returns false", func(t *testing.T) {
+		cfg := &config.Config{}
+		s := &Server{config: cfg}
+
+		if s.isAllowedOrigin("") {
+			t.Error("empty origin should return false")
+		}
+	})
+
+	t.Run("localhost allowed with http when auth disabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("http://localhost:7337") {
+			t.Error("http://localhost:7337 should be allowed when auth disabled")
+		}
+		if !s.isAllowedOrigin("http://127.0.0.1:7337") {
+			t.Error("http://127.0.0.1:7337 should be allowed when auth disabled")
+		}
+	})
+
+	t.Run("localhost allowed with https when auth enabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Network:       &config.NetworkConfig{Port: 7337},
+			AccessControl: &config.AccessControlConfig{Enabled: true},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("https://localhost:7337") {
+			t.Error("https://localhost:7337 should be allowed when auth enabled")
+		}
+		if !s.isAllowedOrigin("https://127.0.0.1:7337") {
+			t.Error("https://127.0.0.1:7337 should be allowed when auth enabled")
+		}
+		// http should NOT be allowed when auth enabled
+		if s.isAllowedOrigin("http://localhost:7337") {
+			t.Error("http://localhost:7337 should NOT be allowed when auth enabled")
+		}
+	})
+
+	t.Run("configured public_base_url allowed", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:          7337,
+				PublicBaseURL: "https://schmux.local:7337",
+			},
+			AccessControl: &config.AccessControlConfig{Enabled: true},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("https://schmux.local:7337") {
+			t.Error("configured public_base_url should be allowed")
+		}
+	})
+
+	t.Run("http version of public_base_url allowed when auth disabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:          7337,
+				PublicBaseURL: "https://schmux.local:7337",
+			},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("http://schmux.local:7337") {
+			t.Error("http version of public_base_url should be allowed when auth disabled")
+		}
+	})
+
+	t.Run("random origin rejected when network_access disabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{Port: 7337},
+		}
+		s := &Server{config: cfg}
+
+		if s.isAllowedOrigin("http://evil.com") {
+			t.Error("random origin should be rejected when network_access disabled")
+		}
+		if s.isAllowedOrigin("http://192.168.1.100:7337") {
+			t.Error("LAN IP should be rejected when network_access disabled")
+		}
+	})
+
+	t.Run("any origin allowed when network_access enabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Network: &config.NetworkConfig{
+				Port:        7337,
+				BindAddress: "0.0.0.0",
+			},
+		}
+		s := &Server{config: cfg}
+
+		if !s.isAllowedOrigin("http://192.168.1.100:7337") {
+			t.Error("LAN IP should be allowed when network_access enabled")
+		}
+		if !s.isAllowedOrigin("http://any-hostname:8080") {
+			t.Error("any origin should be allowed when network_access enabled")
+		}
+	})
+
+	t.Run("default port used when not configured", func(t *testing.T) {
+		cfg := &config.Config{}
+		s := &Server{config: cfg}
+
+		// Default port is 7337
+		if !s.isAllowedOrigin("http://localhost:7337") {
+			t.Error("localhost with default port should be allowed")
+		}
+	})
+}
 
 func TestGetRotationLock(t *testing.T) {
 	t.Run("returns same mutex for same sessionID", func(t *testing.T) {

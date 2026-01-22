@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getConfig } from '../lib/api';
+import { getConfig, getErrorMessage } from '../lib/api';
 import type { ConfigResponse } from '../lib/types';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 
@@ -42,8 +42,19 @@ const DEFAULT_CONFIG: ConfigResponse = {
     max_log_size_mb: 50,
     rotated_log_size_mb: 1,
   },
+  network: {
+    bind_address: '127.0.0.1',
+    port: 7337,
+    public_base_url: '',
+    tls: {
+      cert_path: '',
+      key_path: '',
+    },
+  },
   access_control: {
-    network_access: false,
+    enabled: false,
+    provider: 'github',
+    session_ttl_minutes: 1440,
   },
   needs_restart: false,
 };
@@ -65,7 +76,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       setError(null);
     } catch (err) {
       console.error('Failed to load config:', err);
-      setError(err.message);
+      setError(getErrorMessage(err, 'Failed to load config'));
     } finally {
       setLoading(false);
     }

@@ -20,6 +20,7 @@ terminal
 nudgenik
 sessions
 xterm
+network
 access_control
 ```
 
@@ -40,7 +41,7 @@ access_control
 | `internal.timeouts.tmux_operation_seconds` | `xterm.operation_timeout_ms` | **seconds → ms** |
 | `internal.max_log_size_mb` | `xterm.max_log_size_mb` | Renamed block |
 | `internal.rotated_log_size_mb` | `xterm.rotated_log_size_mb` | Renamed block |
-| `internal.network_access` | `access_control.network_access` | Renamed block |
+| `internal.network_access` | `network.bind_address` | Now uses "127.0.0.1" or "0.0.0.0" |
 
 ## Unit Conversion (Seconds → Milliseconds)
 
@@ -129,8 +130,9 @@ operation_timeout_ms: 10000
     "max_log_size_mb": 50,
     "rotated_log_size_mb": 1
   },
-  "access_control": {
-    "network_access": false
+  "network": {
+    "bind_address": "127.0.0.1",
+    "port": 7337
   }
 }
 ```

@@ -60,9 +60,25 @@ type Xterm struct {
 	RotatedLogSizeMB    int `json:"rotated_log_size_mb,omitempty"`
 }
 
-// AccessControl controls external access.
+// Network controls server binding and TLS.
+type Network struct {
+	BindAddress   string `json:"bind_address"`
+	Port          int    `json:"port"`
+	PublicBaseURL string `json:"public_base_url"`
+	TLS           *TLS   `json:"tls,omitempty"`
+}
+
+// TLS holds TLS cert paths.
+type TLS struct {
+	CertPath string `json:"cert_path"`
+	KeyPath  string `json:"key_path"`
+}
+
+// AccessControl controls authentication.
 type AccessControl struct {
-	NetworkAccess bool `json:"network_access"`
+	Enabled           bool   `json:"enabled"`
+	Provider          string `json:"provider"`
+	SessionTTLMinutes int    `json:"session_ttl_minutes"`
 }
 
 // ConfigResponse represents the API response for GET /api/config.
@@ -76,6 +92,7 @@ type ConfigResponse struct {
 	Nudgenik      Nudgenik      `json:"nudgenik"`
 	Sessions      Sessions      `json:"sessions"`
 	Xterm         Xterm         `json:"xterm"`
+	Network       Network       `json:"network"`
 	AccessControl AccessControl `json:"access_control"`
 	NeedsRestart  bool          `json:"needs_restart"`
 }
@@ -112,9 +129,25 @@ type XtermUpdate struct {
 	RotatedLogSizeMB    *int `json:"rotated_log_size_mb,omitempty"`
 }
 
+// NetworkUpdate represents partial network updates.
+type NetworkUpdate struct {
+	BindAddress   *string    `json:"bind_address,omitempty"`
+	Port          *int       `json:"port,omitempty"`
+	PublicBaseURL *string    `json:"public_base_url,omitempty"`
+	TLS           *TLSUpdate `json:"tls,omitempty"`
+}
+
+// TLSUpdate represents partial TLS updates.
+type TLSUpdate struct {
+	CertPath *string `json:"cert_path,omitempty"`
+	KeyPath  *string `json:"key_path,omitempty"`
+}
+
 // AccessControlUpdate represents partial access control updates.
 type AccessControlUpdate struct {
-	NetworkAccess *bool `json:"network_access,omitempty"`
+	Enabled           *bool   `json:"enabled,omitempty"`
+	Provider          *string `json:"provider,omitempty"`
+	SessionTTLMinutes *int    `json:"session_ttl_minutes,omitempty"`
 }
 
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
@@ -128,5 +161,6 @@ type ConfigUpdateRequest struct {
 	Terminal      *TerminalUpdate      `json:"terminal,omitempty"`
 	Sessions      *SessionsUpdate      `json:"sessions,omitempty"`
 	Xterm         *XtermUpdate         `json:"xterm,omitempty"`
+	Network       *NetworkUpdate       `json:"network,omitempty"`
 	AccessControl *AccessControlUpdate `json:"access_control,omitempty"`
 }

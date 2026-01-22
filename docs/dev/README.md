@@ -252,13 +252,72 @@ schmux/
 
 ## Web Dashboard
 
-- **URL:** http://localhost:7337
-- **Security:** Localhost only, no authentication (as per v0.5 spec)
+- **URL:** http://localhost:7337 (or `https://<public_base_url>` when auth is enabled)
+- **Security:** Localhost only by default. Optional GitHub auth requires HTTPS.
 - **Features:**
   - Spawn sessions across multiple agents
   - View real-time terminal output
   - Copy attach commands
   - Dispose completed sessions
+
+### HTTPS & GitHub Auth
+
+When auth is enabled, schmux serves HTTPS directly using the configured certificate paths.
+
+**Recommended setup** - Use the interactive wizard:
+```bash
+./schmux auth github
+```
+
+This walks you through:
+1. Choosing a hostname (e.g., `schmux.local`)
+2. Auto-generating TLS certificates via mkcert (or providing your own)
+3. Creating a GitHub OAuth App with the exact values to copy
+4. Configuring network access and session TTL
+
+Certificates are stored in `~/.schmux/tls/` and config is written to `~/.schmux/config.json` and `~/.schmux/secrets.json`.
+
+**Manual setup** (if needed):
+```bash
+# Install mkcert and local CA once
+brew install mkcert
+mkcert -install
+
+# Create a local cert for schmux.local
+mkcert -cert-file ~/.schmux/tls/schmux.local.pem -key-file ~/.schmux/tls/schmux.local-key.pem schmux.local
+```
+
+Then configure in `config.json`:
+```json
+{
+  "network": {
+    "bind_address": "127.0.0.1",
+    "port": 7337,
+    "public_base_url": "https://schmux.local:7337",
+    "tls": {
+      "cert_path": "~/.schmux/tls/schmux.local.pem",
+      "key_path": "~/.schmux/tls/schmux.local-key.pem"
+    }
+  },
+  "access_control": {
+    "enabled": true,
+    "provider": "github",
+    "session_ttl_minutes": 1440
+  }
+}
+```
+
+And GitHub credentials in `secrets.json`:
+```json
+{
+  "auth": {
+    "github": {
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret"
+    }
+  }
+}
+```
 
 ## Troubleshooting
 

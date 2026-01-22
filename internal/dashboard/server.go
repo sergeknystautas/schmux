@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,6 @@ import (
 )
 
 const (
-	port         = 7337
 	readTimeout  = 15 * time.Second
 	writeTimeout = 15 * time.Second
 )
@@ -50,6 +50,8 @@ type Server struct {
 	versionInfoMu    sync.RWMutex
 	updateInProgress bool
 	updateMu         sync.Mutex
+
+	authSessionKey []byte
 }
 
 // versionInfo holds version information.
@@ -90,42 +92,59 @@ func (s *Server) LogDashboardAssetPath() {
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
+	if s.config.GetAuthEnabled() {
+		secret, err := config.EnsureSessionSecret()
+		if err != nil {
+			return fmt.Errorf("failed to initialize auth session secret: %w", err)
+		}
+		key, err := decodeSessionSecret(secret)
+		if err != nil {
+			return fmt.Errorf("failed to parse auth session secret: %w", err)
+		}
+		s.authSessionKey = key
+	}
+
 	mux := http.NewServeMux()
 
 	// Static assets - all UI routes go through handleApp
 	mux.HandleFunc("/", s.handleApp)
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets")))))
+	mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
+
+	// Auth routes
+	mux.HandleFunc("/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
+	mux.HandleFunc("/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("/auth/me", s.withCORS(s.withAuth(s.handleAuthMe)))
 
 	// API routes
-	mux.HandleFunc("/api/healthz", s.withCORS(s.handleHealthz))
-	mux.HandleFunc("/api/update", s.withCORS(s.handleUpdate))
-	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.handleHasNudgenik))
-	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.handleAskNudgenik))
-	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.handleWorkspacesScan))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.handleRefreshOverlay))
-	mux.HandleFunc("/api/sessions", s.withCORS(s.handleSessions))
-	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.handleUpdateNickname))
-	mux.HandleFunc("/api/spawn", s.withCORS(s.handleSpawnPost))
-	mux.HandleFunc("/api/dispose/", s.withCORS(s.handleDispose))
-	mux.HandleFunc("/api/dispose-workspace/", s.withCORS(s.handleDisposeWorkspace))
-	mux.HandleFunc("/api/config", s.withCORS(s.handleConfig))
-	mux.HandleFunc("/api/detect-tools", s.withCORS(s.handleDetectTools))
-	mux.HandleFunc("/api/variants", s.withCORS(s.handleVariants))
-	mux.HandleFunc("/api/variants/", s.withCORS(s.handleVariant))
-	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.handleBuiltinQuickLaunch))
-	mux.HandleFunc("/api/diff/", s.withCORS(s.handleDiff))
-	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.handleOpenVSCode))
-	mux.HandleFunc("/api/overlays", s.withCORS(s.handleOverlays))
+	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
+	mux.HandleFunc("/api/update", s.withCORS(s.withAuth(s.handleUpdate)))
+	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuth(s.handleAuthSecrets)))
+	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
+	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
+	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuth(s.handleWorkspacesScan)))
+	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleRefreshOverlay)))
+	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
+	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
+	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
+	mux.HandleFunc("/api/dispose/", s.withCORS(s.withAuth(s.handleDispose)))
+	mux.HandleFunc("/api/dispose-workspace/", s.withCORS(s.withAuth(s.handleDisposeWorkspace)))
+	mux.HandleFunc("/api/config", s.withCORS(s.withAuth(s.handleConfig)))
+	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
+	mux.HandleFunc("/api/variants", s.withCORS(s.withAuth(s.handleVariants)))
+	mux.HandleFunc("/api/variants/", s.withCORS(s.withAuth(s.handleVariant)))
+	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
+	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
+	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
+	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)
 
-	// Bind address based on network_access config
-	bindAddr := "127.0.0.1"
-	if s.config.GetNetworkAccess() {
-		bindAddr = "0.0.0.0"
-	}
+	// Bind address from config
+	bindAddr := s.config.GetBindAddress()
 
+	port := s.config.GetPort()
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", bindAddr, port),
 		Handler:      mux,
@@ -133,10 +152,23 @@ func (s *Server) Start() error {
 		WriteTimeout: writeTimeout,
 	}
 
+	scheme := "http"
+	if s.config.GetAuthEnabled() {
+		scheme = "https"
+	}
 	if s.config.GetNetworkAccess() {
-		fmt.Printf("Dashboard server listening on http://0.0.0.0:%d (accessible from local network)\n", port)
+		fmt.Printf("Dashboard server listening on %s://0.0.0.0:%d (accessible from local network)\n", scheme, port)
 	} else {
-		fmt.Printf("Dashboard server listening on http://localhost:%d (localhost only)\n", port)
+		fmt.Printf("Dashboard server listening on %s://localhost:%d (localhost only)\n", scheme, port)
+	}
+
+	if s.config.GetAuthEnabled() {
+		certPath := s.config.GetTLSCertPath()
+		keyPath := s.config.GetTLSKeyPath()
+		if err := s.httpServer.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
 	}
 
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -158,32 +190,29 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-// withCORS wraps a handler with CORS headers.
+// withCORS wraps a handler with CORS headers and origin validation.
+// Returns 403 Forbidden if the request origin is not allowed.
+// Sets Access-Control-Allow-Credentials when auth is enabled.
 func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// When network access is enabled, allow requests from LAN IPs
-		// Otherwise only allow localhost
-		allowedOrigin := ""
-		if origin == "http://localhost:7337" || origin == "http://127.0.0.1:7337" {
-			allowedOrigin = origin
-		} else if s.config.GetNetworkAccess() && origin != "" {
-			// Allow any origin when network access is enabled
-			// (could be more restrictive by checking for private IP ranges)
-			allowedOrigin = origin
-		}
-
-		if origin != "" && allowedOrigin == "" {
+		// Validate origin
+		if origin != "" && !s.isAllowedOrigin(origin) {
+			fmt.Printf("[cors] rejected origin: %s for %s %s\n", origin, r.Method, r.URL.Path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
-		if allowedOrigin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		// Set CORS headers
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			if s.config.GetAuthEnabled() {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -192,6 +221,58 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 		h(w, r)
 	}
+}
+
+// isAllowedOrigin checks if a request origin should be permitted.
+// Allowed origins:
+//   - The configured public_base_url (https when auth enabled, http when disabled)
+//   - localhost or 127.0.0.1 on the configured port
+//   - Any origin if network_access is enabled
+func (s *Server) isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+
+	port := s.config.GetPort()
+	authEnabled := s.config.GetAuthEnabled()
+
+	// Allow configured public_base_url
+	if base := s.config.GetPublicBaseURL(); base != "" {
+		// Allow the exact configured origin
+		if configuredOrigin, err := normalizeOrigin(base); err == nil && origin == configuredOrigin {
+			return true
+		}
+		// When auth is disabled, also allow http version of the hostname
+		if !authEnabled {
+			if parsed, err := url.Parse(base); err == nil {
+				if origin == "http://"+parsed.Host {
+					return true
+				}
+			}
+		}
+	}
+
+	// Allow localhost
+	scheme := "http"
+	if authEnabled {
+		scheme = "https"
+	}
+	if origin == fmt.Sprintf("%s://localhost:%d", scheme, port) ||
+		origin == fmt.Sprintf("%s://127.0.0.1:%d", scheme, port) {
+		return true
+	}
+
+	// Allow any origin if network access is enabled
+	return s.config.GetNetworkAccess()
+}
+
+// normalizeOrigin extracts scheme://host from a URL string.
+func normalizeOrigin(value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid origin")
+	}
+	return parsed.Scheme + "://" + parsed.Host, nil
 }
 
 // getDashboardDistPath returns the path to the built dashboard assets.

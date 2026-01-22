@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -32,6 +33,9 @@ var cookbooksFS embed.FS
 func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
 		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAuthOrRedirect(w, r) {
 		return
 	}
 
@@ -640,8 +644,16 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			MaxLogSizeMB:        int(s.config.GetXtermMaxLogSizeMB()),
 			RotatedLogSizeMB:    int(s.config.GetXtermRotatedLogSizeMB()),
 		},
+		Network: contracts.Network{
+			BindAddress:   s.config.GetBindAddress(),
+			Port:          s.config.GetPort(),
+			PublicBaseURL: s.config.GetPublicBaseURL(),
+			TLS:           buildTLS(s.config),
+		},
 		AccessControl: contracts.AccessControl{
-			NetworkAccess: s.config.GetNetworkAccess(),
+			Enabled:           s.config.GetAuthEnabled(),
+			Provider:          s.config.GetAuthProvider(),
+			SessionTTLMinutes: s.config.GetAuthSessionTTLMinutes(),
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
@@ -667,6 +679,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := s.config
+	oldNetwork := cloneNetwork(cfg.Network)
+	oldAccessControl := cloneAccessControl(cfg.AccessControl)
 
 	// Track if repos were updated for overlay dir creation
 	reposUpdated := req.Repos != nil
@@ -828,22 +842,57 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.AccessControl != nil && req.AccessControl.NetworkAccess != nil {
+	if req.Network != nil {
+		if cfg.Network == nil {
+			cfg.Network = &config.NetworkConfig{}
+		}
+		if req.Network.BindAddress != nil {
+			cfg.Network.BindAddress = *req.Network.BindAddress
+		}
+		if req.Network.Port != nil && *req.Network.Port > 0 {
+			cfg.Network.Port = *req.Network.Port
+		}
+		if req.Network.PublicBaseURL != nil {
+			cfg.Network.PublicBaseURL = *req.Network.PublicBaseURL
+		}
+		if req.Network.TLS != nil {
+			if cfg.Network.TLS == nil {
+				cfg.Network.TLS = &config.TLSConfig{}
+			}
+			if req.Network.TLS.CertPath != nil {
+				cfg.Network.TLS.CertPath = *req.Network.TLS.CertPath
+			}
+			if req.Network.TLS.KeyPath != nil {
+				cfg.Network.TLS.KeyPath = *req.Network.TLS.KeyPath
+			}
+		}
+	}
+
+	if req.AccessControl != nil {
 		if cfg.AccessControl == nil {
 			cfg.AccessControl = &config.AccessControlConfig{}
 		}
-		// Check if network access is changing
-		if *req.AccessControl.NetworkAccess != cfg.AccessControl.NetworkAccess {
-			s.state.SetNeedsRestart(true)
-			s.state.Save()
+		if req.AccessControl.Enabled != nil {
+			cfg.AccessControl.Enabled = *req.AccessControl.Enabled
 		}
-		cfg.AccessControl.NetworkAccess = *req.AccessControl.NetworkAccess
+		if req.AccessControl.Provider != nil {
+			cfg.AccessControl.Provider = *req.AccessControl.Provider
+		}
+		if req.AccessControl.SessionTTLMinutes != nil {
+			cfg.AccessControl.SessionTTLMinutes = *req.AccessControl.SessionTTLMinutes
+		}
 	}
 
-	if err := cfg.Validate(); err != nil {
+	warnings, err := cfg.ValidateForSave()
+	if err != nil {
 		log.Printf("[config] validation error: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
+	}
+
+	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) {
+		s.state.SetNeedsRestart(true)
+		s.state.Save()
 	}
 
 	// Save config
@@ -864,27 +913,80 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Return warning if path changed with existing sessions/workspaces
 	if pathChanged {
 		type WarningResponse struct {
-			Warning         string `json:"warning"`
-			SessionCount    int    `json:"session_count"`
-			WorkspaceCount  int    `json:"workspace_count"`
-			RequiresRestart bool   `json:"requires_restart"`
+			Warning         string   `json:"warning"`
+			SessionCount    int      `json:"session_count"`
+			WorkspaceCount  int      `json:"workspace_count"`
+			RequiresRestart bool     `json:"requires_restart"`
+			Warnings        []string `json:"warnings,omitempty"`
 		}
 		warning := WarningResponse{
 			Warning:         fmt.Sprintf("Changing workspace_path affects only NEW workspaces. %d existing sessions and %d workspaces will keep their current paths.", sessionCount, workspaceCount),
 			SessionCount:    sessionCount,
 			WorkspaceCount:  workspaceCount,
 			RequiresRestart: true,
+			Warnings:        warnings,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(warning)
 		return
 	}
 
+	type ConfigSaveResponse struct {
+		Status   string   `json:"status"`
+		Message  string   `json:"message"`
+		Warnings []string `json:"warnings,omitempty"`
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
-		"message": "Config saved and reloaded. Changes are now in effect.",
+	json.NewEncoder(w).Encode(ConfigSaveResponse{
+		Status:   "ok",
+		Message:  "Config saved and reloaded. Changes are now in effect.",
+		Warnings: warnings,
 	})
+}
+
+// handleAuthSecrets gets or sets GitHub auth secrets.
+func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		secrets, err := config.GetAuthSecrets()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		clientIDSet := false
+		clientSecretSet := false
+		if secrets.GitHub != nil {
+			clientIDSet = strings.TrimSpace(secrets.GitHub.ClientID) != ""
+			clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{
+			"client_id_set":     clientIDSet,
+			"client_secret_set": clientSecretSet,
+		})
+	case http.MethodPost:
+		type SecretsRequest struct {
+			ClientID     string `json:"client_id"`
+			ClientSecret string `json:"client_secret"`
+		}
+		var req SecretsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
+			http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
+			return
+		}
+		if err := config.SaveGitHubAuthSecrets(req.ClientID, req.ClientSecret); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // handleVariants lists available variants.
@@ -940,6 +1042,38 @@ func detectedToolsFromRunTargets(targets []config.RunTarget) []detect.Tool {
 		})
 	}
 	return tools
+}
+
+func buildTLS(cfg *config.Config) *contracts.TLS {
+	certPath := cfg.GetTLSCertPath()
+	keyPath := cfg.GetTLSKeyPath()
+	if certPath == "" && keyPath == "" {
+		return nil
+	}
+	return &contracts.TLS{
+		CertPath: certPath,
+		KeyPath:  keyPath,
+	}
+}
+
+func cloneNetwork(src *config.NetworkConfig) *config.NetworkConfig {
+	if src == nil {
+		return nil
+	}
+	cpy := *src
+	if src.TLS != nil {
+		tlsCopy := *src.TLS
+		cpy.TLS = &tlsCopy
+	}
+	return &cpy
+}
+
+func cloneAccessControl(src *config.AccessControlConfig) *config.AccessControlConfig {
+	if src == nil {
+		return nil
+	}
+	cpy := *src
+	return &cpy
 }
 
 // handleVariant handles variant secret/configured requests.

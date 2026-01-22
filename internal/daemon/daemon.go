@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -226,6 +228,11 @@ func Status() (running bool, url string, startedAt string, err error) {
 	}
 
 	url = fmt.Sprintf("http://localhost:%d", dashboardPort)
+	if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
+		if cfg.GetAuthEnabled() && cfg.GetPublicBaseURL() != "" {
+			url = cfg.GetPublicBaseURL()
+		}
+	}
 	if startedData, err := os.ReadFile(startedFile); err == nil {
 		startedAt = strings.TrimSpace(string(startedData))
 	}
@@ -267,6 +274,11 @@ func Run(background bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if cfg.GetAuthEnabled() {
+		if _, err := config.EnsureSessionSecret(); err != nil {
+			return fmt.Errorf("failed to initialize auth session secret: %w", err)
+		}
+	}
 
 	// Compute state path
 	statePath := filepath.Join(schmuxDir, "state.json")
@@ -275,6 +287,11 @@ func Run(background bool) error {
 	st, err := state.Load(statePath)
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	// Verify we can access tmux sessions for existing sessions
+	if err := validateSessionAccess(st); err != nil {
+		return err
 	}
 
 	// Clear needs_restart flag on daemon start (config changes now taking effect)
@@ -622,4 +639,87 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 	}
 
 	return string(payload)
+}
+
+// validateSessionAccess checks for user mismatch between daemon and tmux server.
+// Returns an error if sessions exist and tmux is running under a different user.
+func validateSessionAccess(st *state.State) error {
+	sessions := st.GetSessions()
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	currentUID := os.Getuid()
+
+	// Check if we have a tmux server running (socket exists)
+	ourSocket := fmt.Sprintf("/tmp/tmux-%d/default", currentUID)
+	if _, err := os.Stat(ourSocket); err == nil {
+		// We have a tmux server, we can access sessions
+		return nil
+	}
+
+	// We don't have a tmux server - check if another user does
+	otherOwners := findOtherTmuxServerOwners(currentUID)
+	if len(otherOwners) == 0 {
+		// No tmux servers at all - sessions are stale but that's not a user mismatch
+		return nil
+	}
+
+	// There's a tmux server owned by someone else - that's the problem
+	currentUser := "unknown"
+	if u, err := user.Current(); err == nil {
+		currentUser = u.Username
+	}
+
+	var msg strings.Builder
+	msg.WriteString("Tmux server running under different user\n")
+	msg.WriteString(fmt.Sprintf("  schmux daemon running as: %s (uid %d)\n", currentUser, currentUID))
+	msg.WriteString(fmt.Sprintf("  Tmux server owned by: %s\n", strings.Join(otherOwners, ", ")))
+	msg.WriteString("Run the daemon as the same user that owns the tmux server.")
+
+	return errors.New(msg.String())
+}
+
+// findOtherTmuxServerOwners finds tmux servers owned by users other than currentUID.
+// Only returns users whose tmux server socket actually exists.
+func findOtherTmuxServerOwners(currentUID int) []string {
+	owners := []string{}
+	entries, err := filepath.Glob("/tmp/tmux-*")
+	if err != nil {
+		return owners
+	}
+
+	for _, entry := range entries {
+		// Extract UID from directory name (e.g., /tmp/tmux-501)
+		base := filepath.Base(entry)
+		if !strings.HasPrefix(base, "tmux-") {
+			continue
+		}
+		uidStr := strings.TrimPrefix(base, "tmux-")
+		uid, err := strconv.Atoi(uidStr)
+		if err != nil {
+			continue
+		}
+
+		// Skip our own UID
+		if uid == currentUID {
+			continue
+		}
+
+		// Check if the socket actually exists (server is running)
+		socketPath := filepath.Join(entry, "default")
+		if _, err := os.Stat(socketPath); err != nil {
+			continue
+		}
+
+		// Look up username for this UID
+		u, err := user.LookupId(strconv.Itoa(uid))
+		if err != nil {
+			owners = append(owners, fmt.Sprintf("uid %d", uid))
+		} else {
+			owners = append(owners, fmt.Sprintf("%s (uid %d)", u.Username, uid))
+		}
+	}
+
+	return owners
 }

@@ -100,6 +100,15 @@ Configure repos, run targets, variants, and workspace path.
 - Run target configuration
 - Variant secrets
 - Workspace overlay status
+- Access control (network access + optional GitHub auth)
+
+### Authentication (Optional)
+When enabled, the dashboard requires GitHub login and runs over HTTPS. Configure this under **Settings → Advanced → Access Control** or via `schmux auth github`.
+
+Notes:
+- `public_base_url` is the canonical URL used for OAuth callbacks and derived CORS origins.
+- TLS cert/key paths must be configured for the daemon to start with auth enabled.
+ - Callback URL must be `https://<public_base_url>/auth/callback`.
 
 ---
 

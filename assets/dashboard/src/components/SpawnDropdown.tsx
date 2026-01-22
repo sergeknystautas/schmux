@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { spawnSessions } from '../lib/api'
+import { spawnSessions, getErrorMessage } from '../lib/api'
 import { useToast } from './ToastProvider'
 import { useSessions } from '../contexts/SessionsContext'
 import type { QuickLaunchPreset, WorkspaceResponse } from '../lib/types';
@@ -105,7 +105,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
         navigate(`/sessions/${result.session_id}`);
       }
     } catch (err) {
-      toastError(`Failed to spawn: ${err.message}`);
+      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
     } finally {
       setSpawning(false);
     }
