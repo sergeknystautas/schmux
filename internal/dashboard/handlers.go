@@ -1342,14 +1342,18 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	result, err := nudgenik.AskForSession(ctx, s.config, sess)
 	if err != nil {
 		switch {
+		case errors.Is(err, nudgenik.ErrDisabled):
+			log.Printf("[ask-nudgenik] nudgenik is disabled")
+			http.Error(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrNoResponse):
 			log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
 			http.Error(w, "No response found in session output", http.StatusBadRequest)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
 			log.Printf("[ask-nudgenik] target not found in config")
+			http.Error(w, "Nudgenik target not found", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
 			log.Printf("[ask-nudgenik] target missing required secrets")
-			http.Error(w, "Claude agent not found. Please run agent detection first.", http.StatusServiceUnavailable)
+			http.Error(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
 		default:
 			log.Printf("[ask-nudgenik] failed to ask for session %s: %v", sessionID, err)
 			http.Error(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
@@ -1362,16 +1366,16 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHasNudgenik handles GET requests to check if nudgenik is available globally.
-// SPIKE: Always returns true - we use CLI tools directly, no session needed.
+// Returns available: true only when a nudgenik target is configured.
 func (s *Server) handleHasNudgenik(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// SPIKE: Always available - we call CLI tools directly, no session needed
+	available := nudgenik.IsEnabled(s.config)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"available": true})
+	json.NewEncoder(w).Encode(map[string]bool{"available": available})
 }
 
 // handleOverlays returns overlay information for all repos.

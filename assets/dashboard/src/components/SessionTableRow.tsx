@@ -55,13 +55,14 @@ function SessionTableRow({ sess, onCopyAttach, onDispose, currentSessionId }: Se
 
   const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
   const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
+  const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
-  // Determine nudge preview content
-  let nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+  // Determine nudge preview content (only when nudgenik is enabled)
+  let nudgePreview = nudgenikEnabled && nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
   let nudgePreviewElement = null;
 
-  // If no nudge but this is an agentic session, show "Working..."
-  if (!nudgePreview && isPromptable && sess.running) {
+  // If no nudge but this is an agentic session and nudgenik is enabled, show "Working..."
+  if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
     nudgePreviewElement = (
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
         <WorkingSpinner />

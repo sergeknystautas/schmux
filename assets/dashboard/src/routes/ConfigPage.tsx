@@ -5,6 +5,7 @@ import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import SetupCompleteModal from '../components/SetupCompleteModal';
+import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
   ConfigResponse,
@@ -437,6 +438,8 @@ export default function ConfigPage() {
 
       const result = await updateConfig(updateRequest);
       reloadConfig();
+      // Notify other tabs that config changed
+      localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
 
       // Reload config to get updated needs_restart flag from server
       const reloaded = await getConfig();
@@ -1341,7 +1344,7 @@ export default function ConfigPage() {
                       value={nudgenikTarget}
                       onChange={(e) => setNudgenikTarget(e.target.value)}
                     >
-                      <option value="">Auto (detected claude)</option>
+                      <option value="">Disabled</option>
                       <optgroup label="Detected Tools">
                         {detectedTargets.map((target) => (
                           <option key={target.name} value={target.name}>{target.name}</option>
@@ -1359,7 +1362,7 @@ export default function ConfigPage() {
                       </optgroup>
                     </select>
                     <p className="form-group__hint">
-                      Used when schmuX asks NudgeNik for session feedback. Must be promptable.
+                      Select a promptable target for NudgeNik session feedback, or leave disabled.
                     </p>
                     {nudgenikTargetMissing && (
                       <p className="form-group__error">Selected target is not available or not promptable.</p>

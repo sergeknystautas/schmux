@@ -128,13 +128,6 @@ export interface OpenVSCodeResponse {
   message: string;
 }
 
-export interface NudgenikResult {
-  state: string;
-  confidence: string;
-  summary: string;
-  evidence?: string[];
-}
-
 export interface ScanWorkspace {
   id: string;
   repo: string;
