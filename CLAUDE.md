@@ -21,12 +21,28 @@ go test ./...
 # Run tests with coverage
 go test -cover ./...
 
+# Build E2E Docker image
+docker build -f Dockerfile.e2e -t schmux-e2e .
+
+# Run E2E tests
+docker run --rm schmux-e2e
+
 # Daemon management (requires config at ~/.schmux/config.json)
 ./schmux start      # Start daemon in background
 ./schmux stop       # Stop daemon
 ./schmux status     # Show status + dashboard URL
 ./schmux daemon-run # Run daemon in foreground (debug)
 ```
+
+## Pre-Commit Requirements
+
+Before committing changes, you MUST run:
+
+1. **Run unit tests**: `go test ./...`
+2. **Run E2E tests**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
+3. **Format code**: `go fmt ./...`
+
+This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
 ## Code Architecture
 
