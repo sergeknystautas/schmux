@@ -35,7 +35,17 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 
 - Framework: standard Go `testing` package (`*_test.go`, `TestXxx` naming).
 - Prefer table-driven tests for parsing/state transitions.
-- When changing daemon/dashboard behavior, add/adjust tests in the nearest `internal/<pkg>/` package and run `go test ./...`.
+- When changing daemon/dashboard behavior, add/adjust tests in the nearest `internal/<pkg>/` package.
+
+## Pre-Commit Requirements
+
+Before committing changes, you MUST run:
+
+1. **Run unit tests**: `go test ./...`
+2. **Run E2E tests**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
+3. **Format code**: `go fmt ./...`
+
+This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
 ## Commit & Pull Request Guidelines
 

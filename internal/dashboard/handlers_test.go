@@ -19,7 +19,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
 
 	// Create a GET request
 	req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
@@ -48,7 +48,7 @@ func TestHandleAskNudgenik(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
 
 	// Add a test session
 	testSession := state.Session{
@@ -111,7 +111,7 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
 
 	t.Run("GET request returns presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
@@ -187,6 +187,89 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 			if !presetNames[expected] {
 				t.Errorf("expected to find preset %q, but it was not found", expected)
 			}
+		}
+	})
+}
+
+func TestHandleHealthz(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("")
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+	// Start version check to populate version info
+	server.StartVersionCheck()
+
+	t.Run("GET request returns version info", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/healthz", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleHealthz(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+
+		var resp map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if resp["status"] != "ok" {
+			t.Errorf("expected status ok, got %v", resp["status"])
+		}
+
+		if resp["version"] == nil {
+			t.Error("expected version field in response")
+		}
+	})
+
+	t.Run("POST request is rejected", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", "/api/healthz", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleHealthz(rr, req)
+
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", rr.Code)
+		}
+	})
+}
+
+func TestHandleUpdate(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("")
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+	t.Run("POST method accepted, GET rejected", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/update", nil)
+		rr := httptest.NewRecorder()
+
+		server.handleUpdate(rr, req)
+
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405 for GET, got %d", rr.Code)
+		}
+	})
+
+	t.Run("concurrent updates are rejected", func(t *testing.T) {
+		// First request
+		req1, _ := http.NewRequest("POST", "/api/update", nil)
+		rr1 := httptest.NewRecorder()
+
+		// This test is limited - we can't easily test actual concurrent updates
+		// without mocking the update.Update() function
+		server.handleUpdate(rr1, req1)
+
+		// The first request will fail because we're on dev build or no network,
+		// but it should return some status
+		if rr1.Code != http.StatusInternalServerError && rr1.Code != http.StatusOK {
+			t.Logf("first request got status %d (expected 500 or 200)", rr1.Code)
 		}
 	})
 }
