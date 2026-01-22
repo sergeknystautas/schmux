@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/update"
+	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -32,6 +35,7 @@ type Server struct {
 	session    *session.Manager
 	workspace  workspace.WorkspaceManager
 	httpServer *http.Server
+	shutdown   func() // Callback to trigger daemon shutdown
 
 	// WebSocket connection registry: sessionID -> list of active connections
 	wsConns   map[string][]*websocket.Conn
@@ -40,18 +44,47 @@ type Server struct {
 	// Per-session rotation locks to prevent concurrent rotations
 	rotationLocks   map[string]*sync.Mutex
 	rotationLocksMu sync.RWMutex
+
+	// Version info: current version and latest available version
+	versionInfo      versionInfo
+	versionInfoMu    sync.RWMutex
+	updateInProgress bool
+	updateMu         sync.Mutex
+}
+
+// versionInfo holds version information.
+type versionInfo struct {
+	Current         string
+	Latest          string
+	UpdateAvailable bool
+	CheckError      error
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, shutdown func()) *Server {
 	return &Server{
 		config:        cfg,
 		state:         st,
 		statePath:     statePath,
 		session:       sm,
 		workspace:     wm,
+		shutdown:      shutdown,
 		wsConns:       make(map[string][]*websocket.Conn),
 		rotationLocks: make(map[string]*sync.Mutex),
+	}
+}
+
+// LogDashboardAssetPath logs where dashboard assets are being served from.
+func (s *Server) LogDashboardAssetPath() {
+	path := s.getDashboardDistPath()
+	// Determine source type for clearer message
+	if strings.HasPrefix(path, filepath.Join(os.Getenv("HOME"), ".schmux")) {
+		fmt.Printf("[dashboard] serving from cached assets: %s\n", path)
+	} else if strings.HasPrefix(path, ".") {
+		abs, _ := filepath.Abs(path)
+		fmt.Printf("[dashboard] serving from local build: %s\n", abs)
+	} else {
+		fmt.Printf("[dashboard] serving from: %s\n", path)
 	}
 }
 
@@ -65,6 +98,7 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.handleHealthz))
+	mux.HandleFunc("/api/update", s.withCORS(s.handleUpdate))
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.handleHasNudgenik))
 	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.handleAskNudgenik))
 	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.handleWorkspacesScan))
@@ -161,24 +195,23 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 }
 
 // getDashboardDistPath returns the path to the built dashboard assets.
-// Checks locations in order: user cache (~/.schmux/dashboard), then local dev path.
+// Prioritizes local build for development, falls back to cached assets.
 func (s *Server) getDashboardDistPath() string {
-	// 1. User cache (downloaded assets)
-	if userAssetsDir, err := assets.GetUserAssetsDir(); err == nil {
-		if _, err := os.Stat(filepath.Join(userAssetsDir, "index.html")); err == nil {
-			return userAssetsDir
-		}
-	}
-
-	// 2. Local dev paths
+	// Local dev build - check FIRST (before cached assets)
 	candidates := []string{
 		"./assets/dashboard/dist",
 		filepath.Join(filepath.Dir(os.Args[0]), "../assets/dashboard/dist"),
 	}
-
 	for _, candidate := range candidates {
 		if _, err := os.Stat(filepath.Join(candidate, "index.html")); err == nil {
 			return candidate
+		}
+	}
+
+	// User cache (downloaded assets) - fallback if local build not found
+	if userAssetsDir, err := assets.GetUserAssetsDir(); err == nil {
+		if _, err := os.Stat(filepath.Join(userAssetsDir, "index.html")); err == nil {
+			return userAssetsDir
 		}
 	}
 
@@ -243,4 +276,38 @@ func (s *Server) getRotationLock(sessionID string) *sync.Mutex {
 		s.rotationLocks[sessionID] = &sync.Mutex{}
 	}
 	return s.rotationLocks[sessionID]
+}
+
+// StartVersionCheck starts an async version check.
+func (s *Server) StartVersionCheck() {
+	// Initialize current version immediately so it's available via API
+	s.versionInfoMu.Lock()
+	s.versionInfo = versionInfo{
+		Current: version.Version,
+	}
+	s.versionInfoMu.Unlock()
+
+	go func() {
+		latest, available, err := update.CheckForUpdate()
+		s.versionInfoMu.Lock()
+		s.versionInfo = versionInfo{
+			Current:         version.Version,
+			Latest:          latest,
+			UpdateAvailable: available,
+			CheckError:      err,
+		}
+		s.versionInfoMu.Unlock()
+		if err != nil {
+			fmt.Printf("[version] check failed: %v\n", err)
+		} else if available {
+			fmt.Printf("[version] update available: %s -> %s\n", version.Version, latest)
+		}
+	}()
+}
+
+// GetVersionInfo returns a copy of the current version info.
+func (s *Server) GetVersionInfo() versionInfo {
+	s.versionInfoMu.RLock()
+	defer s.versionInfoMu.RUnlock()
+	return s.versionInfo
 }

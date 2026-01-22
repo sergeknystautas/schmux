@@ -2,7 +2,7 @@
 # This image provides an isolated environment for running end-to-end tests.
 # The container itself provides isolation - no need for HOME overrides.
 
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,7 +29,7 @@ RUN cd assets/dashboard && npm ci
 RUN cd assets/dashboard && npm run build
 
 # Final E2E test image
-FROM golang:1.23-bookworm
+FROM golang:1.24-bookworm
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -63,4 +63,4 @@ RUN tmux -V
 
 # Default command runs E2E tests
 WORKDIR /home/e2e/src
-CMD ["go", "test", "-v", "./internal/e2e"]
+CMD ["go", "test", "-tags=e2e", "-v", "./internal/e2e"]

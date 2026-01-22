@@ -32,7 +32,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
 	return server, cfg, st
 }
 
