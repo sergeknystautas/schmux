@@ -4,6 +4,11 @@ set -euo pipefail
 # schmux installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/sergeknystautas/schmux/main/install.sh | bash
 
+echo "=============================="
+echo "🦑 schmux Installer"
+echo "=============================="
+echo ""
+
 REPO="sergeknystautas/schmux"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 GITHUB_RELEASES="https://github.com/${REPO}/releases/download"
@@ -27,11 +32,11 @@ error() {
 }
 
 info() {
-    echo -e "${GREEN}$1${NC}"
+    echo -e "${GREEN}==> $1${NC}"
 }
 
 warn() {
-    echo -e "${YELLOW}$1${NC}"
+    echo -e "${YELLOW}==> $1${NC}"
 }
 
 # Check for required commands
@@ -53,8 +58,10 @@ case "$OS" in
     *) error "Unsupported OS: $OS (supported: macOS, Linux)" ;;
 esac
 
+info "Platform: ${OS}/${ARCH}"
+
 # Get latest version - try jq first, fall back to grep/sed
-info "Fetching latest version..."
+info "Detecting latest version..."
 
 RELEASE_JSON=$(curl -fsSL --max-time 30 "$GITHUB_API") || error "Failed to fetch release info from GitHub"
 
@@ -68,7 +75,8 @@ if [ -z "$LATEST" ]; then
     error "Could not determine latest version"
 fi
 
-info "Installing schmux v${LATEST} for ${OS}/${ARCH}..."
+info "Latest version: v${LATEST}"
+info "Installing schmux from GitHub releases..."
 
 # Create temp directory with proper cleanup
 TMP_DIR=$(mktemp -d)
@@ -79,13 +87,13 @@ trap cleanup EXIT
 
 # Download checksums first
 CHECKSUMS_URL="${GITHUB_RELEASES}/v${LATEST}/checksums.txt"
-info "Downloading checksums..."
+info "Downloading checksums.txt..."
 curl -fsSL --max-time 30 -o "${TMP_DIR}/checksums.txt" "$CHECKSUMS_URL" || error "Failed to download checksums"
 
 # Download binary
 BINARY_NAME="schmux-${OS}-${ARCH}"
 BINARY_URL="${GITHUB_RELEASES}/v${LATEST}/${BINARY_NAME}"
-info "Downloading binary..."
+info "Downloading ${BINARY_NAME}..."
 curl -fsSL --max-time 120 -o "${TMP_DIR}/schmux" "$BINARY_URL" || error "Failed to download binary"
 
 # Verify binary checksum
@@ -106,11 +114,11 @@ fi
 if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
     error "Checksum mismatch for binary: expected ${EXPECTED_HASH}, got ${ACTUAL_HASH}"
 fi
-info "Binary checksum verified."
+info "Checksum verified for ${BINARY_NAME}"
 
 # Download dashboard assets
 ASSETS_URL="${GITHUB_RELEASES}/v${LATEST}/dashboard-assets.tar.gz"
-info "Downloading dashboard assets..."
+info "Downloading dashboard-assets.tar.gz..."
 curl -fsSL --max-time 120 -o "${TMP_DIR}/dashboard-assets.tar.gz" "$ASSETS_URL" || error "Failed to download dashboard assets"
 
 # Verify assets checksum
@@ -130,17 +138,20 @@ fi
 if [ "$ACTUAL_ASSETS_HASH" != "$EXPECTED_ASSETS_HASH" ]; then
     error "Checksum mismatch for assets: expected ${EXPECTED_ASSETS_HASH}, got ${ACTUAL_ASSETS_HASH}"
 fi
-info "Assets checksum verified."
+info "Checksum verified for dashboard-assets.tar.gz"
 
 # Install binary
 chmod +x "${TMP_DIR}/schmux"
 INSTALL_DIR="${HOME}/.local/bin"
 mkdir -p "$INSTALL_DIR"
+info "Installing to ${INSTALL_DIR}..."
 mv "${TMP_DIR}/schmux" "$INSTALL_DIR/schmux"
+info "schmux installed to ${INSTALL_DIR}/schmux"
 
 # Install dashboard assets
 ASSETS_DIR="${HOME}/.schmux/dashboard"
 mkdir -p "$ASSETS_DIR"
+info "Installing dashboard assets to ${ASSETS_DIR}..."
 rm -rf "$ASSETS_DIR"/*
 tar -xzf "${TMP_DIR}/dashboard-assets.tar.gz" -C "$ASSETS_DIR"
 
@@ -148,17 +159,16 @@ tar -xzf "${TMP_DIR}/dashboard-assets.tar.gz" -C "$ASSETS_DIR"
 echo "$LATEST" > "${ASSETS_DIR}/.version"
 
 echo ""
-info "Successfully installed schmux v${LATEST}!"
+info "schmux is installed and ready!"
 echo ""
-echo "Binary: ${INSTALL_DIR}/schmux"
-echo "Assets: ${ASSETS_DIR}"
+echo "schmux version ${LATEST}"
 echo ""
 
 # Check if install dir is in PATH
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
-        warn "Add ${INSTALL_DIR} to your PATH:"
+        warn "${INSTALL_DIR} not in PATH"
         echo ""
         echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
         echo ""
