@@ -225,7 +225,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 	v := s.GetVersionInfo()
 	response := map[string]any{
-		"status": "ok",
+		"status":  "ok",
 		"version": v.Current,
 	}
 	if v.Latest != "" {

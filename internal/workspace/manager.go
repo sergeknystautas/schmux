@@ -165,6 +165,17 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
+	// Clean up directory if creation fails (registered before any directory creation)
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			m.logger.Printf("cleaning up failed workspace directory: %s", workspacePath)
+			if err := os.RemoveAll(workspacePath); err != nil {
+				m.logger.Printf("failed to cleanup workspace directory %s: %v", workspacePath, err)
+			}
+		}
+	}()
+
 	// Clone the repository
 	if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
 		return nil, fmt.Errorf("failed to clone repo: %w", err)
@@ -191,6 +202,8 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
+	// State is persisted, workspace is valid
+	cleanupNeeded = false
 	return &w, nil
 }
 
@@ -220,6 +233,17 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
+	// Clean up directory if creation fails (registered before any directory creation)
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			m.logger.Printf("cleaning up failed local repository directory: %s", workspacePath)
+			if err := os.RemoveAll(workspacePath); err != nil {
+				m.logger.Printf("failed to cleanup local repository directory %s: %v", workspacePath, err)
+			}
+		}
+	}()
+
 	// Create the directory and initialize a local git repository
 	if err := m.initLocalRepo(ctx, workspacePath, branch); err != nil {
 		return nil, fmt.Errorf("failed to initialize local repo: %w", err)
@@ -241,6 +265,9 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
+
+	// State is persisted, workspace is valid even if config update fails
+	cleanupNeeded = false
 
 	// Add the new local repository to config so it appears in the spawn wizard dropdown
 	m.config.Repos = append(m.config.Repos, config.Repo{

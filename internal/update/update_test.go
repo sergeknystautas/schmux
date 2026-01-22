@@ -6,11 +6,11 @@ import (
 
 func TestCheckForUpdate(t *testing.T) {
 	tests := []struct {
-		name           string
-		mockLatest     string
-		mockCurrent    string
-		wantAvailable  bool
-		wantErr        bool
+		name          string
+		mockLatest    string
+		mockCurrent   string
+		wantAvailable bool
+		wantErr       bool
 	}{
 		{
 			name:          "newer version available",

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -833,5 +834,249 @@ func TestGetOrCreate_LocalRepo(t *testing.T) {
 	gitDir := filepath.Join(w.Path, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 		t.Error("GetOrCreate() .git directory does not exist")
+	}
+}
+
+// mockStateStore wraps a state.Store and can simulate failures.
+type mockStateStore struct {
+	state    *state.State
+	failSave bool
+}
+
+func (m *mockStateStore) GetWorkspaces() []state.Workspace {
+	return m.state.GetWorkspaces()
+}
+
+func (m *mockStateStore) GetWorkspace(id string) (state.Workspace, bool) {
+	return m.state.GetWorkspace(id)
+}
+
+func (m *mockStateStore) AddWorkspace(w state.Workspace) error {
+	return m.state.AddWorkspace(w)
+}
+
+func (m *mockStateStore) UpdateWorkspace(w state.Workspace) error {
+	return m.state.UpdateWorkspace(w)
+}
+
+func (m *mockStateStore) RemoveWorkspace(id string) error {
+	return m.state.RemoveWorkspace(id)
+}
+
+func (m *mockStateStore) GetSessions() []state.Session {
+	return m.state.GetSessions()
+}
+
+func (m *mockStateStore) GetSession(id string) (state.Session, bool) {
+	return m.state.GetSession(id)
+}
+
+func (m *mockStateStore) AddSession(s state.Session) error {
+	return m.state.AddSession(s)
+}
+
+func (m *mockStateStore) UpdateSession(s state.Session) error {
+	return m.state.UpdateSession(s)
+}
+
+func (m *mockStateStore) RemoveSession(id string) error {
+	return m.state.RemoveSession(id)
+}
+
+func (m *mockStateStore) UpdateSessionLastOutput(sessionID string, t time.Time) {
+	m.state.UpdateSessionLastOutput(sessionID, t)
+}
+
+func (m *mockStateStore) GetNeedsRestart() bool {
+	return m.state.GetNeedsRestart()
+}
+
+func (m *mockStateStore) SetNeedsRestart(needsRestart bool) error {
+	return m.state.SetNeedsRestart(needsRestart)
+}
+
+func (m *mockStateStore) Save() error {
+	if m.failSave {
+		return fmt.Errorf("mock state save failure")
+	}
+	return m.state.Save()
+}
+
+// TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up
+// when clone succeeds but state.Save() fails.
+func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	workspaceBaseDir := filepath.Join(tmpDir, "workspaces")
+	if err := os.MkdirAll(workspaceBaseDir, 0755); err != nil {
+		t.Fatalf("failed to create workspace base dir: %v", err)
+	}
+
+	// Create a minimal config
+	cfg := &config.Config{
+		WorkspacePath: workspaceBaseDir,
+		Repos: []config.Repo{
+			{Name: "test-repo", URL: "local:test-repo"},
+		},
+	}
+
+	// Create a mock state store that will fail on Save
+	st := state.New("")
+	mockSt := &mockStateStore{state: st, failSave: true}
+
+	mgr := New(cfg, mockSt, "")
+
+	ctx := context.Background()
+
+	// Attempt to create a workspace - should fail during state.Save
+	_, err := mgr.create(ctx, "local:test-repo", "main")
+	if err == nil {
+		t.Fatal("expected error from create, got nil")
+	}
+
+	// Verify the workspace directory was cleaned up
+	entries, err := os.ReadDir(workspaceBaseDir)
+	if err != nil {
+		t.Fatalf("failed to read workspace base dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected workspace directory to be cleaned up, found %d entries", len(entries))
+		for _, e := range entries {
+			t.Errorf("  - %s", e.Name())
+		}
+	}
+}
+
+// TestCreateNoCleanupOnSuccess verifies that workspace directory is NOT cleaned up
+// when creation succeeds.
+func TestCreateNoCleanupOnSuccess(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create a real git repo to clone
+	repoDir := gitTestWorkTree(t)
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	workspaceBaseDir := filepath.Join(tmpDir, "workspaces")
+	if err := os.MkdirAll(workspaceBaseDir, 0755); err != nil {
+		t.Fatalf("failed to create workspace base dir: %v", err)
+	}
+
+	// Create a minimal config
+	cfg := &config.Config{
+		WorkspacePath: workspaceBaseDir,
+		Repos: []config.Repo{
+			{Name: "test-repo", URL: repoDir},
+		},
+	}
+
+	// Create a mock state store that will succeed
+	st := state.New(statePath)
+	mockSt := &mockStateStore{state: st, failSave: false}
+
+	mgr := New(cfg, mockSt, statePath)
+
+	ctx := context.Background()
+
+	// Create a workspace - should succeed
+	w, err := mgr.create(ctx, repoDir, "main")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	// Verify the workspace directory still exists
+	if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+		t.Errorf("workspace directory was cleaned up on success, path: %s", w.Path)
+	}
+}
+
+// TestCreateLocalRepoCleanupOnStateSaveFailure verifies that local repo directory is cleaned up
+// when init succeeds but state.Save() fails.
+func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	workspaceBaseDir := filepath.Join(tmpDir, "workspaces")
+	if err := os.MkdirAll(workspaceBaseDir, 0755); err != nil {
+		t.Fatalf("failed to create workspace base dir: %v", err)
+	}
+
+	// Create a minimal config
+	cfg := &config.Config{
+		WorkspacePath: workspaceBaseDir,
+		Repos:         []config.Repo{},
+	}
+
+	// Create a mock state store that will fail on Save
+	st := state.New("")
+	mockSt := &mockStateStore{state: st, failSave: true}
+
+	mgr := New(cfg, mockSt, "")
+
+	ctx := context.Background()
+
+	// Attempt to create a local repo workspace - should fail during state.Save
+	_, err := mgr.CreateLocalRepo(ctx, "myproject", "main")
+	if err == nil {
+		t.Fatal("expected error from CreateLocalRepo, got nil")
+	}
+
+	// Verify the workspace directory was cleaned up
+	entries, err := os.ReadDir(workspaceBaseDir)
+	if err != nil {
+		t.Fatalf("failed to read workspace base dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected workspace directory to be cleaned up, found %d entries", len(entries))
+		for _, e := range entries {
+			t.Errorf("  - %s", e.Name())
+		}
+	}
+}
+
+// TestCreateLocalRepoNoCleanupOnSuccess verifies that local repo directory is NOT cleaned up
+// when creation succeeds.
+func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	workspaceBaseDir := filepath.Join(tmpDir, "workspaces")
+	if err := os.MkdirAll(workspaceBaseDir, 0755); err != nil {
+		t.Fatalf("failed to create workspace base dir: %v", err)
+	}
+
+	// Create a config with a path
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = workspaceBaseDir
+	cfg.Repos = []config.Repo{}
+
+	// Create a mock state store that will succeed
+	st := state.New(statePath)
+	mockSt := &mockStateStore{state: st, failSave: false}
+
+	mgr := New(cfg, mockSt, statePath)
+
+	ctx := context.Background()
+
+	// Create a local repo workspace - should succeed
+	w, err := mgr.CreateLocalRepo(ctx, "myproject", "main")
+	if err != nil {
+		t.Fatalf("CreateLocalRepo failed: %v", err)
+	}
+
+	// Verify the workspace directory still exists
+	if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+		t.Errorf("workspace directory was cleaned up on success, path: %s", w.Path)
 	}
 }

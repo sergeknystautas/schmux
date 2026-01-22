@@ -38,17 +38,17 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	ConfigVersion  string               `json:"config_version,omitempty"`
-	WorkspacePath  string               `json:"workspace_path"`
-	Repos          []Repo               `json:"repos"`
-	RunTargets     []RunTarget          `json:"run_targets"`
-	QuickLaunch    []QuickLaunch        `json:"quick_launch"`
-	Variants       []VariantConfig      `json:"variants,omitempty"`
-	Terminal       *TerminalSize        `json:"terminal,omitempty"`
-	Nudgenik       *NudgenikConfig      `json:"nudgenik,omitempty"`
-	Sessions       *SessionsConfig      `json:"sessions,omitempty"`
-	Xterm          *XtermConfig         `json:"xterm,omitempty"`
-	AccessControl  *AccessControlConfig `json:"access_control,omitempty"`
+	ConfigVersion string               `json:"config_version,omitempty"`
+	WorkspacePath string               `json:"workspace_path"`
+	Repos         []Repo               `json:"repos"`
+	RunTargets    []RunTarget          `json:"run_targets"`
+	QuickLaunch   []QuickLaunch        `json:"quick_launch"`
+	Variants      []VariantConfig      `json:"variants,omitempty"`
+	Terminal      *TerminalSize        `json:"terminal,omitempty"`
+	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
+	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
+	Xterm         *XtermConfig         `json:"xterm,omitempty"`
+	AccessControl *AccessControlConfig `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
