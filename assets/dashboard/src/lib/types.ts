@@ -2,6 +2,7 @@ export interface SessionResponse {
   id: string;
   target: string;
   branch: string;
+  branch_url?: string;
   nickname?: string;
   created_at: string;
   last_output_at?: string;
@@ -15,6 +16,7 @@ export interface WorkspaceResponse {
   id: string;
   repo: string;
   branch: string;
+  branch_url?: string;
   path: string;
   session_count: number;
   sessions: SessionResponse[];
