@@ -1,0 +1,1 @@
+I want to update the first time user experience when the config json is not there to use huh instead of the hand rolled interactive screens we have. It should remain simple and lightweight and have suggestions, but use the nicer UI library.

@@ -127,6 +127,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
 	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
+	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuth(s.handleSuggestBranch)))
 	mux.HandleFunc("/api/dispose/", s.withCORS(s.withAuth(s.handleDispose)))
 	mux.HandleFunc("/api/dispose-workspace/", s.withCORS(s.withAuth(s.handleDisposeWorkspace)))
 	mux.HandleFunc("/api/config", s.withCORS(s.withAuth(s.handleConfig)))
