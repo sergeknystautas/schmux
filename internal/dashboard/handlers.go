@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -154,6 +155,7 @@ type WorkspaceResponseItem struct {
 	CommitsSyncedWithRemote  bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
 	GitDefaultBranchOrphaned bool                  `json:"git_default_branch_orphaned"`  // true if origin/default has no common ancestor with HEAD
 	Previews                 []previewResponse     `json:"previews,omitempty"`
+	HasBeads                 bool                  `json:"has_beads"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -225,6 +227,13 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			defaultBranch = db
 		}
 
+		// Check if workspace has beads initialized (.beads directory exists)
+		hasBeads := false
+		beadsDir := filepath.Join(ws.Path, ".beads")
+		if info, err := os.Stat(beadsDir); err == nil && info.IsDir() {
+			hasBeads = true
+		}
+
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:                       ws.ID,
 			Repo:                     ws.Repo,
@@ -249,6 +258,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			CommitsSyncedWithRemote:  ws.CommitsSyncedWithRemote,
 			GitDefaultBranchOrphaned: ws.GitDefaultBranchOrphaned,
 			Previews:                 []previewResponse{},
+			HasBeads:                 hasBeads,
 		}
 		if s.previewManager != nil {
 			previews := s.state.GetWorkspacePreviews(ws.ID)
@@ -4403,4 +4413,77 @@ func shellSplit(input string) ([]string, error) {
 	}
 
 	return args, nil
+}
+
+// handleBeadsTasks returns ready beads tasks for a workspace.
+// GET /api/beads-tasks?workspace_id={id}
+func (s *Server) handleBeadsTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace_id from query parameter
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		http.Error(w, "workspace_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get workspace from state
+	ws, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if bd command is available
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// First, check if bd is available
+	cmd := exec.CommandContext(ctx, "bd", "--version")
+	if err := cmd.Run(); err != nil {
+		log.Printf("[beads-tasks] bd command not found: %v", err)
+		http.Error(w, "bd command not found. Install beads from https://github.com/steveyegne/beads", http.StatusNotFound)
+		return
+	}
+
+	// Run bd ready --json in the workspace directory
+	cmd = exec.CommandContext(ctx, "bd", "ready", "--json")
+	cmd.Dir = ws.Path
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("[beads-tasks] failed to run bd ready: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to run bd ready: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the JSON output
+	type BeadTask struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Priority    int    `json:"priority"`
+		Status      string `json:"status"`
+		Assignee    string `json:"assignee"`
+	}
+
+	var tasks []BeadTask
+	if err := json.Unmarshal(output, &tasks); err != nil {
+		log.Printf("[beads-tasks] failed to parse bd output: %v, output: %s", err, string(output))
+		http.Error(w, fmt.Sprintf("Failed to parse bd output: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		WorkspaceID string     `json:"workspace_id"`
+		Tasks       []BeadTask `json:"tasks"`
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(Response{
+		WorkspaceID: workspaceID,
+		Tasks:       tasks,
+	})
 }

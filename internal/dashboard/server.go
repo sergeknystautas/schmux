@@ -397,6 +397,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
 	mux.HandleFunc("/api/commit/prompt", s.withCORS(s.withAuth(s.handleCommitPrompt)))
 	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuthAndCSRF(s.handleCommitGenerate)))
+	mux.HandleFunc("/api/beads-tasks", s.withCORS(s.withAuth(s.handleBeadsTasks)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
 	mux.HandleFunc("/api/file/", s.withCORS(s.withAuth(s.handleFile)))
 	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuthAndCSRF(s.handleDiffExternal)))

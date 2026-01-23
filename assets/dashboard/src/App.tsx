@@ -9,6 +9,7 @@ import { SessionsProvider } from './contexts/SessionsContext';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
 import HomePage from './routes/HomePage';
 import SpawnPage from './routes/SpawnPage';
+import BeadsPage from './routes/BeadsPage';
 import TipsPage from './routes/TipsPage';
 import ConfigPage from './routes/ConfigPage';
 import RemoteSettingsPage from './routes/RemoteSettingsPage';
@@ -56,6 +57,7 @@ export default function App() {
                         element={<LinearSyncResolveConflictPage />}
                       />
                       <Route path="/spawn" element={<SpawnPage key={location.key} />} />
+                      <Route path="/beads" element={<BeadsPage />} />
                       <Route path="/tips" element={<TipsPage />} />
                       <Route path="/config" element={<ConfigPage />} />
                       <Route path="/settings/remote" element={<RemoteSettingsPage />} />

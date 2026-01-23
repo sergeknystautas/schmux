@@ -773,6 +773,21 @@ export default function AppShell() {
 
           {isDevMode && <TypingPerformance />}
           <div className="nav-links">
+            <NavLink
+              to="/beads"
+              className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}${isNotConfigured ? ' nav-link--disabled' : ''}`}
+            >
+              <svg className="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6"></path>
+                <path d="M1 12h6m6 0h6"></path>
+                <circle cx="5" cy="5" r="1.5"></circle>
+                <circle cx="19" cy="5" r="1.5"></circle>
+                <circle cx="5" cy="19" r="1.5"></circle>
+                <circle cx="19" cy="19" r="1.5"></circle>
+              </svg>
+              <span>Beads</span>
+            </NavLink>
             {config?.repos?.length > 0 && (
               <NavLink
                 to="/overlays"
