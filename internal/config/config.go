@@ -50,6 +50,7 @@ type Config struct {
 	Variants      []VariantConfig      `json:"variants,omitempty"`
 	Terminal      *TerminalSize        `json:"terminal,omitempty"`
 	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
+	BranchSuggest *BranchSuggestConfig `json:"branch_suggest,omitempty"`
 	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
 	Xterm         *XtermConfig         `json:"xterm,omitempty"`
 	Network       *NetworkConfig       `json:"network,omitempty"`
@@ -73,6 +74,11 @@ type NudgenikConfig struct {
 	Target         string `json:"target,omitempty"`
 	ViewedBufferMs int    `json:"viewed_buffer_ms,omitempty"`
 	SeenIntervalMs int    `json:"seen_interval_ms,omitempty"`
+}
+
+// BranchSuggestConfig represents configuration for branch name suggestion.
+type BranchSuggestConfig struct {
+	Target string `json:"target,omitempty"`
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -232,6 +238,14 @@ func (c *Config) GetNudgenikTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.Nudgenik.Target)
+}
+
+// GetBranchSuggestTarget returns the configured branch suggestion target name, if any.
+func (c *Config) GetBranchSuggestTarget() string {
+	if c == nil || c.BranchSuggest == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.BranchSuggest.Target)
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

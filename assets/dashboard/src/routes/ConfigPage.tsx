@@ -39,6 +39,7 @@ type ConfigSnapshot = {
   commandTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
   nudgenikTarget: string;
+  branchSuggestTarget: string;
   terminalWidth: string;
   terminalHeight: string;
   terminalSeedLines: string;
@@ -133,6 +134,7 @@ export default function ConfigPage() {
   const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch items
   const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
+  const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
 
   // Terminal state
   const [terminalWidth, setTerminalWidth] = useState('120');
@@ -183,6 +185,7 @@ export default function ConfigPage() {
       commandTargets,
       quickLaunch,
       nudgenikTarget,
+      branchSuggestTarget,
       terminalWidth,
       terminalHeight,
       terminalSeedLines,
@@ -220,6 +223,7 @@ export default function ConfigPage() {
       !arraysMatch(current.commandTargets, originalConfig.commandTargets) ||
       !arraysMatch(current.quickLaunch, originalConfig.quickLaunch) ||
       current.nudgenikTarget !== originalConfig.nudgenikTarget ||
+      current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
       current.terminalHeight !== originalConfig.terminalHeight ||
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
@@ -296,13 +300,18 @@ export default function ConfigPage() {
         setRepos(data.repos || []);
 
         const detectedItems = (data.run_targets || []).filter(t => t.source === 'detected');
-        const promptableItems = (data.run_targets || []).filter(t => t.type === 'promptable' && t.source !== 'detected');
-        const commandItems = (data.run_targets || []).filter(t => t.type === 'command' && t.source !== 'detected');
+        const promptableItems = (data.run_targets || []).filter(
+          t => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'variant'
+        );
+        const commandItems = (data.run_targets || []).filter(
+          t => t.type === 'command' && t.source !== 'detected' && t.source !== 'variant'
+        );
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
         setDetectedTargets(detectedItems);
         setQuickLaunch(data.quick_launch || []);
         setNudgenikTarget(data.nudgenik?.target || '');
+        setBranchSuggestTarget(data.branch_suggest?.target || '');
 
         setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
@@ -335,6 +344,7 @@ export default function ConfigPage() {
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
             nudgenikTarget: data.nudgenik?.target || '',
+            branchSuggestTarget: data.branch_suggest?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
@@ -497,6 +507,9 @@ export default function ConfigPage() {
           viewed_buffer_ms: viewedBuffer,
           seen_interval_ms: nudgenikSeenInterval,
         },
+        branch_suggest: {
+          target: branchSuggestTarget || '',
+        },
         sessions: {
           dashboard_poll_interval_ms: dashboardPollInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
@@ -544,6 +557,7 @@ export default function ConfigPage() {
           commandTargets,
           quickLaunch,
           nudgenikTarget,
+          branchSuggestTarget,
           terminalWidth,
           terminalHeight,
           terminalSeedLines,
@@ -650,15 +664,17 @@ export default function ConfigPage() {
   const checkTargetUsage = (targetName) => {
     const inQuickLaunch = quickLaunch.some((item) => item.target === targetName);
     const inNudgenik = nudgenikTarget && nudgenikTarget === targetName;
-    return { inQuickLaunch, inNudgenik };
+    const inBranchSuggest = branchSuggestTarget && branchSuggestTarget === targetName;
+    return { inQuickLaunch, inNudgenik, inBranchSuggest };
   };
 
   const removePromptableTarget = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
-        usage.inNudgenik ? 'nudgenik target' : null
+        usage.inNudgenik ? 'nudgenik target' : null,
+        usage.inBranchSuggest ? 'branch suggest target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -691,10 +707,11 @@ export default function ConfigPage() {
 
   const removeCommand = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
-        usage.inNudgenik ? 'nudgenik target' : null
+        usage.inNudgenik ? 'nudgenik target' : null,
+        usage.inBranchSuggest ? 'branch suggest target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -979,6 +996,7 @@ export default function ConfigPage() {
 
   const commandTargetNames = new Set(commandTargets.map((target) => target.name));
   const nudgenikTargetMissing = nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
+  const branchSuggestTargetMissing = branchSuggestTarget.trim() !== '' && !promptableTargetNames.has(branchSuggestTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -1657,6 +1675,45 @@ export default function ConfigPage() {
                       />
                       <p className="form-group__hint">How often to check for session activity</p>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Branch Suggestion</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={branchSuggestTarget}
+                      onChange={(e) => setBranchSuggestTarget(e.target.value)}
+                    >
+                      <option value="">Disabled</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Variants">
+                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
+                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Select a promptable target for branch name suggestion, or leave disabled.
+                    </p>
+                    {branchSuggestTargetMissing && (
+                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                    )}
                   </div>
                 </div>
               </div>

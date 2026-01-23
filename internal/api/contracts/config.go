@@ -28,6 +28,16 @@ type Variant struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
+// AvailableVariant represents a detected variant with metadata and configuration status.
+type AvailableVariant struct {
+	Name            string   `json:"name"`
+	DisplayName     string   `json:"display_name"`
+	BaseTool        string   `json:"base_tool"`
+	RequiredSecrets []string `json:"required_secrets"`
+	UsageURL        string   `json:"usage_url"`
+	Configured      bool     `json:"configured"`
+}
+
 // Terminal represents terminal dimensions.
 type Terminal struct {
 	Width          int `json:"width"`
@@ -41,6 +51,11 @@ type Nudgenik struct {
 	Target         string `json:"target,omitempty"`
 	ViewedBufferMs int    `json:"viewed_buffer_ms"`
 	SeenIntervalMs int    `json:"seen_interval_ms"`
+}
+
+// BranchSuggest represents branch name suggestion configuration.
+type BranchSuggest struct {
+	Target string `json:"target,omitempty"`
 }
 
 // Sessions represents session and git-related timing configuration.
@@ -90,6 +105,7 @@ type ConfigResponse struct {
 	Variants      []Variant     `json:"variants,omitempty"`
 	Terminal      Terminal      `json:"terminal"`
 	Nudgenik      Nudgenik      `json:"nudgenik"`
+	BranchSuggest BranchSuggest `json:"branch_suggest"`
 	Sessions      Sessions      `json:"sessions"`
 	Xterm         Xterm         `json:"xterm"`
 	Network       Network       `json:"network"`
@@ -110,6 +126,11 @@ type NudgenikUpdate struct {
 	Target         *string `json:"target,omitempty"`
 	ViewedBufferMs *int    `json:"viewed_buffer_ms,omitempty"`
 	SeenIntervalMs *int    `json:"seen_interval_ms,omitempty"`
+}
+
+// BranchSuggestUpdate represents partial branch suggest updates.
+type BranchSuggestUpdate struct {
+	Target *string `json:"target,omitempty"`
 }
 
 // SessionsUpdate represents partial session timing updates.
@@ -158,6 +179,7 @@ type ConfigUpdateRequest struct {
 	QuickLaunch   []QuickLaunch        `json:"quick_launch,omitempty"`
 	Variants      []Variant            `json:"variants,omitempty"`
 	Nudgenik      *NudgenikUpdate      `json:"nudgenik,omitempty"`
+	BranchSuggest *BranchSuggestUpdate `json:"branch_suggest,omitempty"`
 	Terminal      *TerminalUpdate      `json:"terminal,omitempty"`
 	Sessions      *SessionsUpdate      `json:"sessions,omitempty"`
 	Xterm         *XtermUpdate         `json:"xterm,omitempty"`

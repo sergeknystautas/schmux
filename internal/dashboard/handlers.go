@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
@@ -434,6 +435,57 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+// handleSuggestBranch handles branch name suggestion requests.
+func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	start := time.Now()
+
+	// Parse request
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Check if branch suggestion is enabled
+	if !branchsuggest.IsEnabled(s.config) {
+		http.Error(w, "Branch suggestion is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Generate branch suggestion
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	result, err := branchsuggest.AskForPrompt(ctx, s.config, req.Prompt)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, branchsuggest.ErrNoPrompt):
+			status = http.StatusBadRequest
+		case errors.Is(err, branchsuggest.ErrTargetNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, branchsuggest.ErrDisabled):
+			status = http.StatusServiceUnavailable
+		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, branchsuggest.ErrInvalidResponse):
+			status = http.StatusBadRequest
+		}
+		log.Printf("[suggest-branch] error duration=%s status=%d err=%v", time.Since(start).Truncate(time.Millisecond), status, err)
+		http.Error(w, fmt.Sprintf("Failed to generate branch suggestion: %v", err), status)
+		return
+	}
+
+	log.Printf("[suggest-branch] ok duration=%s", time.Since(start).Truncate(time.Millisecond))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // handleDispose handles session disposal requests.
 func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -605,9 +657,16 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		repoResp[i] = contracts.Repo{Name: repo.Name, URL: repo.URL}
 	}
 
-	runTargetResp := make([]contracts.RunTarget, len(runTargets))
-	for i, target := range runTargets {
-		runTargetResp[i] = contracts.RunTarget{Name: target.Name, Type: target.Type, Command: target.Command, Source: target.Source}
+	runTargetResp := make([]contracts.RunTarget, 0, len(runTargets))
+	seenTargets := make(map[string]struct{}, len(runTargets))
+	for _, target := range runTargets {
+		runTargetResp = append(runTargetResp, contracts.RunTarget{
+			Name:    target.Name,
+			Type:    target.Type,
+			Command: target.Command,
+			Source:  target.Source,
+		})
+		seenTargets[target.Name] = struct{}{}
 	}
 	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
 	for i, preset := range quickLaunch {
@@ -617,6 +676,30 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	variants := make([]contracts.Variant, len(s.config.GetVariantConfigs()))
 	for i, variant := range s.config.GetVariantConfigs() {
 		variants[i] = contracts.Variant{Name: variant.Name, Enabled: variant.Enabled, Env: variant.Env}
+	}
+	availableVariants, err := buildAvailableVariants(s.config)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read variants: %v", err), http.StatusInternalServerError)
+		return
+	}
+	for _, variant := range availableVariants {
+		if !variant.Configured {
+			continue
+		}
+		baseTarget, found := s.config.GetDetectedRunTarget(variant.BaseTool)
+		if !found {
+			continue
+		}
+		if _, exists := seenTargets[variant.Name]; exists {
+			continue
+		}
+		runTargetResp = append(runTargetResp, contracts.RunTarget{
+			Name:    variant.Name,
+			Type:    config.RunTargetTypePromptable,
+			Command: baseTarget.Command,
+			Source:  "variant",
+		})
+		seenTargets[variant.Name] = struct{}{}
 	}
 
 	response := contracts.ConfigResponse{
@@ -630,6 +713,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
 			SeenIntervalMs: s.config.GetNudgenikSeenIntervalMs(),
+		},
+		BranchSuggest: contracts.BranchSuggest{
+			Target: s.config.GetBranchSuggestTarget(),
 		},
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
@@ -782,6 +868,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.Nudgenik.Target == "" && cfg.Nudgenik.ViewedBufferMs <= 0 && cfg.Nudgenik.SeenIntervalMs <= 0 {
 			cfg.Nudgenik = nil
+		}
+	}
+
+	if req.BranchSuggest != nil {
+		if cfg.BranchSuggest == nil {
+			cfg.BranchSuggest = &config.BranchSuggestConfig{}
+		}
+		if req.BranchSuggest.Target != nil {
+			cfg.BranchSuggest.Target = strings.TrimSpace(*req.BranchSuggest.Target)
+		}
+		if cfg.BranchSuggest.Target == "" {
+			cfg.BranchSuggest = nil
 		}
 	}
 
@@ -995,32 +1093,10 @@ func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	type VariantResponse struct {
-		Name            string   `json:"name"`
-		DisplayName     string   `json:"display_name"`
-		BaseTool        string   `json:"base_tool"`
-		RequiredSecrets []string `json:"required_secrets"`
-		UsageURL        string   `json:"usage_url"`
-		Configured      bool     `json:"configured"`
-	}
-
-	available := s.config.GetAvailableVariants(detectedToolsFromConfig(s.config))
-	resp := make([]VariantResponse, 0, len(available))
-	for _, variant := range available {
-		configured, err := variantConfigured(variant)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
-			return
-		}
-		resp = append(resp, VariantResponse{
-			Name:            variant.Name,
-			DisplayName:     variant.DisplayName,
-			BaseTool:        variant.BaseTool,
-			RequiredSecrets: variant.RequiredSecrets,
-			UsageURL:        variant.UsageURL,
-			Configured:      configured,
-		})
+	resp, err := buildAvailableVariants(s.config)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read variants: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1042,6 +1118,26 @@ func detectedToolsFromRunTargets(targets []config.RunTarget) []detect.Tool {
 		})
 	}
 	return tools
+}
+
+func buildAvailableVariants(cfg *config.Config) ([]contracts.AvailableVariant, error) {
+	available := cfg.GetAvailableVariants(detectedToolsFromConfig(cfg))
+	resp := make([]contracts.AvailableVariant, 0, len(available))
+	for _, variant := range available {
+		configured, err := variantConfigured(variant)
+		if err != nil {
+			return nil, err
+		}
+		resp = append(resp, contracts.AvailableVariant{
+			Name:            variant.Name,
+			DisplayName:     variant.DisplayName,
+			BaseTool:        variant.BaseTool,
+			RequiredSecrets: variant.RequiredSecrets,
+			UsageURL:        variant.UsageURL,
+			Configured:      configured,
+		})
+	}
+	return resp, nil
 }
 
 func buildTLS(cfg *config.Config) *contracts.TLS {

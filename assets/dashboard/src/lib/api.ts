@@ -10,6 +10,8 @@ import type {
   ScanResult,
   SpawnRequest,
   SpawnResult,
+  SuggestBranchRequest,
+  SuggestBranchResponse,
   VariantsResponse,
   WorkspaceResponse,
 } from './types';
@@ -40,6 +42,23 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
     body: JSON.stringify(request)
   });
   if (!response.ok) throw new Error('Failed to spawn sessions');
+  return response.json();
+}
+
+/**
+ * Suggests a branch name and nickname based on a task prompt.
+ * Returns an object with branch (kebab-case) and nickname (short description).
+ */
+export async function suggestBranch(request: SuggestBranchRequest): Promise<SuggestBranchResponse> {
+  const response = await fetch('/api/suggest-branch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || 'Failed to suggest branch name');
+  }
   return response.json();
 }
 

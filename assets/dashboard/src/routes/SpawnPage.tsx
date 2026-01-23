@@ -1,41 +1,68 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getConfig, spawnSessions, detectTools, getVariants, getErrorMessage } from '../lib/api';
+import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
-import { useRequireConfig } from '../contexts/ConfigContext';
+import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
-import type { DetectTool, RepoResponse, RunTargetResponse, SpawnResult, VariantResponse } from '../lib/types';
+import useLocalStorage from '../hooks/useLocalStorage';
+import type { RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
+import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
-const STEPS = ['Repository', 'Targets', 'Review'];
-const TOTAL_STEPS = STEPS.length;
+const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
+  width: '100%',
+  height: '420px',
+  resize: 'vertical',
+  border: 'none',
+  outline: 'none',
+  boxShadow: 'none',
+  padding: 'var(--spacing-md)',
+  borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
+};
+
 
 export default function SpawnPage() {
   useRequireConfig();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [screen, setScreen] = useState<'form' | 'confirm'>('form');
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
-  const [detectedTools, setDetectedTools] = useState<DetectTool[]>([]);
-  const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
-  const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
   const [selectedCommand, setSelectedCommand] = useState('');
-  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command' | null>(null); // 'promptable' | 'command' | null
+  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command'>('promptable');
   const [repo, setRepo] = useState('');
-  const [branch, setBranch] = useState('main');
+  const [branch, setBranch] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
+  const [reviewing, setReviewing] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
+  const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const prefillApplied = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [results, setResults] = useState<SpawnResult[] | null>(null);
   const [spawning, setSpawning] = useState(false);
-  const [showTargetError, setShowTargetError] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
   const { workspaces, loading: sessionsLoading, refresh } = useSessions();
+  const { config, getRepoName } = useConfig();
 
+  // Use useLocalStorage for last-used values (with cross-tab sync)
+  const [lastRepo, setLastRepo] = useLocalStorage<string>('last-repo', '');
+  const [lastTargets, setLastTargets] = useLocalStorage<Record<string, number>>('last-targets', {});
+
+  const isMounted = useRef(true);
+  const inExistingWorkspace = !!resolvedWorkspaceId;
+
+  // Get branch suggest target from config
+  const branchSuggestTarget = config?.branch_suggest?.target || '';
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Load config and data
   useEffect(() => {
     let active = true;
 
@@ -43,22 +70,15 @@ export default function SpawnPage() {
       setLoading(true);
       setConfigError('');
       try {
-        const config = await getConfig();
+        const cfg = await getConfig();
         if (!active) return;
-        setRepos(config.repos || []);
+        setRepos(cfg.repos || []);
 
-        const promptableItems = (config.run_targets || []).filter(t => t.type === 'promptable' && t.source !== 'detected');
-        const commandItems = (config.run_targets || []).filter(t => t.type === 'command' && t.source !== 'detected');
+        const promptableItems = (cfg.run_targets || []).filter(t => t.type === 'promptable');
+        const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command');
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
 
-        const toolResult = await detectTools();
-        if (!active) return;
-        setDetectedTools(toolResult.tools || []);
-
-        const variantResult = await getVariants();
-        if (!active) return;
-        setAvailableVariants(variantResult.variants || []);
       } catch (err) {
         if (!active) return;
         setConfigError(getErrorMessage(err, 'Failed to load config'));
@@ -68,11 +88,10 @@ export default function SpawnPage() {
     };
 
     load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
+  // Handle URL prefill
   useEffect(() => {
     if (prefillApplied.current) return;
     const workspaceId = searchParams.get('workspace_id');
@@ -103,42 +122,61 @@ export default function SpawnPage() {
 
     if (prefillRepo && prefillBranch) {
       prefillApplied.current = true;
+      setResolvedWorkspaceId(workspaceId);
+    } else if (workspaceFound) {
+      prefillApplied.current = true;
+      setResolvedWorkspaceId(workspaceId);
+    } else if (!workspaceId) {
+      setResolvedWorkspaceId('');
+    } else {
+      setResolvedWorkspaceId('');
     }
   }, [searchParams, workspaces, sessionsLoading, repo, branch]);
+
+  // Initialize from last-used values (only if repo not already set by URL prefill)
+  useEffect(() => {
+    if (inExistingWorkspace) return; // Don't use last-values when spawning into existing workspace
+    if (!repo && lastRepo && repos.length > 0) {
+      // Check if lastRepo still exists
+      const stillExists = repos.some(r => r.url === lastRepo);
+      if (stillExists) {
+        setRepo(lastRepo);
+      }
+    }
+  }, [repos, lastRepo, repo, inExistingWorkspace]);
 
   type PromptableListItem = {
     name: string;
     label: string;
-    kind: 'tool' | 'variant' | 'run_target';
-    configured?: boolean;
-    count: number;
   };
 
   const promptableList = useMemo<PromptableListItem[]>(() => {
-    const items = [
-      ...detectedTools.map((tool) => ({
-        name: tool.name,
-        label: tool.name,
-        kind: 'tool' as const
-      })),
-      ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
-        name: variant.name,
-        label: variant.display_name,
-        kind: 'variant' as const,
-        configured: variant.configured
-      })),
-      ...promptableTargets.map((target) => ({
-        name: target.name,
-        label: target.name,
-        kind: 'run_target' as const
-      }))
-    ];
-    return items.map((item) => ({
-      ...item,
-      count: targetCounts[item.name] || 0
+    return promptableTargets.map((target) => ({
+      name: target.name,
+      label: target.name,
     }));
-  }, [detectedTools, availableVariants, promptableTargets, targetCounts]);
+  }, [promptableTargets]);
 
+  // Initialize target counts from last-used values (only once, after promptableList is loaded)
+  const [initialized, setInitialized] = useState(false);
+  const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (initialized || promptableList.length === 0) return;
+
+    if (Object.keys(lastTargets).length > 0) {
+      const filtered: Record<string, number> = {};
+      promptableList.forEach((item) => {
+        if (lastTargets[item.name] !== undefined) {
+          filtered[item.name] = lastTargets[item.name];
+        }
+      });
+      setTargetCounts(filtered);
+    }
+    setInitialized(true);
+  }, [promptableList, lastTargets, initialized]);
+
+  // Ensure all items are in targetCounts
   useEffect(() => {
     setTargetCounts((current) => {
       const next = { ...current };
@@ -166,82 +204,97 @@ export default function SpawnPage() {
   const updateTargetCount = (name: string, delta: number) => {
     setTargetCounts((current) => {
       const next = Math.max(0, Math.min(10, (current[name] || 0) + delta));
+      setLastTargets((currentTargets) => {
+        const currentCount = currentTargets[name] || 0;
+        const newCount = Math.max(0, Math.min(10, currentCount + delta));
+        return { ...currentTargets, [name]: newCount };
+      });
       return { ...current, [name]: next };
     });
-    setShowTargetError(false);
   };
 
-  const applyPreset = (preset: 'each' | 'review' | 'reset') => {
-    if (preset === 'each') {
-      const next = {};
-      promptableList.forEach((item) => {
-        next[item.name] = 1;
-      });
-      setTargetCounts(next);
-    } else if (preset === 'review') {
-      const next = {};
-      promptableList.forEach((item) => {
-        next[item.name] = item.name.includes('claude') ? 2 : 0;
-      });
-      setTargetCounts(next);
-    } else if (preset === 'reset') {
-      const next = {};
-      promptableList.forEach((item) => {
-        next[item.name] = 0;
-      });
-      setTargetCounts(next);
+  const generateBranchName = useCallback(async (promptText: string) => {
+    if (!promptText.trim()) {
+      return null;
     }
-    setShowTargetError(false);
-  };
+    try {
+      const result = await suggestBranch({ prompt: promptText });
+      return result;
+    } catch (err) {
+      console.error('Failed to suggest branch:', err);
+      return null;
+    }
+  }, []);
 
-  const validateStep = () => {
-    if (currentStep === 1) {
-      if (!repo) {
-        toastError('Please select a repository');
+  const validateForm = () => {
+    if (!repo) {
+      toastError('Please select a repository');
+      return false;
+    }
+    if (repo === '__new__' && !newRepoName.trim()) {
+      toastError('Please enter a repository name');
+      return false;
+    }
+    if (spawnMode === 'promptable') {
+      if (totalPromptableCount === 0) {
+        toastError('Please select at least one target');
         return false;
       }
-      if (repo === '__new__' && !newRepoName.trim()) {
-        toastError('Please enter a repository name');
-        return false;
-      }
-      if (repo !== '__new__' && !branch) {
-        toastError('Please enter a branch');
+      if (!prompt.trim()) {
+        toastError('Please enter a prompt');
         return false;
       }
     }
-
-    if (currentStep === 2) {
-      if (!spawnMode) {
-        toastError('Please select a mode (Promptable or Command)');
-        return false;
-      }
-      if (spawnMode === 'promptable') {
-        if (totalPromptableCount === 0) {
-          toastError('Please select at least one target');
-          setShowTargetError(true);
-          return false;
-        }
-        if (!prompt.trim()) {
-          toastError('Please enter a prompt');
-          return false;
-        }
-      }
-      if (spawnMode === 'command' && !selectedCommand) {
-        toastError('Please select a command');
-        return false;
-      }
+    if (spawnMode === 'command' && !selectedCommand) {
+      toastError('Please select a command');
+      return false;
     }
-
     return true;
   };
 
-  const nextStep = () => {
-    if (!validateStep()) return;
-    setCurrentStep((step) => Math.min(TOTAL_STEPS, step + 1));
+  const handleNext = () => {
+    if (!validateForm()) return;
+
+    // Save to localStorage
+    setLastRepo(repo);
+    // lastTargets is already updated via updateTargetCount
+
+    if (spawnMode === 'command') {
+      setNickname('');
+    }
+
+    if (inExistingWorkspace || spawnMode !== 'promptable' || !prompt.trim()) {
+      if (!inExistingWorkspace) {
+        setBranch('main');
+      }
+      setScreen('confirm');
+      return;
+    }
+
+    if (!branchSuggestTarget) {
+      setBranch('main');
+      setScreen('confirm');
+      return;
+    }
+
+    setReviewing(true);
+    generateBranchName(prompt).then((result) => {
+      if (!isMounted.current) return;
+      if (result) {
+        setBranch(result.branch || 'main');
+        setNickname(result.nickname || '');
+      } else {
+        toastError('Branch suggestion failed. Using "main".');
+        setBranch('main');
+        setNickname('');
+      }
+      setScreen('confirm');
+      setReviewing(false);
+    });
   };
 
-  const prevStep = () => {
-    setCurrentStep((step) => Math.max(1, step - 1));
+  const handleBack = () => {
+    setScreen('form');
   };
 
   const handleSpawn = async () => {
@@ -255,10 +308,8 @@ export default function SpawnPage() {
       });
     }
 
-    // Determine the actual repo URL and branch to send
-    // For "__new__", we'll send "local:{name}" and always use "main" branch
     const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
-    const actualBranch = repo === '__new__' ? 'main' : branch;
+    const actualBranch = inExistingWorkspace ? branch : (branch || 'main');
 
     setSpawning(true);
 
@@ -274,10 +325,14 @@ export default function SpawnPage() {
       setResults(response);
       refresh(true);
 
-      // Clear collapsed state for reused workspace IDs so new sessions are visible
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
-      const expandedKey = 'schmux:workspace-expanded'; // Must use full key here since we're accessing localStorage directly, not via useLocalStorage hook
-      const expanded = JSON.parse(localStorage.getItem(expandedKey) || '{}') as Record<string, boolean>;
+      let expanded: Record<string, boolean> = {};
+      try {
+        expanded = JSON.parse(localStorage.getItem(WORKSPACE_EXPANDED_KEY) || '{}') as Record<string, boolean>;
+      } catch (err) {
+        console.warn('Failed to parse workspace expanded state:', err);
+        expanded = {};
+      }
       let changed = false;
       workspaceIds.forEach(id => {
         if (expanded[id] !== true) {
@@ -286,7 +341,7 @@ export default function SpawnPage() {
         }
       });
       if (changed) {
-        localStorage.setItem(expandedKey, JSON.stringify(expanded));
+        localStorage.setItem(WORKSPACE_EXPANDED_KEY, JSON.stringify(expanded));
       }
     } catch (err) {
       toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
@@ -321,7 +376,9 @@ export default function SpawnPage() {
     return (
       <>
         <div className="page-header">
-          <h1 className="page-header__title">Spawn Sessions</h1>
+          <h1 className="page-header__title">
+            Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
+          </h1>
         </div>
         <div>
           <h2 style={{ marginBottom: 'var(--spacing-lg)' }}>Results</h2>
@@ -349,327 +406,124 @@ export default function SpawnPage() {
               {results.filter((r) => r.error).map((r) => (
                 <div className="results-panel__item results-panel__item--error" key={`${r.target}-${r.error}`}>
                   <div><strong>{r.target}:</strong> {r.error}</div>
-                  {(r.prompt || repo || branch || r.workspace_id) && (
-                    <div style={{ marginTop: 'var(--spacing-sm)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
-                      {repo && <div>Repo: {repo === '__new__' ? `New repository: ${newRepoName}` : repo}</div>}
-                      {branch && <div>Branch: {repo === '__new__' ? 'main' : branch}</div>}
-                      {r.workspace_id && <div>Workspace: {r.workspace_id}</div>}
-                      {r.prompt && (
-                        <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                          <div>Prompt:</div>
-                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'var(--font-mono)' }}>{r.prompt}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
           ) : null}
         </div>
-        <div className="wizard__actions" style={{ marginTop: 'var(--spacing-lg)' }}>
+        <div style={{ marginTop: 'var(--spacing-lg)' }}>
           <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
         </div>
       </>
     );
   }
 
-  return (
-    <>
-      <div className="page-header">
-        <h1 className="page-header__title">Spawn Sessions</h1>
-      </div>
-
-      <div className="wizard">
-        <div className="wizard__steps">
-          {STEPS.map((label, index) => {
-            const step = index + 1;
-            const className = step === currentStep
-              ? 'wizard__step wizard__step--active'
-              : step < currentStep
-                ? 'wizard__step wizard__step--completed'
-                : 'wizard__step';
-            return (
-              <div className={className} data-step={step} key={step}>
-                {step}. {label}
-              </div>
-            );
-          })}
+  // Confirmation screen
+  if (screen === 'confirm') {
+    return (
+      <>
+        <div className="page-header">
+          <h1 className="page-header__title">
+            Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
+          </h1>
         </div>
 
-        <div className="wizard__content">
-          {currentStep === 1 && (
-            <div className="wizard-step-content" data-step="1">
-              <div className="form-group">
-                <label htmlFor="repo" className="form-group__label">Repository</label>
-                <select
-                  id="repo"
-                  className="select"
-                  required
-                  value={repo}
-                  onChange={(event) => {
-                    setRepo(event.target.value);
-                    // Clear new repo name when switching away from __new__
-                    if (event.target.value !== '__new__') {
-                      setNewRepoName('');
-                    }
-                  }}
-                  disabled={!!prefillWorkspaceId}
-                >
-                  <option value="">Select repository...</option>
-                  {repos.map((item) => (
-                    <option key={item.url} value={item.url}>{item.name}</option>
-                  ))}
-                  <option value="__new__">+ Create New Repository</option>
-                </select>
-              </div>
+        <div className="card">
+          <div className="card__body">
+            <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Repository</h3>
+            <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
+              <span className="metadata-field__value">
+                {repo === '__new__' ? `New repository: ${newRepoName}` : getRepoName(repo)}
+              </span>
+            </div>
 
-              {repo === '__new__' ? (
-                <div className="form-group">
-                  <label htmlFor="newRepoName" className="form-group__label">Repository Name</label>
-                  <input
-                    type="text"
-                    id="newRepoName"
-                    className="input"
-                    value={newRepoName}
-                    onChange={(event) => setNewRepoName(event.target.value)}
-                    placeholder="e.g., myproject"
-                    required
-                    disabled={!!prefillWorkspaceId}
-                  />
-                  <p className="form-group__hint">A local repository will be created with an initial "main" branch. You can add a remote later.</p>
+            {spawnMode === 'promptable' && (
+              <>
+                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Prompt</h3>
+                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
+                  <span
+                    className="metadata-field__value"
+                    style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                  >
+                    {prompt}
+                  </span>
+                </div>
+
+                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Targets</h3>
+                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
+                  <span className="metadata-field__value">
+                    {promptableList
+                      .filter((item) => (targetCounts[item.name] || 0) > 0)
+                      .map((item) => {
+                        const count = targetCounts[item.name] || 0;
+                        return `${item.label} ×${count}`;
+                      })
+                      .join(', ')}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {spawnMode === 'command' && (
+              <>
+                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Command</h3>
+                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
+                  <span className="metadata-field__value">{selectedCommand}</span>
+                </div>
+              </>
+            )}
+
+            <div className="form-group">
+              <label className="form-group__label">Branch</label>
+              {inExistingWorkspace ? (
+                <div className="metadata-field">
+                  <span className="metadata-field__value">{repo === '__new__' ? 'main' : branch}</span>
                 </div>
               ) : (
-                <div className="form-group">
-                  <label htmlFor="branch" className="form-group__label">Branch</label>
-                  <input
-                    type="text"
-                    id="branch"
-                    className="input"
-                    value={branch}
-                    onChange={(event) => setBranch(event.target.value)}
-                    required
-                    disabled={!!prefillWorkspaceId}
-                  />
-                  <p className="form-group__hint">The branch to checkout for this workspace</p>
-                </div>
-              )}
-
-              {prefillWorkspaceId ? (
-                <div className="banner banner--info" style={{ display: 'flex' }}>
-                  Spawning into existing workspace: {prefillWorkspaceId}
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          {currentStep === 2 && (
-            <div className="wizard-step-content" data-step="2">
-              {/* Mode Selection */}
-              <div className="form-group">
-                <label className="form-group__label">Mode</label>
-                <div className="button-group">
-                  <button
-                    type="button"
-                    className={`btn${spawnMode === 'promptable' ? ' btn--primary' : ''}`}
-                    onClick={() => {
-                      if (promptableList.length > 0) {
-                        setSpawnMode('promptable');
-                        setShowTargetError(false);
-                      }
-                    }}
-                    disabled={promptableList.length === 0}
-                  >
-                    Promptable
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn${spawnMode === 'command' ? ' btn--primary' : ''}`}
-                    onClick={() => {
-                      if (commandTargets.length > 0) setSpawnMode('command');
-                    }}
-                    disabled={commandTargets.length === 0}
-                  >
-                    Command
-                  </button>
-                </div>
-                {spawnMode === 'promptable' && promptableList.length === 0 && (
-                  <p className="form-group__hint">No promptable targets available. Add run targets or install a detected tool.</p>
-                )}
-                {spawnMode === 'command' && commandTargets.length === 0 && (
-                  <p className="form-group__hint">No commands configured. Add some in the configuration page first.</p>
-                )}
-              </div>
-
-              {/* Content that shows AFTER selection */}
-              {spawnMode === 'promptable' && promptableList.length > 0 && (
-                <>
-                  {/* Presets - first, so you can quickly set then adjust */}
-                  <div className="form-group">
-                    <label className="form-group__label">Quick Select</label>
-                    <div className="preset-buttons">
-                      <button type="button" className="btn btn--sm" onClick={() => applyPreset('each')}>1 Each</button>
-                      <button type="button" className="btn btn--sm" onClick={() => applyPreset('review')}>Review Squad</button>
-                      <button type="button" className="btn btn--sm" onClick={() => applyPreset('reset')}>Reset</button>
-                    </div>
-                  </div>
-
-                  {/* Run Target Grid */}
-                  <div className="run-target-grid">
-                    {promptableList.map((item) => (
-                      <div className="run-target-card" key={item.name}>
-                        <div className="run-target-card__label">{item.label}</div>
-                        {item.kind === 'variant' && !item.configured && (
-                          <div className="run-target-card__note">Configure in Settings</div>
-                        )}
-                        <div className="run-target-card__control">
-                          <button
-                            className="run-target-card__btn"
-                            onClick={() => updateTargetCount(item.name, -1)}
-                            aria-label={`Decrease ${item.label} count`}
-                            disabled={item.kind === 'variant' && !item.configured}
-                          >
-                            −
-                          </button>
-                          <span className="run-target-card__count">{item.count}</span>
-                          <button
-                            className="run-target-card__btn"
-                            onClick={() => updateTargetCount(item.name, 1)}
-                            aria-label={`Increase ${item.label} count`}
-                            disabled={item.kind === 'variant' && !item.configured}
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {showTargetError && (
-                    <div className="form-group__error">
-                      Please select at least one target
-                    </div>
-                  )}
-
-                  {/* Separator before prompt */}
-                  <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-xl) 0' }} />
-
-                  {/* Prompt field */}
-                  <div className="form-group">
-                    <label htmlFor="prompt" className="form-group__label">Prompt</label>
-                    <textarea
-                      id="prompt"
-                      className="textarea"
-                      rows={8}
-                      placeholder="Describe the task you want the targets to work on..."
-                      value={prompt}
-                      onChange={(event) => setPrompt(event.target.value)}
-                    />
-                    <p className="form-group__hint">This prompt will be sent to all spawned promptable targets.</p>
-                  </div>
-                </>
-              )}
-
-              {spawnMode === 'command' && commandTargets.length > 0 && (
-                <div className="form-group">
-                  <label htmlFor="command" className="form-group__label">Command</label>
-                  <select
-                    id="command"
-                    className="select"
-                    required
-                    value={selectedCommand}
-                    onChange={(event) => setSelectedCommand(event.target.value)}
-                  >
-                    <option value="">Select a command...</option>
-                    {commandTargets.map((cmd) => (
-                      <option key={cmd.name} value={cmd.name}>
-                        {cmd.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="form-group__hint">
-                    This command will run directly in the workspace without a prompt.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {currentStep === 3 && (
-            <div className="wizard-step-content" data-step="3">
-              <h2 style={{ marginBottom: 'var(--spacing-lg)' }}>Review and Spawn</h2>
-              <div className="card" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                <div className="card__body">
-                  <div className="metadata-field">
-                    <span className="metadata-field__label">Repository</span>
-                    <span className="metadata-field__value">
-                      {repo === '__new__' ? `New repository: ${newRepoName}` : repo}
-                    </span>
-                  </div>
-                  <div className="metadata-field">
-                    <span className="metadata-field__label">Branch</span>
-                    <span className="metadata-field__value">{repo === '__new__' ? 'main' : branch}</span>
-                  </div>
-                  <div className="metadata-field">
-                    <span className="metadata-field__label">Workspace</span>
-                    <span className="metadata-field__value">{prefillWorkspaceId || 'New workspace'}</span>
-                  </div>
-                  {spawnMode === 'promptable' ? (
-                    <>
-                      <div className="metadata-field">
-                        <span className="metadata-field__label">Targets</span>
-                        <span className="metadata-field__value">
-                          {Object.entries(targetCounts)
-                            .filter(([_, count]) => count > 0)
-                            .map(([name, count]) => `${count}× ${name}`)
-                            .join(', ')}
-                        </span>
-                      </div>
-                      <div className="metadata-field">
-                        <span className="metadata-field__label">Prompt</span>
-                        <span className="metadata-field__value" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{prompt}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="metadata-field">
-                      <span className="metadata-field__label">Command</span>
-                      <span className="metadata-field__value mono">{commandTargets.find(c => c.name === selectedCommand)?.command}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Nickname field */}
-              <div className="form-group">
-                <label htmlFor="nickname" className="form-group__label">Nickname <span className="text-muted">(optional)</span></label>
                 <input
                   type="text"
-                  id="nickname"
                   className="input"
-                  placeholder="e.g., 'Fix login bug', 'Refactor auth flow'"
-                  maxLength={100}
-                  value={nickname}
-                  onChange={(event) => setNickname(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      handleSpawn();
-                    }
-                  }}
+                  value={branch}
+                  onChange={(event) => setBranch(event.target.value)}
+                  required
                 />
-                <p className="form-group__hint">A human-friendly name to help you identify this session later.</p>
-              </div>
+              )}
             </div>
-          )}
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-group__label">Nickname</label>
+              {inExistingWorkspace ? (
+                <div className="metadata-field">
+                  <span className="metadata-field__value">{nickname || '—'}</span>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="e.g., 'Fix login bug', 'Refactor auth flow'"
+                    maxLength={100}
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                  />
+                  {!branchSuggestTarget && (
+                    <div className="banner banner--info" style={{ margin: 'var(--spacing-sm) 0', fontSize: '0.875rem' }}>
+                      Auto-suggested branch names are disabled. Enable in config to use suggestions.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="wizard__actions">
-          <button type="button" className="btn" onClick={prevStep} disabled={currentStep === 1 || spawning}>
+        <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)' }}>
+          <button className="btn" onClick={handleBack} disabled={spawning}>
             Back
           </button>
           <button
-            type="button"
             className="btn btn--primary"
-            onClick={currentStep === TOTAL_STEPS ? handleSpawn : nextStep}
+            onClick={handleSpawn}
             disabled={spawning}
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
           >
@@ -678,9 +532,206 @@ export default function SpawnPage() {
                 <span className="spinner spinner--small"></span>
                 Spawning...
               </>
-            ) : currentStep === TOTAL_STEPS ? 'Spawn' : 'Next'}
+            ) : 'Spawn'}
           </button>
         </div>
+      </>
+    );
+  }
+
+  // Form screen
+  return (
+    <>
+      <div className="page-header">
+        <h1 className="page-header__title">
+          Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
+        </h1>
+      </div>
+
+      {/* Mode + Repository on same line */}
+      <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+        <div className="card__body" style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'flex-end' }}>
+          <div style={{ flex: '0 0 auto' }}>
+            <label className="form-group__label">Mode</label>
+            <div className="button-group">
+              <button
+                type="button"
+                className={`btn${spawnMode === 'promptable' ? ' btn--primary' : ''}`}
+                onClick={() => setSpawnMode('promptable')}
+              >
+                Promptable
+              </button>
+              <button
+                type="button"
+                className={`btn${spawnMode === 'command' ? ' btn--primary' : ''}`}
+                onClick={() => {
+                  setSpawnMode('command');
+                  setNickname('');
+                }}
+                disabled={commandTargets.length === 0}
+              >
+                Command
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1 }}>
+            <label htmlFor="repo" className="form-group__label">Repository</label>
+            <select
+              id="repo"
+              className="select"
+              required
+              value={repo}
+              onChange={(event) => {
+                setRepo(event.target.value);
+                if (event.target.value !== '__new__') {
+                  setNewRepoName('');
+                }
+              }}
+              disabled={inExistingWorkspace}
+            >
+              <option value="">Select repository...</option>
+              {repos.map((item) => (
+                <option key={item.url} value={item.url}>{item.name}</option>
+              ))}
+              <option value="__new__">+ Create New Repository</option>
+            </select>
+
+            {repo === '__new__' && (
+              <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                <input
+                  type="text"
+                  id="newRepoName"
+                  className="input"
+                  value={newRepoName}
+                  onChange={(event) => setNewRepoName(event.target.value)}
+                  placeholder="Repository name"
+                  required
+                  disabled={inExistingWorkspace}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Prompt area - big and centered */}
+      <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: '0' }}>
+        {spawnMode === 'promptable' ? (
+          <textarea
+            className="textarea"
+            style={PROMPT_TEXTAREA_STYLE}
+            placeholder="Describe the task you want the targets to work on..."
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+          />
+        ) : (
+          <div style={{ padding: 'var(--spacing-md)' }}>
+            <label htmlFor="command" className="form-group__label">Command</label>
+            <select
+              id="command"
+              className="select"
+              required
+              value={selectedCommand}
+              onChange={(event) => setSelectedCommand(event.target.value)}
+            >
+              <option value="">Select command...</option>
+              {commandTargets.map((cmd) => (
+                <option key={cmd.name} value={cmd.name}>
+                  {cmd.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Agent selection - compact horizontal chips */}
+      {spawnMode === 'promptable' && promptableList.length > 0 && (
+        <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+          <div className="card__body">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
+              {promptableList.map((item) => {
+                const count = targetCounts[item.name] || 0;
+                return (
+                  <div
+                    key={item.name}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 'var(--spacing-xs)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: 'var(--spacing-xs)',
+                      backgroundColor: count > 0 ? 'var(--color-accent)' : 'var(--color-surface-alt)',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.875rem' }}>
+                      {item.label}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => updateTargetCount(item.name, -1)}
+                      disabled={count === 0}
+                      style={{
+                        padding: '2px 16px',
+                        fontSize: '0.75rem',
+                        minHeight: '24px',
+                        minWidth: '32px',
+                        lineHeight: '1',
+                        backgroundColor: count > 0 ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                        color: count > 0 ? 'white' : 'var(--color-text)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      −
+                    </button>
+                    <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
+                      {count}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => updateTargetCount(item.name, 1)}
+                      style={{
+                        padding: '2px 16px',
+                        fontSize: '0.75rem',
+                        minHeight: '24px',
+                        minWidth: '32px',
+                        lineHeight: '1',
+                        backgroundColor: count > 0 ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                        color: count > 0 ? 'white' : 'var(--color-text)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 'var(--spacing-lg)' }}>
+        <button
+          className="btn btn--primary"
+          onClick={handleNext}
+          disabled={reviewing}
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
+        >
+          {reviewing ? (
+            <>
+              <span className="spinner spinner--small"></span>
+              Reviewing...
+            </>
+          ) : 'Review'}
+        </button>
       </div>
     </>
   );
