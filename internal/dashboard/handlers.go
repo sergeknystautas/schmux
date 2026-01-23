@@ -94,6 +94,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ID           string `json:"id"`
 		Target       string `json:"target"`
 		Branch       string `json:"branch"`
+		BranchURL    string `json:"branch_url,omitempty"`
 		Nickname     string `json:"nickname,omitempty"`
 		CreatedAt    string `json:"created_at"`
 		LastOutputAt string `json:"last_output_at,omitempty"`
@@ -107,6 +108,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		ID           string            `json:"id"`
 		Repo         string            `json:"repo"`
 		Branch       string            `json:"branch"`
+		BranchURL    string            `json:"branch_url,omitempty"`
 		Path         string            `json:"path"`
 		SessionCount int               `json:"session_count"`
 		Sessions     []SessionResponse `json:"sessions"`
@@ -118,10 +120,17 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	workspaceMap := make(map[string]*WorkspaceResponse)
 	workspaces := s.state.GetWorkspaces()
 	for _, ws := range workspaces {
+		// Only build branch URL if the branch has a remote tracking branch (upstream)
+		branchURL := ""
+		if workspace.BranchHasUpstream(r.Context(), ws.Path) {
+			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
+		}
+
 		workspaceMap[ws.ID] = &WorkspaceResponse{
 			ID:           ws.ID,
 			Repo:         ws.Repo,
 			Branch:       ws.Branch,
+			BranchURL:    branchURL,
 			Path:         ws.Path,
 			SessionCount: 0,
 			Sessions:     []SessionResponse{},
@@ -151,6 +160,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			ID:           sess.ID,
 			Target:       sess.Target,
 			Branch:       wsResp.Branch,
+			BranchURL:    wsResp.BranchURL,
 			Nickname:     sess.Nickname,
 			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			LastOutputAt: lastOutputAt,
