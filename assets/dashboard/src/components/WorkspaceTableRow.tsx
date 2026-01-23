@@ -89,10 +89,10 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
                 </a>
               </Tooltip>
             ) : (
-              <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 {branchIcon}
                 {workspace.branch}
-              </>
+              </span>
             )} ·
             {gitStatusParts}
           </span>
