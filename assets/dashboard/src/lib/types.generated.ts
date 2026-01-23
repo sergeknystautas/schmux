@@ -12,6 +12,14 @@ export interface AccessControlUpdate {
   session_ttl_minutes?: number;
 }
 
+export interface BranchSuggest {
+  target?: string;
+}
+
+export interface BranchSuggestUpdate {
+  target?: string;
+}
+
 export interface ConfigResponse {
   workspace_path: string;
   repos: Repo[];
@@ -20,6 +28,7 @@ export interface ConfigResponse {
   variants?: Variant[];
   terminal: Terminal;
   nudgenik: Nudgenik;
+  branch_suggest: BranchSuggest;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -34,6 +43,7 @@ export interface ConfigUpdateRequest {
   quick_launch?: QuickLaunch[];
   variants?: Variant[];
   nudgenik?: NudgenikUpdate;
+  branch_suggest?: BranchSuggestUpdate;
   terminal?: TerminalUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -132,6 +133,27 @@ func TestHandleAskNudgenik(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleSuggestBranch(t *testing.T) {
+	t.Run("disabled when no target configured", func(t *testing.T) {
+		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+		st := state.New("")
+		statePath := t.TempDir() + "/state.json"
+		wm := workspace.New(cfg, st, statePath)
+		sm := session.New(cfg, st, statePath, wm)
+		server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
+		req, _ := http.NewRequest(http.MethodPost, "/api/suggest-branch", body)
+		rr := httptest.NewRecorder()
+
+		server.handleSuggestBranch(rr, req)
+
+		if rr.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected status 503, got %d", rr.Code)
+		}
+	})
 }
 
 func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {

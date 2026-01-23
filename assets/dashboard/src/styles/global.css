@@ -922,56 +922,6 @@ body {
     gap: var(--spacing-md);
 }
 
-.run-target-card {
-    background-color: var(--color-surface-alt);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-md);
-}
-
-.run-target-card__label {
-    font-size: 0.875rem;
-    font-weight: 500;
-    margin-bottom: var(--spacing-sm);
-}
-
-.run-target-card__note {
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
-    margin-bottom: var(--spacing-sm);
-}
-
-.run-target-card__control {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-}
-
-.run-target-card__btn {
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    color: var(--color-text);
-}
-
-.run-target-card__btn:hover {
-    background-color: var(--color-accent);
-    color: white;
-    border-color: var(--color-accent);
-}
-
-.run-target-card__count {
-    width: 40px;
-    text-align: center;
-    font-weight: 600;
-}
-
 /* Preset Buttons */
 .preset-buttons {
     display: flex;
