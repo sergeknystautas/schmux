@@ -74,6 +74,15 @@ export interface SpawnResult {
   error?: string;
 }
 
+export interface SuggestBranchRequest {
+  prompt: string;
+}
+
+export interface SuggestBranchResponse {
+  branch: string;
+  nickname: string;
+}
+
 export interface DetectTool {
   name: string;
   command: string;
