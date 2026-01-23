@@ -70,6 +70,19 @@ type VariantModalState = {
   error: string;
 } | null;
 
+type RunTargetEditModalState = {
+  target: RunTargetResponse;
+  command: string;
+  error: string;
+} | null;
+
+type QuickLaunchEditModalState = {
+  item: QuickLaunchPreset;
+  prompt: string;
+  isCommandTarget: boolean;
+  error: string;
+} | null;
+
 export default function ConfigPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -117,7 +130,7 @@ export default function ConfigPage() {
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
   const [detectedTargets, setDetectedTargets] = useState<RunTargetResponse[]>([]);
   const [quickLaunch, setQuickLaunch] = useState<QuickLaunchPreset[]>([]);
-  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch presets
+  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch items
   const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
 
@@ -635,7 +648,7 @@ export default function ConfigPage() {
   };
 
   const checkTargetUsage = (targetName) => {
-    const inQuickLaunch = quickLaunch.some((preset) => preset.target === targetName);
+    const inQuickLaunch = quickLaunch.some((item) => item.target === targetName);
     const inNudgenik = nudgenikTarget && nudgenikTarget === targetName;
     return { inQuickLaunch, inNudgenik };
   };
@@ -644,7 +657,7 @@ export default function ConfigPage() {
     const usage = checkTargetUsage(name);
     if (usage.inQuickLaunch || usage.inNudgenik) {
       const reasons = [
-        usage.inQuickLaunch ? 'quick launch preset' : null,
+        usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
@@ -680,7 +693,7 @@ export default function ConfigPage() {
     const usage = checkTargetUsage(name);
     if (usage.inQuickLaunch || usage.inNudgenik) {
       const reasons = [
-        usage.inQuickLaunch ? 'quick launch preset' : null,
+        usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
@@ -734,6 +747,8 @@ export default function ConfigPage() {
   const [variantModal, setVariantModal] = useState<VariantModalState>(null);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [workspaceModalPath, setWorkspaceModalPath] = useState('');
+  const [runTargetEditModal, setRunTargetEditModal] = useState<RunTargetEditModalState>(null);
+  const [quickLaunchEditModal, setQuickLaunchEditModal] = useState<QuickLaunchEditModalState>(null);
 
   const openWorkspaceModal = () => {
     setWorkspaceModalPath(workspacePath);
@@ -758,7 +773,7 @@ export default function ConfigPage() {
       const usage = checkTargetUsage(variant.name);
       if (usage.inQuickLaunch || usage.inNudgenik) {
         const reasons = [
-          usage.inQuickLaunch ? 'quick launch preset' : null,
+          usage.inQuickLaunch ? 'quick launch item' : null,
           usage.inNudgenik ? 'nudgenik target' : null
         ].filter(Boolean).join(' and ');
         toastError(`Cannot remove variant "${variant.display_name}" while used by ${reasons}.`);
@@ -834,6 +849,90 @@ export default function ConfigPage() {
         };
       });
     }
+  };
+
+  // Run target edit modal
+  const openRunTargetEditModal = (target: RunTargetResponse) => {
+    setRunTargetEditModal({ target, command: target.command, error: '' });
+  };
+
+  const closeRunTargetEditModal = () => {
+    setRunTargetEditModal(null);
+  };
+
+  const saveRunTargetEditModal = () => {
+    if (!runTargetEditModal) return;
+    const { target, command } = runTargetEditModal;
+
+    if (!command.trim()) {
+      setRunTargetEditModal(current => current ? { ...current, error: 'Command is required' } : null);
+      return;
+    }
+
+    if (target.type === 'promptable') {
+      setPromptableTargets(promptableTargets.map(t =>
+        t.name === target.name ? { ...t, command } : t
+      ));
+    } else {
+      setCommandTargets(commandTargets.map(t =>
+        t.name === target.name ? { ...t, command } : t
+      ));
+    }
+    closeRunTargetEditModal();
+  };
+
+  // Quick launch edit modal
+  const openQuickLaunchEditModal = (item: QuickLaunchPreset) => {
+    const isCommandTarget = commandTargetNames.has(item.target);
+    // For command targets, prefill with the underlying target's command
+    let initialPrompt = item.prompt || '';
+    if (isCommandTarget) {
+      const commandTarget = commandTargets.find(t => t.name === item.target);
+      if (commandTarget) {
+        initialPrompt = commandTarget.command;
+      }
+    }
+    setQuickLaunchEditModal({
+      item,
+      prompt: initialPrompt,
+      isCommandTarget,
+      error: ''
+    });
+  };
+
+  const closeQuickLaunchEditModal = () => {
+    setQuickLaunchEditModal(null);
+  };
+
+  const saveQuickLaunchEditModal = () => {
+    if (!quickLaunchEditModal) return;
+    const { item, prompt, isCommandTarget } = quickLaunchEditModal;
+    const target = item.target;
+
+    const isPromptable = promptableTargetNames.has(target);
+    if (isPromptable && !prompt.trim()) {
+      setQuickLaunchEditModal(current => current ? { ...current, error: 'Prompt is required for promptable targets' } : null);
+      return;
+    }
+
+    // For command target items, require non-empty command and update the underlying run target
+    if (isCommandTarget) {
+      if (!prompt.trim()) {
+        setQuickLaunchEditModal(current => current ? { ...current, error: 'Command is required for command targets' } : null);
+        return;
+      }
+      setCommandTargets(commandTargets.map(t =>
+        t.name === target ? { ...t, command: prompt } : t
+      ));
+    }
+
+    // Update the quick launch item
+    setQuickLaunch(quickLaunch.map(p =>
+      p.name === item.name
+        ? { name: item.name, target, prompt: isPromptable ? prompt : null }
+        : p
+    ));
+    closeQuickLaunchEditModal();
   };
 
   // Auth secrets modal
@@ -1116,12 +1215,29 @@ export default function ConfigPage() {
                         <span className="item-list__item-name">{target.name}</span>
                         <span className="item-list__item-detail item-list__item-detail--wide">{target.command}</span>
                       </div>
-                      <button
-                        className="btn btn--sm btn--danger"
-                        onClick={() => removePromptableTarget(target.name)}
-                      >
-                        Remove
-                      </button>
+                      {target.source === 'user' ? (
+                        <div className="btn-group">
+                          <button
+                            className="btn btn--sm btn--primary"
+                            onClick={() => openRunTargetEditModal(target)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn--sm btn--danger"
+                            onClick={() => removePromptableTarget(target.name)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn btn--sm btn--danger"
+                          onClick={() => removePromptableTarget(target.name)}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1146,7 +1262,7 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addPromptableTarget()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm" onClick={addPromptableTarget}>Add</button>
+                <button type="button" className="btn btn--sm btn--primary" onClick={addPromptableTarget}>Add</button>
               </div>
 
               <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Command Targets</h3>
@@ -1165,12 +1281,29 @@ export default function ConfigPage() {
                         <span className="item-list__item-name">{cmd.name}</span>
                         <span className="item-list__item-detail item-list__item-detail--wide">{cmd.command}</span>
                       </div>
-                      <button
-                        className="btn btn--sm btn--danger"
-                        onClick={() => removeCommand(cmd.name)}
-                      >
-                        Remove
-                      </button>
+                      {cmd.source === 'user' ? (
+                        <div className="btn-group">
+                          <button
+                            className="btn btn--sm btn--primary"
+                            onClick={() => openRunTargetEditModal(cmd)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn--sm btn--danger"
+                            onClick={() => removeCommand(cmd.name)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn btn--sm btn--danger"
+                          onClick={() => removeCommand(cmd.name)}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1195,7 +1328,7 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addCommand()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm" onClick={addCommand}>Add</button>
+                <button type="button" className="btn btn--sm btn--primary" onClick={addCommand}>Add</button>
               </div>
             </div>
           )}
@@ -1265,30 +1398,41 @@ export default function ConfigPage() {
             <div className="wizard-step-content" data-step="4">
               <h2 className="wizard-step-content__title">Quick Launch</h2>
               <p className="wizard-step-content__description">
-                Quick launch runs a target with a preset prompt. Promptable targets require a prompt.
+                Quick launch runs a target with a prompt. Promptable targets require a prompt.
               </p>
 
               <div className="quick-launch-editor">
                 {quickLaunch.length === 0 ? (
                   <div className="quick-launch-editor__empty">
-                    No quick launch presets yet.
+                    No quick launch items yet.
                   </div>
                 ) : (
                   <div className="quick-launch-editor__list">
-                    {quickLaunch.map((preset) => (
-                      <div className="quick-launch-editor__item" key={preset.name}>
+                    {quickLaunch.map((item) => (
+                      <div className="quick-launch-editor__item" key={item.name}>
                         <div className="quick-launch-editor__item-main">
-                          <span className="quick-launch-editor__item-name">{preset.name}</span>
+                          <span className="quick-launch-editor__item-name">{item.name}</span>
                           <span className="quick-launch-editor__item-detail">
-                            {preset.target}{preset.prompt ? ` — ${preset.prompt}` : ''}
+                            {commandTargetNames.has(item.target) ? (() => {
+                              const cmd = commandTargets.find(t => t.name === item.target);
+                              return cmd ? cmd.command : item.target;
+                            })() : `${item.target}${item.prompt ? ` — ${item.prompt}` : ''}`}
                           </span>
                         </div>
-                        <button
-                          className="btn btn--danger"
-                          onClick={() => removeQuickLaunch(preset.name)}
-                        >
-                          Remove
-                        </button>
+                        <div className="btn-group">
+                          <button
+                            className="btn btn--sm btn--primary"
+                            onClick={() => openQuickLaunchEditModal(item)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn--sm btn--danger"
+                            onClick={() => removeQuickLaunch(item.name)}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1317,7 +1461,7 @@ export default function ConfigPage() {
                     <input
                       type="text"
                       className="input quick-launch-editor__name"
-                      placeholder="Preset name"
+                      placeholder="Name"
                       value={newQuickLaunchName}
                       onChange={(e) => setNewQuickLaunchName(e.target.value)}
                     />
@@ -1382,7 +1526,7 @@ export default function ConfigPage() {
                   {(selectedCookbookTemplate || promptableTargetNames.has(newQuickLaunchTarget)) && (
                     <div className="quick-launch-editor__prompt">
                       <label className="form-group__label">
-                        {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Preset prompt'}
+                        {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Prompt'}
                       </label>
                       <textarea
                         className="input quick-launch-editor__prompt-input"
@@ -2093,6 +2237,107 @@ export default function ConfigPage() {
               <button className="btn btn--primary" onClick={saveAuthSecretsModal}>
                 Save
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {runTargetEditModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="runtarget-edit-modal-title"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeRunTargetEditModal();
+          }}
+        >
+          <div className="modal">
+            <div className="modal__header">
+              <h2 className="modal__title" id="runtarget-edit-modal-title">
+                Edit {runTargetEditModal.target.name}
+              </h2>
+            </div>
+            <div className="modal__body">
+              <div className="form-group">
+                <label className="form-group__label">Command</label>
+                <textarea
+                  className="input"
+                  value={runTargetEditModal.command}
+                  onChange={(e) => setRunTargetEditModal(current => current ? { ...current, command: e.target.value, error: '' } : null)}
+                  rows={6}
+                  autoFocus
+                />
+                <p className="form-group__hint">
+                  {runTargetEditModal.target.type === 'promptable'
+                    ? 'Prompt is appended as last arg'
+                    : 'Shell command to run'}
+                </p>
+              </div>
+              {runTargetEditModal.error && (
+                <p className="form-group__error">{runTargetEditModal.error}</p>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn" onClick={closeRunTargetEditModal}>Cancel</button>
+              <button className="btn btn--primary" onClick={saveRunTargetEditModal}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quickLaunchEditModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quicklaunch-edit-modal-title"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeQuickLaunchEditModal();
+          }}
+        >
+          <div className="modal">
+            <div className="modal__header">
+              <h2 className="modal__title" id="quicklaunch-edit-modal-title">
+                Edit {quickLaunchEditModal.item.name}
+              </h2>
+            </div>
+            <div className="modal__body">
+              {quickLaunchEditModal.isCommandTarget ? (
+                <div className="form-group">
+                  <label className="form-group__label">Command</label>
+                  <textarea
+                    className="input"
+                    value={quickLaunchEditModal.prompt}
+                    onChange={(e) => setQuickLaunchEditModal(current => current ? { ...current, prompt: e.target.value, error: '' } : null)}
+                    placeholder="Shell command to run"
+                    rows={6}
+                    autoFocus
+                  />
+                  <p className="form-group__hint" style={{ color: 'var(--color-warning-text)' }}>
+                    This will update the underlying command target used by this quick launch item.
+                  </p>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-group__label">Prompt</label>
+                  <textarea
+                    className="input quick-launch-editor__prompt-input"
+                    value={quickLaunchEditModal.prompt}
+                    onChange={(e) => setQuickLaunchEditModal(current => current ? { ...current, prompt: e.target.value, error: '' } : null)}
+                    placeholder="Prompt to send to the agent"
+                    rows={10}
+                    autoFocus
+                  />
+                </div>
+              )}
+              {quickLaunchEditModal.error && (
+                <p className="form-group__error">{quickLaunchEditModal.error}</p>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn" onClick={closeQuickLaunchEditModal}>Cancel</button>
+              <button className="btn btn--primary" onClick={saveQuickLaunchEditModal}>Save</button>
             </div>
           </div>
         </div>
