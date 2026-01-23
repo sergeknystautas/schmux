@@ -7,6 +7,7 @@ import { SessionsProvider } from './contexts/SessionsContext'
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext'
 import SessionsPage from './routes/SessionsPage'
 import SpawnPage from './routes/SpawnPage'
+import BeadsPage from './routes/BeadsPage'
 import TipsPage from './routes/TipsPage'
 import ConfigPage from './routes/ConfigPage'
 import SessionDetailPage from './routes/SessionDetailPage'
@@ -28,6 +29,7 @@ export default function App() {
                   <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                   <Route path="/diff/:workspaceId" element={<DiffPage />} />
                   <Route path="/spawn" element={<SpawnPage />} />
+                  <Route path="/beads" element={<BeadsPage />} />
                   <Route path="/tips" element={<TipsPage />} />
                   <Route path="/config" element={<ConfigPage />} />
                   <Route path="/terminal.html" element={<LegacyTerminalPage />} />

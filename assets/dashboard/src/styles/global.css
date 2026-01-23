@@ -202,6 +202,10 @@ body {
     margin-bottom: var(--spacing-xs);
 }
 
+.nav-item--indent {
+    margin-left: var(--spacing-xl);
+}
+
 .nav-link {
     display: flex;
     align-items: center;

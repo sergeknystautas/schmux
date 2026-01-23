@@ -134,6 +134,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/variants", s.withCORS(s.withAuth(s.handleVariants)))
 	mux.HandleFunc("/api/variants/", s.withCORS(s.withAuth(s.handleVariant)))
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
+	mux.HandleFunc("/api/beads-tasks", s.withCORS(s.withAuth(s.handleBeadsTasks)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
