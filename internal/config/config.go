@@ -31,10 +31,11 @@ const (
 	DefaultRotatedLogSizeMB = 1  // 1MB
 
 	// Default timeout values in milliseconds
-	DefaultGitCloneTimeoutMs       = 300000 // 5 minutes
-	DefaultGitStatusTimeoutMs      = 30000  // 30 seconds
-	DefaultXtermQueryTimeoutMs     = 5000   // 5 seconds
-	DefaultXtermOperationTimeoutMs = 10000  // 10 seconds
+	DefaultGitCloneTimeoutMs          = 300000  // 5 minutes
+	DefaultGitStatusTimeoutMs         = 30000   // 30 seconds
+	DefaultXtermQueryTimeoutMs        = 5000    // 5 seconds
+	DefaultXtermOperationTimeoutMs    = 10000   // 10 seconds
+	DefaultExternalDiffCleanupAfterMs = 3600000 // 1 hour
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -42,19 +43,21 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	ConfigVersion string               `json:"config_version,omitempty"`
-	WorkspacePath string               `json:"workspace_path"`
-	Repos         []Repo               `json:"repos"`
-	RunTargets    []RunTarget          `json:"run_targets"`
-	QuickLaunch   []QuickLaunch        `json:"quick_launch"`
-	Variants      []VariantConfig      `json:"variants,omitempty"`
-	Terminal      *TerminalSize        `json:"terminal,omitempty"`
-	Nudgenik      *NudgenikConfig      `json:"nudgenik,omitempty"`
-	BranchSuggest *BranchSuggestConfig `json:"branch_suggest,omitempty"`
-	Sessions      *SessionsConfig      `json:"sessions,omitempty"`
-	Xterm         *XtermConfig         `json:"xterm,omitempty"`
-	Network       *NetworkConfig       `json:"network,omitempty"`
-	AccessControl *AccessControlConfig `json:"access_control,omitempty"`
+	ConfigVersion              string                `json:"config_version,omitempty"`
+	WorkspacePath              string                `json:"workspace_path"`
+	Repos                      []Repo                `json:"repos"`
+	RunTargets                 []RunTarget           `json:"run_targets"`
+	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
+	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
+	Variants                   []VariantConfig       `json:"variants,omitempty"`
+	Terminal                   *TerminalSize         `json:"terminal,omitempty"`
+	Nudgenik                   *NudgenikConfig       `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestConfig  `json:"branch_suggest,omitempty"`
+	Sessions                   *SessionsConfig       `json:"sessions,omitempty"`
+	Xterm                      *XtermConfig          `json:"xterm,omitempty"`
+	Network                    *NetworkConfig        `json:"network,omitempty"`
+	AccessControl              *AccessControlConfig  `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -138,6 +141,12 @@ type QuickLaunch struct {
 	Name   string  `json:"name"`
 	Target string  `json:"target"`
 	Prompt *string `json:"prompt"`
+}
+
+// ExternalDiffCommand represents an external diff tool configuration.
+type ExternalDiffCommand struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
 }
 
 // VariantConfig represents a variant in config.json.
@@ -230,6 +239,19 @@ func (c *Config) GetRunTargets() []RunTarget {
 // GetQuickLaunch returns the list of quick launch presets.
 func (c *Config) GetQuickLaunch() []QuickLaunch {
 	return c.QuickLaunch
+}
+
+// GetExternalDiffCommands returns the list of external diff commands.
+func (c *Config) GetExternalDiffCommands() []ExternalDiffCommand {
+	return c.ExternalDiffCommands
+}
+
+// GetExternalDiffCleanupAfterMs returns the diff temp cleanup delay in ms.
+func (c *Config) GetExternalDiffCleanupAfterMs() int {
+	if c.ExternalDiffCleanupAfterMs > 0 {
+		return c.ExternalDiffCleanupAfterMs
+	}
+	return DefaultExternalDiffCleanupAfterMs
 }
 
 // GetNudgenikTarget returns the configured nudgenik target name, if any.
@@ -355,11 +377,13 @@ func (c *Config) Reload() error {
 // The path is stored so that subsequent Save() calls write to the same location.
 func CreateDefault(configPath string) *Config {
 	return &Config{
-		ConfigVersion: version.Version,
-		WorkspacePath: "",
-		Repos:         []Repo{},
-		RunTargets:    []RunTarget{},
-		QuickLaunch:   []QuickLaunch{},
+		ConfigVersion:              version.Version,
+		WorkspacePath:              "",
+		Repos:                      []Repo{},
+		RunTargets:                 []RunTarget{},
+		QuickLaunch:                []QuickLaunch{},
+		ExternalDiffCommands:       []ExternalDiffCommand{},
+		ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
 		Terminal: &TerminalSize{
 			Width:     DefaultTerminalWidth,
 			Height:    DefaultTerminalHeight,

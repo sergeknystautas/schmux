@@ -25,6 +25,8 @@ export interface ConfigResponse {
   repos: Repo[];
   run_targets: RunTarget[];
   quick_launch: QuickLaunch[];
+  external_diff_commands?: ExternalDiffCommand[];
+  external_diff_cleanup_after_ms?: number;
   variants?: Variant[];
   terminal: Terminal;
   nudgenik: Nudgenik;
@@ -41,6 +43,8 @@ export interface ConfigUpdateRequest {
   repos?: Repo[];
   run_targets?: RunTarget[];
   quick_launch?: QuickLaunch[];
+  external_diff_commands?: ExternalDiffCommand[];
+  external_diff_cleanup_after_ms?: number;
   variants?: Variant[];
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
@@ -49,6 +53,11 @@ export interface ConfigUpdateRequest {
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
   access_control?: AccessControlUpdate;
+}
+
+export interface ExternalDiffCommand {
+  name: string;
+  command: string;
 }
 
 export interface Network {

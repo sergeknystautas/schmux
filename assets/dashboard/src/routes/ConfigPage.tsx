@@ -17,11 +17,11 @@ import type {
   VariantResponse,
 } from '../lib/types';
 
-const TOTAL_STEPS = 5;
-const TABS = ['Workspace', 'Run Targets', 'Variants', 'Quick Launch', 'Advanced'];
+const TOTAL_STEPS = 6;
+const TABS = ['Workspace', 'Run Targets', 'Variants', 'Quick Launch', 'Diff', 'Advanced'];
 
 // Map step number to URL slug
-const TAB_SLUGS = ['workspace', 'targets', 'variants', 'quicklaunch', 'advanced'];
+const TAB_SLUGS = ['workspace', 'targets', 'variants', 'quicklaunch', 'diff', 'advanced'];
 
 // Helper: step number -> slug
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
@@ -38,6 +38,8 @@ type ConfigSnapshot = {
   promptableTargets: RunTargetResponse[];
   commandTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
+  externalDiffCommands: { name: string; command: string }[];
+  externalDiffCleanupMinutes: number;
   nudgenikTarget: string;
   branchSuggestTarget: string;
   terminalWidth: string;
@@ -131,10 +133,16 @@ export default function ConfigPage() {
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
   const [detectedTargets, setDetectedTargets] = useState<RunTargetResponse[]>([]);
   const [quickLaunch, setQuickLaunch] = useState<QuickLaunchPreset[]>([]);
-  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch items
+  const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch presets
+  const [externalDiffCommands, setExternalDiffCommands] = useState<{ name: string; command: string }[]>([]);
+  const [externalDiffCleanupMinutes, setExternalDiffCleanupMinutes] = useState(60);
   const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
+
+  // External diff new item state
+  const [newDiffName, setNewDiffName] = useState('');
+  const [newDiffCommand, setNewDiffCommand] = useState('');
 
   // Terminal state
   const [terminalWidth, setTerminalWidth] = useState('120');
@@ -184,6 +192,8 @@ export default function ConfigPage() {
       promptableTargets,
       commandTargets,
       quickLaunch,
+      externalDiffCommands,
+      externalDiffCleanupMinutes,
       nudgenikTarget,
       branchSuggestTarget,
       terminalWidth,
@@ -222,6 +232,7 @@ export default function ConfigPage() {
       !arraysMatch(current.promptableTargets, originalConfig.promptableTargets) ||
       !arraysMatch(current.commandTargets, originalConfig.commandTargets) ||
       !arraysMatch(current.quickLaunch, originalConfig.quickLaunch) ||
+      !arraysMatch(current.externalDiffCommands, originalConfig.externalDiffCommands) ||
       current.nudgenikTarget !== originalConfig.nudgenikTarget ||
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
@@ -310,6 +321,12 @@ export default function ConfigPage() {
         setCommandTargets(commandItems);
         setDetectedTargets(detectedItems);
         setQuickLaunch(data.quick_launch || []);
+        // External diff commands - add VS Code as a built-in default
+        // Built-in commands are not editable/deletable in the UI
+        const userDiffCommands = data.external_diff_commands || [];
+        setExternalDiffCommands(userDiffCommands);
+        const cleanupMs = data.external_diff_cleanup_after_ms || 3600000;
+        setExternalDiffCleanupMinutes(Math.max(1, cleanupMs / 60000));
         setNudgenikTarget(data.nudgenik?.target || '');
         setBranchSuggestTarget(data.branch_suggest?.target || '');
 
@@ -343,6 +360,8 @@ export default function ConfigPage() {
             promptableTargets: promptableItems,
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
+            externalDiffCommands: data.external_diff_commands || [],
+            externalDiffCleanupMinutes: Math.max(1, (data.external_diff_cleanup_after_ms || 3600000) / 60000),
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
@@ -502,6 +521,8 @@ export default function ConfigPage() {
         repos: repos,
         run_targets: runTargets,
         quick_launch: quickLaunch,
+        external_diff_commands: externalDiffCommands,
+        external_diff_cleanup_after_ms: Math.max(60000, Math.round(externalDiffCleanupMinutes * 60000)),
         nudgenik: {
           target: nudgenikTarget || '',
           viewed_buffer_ms: viewedBuffer,
@@ -556,6 +577,8 @@ export default function ConfigPage() {
           promptableTargets,
           commandTargets,
           quickLaunch,
+          externalDiffCommands,
+          externalDiffCleanupMinutes,
           nudgenikTarget,
           branchSuggestTarget,
           terminalWidth,
@@ -1009,7 +1032,8 @@ export default function ConfigPage() {
     2: true, // Run targets are optional
     3: true, // Variants are optional
     4: true, // Quick launch is optional
-    5: true // Advanced step is always valid (has defaults)
+    5: true, // External diff is optional
+    6: true // Advanced step is always valid (has defaults)
   };
 
   if (loading) {
@@ -1609,6 +1633,130 @@ export default function ConfigPage() {
 
           {currentTab === 5 && (
             <div className="wizard-step-content" data-step="5">
+              <h2 className="wizard-step-content__title">External Diff Tools</h2>
+              <p className="wizard-step-content__description">
+                Configure external diff tools to view git changes outside the browser.
+              </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Built-in Options</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="item-list">
+                    <div className="item-list__item">
+                      <span className="item-list__item-name">VS Code</span>
+                      <span className="item-list__item-detail">Always available in the diff dropdown</span>
+                    </div>
+                    <div className="item-list__item">
+                      <span className="item-list__item-name">Web view</span>
+                      <span className="item-list__item-detail">Always available in the diff dropdown</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Custom Diff Tools</h3>
+                </div>
+                <div className="settings-section__body">
+                  {externalDiffCommands.length === 0 ? (
+                    <div className="empty-state-hint">
+                      No custom diff tools configured.
+                    </div>
+                  ) : (
+                    <div className="item-list item-list--two-col">
+                      {externalDiffCommands.map((cmd) => (
+                        <div className="item-list__item" key={cmd.name}>
+                          <div className="item-list__item-primary item-list__item-row">
+                            <span className="item-list__item-name">{cmd.name}</span>
+                            <span className="item-list__item-detail item-list__item-detail--wide mono">{cmd.command}</span>
+                          </div>
+                          <button
+                            className="btn btn--sm btn--danger"
+                            onClick={() => setExternalDiffCommands(externalDiffCommands.filter(c => c.name !== cmd.name))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Add Custom Diff Tool</h3>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Name</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g., Kaleidoscope"
+                        value={newDiffName}
+                        onChange={(e) => setNewDiffName(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-group__label">Command</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g., ksdiff"
+                        value={newDiffCommand}
+                        onChange={(e) => setNewDiffCommand(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 'var(--spacing-sm)' }}>
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        disabled={!newDiffName.trim() || !newDiffCommand.trim()}
+                        onClick={() => {
+                          const name = newDiffName.trim();
+                          const command = newDiffCommand.trim();
+                          if (externalDiffCommands.some(c => c.name === name)) {
+                            toastError('Diff tool name already exists');
+                            return;
+                          }
+                          setExternalDiffCommands([...externalDiffCommands, { name, command }]);
+                          setNewDiffName('');
+                          setNewDiffCommand('');
+                        }}
+                      >
+                        Add Diff Tool
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Temp Cleanup</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-group__label">Cleanup after (minutes)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="input"
+                        value={externalDiffCleanupMinutes}
+                        onChange={(e) => setExternalDiffCleanupMinutes(Math.max(1, Number(e.target.value) || 1))}
+                      />
+                      <p className="form-group__hint">
+                        Temp diff files will be removed after this delay (default: 60 minutes).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentTab === 6 && (
+            <div className="wizard-step-content" data-step="6">
               <h2 className="wizard-step-content__title">Advanced Settings</h2>
               <p className="wizard-step-content__description">
                 Terminal dimensions and advanced timing controls. You can leave these as defaults unless you have specific needs.

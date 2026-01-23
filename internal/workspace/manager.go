@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -884,6 +885,10 @@ func (m *Manager) Dispose(workspaceID string) error {
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
+		m.logger.Printf("failed to cleanup diff temp dirs for workspace %s: %v", workspaceID, err)
 	}
 
 	m.logger.Printf("workspace disposed: id=%s", workspaceID)

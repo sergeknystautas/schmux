@@ -22,6 +22,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -683,6 +684,12 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: preset.Prompt}
 	}
 
+	externalDiffCommands := s.config.GetExternalDiffCommands()
+	externalDiffCommandsResp := make([]contracts.ExternalDiffCommand, len(externalDiffCommands))
+	for i, cmd := range externalDiffCommands {
+		externalDiffCommandsResp[i] = contracts.ExternalDiffCommand{Name: cmd.Name, Command: cmd.Command}
+	}
+
 	variants := make([]contracts.Variant, len(s.config.GetVariantConfigs()))
 	for i, variant := range s.config.GetVariantConfigs() {
 		variants[i] = contracts.Variant{Name: variant.Name, Enabled: variant.Enabled, Env: variant.Env}
@@ -713,12 +720,14 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := contracts.ConfigResponse{
-		WorkspacePath: s.config.GetWorkspacePath(),
-		Repos:         repoResp,
-		RunTargets:    runTargetResp,
-		QuickLaunch:   quickLaunchResp,
-		Variants:      variants,
-		Terminal:      contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
+		WorkspacePath:              s.config.GetWorkspacePath(),
+		Repos:                      repoResp,
+		RunTargets:                 runTargetResp,
+		QuickLaunch:                quickLaunchResp,
+		ExternalDiffCommands:       externalDiffCommandsResp,
+		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
+		Variants:                   variants,
+		Terminal:                   contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
@@ -853,6 +862,21 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		for i, q := range req.QuickLaunch {
 			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Target: q.Target, Prompt: q.Prompt}
 		}
+	}
+
+	if req.ExternalDiffCommands != nil {
+		cfg.ExternalDiffCommands = make([]config.ExternalDiffCommand, len(req.ExternalDiffCommands))
+		for i, c := range req.ExternalDiffCommands {
+			cfg.ExternalDiffCommands[i] = config.ExternalDiffCommand{Name: c.Name, Command: c.Command}
+		}
+	}
+
+	if req.ExternalDiffCleanupAfterMs != nil {
+		if *req.ExternalDiffCleanupAfterMs <= 0 {
+			http.Error(w, "external diff cleanup delay must be > 0", http.StatusBadRequest)
+			return
+		}
+		cfg.ExternalDiffCleanupAfterMs = *req.ExternalDiffCleanupAfterMs
 	}
 
 	if req.Variants != nil {
@@ -1555,6 +1579,322 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(OpenVSCodeResponse{
 		Success: true,
 		Message: "You can now switch to VS Code.",
+	})
+}
+
+// handleDiffExternal handles POST requests to open an external diff tool for a workspace.
+// POST /api/diff-external/{workspaceId}
+//
+// Request body: {"command": "ksdiff"} (optional, defaults to first configured command)
+//
+// The command can use placeholders:
+//
+//	{old_file} - path to the old version of the file (from HEAD)
+//	{new_file} - path to the new version of the file (from worktree)
+//	{file}     - path to the file in worktree (for new/deleted files)
+//
+// Examples:
+//
+//	"code --diff {old_file} {new_file}"  - VS Code
+//	"ksdiff {old_file} {new_file}"      - Kaleidoscope
+//	"git difftool {file}"               - git difftool (configured externally)
+func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/diff-external/{workspace-id}
+	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/diff-external/")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type DiffExternalRequest struct {
+		Command string `json:"command"` // Can be a command name from config, or a raw command string
+	}
+
+	type DiffExternalResponse struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	// Parse request body to get command name
+	var req DiffExternalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		log.Printf("[diff-external] failed to decode request: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: fmt.Sprintf("invalid request: %v", err),
+		})
+		return
+	}
+
+	// Get the external diff commands from config
+	externalDiffCommands := s.config.GetExternalDiffCommands()
+
+	// Find the command to use
+	var selectedCommand string
+	if req.Command != "" {
+		// First, try to find the command by name in the config
+		for _, cmd := range externalDiffCommands {
+			if cmd.Name == req.Command {
+				selectedCommand = cmd.Command
+				break
+			}
+		}
+		// If not found in config, use the command string directly (for built-in commands)
+		if selectedCommand == "" {
+			selectedCommand = req.Command
+		}
+	} else if len(externalDiffCommands) > 0 {
+		// No command specified, use the first configured command
+		selectedCommand = externalDiffCommands[0].Command
+	} else {
+		// No command specified and no configured commands
+		log.Printf("[diff-external] no command specified and no external diff commands configured")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "No diff command specified",
+		})
+		return
+	}
+
+	// Get workspace from state
+	ws, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		})
+		return
+	}
+
+	// Check if workspace directory exists
+	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "workspace directory does not exist",
+		})
+		return
+	}
+
+	// Get changed files using git diff --numstat
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
+	output, err := cmd.Output()
+	if err != nil {
+		output = []byte{}
+	}
+
+	type changedFile struct {
+		path   string
+		status string // added, modified, deleted, renamed
+	}
+
+	files := make([]changedFile, 0)
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		added := parts[0]
+		deleted := parts[1]
+		filePath := parts[2]
+
+		status := "modified"
+		if added == "-" && deleted == "-" {
+			// Binary file or special case
+			status = "modified"
+		} else if added == "0" && deleted != "0" {
+			status = "deleted"
+		} else if added != "0" && deleted == "0" {
+			status = "added"
+		}
+
+		files = append(files, changedFile{path: filePath, status: status})
+	}
+
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "No changes to diff",
+		})
+		return
+	}
+
+	log.Printf("[diff-external] launching %q for %d files in workspace %s", selectedCommand, len(files), workspaceID)
+
+	// Parse the base command (before file paths)
+	if strings.TrimSpace(selectedCommand) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "Invalid command",
+		})
+		return
+	}
+
+	replacePlaceholders := func(cmd, oldPath, newPath, filePath string) string {
+		cmd = strings.ReplaceAll(cmd, "{old_file}", oldPath)
+		cmd = strings.ReplaceAll(cmd, "{new_file}", newPath)
+		cmd = strings.ReplaceAll(cmd, "{file}", filePath)
+		return cmd
+	}
+
+	tempRoot, err := difftool.TempDirForWorkspace(workspaceID)
+	if err != nil {
+		log.Printf("[diff-external] failed to create temp dir: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "Failed to create temp dir for diff",
+		})
+		return
+	}
+	opened := 0
+
+	for _, file := range files {
+		switch file.status {
+		case "modified":
+			oldPath := fmt.Sprintf("HEAD:%s", file.path)
+			newPath := filepath.Join(ws.Path, file.path)
+			mergedPath := newPath
+
+			// Create temp file for old version
+			tmpPath := filepath.Join(tempRoot, file.path)
+			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
+				log.Printf("[diff-external] failed to create temp dir for file: %v", err)
+				continue
+			}
+			tmpFile, err := os.Create(tmpPath)
+			if err != nil {
+				log.Printf("[diff-external] failed to create temp file: %v", err)
+				continue
+			}
+
+			// Get old file content from git
+			showCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "show", oldPath)
+			showOutput, err := showCmd.Output()
+			if err != nil {
+				tmpFile.Close()
+				os.Remove(tmpPath)
+				log.Printf("[diff-external] failed to get old file: %v", err)
+				continue
+			}
+			if _, err := tmpFile.Write(showOutput); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpPath)
+				log.Printf("[diff-external] failed to write temp file: %v", err)
+				continue
+			}
+			tmpFile.Close()
+
+			cmdString := replacePlaceholders(selectedCommand, tmpPath, newPath, newPath)
+			execCmd := exec.Command("sh", "-c", cmdString)
+			execCmd.Dir = ws.Path
+			execCmd.Env = append(os.Environ(),
+				fmt.Sprintf("LOCAL=%s", tmpPath),
+				fmt.Sprintf("REMOTE=%s", newPath),
+				fmt.Sprintf("MERGED=%s", mergedPath),
+				fmt.Sprintf("BASE=%s", mergedPath),
+			)
+			if err := execCmd.Start(); err != nil {
+				log.Printf("[diff-external] diff tool exited with error: %v", err)
+			} else {
+				opened++
+			}
+
+		case "deleted":
+			oldPath := fmt.Sprintf("HEAD:%s", file.path)
+			mergedPath := filepath.Join(ws.Path, file.path)
+			tmpPath := filepath.Join(tempRoot, file.path)
+			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
+				log.Printf("[diff-external] failed to create temp dir for file: %v", err)
+				continue
+			}
+			tmpFile, err := os.Create(tmpPath)
+			if err != nil {
+				log.Printf("[diff-external] failed to create temp file: %v", err)
+				continue
+			}
+
+			showCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "show", oldPath)
+			showOutput, err := showCmd.Output()
+			if err != nil {
+				tmpFile.Close()
+				os.Remove(tmpPath)
+				log.Printf("[diff-external] failed to get old file: %v", err)
+				continue
+			}
+			if _, err := tmpFile.Write(showOutput); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpPath)
+				log.Printf("[diff-external] failed to write temp file: %v", err)
+				continue
+			}
+			tmpFile.Close()
+
+			cmdString := replacePlaceholders(selectedCommand, tmpPath, "", mergedPath)
+			execCmd := exec.Command("sh", "-c", cmdString)
+			execCmd.Dir = ws.Path
+			execCmd.Env = append(os.Environ(),
+				fmt.Sprintf("LOCAL=%s", tmpPath),
+				fmt.Sprintf("REMOTE="),
+				fmt.Sprintf("MERGED=%s", mergedPath),
+				fmt.Sprintf("BASE=%s", mergedPath),
+			)
+			if err := execCmd.Start(); err != nil {
+				log.Printf("[diff-external] diff tool exited with error: %v", err)
+			} else {
+				opened++
+			}
+
+		case "added":
+			// Skip new/untracked files (git difftool doesn't include them)
+			continue
+		}
+	}
+
+	if opened == 0 {
+		os.RemoveAll(tempRoot)
+		// No files were added (all were new/untracked)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "No modified or deleted files to diff",
+		})
+		return
+	}
+
+	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
+	time.AfterFunc(cleanupDelay, func() {
+		if err := os.RemoveAll(tempRoot); err != nil {
+			log.Printf("[diff-external] failed to remove temp dir: %v", err)
+		}
+	})
+
+	// Success response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(DiffExternalResponse{
+		Success: true,
+		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
 	})
 }
 

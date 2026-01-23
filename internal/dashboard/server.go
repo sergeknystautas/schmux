@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -92,6 +94,12 @@ func (s *Server) LogDashboardAssetPath() {
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
+	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
+	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, func(format string, args ...interface{}) {
+		log.Printf(format, args...)
+	})
+	log.Printf("[difftool] temp dirs cleanup: deleted=%d scheduled=%d", deleted, scheduled)
+
 	if s.config.GetAuthEnabled() {
 		secret, err := config.EnsureSessionSecret()
 		if err != nil {
@@ -136,6 +144,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/variants/", s.withCORS(s.withAuth(s.handleVariant)))
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
+	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
 

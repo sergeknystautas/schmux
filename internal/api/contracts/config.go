@@ -21,6 +21,12 @@ type QuickLaunch struct {
 	Prompt *string `json:"prompt"`
 }
 
+// ExternalDiffCommand represents an external diff tool configuration.
+type ExternalDiffCommand struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
+}
+
 // Variant represents a variant config entry.
 type Variant struct {
 	Name    string            `json:"name"`
@@ -98,19 +104,21 @@ type AccessControl struct {
 
 // ConfigResponse represents the API response for GET /api/config.
 type ConfigResponse struct {
-	WorkspacePath string        `json:"workspace_path"`
-	Repos         []Repo        `json:"repos"`
-	RunTargets    []RunTarget   `json:"run_targets"`
-	QuickLaunch   []QuickLaunch `json:"quick_launch"`
-	Variants      []Variant     `json:"variants,omitempty"`
-	Terminal      Terminal      `json:"terminal"`
-	Nudgenik      Nudgenik      `json:"nudgenik"`
-	BranchSuggest BranchSuggest `json:"branch_suggest"`
-	Sessions      Sessions      `json:"sessions"`
-	Xterm         Xterm         `json:"xterm"`
-	Network       Network       `json:"network"`
-	AccessControl AccessControl `json:"access_control"`
-	NeedsRestart  bool          `json:"needs_restart"`
+	WorkspacePath              string                `json:"workspace_path"`
+	Repos                      []Repo                `json:"repos"`
+	RunTargets                 []RunTarget           `json:"run_targets"`
+	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
+	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
+	Variants                   []Variant             `json:"variants,omitempty"`
+	Terminal                   Terminal              `json:"terminal"`
+	Nudgenik                   Nudgenik              `json:"nudgenik"`
+	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
+	Sessions                   Sessions              `json:"sessions"`
+	Xterm                      Xterm                 `json:"xterm"`
+	Network                    Network               `json:"network"`
+	AccessControl              AccessControl         `json:"access_control"`
+	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
 // TerminalUpdate represents partial terminal updates.
@@ -173,16 +181,18 @@ type AccessControlUpdate struct {
 
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
 type ConfigUpdateRequest struct {
-	WorkspacePath *string              `json:"workspace_path,omitempty"`
-	Repos         []Repo               `json:"repos,omitempty"`
-	RunTargets    []RunTarget          `json:"run_targets,omitempty"`
-	QuickLaunch   []QuickLaunch        `json:"quick_launch,omitempty"`
-	Variants      []Variant            `json:"variants,omitempty"`
-	Nudgenik      *NudgenikUpdate      `json:"nudgenik,omitempty"`
-	BranchSuggest *BranchSuggestUpdate `json:"branch_suggest,omitempty"`
-	Terminal      *TerminalUpdate      `json:"terminal,omitempty"`
-	Sessions      *SessionsUpdate      `json:"sessions,omitempty"`
-	Xterm         *XtermUpdate         `json:"xterm,omitempty"`
-	Network       *NetworkUpdate       `json:"network,omitempty"`
-	AccessControl *AccessControlUpdate `json:"access_control,omitempty"`
+	WorkspacePath              *string               `json:"workspace_path,omitempty"`
+	Repos                      []Repo                `json:"repos,omitempty"`
+	RunTargets                 []RunTarget           `json:"run_targets,omitempty"`
+	QuickLaunch                []QuickLaunch         `json:"quick_launch,omitempty"`
+	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs *int                  `json:"external_diff_cleanup_after_ms,omitempty"`
+	Variants                   []Variant             `json:"variants,omitempty"`
+	Nudgenik                   *NudgenikUpdate       `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestUpdate  `json:"branch_suggest,omitempty"`
+	Terminal                   *TerminalUpdate       `json:"terminal,omitempty"`
+	Sessions                   *SessionsUpdate       `json:"sessions,omitempty"`
+	Xterm                      *XtermUpdate          `json:"xterm,omitempty"`
+	Network                    *NetworkUpdate        `json:"network,omitempty"`
+	AccessControl              *AccessControlUpdate  `json:"access_control,omitempty"`
 }
