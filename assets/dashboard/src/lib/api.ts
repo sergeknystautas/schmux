@@ -4,6 +4,7 @@ import type {
   ConfigResponse,
   ConfigUpdateRequest,
   DetectToolsResponse,
+  DiffExternalResponse,
   DiffResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
@@ -165,6 +166,19 @@ export async function openVSCode(workspaceId: string): Promise<OpenVSCodeRespons
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.message || response.statusText || 'Failed to open VS Code');
+  }
+  return response.json();
+}
+
+export async function diffExternal(workspaceId: string, command?: string): Promise<DiffExternalResponse> {
+  const response = await fetch(`/api/diff-external/${workspaceId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command ? { command } : {})
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || response.statusText || 'Failed to open external diff');
   }
   return response.json();
 }

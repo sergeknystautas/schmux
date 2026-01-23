@@ -10,6 +10,7 @@ import WorkspaceTableRow from './WorkspaceTableRow'
 import SessionTableRow from './SessionTableRow'
 import Tooltip from './Tooltip'
 import SpawnDropdown from './SpawnDropdown'
+import DiffDropdown from './DiffDropdown'
 import VSCodeResultModal from './VSCodeResultModal'
 import useLocalStorage, { WORKSPACE_EXPANDED_KEY } from '../hooks/useLocalStorage'
 import type { OpenVSCodeResponse, QuickLaunchPreset, SessionResponse, WorkspaceResponse } from '../lib/types';
@@ -185,21 +186,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
           )}
         </button>
       </Tooltip>
-      <Tooltip content="View git diff">
-        <button
-          className="btn btn--sm btn--ghost btn--bordered"
-          onClick={(event) => {
-            event.stopPropagation();
-            navigate(`/diff/${workspace.id}`);
-          }}
-          aria-label={`View diff for ${workspace.id}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>
-      </Tooltip>
+      <DiffDropdown workspace={workspace} externalDiffCommands={config?.external_diff_commands || []} />
       <Tooltip content="View on GitHub">
         <a
           href={workspace.repo}

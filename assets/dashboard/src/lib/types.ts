@@ -139,6 +139,11 @@ export interface OpenVSCodeResponse {
   message: string;
 }
 
+export interface DiffExternalResponse {
+  success: boolean;
+  message: string;
+}
+
 export interface ScanWorkspace {
   id: string;
   repo: string;
