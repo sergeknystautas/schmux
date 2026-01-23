@@ -990,6 +990,12 @@ body {
     margin: 0;
 }
 
+/* btn-group - utility class for button groups with standard spacing */
+.btn-group {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
 /* Results Panel */
 .results-panel {
     background-color: var(--color-surface-alt);
