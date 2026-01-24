@@ -106,16 +106,18 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type WorkspaceResponse struct {
-		ID           string            `json:"id"`
-		Repo         string            `json:"repo"`
-		Branch       string            `json:"branch"`
-		BranchURL    string            `json:"branch_url,omitempty"`
-		Path         string            `json:"path"`
-		SessionCount int               `json:"session_count"`
-		Sessions     []SessionResponse `json:"sessions"`
-		GitDirty     bool              `json:"git_dirty"`
-		GitAhead     int               `json:"git_ahead"`
-		GitBehind    int               `json:"git_behind"`
+		ID              string            `json:"id"`
+		Repo            string            `json:"repo"`
+		Branch          string            `json:"branch"`
+		BranchURL       string            `json:"branch_url,omitempty"`
+		Path            string            `json:"path"`
+		SessionCount    int               `json:"session_count"`
+		Sessions        []SessionResponse `json:"sessions"`
+		GitDirty        bool              `json:"git_dirty"`
+		GitAhead        int               `json:"git_ahead"`
+		GitBehind       int               `json:"git_behind"`
+		GitLinesAdded   int               `json:"git_lines_added"`
+		GitLinesRemoved int               `json:"git_lines_removed"`
 	}
 
 	workspaceMap := make(map[string]*WorkspaceResponse)
@@ -128,16 +130,18 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponse{
-			ID:           ws.ID,
-			Repo:         ws.Repo,
-			Branch:       ws.Branch,
-			BranchURL:    branchURL,
-			Path:         ws.Path,
-			SessionCount: 0,
-			Sessions:     []SessionResponse{},
-			GitDirty:     ws.GitDirty,
-			GitAhead:     ws.GitAhead,
-			GitBehind:    ws.GitBehind,
+			ID:              ws.ID,
+			Repo:            ws.Repo,
+			Branch:          ws.Branch,
+			BranchURL:       branchURL,
+			Path:            ws.Path,
+			SessionCount:    0,
+			Sessions:        []SessionResponse{},
+			GitDirty:        ws.GitDirty,
+			GitAhead:        ws.GitAhead,
+			GitBehind:       ws.GitBehind,
+			GitLinesAdded:   ws.GitLinesAdded,
+			GitLinesRemoved: ws.GitLinesRemoved,
 		}
 	}
 
