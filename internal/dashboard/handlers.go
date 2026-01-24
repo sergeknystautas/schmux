@@ -112,7 +112,6 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		Path            string            `json:"path"`
 		SessionCount    int               `json:"session_count"`
 		Sessions        []SessionResponse `json:"sessions"`
-		GitDirty        bool              `json:"git_dirty"`
 		GitAhead        int               `json:"git_ahead"`
 		GitBehind       int               `json:"git_behind"`
 		GitLinesAdded   int               `json:"git_lines_added"`
@@ -136,7 +135,6 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			Path:            ws.Path,
 			SessionCount:    0,
 			Sessions:        []SessionResponse{},
-			GitDirty:        ws.GitDirty,
 			GitAhead:        ws.GitAhead,
 			GitBehind:       ws.GitBehind,
 			GitLinesAdded:   ws.GitLinesAdded,
@@ -1357,10 +1355,10 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	// Get git diff output using porcelain format
 	// --numstat shows: added/deleted lines filename
-	// -z uses null terminators for parsing
+	// HEAD compares against last commit (includes both staged and unstaged)
 	// --find-renames finds renames
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
+	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
 	output, err := cmd.Output()
 	cancel()
 	if err != nil {
@@ -1692,10 +1690,11 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get changed files using git diff --numstat
+	// HEAD compares against last commit (includes both staged and unstaged)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "--numstat", "--find-renames", "--diff-filter=ADM")
+	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
 	output, err := cmd.Output()
 	if err != nil {
 		output = []byte{}

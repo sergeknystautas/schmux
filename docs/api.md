@@ -125,9 +125,10 @@ Response:
     "branch":"branch",
     "path":"/path/to/workspace",
     "session_count":1,
-    "git_dirty":false,
     "git_ahead":0,
     "git_behind":0,
+    "git_lines_added":0,
+    "git_lines_removed":0,
     "sessions":[
       {
         "id":"session-id",

@@ -70,6 +70,8 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
       <Tooltip key="lines" content={`${linesAdded} line${linesAdded !== 1 ? 's' : ''} added, ${linesRemoved} line${linesRemoved !== 1 ? 's' : ''} removed`}>
         <span
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
             marginLeft: '8px',
             fontSize: '0.75rem',
             fontFamily: 'var(--font-mono)',
@@ -92,22 +94,6 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
           </span>
           <span className="workspace-item__name">
             {workspace.id}
-            {workspace.git_dirty && (
-              <Tooltip content="Uncommitted changes">
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--color-warning)',
-                    marginLeft: '6px',
-                  }}
-                />
-              </Tooltip>
-            )}
           </span>
           <span className="workspace-item__meta">
             {workspace.branch_url ? (

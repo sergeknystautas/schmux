@@ -765,7 +765,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	}
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind := m.gitStatus(ctx, w.Path)
+	dirty, ahead, behind, linesAdded, linesRemoved := m.gitStatus(ctx, w.Path)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
@@ -778,6 +778,8 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	w.GitDirty = dirty
 	w.GitAhead = ahead
 	w.GitBehind = behind
+	w.GitLinesAdded = linesAdded
+	w.GitLinesRemoved = linesRemoved
 	w.Branch = actualBranch
 
 	// Update the workspace in state (this updates the in-memory copy)
@@ -789,8 +791,8 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int)
-func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int)
+func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
@@ -808,19 +810,43 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 	revListCmd.Dir = dir
 	output, err = revListCmd.CombinedOutput()
 	if err != nil {
-		// No upstream or other error - log and just return dirty state
-		fmt.Printf("[workspace] git rev-list failed for %s: %v\n", dir, err)
-		return dirty, 0, 0
+		// No upstream or other error - log but continue to calculate line changes
+		fmt.Printf("[workspace] git rev-list HEAD...origin/main failed for %s: %s\n", dir, strings.TrimSpace(string(output)))
+	} else {
+		// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
+		parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+		if len(parts) == 2 {
+			ahead, _ = strconv.Atoi(parts[0])
+			behind, _ = strconv.Atoi(parts[1])
+		}
 	}
 
-	// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
-	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
-	if len(parts) == 2 {
-		ahead, _ = strconv.Atoi(parts[0])
-		behind, _ = strconv.Atoi(parts[1])
+	// Get line additions/deletions from uncommitted changes using diff --numstat HEAD
+	// Using HEAD includes both staged and unstaged changes
+	// Output format per line: "additions\tdeletions\tfilename"
+	// We sum across all changed files
+	diffCmd := exec.CommandContext(ctx, "git", "diff", "--numstat", "HEAD")
+	diffCmd.Dir = dir
+	output, err = diffCmd.CombinedOutput()
+	if err == nil {
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed != "" {
+			lines := strings.Split(trimmed, "\n")
+			for _, line := range lines {
+				parts := strings.Split(line, "\t")
+				if len(parts) >= 2 {
+					if added, err := strconv.Atoi(parts[0]); err == nil {
+						linesAdded += added
+					}
+					if removed, err := strconv.Atoi(parts[1]); err == nil && parts[1] != "-" {
+						linesRemoved += removed
+					}
+				}
+			}
+		}
 	}
 
-	return dirty, ahead, behind
+	return dirty, ahead, behind, linesAdded, linesRemoved
 }
 
 // UpdateAllGitStatus refreshes git status for all workspaces.

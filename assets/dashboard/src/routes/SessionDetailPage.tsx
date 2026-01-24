@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
-import { updateNickname, getErrorMessage } from '../lib/api';
+import { updateNickname, disposeSession, getErrorMessage } from '../lib/api';
 import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -11,7 +11,8 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import Tooltip from '../components/Tooltip';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
-import WorkspacesList, { type WorkspacesListHandle } from '../components/WorkspacesList';
+import WorkspaceHeader from '../components/WorkspaceHeader';
+import SessionTabs from '../components/SessionTabs';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -25,9 +26,8 @@ export default function SessionDetailPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
-  const workspacesListRef = useRef<WorkspacesListHandle | null>(null);
   const { success, error: toastError } = useToast();
-  const { prompt } = useModal();
+  const { prompt, confirm } = useModal();
   const { markAsViewed } = useViewedSessions();
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
@@ -125,9 +125,23 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleDispose = () => {
+  const handleDispose = async () => {
     if (!sessionId) return;
-    workspacesListRef.current?.disposeSession(sessionId);
+
+    const sessionDisplay = sessionData?.nickname
+      ? `${sessionData.nickname} (${sessionId})`
+      : sessionId;
+
+    const accepted = await confirm(`Dispose session ${sessionDisplay}?`, { danger: true });
+    if (!accepted) return;
+
+    try {
+      await disposeSession(sessionId);
+      success('Session disposed');
+      refresh();
+    } catch (err) {
+      toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
+    }
   };
 
   const handleFollowChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,6 +210,9 @@ export default function SessionDetailPage() {
     );
   }
 
+  // Get the current workspace data
+  const currentWorkspace = workspaces?.find(ws => ws.id === (sessionData?.workspace_id || workspaceId));
+
   if (sessionMissing) {
     // No workspaceId means we lost state (e.g., page refresh) - navigate away
     if (!workspaceId) {
@@ -204,16 +221,17 @@ export default function SessionDetailPage() {
 
     return (
       <>
-        <WorkspacesList
-          ref={workspacesListRef}
-          workspaceId={workspaceId}
-          showControls={false}
-        />
+        {currentWorkspace && (
+          <>
+            <WorkspaceHeader workspace={currentWorkspace} />
+            <SessionTabs sessions={currentWorkspace.sessions || []} />
+          </>
+        )}
         {workspaceExists && (
           <div className="empty-state">
             <div className="empty-state__icon">⚠️</div>
             <h3 className="empty-state__title">Session unavailable</h3>
-            <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the list.</p>
+            <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the tabs above.</p>
           </div>
         )}
       </>
@@ -222,7 +240,6 @@ export default function SessionDetailPage() {
 
   const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sessionData.running ? 'Running' : 'Stopped';
-  const titleText = sessionData.nickname || sessionData.id.substring(0, 12);
   const wsPillClass = wsStatus === 'connected'
     ? 'connection-pill--connected'
     : wsStatus === 'disconnected'
@@ -232,26 +249,12 @@ export default function SessionDetailPage() {
 
   return (
     <>
-      <WorkspacesList
-        ref={workspacesListRef}
-        workspaceId={sessionData.workspace_id}
-        currentSessionId={sessionId}
-        showControls={false}
-      />
-
-      <div className="page-header">
-        <h1 className="page-header__title">Session <span className="mono">{titleText}</span></h1>
-        <div className="page-header__actions">
-          <Tooltip content="Toggle sidebar">
-            <button className="btn btn--ghost" onClick={toggleSidebar}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="9" y1="3" x2="9" y2="21"></line>
-              </svg>
-            </button>
-          </Tooltip>
-        </div>
-      </div>
+      {currentWorkspace && (
+        <>
+          <WorkspaceHeader workspace={currentWorkspace} />
+          <SessionTabs sessions={currentWorkspace.sessions || []} currentSessionId={sessionId} />
+        </>
+      )}
 
       <div className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}>
         <div className="session-detail__main">
@@ -284,6 +287,14 @@ export default function SessionDetailPage() {
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                       <polyline points="7 10 12 15 17 10"></polyline>
                       <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                  </button>
+                </Tooltip>
+                <Tooltip content="Toggle sidebar">
+                  <button className="btn btn--sm" onClick={toggleSidebar}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                      <line x1="9" y1="3" x2="9" y2="21"></line>
                     </svg>
                   </button>
                 </Tooltip>

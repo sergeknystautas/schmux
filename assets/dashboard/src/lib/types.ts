@@ -20,7 +20,6 @@ export interface WorkspaceResponse {
   path: string;
   session_count: number;
   sessions: SessionResponse[];
-  git_dirty: boolean;
   git_ahead: number;
   git_behind: number;
   git_lines_added: number;

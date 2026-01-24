@@ -43,15 +43,16 @@ type APISession struct {
 
 // APIWorkspace represents a workspace from the API response.
 type APIWorkspace struct {
-	ID           string       `json:"id"`
-	Repo         string       `json:"repo"`
-	Branch       string       `json:"branch"`
-	Path         string       `json:"path"`
-	SessionCount int          `json:"session_count"`
-	Sessions     []APISession `json:"sessions"`
-	GitDirty     bool         `json:"git_dirty"`
-	GitAhead     int          `json:"git_ahead"`
-	GitBehind    int          `json:"git_behind"`
+	ID              string       `json:"id"`
+	Repo            string       `json:"repo"`
+	Branch          string       `json:"branch"`
+	Path            string       `json:"path"`
+	SessionCount    int          `json:"session_count"`
+	Sessions        []APISession `json:"sessions"`
+	GitAhead        int          `json:"git_ahead"`
+	GitBehind       int          `json:"git_behind"`
+	GitLinesAdded   int          `json:"git_lines_added"`
+	GitLinesRemoved int          `json:"git_lines_removed"`
 }
 
 // Env is the E2E test environment.
