@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,12 +78,12 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
 		// For files, check if covered by .gitignore
 		ignored, err := isIgnoredByGit(ctx, destDir, relPath)
 		if err != nil {
-			log.Printf("[workspace] WARNING: failed to check gitignore for %s: %v", relPath, err)
+			fmt.Printf("[workspace] WARNING: failed to check gitignore for %s: %v\n", relPath, err)
 			// Skip files if we can't verify gitignore coverage
 			return nil
 		}
 		if !ignored {
-			log.Printf("[workspace] WARNING: skipping overlay file (not in .gitignore): %s", relPath)
+			fmt.Printf("[workspace] WARNING: skipping overlay file (not in .gitignore): %s\n", relPath)
 			return nil
 		}
 
@@ -104,7 +103,7 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
 			if err := os.Symlink(target, destPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", destPath, err)
 			}
-			log.Printf("[workspace] copied overlay symlink: %s -> %s", relPath, target)
+			fmt.Printf("[workspace] copied overlay symlink: %s -> %s\n", relPath, target)
 			return nil
 		}
 
@@ -112,7 +111,7 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
 		if err := copyFile(path, destPath, info.Mode()); err != nil {
 			return fmt.Errorf("failed to copy %s to %s: %w", path, destPath, err)
 		}
-		log.Printf("[workspace] copied overlay file: %s", relPath)
+		fmt.Printf("[workspace] copied overlay file: %s\n", relPath)
 
 		return nil
 	})

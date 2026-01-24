@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -275,7 +274,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.updateInProgress = true
 
-	log.Printf("[update] update requested via web UI")
+	fmt.Printf("[daemon] update requested via web UI\n")
 
 	// Run update synchronously so we can report actual success/failure
 	if err := update.Update(); err != nil {
@@ -286,7 +285,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[update] successful, shutting down daemon")
+	fmt.Printf("[daemon] update successful, shutting down\n")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
@@ -354,7 +353,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
 	}
-	log.Printf("[spawn] request: repo=%s branch=%s workspace_id=%s targets=%v prompt=%q",
+	fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
 		req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
 
 	results := make([]SessionResult, 0)
@@ -440,9 +439,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Log the results
 	for _, r := range results {
 		if r.Error != "" {
-			log.Printf("[spawn] error: target=%s error=%s", r.Target, r.Error)
+			fmt.Printf("[session] spawn error: target=%s error=%s\n", r.Target, r.Error)
 		} else {
-			log.Printf("[spawn] success: target=%s session_id=%s workspace_id=%s", r.Target, r.SessionID, r.WorkspaceID)
+			fmt.Printf("[session] spawn success: target=%s session_id=%s workspace_id=%s\n", r.Target, r.SessionID, r.WorkspaceID)
 		}
 	}
 
@@ -490,12 +489,12 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, branchsuggest.ErrInvalidResponse):
 			status = http.StatusBadRequest
 		}
-		log.Printf("[suggest-branch] error duration=%s status=%d err=%v", time.Since(start).Truncate(time.Millisecond), status, err)
+		fmt.Printf("[workspace] suggest-branch error: duration=%s status=%d err=%v\n", time.Since(start).Truncate(time.Millisecond), status, err)
 		http.Error(w, fmt.Sprintf("Failed to generate branch suggestion: %v", err), status)
 		return
 	}
 
-	log.Printf("[suggest-branch] ok duration=%s", time.Since(start).Truncate(time.Millisecond))
+	fmt.Printf("[workspace] suggest-branch ok: duration=%s\n", time.Since(start).Truncate(time.Millisecond))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -518,12 +517,12 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
-		log.Printf("[dispose] error: session_id=%s error=%v", sessionID, err)
+		fmt.Printf("[session] dispose error: session_id=%s error=%v\n", sessionID, err)
 		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	cancel()
-	log.Printf("[dispose] success: session_id=%s", sessionID)
+	fmt.Printf("[session] dispose success: session_id=%s\n", sessionID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -544,13 +543,13 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.workspace.Dispose(workspaceID); err != nil {
-		log.Printf("[dispose-workspace] error: workspace_id=%s error=%v", workspaceID, err)
+		fmt.Printf("[workspace] dispose error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	log.Printf("[dispose-workspace] success: workspace_id=%s", workspaceID)
+	fmt.Printf("[workspace] dispose success: workspace_id=%s\n", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -775,14 +774,14 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[config] invalid JSON payload: %v", err)
+		fmt.Printf("[config] invalid JSON payload: %v\n", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
 	if err := s.config.Reload(); err != nil {
-		log.Printf("[config] failed to reload config: %v", err)
+		fmt.Printf("[config] failed to reload config: %v\n", err)
 		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -1021,7 +1020,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
-		log.Printf("[config] validation error: %v", err)
+		fmt.Printf("[config] validation error: %v\n", err)
 		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -1033,7 +1032,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Save config
 	if err := cfg.Save(); err != nil {
-		log.Printf("[config] failed to save config: %v", err)
+		fmt.Printf("[config] failed to save config: %v\n", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -1041,7 +1040,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Ensure overlay directories exist for all repos if repos were updated
 	if reposUpdated {
 		if err := s.workspace.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
-			log.Printf("[config] warning: failed to ensure overlay directories: %v", err)
+			fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
 			// Don't fail the request for this - overlay dirs can be created manually
 		}
 	}
@@ -1545,7 +1544,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 	vscodePath, found := detect.ResolveVSCodePath(ctx)
 	if !found {
-		log.Printf("[open-vscode] VS Code command not found")
+		fmt.Printf("[session] open-vscode: command not found\n")
 		// Determine platform-specific keyboard shortcut
 		var shortcut string
 		if runtime.GOOS == "darwin" {
@@ -1562,13 +1561,13 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[open-vscode] found VS Code via %s: %s", vscodePath.Source, vscodePath.Path)
+	fmt.Printf("[session] open-vscode: found via %s: %s\n", vscodePath.Source, vscodePath.Path)
 
 	// Execute code command
 	// Note: We don't wait for the command to complete since VS Code opens as a separate process
 	cmd := exec.Command(vscodePath.Path, "-n", ws.Path)
 	if err := cmd.Start(); err != nil {
-		log.Printf("[open-vscode] failed to launch: %v", err)
+		fmt.Printf("[session] open-vscode: failed to launch: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(OpenVSCodeResponse{
@@ -1627,7 +1626,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Parse request body to get command name
 	var req DiffExternalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-		log.Printf("[diff-external] failed to decode request: %v", err)
+		fmt.Printf("[session] diff-external: failed to decode request: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(DiffExternalResponse{
@@ -1659,7 +1658,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		selectedCommand = externalDiffCommands[0].Command
 	} else {
 		// No command specified and no configured commands
-		log.Printf("[diff-external] no command specified and no external diff commands configured")
+		fmt.Printf("[session] diff-external: no command specified and no external diff commands configured\n")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(DiffExternalResponse{
@@ -1743,7 +1742,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[diff-external] launching %q for %d files in workspace %s", selectedCommand, len(files), workspaceID)
+	fmt.Printf("[session] diff-external: launching %q for %d files in workspace %s\n", selectedCommand, len(files), workspaceID)
 
 	// Parse the base command (before file paths)
 	if strings.TrimSpace(selectedCommand) == "" {
@@ -1764,7 +1763,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	tempRoot, err := difftool.TempDirForWorkspace(workspaceID)
 	if err != nil {
-		log.Printf("[diff-external] failed to create temp dir: %v", err)
+		fmt.Printf("[session] diff-external: failed to create temp dir: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(DiffExternalResponse{
 			Success: false,
@@ -1784,12 +1783,12 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			// Create temp file for old version
 			tmpPath := filepath.Join(tempRoot, file.path)
 			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
-				log.Printf("[diff-external] failed to create temp dir for file: %v", err)
+				fmt.Printf("[session] diff-external: failed to create temp dir for file: %v\n", err)
 				continue
 			}
 			tmpFile, err := os.Create(tmpPath)
 			if err != nil {
-				log.Printf("[diff-external] failed to create temp file: %v", err)
+				fmt.Printf("[session] diff-external: failed to create temp file: %v\n", err)
 				continue
 			}
 
@@ -1799,13 +1798,13 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				log.Printf("[diff-external] failed to get old file: %v", err)
+				fmt.Printf("[session] diff-external: failed to get old file: %v\n", err)
 				continue
 			}
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				log.Printf("[diff-external] failed to write temp file: %v", err)
+				fmt.Printf("[session] diff-external: failed to write temp file: %v\n", err)
 				continue
 			}
 			tmpFile.Close()
@@ -1820,7 +1819,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("BASE=%s", mergedPath),
 			)
 			if err := execCmd.Start(); err != nil {
-				log.Printf("[diff-external] diff tool exited with error: %v", err)
+				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
 			} else {
 				opened++
 			}
@@ -1830,12 +1829,12 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			mergedPath := filepath.Join(ws.Path, file.path)
 			tmpPath := filepath.Join(tempRoot, file.path)
 			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
-				log.Printf("[diff-external] failed to create temp dir for file: %v", err)
+				fmt.Printf("[session] diff-external: failed to create temp dir for file: %v\n", err)
 				continue
 			}
 			tmpFile, err := os.Create(tmpPath)
 			if err != nil {
-				log.Printf("[diff-external] failed to create temp file: %v", err)
+				fmt.Printf("[session] diff-external: failed to create temp file: %v\n", err)
 				continue
 			}
 
@@ -1844,13 +1843,13 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				log.Printf("[diff-external] failed to get old file: %v", err)
+				fmt.Printf("[session] diff-external: failed to get old file: %v\n", err)
 				continue
 			}
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				log.Printf("[diff-external] failed to write temp file: %v", err)
+				fmt.Printf("[session] diff-external: failed to write temp file: %v\n", err)
 				continue
 			}
 			tmpFile.Close()
@@ -1865,7 +1864,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("BASE=%s", mergedPath),
 			)
 			if err := execCmd.Start(); err != nil {
-				log.Printf("[diff-external] diff tool exited with error: %v", err)
+				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
 			} else {
 				opened++
 			}
@@ -1890,7 +1889,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	time.AfterFunc(cleanupDelay, func() {
 		if err := os.RemoveAll(tempRoot); err != nil {
-			log.Printf("[diff-external] failed to remove temp dir: %v", err)
+			fmt.Printf("[session] diff-external: failed to remove temp dir: %v\n", err)
 		}
 	})
 
@@ -1932,19 +1931,19 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, nudgenik.ErrDisabled):
-			log.Printf("[ask-nudgenik] nudgenik is disabled")
+			fmt.Printf("[nudgenik] nudgenik is disabled\n")
 			http.Error(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrNoResponse):
-			log.Printf("[ask-nudgenik] no response extracted from session %s", sessionID)
+			fmt.Printf("[nudgenik] no response extracted from session %s\n", sessionID)
 			http.Error(w, "No response found in session output", http.StatusBadRequest)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
-			log.Printf("[ask-nudgenik] target not found in config")
+			fmt.Printf("[nudgenik] target not found in config\n")
 			http.Error(w, "Nudgenik target not found", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
-			log.Printf("[ask-nudgenik] target missing required secrets")
+			fmt.Printf("[nudgenik] target missing required secrets\n")
 			http.Error(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
 		default:
-			log.Printf("[ask-nudgenik] failed to ask for session %s: %v", sessionID, err)
+			fmt.Printf("[nudgenik] failed to ask for session %s: %v\n", sessionID, err)
 			http.Error(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
 		}
 		return
@@ -1991,7 +1990,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 	for _, repo := range repos {
 		overlayDir, err := workspace.OverlayDir(repo.Name)
 		if err != nil {
-			log.Printf("[overlays] failed to get overlay directory for %s: %v", repo.Name, err)
+			fmt.Printf("[workspace] failed to get overlay directory for %s: %v\n", repo.Name, err)
 			continue
 		}
 
@@ -2006,7 +2005,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 		if exists {
 			files, err := workspace.ListOverlayFiles(repo.Name)
 			if err != nil {
-				log.Printf("[overlays] failed to list overlay files for %s: %v", repo.Name, err)
+				fmt.Printf("[workspace] failed to list overlay files for %s: %v\n", repo.Name, err)
 			} else {
 				fileCount = len(files)
 			}
@@ -2043,7 +2042,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
-		log.Printf("[refresh-overlay] error: workspace_id=%s error=%v", workspaceID, err)
+		fmt.Printf("[workspace] refresh-overlay error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		// Return 400 for client errors (active sessions, not found)
 		w.WriteHeader(http.StatusBadRequest)
@@ -2051,7 +2050,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[refresh-overlay] success: workspace_id=%s", workspaceID)
+	fmt.Printf("[workspace] refresh-overlay success: workspace_id=%s\n", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -2089,7 +2088,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if readErr != nil {
-			log.Printf("[builtin-quick-launch] failed to read file: %v", readErr)
+			fmt.Printf("[session] builtin-quick-launch: failed to read file: %v\n", readErr)
 			http.Error(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
 			return
 		}
@@ -2097,7 +2096,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 
 	var cookbooks []BuiltinQuickLaunchCookbook
 	if err := json.Unmarshal(data, &cookbooks); err != nil {
-		log.Printf("[builtin-quick-launch] failed to parse: %v", err)
+		fmt.Printf("[session] builtin-quick-launch: failed to parse: %v\n", err)
 		http.Error(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
 		return
 	}
@@ -2106,15 +2105,15 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	validCookbooks := make([]BuiltinQuickLaunchCookbook, 0, len(cookbooks))
 	for _, cookbook := range cookbooks {
 		if strings.TrimSpace(cookbook.Name) == "" {
-			log.Printf("[builtin-quick-launch] skipping cookbook with empty name")
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook with empty name\n")
 			continue
 		}
 		if strings.TrimSpace(cookbook.Target) == "" {
-			log.Printf("[builtin-quick-launch] skipping cookbook %q with empty target", cookbook.Name)
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty target\n", cookbook.Name)
 			continue
 		}
 		if strings.TrimSpace(cookbook.Prompt) == "" {
-			log.Printf("[builtin-quick-launch] skipping cookbook %q with empty prompt", cookbook.Name)
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty prompt\n", cookbook.Name)
 			continue
 		}
 		validCookbooks = append(validCookbooks, cookbook)

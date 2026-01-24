@@ -306,7 +306,7 @@ func Run(background bool) error {
 
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
-		fmt.Printf("warning: failed to ensure overlay directories: %v\n", err)
+		fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
 		// Don't fail daemon startup for this
 	}
 
@@ -315,13 +315,13 @@ func Run(background bool) error {
 	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)
 	cancel()
 	if err != nil {
-		fmt.Printf("warning: failed to detect run targets: %v\n", err)
+		fmt.Printf("[config] warning: failed to detect run targets: %v\n", err)
 	} else {
 		cfg.RunTargets = config.MergeDetectedRunTargets(cfg.RunTargets, detectedTargets)
 		if err := cfg.Validate(); err != nil {
-			fmt.Printf("warning: failed to validate config after detection: %v\n", err)
+			fmt.Printf("[config] warning: failed to validate config after detection: %v\n", err)
 		} else if err := cfg.Save(); err != nil {
-			fmt.Printf("warning: failed to save config after detection: %v\n", err)
+			fmt.Printf("[config] warning: failed to save config after detection: %v\n", err)
 		}
 	}
 
@@ -334,7 +334,7 @@ func Run(background bool) error {
 		if info, err := os.Stat(logPath); err == nil {
 			sess.LastOutputAt = info.ModTime()
 			if err := st.UpdateSession(sess); err != nil {
-				fmt.Printf("warning: failed to update session %s: %v\n", sess.ID, err)
+				fmt.Printf("[session] warning: failed to update session %s: %v\n", sess.ID, err)
 			}
 		}
 	}
@@ -450,11 +450,11 @@ func Run(background bool) error {
 	// Wait for shutdown signal or server error
 	select {
 	case sig := <-sigChan:
-		fmt.Printf("Received signal %v, shutting down...\n", sig)
+		fmt.Printf("[daemon] received signal %v, shutting down\n", sig)
 	case err := <-serverErrChan:
 		return fmt.Errorf("dashboard server error: %w", err)
 	case <-shutdownChan:
-		fmt.Println("Shutdown requested")
+		fmt.Println("[daemon] shutdown requested")
 	}
 
 	// Stop dashboard server
@@ -505,7 +505,7 @@ func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manag
 
 	// If pipe-pane is active but log is missing, stop the old pipe-pane
 	if pipePaneActive && !logFileExists {
-		fmt.Printf("[bootstrap] %s: pipe-pane active but log missing, stopping pipe-pane\n", sess.ID)
+		fmt.Printf("[session] %s: pipe-pane active but log missing, stopping pipe-pane\n", sess.ID)
 		timeoutCtx, cancel = context.WithTimeout(ctx, cfg.XtermOperationTimeout())
 		if err := tmux.StopPipePane(timeoutCtx, sess.TmuxSession); err != nil {
 			cancel()
@@ -515,7 +515,7 @@ func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manag
 	}
 
 	if !pipePaneActive {
-		fmt.Printf("[bootstrap] %s: pipe-pane not active, bootstrapping\n", sess.ID)
+		fmt.Printf("[session] %s: pipe-pane not active, bootstrapping\n", sess.ID)
 	}
 
 	// Bootstrap: capture screen content and write to log, start pipe-pane
@@ -536,7 +536,7 @@ func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manag
 		return fmt.Errorf("failed to attach pipe-pane for %s: %w", sess.ID, err)
 	}
 	cancel()
-	fmt.Printf("[bootstrap] %s: pipe-pane started\n", sess.ID)
+	fmt.Printf("[session] %s: pipe-pane started\n", sess.ID)
 	return nil
 }
 
