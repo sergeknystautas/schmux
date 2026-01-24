@@ -84,6 +84,12 @@ func Load(path string) (*State, error) {
 		st.BaseRepos = []BaseRepo{}
 	}
 
+	// Reset LastOutputAt for all loaded sessions to avoid treating restored
+	// sessions as "recently active" on startup, which would block git status updates.
+	for i := range st.Sessions {
+		st.Sessions[i].LastOutputAt = time.Time{}
+	}
+
 	return &st, nil
 }
 

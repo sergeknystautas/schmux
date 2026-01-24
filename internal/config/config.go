@@ -32,6 +32,7 @@ const (
 
 	// Default timeout values in milliseconds
 	DefaultGitCloneTimeoutMs          = 300000  // 5 minutes
+	DefaultGitStatusPollIntervalMs    = 2000    // 2 seconds
 	DefaultGitStatusTimeoutMs         = 30000   // 30 seconds
 	DefaultXtermQueryTimeoutMs        = 5000    // 5 seconds
 	DefaultXtermOperationTimeoutMs    = 10000   // 10 seconds
