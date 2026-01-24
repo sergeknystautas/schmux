@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 // Scan scans the workspace directory and reconciles state with filesystem.
 // Returns what was added, updated, and removed.
 func (m *Manager) Scan() (ScanResult, error) {
-	m.logger.Printf("scanning workspace directory: %s", m.config.GetWorkspacePath())
+	log.Printf("[workspace] scanning workspace directory: %s", m.config.GetWorkspacePath())
 
 	result := ScanResult{
 		Added:   []state.Workspace{},
@@ -53,20 +54,20 @@ func (m *Manager) Scan() (ScanResult, error) {
 		// Get current branch
 		branch, err := m.gitGetCurrentBranch(dirPath)
 		if err != nil {
-			m.logger.Printf("failed to get branch for %s: %v", dirPath, err)
+			log.Printf("[workspace] failed to get branch for %s: %v", dirPath, err)
 			continue
 		}
 
 		// Get remote URL
 		repoURL, err := m.gitGetRemoteURL(dirPath)
 		if err != nil {
-			m.logger.Printf("failed to get remote URL for %s: %v", dirPath, err)
+			log.Printf("[workspace] failed to get remote URL for %s: %v", dirPath, err)
 			continue
 		}
 
 		// Only include repos that are in our config
 		if _, found := m.findRepoByURL(repoURL); !found {
-			m.logger.Printf("skipping unconfigured repo: %s", repoURL)
+			log.Printf("[workspace] skipping unconfigured repo: %s", repoURL)
 			continue
 		}
 
@@ -100,7 +101,7 @@ func (m *Manager) Scan() (ScanResult, error) {
 			// Workspace no longer exists or is not a git repo - remove it
 			m.state.RemoveWorkspace(ws.ID)
 			result.Removed = append(result.Removed, ws)
-			m.logger.Printf("removed workspace: id=%s (not found in filesystem)", ws.ID)
+			log.Printf("[workspace] removed workspace: id=%s (not found in filesystem)", ws.ID)
 			continue
 		}
 
@@ -114,7 +115,7 @@ func (m *Manager) Scan() (ScanResult, error) {
 				Old: oldWS,
 				New: ws,
 			})
-			m.logger.Printf("updated workspace: id=%s branch=%s repo=%s", ws.ID, ws.Branch, ws.Repo)
+			log.Printf("[workspace] updated workspace: id=%s branch=%s repo=%s", ws.ID, ws.Branch, ws.Repo)
 		}
 
 		// Remove from fsRepos so we know it's been processed
@@ -139,7 +140,7 @@ func (m *Manager) Scan() (ScanResult, error) {
 		}
 		m.state.AddWorkspace(newWS)
 		result.Added = append(result.Added, newWS)
-		m.logger.Printf("added workspace: id=%s repo=%s branch=%s", newWS.ID, newWS.Repo, newWS.Branch)
+		log.Printf("[workspace] added workspace: id=%s repo=%s branch=%s", newWS.ID, newWS.Repo, newWS.Branch)
 	}
 
 	// Step 4: Save state if anything changed
@@ -149,7 +150,7 @@ func (m *Manager) Scan() (ScanResult, error) {
 		}
 	}
 
-	m.logger.Printf("scan complete: added=%d updated=%d removed=%d", len(result.Added), len(result.Updated), len(result.Removed))
+	log.Printf("[workspace] scan complete: added=%d updated=%d removed=%d", len(result.Added), len(result.Updated), len(result.Removed))
 	return result, nil
 }
 

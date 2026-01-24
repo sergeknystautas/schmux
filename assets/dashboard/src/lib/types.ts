@@ -23,6 +23,8 @@ export interface WorkspaceResponse {
   git_dirty: boolean;
   git_ahead: number;
   git_behind: number;
+  git_lines_added: number;
+  git_lines_removed: number;
 }
 
 export interface SessionWithWorkspace extends SessionResponse {

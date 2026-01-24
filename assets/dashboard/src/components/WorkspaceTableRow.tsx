@@ -30,6 +30,9 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
   // Always show both behind and ahead numbers
   const behind = workspace.git_behind ?? 0;
   const ahead = workspace.git_ahead ?? 0;
+  const linesAdded = workspace.git_lines_added ?? 0;
+  const linesRemoved = workspace.git_lines_removed ?? 0;
+
   gitStatusParts.push(
     <Tooltip key="status" content={`${behind} behind, ${ahead} ahead`}>
       <span
@@ -45,6 +48,38 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
       </span>
     </Tooltip>
   );
+
+  // Show lines added/removed if there are any
+  if (linesAdded > 0 || linesRemoved > 0) {
+    const lineParts = [];
+    if (linesAdded > 0) {
+      lineParts.push(
+        <span key="added" style={{ color: 'var(--color-success)' }}>
+          +{linesAdded}
+        </span>
+      );
+    }
+    if (linesRemoved > 0) {
+      lineParts.push(
+        <span key="removed" style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>
+          -{linesRemoved}
+        </span>
+      );
+    }
+    gitStatusParts.push(
+      <Tooltip key="lines" content={`${linesAdded} line${linesAdded !== 1 ? 's' : ''} added, ${linesRemoved} line${linesRemoved !== 1 ? 's' : ''} removed`}>
+        <span
+          style={{
+            marginLeft: '8px',
+            fontSize: '0.75rem',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {lineParts}
+        </span>
+      </Tooltip>
+    );
+  }
 
   return (
     <div className="workspace-item" key={workspace.id}>
@@ -96,7 +131,6 @@ export default function WorkspaceTableRow({ workspace, onToggle, expanded, sessi
             )} ·
             {gitStatusParts}
           </span>
-          <span className="badge badge--neutral">{sessionCount} session{sessionCount !== 1 ? 's' : ''}</span>
         </div>
         {actions && (
           <div className="workspace-item__actions">

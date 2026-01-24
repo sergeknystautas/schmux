@@ -47,7 +47,7 @@ func EnsureOverlayDir(repoName string) error {
 // CopyOverlay copies overlay files from srcDir (overlay) to destDir (workspace).
 // Only copies files that are covered by .gitignore in the destination workspace.
 // Preserves directory structure, file permissions, and symlinks.
-func CopyOverlay(ctx context.Context, logger *log.Logger, srcDir, destDir string) error {
+func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
 	// Walk the overlay directory
 	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -79,12 +79,12 @@ func CopyOverlay(ctx context.Context, logger *log.Logger, srcDir, destDir string
 		// For files, check if covered by .gitignore
 		ignored, err := isIgnoredByGit(ctx, destDir, relPath)
 		if err != nil {
-			logger.Printf("WARNING: failed to check gitignore for %s: %v", relPath, err)
+			log.Printf("[workspace] WARNING: failed to check gitignore for %s: %v", relPath, err)
 			// Skip files if we can't verify gitignore coverage
 			return nil
 		}
 		if !ignored {
-			logger.Printf("WARNING: skipping overlay file (not in .gitignore): %s", relPath)
+			log.Printf("[workspace] WARNING: skipping overlay file (not in .gitignore): %s", relPath)
 			return nil
 		}
 
@@ -104,7 +104,7 @@ func CopyOverlay(ctx context.Context, logger *log.Logger, srcDir, destDir string
 			if err := os.Symlink(target, destPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", destPath, err)
 			}
-			logger.Printf("copied overlay symlink: %s -> %s", relPath, target)
+			log.Printf("[workspace] copied overlay symlink: %s -> %s", relPath, target)
 			return nil
 		}
 
@@ -112,7 +112,7 @@ func CopyOverlay(ctx context.Context, logger *log.Logger, srcDir, destDir string
 		if err := copyFile(path, destPath, info.Mode()); err != nil {
 			return fmt.Errorf("failed to copy %s to %s: %w", path, destPath, err)
 		}
-		logger.Printf("copied overlay file: %s", relPath)
+		log.Printf("[workspace] copied overlay file: %s", relPath)
 
 		return nil
 	})
