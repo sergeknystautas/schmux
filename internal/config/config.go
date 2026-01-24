@@ -45,6 +45,7 @@ const (
 type Config struct {
 	ConfigVersion              string                `json:"config_version,omitempty"`
 	WorkspacePath              string                `json:"workspace_path"`
+	BaseReposPath              string                `json:"base_repos_path,omitempty"` // path for bare clones (worktree base repos)
 	Repos                      []Repo                `json:"repos"`
 	RunTargets                 []RunTarget           `json:"run_targets"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
@@ -226,6 +227,19 @@ func (c *Config) GetWorkspacePath() string {
 	return c.WorkspacePath
 }
 
+// GetBaseReposPath returns the path for bare clones (worktree base repos).
+// Defaults to ~/.schmux/repos if not set.
+func (c *Config) GetBaseReposPath() string {
+	if c.BaseReposPath != "" {
+		return c.BaseReposPath
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".schmux", "repos")
+}
+
 // GetRepos returns the list of repositories.
 func (c *Config) GetRepos() []Repo {
 	return c.Repos
@@ -361,6 +375,10 @@ func (c *Config) Reload() error {
 	if newCfg.WorkspacePath != "" && newCfg.WorkspacePath[0] == '~' {
 		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
 	}
+	// Expand base repos path (handle ~)
+	if newCfg.BaseReposPath != "" && newCfg.BaseReposPath[0] == '~' {
+		newCfg.BaseReposPath = filepath.Join(homeDir, newCfg.BaseReposPath[1:])
+	}
 	newCfg.expandNetworkPaths(homeDir)
 
 	// Preserve the existing path
@@ -439,6 +457,10 @@ func Load(configPath string) (*Config, error) {
 	// Expand workspace path (handle ~) - allow empty during wizard setup
 	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
 		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
+	}
+	// Expand base repos path (handle ~)
+	if cfg.BaseReposPath != "" && cfg.BaseReposPath[0] == '~' {
+		cfg.BaseReposPath = filepath.Join(homeDir, cfg.BaseReposPath[1:])
 	}
 	cfg.expandNetworkPaths(homeDir)
 

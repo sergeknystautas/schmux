@@ -13,6 +13,7 @@ import (
 type State struct {
 	Workspaces   []Workspace `json:"workspaces"`
 	Sessions     []Session   `json:"sessions"`
+	BaseRepos    []BaseRepo  `json:"base_repos,omitempty"`    // bare clones that host worktrees
 	NeedsRestart bool        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
 	path         string      // path to the state file
 	mu           sync.RWMutex
@@ -28,6 +29,12 @@ type Workspace struct {
 	GitDirty  bool   `json:"-"`
 	GitAhead  int    `json:"-"`
 	GitBehind int    `json:"-"`
+}
+
+// BaseRepo tracks a bare clone that hosts worktrees.
+type BaseRepo struct {
+	RepoURL string `json:"repo_url"` // e.g., "git@github.com:user/repo.git"
+	Path    string `json:"path"`     // e.g., "~/.schmux/repos/myrepo.git"
 }
 
 // Session represents a run target session.
@@ -48,6 +55,7 @@ func New(path string) *State {
 	return &State{
 		Workspaces: []Workspace{},
 		Sessions:   []Session{},
+		BaseRepos:  []BaseRepo{},
 		path:       path,
 	}
 }
@@ -67,6 +75,11 @@ func Load(path string) (*State, error) {
 	st.path = path
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+
+	// Initialize BaseRepos if nil (existing state files)
+	if st.BaseRepos == nil {
+		st.BaseRepos = []BaseRepo{}
 	}
 
 	return &st, nil
@@ -222,6 +235,46 @@ func (s *State) RemoveWorkspace(id string) error {
 		}
 	}
 	return nil
+}
+
+// GetBaseRepos returns all base repos.
+func (s *State) GetBaseRepos() []BaseRepo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.BaseRepos == nil {
+		return []BaseRepo{}
+	}
+	repos := make([]BaseRepo, len(s.BaseRepos))
+	copy(repos, s.BaseRepos)
+	return repos
+}
+
+// AddBaseRepo adds a base repo to the state.
+func (s *State) AddBaseRepo(br BaseRepo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Check for existing entry with same URL
+	for i, existing := range s.BaseRepos {
+		if existing.RepoURL == br.RepoURL {
+			// Update existing entry
+			s.BaseRepos[i] = br
+			return nil
+		}
+	}
+	s.BaseRepos = append(s.BaseRepos, br)
+	return nil
+}
+
+// GetBaseRepoByURL returns a base repo by its URL.
+func (s *State) GetBaseRepoByURL(repoURL string) (BaseRepo, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, br := range s.BaseRepos {
+		if br.RepoURL == repoURL {
+			return br, true
+		}
+	}
+	return BaseRepo{}, false
 }
 
 // SetNeedsRestart sets the needs_restart flag.

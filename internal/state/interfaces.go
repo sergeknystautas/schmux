@@ -19,6 +19,11 @@ type StateStore interface {
 	UpdateWorkspace(ws Workspace) error
 	RemoveWorkspace(id string) error
 
+	// Base repo operations (for git worktrees)
+	GetBaseRepos() []BaseRepo
+	GetBaseRepoByURL(repoURL string) (BaseRepo, bool)
+	AddBaseRepo(br BaseRepo) error
+
 	// Daemon state
 	GetNeedsRestart() bool
 	SetNeedsRestart(needsRestart bool) error

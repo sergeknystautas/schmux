@@ -148,7 +148,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	return w, nil
 }
 
-// create creates a new workspace directory for the given repoURL.
+// create creates a new workspace directory for the given repoURL using git worktrees.
 func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
 	// Find repo config by URL
 	repoConfig, found := m.findRepoByURL(repoURL)
@@ -166,20 +166,40 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
-	// Clean up directory if creation fails (registered before any directory creation)
+	// Ensure base repo exists (creates bare clone if needed)
+	baseRepoPath, err := m.ensureBaseRepo(ctx, repoURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure base repo: %w", err)
+	}
+
+	// Fetch latest before creating worktree
+	if fetchErr := m.gitFetch(ctx, baseRepoPath); fetchErr != nil {
+		m.logger.Printf("warning: fetch failed before worktree add: %v", fetchErr)
+	}
+
+	// Clean up worktree if creation fails
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			m.logger.Printf("cleaning up failed workspace directory: %s", workspacePath)
-			if err := os.RemoveAll(workspacePath); err != nil {
-				m.logger.Printf("failed to cleanup workspace directory %s: %v", workspacePath, err)
+			m.logger.Printf("cleaning up failed workspace: %s", workspacePath)
+			// Try worktree remove first, fall back to rm -rf
+			if err := m.removeWorktree(ctx, baseRepoPath, workspacePath); err != nil {
+				os.RemoveAll(workspacePath)
 			}
 		}
 	}()
 
-	// Clone the repository
-	if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
-		return nil, fmt.Errorf("failed to clone repo: %w", err)
+	// Add worktree (fall back to full clone if branch is already checked out)
+	if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
+		// Check if error is due to branch already being checked out
+		if strings.Contains(err.Error(), "is already checked out") {
+			m.logger.Printf("branch %s already checked out in another worktree, falling back to full clone", branch)
+			if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
+				return nil, fmt.Errorf("failed to clone repo (worktree fallback): %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to add worktree: %w", err)
+		}
 	}
 
 	// Copy overlay files if they exist
@@ -388,6 +408,7 @@ func (m *Manager) findRepoByURL(repoURL string) (config.Repo, bool) {
 }
 
 // cloneRepo clones a repository to the given path.
+// Deprecated: Use ensureBaseRepo + addWorktree for new workspaces.
 func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 	m.logger.Printf("cloning repository: url=%s path=%s", url, path)
 	args := []string{"clone", url, path}
@@ -398,6 +419,137 @@ func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 	}
 
 	m.logger.Printf("repository cloned: path=%s", path)
+	return nil
+}
+
+// ensureBaseRepo creates or returns an existing bare clone for a repo URL.
+//
+// Race condition handling: If two requests try to create the same base repo
+// concurrently, git clone --bare will fail for the second request because the
+// directory already exists. This is acceptable because:
+//  1. The first clone will succeed and create the repo
+//  2. The second clone fails with "already exists" error
+//  3. The caller (create()) will fail, but a retry will find the existing repo
+//
+// In practice, this race is rare since workspace creation is typically sequential
+// through the API. The state.AddBaseRepo() call is also idempotent (updates if exists).
+func (m *Manager) ensureBaseRepo(ctx context.Context, repoURL string) (string, error) {
+	// Check if base repo already exists in state
+	if br, found := m.state.GetBaseRepoByURL(repoURL); found {
+		// Verify it still exists on disk (handles external deletion)
+		if _, err := os.Stat(br.Path); err == nil {
+			m.logger.Printf("using existing base repo: url=%s path=%s", repoURL, br.Path)
+			return br.Path, nil
+		}
+		m.logger.Printf("base repo missing on disk, will recreate: url=%s", repoURL)
+	}
+
+	// Derive base repo path from repo name
+	repoName := extractRepoName(repoURL)
+	baseRepoPath := filepath.Join(m.config.GetBaseReposPath(), repoName+".git")
+
+	// Ensure base repos directory exists
+	if err := os.MkdirAll(m.config.GetBaseReposPath(), 0755); err != nil {
+		return "", fmt.Errorf("failed to create base repos directory: %w", err)
+	}
+
+	// Clone as bare repo (may fail if concurrent request already created it)
+	if err := m.cloneBareRepo(ctx, repoURL, baseRepoPath); err != nil {
+		// Check if it failed because directory already exists (race condition)
+		if _, statErr := os.Stat(baseRepoPath); statErr == nil {
+			m.logger.Printf("base repo created by concurrent request, using existing: %s", baseRepoPath)
+			// Fall through to add to state (idempotent)
+		} else {
+			return "", err
+		}
+	}
+
+	// Track in state
+	if err := m.state.AddBaseRepo(state.BaseRepo{RepoURL: repoURL, Path: baseRepoPath}); err != nil {
+		return "", fmt.Errorf("failed to add base repo to state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return "", fmt.Errorf("failed to save state: %w", err)
+	}
+
+	return baseRepoPath, nil
+}
+
+// cloneBareRepo clones a repository as a bare clone and configures it for fetching.
+// Note: git clone --bare doesn't set up fetch refspecs by default (it's designed for
+// servers). We add the refspec so that 'git fetch' creates remote tracking branches.
+func (m *Manager) cloneBareRepo(ctx context.Context, url, path string) error {
+	m.logger.Printf("cloning bare repository: url=%s path=%s", url, path)
+	args := []string{"clone", "--bare", url, path}
+	cmd := exec.CommandContext(ctx, "git", args...)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git clone --bare failed: %w: %s", err, string(output))
+	}
+
+	// Configure fetch refspec so 'git fetch' creates remote tracking branches
+	// Without this, origin/main won't exist after fetch
+	configCmd := exec.CommandContext(ctx, "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+	configCmd.Dir = path
+	if output, err := configCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
+	}
+
+	m.logger.Printf("bare repository cloned: path=%s", path)
+	return nil
+}
+
+// addWorktree adds a worktree from a base repo.
+func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, branch string) error {
+	m.logger.Printf("adding worktree: base=%s path=%s branch=%s", baseRepoPath, workspacePath, branch)
+
+	// Check if local branch exists
+	localBranchCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	localBranchCmd.Dir = baseRepoPath
+	localBranchExists := localBranchCmd.Run() == nil
+
+	// Check if remote branch exists
+	remoteBranch := "origin/" + branch
+	remoteBranchCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/"+remoteBranch)
+	remoteBranchCmd.Dir = baseRepoPath
+	remoteBranchExists := remoteBranchCmd.Run() == nil
+
+	var args []string
+	if localBranchExists {
+		// Branch exists locally - check it out directly (no -b)
+		args = []string{"worktree", "add", workspacePath, branch}
+	} else if remoteBranchExists {
+		// Track existing remote branch (create local branch)
+		args = []string{"worktree", "add", "--track", "-b", branch, workspacePath, remoteBranch}
+	} else {
+		// Create new local branch (use HEAD as starting point)
+		args = []string{"worktree", "add", "-b", branch, workspacePath, "HEAD"}
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = baseRepoPath
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
+	}
+
+	m.logger.Printf("worktree added: path=%s", workspacePath)
+	return nil
+}
+
+// removeWorktree removes a worktree.
+func (m *Manager) removeWorktree(ctx context.Context, baseRepoPath, workspacePath string) error {
+	m.logger.Printf("removing worktree: base=%s path=%s", baseRepoPath, workspacePath)
+
+	args := []string{"worktree", "remove", "--force", workspacePath}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = baseRepoPath
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree remove failed: %w: %s", err, string(output))
+	}
+
+	m.logger.Printf("worktree removed: path=%s", workspacePath)
 	return nil
 }
 
@@ -449,11 +601,19 @@ func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error 
 	return nil
 }
 
-// gitFetch runs git fetch.
+// gitFetch runs git fetch. For worktrees, fetches from the base repo.
 func (m *Manager) gitFetch(ctx context.Context, dir string) error {
+	// Resolve to base repo if this is a worktree
+	fetchDir := dir
+	if isWorktree(dir) {
+		if baseRepo, err := resolveBaseRepoFromWorktree(dir); err == nil {
+			fetchDir = baseRepo
+		}
+	}
+
 	args := []string{"fetch"}
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	cmd.Dir = fetchDir
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch failed: %w: %s", err, string(output))
@@ -850,6 +1010,68 @@ func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
 	return nil
 }
 
+// extractRepoName extracts the repository name from various URL formats.
+// Handles: git@github.com:user/myrepo.git, https://github.com/user/myrepo.git, etc.
+func extractRepoName(repoURL string) string {
+	// Strip .git suffix
+	name := strings.TrimSuffix(repoURL, ".git")
+
+	// Get last path component (handle both / and : separators)
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, ":"); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	return name
+}
+
+// isWorktree checks if a path is a worktree (has .git file) vs full clone (.git dir).
+func isWorktree(path string) bool {
+	gitPath := filepath.Join(path, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir() // File = worktree, Dir = full clone
+}
+
+// resolveBaseRepoFromWorktree reads the .git file to find the base repo path.
+func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
+	gitFilePath := filepath.Join(worktreePath, ".git")
+	content, err := os.ReadFile(gitFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read .git file: %w", err)
+	}
+
+	// Format: "gitdir: /path/to/base.git/worktrees/workspace-name"
+	line := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(line, "gitdir: ") {
+		return "", fmt.Errorf("invalid .git file format")
+	}
+
+	gitdir := strings.TrimPrefix(line, "gitdir: ")
+
+	// Strip "/worktrees/xxx" to get base repo path
+	if idx := strings.Index(gitdir, "/worktrees/"); idx >= 0 {
+		return gitdir[:idx], nil
+	}
+
+	return "", fmt.Errorf("could not parse base repo from gitdir: %s", gitdir)
+}
+
+// findBaseRepoForWorkspace finds the base repo path for a workspace.
+func (m *Manager) findBaseRepoForWorkspace(w state.Workspace) (string, error) {
+	// Try to resolve from .git file (works for worktrees)
+	if isWorktree(w.Path) {
+		return resolveBaseRepoFromWorktree(w.Path)
+	}
+
+	// Not a worktree
+	return "", fmt.Errorf("workspace is not a worktree: %s", w.ID)
+}
+
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)
@@ -874,9 +1096,25 @@ func (m *Manager) Dispose(workspaceID string) error {
 		return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
 	}
 
-	// Delete workspace directory
-	if err := os.RemoveAll(w.Path); err != nil {
-		return fmt.Errorf("failed to delete workspace directory: %w", err)
+	// Delete workspace directory (worktree or legacy full clone)
+	if isWorktree(w.Path) {
+		// Use git worktree remove for worktrees
+		baseRepoPath, err := m.findBaseRepoForWorkspace(w)
+		if err != nil {
+			m.logger.Printf("warning: could not find base repo, falling back to rm: %v", err)
+			if err := os.RemoveAll(w.Path); err != nil {
+				return fmt.Errorf("failed to delete workspace directory: %w", err)
+			}
+		} else {
+			if err := m.removeWorktree(ctx, baseRepoPath, w.Path); err != nil {
+				return fmt.Errorf("failed to remove worktree: %w", err)
+			}
+		}
+	} else {
+		// Legacy full clone - delete directory
+		if err := os.RemoveAll(w.Path); err != nil {
+			return fmt.Errorf("failed to delete workspace directory: %w", err)
+		}
 	}
 
 	// Remove from state
