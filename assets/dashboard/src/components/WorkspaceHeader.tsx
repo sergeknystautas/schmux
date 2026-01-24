@@ -2,28 +2,21 @@ import React, { useState } from 'react';
 import { openVSCode, disposeWorkspace, getErrorMessage } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
-import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import Tooltip from './Tooltip';
-import SpawnDropdown from './SpawnDropdown';
 import VSCodeResultModal from './VSCodeResultModal';
-import type { WorkspaceResponse, QuickLaunchPreset, OpenVSCodeResponse } from '../lib/types';
+import type { WorkspaceResponse, OpenVSCodeResponse } from '../lib/types';
 
 type WorkspaceHeaderProps = {
   workspace: WorkspaceResponse;
 };
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
-  const { config } = useConfig();
   const { refresh } = useSessions();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
-
-  const quickLaunch = React.useMemo<QuickLaunchPreset[]>(() => {
-    return config?.quick_launch || [];
-  }, [config?.quick_launch]);
 
   // Git branch icon SVG
   const branchIcon = (
@@ -123,7 +116,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               </svg>
             </button>
           </Tooltip>
-          <SpawnDropdown workspace={workspace} quickLaunch={quickLaunch} />
         </div>
       </div>
 

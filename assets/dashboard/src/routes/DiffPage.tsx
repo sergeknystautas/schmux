@@ -203,7 +203,7 @@ export default function DiffPage() {
 
       <div className="diff-page">
         <div className="diff-actions">
-          <span className="diff-actions__label">Open in:</span>
+          <span className="diff-actions__label">Diff in:</span>
           {BUILTIN_DIFF_COMMANDS.map((cmd) => (
             <button
               key={`builtin-${cmd.name}`}
