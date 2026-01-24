@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sort"
 	"strings"
 	"time"
@@ -116,6 +117,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		GitBehind       int               `json:"git_behind"`
 		GitLinesAdded   int               `json:"git_lines_added"`
 		GitLinesRemoved int               `json:"git_lines_removed"`
+		GitFilesChanged int               `json:"git_files_changed"`
 	}
 
 	workspaceMap := make(map[string]*WorkspaceResponse)
@@ -139,6 +141,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			GitBehind:       ws.GitBehind,
 			GitLinesAdded:   ws.GitLinesAdded,
 			GitLinesRemoved: ws.GitLinesRemoved,
+			GitFilesChanged: ws.GitFilesChanged,
 		}
 	}
 
@@ -1339,11 +1342,13 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 	// Run git diff in workspace directory
 	type FileDiff struct {
-		OldPath    string `json:"old_path,omitempty"`
-		NewPath    string `json:"new_path,omitempty"`
-		OldContent string `json:"old_content,omitempty"`
-		NewContent string `json:"new_content,omitempty"`
-		Status     string `json:"status,omitempty"` // added, modified, deleted, renamed
+		OldPath      string `json:"old_path,omitempty"`
+		NewPath      string `json:"new_path,omitempty"`
+		OldContent   string `json:"old_content,omitempty"`
+		NewContent   string `json:"new_content,omitempty"`
+		Status       string `json:"status,omitempty"` // added, modified, deleted, renamed
+		LinesAdded   int    `json:"lines_added"`
+		LinesRemoved int    `json:"lines_removed"`
 	}
 
 	type DiffResponse struct {
@@ -1378,20 +1383,32 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		added := parts[0]
-		_ = parts[1] // deleted lines (not currently used)
+		addedStr := parts[0]
+		deletedStr := parts[1]
 		filePath := parts[2]
 
+		// Parse line counts (may be "-" for binary files)
+		linesAdded := 0
+		linesRemoved := 0
+		if addedStr != "-" {
+			linesAdded, _ = strconv.Atoi(addedStr)
+		}
+		if deletedStr != "-" {
+			linesRemoved, _ = strconv.Atoi(deletedStr)
+		}
+
 		// Skip if file was deleted (added is "-")
-		if added == "-" {
+		if addedStr == "-" && deletedStr != "-" {
 			// For deleted files, get old content
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 			oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
 			cancel()
 			files = append(files, FileDiff{
-				NewPath:    filePath,
-				OldContent: oldContent,
-				Status:     "deleted",
+				NewPath:      filePath,
+				OldContent:   oldContent,
+				Status:       "deleted",
+				LinesAdded:   linesAdded,
+				LinesRemoved: linesRemoved,
 			})
 			continue
 		}
@@ -1408,10 +1425,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 
 		files = append(files, FileDiff{
-			NewPath:    filePath,
-			OldContent: oldContent,
-			NewContent: newContent,
-			Status:     status,
+			NewPath:      filePath,
+			OldContent:   oldContent,
+			NewContent:   newContent,
+			Status:       status,
+			LinesAdded:   linesAdded,
+			LinesRemoved: linesRemoved,
 		})
 	}
 
@@ -1429,10 +1448,19 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			}
 			// Get content of untracked file from working directory
 			newContent := s.getFileContent(context.Background(), ws.Path, filePath, "worktree")
+			// Count lines for untracked files (all lines are additions)
+			lineCount := 0
+			if newContent != "" {
+				lineCount = strings.Count(newContent, "\n")
+				if !strings.HasSuffix(newContent, "\n") {
+					lineCount++ // Count last line if no trailing newline
+				}
+			}
 			files = append(files, FileDiff{
 				NewPath:    filePath,
 				NewContent: newContent,
 				Status:     "untracked",
+				LinesAdded: lineCount,
 			})
 		}
 	}

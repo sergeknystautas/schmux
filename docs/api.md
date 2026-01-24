@@ -129,6 +129,7 @@ Response:
     "git_behind":0,
     "git_lines_added":0,
     "git_lines_removed":0,
+    "git_files_changed":0,
     "sessions":[
       {
         "id":"session-id",

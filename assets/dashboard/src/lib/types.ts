@@ -24,6 +24,7 @@ export interface WorkspaceResponse {
   git_behind: number;
   git_lines_added: number;
   git_lines_removed: number;
+  git_files_changed: number;
 }
 
 export interface SessionWithWorkspace extends SessionResponse {
@@ -126,6 +127,8 @@ export interface FileDiff {
   old_content?: string;
   new_content?: string;
   status?: string;
+  lines_added: number;
+  lines_removed: number;
 }
 
 export interface DiffResponse {

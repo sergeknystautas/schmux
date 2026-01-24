@@ -7,7 +7,7 @@ import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import Tooltip from './Tooltip';
-import type { SessionResponse } from '../lib/types';
+import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 
 const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
@@ -32,14 +32,28 @@ function WorkingSpinner() {
 type SessionTabsProps = {
   sessions: SessionResponse[];
   currentSessionId?: string;
+  workspace?: WorkspaceResponse;
+  activeDiffTab?: boolean;
 };
 
-export default function SessionTabs({ sessions, currentSessionId }: SessionTabsProps) {
+export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab }: SessionTabsProps) {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
   const { refresh } = useSessions();
+
+  // Calculate if we should show diff tab
+  const linesAdded = workspace?.git_lines_added ?? 0;
+  const linesRemoved = workspace?.git_lines_removed ?? 0;
+  const filesChanged = workspace?.git_files_changed ?? 0;
+  const hasChanges = filesChanged > 0 || linesAdded > 0 || linesRemoved > 0;
+
+  const handleDiffTabClick = () => {
+    if (workspace) {
+      navigate(`/diff/${workspace.id}`);
+    }
+  };
 
   const handleDispose = async (sessionId: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -144,6 +158,29 @@ export default function SessionTabs({ sessions, currentSessionId }: SessionTabsP
           </div>
         );
       })}
+      {hasChanges && (
+        <div
+          className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}`}
+          onClick={handleDiffTabClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              handleDiffTabClick();
+            }
+          }}
+        >
+          <div className="session-tab__row1">
+            <span className="session-tab__name">
+              {filesChanged} file{filesChanged !== 1 ? 's' : ''}
+            </span>
+            <span className="session-tab__diff-stats">
+              {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
+              {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
