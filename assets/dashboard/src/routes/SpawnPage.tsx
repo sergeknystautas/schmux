@@ -485,6 +485,7 @@ export default function SpawnPage() {
                   className="input"
                   value={branch}
                   onChange={(event) => setBranch(event.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSpawn(); }}
                   required
                 />
               )}
@@ -505,6 +506,7 @@ export default function SpawnPage() {
                     maxLength={100}
                     value={nickname}
                     onChange={(event) => setNickname(event.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSpawn(); }}
                   />
                   {!branchSuggestTarget && (
                     <div className="banner banner--info" style={{ margin: 'var(--spacing-sm) 0', fontSize: '0.875rem' }}>
