@@ -219,6 +219,10 @@ export default class TerminalStream {
     }
   }
 
+  focus() {
+    this.terminal?.focus();
+  }
+
   sendInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'input', data }));

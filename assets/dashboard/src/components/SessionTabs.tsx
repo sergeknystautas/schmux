@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { disposeSession, getErrorMessage } from '../lib/api';
+import { disposeSession, spawnSessions, getErrorMessage } from '../lib/api';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import Tooltip from './Tooltip';
-import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import type { SessionResponse, WorkspaceResponse, QuickLaunchPreset } from '../lib/types';
 
 const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
@@ -34,14 +35,25 @@ type SessionTabsProps = {
   currentSessionId?: string;
   workspace?: WorkspaceResponse;
   activeDiffTab?: boolean;
+  activeSpawnTab?: boolean;
 };
 
-export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab }: SessionTabsProps) {
+export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab }: SessionTabsProps) {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
-  const { refresh } = useSessions();
+  const { refresh, waitForSession } = useSessions();
+
+  // Spawn dropdown state
+  const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
+  const [spawning, setSpawning] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const [placementAbove, setPlacementAbove] = useState(false);
+  const spawnButtonRef = useRef<HTMLButtonElement | null>(null);
+  const spawnMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const quickLaunch = config?.quick_launch || [];
 
   // Calculate if we should show diff tab
   const linesAdded = workspace?.git_lines_added ?? 0;
@@ -49,9 +61,94 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const filesChanged = workspace?.git_files_changed ?? 0;
   const hasChanges = filesChanged > 0 || linesAdded > 0 || linesRemoved > 0;
 
+  // Calculate spawn menu position
+  useEffect(() => {
+    if (spawnMenuOpen && spawnButtonRef.current) {
+      const rect = spawnButtonRef.current.getBoundingClientRect();
+      const gap = 4;
+      const estimatedMenuHeight = spawnMenuRef.current?.offsetHeight ||
+        Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
+
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+      setPlacementAbove(shouldPlaceAbove);
+
+      if (shouldPlaceAbove) {
+        setMenuPosition({ top: rect.top - gap, left: rect.left });
+      } else {
+        setMenuPosition({ top: rect.bottom + gap, left: rect.left });
+      }
+    }
+  }, [spawnMenuOpen, quickLaunch?.length]);
+
+  // Close spawn menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (spawnButtonRef.current?.contains(target)) return;
+      if (spawnMenuRef.current?.contains(target)) return;
+      setSpawnMenuOpen(false);
+    };
+
+    if (spawnMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [spawnMenuOpen]);
+
   const handleDiffTabClick = () => {
     if (workspace) {
       navigate(`/diff/${workspace.id}`);
+    }
+  };
+
+  const handleSpawnTabClick = () => {
+    if (workspace) {
+      navigate(`/spawn?workspace_id=${workspace.id}`);
+    }
+  };
+
+  const handleCustomSpawn = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setSpawnMenuOpen(false);
+    if (workspace) {
+      navigate(`/spawn?workspace_id=${workspace.id}`);
+    }
+  };
+
+  const handleQuickLaunchSpawn = async (preset: QuickLaunchPreset, event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!workspace) return;
+    setSpawnMenuOpen(false);
+    setSpawning(true);
+
+    try {
+      const response = await spawnSessions({
+        repo: workspace.repo,
+        branch: workspace.branch,
+        prompt: preset.prompt || '',
+        nickname: preset.name,
+        targets: { [preset.target]: 1 },
+        workspace_id: workspace.id,
+      });
+
+      const result = response[0];
+      if (result.error) {
+        toastError(`Failed to spawn ${preset.name}: ${result.error}`);
+      } else {
+        success(`Spawned ${preset.name} session`);
+        await refresh(true);
+        await waitForSession(result.session_id);
+        navigate(`/sessions/${result.session_id}`);
+      }
+    } catch (err) {
+      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
+    } finally {
+      setSpawning(false);
     }
   };
 
@@ -129,7 +226,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
             }}
           >
             <div className="session-tab__row1">
-              <span className={`session-tab__name${sess.nickname ? '' : ' mono'}`}>
+              <span className="session-tab__name">
                 {displayName}
               </span>
               <Tooltip content={!sess.running ? 'Session stopped' : (sess.last_output_at ? formatTimestamp(sess.last_output_at) : 'Never')}>
@@ -180,6 +277,91 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
             </span>
           </div>
         </div>
+      )}
+      {activeSpawnTab && (
+        <div
+          className="session-tab session-tab--active"
+          onClick={handleSpawnTabClick}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="session-tab__row1">
+            <span className="session-tab__name">
+              Spawning...
+            </span>
+          </div>
+        </div>
+      )}
+      {workspace && !activeSpawnTab && (
+        <>
+          <button
+            ref={spawnButtonRef}
+            className="session-tab--add"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSpawnMenuOpen(!spawnMenuOpen);
+            }}
+            disabled={spawning}
+            aria-expanded={spawnMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Spawn new session"
+          >
+            {spawning ? (
+              <span className="spinner spinner--small"></span>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            )}
+          </button>
+          {spawnMenuOpen && !spawning && createPortal(
+            <div
+              ref={spawnMenuRef}
+              className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
+              role="menu"
+              style={{
+                position: 'fixed',
+                top: placementAbove ? 'auto' : `${menuPosition.top}px`,
+                bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
+                left: `${menuPosition.left}px`,
+              }}
+            >
+              <button
+                className="spawn-dropdown__item"
+                onClick={handleCustomSpawn}
+                role="menuitem"
+              >
+                <span className="spawn-dropdown__item-label">Custom...</span>
+                <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
+              </button>
+
+              {quickLaunch.length > 0 && (
+                <>
+                  <div className="spawn-dropdown__separator" role="separator"></div>
+                  {quickLaunch.map((preset) => (
+                    <button
+                      key={preset.name}
+                      className="spawn-dropdown__item"
+                      onClick={(e) => handleQuickLaunchSpawn(preset, e)}
+                      role="menuitem"
+                    >
+                      <span className="spawn-dropdown__item-label">{preset.name}</span>
+                      <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {quickLaunch.length === 0 && (
+                <div className="spawn-dropdown__empty">
+                  No quick launch presets
+                </div>
+              )}
+            </div>,
+            document.body
+          )}
+        </>
       )}
     </div>
   );

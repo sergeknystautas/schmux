@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import useLocalStorage from '../hooks/useLocalStorage';
+import WorkspaceHeader from '../components/WorkspaceHeader';
+import SessionTabs from '../components/SessionTabs';
 import type { RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
@@ -43,7 +45,7 @@ export default function SpawnPage() {
   const [spawning, setSpawning] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
-  const { workspaces, loading: sessionsLoading, refresh } = useSessions();
+  const { workspaces, loading: sessionsLoading, refresh, waitForSession } = useSessions();
   const { config, getRepoName } = useConfig();
 
   // Use useLocalStorage for last-used values (with cross-tab sync)
@@ -51,7 +53,11 @@ export default function SpawnPage() {
   const [lastTargets, setLastTargets] = useLocalStorage<Record<string, number>>('last-targets', {});
 
   const isMounted = useRef(true);
+  const navigate = useNavigate();
   const inExistingWorkspace = !!resolvedWorkspaceId;
+
+  // Get current workspace for header display
+  const currentWorkspace = workspaces?.find(ws => ws.id === resolvedWorkspaceId);
 
   // Get branch suggest target from config
   const branchSuggestTarget = config?.branch_suggest?.target || '';
@@ -200,6 +206,25 @@ export default function SpawnPage() {
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
   }, [targetCounts]);
+
+  // Auto-navigate to first successful session when spawning into existing workspace
+  useEffect(() => {
+    if (!results) return;
+    const successfulResults = results.filter((r) => !r.error);
+    const errorCount = results.filter((r) => r.error).length;
+
+    if (inExistingWorkspace && successfulResults.length > 0 && errorCount === 0) {
+      const sessionId = successfulResults[0].session_id;
+      if (sessionId) {
+        // Wait for session to appear in the list before navigating
+        const doNavigate = async () => {
+          await waitForSession(sessionId);
+          navigate(`/sessions/${sessionId}`);
+        };
+        doNavigate();
+      }
+    }
+  }, [results, inExistingWorkspace, navigate, waitForSession]);
 
   const updateTargetCount = (name: string, delta: number) => {
     setTargetCounts((current) => {
@@ -372,20 +397,37 @@ export default function SpawnPage() {
   if (results) {
     const successCount = results.filter((r) => !r.error).length;
     const errorCount = results.filter((r) => r.error).length;
+    const successfulResults = results.filter((r) => !r.error);
+
+    // If we're auto-navigating, show loading
+    if (inExistingWorkspace && successfulResults.length > 0 && errorCount === 0) {
+      return (
+        <div className="loading-state">
+          <div className="spinner"></div>
+          <span>Opening session...</span>
+        </div>
+      );
+    }
 
     return (
       <>
-        <div className="page-header">
-          <h1 className="page-header__title">
-            Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
-          </h1>
-        </div>
-        <div>
+        {currentWorkspace && (
+          <>
+            <WorkspaceHeader workspace={currentWorkspace} />
+            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} activeSpawnTab />
+          </>
+        )}
+        {!currentWorkspace && (
+          <div className="page-header">
+            <h1 className="page-header__title">Spawn Sessions</h1>
+          </div>
+        )}
+        <div className="spawn-content">
           <h2 style={{ marginBottom: 'var(--spacing-lg)' }}>Results</h2>
           {successCount > 0 ? (
             <div className="results-panel" style={{ marginBottom: 'var(--spacing-lg)' }}>
               <div className="results-panel__title">Successfully spawned {successCount} session(s)</div>
-              {results.filter((r) => !r.error).map((r, index) => (
+              {successfulResults.map((r, index) => (
                 <div className="results-panel__item results-panel__item--success" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} key={r.session_id}>
                   <div>
                     <span className="badge badge--primary" style={{ marginRight: 'var(--spacing-sm)' }}>{index + 1}</span>
@@ -416,9 +458,9 @@ export default function SpawnPage() {
               ))}
             </div>
           ) : null}
-        </div>
-        <div style={{ marginTop: 'var(--spacing-lg)' }}>
-          <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+          <div style={{ marginTop: 'var(--spacing-lg)' }}>
+            <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+          </div>
         </div>
       </>
     );
@@ -428,12 +470,19 @@ export default function SpawnPage() {
   if (screen === 'confirm') {
     return (
       <>
-        <div className="page-header">
-          <h1 className="page-header__title">
-            Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
-          </h1>
-        </div>
+        {currentWorkspace && (
+          <>
+            <WorkspaceHeader workspace={currentWorkspace} />
+            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} activeSpawnTab />
+          </>
+        )}
+        {!currentWorkspace && (
+          <div className="page-header">
+            <h1 className="page-header__title">Spawn Sessions</h1>
+          </div>
+        )}
 
+        <div className="spawn-content">
         <div className="card">
           <div className="card__body">
             <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Repository</h3>
@@ -543,6 +592,7 @@ export default function SpawnPage() {
             ) : 'Spawn'}
           </button>
         </div>
+        </div>
       </>
     );
   }
@@ -550,11 +600,19 @@ export default function SpawnPage() {
   // Form screen
   return (
     <>
-      <div className="page-header">
-        <h1 className="page-header__title">
-          Spawn Sessions{inExistingWorkspace ? ` into workspace: ${prefillWorkspaceId}` : ''}
-        </h1>
-      </div>
+      {currentWorkspace && (
+        <>
+          <WorkspaceHeader workspace={currentWorkspace} />
+          <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} activeSpawnTab />
+        </>
+      )}
+      {!currentWorkspace && (
+        <div className="page-header">
+          <h1 className="page-header__title">Spawn Sessions</h1>
+        </div>
+      )}
+
+      <div className="spawn-content">
 
       {/* Mode + Repository on same line */}
       <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
@@ -740,6 +798,7 @@ export default function SpawnPage() {
             </>
           ) : 'Review'}
         </button>
+      </div>
       </div>
     </>
   );

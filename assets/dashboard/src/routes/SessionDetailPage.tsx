@@ -76,6 +76,7 @@ export default function SessionDetailPage() {
 
     terminalStream.initialized.then(() => {
       terminalStream.connect();
+      terminalStream.focus();
     });
 
     return () => {
@@ -142,15 +143,6 @@ export default function SessionDetailPage() {
     } catch (err) {
       toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
-  };
-
-  const handleFollowChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const follow = event.target.checked;
-    if (terminalStreamRef.current) {
-      terminalStreamRef.current.setFollow(follow);
-      if (follow) terminalStreamRef.current.jumpToBottom();
-    }
-    setFollowTail(follow);
   };
 
   const handleEditNickname = async () => {
@@ -271,10 +263,6 @@ export default function SessionDetailPage() {
                 </div>
               </div>
               <div className="log-viewer__actions">
-                <label className="toggle-switch">
-                  <input type="checkbox" checked={followTail} onChange={handleFollowChange} />
-                  <span>Follow</span>
-                </label>
                 <Tooltip content="Download log">
                   <button
                     className="btn btn--sm"
