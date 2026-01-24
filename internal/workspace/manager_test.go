@@ -42,6 +42,129 @@ func TestExtractWorkspaceNumber(t *testing.T) {
 	}
 }
 
+func TestExtractRepoName(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		// SSH URLs
+		{"git@github.com:user/myrepo.git", "myrepo"},
+		{"git@github.com:user/myrepo", "myrepo"},
+		{"git@gitlab.com:org/project.git", "project"},
+
+		// HTTPS URLs
+		{"https://github.com/user/myrepo.git", "myrepo"},
+		{"https://github.com/user/myrepo", "myrepo"},
+		{"https://gitlab.com/org/subgroup/project.git", "project"},
+
+		// File URLs (used in tests)
+		{"file:///tmp/test-repo", "test-repo"},
+		{"/tmp/local-repo", "local-repo"},
+
+		// Edge cases
+		{"repo.git", "repo"},
+		{"repo", "repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := extractRepoName(tt.url)
+			if got != tt.want {
+				t.Errorf("extractRepoName(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsWorktree(t *testing.T) {
+	// Test with non-existent path
+	t.Run("non-existent path", func(t *testing.T) {
+		if isWorktree("/nonexistent/path") {
+			t.Error("isWorktree should return false for non-existent path")
+		}
+	})
+
+	// Test with .git directory (full clone)
+	t.Run("full clone with .git directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitDir := filepath.Join(tmpDir, ".git")
+		if err := os.Mkdir(gitDir, 0755); err != nil {
+			t.Fatalf("failed to create .git dir: %v", err)
+		}
+
+		if isWorktree(tmpDir) {
+			t.Error("isWorktree should return false for .git directory")
+		}
+	})
+
+	// Test with .git file (worktree)
+	t.Run("worktree with .git file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitFile := filepath.Join(tmpDir, ".git")
+		if err := os.WriteFile(gitFile, []byte("gitdir: /some/path"), 0644); err != nil {
+			t.Fatalf("failed to create .git file: %v", err)
+		}
+
+		if !isWorktree(tmpDir) {
+			t.Error("isWorktree should return true for .git file")
+		}
+	})
+}
+
+func TestResolveBaseRepoFromWorktree(t *testing.T) {
+	t.Run("valid worktree .git file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitFile := filepath.Join(tmpDir, ".git")
+		content := "gitdir: /home/user/.schmux/repos/myrepo.git/worktrees/myrepo-001"
+		if err := os.WriteFile(gitFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to create .git file: %v", err)
+		}
+
+		got, err := resolveBaseRepoFromWorktree(tmpDir)
+		if err != nil {
+			t.Fatalf("resolveBaseRepoFromWorktree() error = %v", err)
+		}
+		want := "/home/user/.schmux/repos/myrepo.git"
+		if got != want {
+			t.Errorf("resolveBaseRepoFromWorktree() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("invalid format - no gitdir prefix", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitFile := filepath.Join(tmpDir, ".git")
+		if err := os.WriteFile(gitFile, []byte("invalid content"), 0644); err != nil {
+			t.Fatalf("failed to create .git file: %v", err)
+		}
+
+		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		if err == nil {
+			t.Error("resolveBaseRepoFromWorktree() should error on invalid format")
+		}
+	})
+
+	t.Run("invalid format - no worktrees path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitFile := filepath.Join(tmpDir, ".git")
+		if err := os.WriteFile(gitFile, []byte("gitdir: /some/other/path"), 0644); err != nil {
+			t.Fatalf("failed to create .git file: %v", err)
+		}
+
+		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		if err == nil {
+			t.Error("resolveBaseRepoFromWorktree() should error when no /worktrees/ in path")
+		}
+	})
+
+	t.Run("missing .git file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		if err == nil {
+			t.Error("resolveBaseRepoFromWorktree() should error on missing .git file")
+		}
+	})
+}
+
 func TestFindNextWorkspaceNumber(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -332,6 +455,7 @@ func TestDispose_Integration(t *testing.T) {
 
 	cfg := &config.Config{
 		WorkspacePath: tmpDir,
+		BaseReposPath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
@@ -863,6 +987,18 @@ func (m *mockStateStore) RemoveWorkspace(id string) error {
 	return m.state.RemoveWorkspace(id)
 }
 
+func (m *mockStateStore) GetBaseRepos() []state.BaseRepo {
+	return m.state.GetBaseRepos()
+}
+
+func (m *mockStateStore) GetBaseRepoByURL(repoURL string) (state.BaseRepo, bool) {
+	return m.state.GetBaseRepoByURL(repoURL)
+}
+
+func (m *mockStateStore) AddBaseRepo(br state.BaseRepo) error {
+	return m.state.AddBaseRepo(br)
+}
+
 func (m *mockStateStore) GetSessions() []state.Session {
 	return m.state.GetSessions()
 }
@@ -970,6 +1106,7 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 	// Create a minimal config
 	cfg := &config.Config{
 		WorkspacePath: workspaceBaseDir,
+		BaseReposPath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
 			{Name: "test-repo", URL: repoDir},
 		},

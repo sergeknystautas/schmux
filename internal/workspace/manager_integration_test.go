@@ -28,6 +28,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	// Set up isolated config
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
+		BaseReposPath: t.TempDir(),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},

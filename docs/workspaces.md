@@ -6,11 +6,12 @@
 
 ## Git as the Primary Organizing Format
 
-Workspaces are actual git repositories on your filesystem, not containers or virtualized environments.
+Workspaces are git working directories on your filesystem, not containers or virtualized environments.
 
 - Each repository gets sequential workspace directories: `myproject-001`, `myproject-002`, etc.
 - Multiple agents can work in the same workspace simultaneously
 - Workspaces are created on-demand when you spawn sessions
+- Uses git worktrees for efficiency (shared object store, instant creation)
 
 ---
 
@@ -43,7 +44,7 @@ Example structure:
 
 ### Behavior
 
-- Files are copied after git clone completes, preserving directory structure
+- Files are copied after workspace creation, preserving directory structure
 - Each file must be covered by `.gitignore` (enforced for safety)
 - Use `schmux refresh-overlay <workspace-id>` to reapply overlay files to existing workspaces
 - Overlay files overwrite existing workspace files
@@ -102,8 +103,9 @@ schmux prevents accidental data loss:
 ## Git Behavior
 
 **New workspaces:**
-- Fresh git clone from the configured URL
-- Pulls latest from the configured branch
+- First workspace for a repo creates a bare clone in `~/.schmux/repos/`
+- Additional workspaces use `git worktree add` (instant, no network)
+- If same branch is already checked out elsewhere, falls back to full clone
 
 **Existing workspaces:**
 - Skips git operations (safe for concurrent agents)
@@ -111,4 +113,10 @@ schmux prevents accidental data loss:
 
 **Disposal:**
 - Blocked if workspace has uncommitted or unpushed changes
+- Uses `git worktree remove` for worktrees, `rm -rf` for legacy clones
 - No automatic git reset — you're in control
+
+**Why worktrees?**
+- Disk efficient: git objects shared across all workspaces for a repo
+- Fast creation: no network clone for additional workspaces
+- Tool compatible: VS Code, git CLI, and agents work normally
