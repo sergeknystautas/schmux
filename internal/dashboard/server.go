@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -83,12 +82,12 @@ func (s *Server) LogDashboardAssetPath() {
 	path := s.getDashboardDistPath()
 	// Determine source type for clearer message
 	if strings.HasPrefix(path, filepath.Join(os.Getenv("HOME"), ".schmux")) {
-		fmt.Printf("[dashboard] serving from cached assets: %s\n", path)
+		fmt.Printf("[daemon] serving from cached assets: %s\n", path)
 	} else if strings.HasPrefix(path, ".") {
 		abs, _ := filepath.Abs(path)
-		fmt.Printf("[dashboard] serving from local build: %s\n", abs)
+		fmt.Printf("[daemon] serving from local build: %s\n", abs)
 	} else {
-		fmt.Printf("[dashboard] serving from: %s\n", path)
+		fmt.Printf("[daemon] serving from: %s\n", path)
 	}
 }
 
@@ -96,9 +95,9 @@ func (s *Server) LogDashboardAssetPath() {
 func (s *Server) Start() error {
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, func(format string, args ...interface{}) {
-		log.Printf(format, args...)
+		fmt.Printf(format, args...)
 	})
-	log.Printf("[difftool] temp dirs cleanup: deleted=%d scheduled=%d", deleted, scheduled)
+	fmt.Printf("[session] difftool temp dirs cleanup: deleted=%d scheduled=%d\n", deleted, scheduled)
 
 	if s.config.GetAuthEnabled() {
 		secret, err := config.EnsureSessionSecret()
@@ -167,9 +166,9 @@ func (s *Server) Start() error {
 		scheme = "https"
 	}
 	if s.config.GetNetworkAccess() {
-		fmt.Printf("Dashboard server listening on %s://0.0.0.0:%d (accessible from local network)\n", scheme, port)
+		fmt.Printf("[daemon] listening on %s://0.0.0.0:%d (accessible from local network)\n", scheme, port)
 	} else {
-		fmt.Printf("Dashboard server listening on %s://localhost:%d (localhost only)\n", scheme, port)
+		fmt.Printf("[daemon] listening on %s://localhost:%d (localhost only)\n", scheme, port)
 	}
 
 	if s.config.GetAuthEnabled() {
@@ -209,7 +208,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 		// Validate origin
 		if origin != "" && !s.isAllowedOrigin(origin) {
-			fmt.Printf("[cors] rejected origin: %s for %s %s\n", origin, r.Method, r.URL.Path)
+			fmt.Printf("[daemon] rejected origin: %s for %s %s\n", origin, r.Method, r.URL.Path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -389,9 +388,9 @@ func (s *Server) StartVersionCheck() {
 		}
 		s.versionInfoMu.Unlock()
 		if err != nil {
-			fmt.Printf("[version] check failed: %v\n", err)
+			fmt.Printf("[daemon] version check failed: %v\n", err)
 		} else if available {
-			fmt.Printf("[version] update available: %s -> %s\n", version.Version, latest)
+			fmt.Printf("[daemon] update available: %s -> %s\n", version.Version, latest)
 		}
 	}()
 }

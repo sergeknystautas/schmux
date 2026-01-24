@@ -116,15 +116,15 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	// Set up log file for pipe-pane streaming
 	logPath, err := m.ensureLogFile(sessionID)
 	if err != nil {
-		fmt.Printf("warning: failed to create log file: %v\n", err)
+		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
 	} else {
 		// Force fixed window size for deterministic TUI output
 		width, height := m.config.GetTerminalSize()
 		if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
-			fmt.Printf("warning: failed to set manual window size: %v\n", err)
+			fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
 		}
 		if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
-			fmt.Printf("warning: failed to resize window: %v\n", err)
+			fmt.Printf("[session] warning: failed to resize window: %v\n", err)
 		}
 		// Start pipe-pane to log file
 		if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
@@ -303,7 +303,7 @@ func killProcessGroup(pid int) error {
 			// Process group still exists, send SIGKILL
 			if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 				// Log but don't fail - process may have exited
-				fmt.Printf("warning: failed to send SIGKILL to process group %d: %v\n", -pid, err)
+				fmt.Printf("[session] warning: failed to send SIGKILL to process group %d: %v\n", -pid, err)
 			}
 		}
 		return nil
@@ -329,7 +329,7 @@ func killProcessGroup(pid int) error {
 	if err := syscall.Kill(pid, syscall.Signal(0)); err == nil {
 		// Process still exists, send SIGKILL
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-			fmt.Printf("warning: failed to send SIGKILL to process %d: %v\n", pid, err)
+			fmt.Printf("[session] warning: failed to send SIGKILL to process %d: %v\n", pid, err)
 		}
 	}
 
@@ -454,11 +454,11 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	if tmuxKilled {
 		summary += " + tmux session"
 	}
-	fmt.Printf("%s\n", summary)
+	fmt.Printf("[session] %s\n", summary)
 
 	// Print warnings if any
 	for _, w := range warnings {
-		fmt.Printf("  warning: %s\n", w)
+		fmt.Printf("[session]   warning: %s\n", w)
 	}
 
 	return nil
@@ -606,7 +606,7 @@ func (m *Manager) pruneLogFiles(activeSessions []state.Session) error {
 		if !activeIDs[sessionID] {
 			logPath := filepath.Join(logDir, entry.Name())
 			if err := os.Remove(logPath); err != nil {
-				fmt.Printf("warning: failed to delete orphaned log %s: %v\n", entry.Name(), err)
+				fmt.Printf("[session] warning: failed to delete orphaned log %s: %v\n", entry.Name(), err)
 			}
 		}
 	}
@@ -636,10 +636,10 @@ func (m *Manager) EnsurePipePane(ctx context.Context, sessionID string) error {
 	// Set window size and start pipe-pane
 	width, height := m.config.GetTerminalSize()
 	if err := tmux.SetWindowSizeManual(ctx, sess.TmuxSession); err != nil {
-		fmt.Printf("warning: failed to set manual window size: %v\n", err)
+		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
 	}
 	if err := tmux.ResizeWindow(ctx, sess.TmuxSession, width, height); err != nil {
-		fmt.Printf("warning: failed to resize window: %v\n", err)
+		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
 	}
 	if err := tmux.StartPipePane(ctx, sess.TmuxSession, logPath); err != nil {
 		return fmt.Errorf("failed to start pipe-pane: %w", err)
@@ -670,7 +670,7 @@ func (m *Manager) StartLogPruner(interval time.Duration) func() {
 func (m *Manager) pruneLogs() {
 	activeSessions := m.state.GetSessions()
 	if err := m.pruneLogFiles(activeSessions); err != nil {
-		fmt.Printf("warning: log prune failed: %v\n", err)
+		fmt.Printf("[session] warning: log prune failed: %v\n", err)
 	}
 }
 

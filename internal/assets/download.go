@@ -70,7 +70,7 @@ func EnsureAssets() error {
 	}
 
 	url := fmt.Sprintf(GitHubReleaseURLTemplate, version.Version)
-	fmt.Printf("Downloading dashboard assets v%s...\n", version.Version)
+	fmt.Printf("[daemon] downloading dashboard assets v%s...\n", version.Version)
 
 	if err := DownloadAndExtract(url, assetsDir); err != nil {
 		return fmt.Errorf("failed to download dashboard assets: %w", err)
@@ -82,7 +82,7 @@ func EnsureAssets() error {
 		return fmt.Errorf("failed to write version file: %w", err)
 	}
 
-	fmt.Printf("Dashboard assets v%s installed.\n", version.Version)
+	fmt.Printf("[daemon] dashboard assets v%s installed\n", version.Version)
 	return nil
 }
 

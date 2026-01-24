@@ -52,7 +52,7 @@ func Update() error {
 		return err
 	}
 
-	fmt.Printf("Current version: %s\n", current)
+	fmt.Printf("[daemon] current version: %s\n", current)
 	fmt.Println("Checking for updates...")
 
 	latest, err := GetLatestVersion()
@@ -75,7 +75,7 @@ func Update() error {
 		return nil
 	}
 
-	fmt.Printf("New version available: %s\n", latest)
+	fmt.Printf("[daemon] new version available: %s\n", latest)
 
 	// Download checksums first
 	checksums, err := downloadChecksums(latest)
@@ -230,7 +230,7 @@ func downloadAndInstallBinary(ver string, checksums map[string]string) error {
 	}
 
 	url := fmt.Sprintf(GitHubReleaseBinaryTemplate, ver, goos, goarch)
-	fmt.Printf("Downloading schmux v%s for %s/%s...\n", ver, goos, goarch)
+	fmt.Printf("[daemon] downloading schmux v%s for %s/%s...\n", ver, goos, goarch)
 
 	// Download to temp file
 	tmpFile, err := os.CreateTemp("", "schmux-update-*")
@@ -311,7 +311,7 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 	}
 
 	url := fmt.Sprintf(assets.GitHubReleaseURLTemplate, ver)
-	fmt.Printf("Downloading dashboard assets v%s...\n", ver)
+	fmt.Printf("[daemon] downloading dashboard assets v%s...\n", ver)
 
 	// Download to temp file
 	tmpFile, err := os.CreateTemp("", "schmux-assets-*.tar.gz")
@@ -361,7 +361,7 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 		return fmt.Errorf("failed to write version file: %w", err)
 	}
 
-	fmt.Printf("Dashboard assets v%s installed.\n", ver)
+	fmt.Printf("[daemon] dashboard assets v%s installed\n", ver)
 	return nil
 }
 

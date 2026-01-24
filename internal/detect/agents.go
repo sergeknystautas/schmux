@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,9 +50,9 @@ type ToolDetector interface {
 
 // DetectAvailableTools runs all registered detectors concurrently and returns available tools.
 // All detectors run in parallel with a shared timeout.
-// Always logs progress using log.Printf; if printProgress is true, also prints to stdout.
+// Always logs progress using fmt.Printf; if printProgress is true, also prints to stdout.
 func DetectAvailableTools(printProgress bool) []Tool {
-	log.Printf("[detect] Starting tool detection...")
+	fmt.Printf("[config] starting tool detection...\n")
 	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
@@ -94,14 +93,14 @@ func DetectAvailableTools(printProgress bool) []Tool {
 			}
 			tools = append(tools, r.tool)
 		} else {
-			log.Printf("[detect] %s not found (tried all detection methods)", r.name)
+			fmt.Printf("[config] tool not found: %s (tried all detection methods)\n", r.name)
 			if printProgress {
 				fmt.Printf("  Detecting %s... not found\n", r.name)
 			}
 		}
 	}
 
-	log.Printf("[detect] Detection complete: found %d tool(s)", len(tools))
+	fmt.Printf("[config] detection complete: found %d tool(s)\n", len(tools))
 	return tools
 }
 
@@ -114,7 +113,7 @@ func DetectAndPrint() []Tool {
 // DetectAvailableToolsContext runs all registered detectors concurrently with the given context.
 // Returns available tools or an error if context is canceled.
 func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Tool, error) {
-	log.Printf("[detect] Starting tool detection...")
+	fmt.Printf("[config] starting tool detection...\n")
 	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
@@ -152,7 +151,7 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 			}
 			tools = append(tools, r.tool)
 		} else {
-			log.Printf("[detect] %s not found (tried all detection methods)", r.name)
+			fmt.Printf("[config] tool not found: %s (tried all detection methods)\n", r.name)
 			if printProgress {
 				fmt.Printf("  Detecting %s... not found\n", r.name)
 			}
@@ -164,7 +163,7 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 		return nil, ctx.Err()
 	}
 
-	log.Printf("[detect] Detection complete: found %d tool(s)", len(tools))
+	fmt.Printf("[config] detection complete: found %d tool(s)\n", len(tools))
 	return tools, nil
 }
 
@@ -347,7 +346,7 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try claude command in PATH
 	if commandExists("claude") {
 		if tryCommand(ctx, "claude", "-v") {
-			log.Printf("[detect] claude: found via PATH (command: claude)")
+			fmt.Printf("[config] claude: found via PATH (command: claude)\n")
 			return Tool{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
 		}
 	}
@@ -356,7 +355,7 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	if fileExists("~/.local/bin/claude") {
 		cmd := filepath.Join(homeDirOrTilde(), ".local", "bin", "claude")
 		if tryCommand(ctx, cmd, "-v") {
-			log.Printf("[detect] claude: found via native install (command: %s)", cmd)
+			fmt.Printf("[config] claude: found via native install (command: %s)\n", cmd)
 			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.local/bin/claude)", Agentic: true}, true
 		}
 	}
@@ -365,20 +364,20 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	if fileExists("~/.claude/local/claude") {
 		cmd := filepath.Join(homeDirOrTilde(), ".claude", "local", "claude")
 		if tryCommand(ctx, cmd, "-v") {
-			log.Printf("[detect] claude: found via alternative native install (command: %s)", cmd)
+			fmt.Printf("[config] claude: found via alternative native install (command: %s)\n", cmd)
 			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.claude/local/claude)", Agentic: true}, true
 		}
 	}
 
 	// Method 4: Check Homebrew cask
 	if homebrewCaskInstalled(ctx, "claude-code") {
-		log.Printf("[detect] claude: found via Homebrew cask (command: claude)")
+		fmt.Printf("[config] claude: found via Homebrew cask (command: claude)\n")
 		return Tool{Name: "claude", Command: "claude", Source: "Homebrew cask claude-code", Agentic: true}, true
 	}
 
 	// Method 5: Check npm global
 	if npmGlobalInstalled(ctx, "@anthropic-ai/claude-code") {
-		log.Printf("[detect] claude: found via npm global package @anthropic-ai/claude-code (command: claude)")
+		fmt.Printf("[config] claude: found via npm global package @anthropic-ai/claude-code (command: claude)\n")
 		return Tool{Name: "claude", Command: "claude", Source: "npm global package @anthropic-ai/claude-code", Agentic: true}, true
 	}
 
@@ -395,20 +394,20 @@ func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try codex command in PATH
 	if commandExists("codex") {
 		if tryCommand(ctx, "codex", "-V") {
-			log.Printf("[detect] codex: found via PATH (command: codex)")
+			fmt.Printf("[config] codex: found via PATH (command: codex)\n")
 			return Tool{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check npm global (primary installation method)
 	if npmGlobalInstalled(ctx, "@openai/codex") {
-		log.Printf("[detect] codex: found via npm global package @openai/codex (command: codex)")
+		fmt.Printf("[config] codex: found via npm global package @openai/codex (command: codex)\n")
 		return Tool{Name: "codex", Command: "codex", Source: "npm global package @openai/codex", Agentic: true}, true
 	}
 
 	// Method 3: Check Homebrew formula (if available)
 	if homebrewFormulaInstalled(ctx, "codex") {
-		log.Printf("[detect] codex: found via Homebrew formula (command: codex)")
+		fmt.Printf("[config] codex: found via Homebrew formula (command: codex)\n")
 		return Tool{Name: "codex", Command: "codex", Source: "Homebrew formula codex", Agentic: true}, true
 	}
 
@@ -425,20 +424,20 @@ func (d *geminiDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try gemini command in PATH
 	if commandExists("gemini") {
 		if tryCommand(ctx, "gemini", "-v") {
-			log.Printf("[detect] gemini: found via PATH (command: gemini)")
+			fmt.Printf("[config] gemini: found via PATH (command: gemini)\n")
 			return Tool{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check Homebrew formula (common installation method)
 	if homebrewFormulaInstalled(ctx, "gemini-cli") {
-		log.Printf("[detect] gemini: found via Homebrew formula gemini-cli (command: gemini)")
+		fmt.Printf("[config] gemini: found via Homebrew formula gemini-cli (command: gemini)\n")
 		return Tool{Name: "gemini", Command: "gemini -i", Source: "Homebrew formula gemini-cli", Agentic: true}, true
 	}
 
 	// Method 3: Check npm global
 	if npmGlobalInstalled(ctx, "@google/gemini-cli") {
-		log.Printf("[detect] gemini: found via npm global package @google/gemini-cli (command: gemini)")
+		fmt.Printf("[config] gemini: found via npm global package @google/gemini-cli (command: gemini)\n")
 		return Tool{Name: "gemini", Command: "gemini -i", Source: "npm global package @google/gemini-cli", Agentic: true}, true
 	}
 

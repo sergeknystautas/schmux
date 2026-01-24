@@ -582,9 +582,9 @@ func EnsureExists() (bool, error) {
 		return false, fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("Config created at %s\n", configPath)
+	fmt.Printf("[config] created at %s\n", configPath)
 	fmt.Println()
-	fmt.Println("Open http://localhost:7337 to complete setup in the web dashboard")
+	fmt.Println("[config] open http://localhost:7337 to complete setup in the web dashboard")
 
 	return true, nil
 }
