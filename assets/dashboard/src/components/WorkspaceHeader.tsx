@@ -5,7 +5,6 @@ import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import Tooltip from './Tooltip';
-import DiffDropdown from './DiffDropdown';
 import SpawnDropdown from './SpawnDropdown';
 import VSCodeResultModal from './VSCodeResultModal';
 import type { WorkspaceResponse, QuickLaunchPreset, OpenVSCodeResponse } from '../lib/types';
@@ -38,8 +37,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
   const behind = workspace.git_behind ?? 0;
   const ahead = workspace.git_ahead ?? 0;
-  const linesAdded = workspace.git_lines_added ?? 0;
-  const linesRemoved = workspace.git_lines_removed ?? 0;
 
   const handleOpenVSCode = async () => {
     setOpeningVSCode(true);
@@ -95,14 +92,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
                 {behind} | {ahead}
               </span>
             </Tooltip>
-            {(linesAdded > 0 || linesRemoved > 0) && (
-              <Tooltip content={`${linesAdded} line${linesAdded !== 1 ? 's' : ''} added, ${linesRemoved} line${linesRemoved !== 1 ? 's' : ''} removed`}>
-                <span className="workspace-header__lines-changed">
-                  {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
-                  {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
-                </span>
-              </Tooltip>
-            )}
           </span>
         </div>
         <div className="workspace-header__actions">
@@ -122,7 +111,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               )}
             </button>
           </Tooltip>
-          <DiffDropdown workspace={workspace} externalDiffCommands={config?.external_diff_commands || []} />
           <Tooltip content="Dispose workspace and all sessions" variant="warning">
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"

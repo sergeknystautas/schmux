@@ -765,7 +765,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	}
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved := m.gitStatus(ctx, w.Path)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, w.Path)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
@@ -780,6 +780,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	w.GitBehind = behind
 	w.GitLinesAdded = linesAdded
 	w.GitLinesRemoved = linesRemoved
+	w.GitFilesChanged = filesChanged
 	w.Branch = actualBranch
 
 	// Update the workspace in state (this updates the in-memory copy)
@@ -791,8 +792,8 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int)
-func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int)
+func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
@@ -832,6 +833,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 		trimmed := strings.TrimSpace(string(output))
 		if trimmed != "" {
 			lines := strings.Split(trimmed, "\n")
+			filesChanged = len(lines)
 			for _, line := range lines {
 				parts := strings.Split(line, "\t")
 				if len(parts) >= 2 {
@@ -846,7 +848,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged
 }
 
 // UpdateAllGitStatus refreshes git status for all workspaces.

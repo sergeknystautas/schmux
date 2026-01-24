@@ -31,6 +31,7 @@ type Workspace struct {
 	GitBehind       int    `json:"-"`
 	GitLinesAdded   int    `json:"-"`
 	GitLinesRemoved int    `json:"-"`
+	GitFilesChanged int    `json:"-"`
 }
 
 // BaseRepo tracks a bare clone that hosts worktrees.

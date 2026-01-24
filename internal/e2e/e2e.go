@@ -53,6 +53,7 @@ type APIWorkspace struct {
 	GitBehind       int          `json:"git_behind"`
 	GitLinesAdded   int          `json:"git_lines_added"`
 	GitLinesRemoved int          `json:"git_lines_removed"`
+	GitFilesChanged int          `json:"git_files_changed"`
 }
 
 // Env is the E2E test environment.

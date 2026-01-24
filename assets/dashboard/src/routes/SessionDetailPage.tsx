@@ -224,7 +224,7 @@ export default function SessionDetailPage() {
         {currentWorkspace && (
           <>
             <WorkspaceHeader workspace={currentWorkspace} />
-            <SessionTabs sessions={currentWorkspace.sessions || []} />
+            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} />
           </>
         )}
         {workspaceExists && (
@@ -252,7 +252,7 @@ export default function SessionDetailPage() {
       {currentWorkspace && (
         <>
           <WorkspaceHeader workspace={currentWorkspace} />
-          <SessionTabs sessions={currentWorkspace.sessions || []} currentSessionId={sessionId} />
+          <SessionTabs sessions={currentWorkspace.sessions || []} currentSessionId={sessionId} workspace={currentWorkspace} />
         </>
       )}
 
