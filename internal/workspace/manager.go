@@ -535,6 +535,23 @@ func (m *Manager) removeWorktree(ctx context.Context, baseRepoPath, workspacePat
 	return nil
 }
 
+// pruneWorktrees runs git worktree prune to clean up stale worktree references.
+// This removes worktree metadata for worktrees whose directories no longer exist.
+func (m *Manager) pruneWorktrees(ctx context.Context, baseRepoPath string) error {
+	fmt.Printf("[workspace] pruning stale worktrees: base=%s\n", baseRepoPath)
+
+	args := []string{"worktree", "prune"}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = baseRepoPath
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree prune failed: %w: %s", err, string(output))
+	}
+
+	fmt.Printf("[workspace] worktrees pruned: base=%s\n", baseRepoPath)
+	return nil
+}
+
 // initLocalRepo initializes a new local git repository at the given path.
 // It creates the directory, runs git init, creates the initial branch, and makes an empty commit.
 func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error {
@@ -1044,14 +1061,23 @@ func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
 }
 
 // findBaseRepoForWorkspace finds the base repo path for a workspace.
+// First tries to read the .git file (if directory exists), then falls back
+// to looking up the base repo by URL in state (works even if directory is gone).
 func (m *Manager) findBaseRepoForWorkspace(w state.Workspace) (string, error) {
-	// Try to resolve from .git file (works for worktrees)
+	// Try to resolve from .git file (works for worktrees when directory exists)
 	if isWorktree(w.Path) {
-		return resolveBaseRepoFromWorktree(w.Path)
+		if baseRepo, err := resolveBaseRepoFromWorktree(w.Path); err == nil {
+			return baseRepo, nil
+		}
 	}
 
-	// Not a worktree
-	return "", fmt.Errorf("workspace is not a worktree: %s", w.ID)
+	// Fall back to looking up base repo by URL in state
+	// This works even when the workspace directory has been deleted
+	if br, found := m.state.GetBaseRepoByURL(w.Repo); found {
+		return br.Path, nil
+	}
+
+	return "", fmt.Errorf("could not find base repo for workspace: %s", w.ID)
 }
 
 // Dispose deletes a workspace by removing its directory and removing it from state.
@@ -1068,34 +1094,55 @@ func (m *Manager) Dispose(workspaceID string) error {
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
-	// Check git safety - hard block on dirty state
 	ctx := context.Background()
-	gitStatus, err := m.checkGitSafety(ctx, workspaceID)
-	if err != nil {
-		return fmt.Errorf("failed to check git status: %w", err)
-	}
-	if !gitStatus.Safe {
-		return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
+
+	// Check if workspace directory exists
+	dirExists := true
+	if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+		dirExists = false
+		fmt.Printf("[workspace] directory already deleted: %s\n", w.Path)
 	}
 
-	// Delete workspace directory (worktree or legacy full clone)
-	if isWorktree(w.Path) {
-		// Use git worktree remove for worktrees
-		baseRepoPath, err := m.findBaseRepoForWorkspace(w)
+	// Check git safety - only if directory exists
+	if dirExists {
+		gitStatus, err := m.checkGitSafety(ctx, workspaceID)
 		if err != nil {
-			fmt.Printf("[workspace] warning: could not find base repo, falling back to rm: %v\n", err)
+			return fmt.Errorf("failed to check git status: %w", err)
+		}
+		if !gitStatus.Safe {
+			return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
+		}
+	}
+
+	// Find base repo for worktree cleanup (works even if directory is gone)
+	baseRepoPath, baseRepoErr := m.findBaseRepoForWorkspace(w)
+
+	// Delete workspace directory (worktree or legacy full clone)
+	if dirExists {
+		if isWorktree(w.Path) {
+			// Use git worktree remove for worktrees
+			if baseRepoErr != nil {
+				fmt.Printf("[workspace] warning: could not find base repo, falling back to rm: %v\n", baseRepoErr)
+				if err := os.RemoveAll(w.Path); err != nil {
+					return fmt.Errorf("failed to delete workspace directory: %w", err)
+				}
+			} else {
+				if err := m.removeWorktree(ctx, baseRepoPath, w.Path); err != nil {
+					return fmt.Errorf("failed to remove worktree: %w", err)
+				}
+			}
+		} else {
+			// Legacy full clone - delete directory
 			if err := os.RemoveAll(w.Path); err != nil {
 				return fmt.Errorf("failed to delete workspace directory: %w", err)
 			}
-		} else {
-			if err := m.removeWorktree(ctx, baseRepoPath, w.Path); err != nil {
-				return fmt.Errorf("failed to remove worktree: %w", err)
-			}
 		}
-	} else {
-		// Legacy full clone - delete directory
-		if err := os.RemoveAll(w.Path); err != nil {
-			return fmt.Errorf("failed to delete workspace directory: %w", err)
+	}
+
+	// Prune stale worktree references (handles case where directory was already deleted)
+	if baseRepoErr == nil {
+		if err := m.pruneWorktrees(ctx, baseRepoPath); err != nil {
+			fmt.Printf("[workspace] warning: failed to prune worktrees: %v\n", err)
 		}
 	}
 
