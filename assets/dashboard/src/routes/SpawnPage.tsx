@@ -406,6 +406,12 @@ export default function SpawnPage() {
               {results.filter((r) => r.error).map((r) => (
                 <div className="results-panel__item results-panel__item--error" key={`${r.target}-${r.error}`}>
                   <div><strong>{r.target}:</strong> {r.error}</div>
+                  {r.prompt && (
+                    <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-xs)' }}>Prompt:</div>
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.875rem' }}>{r.prompt}</div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
