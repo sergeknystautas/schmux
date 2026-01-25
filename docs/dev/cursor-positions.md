@@ -61,6 +61,33 @@ When a terminal emulator receives text without cursor positioning:
 3. Any terminal UI (TUI) applications expect the cursor to be at a specific position
 4. The TUI rendering becomes incorrect or garbled
 
+## Double Cursor Issue (January 2026)
+
+### Symptom
+When viewing Claude Code sessions via xterm.js websocket, two cursors appear:
+- **Correct cursor** at line 35 (where Claude's input prompt is)
+- **Phantom cursor** at line 39 (4 lines below)
+
+### Root Cause Analysis
+1. Claude Code draws its own visual cursor using **reverse video** (`\x1b[7m` space `\x1b[27m`)
+2. Claude's UI does `\x1b[4A` (cursor up 4) to update status line, then 4 newlines to return
+3. After processing all escape sequences, xterm.js cursor ends at line 39
+4. Claude's reverse video block is at line 35
+5. Both are visible - hence "double cursor"
+
+**Key insight:** The phantom cursor (line 39) is xterm.js's actual cursor position. The "correct" cursor (line 35) is Claude's visual indicator. The 4-line difference matches the `\x1b[4A` pattern.
+
+### Why tmux doesn't have this problem
+When attached directly to tmux:
+- tmux maintains a **grid data structure** with correct cursor position
+- On attach, tmux **regenerates** output from the grid (not replay of escape sequences)
+- Cursor is positioned correctly as part of the redraw
+
+Our approach:
+- capture-pane gives historical escape sequences
+- pipe-pane gives raw PTY output
+- Neither is the "grid-regenerated" output that real tmux clients receive
+
 ## Approaches That Have Been Tried
 
 ### ❌ Approach 1: Append cursor position sequence to captured content
@@ -78,7 +105,61 @@ When a terminal emulator receives text without cursor positioning:
 **Why it failed:**
 - Appending cursor position to captured content conflicts with how the terminal processes the captured sequences
 - The cursor position we query is the visual position on screen, but when replayed, the terminal interprets it differently
-- This causes new pipe-pane output to be written at wrong positions
+- pipe-pane output contains **relative** cursor movements (like `\x1b[4A`) that assume the cursor is in a specific position - our repositioning breaks those assumptions
+
+### ❌ Approach 2: Hide xterm.js cursor (send `\x1b[?25l`)
+
+**What was tried:**
+1. Prepend cursor hide sequence `\x1b[?25l` to the content sent to xterm.js
+2. Rely on Claude Code's reverse video block as the visual cursor
+
+**Result:** PARTIALLY WORKED
+- Fixed the double cursor issue for Claude Code sessions
+- But broke shell sessions - no cursor visible at all
+- Not feasible to detect which application is running to conditionally show/hide
+
+**Note:** Must be sent as part of the content, not as a separate message, because the frontend calls `terminal.reset()` on "full" message type which re-shows the cursor.
+
+### ❌ Approach 3: Control mode or headless terminal
+
+**Research findings:**
+- tmux control mode (`tmux -CC`) provides structured `%output` notifications
+- BUT `%output` is also raw PTY output - "exactly what the application running in the pane sent to tmux"
+- xterm.js has a serialize addon that can save/restore terminal state
+- A headless terminal emulator could process pipe-pane output and serialize state for clients
+- This is a significant architecture change and was not implemented
+
+## Bugs Fixed During Investigation (January 2026)
+
+### Bug 1: File offset calculation in websocket.go
+**Location:** `internal/dashboard/websocket.go` line 571
+
+**Bug:** `offset = int64(len(data))` should be `offset += int64(len(data))`
+
+**Impact:** After initial send, offset was reset to a small value instead of advancing to end-of-file. On next tick, we'd re-send most of the file.
+
+**Symptoms:** Captured websocket data was same size as full log file even when bootstrapping from offset.
+
+### Bug 2: extractANSISequences reading entire file when offset=0
+**Location:** `internal/dashboard/websocket.go` in `extractANSISequences()`
+
+**Bug:** When `endOffset == 0`, the function read the entire file instead of reading 0 bytes.
+
+**Impact:** When sending the full file (offset=0), we'd scan the entire file for ANSI sequences AND send the entire file, duplicating content.
+
+**Note:** These bugs were red herrings for the double cursor issue - fixing them didn't resolve the cursor problem.
+
+## Future Ideas to Explore
+
+1. **Headless xterm.js server-side**: Process pipe-pane through a headless terminal emulator, use serialize addon to capture state for clients. Significant architecture change.
+
+2. **Application detection**: Detect when Claude Code vs shell is running, conditionally hide cursor. Complex and fragile.
+
+3. **xterm.js options**: Research if future xterm.js versions add cursor visibility options or better state management.
+
+4. **Filter reverse video from Claude**: Strip Claude's visual cursor blocks from output, rely only on xterm.js cursor. Would require understanding Claude's output patterns.
+
+5. **Synchronized output markers**: Claude uses `\x1b[?2026l` / `\x1b[?2026h` for synchronized output. These could potentially be used to bracket updates and handle cursor differently.
 
 ## Current Accepted Behavior
 
@@ -111,8 +192,28 @@ The WebSocket client correctly processes pipe-pane logs that have cursor sequenc
 The `extractANSISequences()` function in `internal/dashboard/websocket.go` filters cursor movements for replay optimization,
 but this is NOT the problem - the client works correctly for normal pipe-pane logs.
 
+## Repro Case Data (January 2026)
+
+Session `schmux-004-3509c4cf` was used for debugging:
+- Session created: 2026-01-23T16:22:00 PST
+- Log file created: Jan 23 22:10:42 (bootstrap happened ~6 hours after session start)
+- Log file size: ~4.1MB
+- Captured websocket data saved to `/tmp/ws2-capture-content.txt` (442KB after bootstrap fix)
+- **A copy of the log file was saved to ~/Downloads for future debugging (outside of git)**
+
+Key observations in captured data:
+- 662 reverse video on (`\x1b[7m`) sequences, 662 reverse video off (`\x1b[27m`) - balanced
+- 0 cursor hide (`\x1b[?25l`) or show (`\x1b[?25h`) sequences
+- 0 cursor save (`\x1b7` or `\x1b[s`) or restore (`\x1b8` or `\x1b[u`) sequences
+- Many `\x1b[4A` (cursor up 4) sequences matching the 4-line offset between cursors
+- Log file starts with pipe-pane style output (cursor movements, sync markers), not capture-pane content
+
 ## References
 
 - [tmux GitHub Issue #1949](https://github.com/tmux/tmux/issues/1949) - Copy mode cursor position
 - [tmux GitHub Issue #3787](https://github.com/tmux/tmux/issues/3787) - Correlating cursor position with capture-pane
 - [ANSI Device Status Report](https://stackoverflow.com/questions/60134860/how-to-read-the-cursor-position-given-by-the-terminal-ansi-device-status-report)
+- [tmux Control Mode Wiki](https://github.com/tmux/tmux/wiki/Control-Mode) - Structured protocol for tmux clients
+- [tmux screen-redraw.c](https://github.com/tmux/tmux/blob/master/screen-redraw.c) - How tmux regenerates screen from grid
+- [xterm.js serialize addon](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-serialize) - Terminal state serialization
+- [xterm.js ITerminalOptions](https://xtermjs.org/docs/api/terminal/interfaces/iterminaloptions/) - No built-in cursor hide option
