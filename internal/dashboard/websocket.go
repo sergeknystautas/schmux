@@ -132,21 +132,25 @@ func findSafeStartPoint(path string, startOffset int64, maxScan int64) (int64, e
 	return startOffset, nil
 }
 
-// extractANSISequences scans the file and extracts all ANSI CSI sequences
+// extractANSISequences scans the file up to endOffset and extracts all ANSI CSI sequences
 // to prime terminal state before sending bootstrapped content.
 // Uses "last seen wins" deduplication to minimize data transfer.
-func extractANSISequences(path string) ([]byte, error) {
+// If endOffset is 0, scans the entire file.
+func extractANSISequences(path string, endOffset int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 	defer f.Close()
 
-	// Read the entire file (could be optimized with streaming)
-	data, err := io.ReadAll(f)
-	if err != nil {
+	// Read up to endOffset (or entire file if endOffset is 0)
+	var data []byte
+	data = make([]byte, endOffset)
+	n, err := f.Read(data)
+	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
+	data = data[:n]
 
 	// Use map for deduplication - key is sequence string, value is (position, bytes)
 	// Track last position where each unique sequence appeared
@@ -496,15 +500,16 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			sessionID[:8], bootstrapLines, offset, float64(bytesToSend)/(1024*1024), float64(fileSize)/(1024*1024))
 	}
 
-	// Extract ANSI sequences from full file to prime terminal state
+	// Extract ANSI sequences from content BEFORE the bootstrapped content to prime terminal state
 	// This helps with colors and formatting after bootstrapping
 	// Uses deduplication (last seen wins) to minimize data transfer
-	ansiSequences, err := extractANSISequences(logPath)
+	// Only extracts from file beginning up to the bootstrap offset to avoid duplication
+	ansiSequences, err := extractANSISequences(logPath, offset)
 	if err != nil {
 		fmt.Printf("[ws %s] failed to extract ANSI sequences: %v\n", sessionID[:8], err)
 	} else if len(ansiSequences) > 0 {
-		fmt.Printf("[ws %s] extracted %d unique ANSI sequences for state priming (%.2f MB)\n",
-			sessionID[:8], len(ansiSequences), float64(len(ansiSequences))/(1024*1024))
+		fmt.Printf("[ws %s] extracted %d unique ANSI sequences from pre-bootstrap content (offset 0-%d, %.2f KB)\n",
+			sessionID[:8], len(ansiSequences), offset, float64(len(ansiSequences))/1024)
 	}
 
 	readFileAndSend := func(sendFull bool) error {
@@ -562,7 +567,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			if err := sendOutput("full", content); err != nil {
 				return err
 			}
-			offset = int64(len(data))
+			offset += int64(len(data))
 			// Clear ansiSequences after first use so we don't send it again
 			ansiSequences = []byte{}
 		} else {
