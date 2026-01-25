@@ -63,7 +63,7 @@ Here is the agent’s last response:
 >>>
 `
 
-	defaultOneshotTimeout = 30 * time.Second
+	nudgenikTimeout = 15 * time.Second
 )
 
 var (
@@ -137,7 +137,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 		return Result{}, fmt.Errorf("nudgenik target %s must be promptable", resolved.Name)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultOneshotTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
 	var response string

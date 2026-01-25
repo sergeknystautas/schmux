@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 )
 
@@ -57,7 +56,7 @@ Here is the user's prompt:
 >>>
 `
 
-	defaultOneshotTimeout = 30 * time.Second
+	branchSuggestTimeout = 15 * time.Second
 )
 
 var (
@@ -102,24 +101,11 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	resolved, err := resolveTarget(cfg, targetName)
+	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, branchSuggestTimeout)
 	if err != nil {
-		return Result{}, err
-	}
-	if !resolved.Promptable {
-		return Result{}, fmt.Errorf("branch suggestion target %s must be promptable", resolved.Name)
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultOneshotTimeout)
-	defer cancel()
-
-	var response string
-	if resolved.Kind == targetKindUser {
-		response, err = oneshot.ExecuteCommand(timeoutCtx, resolved.Command, input, resolved.Env)
-	} else {
-		response, err = oneshot.Execute(timeoutCtx, resolved.ToolName, resolved.Command, input, resolved.Env)
-	}
-	if err != nil {
+		if errors.Is(err, oneshot.ErrTargetNotFound) {
+			return Result{}, ErrTargetNotFound
+		}
 		return Result{}, fmt.Errorf("oneshot execute: %w", err)
 	}
 
@@ -129,94 +115,6 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 	}
 
 	return result, nil
-}
-
-type branchSuggestTarget struct {
-	Name       string
-	Kind       string
-	ToolName   string
-	Command    string
-	Promptable bool
-	Env        map[string]string
-}
-
-const (
-	targetKindDetected = "detected"
-	targetKindVariant  = "variant"
-	targetKindUser     = "user"
-)
-
-func resolveTarget(cfg *config.Config, targetName string) (branchSuggestTarget, error) {
-	if cfg == nil {
-		return branchSuggestTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-	}
-
-	for _, variant := range cfg.GetMergedVariants() {
-		if variant.Name != targetName {
-			continue
-		}
-		baseTarget, found := cfg.GetDetectedRunTarget(variant.BaseTool)
-		if !found {
-			return branchSuggestTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-		}
-		secrets, err := config.GetVariantSecrets(variant.Name)
-		if err != nil {
-			return branchSuggestTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
-		}
-		if err := ensureVariantSecrets(variant, secrets); err != nil {
-			return branchSuggestTarget{}, err
-		}
-		return branchSuggestTarget{
-			Name:       variant.Name,
-			Kind:       targetKindVariant,
-			ToolName:   variant.BaseTool,
-			Command:    baseTarget.Command,
-			Promptable: true,
-			Env:        mergeEnvMaps(variant.Env, secrets),
-		}, nil
-	}
-
-	if target, found := cfg.GetRunTarget(targetName); found {
-		kind := targetKindUser
-		toolName := ""
-		if target.Source == config.RunTargetSourceDetected {
-			kind = targetKindDetected
-			toolName = target.Name
-		}
-		return branchSuggestTarget{
-			Name:       target.Name,
-			Kind:       kind,
-			ToolName:   toolName,
-			Command:    target.Command,
-			Promptable: target.Type == config.RunTargetTypePromptable,
-		}, nil
-	}
-
-	return branchSuggestTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-}
-
-func mergeEnvMaps(base, overrides map[string]string) map[string]string {
-	if base == nil && overrides == nil {
-		return nil
-	}
-	out := make(map[string]string, len(base)+len(overrides))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overrides {
-		out[k] = v
-	}
-	return out
-}
-
-func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
-	for _, key := range variant.RequiredSecrets {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("branch suggestion target missing required secrets: %s", variant.Name)
-		}
-	}
-	return nil
 }
 
 // ParseResult extracts the first JSON object from a raw LLM response and parses it.

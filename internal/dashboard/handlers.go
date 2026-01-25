@@ -464,7 +464,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 // handleSuggestBranch handles branch name suggestion requests.
 func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
 		return
 	}
 
@@ -475,20 +477,25 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
 		return
 	}
 
 	// Check if branch suggestion is enabled
 	if !branchsuggest.IsEnabled(s.config) {
-		http.Error(w, "Branch suggestion is not configured", http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Branch suggestion is not configured"})
 		return
 	}
 
+	targetName := s.config.GetBranchSuggestTarget()
+	fmt.Printf("[workspace] asking %s for branch suggestion\n", targetName)
+
 	// Generate branch suggestion
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	result, err := branchsuggest.AskForPrompt(ctx, s.config, req.Prompt)
+	result, err := branchsuggest.AskForPrompt(r.Context(), s.config, req.Prompt)
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {
@@ -502,7 +509,9 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 		}
 		fmt.Printf("[workspace] suggest-branch error: duration=%s status=%d err=%v\n", time.Since(start).Truncate(time.Millisecond), status, err)
-		http.Error(w, fmt.Sprintf("Failed to generate branch suggestion: %v", err), status)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate branch suggestion: %v", err)})
 		return
 	}
 

@@ -3,13 +3,19 @@ package oneshot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
+
+// ErrTargetNotFound is returned when a target name cannot be resolved.
+var ErrTargetNotFound = errors.New("target not found")
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
@@ -76,6 +82,32 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 	}
 
 	return string(rawOutput), nil
+}
+
+// ExecuteTarget runs a one-shot execution for a named target from config.
+// It resolves variants, loads secrets, and merges env vars automatically.
+// This is the preferred way to execute oneshot commands for promptable targets.
+// The timeout parameter controls how long to wait for the one-shot execution to complete.
+func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt string, timeout time.Duration) (string, error) {
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+
+	target, err := resolveTarget(cfg, targetName)
+	if err != nil {
+		return "", err
+	}
+	if !target.Promptable {
+		return "", fmt.Errorf("target %s must be promptable", targetName)
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if target.Kind == targetKindUser {
+		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env)
+	}
+	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, target.Env)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -146,4 +178,97 @@ func ParseCodexJSONL(output string) ([]CodexJSONL, error) {
 		results = append(results, line)
 	}
 	return results, nil
+}
+
+// resolvedTarget represents a fully resolved oneshot target with all env vars merged.
+type resolvedTarget struct {
+	Name       string
+	Kind       string
+	ToolName   string
+	Command    string
+	Promptable bool
+	Env        map[string]string
+}
+
+const (
+	targetKindDetected = "detected"
+	targetKindVariant  = "variant"
+	targetKindUser     = "user"
+)
+
+// resolveTarget resolves a target name to its full configuration including variants and secrets.
+func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error) {
+	if cfg == nil {
+		return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+	}
+
+	// Check variants first
+	for _, variant := range cfg.GetMergedVariants() {
+		if variant.Name != targetName {
+			continue
+		}
+		baseTarget, found := cfg.GetDetectedRunTarget(variant.BaseTool)
+		if !found {
+			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+		}
+		secrets, err := config.GetVariantSecrets(variant.Name)
+		if err != nil {
+			return resolvedTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
+		}
+		if err := ensureVariantSecrets(variant, secrets); err != nil {
+			return resolvedTarget{}, err
+		}
+		return resolvedTarget{
+			Name:       variant.Name,
+			Kind:       targetKindVariant,
+			ToolName:   variant.BaseTool,
+			Command:    baseTarget.Command,
+			Promptable: true,
+			Env:        mergeEnvMaps(variant.Env, secrets),
+		}, nil
+	}
+
+	// Check regular run targets
+	if target, found := cfg.GetRunTarget(targetName); found {
+		kind := targetKindUser
+		toolName := ""
+		if target.Source == config.RunTargetSourceDetected {
+			kind = targetKindDetected
+			toolName = target.Name
+		}
+		return resolvedTarget{
+			Name:       target.Name,
+			Kind:       kind,
+			ToolName:   toolName,
+			Command:    target.Command,
+			Promptable: target.Type == config.RunTargetTypePromptable,
+			Env:        nil,
+		}, nil
+	}
+
+	return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+}
+
+func mergeEnvMaps(base, overrides map[string]string) map[string]string {
+	if base == nil && overrides == nil {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overrides))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overrides {
+		out[k] = v
+	}
+	return out
+}
+
+func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
+	for _, key := range variant.RequiredSecrets {
+		val := strings.TrimSpace(secrets[key])
+		if val == "" {
+			return fmt.Errorf("variant %s missing required secret: %s", variant.Name, key)
+		}
+	}
+	return nil
 }
