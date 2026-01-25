@@ -66,18 +66,28 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     if (spawnMenuOpen && spawnButtonRef.current) {
       const rect = spawnButtonRef.current.getBoundingClientRect();
       const gap = 4;
+      const edgePadding = 8;
       const estimatedMenuHeight = spawnMenuRef.current?.offsetHeight ||
         Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
-
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
       const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
       setPlacementAbove(shouldPlaceAbove);
 
+      // Calculate left position, ensuring menu stays on screen
+      let left = rect.left;
+      const menuWidth = spawnMenuRef.current?.offsetWidth;
+      if (menuWidth) {
+        const rightEdge = left + menuWidth;
+        if (rightEdge > window.innerWidth - edgePadding) {
+          left = window.innerWidth - menuWidth - edgePadding;
+        }
+      }
+
       if (shouldPlaceAbove) {
-        setMenuPosition({ top: rect.top - gap, left: rect.left });
+        setMenuPosition({ top: rect.top - gap, left });
       } else {
-        setMenuPosition({ top: rect.bottom + gap, left: rect.left });
+        setMenuPosition({ top: rect.bottom + gap, left });
       }
     }
   }, [spawnMenuOpen, quickLaunch?.length]);
@@ -179,105 +189,219 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
 
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
-  return (
-    <div className="session-tabs">
-      {sessions.map((sess) => {
-        const isCurrent = sess.id === currentSessionId;
-        const displayName = sess.nickname || sess.target;
+  // Helper to render a session tab
+  const renderSessionTab = (sess: SessionResponse) => {
+    const isCurrent = sess.id === currentSessionId;
+    const displayName = sess.nickname || sess.target;
 
-        const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
-        const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
+    const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
+    const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-        const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
-        const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
+    const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
+    const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
-        let nudgePreview = nudgenikEnabled && nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
-        let nudgePreviewElement: React.ReactNode = null;
+    let nudgePreview = nudgenikEnabled && nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+    let nudgePreviewElement: React.ReactNode = null;
 
-        if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
-          nudgePreviewElement = (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-              <WorkingSpinner />
-              <span>Working...</span>
+    if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
+      nudgePreviewElement = (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+          <WorkingSpinner />
+          <span>Working...</span>
+        </span>
+      );
+    } else if (nudgePreview) {
+      nudgePreviewElement = nudgePreview;
+    }
+
+    // Show "Stopped" for stopped sessions, otherwise show last activity time
+    const activityDisplay = !sess.running
+      ? 'Stopped'
+      : sess.last_output_at
+        ? formatRelativeTime(sess.last_output_at)
+        : '-';
+
+    return (
+      <div
+        key={sess.id}
+        className={`session-tab${isCurrent ? ' session-tab--active' : ''}`}
+        onClick={() => handleTabClick(sess.id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            handleTabClick(sess.id);
+          }
+        }}
+      >
+        <div className="session-tab__row1">
+          <span className="session-tab__name">
+            {displayName}
+          </span>
+          <Tooltip content={!sess.running ? 'Session stopped' : (sess.last_output_at ? formatTimestamp(sess.last_output_at) : 'Never')}>
+            <span className="session-tab__activity">
+              {activityDisplay}
             </span>
-          );
-        } else if (nudgePreview) {
-          nudgePreviewElement = nudgePreview;
-        }
-
-        // Show "Stopped" for stopped sessions, otherwise show last activity time
-        const activityDisplay = !sess.running
-          ? 'Stopped'
-          : sess.last_output_at
-            ? formatRelativeTime(sess.last_output_at)
-            : '-';
-
-        return (
-          <div
-            key={sess.id}
-            className={`session-tab${isCurrent ? ' session-tab--active' : ''}`}
-            onClick={() => handleTabClick(sess.id)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                handleTabClick(sess.id);
-              }
-            }}
-          >
-            <div className="session-tab__row1">
-              <span className="session-tab__name">
-                {displayName}
-              </span>
-              <Tooltip content={!sess.running ? 'Session stopped' : (sess.last_output_at ? formatTimestamp(sess.last_output_at) : 'Never')}>
-                <span className="session-tab__activity">
-                  {activityDisplay}
-                </span>
-              </Tooltip>
-              <Tooltip content="Dispose session" variant="warning">
-                <button
-                  className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
-                  onClick={(e) => handleDispose(sess.id, e)}
-                  aria-label={`Dispose ${sess.id}`}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  </svg>
-                </button>
-              </Tooltip>
-            </div>
-            {nudgePreviewElement && (
-              <div className="session-tab__row2">
-                {nudgePreviewElement}
-              </div>
-            )}
+          </Tooltip>
+          <Tooltip content="Dispose session" variant="warning">
+            <button
+              className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
+              onClick={(e) => handleDispose(sess.id, e)}
+              aria-label={`Dispose ${sess.id}`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </Tooltip>
+        </div>
+        {nudgePreviewElement && (
+          <div className="session-tab__row2">
+            {nudgePreviewElement}
           </div>
-        );
-      })}
-      {hasChanges && (
+        )}
+      </div>
+    );
+  };
+
+  // Helper to render the diff tab
+  const renderDiffTab = () => (
+    <div
+      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}`}
+      onClick={handleDiffTabClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleDiffTabClick();
+        }
+      }}
+    >
+      <div className="session-tab__row1">
+        <span className="session-tab__name">
+          {filesChanged} file{filesChanged !== 1 ? 's' : ''}
+        </span>
+        <span className="session-tab__diff-stats">
+          {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
+          {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
+        </span>
+      </div>
+    </div>
+  );
+
+  // Helper to render the add button
+  const renderAddButton = () => (
+    <>
+      <button
+        ref={spawnButtonRef}
+        className="session-tab--add"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSpawnMenuOpen(!spawnMenuOpen);
+        }}
+        disabled={spawning}
+        aria-expanded={spawnMenuOpen}
+        aria-haspopup="menu"
+        aria-label="Spawn new session"
+      >
+        {spawning ? (
+          <span className="spinner spinner--small"></span>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        )}
+      </button>
+      {spawnMenuOpen && !spawning && createPortal(
         <div
-          className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}`}
-          onClick={handleDiffTabClick}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              handleDiffTabClick();
-            }
+          ref={spawnMenuRef}
+          className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
+          role="menu"
+          style={{
+            position: 'fixed',
+            top: placementAbove ? 'auto' : `${menuPosition.top}px`,
+            bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
+            left: `${menuPosition.left}px`,
           }}
         >
-          <div className="session-tab__row1">
-            <span className="session-tab__name">
-              {filesChanged} file{filesChanged !== 1 ? 's' : ''}
-            </span>
-            <span className="session-tab__diff-stats">
-              {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
-              {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
-            </span>
-          </div>
-        </div>
+          <button
+            className="spawn-dropdown__item"
+            onClick={handleCustomSpawn}
+            role="menuitem"
+          >
+            <span className="spawn-dropdown__item-label">Custom...</span>
+            <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
+          </button>
+
+          {quickLaunch.length > 0 && (
+            <>
+              <div className="spawn-dropdown__separator" role="separator"></div>
+              {quickLaunch.map((preset) => (
+                <button
+                  key={preset.name}
+                  className="spawn-dropdown__item"
+                  onClick={(e) => handleQuickLaunchSpawn(preset, e)}
+                  role="menuitem"
+                >
+                  <span className="spawn-dropdown__item-label">{preset.name}</span>
+                  <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {quickLaunch.length === 0 && (
+            <div className="spawn-dropdown__empty">
+              No quick launch presets
+            </div>
+          )}
+        </div>,
+        document.body
       )}
+    </>
+  );
+
+  // Determine if we're showing the add button
+  const showAddButton = workspace && !activeSpawnTab;
+
+  // Sessions to render normally (all except last if we need to wrap it with add button)
+  const sessionsToRender = showAddButton && !hasChanges && sessions.length > 0
+    ? sessions.slice(0, -1)
+    : sessions;
+
+  // The last session (if we need to wrap it with add button)
+  const lastSession = showAddButton && !hasChanges && sessions.length > 0
+    ? sessions[sessions.length - 1]
+    : null;
+
+  return (
+    <div className="session-tabs">
+      {sessionsToRender.map((sess) => renderSessionTab(sess))}
+
+      {/* If hasChanges and showing add button, wrap diff tab + add button together */}
+      {hasChanges && showAddButton && (
+        <span className="session-tabs__nowrap">
+          {renderDiffTab()}
+          {renderAddButton()}
+        </span>
+      )}
+
+      {/* If hasChanges but not showing add button, just render diff tab */}
+      {hasChanges && !showAddButton && renderDiffTab()}
+
+      {/* If no changes but have last session to wrap with add button */}
+      {lastSession && (
+        <span className="session-tabs__nowrap">
+          {renderSessionTab(lastSession)}
+          {renderAddButton()}
+        </span>
+      )}
+
+      {/* If showing add button but no last session and no diff tab */}
+      {showAddButton && !hasChanges && sessions.length === 0 && renderAddButton()}
+
       {activeSpawnTab && (
         <div
           className="session-tab session-tab--active"
@@ -291,77 +415,6 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
             </span>
           </div>
         </div>
-      )}
-      {workspace && !activeSpawnTab && (
-        <>
-          <button
-            ref={spawnButtonRef}
-            className="session-tab--add"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSpawnMenuOpen(!spawnMenuOpen);
-            }}
-            disabled={spawning}
-            aria-expanded={spawnMenuOpen}
-            aria-haspopup="menu"
-            aria-label="Spawn new session"
-          >
-            {spawning ? (
-              <span className="spinner spinner--small"></span>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            )}
-          </button>
-          {spawnMenuOpen && !spawning && createPortal(
-            <div
-              ref={spawnMenuRef}
-              className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
-              role="menu"
-              style={{
-                position: 'fixed',
-                top: placementAbove ? 'auto' : `${menuPosition.top}px`,
-                bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
-                left: `${menuPosition.left}px`,
-              }}
-            >
-              <button
-                className="spawn-dropdown__item"
-                onClick={handleCustomSpawn}
-                role="menuitem"
-              >
-                <span className="spawn-dropdown__item-label">Custom...</span>
-                <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
-              </button>
-
-              {quickLaunch.length > 0 && (
-                <>
-                  <div className="spawn-dropdown__separator" role="separator"></div>
-                  {quickLaunch.map((preset) => (
-                    <button
-                      key={preset.name}
-                      className="spawn-dropdown__item"
-                      onClick={(e) => handleQuickLaunchSpawn(preset, e)}
-                      role="menuitem"
-                    >
-                      <span className="spawn-dropdown__item-label">{preset.name}</span>
-                      <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-
-              {quickLaunch.length === 0 && (
-                <div className="spawn-dropdown__empty">
-                  No quick launch presets
-                </div>
-              )}
-            </div>,
-            document.body
-          )}
-        </>
       )}
     </div>
   );
