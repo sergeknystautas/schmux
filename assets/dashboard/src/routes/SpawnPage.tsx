@@ -22,6 +22,52 @@ const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
 };
 
 
+// Shape of the draft we persist to sessionStorage
+interface SpawnDraft {
+  prompt: string;
+  spawnMode: 'promptable' | 'command';
+  selectedCommand: string;
+  targetCounts: Record<string, number>;
+  // Only for fresh spawns (no workspace_id)
+  repo?: string;
+  newRepoName?: string;
+}
+
+function getSpawnDraftKey(workspaceId: string | null): string {
+  return `spawn-draft-${workspaceId || 'fresh'}`;
+}
+
+function loadSpawnDraft(workspaceId: string | null): SpawnDraft | null {
+  try {
+    const key = getSpawnDraftKey(workspaceId);
+    const stored = sessionStorage.getItem(key);
+    if (stored) {
+      return JSON.parse(stored) as SpawnDraft;
+    }
+  } catch (err) {
+    console.warn('Failed to load spawn draft:', err);
+  }
+  return null;
+}
+
+function saveSpawnDraft(workspaceId: string | null, draft: SpawnDraft): void {
+  try {
+    const key = getSpawnDraftKey(workspaceId);
+    sessionStorage.setItem(key, JSON.stringify(draft));
+  } catch (err) {
+    console.warn('Failed to save spawn draft:', err);
+  }
+}
+
+function clearSpawnDraft(workspaceId: string | null): void {
+  try {
+    const key = getSpawnDraftKey(workspaceId);
+    sessionStorage.removeItem(key);
+  } catch (err) {
+    console.warn('Failed to clear spawn draft:', err);
+  }
+}
+
 export default function SpawnPage() {
   useRequireConfig();
   const [screen, setScreen] = useState<'form' | 'confirm'>('form');
@@ -39,6 +85,10 @@ export default function SpawnPage() {
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const prefillApplied = useRef(false);
+  // Track which workspace key we've hydrated (null = not yet hydrated)
+  const draftHydratedKey = useRef<string | null>(null);
+  // Skip one persist cycle after hydration (to let state updates propagate)
+  const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [results, setResults] = useState<SpawnResult[] | null>(null);
@@ -99,8 +149,17 @@ export default function SpawnPage() {
 
   // Handle URL prefill
   useEffect(() => {
-    if (prefillApplied.current) return;
     const workspaceId = searchParams.get('workspace_id');
+
+    // If workspace_id was removed from URL, clear workspace state
+    if (!workspaceId && resolvedWorkspaceId) {
+      setPrefillWorkspaceId('');
+      setResolvedWorkspaceId('');
+      prefillApplied.current = false;
+      return;
+    }
+
+    if (prefillApplied.current) return;
     if (!workspaceId) return;
     setPrefillWorkspaceId(workspaceId);
 
@@ -137,7 +196,7 @@ export default function SpawnPage() {
     } else {
       setResolvedWorkspaceId('');
     }
-  }, [searchParams, workspaces, sessionsLoading, repo, branch]);
+  }, [searchParams, workspaces, sessionsLoading, repo, branch, resolvedWorkspaceId]);
 
   // Initialize from last-used values (only if repo not already set by URL prefill)
   useEffect(() => {
@@ -202,6 +261,60 @@ export default function SpawnPage() {
       return changed ? next : current;
     });
   }, [promptableList]);
+
+  // Hydrate from sessionStorage draft (runs when workspace_id changes)
+  const urlWorkspaceId = searchParams.get('workspace_id');
+  const draftKey = getSpawnDraftKey(urlWorkspaceId);
+  useEffect(() => {
+    // Skip if we've already hydrated this key
+    if (draftHydratedKey.current === draftKey) return;
+    // Wait for URL prefill to be processed first (if there's a workspace_id)
+    if (urlWorkspaceId && !prefillApplied.current && sessionsLoading) return;
+
+    const draft = loadSpawnDraft(urlWorkspaceId);
+    if (draft) {
+      // Skip the next persist cycle to let state updates propagate
+      skipNextPersist.current = true;
+      if (draft.prompt) setPrompt(draft.prompt);
+      if (draft.spawnMode) setSpawnMode(draft.spawnMode);
+      if (draft.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      if (draft.targetCounts && Object.keys(draft.targetCounts).length > 0) {
+        setTargetCounts(draft.targetCounts);
+      }
+      // Only restore repo/newRepoName for fresh spawns
+      if (!urlWorkspaceId) {
+        if (draft.repo) setRepo(draft.repo);
+        if (draft.newRepoName) setNewRepoName(draft.newRepoName);
+      }
+    }
+    draftHydratedKey.current = draftKey;
+  }, [draftKey, urlWorkspaceId, sessionsLoading]);
+
+  // Persist to sessionStorage on changes
+  useEffect(() => {
+    // Don't save until we've hydrated this key (to avoid overwriting with empty state)
+    if (draftHydratedKey.current !== draftKey) return;
+    // Skip one cycle after hydration to let state updates propagate
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
+    }
+    // Don't save if we're on results screen (spawn succeeded)
+    if (results) return;
+
+    const draft: SpawnDraft = {
+      prompt,
+      spawnMode,
+      selectedCommand,
+      targetCounts,
+    };
+    // Only save repo/newRepoName for fresh spawns
+    if (!urlWorkspaceId) {
+      draft.repo = repo;
+      draft.newRepoName = newRepoName;
+    }
+    saveSpawnDraft(urlWorkspaceId, draft);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, draftKey, urlWorkspaceId, results]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -348,6 +461,11 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || ''
       });
       setResults(response);
+      // Clear draft only if at least one spawn succeeded
+      const hasSuccess = response.some(r => !r.error);
+      if (hasSuccess) {
+        clearSpawnDraft(urlWorkspaceId);
+      }
       refresh(true);
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
