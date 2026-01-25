@@ -17,8 +17,9 @@
 
 Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 
-- `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
+- `go run ./cmd/gen-types` -generate TypeScript types from Go contracts.
+- `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
 - `go test ./...` — run all unit tests.
 - `go test -v ./...` — verbose test output.
 - `go test -cover ./...` — quick coverage signal.
