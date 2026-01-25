@@ -387,7 +387,8 @@ body {
 .app-shell__content {
     padding: var(--spacing-xl);
     min-width: 0;
-    overflow: hidden;
+    height: 100vh;
+    overflow-y: auto;
 }
 
 /* Collapsed nav state */
@@ -696,6 +697,33 @@ body {
 .page-header__actions {
     display: flex;
     gap: var(--spacing-md);
+}
+
+/* Config Sticky Header - matches workspace-header style exactly */
+.config-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: var(--color-surface-alt);
+}
+
+.config-sticky-header__title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) 0;
+}
+
+.config-sticky-header__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.config-sticky-header__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
 }
 
 /* Filter Bar */
@@ -1440,6 +1468,8 @@ body {
 
 .wizard__content {
     padding: var(--spacing-xl);
+    max-height: calc(100vh - 180px);
+    overflow-y: auto;
 }
 
 .wizard__actions {

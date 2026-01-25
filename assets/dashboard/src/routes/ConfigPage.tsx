@@ -1059,18 +1059,57 @@ export default function ConfigPage() {
 
   return (
     <>
-      <div className="page-header">
-        <h1 className="page-header__title">
-          {isFirstRun ? 'Setup schmux' : 'Configuration'}
-        </h1>
-      </div>
+      {/* Sticky header for edit mode (non-first-run) */}
+      {!isFirstRun && (
+        <div className="config-sticky-header">
+          <div className="config-sticky-header__title-row">
+            <h1 className="config-sticky-header__title">Configuration</h1>
+            <div className="config-sticky-header__actions">
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={async () => {
+                  await saveCurrentStep();
+                }}
+                disabled={saving || !hasChanges()}
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+          <div className="wizard__steps wizard__steps--compact">
+            {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
+              const isCurrent = stepNum === currentStep;
+              const stepLabel = TABS[stepNum - 1];
 
-      {isFirstRun && (
-        <div className="banner banner--info" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <p style={{ margin: 0 }}>
-            <strong>Welcome to schmux!</strong> Complete these steps to start spawning sessions.
-          </p>
+              return (
+                <div
+                  key={stepNum}
+                  className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''}`}
+                  data-step={stepNum}
+                  onClick={() => setCurrentStep(stepNum)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {stepLabel}
+                </div>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Non-sticky header for first-run wizard */}
+      {isFirstRun && (
+        <>
+          <div className="page-header">
+            <h1 className="page-header__title">Setup schmux</h1>
+          </div>
+
+          <div className="banner banner--info" style={{ marginBottom: 'var(--spacing-lg)' }}>
+            <p style={{ margin: 0 }}>
+              <strong>Welcome to schmux!</strong> Complete these steps to start spawning sessions.
+            </p>
+          </div>
+        </>
       )}
 
       {warning && (
@@ -1089,7 +1128,8 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {/* Steps navigation - always use wizard__steps style now */}
+      {/* Steps navigation for first-run wizard only */}
+      {isFirstRun && (
       <div className="wizard__steps">
         {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
           const isCompleted = isFirstRun && stepNum < currentStep;
@@ -1109,6 +1149,7 @@ export default function ConfigPage() {
           );
         })}
       </div>
+      )}
 
       {/* Wizard content */}
       <div className="wizard">
@@ -2240,42 +2281,41 @@ export default function ConfigPage() {
           )}
         </div>
 
-        {/* Unified wizard footer navigation */}
-        <div className="wizard__actions">
-          <div className="wizard__actions-left">
-            {isFirstRun && currentStep > 1 && (
+        {/* Wizard footer navigation - only shown in first-run mode */}
+        {isFirstRun && (
+          <div className="wizard__actions">
+            <div className="wizard__actions-left">
+              {currentStep > 1 && (
+                <button
+                  className="btn"
+                  onClick={prevStep}
+                  disabled={saving}
+                >
+                  ← Back
+                </button>
+              )}
+            </div>
+            <div className="wizard__actions-right">
               <button
-                className="btn"
-                onClick={prevStep}
+                className="btn btn--primary"
+                onClick={async () => {
+                  if (currentStep < TOTAL_STEPS) {
+                    nextStep();
+                  } else {
+                    const saved = await saveCurrentStep();
+                    if (saved) {
+                      completeFirstRun();
+                      setShowSetupComplete(true);
+                    }
+                  }
+                }}
                 disabled={saving}
               >
-                ← Back
+                {saving ? 'Saving...' : currentStep === TOTAL_STEPS ? 'Finish Setup' : 'Next →'}
               </button>
-            )}
+            </div>
           </div>
-          <div className="wizard__actions-right">
-            <button
-              className="btn btn--primary"
-              onClick={async () => {
-                if (isFirstRun && currentStep < TOTAL_STEPS) {
-                  nextStep();
-                } else {
-                  const saved = await saveCurrentStep();
-                  if (saved && isFirstRun) {
-                    completeFirstRun();
-                    setShowSetupComplete(true);
-                  }
-                }
-              }}
-              disabled={saving || (!isFirstRun && !hasChanges())}
-            >
-              {saving ? 'Saving...' : isFirstRun ?
-                (currentStep === TOTAL_STEPS ? 'Finish Setup' : 'Next →') :
-                'Save Changes'
-              }
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
       {showSetupComplete && (
