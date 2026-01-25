@@ -2091,6 +2091,71 @@ type BuiltinQuickLaunchCookbook struct {
 	Prompt string `json:"prompt"`
 }
 
+// handleRebaseFF handles POST requests to perform a fast-forward rebase from origin/main.
+// POST /api/workspaces/{id}/rebase-ff
+//
+// This performs an iterative fast-forward rebase that brings commits FROM main
+// INTO the current branch one at a time, preserving local changes via stash.
+func (s *Server) handleRebaseFF(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/workspaces/{id}/rebase-ff
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/rebase-ff")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type RebaseFFResponse struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	// Get workspace from state
+	_, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(RebaseFFResponse{
+			Success: false,
+			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		})
+		return
+	}
+
+	fmt.Printf("[workspace] rebase-ff: workspace_id=%s\n", workspaceID)
+
+	// Perform the rebase
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	result, err := s.workspace.RebaseFFMain(ctx, workspaceID)
+	if err != nil {
+		fmt.Printf("[workspace] rebase-ff error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(RebaseFFResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to rebase: %v", err),
+		})
+		return
+	}
+
+	// Update git status after rebase
+	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+		fmt.Printf("[workspace] rebase-ff warning: failed to update git status: %v\n", err)
+	}
+
+	fmt.Printf("[workspace] rebase-ff success: workspace_id=%s message=%s\n", workspaceID, result.Message)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
 func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

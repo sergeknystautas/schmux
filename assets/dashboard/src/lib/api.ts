@@ -8,6 +8,7 @@ import type {
   DiffResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
+  RebaseFFResponse,
   ScanResult,
   SpawnRequest,
   SpawnResult,
@@ -251,6 +252,18 @@ export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookboo
   const response = await fetch('/api/builtin-quick-launch');
   if (!response.ok) {
     throw new Error('Failed to fetch built-in quick launch presets');
+  }
+  return response.json();
+}
+
+export async function rebaseFFMain(workspaceId: string): Promise<RebaseFFResponse> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/rebase-ff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || err.error || 'Failed to rebase');
   }
   return response.json();
 }

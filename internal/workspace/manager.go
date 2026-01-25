@@ -1130,6 +1130,155 @@ func (m *Manager) findBaseRepoForWorkspace(w state.Workspace) (string, error) {
 	return "", fmt.Errorf("could not find base repo for workspace: %s", w.ID)
 }
 
+// RebaseFFResult represents the result of a fast-forward rebase operation.
+type RebaseFFResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// RebaseFFMain performs an iterative fast-forward rebase from origin/main into the current branch.
+// This brings commits FROM main INTO the current branch one at a time, preserving local changes via stash.
+func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*RebaseFFResult, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	workspacePath := w.Path
+
+	// 1. git fetch origin
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
+	fetchCmd.Dir = workspacePath
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
+	}
+
+	// 2. git merge-base --is-ancestor origin/main feature-x && echo "FF possible"
+	// If not possible, return "Branch is not an ancestor of main"
+	ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "origin/main", "HEAD")
+	ancestorCmd.Dir = workspacePath
+	if err := ancestorCmd.Run(); err != nil {
+		// Command failed - origin/main is NOT an ancestor of HEAD
+		// This could mean HEAD is behind OR branches have diverged
+		// Check if HEAD is an ancestor of origin/main (FF possible case)
+		ffCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", "origin/main")
+		ffCheckCmd.Dir = workspacePath
+		if err := ffCheckCmd.Run(); err != nil {
+			// Branches have diverged, FF not possible
+			return &RebaseFFResult{
+				Success: false,
+				Message: "Branch is not an ancestor of main",
+			}, nil
+		}
+		// HEAD IS an ancestor of origin/main - we're behind, continue
+	} else {
+		// origin/main IS an ancestor of HEAD - we're ahead, can't FF from main
+		return &RebaseFFResult{
+			Success: false,
+			Message: "Branch is not an ancestor of main",
+		}, nil
+	}
+
+	// 3. git log --oneline --reverse HEAD..origin/main - Get list of commit hashes
+	logCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "--reverse", "HEAD..origin/main")
+	logCmd.Dir = workspacePath
+	output, err := logCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w: %s", err, string(output))
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// 4. If zero lines (no commits): return "Caught up to main"
+	if len(lines) == 1 && lines[0] == "" {
+		return &RebaseFFResult{
+			Success: true,
+			Message: "Caught up to main",
+		}, nil
+	}
+
+	// Extract commit hashes (first word of each line)
+	commitHashes := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) > 0 {
+			commitHashes = append(commitHashes, parts[0])
+		}
+	}
+
+	if len(commitHashes) == 0 {
+		return &RebaseFFResult{
+			Success: true,
+			Message: "Caught up to main",
+		}, nil
+	}
+
+	// 5. git commit -a -m "WIP: <UUID>" to save local changes
+	wipUUID := fmt.Sprintf("WIP: %d", time.Now().UnixNano())
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-a", "-m", wipUUID)
+	commitCmd.Dir = workspacePath
+	commitOutput, err := commitCmd.CombinedOutput()
+	didCommit := true
+	if err != nil {
+		if strings.Contains(string(commitOutput), "nothing to commit") {
+			didCommit = false
+			fmt.Printf("[workspace] no local changes to commit\n")
+		} else {
+			return nil, fmt.Errorf("git commit failed: %w: %s", err, string(commitOutput))
+		}
+	} else {
+		fmt.Printf("[workspace] committed local changes as: %s\n", wipUUID)
+	}
+
+	// 6. For each commit hash: git rebase <hash>
+	successCount := 0
+	for i, hash := range commitHashes {
+		rebaseCmd := exec.CommandContext(ctx, "git", "rebase", hash)
+		rebaseCmd.Dir = workspacePath
+		if err := rebaseCmd.Run(); err != nil {
+			// Conflict occurred
+			// git rebase --abort
+			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
+			abortCmd.Dir = workspacePath
+			_ = abortCmd.Run()
+
+			// git reset --mixed HEAD~1 - undo the WIP commit
+			if didCommit {
+				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+				resetCmd.Dir = workspacePath
+				_ = resetCmd.Run()
+				fmt.Printf("[workspace] reset WIP commit after conflict\n")
+			}
+
+			return &RebaseFFResult{
+				Success: false,
+				Message: fmt.Sprintf("FF'd %d commits before conflict", successCount),
+			}, nil
+		}
+		successCount++
+		fmt.Printf("[workspace] rebased %d/%d: %s\n", i+1, len(commitHashes), hash)
+	}
+
+	// 7. All succeeded: git reset --mixed HEAD~1 - undo the WIP commit
+	if didCommit {
+		resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+		resetCmd.Dir = workspacePath
+		if output, err := resetCmd.CombinedOutput(); err != nil {
+			fmt.Printf("[workspace] warning: git reset --mixed failed: %s\n", string(output))
+		} else {
+			fmt.Printf("[workspace] restored local changes after successful rebase\n")
+		}
+	}
+
+	return &RebaseFFResult{
+		Success: true,
+		Message: fmt.Sprintf("FF'd %d commits successfully. Caught up to main", successCount),
+	}, nil
+}
+
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)

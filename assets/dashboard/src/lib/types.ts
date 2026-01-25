@@ -172,3 +172,8 @@ export interface TerminalSize {
 }
 
 export type ApiError = Error & { isConflict?: boolean };
+
+export interface RebaseFFResponse {
+  success: boolean;
+  message: string;
+}

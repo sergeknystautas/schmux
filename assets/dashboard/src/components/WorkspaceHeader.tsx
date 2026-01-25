@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { openVSCode, disposeWorkspace, getErrorMessage } from '../lib/api';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { openVSCode, disposeWorkspace, getErrorMessage, rebaseFFMain } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
@@ -17,6 +18,14 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const { confirm } = useModal();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
+
+  // Git status dropdown state
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [rebasing, setRebasing] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const [placementAbove, setPlacementAbove] = useState(false);
+  const gitStatusRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Git branch icon SVG
   const branchIcon = (
@@ -56,6 +65,71 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     }
   };
 
+  // Calculate menu position when dropdown opens
+  useEffect(() => {
+    if (isDropdownOpen && gitStatusRef.current) {
+      const rect = gitStatusRef.current.getBoundingClientRect();
+      const gap = 4;
+      const estimatedMenuHeight = 120; // Approximate height for single menu item
+
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+
+      const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+      setPlacementAbove(shouldPlaceAbove);
+
+      if (shouldPlaceAbove) {
+        setMenuPosition({
+          top: rect.top - gap,
+          left: rect.right,
+        });
+      } else {
+        setMenuPosition({
+          top: rect.bottom + gap,
+          left: rect.right,
+        });
+      }
+    }
+  }, [isDropdownOpen]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (gitStatusRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setIsDropdownOpen(false);
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('click', handleClickOutside, true);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [isDropdownOpen]);
+
+  const handleRebaseFF = async () => {
+    setIsDropdownOpen(false);
+    setRebasing(true);
+
+    try {
+      const result = await rebaseFFMain(workspace.id);
+      if (result.success) {
+        success(result.message);
+      } else {
+        toastError(result.message);
+      }
+      refresh();
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to rebase'));
+    } finally {
+      setRebasing(false);
+    }
+  };
+
   return (
     <>
       <div className="workspace-header">
@@ -80,11 +154,17 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
                 {workspace.branch}
               </span>
             )}
-            <Tooltip content={`${behind} behind, ${ahead} ahead`}>
-              <span className="workspace-header__git-status">
-                {behind} | {ahead}
-              </span>
-            </Tooltip>
+            <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>
+              <Tooltip content={`${behind} behind, ${ahead} ahead`}>
+                <span
+                  className="workspace-header__git-status"
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {behind} | {ahead}
+                </span>
+              </Tooltip>
+            </div>
           </span>
         </div>
         <div className="workspace-header__actions">
@@ -125,6 +205,30 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           message={vsCodeResult.message}
           onClose={() => setVSCodeResult(null)}
         />
+      )}
+
+      {isDropdownOpen && !rebasing && createPortal(
+        <div
+          ref={menuRef}
+          className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
+          role="menu"
+          style={{
+            position: 'fixed',
+            top: placementAbove ? 'auto' : `${menuPosition.top}px`,
+            bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
+            right: `${window.innerWidth - menuPosition.left}px`,
+          }}
+        >
+          <button
+            className="spawn-dropdown__item"
+            onClick={handleRebaseFF}
+            role="menuitem"
+            disabled={behind === 0}
+          >
+            <span className="spawn-dropdown__item-label">rebase ff main</span>
+          </button>
+        </div>,
+        document.body
       )}
     </>
   );
