@@ -70,6 +70,23 @@ Dashboard also supports:
 
 ---
 
+## Spawn Draft Persistence
+
+The dashboard preserves your spawn form state in browser sessionStorage, so you don't lose your prompt if you navigate away or refresh:
+
+- **Per-tab isolation**: Each browser tab maintains its own draft (sessionStorage is per-tab and per-origin)
+- **Per-workspace drafts**: Fresh spawns and existing workspace spawns are stored separately
+- **Auto-save**: Prompt, mode, targets, and repo selection are saved as you type
+- **Auto-clear on success**: Draft is cleared only when at least one session spawns successfully
+
+Storage keys:
+- `spawn-draft-fresh` — new workspace spawns
+- `spawn-draft-{workspaceId}` — spawning into existing workspace
+
+Drafts survive navigation and page refresh within the same tab, but are cleared when the tab is closed.
+
+---
+
 ## Visibility
 
 Now you've got a dozen concurrent sessions. You don't want to spend your day clicking into each terminal to figure out what's happening. You need to know at a glance: which are still working, which are blocked, which are done, which you've already reviewed, and where to focus your attention next.
