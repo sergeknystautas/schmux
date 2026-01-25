@@ -442,3 +442,118 @@ func TestE2ETwitterStream(t *testing.T) {
 		}
 	})
 }
+
+// TestE2EWorktreeFallback tests that spawning multiple workspaces on the same branch
+// falls back to full clone when a worktree already exists for that branch.
+func TestE2EWorktreeFallback(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/worktree-test-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Worktree Fallback Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("worktree-test-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+
+	t.Run("SpawnFirstSession", func(t *testing.T) {
+		// First spawn on "main" - should create worktree
+		session1ID = env.SpawnSession("file://"+workspaceRoot+"/worktree-test-repo", "main", "echo", "", "first-agent")
+		if session1ID == "" {
+			t.Fatal("Expected session ID from first spawn")
+		}
+		t.Logf("First session ID: %s", session1ID)
+	})
+
+	t.Run("SpawnSecondSession", func(t *testing.T) {
+		// Second spawn on same "main" branch - should fall back to full clone
+		session2ID = env.SpawnSession("file://"+workspaceRoot+"/worktree-test-repo", "main", "echo", "", "second-agent")
+		if session2ID == "" {
+			t.Fatal("Expected session ID from second spawn")
+		}
+		t.Logf("Second session ID: %s", session2ID)
+	})
+
+	t.Run("VerifyDifferentWorkspaces", func(t *testing.T) {
+		workspaces := env.GetAPIWorkspaces()
+
+		if len(workspaces) < 2 {
+			t.Fatalf("Expected at least 2 workspaces, got %d", len(workspaces))
+		}
+
+		// Find workspaces for our sessions
+		var ws1ID, ws2ID string
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == session1ID {
+					ws1ID = ws.ID
+				}
+				if sess.ID == session2ID {
+					ws2ID = ws.ID
+				}
+			}
+		}
+
+		if ws1ID == "" {
+			t.Error("Could not find workspace for first session")
+		}
+		if ws2ID == "" {
+			t.Error("Could not find workspace for second session")
+		}
+		if ws1ID == ws2ID {
+			t.Errorf("Both sessions are in the same workspace %s - expected different workspaces", ws1ID)
+		}
+
+		t.Logf("Session 1 in workspace: %s", ws1ID)
+		t.Logf("Session 2 in workspace: %s", ws2ID)
+	})
+
+	t.Run("VerifyBothOnMainBranch", func(t *testing.T) {
+		workspaces := env.GetAPIWorkspaces()
+
+		for _, ws := range workspaces {
+			hasOurSession := false
+			for _, sess := range ws.Sessions {
+				if sess.ID == session1ID || sess.ID == session2ID {
+					hasOurSession = true
+					break
+				}
+			}
+			if hasOurSession && ws.Branch != "main" {
+				t.Errorf("Workspace %s has branch %s, expected main", ws.ID, ws.Branch)
+			}
+		}
+	})
+}

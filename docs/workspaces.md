@@ -102,21 +102,50 @@ schmux prevents accidental data loss:
 
 ## Git Behavior
 
-**New workspaces:**
-- First workspace for a repo creates a bare clone in `~/.schmux/repos/`
-- Additional workspaces use `git worktree add` (instant, no network)
-- If same branch is already checked out elsewhere, falls back to full clone
+### Worktree Strategy
 
-**Existing workspaces:**
+schmux uses git worktrees for efficient workspace management:
+
+1. **First workspace for a repo**: Creates a bare clone in `~/.schmux/repos/<repo>.git`
+2. **Additional workspaces**: Uses `git worktree add` from the bare clone (instant, no network)
+
+**Worktree constraint**: Git only allows one worktree per branch. You can't have two worktrees both checked out to `main`.
+
+### Full Clone Fallback
+
+When you spawn a workspace on a branch that's already checked out in another worktree, schmux automatically falls back to a full clone:
+
+```
+Spawn to "main" → worktree for main already exists at schmux-001
+                → create schmux-002 as full clone instead
+```
+
+This means you can have multiple workspaces on the same branch:
+- `schmux-001`: worktree on `main`
+- `schmux-002`: full clone on `main`
+- `schmux-003`: full clone on `main`
+
+The fallback is transparent — all workspaces work identically regardless of whether they're worktrees or full clones.
+
+### New Workspaces
+
+- First workspace on a branch: worktree (fast, shared objects)
+- Additional workspaces on same branch: full clone (independent)
+- Workspaces on different branches: worktrees (fast, shared objects)
+
+### Existing Workspaces
+
 - Skips git operations (safe for concurrent agents)
 - Reuse directory for additional sessions
 
-**Disposal:**
+### Disposal
+
 - Blocked if workspace has uncommitted or unpushed changes
-- Uses `git worktree remove` for worktrees, `rm -rf` for legacy clones
+- Uses `git worktree remove` for worktrees, `rm -rf` for full clones
 - No automatic git reset — you're in control
 
-**Why worktrees?**
+### Why Worktrees?
+
 - Disk efficient: git objects shared across all workspaces for a repo
 - Fast creation: no network clone for additional workspaces
 - Tool compatible: VS Code, git CLI, and agents work normally

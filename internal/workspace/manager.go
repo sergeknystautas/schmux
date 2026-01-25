@@ -171,15 +171,14 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	}()
 
-	// Add worktree (fall back to full clone if branch is already checked out)
-	if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
-		// Check if error is due to branch already being checked out
-		if strings.Contains(err.Error(), "is already checked out") {
-			fmt.Printf("[workspace] branch already checked out, falling back to full clone\n")
-			if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
-				return nil, fmt.Errorf("failed to clone repo (worktree fallback): %w", err)
-			}
-		} else {
+	// Check if branch is already in use by another worktree
+	if m.isBranchInWorktree(ctx, baseRepoPath, branch) {
+		fmt.Printf("[workspace] branch %s already in worktree, using full clone\n", branch)
+		if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to clone repo: %w", err)
+		}
+	} else {
+		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
 	}
@@ -517,6 +516,29 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 
 	fmt.Printf("[workspace] worktree added: path=%s\n", workspacePath)
 	return nil
+}
+
+// isBranchInWorktree checks if a branch is already checked out in any worktree.
+// Uses `git worktree list --porcelain` for stable, machine-readable output.
+func (m *Manager) isBranchInWorktree(ctx context.Context, baseRepoPath, branch string) bool {
+	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
+	cmd.Dir = baseRepoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false // If we can't check, assume not in use
+	}
+
+	// Porcelain format outputs "branch refs/heads/<name>" for each worktree
+	// Detached HEAD worktrees have "detached" instead of "branch ..."
+	searchStr := "branch refs/heads/" + branch
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if line == searchStr {
+			return true
+		}
+	}
+	return false
 }
 
 // removeWorktree removes a worktree.

@@ -468,8 +468,8 @@ func (e *Env) GetTmuxSessions() []string {
 	return sessions
 }
 
-// GetAPISessions returns the list of sessions from the API.
-func (e *Env) GetAPISessions() []APISession {
+// GetAPIWorkspaces returns the list of workspaces from the API.
+func (e *Env) GetAPIWorkspaces() []APIWorkspace {
 	e.T.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -477,7 +477,7 @@ func (e *Env) GetAPISessions() []APISession {
 	resp, err := http.DefaultClient.Do(req)
 	cancel()
 	if err != nil {
-		e.T.Fatalf("Failed to get sessions from API: %v", err)
+		e.T.Fatalf("Failed to get workspaces from API: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -491,9 +491,16 @@ func (e *Env) GetAPISessions() []APISession {
 		e.T.Fatalf("Failed to decode API response: %v", err)
 	}
 
+	return workspaces
+}
+
+// GetAPISessions returns the list of sessions from the API.
+func (e *Env) GetAPISessions() []APISession {
+	e.T.Helper()
+
 	// Flatten sessions from all workspaces
 	var allSessions []APISession
-	for _, ws := range workspaces {
+	for _, ws := range e.GetAPIWorkspaces() {
 		allSessions = append(allSessions, ws.Sessions...)
 	}
 
