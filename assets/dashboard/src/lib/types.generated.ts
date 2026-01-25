@@ -22,6 +22,7 @@ export interface BranchSuggestUpdate {
 
 export interface ConfigResponse {
   workspace_path: string;
+  source_code_manager: string;
   repos: Repo[];
   run_targets: RunTarget[];
   quick_launch: QuickLaunch[];
@@ -40,6 +41,7 @@ export interface ConfigResponse {
 
 export interface ConfigUpdateRequest {
   workspace_path?: string;
+  source_code_manager?: string;
   repos?: Repo[];
   run_targets?: RunTarget[];
   quick_launch?: QuickLaunch[];

@@ -566,6 +566,74 @@ func (e *Env) CaptureArtifacts() {
 	e.T.Logf("Artifacts captured to: %s", failureDir)
 }
 
+// SetSourceCodeManager updates the config file to use the specified source code manager.
+func (e *Env) SetSourceCodeManager(scm string) {
+	e.T.Helper()
+	e.T.Logf("Setting source_code_manager to: %s", scm)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	schmuxDir := filepath.Join(homeDir, ".schmux")
+	configPath := filepath.Join(schmuxDir, "config.json")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	cfg.SourceCodeManager = scm
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
+// BranchConflictResult is the result of a branch conflict check.
+type BranchConflictResult struct {
+	Conflict    bool   `json:"conflict"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
+// CheckBranchConflict calls the /api/check-branch-conflict endpoint.
+func (e *Env) CheckBranchConflict(repo, branch string) BranchConflictResult {
+	e.T.Helper()
+	e.T.Logf("Checking branch conflict: repo=%s branch=%s", repo, branch)
+
+	type CheckRequest struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+	}
+
+	reqBody, err := json.Marshal(CheckRequest{Repo: repo, Branch: branch})
+	if err != nil {
+		e.T.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/check-branch-conflict", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to check branch conflict: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("Branch conflict check returned non-200: %d\nBody: %s", resp.StatusCode, body)
+	}
+
+	var result BranchConflictResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		e.T.Fatalf("Failed to decode response: %v", err)
+	}
+
+	return result
+}
+
 // RunCmd runs a command in the given directory.
 func RunCmd(t *testing.T, dir string, name string, args ...string) {
 	t.Helper()

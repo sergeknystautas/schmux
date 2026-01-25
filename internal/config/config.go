@@ -42,11 +42,18 @@ const (
 	DefaultAuthSessionTTLMinutes = 1440
 )
 
+// Source code manager constants
+const (
+	SourceCodeManagerGitWorktree = "git-worktree" // default: use git worktrees
+	SourceCodeManagerGit         = "git"          // vanilla full clone
+)
+
 // Config represents the application configuration.
 type Config struct {
 	ConfigVersion              string                `json:"config_version,omitempty"`
 	WorkspacePath              string                `json:"workspace_path"`
-	BaseReposPath              string                `json:"base_repos_path,omitempty"` // path for bare clones (worktree base repos)
+	BaseReposPath              string                `json:"base_repos_path,omitempty"`     // path for bare clones (worktree base repos)
+	SourceCodeManager          string                `json:"source_code_manager,omitempty"` // "git-worktree" (default) or "git"
 	Repos                      []Repo                `json:"repos"`
 	RunTargets                 []RunTarget           `json:"run_targets"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
@@ -239,6 +246,20 @@ func (c *Config) GetBaseReposPath() string {
 		return ""
 	}
 	return filepath.Join(homeDir, ".schmux", "repos")
+}
+
+// GetSourceCodeManager returns the configured source code manager.
+// Defaults to "git-worktree" if not set.
+func (c *Config) GetSourceCodeManager() string {
+	if c.SourceCodeManager == "" {
+		return SourceCodeManagerGitWorktree
+	}
+	return c.SourceCodeManager
+}
+
+// UseWorktrees returns true if the source code manager is git-worktree.
+func (c *Config) UseWorktrees() bool {
+	return c.GetSourceCodeManager() == SourceCodeManagerGitWorktree
 }
 
 // GetRepos returns the list of repositories.

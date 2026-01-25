@@ -339,6 +339,17 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Server-side branch conflict check for worktree mode
+	// This catches race conditions where UI check passed but another spawn claimed the branch
+	if req.WorkspaceID == "" && s.config.UseWorktrees() {
+		for _, ws := range s.state.GetWorkspaces() {
+			if ws.Repo == req.Repo && ws.Branch == req.Branch {
+				http.Error(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	// Spawn sessions
 	type SessionResult struct {
 		SessionID   string `json:"session_id"`
@@ -725,6 +736,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 
 	response := contracts.ConfigResponse{
 		WorkspacePath:              s.config.GetWorkspacePath(),
+		SourceCodeManager:          s.config.GetSourceCodeManager(),
 		Repos:                      repoResp,
 		RunTargets:                 runTargetResp,
 		QuickLaunch:                quickLaunchResp,
@@ -810,6 +822,16 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		pathChanged = (newPath != cfg.GetWorkspacePath() && (sessionCount > 0 || workspaceCount > 0))
 		cfg.WorkspacePath = newPath
+	}
+
+	if req.SourceCodeManager != nil {
+		scm := *req.SourceCodeManager
+		if scm != "" && scm != config.SourceCodeManagerGit && scm != config.SourceCodeManagerGitWorktree {
+			http.Error(w, fmt.Sprintf("invalid source_code_manager: %q (must be %q or %q)",
+				scm, config.SourceCodeManagerGit, config.SourceCodeManagerGitWorktree), http.StatusBadRequest)
+			return
+		}
+		cfg.SourceCodeManager = scm
 	}
 
 	if req.Repos != nil {
@@ -2213,4 +2235,57 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(validCookbooks)
+}
+
+// handleCheckBranchConflict checks if a branch is already in use by a worktree.
+// POST /api/check-branch-conflict
+// Request body: {"repo": "git@github.com:user/repo.git", "branch": "main"}
+// Response: {"conflict": false} or {"conflict": true, "workspace_id": "repo-001"}
+func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Repo == "" || req.Branch == "" {
+		http.Error(w, "repo and branch are required", http.StatusBadRequest)
+		return
+	}
+
+	type BranchConflictResponse struct {
+		Conflict    bool   `json:"conflict"`
+		WorkspaceID string `json:"workspace_id,omitempty"`
+	}
+
+	// If not using worktrees, there's no branch conflict concern
+	if !s.config.UseWorktrees() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+		return
+	}
+
+	// Check if any existing workspace has this repo+branch combination
+	// (which means the branch is already checked out in a worktree)
+	for _, ws := range s.state.GetWorkspaces() {
+		if ws.Repo == req.Repo && ws.Branch == req.Branch {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(BranchConflictResponse{
+				Conflict:    true,
+				WorkspaceID: ws.ID,
+			})
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
 }

@@ -222,6 +222,39 @@ Errors are per-result:
 ]
 ```
 
+Global errors (HTTP status codes):
+- 409 Conflict: Branch already in use by another workspace (worktree mode only). Message: `branch_conflict: branch "X" is already in use by workspace "Y"`
+
+### POST /api/check-branch-conflict
+Check if a branch is already in use by an existing workspace. Used by the UI to validate before spawn in worktree mode.
+
+Request:
+```json
+{
+  "repo": "git@github.com:user/repo.git",
+  "branch": "main"
+}
+```
+
+Response:
+```json
+{
+  "conflict": false
+}
+```
+
+Or if conflict exists:
+```json
+{
+  "conflict": true,
+  "workspace_id": "repo-001"
+}
+```
+
+Notes:
+- Only relevant when `source_code_manager` is `"git-worktree"` (the default)
+- When `source_code_manager` is `"git"`, always returns `{"conflict": false}`
+
 ### POST /api/dispose/{sessionId}
 Dispose a session.
 
@@ -269,6 +302,7 @@ Response:
 ```json
 {
   "workspace_path":"/path",
+  "source_code_manager":"git-worktree",
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
@@ -313,6 +347,7 @@ Request:
 ```json
 {
   "workspace_path":"/path",
+  "source_code_manager":"git-worktree",
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],

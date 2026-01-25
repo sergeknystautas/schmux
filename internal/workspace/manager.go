@@ -171,15 +171,17 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	}()
 
-	// Check if branch is already in use by another worktree
-	if m.isBranchInWorktree(ctx, baseRepoPath, branch) {
-		fmt.Printf("[workspace] branch %s already in worktree, using full clone\n", branch)
-		if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
-			return nil, fmt.Errorf("failed to clone repo: %w", err)
-		}
-	} else {
+	// Check source code manager setting
+	if m.config.UseWorktrees() {
+		// Using worktrees - no fallback, branch conflicts should be caught by UI
 		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
+		}
+	} else {
+		// Using full clones
+		fmt.Printf("[workspace] source_code_manager=git, using full clone\n")
+		if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
 	}
 

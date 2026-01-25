@@ -43,7 +43,27 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request)
   });
-  if (!response.ok) throw new Error('Failed to spawn sessions');
+  if (!response.ok) {
+    // Get error message from response body
+    const text = await response.text();
+    throw new Error(text || 'Failed to spawn sessions');
+  }
+  return response.json();
+}
+
+/**
+ * Checks if a branch is already in use by an existing workspace (worktree conflict).
+ * Only relevant when source_code_manager is "git-worktree".
+ */
+export async function checkBranchConflict(repo: string, branch: string): Promise<{ conflict: boolean; workspace_id?: string }> {
+  const response = await fetch('/api/check-branch-conflict', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, branch })
+  });
+  if (!response.ok) {
+    throw new Error('Failed to check branch conflict');
+  }
   return response.json();
 }
 

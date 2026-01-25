@@ -105,6 +105,7 @@ type AccessControl struct {
 // ConfigResponse represents the API response for GET /api/config.
 type ConfigResponse struct {
 	WorkspacePath              string                `json:"workspace_path"`
+	SourceCodeManager          string                `json:"source_code_manager"`
 	Repos                      []Repo                `json:"repos"`
 	RunTargets                 []RunTarget           `json:"run_targets"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
@@ -182,6 +183,7 @@ type AccessControlUpdate struct {
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
 type ConfigUpdateRequest struct {
 	WorkspacePath              *string               `json:"workspace_path,omitempty"`
+	SourceCodeManager          *string               `json:"source_code_manager,omitempty"`
 	Repos                      []Repo                `json:"repos,omitempty"`
 	RunTargets                 []RunTarget           `json:"run_targets,omitempty"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch,omitempty"`

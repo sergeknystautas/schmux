@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
+import { getConfig, spawnSessions, getErrorMessage, suggestBranch, checkBranchConflict } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -84,6 +84,10 @@ export default function SpawnPage() {
   const [reviewing, setReviewing] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
+  const [branchConflict, setBranchConflict] = useState<{ conflict: boolean; workspace_id?: string } | null>(null);
+  const [checkingConflict, setCheckingConflict] = useState(false);
+  const [conflictCheckError, setConflictCheckError] = useState(false);
+  const [sourceCodeManager, setSourceCodeManager] = useState('git-worktree');
   const prefillApplied = useRef(false);
   // Track which workspace key we've hydrated (null = not yet hydrated)
   const draftHydratedKey = useRef<string | null>(null);
@@ -129,6 +133,7 @@ export default function SpawnPage() {
         const cfg = await getConfig();
         if (!active) return;
         setRepos(cfg.repos || []);
+        setSourceCodeManager(cfg.source_code_manager || 'git-worktree');
 
         const promptableItems = (cfg.run_targets || []).filter(t => t.type === 'promptable');
         const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command');
@@ -351,6 +356,49 @@ export default function SpawnPage() {
     });
   };
 
+  // Check for branch conflicts when branch changes (worktree mode only, new workspace only)
+  useEffect(() => {
+    // Only check if:
+    // 1. Not spawning into existing workspace
+    // 2. Using worktrees
+    // 3. Have both repo and branch set
+    // 4. Not creating a new repo
+    if (inExistingWorkspace || sourceCodeManager !== 'git-worktree' || !repo || !branch || repo === '__new__') {
+      setBranchConflict(null);
+      setConflictCheckError(false);
+      return;
+    }
+
+    let cancelled = false;
+    const check = async () => {
+      setCheckingConflict(true);
+      setConflictCheckError(false);
+      try {
+        const result = await checkBranchConflict(repo, branch);
+        if (!cancelled) {
+          setBranchConflict(result);
+        }
+      } catch (err) {
+        console.error('Failed to check branch conflict:', err);
+        if (!cancelled) {
+          setBranchConflict(null);
+          setConflictCheckError(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingConflict(false);
+        }
+      }
+    };
+
+    // Debounce the check
+    const timeout = setTimeout(check, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [repo, branch, inExistingWorkspace, sourceCodeManager]);
+
   const generateBranchName = useCallback(async (promptText: string) => {
     if (!promptText.trim()) {
       return null;
@@ -487,7 +535,19 @@ export default function SpawnPage() {
         localStorage.setItem(WORKSPACE_EXPANDED_KEY, JSON.stringify(expanded));
       }
     } catch (err) {
-      toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);
+      const errorMsg = getErrorMessage(err, 'Unknown error');
+      // Check for server-side branch conflict error (race condition catch)
+      if (errorMsg.startsWith('branch_conflict:')) {
+        // Parse workspace ID from message: "branch_conflict: branch "x" is already in use by workspace "y""
+        const match = errorMsg.match(/workspace "([^"]+)"/);
+        setBranchConflict({
+          conflict: true,
+          workspace_id: match ? match[1] : undefined
+        });
+        toastError('Branch is already in use by another workspace');
+      } else {
+        toastError(`Failed to spawn: ${errorMsg}`);
+      }
     } finally {
       setSpawning(false);
     }
@@ -653,14 +713,33 @@ export default function SpawnPage() {
                   <span className="metadata-field__value">{repo === '__new__' ? 'main' : branch}</span>
                 </div>
               ) : (
-                <input
-                  type="text"
-                  className="input"
-                  value={branch}
-                  onChange={(event) => setBranch(event.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSpawn(); }}
-                  required
-                />
+                <>
+                  <input
+                    type="text"
+                    className={`input${branchConflict?.conflict ? ' input--error' : ''}`}
+                    value={branch}
+                    onChange={(event) => setBranch(event.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !branchConflict?.conflict) handleSpawn(); }}
+                    required
+                  />
+                  {checkingConflict && (
+                    <p className="form-group__hint" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                      <span className="spinner spinner--small"></span>
+                      Checking branch availability...
+                    </p>
+                  )}
+                  {branchConflict?.conflict && (
+                    <p className="form-group__error">
+                      Branch "{branch}" is already in use by workspace "{branchConflict.workspace_id}".
+                      Use a different branch name or spawn into the existing workspace.
+                    </p>
+                  )}
+                  {conflictCheckError && (
+                    <p className="form-group__error">
+                      Failed to verify branch availability. Cannot spawn in worktree mode until check succeeds.
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -699,7 +778,7 @@ export default function SpawnPage() {
           <button
             className="btn btn--primary"
             onClick={handleSpawn}
-            disabled={spawning}
+            disabled={spawning || checkingConflict || branchConflict?.conflict || conflictCheckError}
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
           >
             {spawning ? (

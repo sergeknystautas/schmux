@@ -1,5 +1,7 @@
 # Spec: Git Worktree Migration
 
+> **Note:** As of the `source_code_manager` config option, worktrees are now optional. Users can choose between "git-worktree" (default, efficient) or "git" (full clones, allows same-branch workspaces). Configure in Settings > Workspace > Source Code Manager.
+
 ## Overview
 
 Replace full `git clone` per workspace with `git worktree` to reduce disk usage and speed up workspace creation.

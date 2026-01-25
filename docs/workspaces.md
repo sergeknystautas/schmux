@@ -102,50 +102,53 @@ schmux prevents accidental data loss:
 
 ## Git Behavior
 
-### Worktree Strategy
+### Source Code Manager
 
-schmux uses git worktrees for efficient workspace management:
+schmux supports two modes for creating workspace directories, configurable in **Settings > Workspace > Source Code Manager**:
+
+| Mode | Description | Branch Handling |
+|------|-------------|-----------------|
+| **Git Worktree** (default) | Efficient disk usage, shares repo history | Each branch can only be used by one workspace |
+| **Git (Full Clone)** | Independent clones | Multiple workspaces can use the same branch |
+
+### Git Worktree Mode
+
+When using worktrees (the default):
 
 1. **First workspace for a repo**: Creates a bare clone in `~/.schmux/repos/<repo>.git`
 2. **Additional workspaces**: Uses `git worktree add` from the bare clone (instant, no network)
 
-**Worktree constraint**: Git only allows one worktree per branch. You can't have two worktrees both checked out to `main`.
-
-### Full Clone Fallback
-
-When you spawn a workspace on a branch that's already checked out in another worktree, schmux automatically falls back to a full clone:
+**Worktree constraint**: Git only allows one worktree per branch. The spawn UI will show an error if you try to create a new workspace on a branch that's already in use:
 
 ```
-Spawn to "main" → worktree for main already exists at schmux-001
-                → create schmux-002 as full clone instead
+Branch "main" is already in use by workspace "myrepo-001".
+Use a different branch name or spawn into the existing workspace.
 ```
 
-This means you can have multiple workspaces on the same branch:
-- `schmux-001`: worktree on `main`
-- `schmux-002`: full clone on `main`
-- `schmux-003`: full clone on `main`
+**Why Worktrees?**
 
-The fallback is transparent — all workspaces work identically regardless of whether they're worktrees or full clones.
+- Disk efficient: git objects shared across all workspaces for a repo
+- Fast creation: no network clone for additional workspaces
+- Tool compatible: VS Code, git CLI, and agents work normally
 
-### New Workspaces
+### Git (Full Clone) Mode
 
-- First workspace on a branch: worktree (fast, shared objects)
-- Additional workspaces on same branch: full clone (independent)
-- Workspaces on different branches: worktrees (fast, shared objects)
+When using full clones:
+
+- Each workspace is a complete, independent git clone
+- Multiple workspaces can work on the same branch
+- No branch conflict restrictions
+- Uses more disk space (no shared objects)
 
 ### Existing Workspaces
 
+Regardless of mode, spawning into an existing workspace:
+
 - Skips git operations (safe for concurrent agents)
-- Reuse directory for additional sessions
+- Reuses the directory for additional sessions
 
 ### Disposal
 
 - Blocked if workspace has uncommitted or unpushed changes
 - Uses `git worktree remove` for worktrees, `rm -rf` for full clones
 - No automatic git reset — you're in control
-
-### Why Worktrees?
-
-- Disk efficient: git objects shared across all workspaces for a repo
-- Fast creation: no network clone for additional workspaces
-- Tool compatible: VS Code, git CLI, and agents work normally

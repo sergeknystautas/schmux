@@ -34,6 +34,7 @@ const slugToStep = (slug: string | null) => {
 
 type ConfigSnapshot = {
   workspacePath: string;
+  sourceCodeManager: string;
   repos: RepoResponse[];
   promptableTargets: RunTargetResponse[];
   commandTargets: RunTargetResponse[];
@@ -128,6 +129,7 @@ export default function ConfigPage() {
 
   // Form state
   const [workspacePath, setWorkspacePath] = useState('');
+  const [sourceCodeManager, setSourceCodeManager] = useState('git-worktree');
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
@@ -188,6 +190,7 @@ export default function ConfigPage() {
     // Compare all relevant fields
     const current = {
       workspacePath,
+      sourceCodeManager,
       repos,
       promptableTargets,
       commandTargets,
@@ -228,6 +231,7 @@ export default function ConfigPage() {
 
     return (
       current.workspacePath !== originalConfig.workspacePath ||
+      current.sourceCodeManager !== originalConfig.sourceCodeManager ||
       !arraysMatch(current.repos, originalConfig.repos) ||
       !arraysMatch(current.promptableTargets, originalConfig.promptableTargets) ||
       !arraysMatch(current.commandTargets, originalConfig.commandTargets) ||
@@ -304,6 +308,7 @@ export default function ConfigPage() {
         const data: ConfigResponse = await getConfig();
         if (!active) return;
         setWorkspacePath(data.workspace_path || '');
+        setSourceCodeManager(data.source_code_manager || 'git-worktree');
         setTerminalWidth(String(data.terminal?.width || 120));
         setTerminalHeight(String(data.terminal?.height || 40));
         setTerminalSeedLines(String(data.terminal?.seed_lines || 100));
@@ -356,6 +361,7 @@ export default function ConfigPage() {
         if (!isFirstRun) {
           setOriginalConfig({
             workspacePath: data.workspace_path || '',
+            sourceCodeManager: data.source_code_manager || 'git-worktree',
             repos: data.repos || [],
             promptableTargets: promptableItems,
             commandTargets: commandItems,
@@ -517,6 +523,7 @@ export default function ConfigPage() {
 
       const updateRequest: ConfigUpdateRequest = {
         workspace_path: workspacePath,
+        source_code_manager: sourceCodeManager,
         terminal: { width, height, seed_lines: seedLines, bootstrap_lines: parseInt(terminalBootstrapLines) },
         repos: repos,
         run_targets: runTargets,
@@ -573,6 +580,7 @@ export default function ConfigPage() {
       if (!isFirstRun) {
         setOriginalConfig({
           workspacePath,
+          sourceCodeManager,
           repos,
           promptableTargets,
           commandTargets,
@@ -1248,6 +1256,35 @@ export default function ConfigPage() {
                 </div>
                 <button type="button" className="btn btn--sm btn--primary" onClick={addRepo}>Add</button>
               </div>
+
+              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Source Code Manager</h3>
+              <p className="wizard-step-content__description">
+                How schmux creates workspace directories for each session.
+              </p>
+              <div className="form-group">
+                <select
+                  className="select"
+                  value={sourceCodeManager}
+                  onChange={(e) => setSourceCodeManager(e.target.value)}
+                >
+                  <option value="git-worktree">git worktree (default)</option>
+                  <option value="git">git</option>
+                </select>
+                <p className="form-group__hint">
+                  {sourceCodeManager === 'git-worktree' ? (
+                    <>
+                      <strong>git worktree:</strong> Efficient disk usage, shares repo history across workspaces.
+                      Each branch can only be used by one workspace at a time.
+                    </>
+                  ) : (
+                    <>
+                      <strong>git:</strong> Independent clones for each workspace.
+                      Multiple workspaces can use the same branch.
+                    </>
+                  )}
+                </p>
+              </div>
+
               {stepErrors[1] && (
                 <p className="form-group__error" style={{ marginTop: 'var(--spacing-md)' }}>{stepErrors[1]}</p>
               )}
