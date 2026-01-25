@@ -9,11 +9,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build, Test, and Run Commands
 
 ```bash
-# Build the React dashboard (installs npm deps, runs vite build)
-go run ./cmd/build-dashboard
-
 # Build the binary (outputs ./schmux)
 go build ./cmd/schmux
+
+# Generate TypeScript types from Go contracts**:
+go run ./cmd/gen-types
+
+# Build the React dashboard (installs npm deps, runs vite build)
+go run ./cmd/build-dashboard
 
 # Run all tests
 go test ./...
