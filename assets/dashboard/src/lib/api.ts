@@ -6,9 +6,9 @@ import type {
   DetectToolsResponse,
   DiffExternalResponse,
   DiffResponse,
+  LinearSyncResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
-  RebaseFFResponse,
   ScanResult,
   SpawnRequest,
   SpawnResult,
@@ -276,14 +276,26 @@ export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookboo
   return response.json();
 }
 
-export async function rebaseFFMain(workspaceId: string): Promise<RebaseFFResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/rebase-ff`, {
+export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyncResponse> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
   if (!response.ok) {
     const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to rebase');
+    throw new Error(err.message || err.error || 'Failed to sync from main');
+  }
+  return response.json();
+}
+
+export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncResponse> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || err.error || 'Failed to sync to main');
   }
   return response.json();
 }

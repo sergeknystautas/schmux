@@ -54,8 +54,11 @@ type WorkspaceManager interface {
 	// EnsureOverlayDirs ensures overlay directories exist for all configured repos.
 	EnsureOverlayDirs(repos []config.Repo) error
 
-	// RebaseFFMain performs an iterative fast-forward rebase from origin/main.
-	RebaseFFMain(ctx context.Context, workspaceID string) (*RebaseFFResult, error)
+	// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
+	LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+
+	// LinearSyncToMain performs a fast-forward push to origin/main.
+	LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

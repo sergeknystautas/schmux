@@ -130,7 +130,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
 	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
 	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuth(s.handleWorkspacesScan)))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleRebaseFF)))
+	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleLinearSync)))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
 	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))

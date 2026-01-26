@@ -2122,26 +2122,43 @@ type BuiltinQuickLaunchCookbook struct {
 	Prompt string `json:"prompt"`
 }
 
-// handleRebaseFF handles POST requests to perform a fast-forward rebase from origin/main.
-// POST /api/workspaces/{id}/rebase-ff
-//
-// This performs an iterative fast-forward rebase that brings commits FROM main
-// INTO the current branch one at a time, preserving local changes via stash.
-func (s *Server) handleRebaseFF(w http.ResponseWriter, r *http.Request) {
+// handleLinearSync handles POST requests for workspace linear sync operations.
+// Dispatches to specific handlers based on URL suffix:
+// - POST /api/workspaces/{id}/linear-sync-from-main - sync commits from main into branch
+// - POST /api/workspaces/{id}/linear-sync-to-main - sync commits from branch to main
+func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Extract workspace ID from URL: /api/workspaces/{id}/rebase-ff
+	path := r.URL.Path
+
+	// Route based on URL suffix
+	if strings.HasSuffix(path, "/linear-sync-from-main") {
+		s.handleLinearSyncFromMain(w, r)
+	} else if strings.HasSuffix(path, "/linear-sync-to-main") {
+		s.handleLinearSyncToMain(w, r)
+	} else {
+		http.NotFound(w, r)
+	}
+}
+
+// handleLinearSyncFromMain handles POST requests to sync commits from origin/main into branch.
+// POST /api/workspaces/{id}/linear-sync-from-main
+//
+// This performs an iterative rebase that brings commits FROM main INTO the current branch
+// one at a time, preserving local changes. Supports diverged branches.
+func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request) {
+	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-from-main
 	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/rebase-ff")
+	workspaceID := strings.TrimSuffix(path, "/linear-sync-from-main")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
-	type RebaseFFResponse struct {
+	type LinearSyncResponse struct {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
 	}
@@ -2151,37 +2168,96 @@ func (s *Server) handleRebaseFF(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(RebaseFFResponse{
+		json.NewEncoder(w).Encode(LinearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
 		return
 	}
 
-	fmt.Printf("[workspace] rebase-ff: workspace_id=%s\n", workspaceID)
+	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s\n", workspaceID)
 
-	// Perform the rebase
+	// Perform the sync from main
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	result, err := s.workspace.RebaseFFMain(ctx, workspaceID)
+	result, err := s.workspace.LinearSyncFromMain(ctx, workspaceID)
 	if err != nil {
-		fmt.Printf("[workspace] rebase-ff error: workspace_id=%s error=%v\n", workspaceID, err)
+		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(RebaseFFResponse{
+		json.NewEncoder(w).Encode(LinearSyncResponse{
 			Success: false,
-			Message: fmt.Sprintf("Failed to rebase: %v", err),
+			Message: fmt.Sprintf("Failed to sync from main: %v", err),
 		})
 		return
 	}
 
-	// Update git status after rebase
+	// Update git status after sync
 	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
-		fmt.Printf("[workspace] rebase-ff warning: failed to update git status: %v\n", err)
+		fmt.Printf("[workspace] linear-sync-from-main warning: failed to update git status: %v\n", err)
 	}
 
-	fmt.Printf("[workspace] rebase-ff success: workspace_id=%s message=%s\n", workspaceID, result.Message)
+	fmt.Printf("[workspace] linear-sync-from-main success: workspace_id=%s message=%s\n", workspaceID, result.Message)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleLinearSyncToMain handles POST requests to sync commits from branch to origin/main.
+// POST /api/workspaces/{id}/linear-sync-to-main
+//
+// This pushes the current branch's commits directly to main without a merge commit.
+func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) {
+	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-to-main
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/linear-sync-to-main")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type LinearSyncResponse struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	// Get workspace from state
+	_, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(LinearSyncResponse{
+			Success: false,
+			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		})
+		return
+	}
+
+	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s\n", workspaceID)
+
+	// Perform the sync to main
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	result, err := s.workspace.LinearSyncToMain(ctx, workspaceID)
+	if err != nil {
+		fmt.Printf("[workspace] linear-sync-to-main error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(LinearSyncResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to sync to main: %v", err),
+		})
+		return
+	}
+
+	// Update git status after sync
+	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+		fmt.Printf("[workspace] linear-sync-to-main warning: failed to update git status: %v\n", err)
+	}
+
+	fmt.Printf("[workspace] linear-sync-to-main success: workspace_id=%s message=%s\n", workspaceID, result.Message)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

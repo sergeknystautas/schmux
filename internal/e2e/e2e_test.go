@@ -80,8 +80,13 @@ func TestE2EFullLifecycle(t *testing.T) {
 		env.AddRepoToConfig("test-repo", "file://"+repoPath)
 	})
 
-	// Step 3: Start daemon (will load config with the repo)
-	t.Run("03_DaemonStart", func(t *testing.T) {
+	// Step 3: Enable git source code manager to allow multiple sessions per branch
+	t.Run("03_EnableGitSCM", func(t *testing.T) {
+		env.SetSourceCodeManager("git")
+	})
+
+	// Step 4: Start daemon (will load config with the repo)
+	t.Run("04_DaemonStart", func(t *testing.T) {
 		env.DaemonStart()
 	})
 
@@ -92,9 +97,9 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	}()
 
-	// Step 4: Spawn two sessions with different nicknames
+	// Step 5: Spawn two sessions with different nicknames
 	var session1ID, session2ID string
-	t.Run("04_SpawnTwoSessions", func(t *testing.T) {
+	t.Run("05_SpawnTwoSessions", func(t *testing.T) {
 		// Spawn session 1
 		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", "agent-one")
 		// Spawn session 2
@@ -123,8 +128,8 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	})
 
-	// Step 5: Verify naming consistency across CLI, tmux, and API
-	t.Run("05_VerifyNamingConsistency", func(t *testing.T) {
+	// Step 6: Verify naming consistency across CLI, tmux, and API
+	t.Run("06_VerifyNamingConsistency", func(t *testing.T) {
 		// Verify CLI list shows the sessions
 		cliOutput := env.ListSessions()
 		if !strings.Contains(cliOutput, "agent-one") {
@@ -180,8 +185,8 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	})
 
-	// Step 6: Verify workspace was created
-	t.Run("06_VerifyWorkspace", func(t *testing.T) {
+	// Step 7: Verify workspace was created
+	t.Run("07_VerifyWorkspace", func(t *testing.T) {
 		sessions := env.GetAPISessions()
 		if len(sessions) == 0 {
 			t.Fatal("No sessions found")
@@ -196,8 +201,8 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	})
 
-	// Step 7: Dispose sessions
-	t.Run("07_DisposeSessions", func(t *testing.T) {
+	// Step 8: Dispose sessions
+	t.Run("08_DisposeSessions", func(t *testing.T) {
 		if session1ID != "" {
 			env.DisposeSession(session1ID)
 		}
@@ -222,8 +227,8 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 	})
 
-	// Step 8: Stop daemon
-	t.Run("08_DaemonStop", func(t *testing.T) {
+	// Step 9: Stop daemon
+	t.Run("09_DaemonStop", func(t *testing.T) {
 		env.DaemonStop()
 
 		// Verify health endpoint is no longer reachable
@@ -296,6 +301,10 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 
 		// Add repo to config BEFORE starting daemon
 		env.AddRepoToConfig("naming-test-repo", "file://"+repoPath)
+	})
+
+	t.Run("EnableGitSCM", func(t *testing.T) {
+		env.SetSourceCodeManager("git")
 	})
 
 	t.Run("DaemonStart", func(t *testing.T) {

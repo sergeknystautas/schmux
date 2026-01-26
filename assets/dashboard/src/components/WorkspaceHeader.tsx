@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { openVSCode, disposeWorkspace, getErrorMessage, rebaseFFMain } from '../lib/api';
+import { openVSCode, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
@@ -22,6 +22,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   // Git status dropdown state
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [rebasing, setRebasing] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [placementAbove, setPlacementAbove] = useState(false);
   const gitStatusRef = useRef<HTMLDivElement | null>(null);
@@ -111,12 +112,12 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     };
   }, [isDropdownOpen]);
 
-  const handleRebaseFF = async () => {
+  const handleLinearSyncFromMain = async () => {
     setIsDropdownOpen(false);
     setRebasing(true);
 
     try {
-      const result = await rebaseFFMain(workspace.id);
+      const result = await linearSyncFromMain(workspace.id);
       if (result.success) {
         success(result.message);
       } else {
@@ -124,9 +125,28 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
       }
       refresh();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to rebase'));
+      toastError(getErrorMessage(err, 'Failed to sync from main'));
     } finally {
       setRebasing(false);
+    }
+  };
+
+  const handleLinearSyncToMain = async () => {
+    setIsDropdownOpen(false);
+    setMerging(true);
+
+    try {
+      const result = await linearSyncToMain(workspace.id);
+      if (result.success) {
+        success(result.message);
+      } else {
+        toastError(result.message);
+      }
+      refresh();
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to sync to main'));
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -207,7 +227,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         />
       )}
 
-      {isDropdownOpen && !rebasing && createPortal(
+      {isDropdownOpen && !rebasing && !merging && createPortal(
         <div
           ref={menuRef}
           className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
@@ -221,11 +241,21 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         >
           <button
             className="spawn-dropdown__item"
-            onClick={handleRebaseFF}
+            onClick={handleLinearSyncFromMain}
             role="menuitem"
             disabled={behind === 0}
+            aria-disabled={behind === 0}
           >
-            <span className="spawn-dropdown__item-label">rebase ff main</span>
+            <span className="spawn-dropdown__item-label">sync from main</span>
+          </button>
+          <button
+            className="spawn-dropdown__item"
+            onClick={handleLinearSyncToMain}
+            role="menuitem"
+            disabled={workspace.git_lines_added !== 0 || workspace.git_lines_removed !== 0 || workspace.git_files_changed !== 0 || behind !== 0 || ahead < 1}
+            aria-disabled={workspace.git_lines_added !== 0 || workspace.git_lines_removed !== 0 || workspace.git_files_changed !== 0 || behind !== 0 || ahead < 1}
+          >
+            <span className="spawn-dropdown__item-label">sync to main</span>
           </button>
         </div>,
         document.body
