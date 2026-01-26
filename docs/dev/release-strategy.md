@@ -185,6 +185,8 @@ jobs:
    - Generates checksums
    - Creates GitHub Release with all artifacts
 
+**Release note (v1.0.1 assets repack):** If dashboard assets need to be re-uploaded for an existing release, repackage them without a `./` root entry (e.g., `tar -czf ../../dashboard-assets.tar.gz -C dist $(ls -A)`) and regenerate `checksums.txt` using the release artifacts so the updater can find `dashboard-assets.tar.gz` by filename.
+
 ## Installation
 
 ### Install Script
