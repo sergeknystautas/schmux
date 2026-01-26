@@ -173,7 +173,7 @@ export interface TerminalSize {
 
 export type ApiError = Error & { isConflict?: boolean };
 
-export interface RebaseFFResponse {
+export interface LinearSyncResponse {
   success: boolean;
   message: string;
 }

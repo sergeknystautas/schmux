@@ -2839,8 +2839,17 @@ a:hover {
     transition: background-color 0.1s;
 }
 
-.spawn-dropdown__item:hover {
+.spawn-dropdown__item:hover:not(:disabled) {
     background-color: var(--color-surface-alt);
+}
+
+.spawn-dropdown__item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.spawn-dropdown__item:disabled .spawn-dropdown__item-label {
+    text-decoration: line-through;
 }
 
 .spawn-dropdown__item:focus-visible {

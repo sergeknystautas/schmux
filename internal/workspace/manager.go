@@ -1132,15 +1132,16 @@ func (m *Manager) findBaseRepoForWorkspace(w state.Workspace) (string, error) {
 	return "", fmt.Errorf("could not find base repo for workspace: %s", w.ID)
 }
 
-// RebaseFFResult represents the result of a fast-forward rebase operation.
-type RebaseFFResult struct {
+// LinearSyncResult represents the result of a linear sync operation (from or to main).
+type LinearSyncResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
 
-// RebaseFFMain performs an iterative fast-forward rebase from origin/main into the current branch.
-// This brings commits FROM main INTO the current branch one at a time, preserving local changes via stash.
-func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*RebaseFFResult, error) {
+// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
+// This brings commits FROM main INTO the current branch one at a time, preserving local changes.
+// Supports diverged branches - will replay local commits on top of main's commits.
+func (m *Manager) LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -1155,31 +1156,17 @@ func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*Rebase
 		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
 	}
 
-	// 2. git merge-base --is-ancestor origin/main feature-x && echo "FF possible"
-	// If not possible, return "Branch is not an ancestor of main"
+	// 2. Check if origin/main is already an ancestor of HEAD (nothing to pull)
 	ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "origin/main", "HEAD")
 	ancestorCmd.Dir = workspacePath
-	if err := ancestorCmd.Run(); err != nil {
-		// Command failed - origin/main is NOT an ancestor of HEAD
-		// This could mean HEAD is behind OR branches have diverged
-		// Check if HEAD is an ancestor of origin/main (FF possible case)
-		ffCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", "origin/main")
-		ffCheckCmd.Dir = workspacePath
-		if err := ffCheckCmd.Run(); err != nil {
-			// Branches have diverged, FF not possible
-			return &RebaseFFResult{
-				Success: false,
-				Message: "Branch is not an ancestor of main",
-			}, nil
-		}
-		// HEAD IS an ancestor of origin/main - we're behind, continue
-	} else {
-		// origin/main IS an ancestor of HEAD - we're ahead, can't FF from main
-		return &RebaseFFResult{
-			Success: false,
-			Message: "Branch is not an ancestor of main",
+	if err := ancestorCmd.Run(); err == nil {
+		// origin/main IS an ancestor of HEAD - nothing new to pull from main
+		return &LinearSyncResult{
+			Success: true,
+			Message: "Already caught up to main",
 		}, nil
 	}
+	// Otherwise proceed - there are commits to pull (whether we're behind or diverged)
 
 	// 3. git log --oneline --reverse HEAD..origin/main - Get list of commit hashes
 	logCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "--reverse", "HEAD..origin/main")
@@ -1193,7 +1180,7 @@ func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*Rebase
 
 	// 4. If zero lines (no commits): return "Caught up to main"
 	if len(lines) == 1 && lines[0] == "" {
-		return &RebaseFFResult{
+		return &LinearSyncResult{
 			Success: true,
 			Message: "Caught up to main",
 		}, nil
@@ -1212,7 +1199,7 @@ func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*Rebase
 	}
 
 	if len(commitHashes) == 0 {
-		return &RebaseFFResult{
+		return &LinearSyncResult{
 			Success: true,
 			Message: "Caught up to main",
 		}, nil
@@ -1255,7 +1242,7 @@ func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*Rebase
 				fmt.Printf("[workspace] reset WIP commit after conflict\n")
 			}
 
-			return &RebaseFFResult{
+			return &LinearSyncResult{
 				Success: false,
 				Message: fmt.Sprintf("FF'd %d commits before conflict", successCount),
 			}, nil
@@ -1275,9 +1262,132 @@ func (m *Manager) RebaseFFMain(ctx context.Context, workspaceID string) (*Rebase
 		}
 	}
 
-	return &RebaseFFResult{
+	return &LinearSyncResult{
 		Success: true,
 		Message: fmt.Sprintf("FF'd %d commits successfully. Caught up to main", successCount),
+	}, nil
+}
+
+// LinearSyncToMain performs a fast-forward push to origin/main.
+// The current branch's commits are pushed directly to main without a merge commit.
+func (m *Manager) LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	workspacePath := w.Path
+
+	// 1. git fetch origin
+	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s fetching origin\n", workspaceID)
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
+	fetchCmd.Dir = workspacePath
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
+	}
+
+	// 2. Check if origin/main is an ancestor of HEAD (we're ahead, FF possible)
+	// git merge-base --is-ancestor origin/main HEAD
+	ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "origin/main", "HEAD")
+	ancestorCmd.Dir = workspacePath
+	if err := ancestorCmd.Run(); err != nil {
+		// origin/main is NOT an ancestor of HEAD
+		// Check if HEAD is an ancestor of origin/main (we're behind)
+		reverseCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", "origin/main")
+		reverseCheckCmd.Dir = workspacePath
+		if err := reverseCheckCmd.Run(); err != nil {
+			// Branches have diverged, FF not possible
+			return &LinearSyncResult{
+				Success: false,
+				Message: "Branch is not an ancestor of main",
+			}, nil
+		}
+		// HEAD IS an ancestor of origin/main - we're behind
+		return &LinearSyncResult{
+			Success: false,
+			Message: "Branch is behind main, pull first",
+		}, nil
+	}
+
+	// 3. Re-check all conditions on server with fresh git status
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, workspacePath)
+	if dirty {
+		return &LinearSyncResult{
+			Success: false,
+			Message: "Workspace has uncommitted changes",
+		}, nil
+	}
+	if linesAdded != 0 || linesRemoved != 0 {
+		return &LinearSyncResult{
+			Success: false,
+			Message: "Workspace has uncommitted line changes",
+		}, nil
+	}
+	if filesChanged != 0 {
+		return &LinearSyncResult{
+			Success: false,
+			Message: "Workspace has changed files",
+		}, nil
+	}
+	if behind != 0 {
+		return &LinearSyncResult{
+			Success: false,
+			Message: "Branch is behind main",
+		}, nil
+	}
+	if ahead < 1 {
+		return &LinearSyncResult{
+			Success: false,
+			Message: "No commits to push",
+		}, nil
+	}
+
+	// 4. Get current branch name
+	currentBranch, err := m.gitCurrentBranch(ctx, workspacePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current branch: %w", err)
+	}
+	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s current_branch=%s\n", workspaceID, currentBranch)
+
+	// 5. Push to main
+	if currentBranch == "main" {
+		// On main branch: simple push
+		fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s pushing from main\n", workspaceID)
+		pushCmd := exec.CommandContext(ctx, "git", "push")
+		pushCmd.Dir = workspacePath
+		if output, err := pushCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("git push failed: %w: %s", err, string(output))
+		}
+	} else {
+		// On feature branch: set upstream to main, push to main, then sync local
+		fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s setting upstream to main\n", workspaceID)
+		upstreamCmd := exec.CommandContext(ctx, "git", "branch", "--set-upstream-to=origin/main")
+		upstreamCmd.Dir = workspacePath
+		if output, err := upstreamCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("git branch --set-upstream-to=origin/main failed: %w: %s", err, string(output))
+		}
+
+		fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s pushing to main\n", workspaceID)
+		pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "HEAD:main")
+		pushCmd.Dir = workspacePath
+		if output, err := pushCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("git push origin HEAD:main failed: %w: %s", err, string(output))
+		}
+
+		// Sync local branch to match new main
+		fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s syncing local branch\n", workspaceID)
+		mergeCmd := exec.CommandContext(ctx, "git", "merge", "--ff-only", "origin/main")
+		mergeCmd.Dir = workspacePath
+		if output, err := mergeCmd.CombinedOutput(); err != nil {
+			// This shouldn't fail since we just pushed, but log warning
+			fmt.Printf("[workspace] linear-sync-to-main: warning: git merge --ff-only failed: %s\n", string(output))
+		}
+	}
+
+	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s success\n", workspaceID)
+	return &LinearSyncResult{
+		Success: true,
+		Message: fmt.Sprintf("Pushed %d commit(s) to main", ahead),
 	}, nil
 }
 
