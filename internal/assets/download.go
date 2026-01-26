@@ -188,7 +188,8 @@ func extractTarGz(tarGzPath, destDir string) error {
 
 		// Sanitize path to prevent path traversal
 		target := filepath.Join(destDir, name)
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		target = filepath.Clean(target)
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) && target != filepath.Clean(destDir) {
 			return fmt.Errorf("invalid tar path: %s", header.Name)
 		}
 
