@@ -66,18 +66,53 @@ If a file is NOT matched by `.gitignore`, the copy is skipped with a warning. Th
 The dashboard shows workspace git status at a glance:
 
 - **Dirty indicator**: Uncommitted changes present
-- **Branch name**: Current branch (e.g., `main`, `feature/x`)
+- **Branch name**: Current branch (e.g., `main`, `feature/x`) — clickable link to remote when available
 - **Ahead/Behind**: Commits ahead or behind origin
+- **Line changes**: Color-coded indicators showing uncommitted line additions (+N in green) and deletions (-M in red)
+
+### Clickable Branch Links
+
+When a branch has a remote tracking branch, the branch name in the workspace table appears as a clickable link that opens the branch in the web UI (GitHub, GitLab, Bitbucket, or generic git hosts). Supports both SSH (`git@host:user/repo`) and HTTPS URL formats, with proper URL encoding for special characters.
+
+### Line Change Tracking
+
+The workspace table displays uncommitted line additions and deletions calculated via `git diff --numstat HEAD`, covering both staged and unstaged modifications:
+- **+N** (green): Lines added
+- **-M** (red): Lines removed
 
 ---
 
 ## Diff Viewer
+
+### Built-in Diff Viewer
 
 View what changed in a workspace with the built-in diff viewer:
 
 - Side-by-side git diffs
 - See what agents changed across multiple workspaces
 - Access via dashboard or `schmux diff` commands
+
+### External Diff Tool Integration
+
+Launch workspace changes in your preferred diff tool (VS Code, Kaleidoscope, or any custom tool) directly from the web dashboard.
+
+Configure named commands in `~/.schmux/config.json` under `external_diff_commands` using template placeholders:
+
+```json
+{
+  "external_diff_commands": {
+    "VS Code": "code --diff {old_file} {new_file}",
+    "Kaleidoscope": "ksdiff {old_file} {new_file}"
+  }
+}
+```
+
+Available placeholders:
+- `{old_file}`: Original file version
+- `{new_file}`: Modified file version
+- `{file}`: Current file (for single-file tools)
+
+The dashboard displays a DiffDropdown UI component on workspace rows with your configured commands. Temp files are automatically cleaned up via scheduled sweeping.
 
 ---
 
@@ -152,3 +187,35 @@ Regardless of mode, spawning into an existing workspace:
 - Blocked if workspace has uncommitted or unpushed changes
 - Uses `git worktree remove` for worktrees, `rm -rf` for full clones
 - No automatic git reset — you're in control
+
+---
+
+## Git Workflow Sync
+
+schmux provides bidirectional linear synchronization for clean git history without merge commits.
+
+### Sync from Main
+
+Brings commits from `origin/main` into your current branch via iterative cherry-pick:
+
+- **Handles both behind and diverged states**: Works whether your branch is behind or has diverged from main
+- **Conflict detection**: Aborts if conflicts are detected during cherry-pick
+- **Preserves local changes**: Creates a temporary WIP commit before syncing, resets after success or abort
+- **Access**: Dropdown menu on the git status indicator (behind | ahead) in workspace header
+- **Disabled when**: Already caught up to main
+
+This replaces the previous "rebase ff main" action.
+
+### Sync to Main
+
+Pushes your branch commits directly to main via fast-forward:
+
+- **Validation**: Requires clean workspace state (no uncommitted changes, not behind main)
+- **Fast-forward only**: No merge commits, maintains linear history
+- **Two workflow styles**:
+  - **On-main workflow**: Push directly when workspace is already on main branch
+  - **Feature branch workflow**: Set upstream to main, sync locally after push
+- **Access**: Dropdown menu on git status indicator in workspace header
+- **Disabled when**: Workspace has uncommitted changes or is behind main
+
+Both actions are available from the dashboard workspace header git status dropdown.
