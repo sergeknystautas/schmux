@@ -92,7 +92,7 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 
 ## Status
 
-**v0.9.5** - Stable for daily use
+**v1.0.0** - Stable for daily use
 
 See [CHANGES.md](CHANGES.md) for what's new in each release.
 
@@ -102,7 +102,7 @@ See [CHANGES.md](CHANGES.md) for what's new in each release.
 - See [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) for non-goals
 
 ### Roadmap
-- v1.0: Enhanced NudgeNik capabilities
+- v1.1: Enhanced NudgeNik capabilities
 - Future: Browser UI automation tests
 
 ## Documentation
