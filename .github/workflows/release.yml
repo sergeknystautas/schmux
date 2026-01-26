@@ -29,7 +29,7 @@ jobs:
           cd assets/dashboard
           npm ci
           npm run build
-          tar -czf ../../dashboard-assets.tar.gz -C dist .
+          tar -czf ../../dashboard-assets.tar.gz -C dist $(ls -A)
 
       - name: Run tests
         run: go test ./...
