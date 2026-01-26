@@ -2,6 +2,11 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.0.1 (2026-01-25)
+
+**Bug fixes:**
+- Fixed tar extraction error when dashboard assets have "./" prefixed entries
+
 ## Version 1.0.0 (2026-01-25)
 
 **Major features:**

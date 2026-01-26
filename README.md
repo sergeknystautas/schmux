@@ -92,7 +92,7 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 
 ## Status
 
-**v1.0.0** - Stable for daily use
+**v1.0.1** - Stable for daily use
 
 See [CHANGES.md](CHANGES.md) for what's new in each release.
 
