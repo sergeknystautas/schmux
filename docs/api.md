@@ -130,6 +130,7 @@ Response:
     "git_lines_added":0,
     "git_lines_removed":0,
     "git_files_changed":0,
+    "git_branch_url":"https://github.com/user/repo/tree/branch",  // optional, when remote exists
     "sessions":[
       {
         "id":"session-id",
@@ -530,8 +531,85 @@ Errors:
 - 404: "workspace not found"
 - 400: "workspace ID is required"
 
+### POST /api/diff-external/{workspaceId}
+Launches an external diff tool for a specific file in a workspace.
+
+Request:
+```json
+{
+  "command":"command-name",  // must match configured external_diff_commands
+  "old_file":"/path/to/old/file",
+  "new_file":"/path/to/new/file"
+}
+```
+
+Response:
+```json
+{"status":"ok"}
+```
+
+Errors:
+- 400: "command is required" / "file paths are required" / "unknown command: ..."
+- 404: "workspace not found"
+- 500: "failed to launch diff tool: ..."
+
 ### POST /api/open-vscode/{workspaceId}
 Opens VS Code in a new window for the workspace.
+
+Response:
+```json
+{"success":true,"message":"You can now switch to VS Code."}
+```
+
+Errors:
+- 404 with JSON if workspace not found or directory missing
+- 404 with JSON if `code` command not found in PATH
+- 500 with JSON on launch failure
+
+### POST /api/workspaces/{workspaceId}/linear-sync-from-main
+Syncs commits from `origin/main` into the workspace's current branch via iterative cherry-pick.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Synced 3 commits from main into feature-branch"
+}
+```
+
+Errors:
+- 400: "workspace ID is required"
+- 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
+- 500 with JSON: `{"success":false,"message":"Failed to sync from main: ..."}`
+
+Notes:
+- Handles both behind and diverged branch states
+- Aborts if conflicts are detected during cherry-pick
+- Preserves local changes via temporary WIP commit
+- Updates workspace git status after sync
+
+### POST /api/workspaces/{workspaceId}/linear-sync-to-main
+Pushes the workspace's branch commits directly to `origin/main` via fast-forward.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Pushed 2 commits to main"
+}
+```
+
+Errors:
+- 400: "workspace ID is required"
+- 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
+- 409 with JSON: `{"success":false,"message":"workspace has uncommitted changes"}` or `"workspace is behind main"`
+- 500 with JSON: `{"success":false,"message":"Failed to sync to main: ..."}`
+
+Notes:
+- Requires clean workspace state (no uncommitted changes, not behind main)
+- Fast-forward only—no merge commits
+- Updates workspace git status after sync
+- Supports both on-main and feature-branch workflows
 
 Response:
 ```json

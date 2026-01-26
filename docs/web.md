@@ -55,33 +55,63 @@ Default landing page. View all sessions grouped by workspace, filter by status o
 **Features:**
 - Filter by status (Running/Stopped/Waiting/Error), agent, or repo
 - Search across sessions
-- Grouped by workspace (expand to see sessions)
+- **Tree navigation sidebar**: Hierarchical workspace and session tree with collapse toggle (full/icon-only)
+  - Workspaces show git diff stats
+  - Sessions show activity and nudge state
+  - Expand/collapse branches for quick navigation
+- Inline spawn controls (+ button in tabs with quick launch dropdown)
 - Quick actions: Open, copy attach command, dispose
 
 ### Session Detail (`/sessions/:id`)
 Watch terminal output and manage a session.
 
 **Layout:**
-- Left: Live terminal via xterm.js
-- Right: Metadata (workspace, repo, branch, agent, status) and actions
+- Left: Live terminal via xterm.js (auto-focused on entry)
+- Right: Metadata and actions, plus tabbed interface
+
+**Workspace header:**
+- Workspace info, branch (clickable when remote exists), ahead/behind counts
+- Line changes (+N/-M color-coded)
+- Horizontal wrapping tabs for session switching
+
+**Session tabs:**
+- Switch between multiple sessions in the same workspace
+- Terminal viewer area connects visually to tabs
+- Shows "Stopped" instead of time for stopped sessions
+
+**Diff tab:**
+- "X files +Y/-Z" tab appears when workspace has changes
+- Integrated diff view with same header structure
+- Resizable file list sidebar (localStorage persistence)
+- Filename prominently displayed with directory path in smaller text
+- Per-file lines added/removed instead of status badge
 
 **Actions:**
 - Copy attach command
 - Dispose session
-- (Future) Open diff, open workspace in VS Code
+- Open diff, open workspace in VS Code
 
 ### Spawn (`/spawn`)
-Multi-step wizard to start new sessions.
+Single-page wizard to start new sessions. Prompt-first design for faster workflow.
 
-**Steps:**
-1. Target: Repo, branch, optional existing workspace
-2. Agents: Select agents with stepper controls (0–N)
-3. Prompt: Large textarea for the task
-4. Review & Spawn: Summary of what will be created
+**Layout:**
+- **Prompt first**: Large textarea for task description at top
+- **Parallel configuration**: Repo/branch selection and target configuration below
+- **AI branch suggestions**: Branch name suggestions based on prompt (when creating new workspace)
+- **Enter to submit**: Press Enter in branch/nickname fields to spawn
+
+**When spawning into existing workspace:**
+- Shows workspace context (header + tabs)
+- Auto-navigates to new session after successful spawn
+
+**Quick launch (inline):**
+- "+" button in session tabs bar opens dropdown
+- Quick launch presets for one-click spawning
+- "Custom..." option opens full spawn wizard
 
 **Results panel:**
 - Created sessions (with links)
-- Failures (agent + reason + suggested next step)
+- Failures (agent + reason + full prompt attempted)
 - "Back to Sessions" CTA
 
 ### Diff (`/diff/:workspaceId`)
@@ -95,9 +125,15 @@ View git changes for a workspace.
 ### Settings (`/config`)
 Configure repos, run targets, variants, and workspace path.
 
+**Edit mode:**
+- Sticky header with "Save Changes" button (persistent while editing)
+- Compact step navigation for quick section switching
+- Distinction from first-run wizard: guided onboarding uses original header/footer navigation
+
 **Features:**
 - Repository management
-- Run target configuration
+- Run target configuration (edit modals for user-defined targets)
+- Quick launch item editing (prompts for promptable targets, commands for command targets)
 - Variant secrets
 - Workspace overlay status
 - Access control (network access + optional GitHub auth)

@@ -87,6 +87,37 @@ Drafts survive navigation and page refresh within the same tab, but are cleared 
 
 ---
 
+## Web Spawn Interface
+
+### Prompt-First Single-Page Design
+
+The spawn wizard has been redesigned as a single-page interface that prioritizes your task description:
+
+- **Prompt first**: Large textarea at the top for your task description
+- **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
+- **AI-powered branch suggestions**: Branch name suggestions based on your prompt (when creating new workspaces)
+- **Enter to submit**: Press Enter in the branch or nickname fields to trigger spawn (faster keyboard workflow)
+
+When spawning into an existing workspace, the page shows workspace context (header + tabs) and auto-navigates to the newly created session after successful spawn.
+
+### Inline Spawn Controls
+
+A "+" button in the session tabs bar provides quick access to spawn new sessions:
+
+- **Quick launch presets**: Dropdown with your configured quick launch items for one-click spawning
+- **"Custom..." option**: Opens the full spawn wizard for complete control
+- **Context-aware**: When in a workspace view, spawning automatically targets that workspace
+
+### Error Display
+
+When spawning fails, error results display the full prompt that was attempted—helpful for understanding what context was sent to the agent and debugging spawn failures.
+
+### Terminal Focus
+
+When entering a session detail view, the terminal automatically receives focus for immediate interaction.
+
+---
+
 ## Visibility
 
 Now you've got a dozen concurrent sessions. You don't want to spend your day clicking into each terminal to figure out what's happening. You need to know at a glance: which are still working, which are blocked, which are done, which you've already reviewed, and where to focus your attention next.
