@@ -1217,3 +1217,220 @@ func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
 		t.Errorf("workspace directory was cleaned up on success, path: %s", w.Path)
 	}
 }
+
+func TestLoadRepoConfig(t *testing.T) {
+	t.Run("returns nil when directory does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nonExistentPath := filepath.Join(tmpDir, "nonexistent")
+		cfg, err := LoadRepoConfig(nonExistentPath)
+		if err != nil {
+			t.Errorf("LoadRepoConfig() returned error for non-existent path: %v", err)
+		}
+		if cfg != nil {
+			t.Errorf("LoadRepoConfig() returned non-nil config for non-existent path")
+		}
+	})
+
+	t.Run("returns nil when .schmux directory does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfg, err := LoadRepoConfig(tmpDir)
+		if err != nil {
+			t.Errorf("LoadRepoConfig() returned error: %v", err)
+		}
+		if cfg != nil {
+			t.Errorf("LoadRepoConfig() returned non-nil config when no .schmux dir")
+		}
+	})
+
+	t.Run("returns nil when config.json does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.Mkdir(schmuxDir, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		cfg, err := LoadRepoConfig(tmpDir)
+		if err != nil {
+			t.Errorf("LoadRepoConfig() returned error for missing config.json: %v", err)
+		}
+		if cfg != nil {
+			t.Errorf("LoadRepoConfig() returned non-nil config for missing config.json")
+		}
+	})
+
+	t.Run("returns error for invalid JSON", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.Mkdir(schmuxDir, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath := filepath.Join(schmuxDir, "config.json")
+		if err := os.WriteFile(configPath, []byte("{invalid json}"), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+		cfg, err := LoadRepoConfig(tmpDir)
+		if err == nil {
+			t.Error("LoadRepoConfig() returned nil error for invalid JSON")
+		}
+		if cfg != nil {
+			t.Errorf("LoadRepoConfig() returned non-nil config for invalid JSON")
+		}
+	})
+
+	t.Run("parses valid config.json", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.Mkdir(schmuxDir, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath := filepath.Join(schmuxDir, "config.json")
+		configContent := `{
+  "quick_launch": [
+    {
+      "name": "test command",
+      "target": "claude",
+      "prompt": "test prompt"
+    }
+  ]
+}`
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+		cfg, err := LoadRepoConfig(tmpDir)
+		if err != nil {
+			t.Errorf("LoadRepoConfig() returned error: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("LoadRepoConfig() returned nil config for valid JSON")
+		}
+		if len(cfg.QuickLaunch) != 1 {
+			t.Errorf("LoadRepoConfig() returned %d quicklaunch items, want 1", len(cfg.QuickLaunch))
+		}
+		if cfg.QuickLaunch[0].Name != "test command" {
+			t.Errorf("LoadRepoConfig() returned name %s, want 'test command'", cfg.QuickLaunch[0].Name)
+		}
+	})
+
+	t.Run("returns empty quicklaunch for config with no quick_launch", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		schmuxDir := filepath.Join(tmpDir, ".schmux")
+		if err := os.Mkdir(schmuxDir, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath := filepath.Join(schmuxDir, "config.json")
+		if err := os.WriteFile(configPath, []byte(`{}`), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+		cfg, err := LoadRepoConfig(tmpDir)
+		if err != nil {
+			t.Errorf("LoadRepoConfig() returned error: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("LoadRepoConfig() returned nil config")
+		}
+		if len(cfg.QuickLaunch) != 0 {
+			t.Errorf("LoadRepoConfig() returned %d quicklaunch items, want 0", len(cfg.QuickLaunch))
+		}
+	})
+}
+
+func TestRefreshWorkspaceConfig(t *testing.T) {
+	t.Run("caches config per workspace without merging", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		statePath := filepath.Join(tmpDir, "state.json")
+		configPath := filepath.Join(tmpDir, "config.json")
+
+		cfg := config.CreateDefault(configPath)
+		cfg.WorkspacePath = tmpDir
+		st := state.New(statePath)
+
+		mgr := New(cfg, st, statePath)
+
+		ws1 := state.Workspace{
+			ID:     "repo-001",
+			Repo:   "http://example.com/repo",
+			Branch: "main",
+			Path:   filepath.Join(tmpDir, "repo-001"),
+		}
+		ws2 := state.Workspace{
+			ID:     "repo-002",
+			Repo:   "http://example.com/repo",
+			Branch: "feature",
+			Path:   filepath.Join(tmpDir, "repo-002"),
+		}
+
+		schmuxDir1 := filepath.Join(ws1.Path, ".schmux")
+		if err := os.MkdirAll(schmuxDir1, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath1 := filepath.Join(schmuxDir1, "config.json")
+		configContent1 := `{"quick_launch": [{"name": "command1", "command": "echo one"}]}`
+		if err := os.WriteFile(configPath1, []byte(configContent1), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+
+		schmuxDir2 := filepath.Join(ws2.Path, ".schmux")
+		if err := os.MkdirAll(schmuxDir2, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath2 := filepath.Join(schmuxDir2, "config.json")
+		configContent2 := `{"quick_launch": [{"name": "command2", "command": "echo two"}]}`
+		if err := os.WriteFile(configPath2, []byte(configContent2), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+
+		mgr.RefreshWorkspaceConfig(ws1)
+		mgr.RefreshWorkspaceConfig(ws2)
+
+		cfg1 := mgr.GetWorkspaceConfig(ws1.ID)
+		if cfg1 == nil || len(cfg1.QuickLaunch) != 1 || cfg1.QuickLaunch[0].Name != "command1" {
+			t.Fatalf("expected workspace config for ws1 with command1")
+		}
+		cfg2 := mgr.GetWorkspaceConfig(ws2.ID)
+		if cfg2 == nil || len(cfg2.QuickLaunch) != 1 || cfg2.QuickLaunch[0].Name != "command2" {
+			t.Fatalf("expected workspace config for ws2 with command2")
+		}
+	})
+
+	t.Run("clears cache when config is removed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		statePath := filepath.Join(tmpDir, "state.json")
+		configPath := filepath.Join(tmpDir, "config.json")
+
+		cfg := config.CreateDefault(configPath)
+		cfg.WorkspacePath = tmpDir
+		st := state.New(statePath)
+
+		mgr := New(cfg, st, statePath)
+
+		ws := state.Workspace{
+			ID:     "repo-001",
+			Repo:   "http://example.com/repo",
+			Branch: "main",
+			Path:   filepath.Join(tmpDir, "repo-001"),
+		}
+
+		schmuxDir := filepath.Join(ws.Path, ".schmux")
+		if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+			t.Fatalf("failed to create .schmux dir: %v", err)
+		}
+		configPath1 := filepath.Join(schmuxDir, "config.json")
+		configContent1 := `{"quick_launch": [{"name": "command1", "command": "echo one"}]}`
+		if err := os.WriteFile(configPath1, []byte(configContent1), 0644); err != nil {
+			t.Fatalf("failed to write config.json: %v", err)
+		}
+
+		mgr.RefreshWorkspaceConfig(ws)
+		if mgr.GetWorkspaceConfig(ws.ID) == nil {
+			t.Fatalf("expected workspace config to be cached")
+		}
+
+		if err := os.Remove(configPath1); err != nil {
+			t.Fatalf("failed to remove config.json: %v", err)
+		}
+
+		mgr.RefreshWorkspaceConfig(ws)
+		if mgr.GetWorkspaceConfig(ws.ID) != nil {
+			t.Fatalf("expected workspace config to be cleared after removal")
+		}
+	})
+}

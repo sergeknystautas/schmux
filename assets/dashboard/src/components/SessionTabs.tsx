@@ -8,7 +8,8 @@ import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import Tooltip from './Tooltip';
-import type { SessionResponse, WorkspaceResponse, QuickLaunchPreset } from '../lib/types';
+import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import { mergeQuickLaunchNames } from '../lib/quicklaunch';
 
 const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
@@ -53,7 +54,10 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const spawnButtonRef = useRef<HTMLButtonElement | null>(null);
   const spawnMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const quickLaunch = config?.quick_launch || [];
+  const quickLaunch = React.useMemo<string[]>(() => {
+    const globalNames = (config?.quick_launch || []).map((item) => item.name);
+    return mergeQuickLaunchNames(globalNames, workspace?.quick_launch || []);
+  }, [config?.quick_launch, workspace?.quick_launch]);
 
   // Calculate if we should show diff tab
   const linesAdded = workspace?.git_lines_added ?? 0;
@@ -130,7 +134,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     }
   };
 
-  const handleQuickLaunchSpawn = async (preset: QuickLaunchPreset, event: React.MouseEvent) => {
+  const handleQuickLaunchSpawn = async (name: string, event: React.MouseEvent) => {
     event.stopPropagation();
     if (!workspace) return;
     setSpawnMenuOpen(false);
@@ -140,18 +144,18 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
       const response = await spawnSessions({
         repo: workspace.repo,
         branch: workspace.branch,
-        prompt: preset.prompt || '',
-        nickname: preset.name,
-        targets: { [preset.target]: 1 },
+        prompt: '',
+        nickname: name,
         workspace_id: workspace.id,
+        quick_launch_name: name,
       });
 
       const result = response[0];
       if (result.error) {
-        toastError(`Failed to spawn ${preset.name}: ${result.error}`);
+        toastError(`Failed to spawn ${name}: ${result.error}`);
       } else {
-        success(`Spawned ${preset.name} session`);
-        refresh();
+        success(`Spawned ${name} session`);
+        await refresh();
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }
@@ -338,15 +342,14 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
           {quickLaunch.length > 0 && (
             <>
               <div className="spawn-dropdown__separator" role="separator"></div>
-              {quickLaunch.map((preset) => (
+              {quickLaunch.map((name) => (
                 <button
-                  key={preset.name}
+                  key={name}
                   className="spawn-dropdown__item"
-                  onClick={(e) => handleQuickLaunchSpawn(preset, e)}
+                  onClick={(e) => handleQuickLaunchSpawn(name, e)}
                   role="menuitem"
                 >
-                  <span className="spawn-dropdown__item-label">{preset.name}</span>
-                  <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
+                  <span className="spawn-dropdown__item-label">{name}</span>
                 </button>
               ))}
             </>

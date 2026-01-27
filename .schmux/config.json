@@ -1,0 +1,8 @@
+{
+  "quick_launch":[
+    {
+      "name": "run schmux",
+      "command": "scripts/run-workspace.sh"
+    }
+  ]
+}

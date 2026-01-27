@@ -104,6 +104,7 @@ type WorkspaceResponseItem struct {
 	Path            string                `json:"path"`
 	SessionCount    int                   `json:"session_count"`
 	Sessions        []SessionResponseItem `json:"sessions"`
+	QuickLaunch     []string              `json:"quick_launch,omitempty"`
 	GitAhead        int                   `json:"git_ahead"`
 	GitBehind       int                   `json:"git_behind"`
 	GitLinesAdded   int                   `json:"git_lines_added"`
@@ -126,6 +127,16 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
 		}
 
+		var quickLaunchNames []string
+		if cfg := s.workspace.GetWorkspaceConfig(ws.ID); cfg != nil && len(cfg.QuickLaunch) > 0 {
+			quickLaunchNames = make([]string, 0, len(cfg.QuickLaunch))
+			for _, preset := range cfg.QuickLaunch {
+				if preset.Name != "" {
+					quickLaunchNames = append(quickLaunchNames, preset.Name)
+				}
+			}
+		}
+
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:              ws.ID,
 			Repo:            ws.Repo,
@@ -134,6 +145,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Path:            ws.Path,
 			SessionCount:    0,
 			Sessions:        []SessionResponseItem{},
+			QuickLaunch:     quickLaunchNames,
 			GitAhead:        ws.GitAhead,
 			GitBehind:       ws.GitBehind,
 			GitLinesAdded:   ws.GitLinesAdded,
@@ -310,12 +322,14 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 // SpawnRequest represents a request to spawn sessions.
 type SpawnRequest struct {
-	Repo        string         `json:"repo"`
-	Branch      string         `json:"branch"`
-	Prompt      string         `json:"prompt"`
-	Nickname    string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
-	Targets     map[string]int `json:"targets"`                // target name -> quantity
-	WorkspaceID string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
+	Repo            string         `json:"repo"`
+	Branch          string         `json:"branch"`
+	Prompt          string         `json:"prompt"`
+	Nickname        string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
+	Targets         map[string]int `json:"targets"`                // target name -> quantity
+	WorkspaceID     string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
+	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
+	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -331,6 +345,31 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.QuickLaunchName != "" {
+		if req.Command != "" || len(req.Targets) > 0 {
+			http.Error(w, "cannot specify quick_launch_name with command or targets", http.StatusBadRequest)
+			return
+		}
+		if req.WorkspaceID == "" {
+			http.Error(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
+			return
+		}
+		resolved, err := s.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Nickname == "" {
+			req.Nickname = resolved.Name
+		}
+		if resolved.Command != "" {
+			req.Command = resolved.Command
+		} else {
+			req.Targets = map[string]int{resolved.Target: 1}
+			req.Prompt = resolved.Prompt
+		}
+	}
+
 	// Validate request
 	if req.WorkspaceID == "" {
 		// When not spawning into existing workspace, repo and branch are required
@@ -343,8 +382,13 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(req.Targets) == 0 {
-		http.Error(w, "at least one target is required", http.StatusBadRequest)
+	// Either command or targets must be provided
+	if req.Command == "" && len(req.Targets) == 0 {
+		http.Error(w, "either command or targets is required", http.StatusBadRequest)
+		return
+	}
+	if req.Command != "" && len(req.Targets) > 0 {
+		http.Error(w, "cannot specify both command and targets", http.StatusBadRequest)
 		return
 	}
 
@@ -363,13 +407,49 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	type SessionResult struct {
 		SessionID   string `json:"session_id"`
 		WorkspaceID string `json:"workspace_id"`
-		Target      string `json:"target"`
+		Target      string `json:"target,omitempty"`
+		Command     string `json:"command,omitempty"`
 		Prompt      string `json:"prompt,omitempty"`
 		Nickname    string `json:"nickname,omitempty"`
 		Error       string `json:"error,omitempty"`
 	}
 
-	// Log the spawn request
+	results := make([]SessionResult, 0)
+
+	// Handle command-based spawn (quick launch with shell command)
+	if req.Command != "" {
+		fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s command=%q nickname=%q\n",
+			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+		sess, err := s.session.SpawnCommand(ctx, req.Repo, req.Branch, req.Command, req.Nickname, req.WorkspaceID)
+		cancel()
+
+		if err != nil {
+			results = append(results, SessionResult{
+				Command:  req.Command,
+				Nickname: req.Nickname,
+				Error:    err.Error(),
+			})
+			fmt.Printf("[session] spawn error: command=%q error=%s\n", req.Command, err.Error())
+		} else {
+			results = append(results, SessionResult{
+				SessionID:   sess.ID,
+				WorkspaceID: sess.WorkspaceID,
+				Command:     req.Command,
+				Nickname:    sess.Nickname,
+			})
+			fmt.Printf("[session] spawn success: command=%q session_id=%s workspace_id=%s\n", req.Command, sess.ID, sess.WorkspaceID)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(results); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Handle target-based spawn
 	promptPreview := req.Prompt
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
@@ -377,13 +457,11 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
 		req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
 
-	results := make([]SessionResult, 0)
-
 	// Calculate total sessions to spawn for global nickname numbering
 	totalToSpawn := 0
 	detected := s.config.GetDetectedRunTargets()
 	for targetName, count := range req.Targets {
-		promptable, found := getTargetPromptable(s.config, detected, targetName)
+		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
 		if !found || (promptable && strings.TrimSpace(req.Prompt) == "") || (!promptable && strings.TrimSpace(req.Prompt) != "") {
 			continue
 		}
@@ -398,7 +476,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	globalIndex := 0
 
 	for targetName, count := range req.Targets {
-		promptable, found := getTargetPromptable(s.config, detected, targetName)
+		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
 		if !found {
 			results = append(results, SessionResult{
 				Target: targetName,
@@ -712,9 +790,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	seedLines := s.config.GetTerminalSeedLines()
 	bootstrapLines := s.config.GetTerminalBootstrapLines()
 
-	repoResp := make([]contracts.Repo, len(repos))
+	// Build repo response
+	repoResp := make([]contracts.RepoWithConfig, len(repos))
 	for i, repo := range repos {
-		repoResp[i] = contracts.Repo{Name: repo.Name, URL: repo.URL}
+		repoResp[i] = contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL}
 	}
 
 	runTargetResp := make([]contracts.RunTarget, 0, len(runTargets))
@@ -730,7 +809,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
 	for i, preset := range quickLaunch {
-		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: preset.Prompt}
+		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Command: preset.Command, Target: preset.Target, Prompt: preset.Prompt}
 	}
 
 	externalDiffCommands := s.config.GetExternalDiffCommands()
@@ -923,7 +1002,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.QuickLaunch != nil {
 		cfg.QuickLaunch = make([]config.QuickLaunch, len(req.QuickLaunch))
 		for i, q := range req.QuickLaunch {
-			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Target: q.Target, Prompt: q.Prompt}
+			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Command: q.Command, Target: q.Target, Prompt: q.Prompt}
 		}
 	}
 
@@ -1554,30 +1633,73 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func getTargetPromptable(cfg *config.Config, detected []config.RunTarget, name string) (bool, bool) {
-	if detect.IsVariantName(name) {
-		for _, v := range cfg.GetVariantConfigs() {
-			if v.Name == name {
-				if v.Enabled != nil && !*v.Enabled {
-					return false, false
-				}
-				break
-			}
+type resolvedQuickLaunch struct {
+	Name    string
+	Command string
+	Target  string
+	Prompt  string
+}
+
+func (s *Server) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
+	if name == "" {
+		return nil, fmt.Errorf("quick_launch_name is required")
+	}
+	detected := s.config.GetDetectedRunTargets()
+	if wsCfg := s.workspace.GetWorkspaceConfig(workspaceID); wsCfg != nil {
+		if resolved := resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, detected, s.config, name); resolved != nil {
+			return resolved, nil
 		}
-		return true, true
 	}
-	if detect.IsBuiltinToolName(name) {
-		for _, target := range detected {
-			if target.Name == name {
-				return true, true
-			}
+	if resolved := resolveQuickLaunchFromPresets(adaptQuickLaunch(s.config.GetQuickLaunch()), detected, s.config, name); resolved != nil {
+		return resolved, nil
+	}
+	return nil, fmt.Errorf("quick launch not found: %s", name)
+}
+
+func resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, detected []config.RunTarget, cfg *config.Config, name string) *resolvedQuickLaunch {
+	for _, preset := range presets {
+		if preset.Name != name {
+			continue
 		}
-		return true, false
+		if strings.TrimSpace(preset.Command) != "" {
+			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command)}
+		}
+		if strings.TrimSpace(preset.Target) == "" {
+			return nil
+		}
+		promptable, found := config.IsTargetPromptable(cfg, detected, preset.Target)
+		if !found {
+			return nil
+		}
+		prompt := ""
+		if preset.Prompt != nil {
+			prompt = strings.TrimSpace(*preset.Prompt)
+		}
+		if promptable && prompt == "" {
+			return nil
+		}
+		if !promptable && prompt != "" {
+			return nil
+		}
+		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt}
 	}
-	if target, found := cfg.GetRunTarget(name); found {
-		return target.Type == config.RunTargetTypePromptable, true
+	return nil
+}
+
+func adaptQuickLaunch(presets []config.QuickLaunch) []contracts.QuickLaunch {
+	if len(presets) == 0 {
+		return nil
 	}
-	return false, false
+	converted := make([]contracts.QuickLaunch, 0, len(presets))
+	for _, preset := range presets {
+		converted = append(converted, contracts.QuickLaunch{
+			Name:    preset.Name,
+			Command: preset.Command,
+			Target:  preset.Target,
+			Prompt:  preset.Prompt,
+		})
+	}
+	return converted
 }
 
 // getFileContent gets file content from a specific git tree-ish.

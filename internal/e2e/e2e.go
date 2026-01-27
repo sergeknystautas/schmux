@@ -49,6 +49,7 @@ type APIWorkspace struct {
 	Path            string       `json:"path"`
 	SessionCount    int          `json:"session_count"`
 	Sessions        []APISession `json:"sessions"`
+	QuickLaunch     []string     `json:"quick_launch,omitempty"`
 	GitAhead        int          `json:"git_ahead"`
 	GitBehind       int          `json:"git_behind"`
 	GitLinesAdded   int          `json:"git_lines_added"`
@@ -498,6 +499,37 @@ func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) str
 	}
 
 	return ""
+}
+
+// SpawnQuickLaunchWithoutWorkspace posts a quick_launch_name spawn request without a workspace_id.
+// Returns the HTTP status code.
+func (e *Env) SpawnQuickLaunchWithoutWorkspace(repoURL, branch, name string) int {
+	e.T.Helper()
+	type SpawnRequest struct {
+		Repo            string `json:"repo"`
+		Branch          string `json:"branch"`
+		QuickLaunchName string `json:"quick_launch_name"`
+	}
+	spawnReqBody := SpawnRequest{
+		Repo:            repoURL,
+		Branch:          branch,
+		QuickLaunchName: name,
+	}
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+	spawnResp, err := http.DefaultClient.Do(spawnReq)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to spawn: %v", err)
+	}
+	defer spawnResp.Body.Close()
+	return spawnResp.StatusCode
 }
 
 // ListSessions lists sessions via CLI.

@@ -159,6 +159,93 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	return &sess, nil
 }
 
+// SpawnCommand spawns a session running a raw shell command.
+// Used for quick launch presets with a direct command (no target resolution).
+func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, nickname, workspaceID string) (*state.Session, error) {
+	var w *state.Workspace
+	var err error
+
+	if workspaceID != "" {
+		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
+		ws, found := m.workspace.GetByID(workspaceID)
+		if !found {
+			return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+		}
+		w = ws
+	} else {
+		// Get or create workspace (includes fetch/pull/clean)
+		w, err = m.workspace.GetOrCreate(ctx, repoURL, branch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get workspace: %w", err)
+		}
+	}
+
+	// Create session ID
+	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
+
+	// Generate unique nickname if provided (auto-suffix if duplicate)
+	uniqueNickname := nickname
+	if nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(nickname)
+	}
+
+	// Use sanitized unique nickname for tmux session name if provided, otherwise use sessionID
+	tmuxSession := sessionID
+	if uniqueNickname != "" {
+		tmuxSession = sanitizeNickname(uniqueNickname)
+	}
+
+	// Create tmux session with the raw command
+	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, command); err != nil {
+		return nil, fmt.Errorf("failed to create tmux session: %w", err)
+	}
+
+	// Set up log file for pipe-pane streaming
+	logPath, err := m.ensureLogFile(sessionID)
+	if err != nil {
+		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
+	} else {
+		// Force fixed window size for deterministic TUI output
+		width, height := m.config.GetTerminalSize()
+		if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
+			fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
+		}
+		if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
+			fmt.Printf("[session] warning: failed to resize window: %v\n", err)
+		}
+		// Start pipe-pane to log file
+		if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
+			return nil, fmt.Errorf("failed to start pipe-pane (session created): %w", err)
+		}
+	}
+
+	// Get the PID of the process from tmux pane
+	pid, err := tmux.GetPanePID(ctx, tmuxSession)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pane PID: %w", err)
+	}
+
+	// Create session state (Target uses a stable value for command-based sessions)
+	sess := state.Session{
+		ID:          sessionID,
+		WorkspaceID: w.ID,
+		Target:      "command",
+		Nickname:    uniqueNickname,
+		TmuxSession: tmuxSession,
+		CreatedAt:   time.Now(),
+		Pid:         pid,
+	}
+
+	if err := m.state.AddSession(sess); err != nil {
+		return nil, fmt.Errorf("failed to add session to state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save state: %w", err)
+	}
+
+	return &sess, nil
+}
+
 // ResolveTarget resolves a target name to a command and env.
 func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedTarget, error) {
 	for _, variant := range m.config.GetMergedVariants() {

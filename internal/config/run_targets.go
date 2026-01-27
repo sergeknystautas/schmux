@@ -69,6 +69,33 @@ func validateVariantConfigs(variants []VariantConfig) error {
 	return nil
 }
 
+// IsTargetPromptable returns whether the named target is promptable and whether it exists.
+func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, bool) {
+	if detect.IsVariantName(name) {
+		for _, v := range cfg.GetVariantConfigs() {
+			if v.Name == name {
+				if v.Enabled != nil && !*v.Enabled {
+					return false, false
+				}
+				break
+			}
+		}
+		return true, true
+	}
+	if detect.IsBuiltinToolName(name) {
+		for _, target := range detected {
+			if target.Name == name {
+				return true, true
+			}
+		}
+		return true, false
+	}
+	if target, found := cfg.GetRunTarget(name); found {
+		return target.Type == RunTargetTypePromptable, true
+	}
+	return false, false
+}
+
 func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, variants []VariantConfig) error {
 	seen := make(map[string]struct{})
 	variantEnabled := make(map[string]bool)

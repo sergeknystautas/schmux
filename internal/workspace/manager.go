@@ -2,14 +2,17 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -21,18 +24,36 @@ const (
 	workspaceNumberFormat = "%03d"
 )
 
+// configState tracks the last known state of a workspace's config file
+type configState struct {
+	mtime   time.Time
+	existed bool
+}
+
 // Manager manages workspace directories.
 type Manager struct {
-	config *config.Config
-	state  state.StateStore
+	config             *config.Config
+	state              state.StateStore
+	workspaceConfigs   map[string]*contracts.RepoConfig // workspace ID -> workspace config
+	workspaceConfigsMu sync.RWMutex
+	configStates       map[string]configState // workspace path -> last known config file state
+	configStatesMu     sync.RWMutex
 }
 
 // New creates a new workspace manager.
 func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
-	return &Manager{
-		config: cfg,
-		state:  st,
+	m := &Manager{
+		config:           cfg,
+		state:            st,
+		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
+		configStates:     make(map[string]configState),           // track config file mtime to detect changes
 	}
+	// Pre-load workspace configs so they're available on first API call
+	// (before the first poll cycle runs)
+	for _, w := range st.GetWorkspaces() {
+		m.RefreshWorkspaceConfig(w)
+	}
+	return m
 }
 
 // GetByID returns a workspace by its ID.
@@ -918,6 +939,9 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context, forceAll bool) {
 	}
 
 	for _, w := range workspaces {
+		// Refresh workspace config for this workspace
+		m.RefreshWorkspaceConfig(w)
+
 		// Skip if workspace has recent activity (not quiet), unless forcing all
 		if !forceAll && !m.isQuietSince(w.ID, cutoff) {
 			continue
@@ -1090,6 +1114,162 @@ func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
 	}
 	fmt.Printf("[workspace] ensured overlay directories for %d repos\n", len(repos))
 	return nil
+}
+
+// LoadRepoConfig reads the .schmux/config.json file from a workspace directory.
+// Returns the config and any error (but returns nil config for missing files, only errors on parse failure).
+func LoadRepoConfig(workspacePath string) (*contracts.RepoConfig, error) {
+	configPath := filepath.Join(workspacePath, ".schmux", "config.json")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		// File doesn't exist or can't be read - not an error, just no config
+		return nil, nil
+	}
+
+	var repoConfig contracts.RepoConfig
+	if err := json.Unmarshal(data, &repoConfig); err != nil {
+		// Invalid JSON - return error so caller can log it
+		return nil, fmt.Errorf("failed to parse %s: %w", configPath, err)
+	}
+
+	return &repoConfig, nil
+}
+
+// RefreshWorkspaceConfig refreshes the cached workspace config for a single workspace.
+// Only logs when the config file changes (by mtime).
+func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
+	configPath := filepath.Join(w.Path, ".schmux", "config.json")
+
+	// Check if file has changed since last read
+	var currentMtime time.Time
+	var fileExists bool
+	if info, err := os.Stat(configPath); err == nil {
+		currentMtime = info.ModTime()
+		fileExists = true
+	}
+
+	m.configStatesMu.Lock()
+	lastState, hasLastState := m.configStates[w.Path]
+	fileChanged := !hasLastState || lastState.mtime != currentMtime || lastState.existed != fileExists
+	if fileChanged {
+		m.configStates[w.Path] = configState{mtime: currentMtime, existed: fileExists}
+	}
+	m.configStatesMu.Unlock()
+
+	// If file hasn't changed, skip processing entirely
+	if !fileChanged {
+		return
+	}
+
+	repoCfg, err := LoadRepoConfig(w.Path)
+
+	// Log on change: error or success
+	if err != nil {
+		fmt.Printf("[workspace] warning: %v\n", err)
+		return
+	}
+	if repoCfg != nil {
+		fmt.Printf("[workspace] loaded config from %s\n", configPath)
+	}
+
+	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.config)
+	if repoCfg == nil || len(validQuickLaunch) == 0 {
+		m.workspaceConfigsMu.Lock()
+		delete(m.workspaceConfigs, w.ID)
+		m.workspaceConfigsMu.Unlock()
+		return
+	}
+
+	m.workspaceConfigsMu.Lock()
+	m.workspaceConfigs[w.ID] = &contracts.RepoConfig{QuickLaunch: validQuickLaunch}
+	m.workspaceConfigsMu.Unlock()
+}
+
+// GetWorkspaceConfig returns the cached workspace config for the given workspace ID.
+func (m *Manager) GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig {
+	m.workspaceConfigsMu.RLock()
+	cfg := m.workspaceConfigs[workspaceID]
+	m.workspaceConfigsMu.RUnlock()
+	if cfg == nil {
+		return nil
+	}
+	copyCfg := &contracts.RepoConfig{QuickLaunch: make([]contracts.QuickLaunch, len(cfg.QuickLaunch))}
+	copy(copyCfg.QuickLaunch, cfg.QuickLaunch)
+	return copyCfg
+}
+
+func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, cfg *config.Config) []contracts.QuickLaunch {
+	if repoCfg == nil {
+		return nil
+	}
+	presets := repoCfg.QuickLaunch
+	if len(presets) == 0 {
+		return nil
+	}
+	valid := make([]contracts.QuickLaunch, 0, len(presets))
+	seen := make(map[string]bool)
+	detected := cfg.GetDetectedRunTargets()
+
+	for _, preset := range presets {
+		name := strings.TrimSpace(preset.Name)
+		if name == "" {
+			fmt.Printf("[workspace] parse error: %s: quick_launch entry missing name\n", configPath)
+			continue
+		}
+		if seen[name] {
+			fmt.Printf("[workspace] parse error: %s: quick_launch %q is duplicated\n", configPath, name)
+			continue
+		}
+		command := strings.TrimSpace(preset.Command)
+		target := strings.TrimSpace(preset.Target)
+		hasCommand := command != ""
+		hasTarget := target != ""
+		if hasCommand == hasTarget {
+			fmt.Printf("[workspace] parse error: %s: quick_launch %q must set either command or target\n", configPath, name)
+			continue
+		}
+		if hasCommand {
+			if preset.Prompt != nil && strings.TrimSpace(*preset.Prompt) != "" {
+				fmt.Printf("[workspace] parse error: %s: quick_launch %q cannot include prompt for command\n", configPath, name)
+				continue
+			}
+			preset.Name = name
+			preset.Command = command
+			preset.Target = ""
+			preset.Prompt = nil
+			valid = append(valid, preset)
+			seen[name] = true
+			continue
+		}
+
+		promptable, found := config.IsTargetPromptable(cfg, detected, target)
+		if !found {
+			fmt.Printf("[workspace] parse error: %s: quick_launch %q target not found: %s\n", configPath, name, target)
+			continue
+		}
+		prompt := ""
+		if preset.Prompt != nil {
+			prompt = strings.TrimSpace(*preset.Prompt)
+		}
+		if promptable && prompt == "" {
+			fmt.Printf("[workspace] parse error: %s: quick_launch %q requires prompt\n", configPath, name)
+			continue
+		}
+		if !promptable && prompt != "" {
+			fmt.Printf("[workspace] parse error: %s: quick_launch %q cannot include prompt for command target\n", configPath, name)
+			continue
+		}
+		preset.Name = name
+		preset.Command = ""
+		preset.Target = target
+		if preset.Prompt != nil && prompt == "" {
+			preset.Prompt = nil
+		}
+		valid = append(valid, preset)
+		seen[name] = true
+	}
+	return valid
 }
 
 // extractRepoName extracts the repository name from various URL formats.

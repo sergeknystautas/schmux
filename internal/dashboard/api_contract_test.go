@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -241,6 +242,64 @@ func TestAPIContract_SessionsShape(t *testing.T) {
 	}
 	if _, ok := resp[0]["sessions"]; !ok {
 		t.Fatalf("expected sessions field in workspace response")
+	}
+}
+
+func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
+	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+	cfg.WorkspacePath = t.TempDir()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+	ws := state.Workspace{
+		ID:     "ws-quick",
+		Repo:   "repo-url",
+		Branch: "main",
+		Path:   filepath.Join(cfg.WorkspacePath, "ws-quick"),
+	}
+	if err := os.MkdirAll(filepath.Join(ws.Path, ".schmux"), 0755); err != nil {
+		t.Fatalf("failed to create workspace config dir: %v", err)
+	}
+	configContent := `{"quick_launch":[{"name":"Run","command":"echo run"}]}`
+	if err := os.WriteFile(filepath.Join(ws.Path, ".schmux", "config.json"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config.json: %v", err)
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+	wm.RefreshWorkspaceConfig(ws)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rr := httptest.NewRecorder()
+	server.handleSessions(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(resp))
+	}
+	ql, ok := resp[0]["quick_launch"]
+	if !ok {
+		t.Fatalf("expected quick_launch field in workspace response")
+	}
+	list, ok := ql.([]any)
+	if !ok || len(list) != 1 {
+		t.Fatalf("expected quick_launch list with 1 entry, got %#v", ql)
+	}
+	if _, ok := list[0].(string); !ok {
+		t.Fatalf("expected quick_launch entry to be string, got %#v", list[0])
 	}
 }
 

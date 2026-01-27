@@ -23,7 +23,7 @@ export interface BranchSuggestUpdate {
 export interface ConfigResponse {
   workspace_path: string;
   source_code_management: string;
-  repos: Repo[];
+  repos: RepoWithConfig[];
   run_targets: RunTarget[];
   quick_launch: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
@@ -100,13 +100,24 @@ export interface NudgenikUpdate {
 
 export interface QuickLaunch {
   name: string;
-  target: string;
+  command?: string;
+  target?: string;
   prompt?: string;
 }
 
 export interface Repo {
   name: string;
   url: string;
+}
+
+export interface RepoConfig {
+  quick_launch?: QuickLaunch[];
+}
+
+export interface RepoWithConfig {
+  name: string;
+  url: string;
+  config?: RepoConfig;
 }
 
 export interface RunTarget {

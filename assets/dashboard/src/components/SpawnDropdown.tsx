@@ -1,18 +1,22 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { spawnSessions, getErrorMessage } from '../lib/api'
 import { useToast } from './ToastProvider'
 import { useSessions } from '../contexts/SessionsContext'
-import type { QuickLaunchPreset, WorkspaceResponse } from '../lib/types';
+import { mergeQuickLaunchNames } from '../lib/quicklaunch'
+import type { WorkspaceResponse } from '../lib/types';
 
 type SpawnDropdownProps = {
   workspace: WorkspaceResponse;
-  quickLaunch: QuickLaunchPreset[];
+  globalQuickLaunchNames: string[];
   disabled?: boolean;
 };
 
-export default function SpawnDropdown({ workspace, quickLaunch, disabled }: SpawnDropdownProps) {
+export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disabled }: SpawnDropdownProps) {
+  const mergedQuickLaunch = useMemo<string[]>(() => {
+    return mergeQuickLaunchNames(globalQuickLaunchNames, workspace.quick_launch || []);
+  }, [globalQuickLaunchNames, workspace.quick_launch]);
   const { success, error: toastError } = useToast();
   const { refresh, waitForSession } = useSessions();
   const navigate = useNavigate();
@@ -30,7 +34,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
       const gap = 4;
       // Estimate menu height based on items, or use actual measurement if available
       const estimatedMenuHeight = menuRef.current?.offsetHeight ||
-        Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
+        Math.min(300, 60 + (mergedQuickLaunch?.length || 0) * 52 + 40);
 
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
@@ -51,7 +55,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
         });
       }
     }
-  }, [isOpen, quickLaunch?.length]);
+  }, [isOpen, mergedQuickLaunch?.length]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -80,7 +84,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
     navigate(`/spawn?workspace_id=${workspace.id}`);
   };
 
-  const handleQuickLaunchSpawn = async (preset: QuickLaunchPreset, event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleQuickLaunchSpawn = async (name: string, event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setIsOpen(false);
     setSpawning(true);
@@ -89,18 +93,18 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
       const response = await spawnSessions({
         repo: workspace.repo,
         branch: workspace.branch,
-        prompt: preset.prompt || '',
-        nickname: preset.name,
-        targets: { [preset.target]: 1 },
+        prompt: '',
+        nickname: name,
         workspace_id: workspace.id,
+        quick_launch_name: name,
       });
 
       const result = response[0];
       if (result.error) {
-        toastError(`Failed to spawn ${preset.name}: ${result.error}`);
+        toastError(`Failed to spawn ${name}: ${result.error}`);
       } else {
-        success(`Spawned ${preset.name} session`);
-        refresh();
+        success(`Spawned ${name} session`);
+        await refresh();
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }
@@ -111,7 +115,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
     }
   };
 
-  const hasQuickLaunch = quickLaunch && quickLaunch.length > 0;
+  const hasQuickLaunch = mergedQuickLaunch && mergedQuickLaunch.length > 0;
 
   const menu = isOpen && !spawning && (
     <div
@@ -137,15 +141,14 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
       {hasQuickLaunch && (
         <>
           <div className="spawn-dropdown__separator" role="separator"></div>
-          {quickLaunch.map((preset) => (
+          {mergedQuickLaunch.map((name) => (
             <button
-              key={preset.name}
+              key={name}
               className="spawn-dropdown__item"
-              onClick={(e) => handleQuickLaunchSpawn(preset, e)}
+              onClick={(e) => handleQuickLaunchSpawn(name, e)}
               role="menuitem"
             >
-              <span className="spawn-dropdown__item-label">{preset.name}</span>
-              <span className="spawn-dropdown__item-hint mono">{preset.target}</span>
+              <span className="spawn-dropdown__item-label">{name}</span>
             </button>
           ))}
         </>

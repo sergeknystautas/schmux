@@ -20,6 +20,7 @@ export interface WorkspaceResponse {
   path: string;
   session_count: number;
   sessions: SessionResponse[];
+  quick_launch?: string[];
   git_ahead: number;
   git_behind: number;
   git_lines_added: number;
@@ -48,8 +49,9 @@ export interface RunTargetResponse {
 
 export interface QuickLaunchPreset {
   name: string;
-  target: string;
-  prompt?: string | null;
+  command?: string;        // shell command to run directly
+  target?: string;         // run target (claude, codex, variant, etc.)
+  prompt?: string | null;  // prompt for the target
 }
 
 export interface BuiltinQuickLaunchCookbook {
@@ -65,14 +67,17 @@ export interface SpawnRequest {
   branch: string;
   prompt: string;
   nickname: string;
-  targets: Record<string, number>;
+  targets?: Record<string, number>;  // target-based spawn
+  command?: string;                   // command-based spawn (alternative to targets)
   workspace_id?: string;
+  quick_launch_name?: string;
 }
 
 export interface SpawnResult {
   session_id?: string;
   workspace_id?: string;
-  target: string;
+  target?: string;   // for target-based spawns
+  command?: string;  // for command-based spawns
   prompt?: string;
   nickname?: string;
   error?: string;

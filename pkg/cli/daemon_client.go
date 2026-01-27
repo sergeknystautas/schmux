@@ -298,10 +298,12 @@ type RunTarget struct {
 }
 
 // QuickLaunch represents a saved run preset.
+// Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
 type QuickLaunch struct {
-	Name   string  `json:"name"`
-	Target string  `json:"target"`
-	Prompt *string `json:"prompt"`
+	Name    string  `json:"name"`
+	Command string  `json:"command,omitempty"` // shell command to run directly
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
 // VariantConfig represents a variant config entry.
@@ -350,6 +352,7 @@ type WorkspaceWithSessions struct {
 	Path         string    `json:"path"`
 	SessionCount int       `json:"session_count"`
 	Sessions     []Session `json:"sessions"`
+	QuickLaunch  []string  `json:"quick_launch,omitempty"`
 	GitDirty     bool      `json:"git_dirty"`
 	GitAhead     int       `json:"git_ahead"`
 	GitBehind    int       `json:"git_behind"`
@@ -357,12 +360,14 @@ type WorkspaceWithSessions struct {
 
 // SpawnRequest represents a spawn request.
 type SpawnRequest struct {
-	Repo        string         `json:"repo"`
-	Branch      string         `json:"branch"`
-	Prompt      string         `json:"prompt"`
-	Nickname    string         `json:"nickname,omitempty"`
-	Targets     map[string]int `json:"targets"`
-	WorkspaceID string         `json:"workspace_id,omitempty"`
+	Repo            string         `json:"repo"`
+	Branch          string         `json:"branch"`
+	Prompt          string         `json:"prompt"`
+	Nickname        string         `json:"nickname,omitempty"`
+	Targets         map[string]int `json:"targets"`
+	WorkspaceID     string         `json:"workspace_id,omitempty"`
+	Command         string         `json:"command,omitempty"`
+	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 }
 
 // SpawnResult represents the result of a spawn operation.

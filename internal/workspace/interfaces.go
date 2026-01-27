@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -54,6 +55,9 @@ type WorkspaceManager interface {
 
 	// EnsureOverlayDirs ensures overlay directories exist for all configured repos.
 	EnsureOverlayDirs(repos []config.Repo) error
+
+	// GetWorkspaceConfig returns the cached workspace config for the given workspace ID.
+	GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig
 
 	// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
 	LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
