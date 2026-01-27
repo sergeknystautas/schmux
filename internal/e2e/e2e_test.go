@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +93,19 @@ func TestE2EFullLifecycle(t *testing.T) {
 		env.DaemonStart()
 	})
 
+	// Add a workspace-level quick launch for the repo.
+	t.Run("04b_AddWorkspaceQuickLaunch", func(t *testing.T) {
+		configPath := filepath.Join(workspaceRoot, "test-repo", ".schmux", "config.json")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+			t.Fatalf("Failed to create .schmux dir: %v", err)
+		}
+		content := `{"quick_launch":[{"name":"Run","command":"echo run"}]}`
+		if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write workspace config: %v", err)
+		}
+		time.Sleep(2 * time.Second)
+	})
+
 	// Ensure we capture artifacts if anything fails
 	defer func() {
 		if t.Failed() {
@@ -127,6 +141,13 @@ func TestE2EFullLifecycle(t *testing.T) {
 		}
 		if session2ID == "" {
 			t.Error("Session with nickname 'agent-two' not found in API response")
+		}
+	})
+
+	t.Run("05b_QuickLaunchRequiresWorkspace", func(t *testing.T) {
+		status := env.SpawnQuickLaunchWithoutWorkspace("file://"+workspaceRoot+"/test-repo", "main", "Run")
+		if status != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", status)
 		}
 	})
 

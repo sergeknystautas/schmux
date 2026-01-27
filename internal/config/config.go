@@ -152,10 +152,12 @@ type RunTarget struct {
 }
 
 // QuickLaunch represents a saved run preset.
+// Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
 type QuickLaunch struct {
-	Name   string  `json:"name"`
-	Target string  `json:"target"`
-	Prompt *string `json:"prompt"`
+	Name    string  `json:"name"`
+	Command string  `json:"command,omitempty"` // shell command to run directly
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.

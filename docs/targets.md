@@ -144,29 +144,52 @@ Define your own commands in `~/.schmux/config.json`:
 
 ## Quick Launch Presets
 
-Quick Launch saves combinations of target + prompt for one-click execution:
+Quick Launch provides one-click execution of shell commands or AI agents with prompts.
+
+### Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name (required) |
+| `command` | string | Shell command to run directly |
+| `target` | string | Run target (claude, codex, variant, or user-defined) |
+| `prompt` | string | Prompt to send to the target |
+
+### Rules
+
+- **Shell command**: Set `command` to run a shell command directly
+- **AI agent**: Set `target` and `prompt` to spawn an agent with a prompt
+- **Either/or**: Use `command` OR `target`+`prompt`, not both
+
+### Examples
 
 ```json
 {
   "quick_launch": [
     {
+      "name": "Run Tests",
+      "command": "npm test"
+    },
+    {
+      "name": "Review Changes",
+      "target": "claude",
+      "prompt": "Review these changes for bugs and style issues"
+    },
+    {
       "name": "Review: Kimi",
       "target": "kimi-thinking",
       "prompt": "Please review these changes."
-    },
-    {
-      "name": "Shell",
-      "target": "zsh",
-      "prompt": null
     }
   ]
 }
 ```
 
-**Rules:**
-- Prompt must be set if target is promptable
-- Only command targets may use `null` for prompt
-- Resolve order: variant → detected tool → user target
+### Global vs Workspace
+
+- **Global**: Define in `~/.schmux/config.json` — available for all repos
+- **Workspace**: Define in `<workspace>/.schmux/config.json` — repo-specific presets
+
+Workspace presets are merged with global presets (workspace takes precedence on name conflicts). See [workspaces.md](workspaces.md#workspace-configuration) for details.
 
 ---
 

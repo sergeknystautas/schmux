@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -132,6 +134,84 @@ func TestHandleAskNudgenik(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestResolveQuickLaunchByName(t *testing.T) {
+	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+	cfg.WorkspacePath = t.TempDir()
+	cfg.RunTargets = []config.RunTarget{
+		{Name: "promptable", Type: config.RunTargetTypePromptable, Command: "echo promptable", Source: config.RunTargetSourceUser},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, nil)
+
+	ws := state.Workspace{
+		ID:     "ws-1",
+		Repo:   "repo-url",
+		Branch: "main",
+		Path:   filepath.Join(cfg.WorkspacePath, "ws-1"),
+	}
+	if err := os.MkdirAll(filepath.Join(ws.Path, ".schmux"), 0755); err != nil {
+		t.Fatalf("failed to create workspace config dir: %v", err)
+	}
+	configContent := `{"quick_launch":[{"name":"Run","command":"echo run"},{"name":"Fix","target":"promptable","prompt":"do it"}]}`
+	if err := os.WriteFile(filepath.Join(ws.Path, ".schmux", "config.json"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config.json: %v", err)
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+	wm.RefreshWorkspaceConfig(ws)
+
+	resolved, err := server.resolveQuickLaunchByName(ws.ID, "Run")
+	if err != nil {
+		t.Fatalf("expected resolve to succeed: %v", err)
+	}
+	if resolved.Command == "" || resolved.Target != "" {
+		t.Fatalf("expected command-based quick launch, got %+v", resolved)
+	}
+
+	resolved, err = server.resolveQuickLaunchByName(ws.ID, "Fix")
+	if err != nil {
+		t.Fatalf("expected resolve to succeed: %v", err)
+	}
+	if resolved.Target != "promptable" || resolved.Prompt == "" {
+		t.Fatalf("expected promptable quick launch, got %+v", resolved)
+	}
+}
+
+func TestHandleSpawnPost_CommandMissingWorkspace(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	body, _ := json.Marshal(SpawnRequest{
+		WorkspaceID: "missing-workspace",
+		Command:     "echo hi",
+		Nickname:    "Run",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleSpawnPost(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var resp []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp))
+	}
+	if resp[0]["error"] == nil {
+		t.Fatalf("expected error for missing workspace")
 	}
 }
 

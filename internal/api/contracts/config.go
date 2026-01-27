@@ -6,6 +6,18 @@ type Repo struct {
 	URL  string `json:"url"`
 }
 
+// RepoConfig represents repository-specific configuration from .schmux/config.json.
+type RepoConfig struct {
+	QuickLaunch []QuickLaunch `json:"quick_launch,omitempty"`
+}
+
+// RepoWithConfig represents a repository with its loaded configuration.
+type RepoWithConfig struct {
+	Name   string      `json:"name"`
+	URL    string      `json:"url"`
+	Config *RepoConfig `json:"config,omitempty"`
+}
+
 // RunTarget represents a user-supplied run target.
 type RunTarget struct {
 	Name    string `json:"name"`
@@ -15,10 +27,12 @@ type RunTarget struct {
 }
 
 // QuickLaunch represents a saved run preset.
+// Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
 type QuickLaunch struct {
-	Name   string  `json:"name"`
-	Target string  `json:"target"`
-	Prompt *string `json:"prompt"`
+	Name    string  `json:"name"`
+	Command string  `json:"command,omitempty"` // shell command to run directly
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.
@@ -111,7 +125,7 @@ type AccessControl struct {
 type ConfigResponse struct {
 	WorkspacePath              string                `json:"workspace_path"`
 	SourceCodeManagement       string                `json:"source_code_management"`
-	Repos                      []Repo                `json:"repos"`
+	Repos                      []RepoWithConfig      `json:"repos"`
 	RunTargets                 []RunTarget           `json:"run_targets"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`

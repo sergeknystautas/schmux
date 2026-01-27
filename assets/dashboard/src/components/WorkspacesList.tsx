@@ -13,7 +13,7 @@ import SpawnDropdown from './SpawnDropdown'
 import DiffDropdown from './DiffDropdown'
 import VSCodeResultModal from './VSCodeResultModal'
 import useLocalStorage, { WORKSPACE_EXPANDED_KEY } from '../hooks/useLocalStorage'
-import type { OpenVSCodeResponse, QuickLaunchPreset, SessionResponse, WorkspaceResponse } from '../lib/types';
+import type { OpenVSCodeResponse, SessionResponse, WorkspaceResponse } from '../lib/types';
 
 type WorkspaceFilters = {
   status?: string;
@@ -63,8 +63,8 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
   const [refreshingOverlay, setRefreshingOverlay] = useState<string | null>(null); // Track which workspace is refreshing overlay
   const [overlayRefreshResult, setOverlayRefreshResult] = useState<{ success: boolean; message?: string; workspaceId?: string } | null>(null); // Result of overlay refresh
 
-  const quickLaunch = React.useMemo<QuickLaunchPreset[]>(() => {
-    return config?.quick_launch || [];
+  const quickLaunchNames = React.useMemo<string[]>(() => {
+    return (config?.quick_launch || []).map((item) => item.name);
   }, [config?.quick_launch]);
 
   const toggleExpanded = (workspaceId: string) => {
@@ -235,7 +235,7 @@ const WorkspacesListInner = React.forwardRef<WorkspacesListHandle, WorkspacesLis
           </svg>
         </button>
       </Tooltip>
-      <SpawnDropdown workspace={workspace} quickLaunch={quickLaunch} />
+      <SpawnDropdown workspace={workspace} globalQuickLaunchNames={quickLaunchNames} />
     </>
   );
 

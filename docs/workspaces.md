@@ -219,3 +219,90 @@ Pushes your branch commits directly to main via fast-forward:
 - **Disabled when**: Workspace has uncommitted changes or is behind main
 
 Both actions are available from the dashboard workspace header git status dropdown.
+
+---
+
+## Workspace Configuration
+
+Workspaces can have their own configuration files that extend the global config with workspace-specific settings.
+
+### Location
+
+Place a `.schmux/config.json` file inside any workspace directory:
+
+```
+~/schmux-workspaces/myproject-001/
+├── .schmux/
+│   └── config.json    # Workspace-specific config
+├── src/
+└── ...
+```
+
+### Supported Settings
+
+Currently, workspace configs support:
+
+| Setting | Description |
+|---------|-------------|
+| `quick_launch` | Quick launch presets specific to this workspace/repo |
+
+### Quick Launch
+
+Define quick launch presets that only appear for this repository:
+
+```json
+{
+  "quick_launch": [
+    {
+      "name": "Run Tests",
+      "command": "npm test"
+    },
+    {
+      "name": "Fix Tests",
+      "target": "claude",
+      "prompt": "Run the test suite and fix any failures"
+    }
+  ]
+}
+```
+
+#### Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name (required) |
+| `command` | string | Shell command to run directly |
+| `target` | string | Run target (claude, codex, variant, or user-defined) |
+| `prompt` | string | Prompt to send to the target |
+
+#### Rules
+
+- **Shell command**: Set `command` to run a shell command directly
+- **AI agent**: Set `target` and `prompt` to spawn an agent with a prompt
+- **Either/or**: Use `command` OR `target`+`prompt`, not both
+
+#### Merge Behavior
+
+Workspace quick launch items are merged with global quick launch items:
+- Items with the same name: workspace version takes precedence
+- Items with unique names: both appear in the spawn dropdown
+
+### Config File Watching
+
+The daemon monitors workspace config files and reloads them automatically:
+- **On startup**: All workspace configs are loaded
+- **On change**: Config is reloaded when the file's modification time changes
+- **Parse errors**: Logged once per change (not spammed on every poll cycle)
+- **Success**: Logged when config is successfully loaded after a change
+
+Example log output:
+```
+[workspace] loaded config from /path/to/workspace/.schmux/config.json
+[workspace] warning: failed to parse /path/to/workspace/.schmux/config.json: invalid character...
+```
+
+### Use Cases
+
+- **Project-specific prompts**: "Run tests", "Build docs", "Deploy to staging"
+- **Team presets**: Check workspace config into git so the whole team gets the same quick launch options
+- **Repo-specific targets**: Different repos may use different agents or workflows
