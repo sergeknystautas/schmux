@@ -872,6 +872,33 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 		}
 	}
 
+	// Get untracked files and count their lines as additions
+	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
+	untrackedCmd := exec.CommandContext(ctx, "git", "ls-files", "--others", "--exclude-standard")
+	untrackedCmd.Dir = dir
+	untrackedOutput, err := untrackedCmd.Output()
+	if err == nil {
+		untrackedLines := strings.Split(string(untrackedOutput), "\n")
+		for _, filePath := range untrackedLines {
+			if filePath == "" {
+				continue
+			}
+			// Read the untracked file and count its lines
+			fullPath := filepath.Join(dir, filePath)
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				continue // Skip files we can't read
+			}
+			// Count lines (all lines in untracked files are additions)
+			lineCount := strings.Count(string(content), "\n")
+			if !strings.HasSuffix(string(content), "\n") {
+				lineCount++ // Count last line if no trailing newline
+			}
+			linesAdded += lineCount
+			filesChanged++
+		}
+	}
+
 	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged
 }
 
