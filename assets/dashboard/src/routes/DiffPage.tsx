@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import ReactDiffViewer from 'react-diff-viewer-continued';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
@@ -280,7 +280,9 @@ export default function DiffPage() {
                     useDarkTheme={theme === 'dark'}
                     hideLineNumbers={false}
                     showDiffOnly={true}
-                    extraLinesSurroundingDiff={2}
+                    compareMethod={DiffMethod.DIFF_TRIMMED_LINES}
+                    disableWordDiff={true}
+                    extraLinesSurroundingDiff={3}
                   />
                 </div>
               </>
