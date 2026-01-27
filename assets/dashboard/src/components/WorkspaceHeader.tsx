@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { openVSCode, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict } from '../lib/api';
-import { useToast } from './ToastProvider';
+import { openVSCode, disposeWorkspaceAll, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict } from '../lib/api';
 import { useModal } from './ModalProvider';
+import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import Tooltip from './Tooltip';
 import VSCodeResultModal from './VSCodeResultModal';
+import SyncResultModal from './SyncResultModal';
 import type { WorkspaceResponse, OpenVSCodeResponse } from '../lib/types';
 
 type WorkspaceHeaderProps = {
@@ -17,10 +18,11 @@ type WorkspaceHeaderProps = {
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
   const { refresh } = useSessions();
-  const { success, error: toastError } = useToast();
   const { confirm } = useModal();
+  const { success, error: toastError } = useToast();
   const { config } = useConfig();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; navigateTo?: string } | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
 
   // Git status dropdown state
@@ -123,14 +125,10 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
     try {
       const result = await linearSyncFromMain(workspace.id);
-      if (result.success) {
-        success(result.message);
-      } else {
-        toastError(result.message);
-      }
+      setSyncResult({ success: result.success, message: result.message });
       refresh();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to sync from main'));
+      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync from main') });
     } finally {
       setRebasing(false);
     }
@@ -143,13 +141,21 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncToMain(workspace.id);
       if (result.success) {
-        success(result.message);
+        refresh();
+        const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
+          detailedMessage: result.message
+        });
+        if (disposeConfirmed) {
+          await disposeWorkspaceAll(workspace.id);
+          setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+          refresh();
+        }
       } else {
-        toastError(result.message);
+        setSyncResult({ success: false, message: result.message });
+        refresh();
       }
-      refresh();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to sync to main'));
+      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync or dispose') });
     } finally {
       setMerging(false);
     }
@@ -162,20 +168,18 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncResolveConflict(workspace.id);
       if (result.success) {
-        if (result.session_id) {
-          success(`${result.message} - spawned session for conflict resolution`);
-          refresh();
-          navigate(`/sessions/${result.session_id}`);
-        } else {
-          success(result.message);
-          refresh();
-        }
+        setSyncResult({
+          success: true,
+          message: result.message + (result.session_id ? ' - spawned session for conflict resolution' : ''),
+          navigateTo: result.session_id
+        });
+        refresh();
       } else {
-        toastError(result.message);
+        setSyncResult({ success: false, message: result.message });
         refresh();
       }
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to resolve conflict'));
+      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to resolve conflict') });
     } finally {
       setResolving(false);
     }
@@ -255,6 +259,15 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           success={vsCodeResult.success}
           message={vsCodeResult.message}
           onClose={() => setVSCodeResult(null)}
+        />
+      )}
+
+      {syncResult && (
+        <SyncResultModal
+          success={syncResult.success}
+          message={syncResult.message}
+          navigateTo={syncResult.navigateTo}
+          onClose={() => setSyncResult(null)}
         />
       )}
 

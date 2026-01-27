@@ -312,8 +312,8 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 		path   string
 		fn     func(http.ResponseWriter, *http.Request)
 	}{
-		{"dispose missing id", http.MethodPost, "/api/dispose/", server.handleDispose},
-		{"dispose workspace missing id", http.MethodPost, "/api/dispose-workspace/", server.handleDisposeWorkspace},
+		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", server.handleDispose},
+		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", server.handleLinearSync},
 		{"diff missing id", http.MethodGet, "/api/diff/", server.handleDiff},
 		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", server.handleOpenVSCode},
 		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname},

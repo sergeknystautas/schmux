@@ -86,7 +86,7 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
 }
 
 export async function disposeSession(sessionId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/dispose/${sessionId}`, { method: 'POST' });
+  const response = await fetch(`/api/sessions/${sessionId}/dispose`, { method: 'POST' });
   if (!response.ok) throw new Error('Failed to dispose session');
   return response.json();
 }
@@ -110,10 +110,19 @@ export async function updateNickname(sessionId: string, nickname: string): Promi
 }
 
 export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/dispose-workspace/${workspaceId}`, { method: 'POST' });
+  const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, { method: 'POST' });
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.error || 'Failed to dispose workspace');
+  }
+  return response.json();
+}
+
+export async function disposeWorkspaceAll(workspaceId: string): Promise<{ status: string; sessions_disposed: number }> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, { method: 'POST' });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Failed to dispose workspace and sessions');
   }
   return response.json();
 }

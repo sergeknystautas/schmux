@@ -256,7 +256,7 @@ Notes:
 - Only relevant when `source_code_management` is `"git-worktree"` (the default)
 - When `source_code_management` is `"git"`, always returns `{"conflict": false}`
 
-### POST /api/dispose/{sessionId}
+### POST /api/sessions/{sessionId}/dispose
 Dispose a session.
 
 Response:
@@ -268,12 +268,25 @@ Errors:
 - 400: "session ID is required"
 - 500: "Failed to dispose session: ..."
 
-### POST /api/dispose-workspace/{workspaceId}
-Dispose a workspace.
+### POST /api/workspaces/{workspaceId}/dispose
+Dispose a workspace (fails if workspace has active sessions).
 
 Response:
 ```json
 {"status":"ok"}
+```
+
+Errors:
+- 400 with JSON: `{"error":"..."}` (e.g., dirty workspace, active sessions)
+
+### POST /api/workspaces/{workspaceId}/dispose-all
+Dispose a workspace and all its sessions.
+
+Disposes all sessions in the workspace first, then disposes the workspace itself.
+
+Response:
+```json
+{"status":"ok","sessions_disposed":3}
 ```
 
 Errors:

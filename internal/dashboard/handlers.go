@@ -622,8 +622,9 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract session ID from URL
-	sessionID := strings.TrimPrefix(r.URL.Path, "/api/dispose/")
+	// Extract session ID from URL: /api/sessions/{id}/dispose
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	sessionID := strings.TrimSuffix(path, "/dispose")
 	if sessionID == "" {
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
@@ -653,8 +654,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Extract workspace ID from URL
-	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/dispose-workspace/")
+	// Extract workspace ID from URL: /api/workspaces/{id}/dispose
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/dispose")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -674,6 +676,55 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleDisposeWorkspaceAll handles workspace disposal requests including all sessions.
+func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/workspaces/{id}/dispose-all
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/dispose-all")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// First, dispose all sessions in the workspace
+	sessions := s.state.GetSessions()
+	var sessionsDisposed []string
+	for _, sess := range sessions {
+		if sess.WorkspaceID == workspaceID {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+			if err := s.session.Dispose(ctx, sess.ID); err != nil {
+				cancel()
+				fmt.Printf("[workspace] dispose-all error: failed to dispose session %s: %v\n", sess.ID, err)
+			} else {
+				cancel()
+				sessionsDisposed = append(sessionsDisposed, sess.ID)
+				fmt.Printf("[workspace] dispose-all: disposed session %s\n", sess.ID)
+			}
+		}
+	}
+
+	// Then dispose the workspace
+	if err := s.workspace.Dispose(workspaceID); err != nil {
+		fmt.Printf("[workspace] dispose-all error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	fmt.Printf("[workspace] dispose-all success: workspace_id=%s sessions_disposed=%d\n", workspaceID, len(sessionsDisposed))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":            "ok",
+		"sessions_disposed": len(sessionsDisposed),
+	})
 }
 
 // UpdateNicknameRequest represents a request to update a session's nickname.
@@ -2310,6 +2361,10 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 		s.handleLinearSyncToMain(w, r)
 	} else if strings.HasSuffix(path, "/linear-sync-resolve-conflict") {
 		s.handleLinearSyncResolveConflict(w, r)
+	} else if strings.HasSuffix(path, "/dispose") {
+		s.handleDisposeWorkspace(w, r)
+	} else if strings.HasSuffix(path, "/dispose-all") {
+		s.handleDisposeWorkspaceAll(w, r)
 	} else {
 		http.NotFound(w, r)
 	}

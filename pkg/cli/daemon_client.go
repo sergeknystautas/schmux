@@ -185,7 +185,7 @@ func (c *Client) DisposeSession(ctx context.Context, sessionID string) error {
 		defer cancel()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/dispose/"+sessionID, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/sessions/"+sessionID+"/dispose", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

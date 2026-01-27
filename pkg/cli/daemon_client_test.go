@@ -349,8 +349,8 @@ func TestClient_DisposeSession(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Errorf("method = %q, want POST", r.Method)
 			}
-			if r.URL.Path != "/api/dispose/test-session" {
-				t.Errorf("path = %q, want /api/dispose/test-session", r.URL.Path)
+			if r.URL.Path != "/api/sessions/test-session/dispose" {
+				t.Errorf("path = %q, want /api/sessions/test-session/dispose", r.URL.Path)
 			}
 			w.WriteHeader(http.StatusOK)
 		}))
