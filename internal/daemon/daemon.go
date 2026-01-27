@@ -369,32 +369,6 @@ func Run(background bool) error {
 		}
 	}()
 
-	// Start background goroutine to update git status for all workspaces
-	go func() {
-		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
-		// Do initial update after a short delay to let daemon start
-		select {
-		case <-time.After(500 * time.Millisecond):
-			ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
-			wm.UpdateAllGitStatus(ctx)
-			cancel()
-		case <-shutdownCtx.Done():
-			return
-		}
-		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
-				wm.UpdateAllGitStatus(ctx)
-				cancel()
-			case <-shutdownCtx.Done():
-				return
-			}
-		}
-	}()
-
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
 	go startNudgeNikChecker(shutdownCtx, cfg, st, sm)
 
@@ -418,6 +392,33 @@ func Run(background bool) error {
 	if err := wm.EnsureWorkspaceDir(); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
+
+	// Start background goroutine to update git status for all workspaces.
+	// Started after EnsureWorkspaceDir to avoid race with directory creation.
+	go func() {
+		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+		// Do initial update immediately on startup (force all workspaces)
+		select {
+		case <-shutdownCtx.Done():
+			return
+		default:
+			ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
+			wm.UpdateAllGitStatus(ctx, true)
+			cancel()
+		}
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
+				wm.UpdateAllGitStatus(ctx, false)
+				cancel()
+			case <-shutdownCtx.Done():
+				return
+			}
+		}
+	}()
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)

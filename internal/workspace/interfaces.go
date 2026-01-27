@@ -36,7 +36,8 @@ type WorkspaceManager interface {
 	UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
 
 	// UpdateAllGitStatus refreshes git status for all workspaces.
-	UpdateAllGitStatus(ctx context.Context)
+	// If forceAll is true, updates all workspaces regardless of session activity.
+	UpdateAllGitStatus(ctx context.Context, forceAll bool)
 
 	// EnsureWorkspaceDir ensures the workspace base directory exists.
 	EnsureWorkspaceDir() error

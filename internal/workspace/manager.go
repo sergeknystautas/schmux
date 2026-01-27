@@ -877,18 +877,22 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
-// Skips workspaces that have active sessions (recent terminal output).
-func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
+// Skips workspaces that have active sessions (recent terminal output),
+// unless forceAll is true.
+func (m *Manager) UpdateAllGitStatus(ctx context.Context, forceAll bool) {
 	workspaces := m.state.GetWorkspaces()
 
-	// Calculate activity threshold - only update workspaces that have been
-	// quiet (no session output) within the last poll interval
-	pollIntervalMs := m.config.GetGitStatusPollIntervalMs()
-	cutoff := time.Now().Add(-time.Duration(pollIntervalMs) * time.Millisecond)
+	var cutoff time.Time
+	if !forceAll {
+		// Calculate activity threshold - only update workspaces that have been
+		// quiet (no session output) within the last poll interval
+		pollIntervalMs := m.config.GetGitStatusPollIntervalMs()
+		cutoff = time.Now().Add(-time.Duration(pollIntervalMs) * time.Millisecond)
+	}
 
 	for _, w := range workspaces {
-		// Skip if workspace has recent activity (not quiet)
-		if !m.isQuietSince(w.ID, cutoff) {
+		// Skip if workspace has recent activity (not quiet), unless forcing all
+		if !forceAll && !m.isQuietSince(w.ID, cutoff) {
 			continue
 		}
 
