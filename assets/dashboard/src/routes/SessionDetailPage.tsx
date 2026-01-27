@@ -24,6 +24,8 @@ export default function SessionDetailPage() {
   const [followTail, setFollowTail] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(SESSION_SIDEBAR_COLLAPSED_KEY, false);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedLines, setSelectedLines] = useState<string[]>([]);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
@@ -75,7 +77,8 @@ export default function SessionDetailPage() {
         setShowResume(showing);
         setFollowTail(!showing);
       },
-      onStatusChange: (status) => setWsStatus(status)
+      onStatusChange: (status) => setWsStatus(status),
+      onSelectedLinesChange: (lines) => setSelectedLines(lines)
     });
 
     terminalStreamRef.current = terminalStream;
@@ -183,6 +186,34 @@ export default function SessionDetailPage() {
     }
   };
 
+  const handleToggleSelectionMode = () => {
+    const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
+    setSelectionMode(newMode);
+    if (!newMode) {
+      // When exiting selection mode, we could keep selections or clear them
+      // For now, let's keep them
+    }
+  };
+
+  const handleCopySelectedLines = async () => {
+    if (selectedLines.length === 0) {
+      toastError('No lines selected');
+      return;
+    }
+    const content = selectedLines.join('\n');
+    const ok = await copyToClipboard(content);
+    if (ok) {
+      success(`Copied ${selectedLines.length} line${selectedLines.length !== 1 ? 's' : ''}`);
+    } else {
+      toastError('Failed to copy');
+    }
+  };
+
+  const handleClearSelection = () => {
+    terminalStreamRef.current?.clearSelection();
+    setSelectedLines([]);
+  };
+
   if (sessionsLoading && !sessionData && !sessionsError) {
     return (
       <div className="loading-state">
@@ -274,6 +305,19 @@ export default function SessionDetailPage() {
                 </Tooltip>
               </div>
               <div className="log-viewer__actions">
+                <Tooltip content={selectionMode ? 'Exit selection mode' : 'Select lines'}>
+                  <button
+                    className={`btn btn--sm ${selectionMode ? 'btn--primary' : ''}`}
+                    onClick={handleToggleSelectionMode}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 3h7v7H3z"></path>
+                      <path d="M14 3h7v7h-7z"></path>
+                      <path d="M14 14h7v7h-7z"></path>
+                      <path d="M3 14h7v7H3z"></path>
+                    </svg>
+                  </button>
+                </Tooltip>
                 <Tooltip content="Download log">
                   <button
                     className="btn btn--sm"
@@ -304,7 +348,9 @@ export default function SessionDetailPage() {
               id="terminal"
               className="log-viewer__output"
               ref={terminalRef}
+              style={{ cursor: selectionMode ? 'pointer' : undefined }}
             ></div>
+
             {showResume ? (
               <button className="log-viewer__new-content" onClick={() => terminalStreamRef.current?.jumpToBottom()}>
                 Resume
