@@ -253,14 +253,18 @@ export default function SessionDetailPage() {
           <div className="log-viewer">
             <div className="log-viewer__header">
               <div className="log-viewer__info">
-                <div className={`connection-pill ${wsPillClass}`}>
-                  <span className="connection-pill__dot"></span>
-                  <span>{wsPillText}</span>
-                </div>
-                <div className={`status-pill ${wsStatus === 'connected' ? statusClass : ''}`}>
-                  <span className="status-pill__dot"></span>
-                  <span>{wsStatus === 'connected' ? statusText : ''}</span>
-                </div>
+                <Tooltip content={wsStatus === 'connected' ? 'WebSocket connected - receiving real-time terminal output' : wsStatus === 'disconnected' ? 'WebSocket disconnected - unable to receive terminal output' : 'WebSocket connecting...'}>
+                  <div className={`connection-pill ${wsPillClass}`}>
+                    <span className="connection-pill__dot"></span>
+                    <span>{wsPillText}</span>
+                  </div>
+                </Tooltip>
+                <Tooltip content={sessionData.running ? 'Agent process is running' : 'Agent process has stopped'}>
+                  <div className={`status-pill ${statusClass}`}>
+                    <span className="status-pill__dot"></span>
+                    <span>{statusText}</span>
+                  </div>
+                </Tooltip>
               </div>
               <div className="log-viewer__actions">
                 <Tooltip content="Download log">
