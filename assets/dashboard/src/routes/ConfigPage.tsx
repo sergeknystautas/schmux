@@ -17,11 +17,11 @@ import type {
   VariantResponse,
 } from '../lib/types';
 
-const TOTAL_STEPS = 6;
-const TABS = ['Workspace', 'Run Targets', 'Variants', 'Quick Launch', 'Diff', 'Advanced'];
+const TOTAL_STEPS = 5;
+const TABS = ['Workspaces', 'Sessions', 'Quick Launch', 'Code Review', 'Advanced'];
 
 // Map step number to URL slug
-const TAB_SLUGS = ['workspace', 'targets', 'variants', 'quicklaunch', 'diff', 'advanced'];
+const TAB_SLUGS = ['workspaces', 'sessions', 'quicklaunch', 'codereview', 'advanced'];
 
 // Helper: step number -> slug
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
@@ -1037,11 +1037,10 @@ export default function ConfigPage() {
   // Check if each step is valid
   const stepValid = {
     1: workspacePath.trim().length > 0 && repos.length > 0,
-    2: true, // Run targets are optional
-    3: true, // Variants are optional
-    4: true, // Quick launch is optional
-    5: true, // External diff is optional
-    6: true // Advanced step is always valid (has defaults)
+    2: true, // Run targets (now includes variants) are optional
+    3: true, // Quick launch is optional
+    4: true, // External diff is optional
+    5: true // Advanced step is always valid (has defaults)
   };
 
   if (loading) {
@@ -1319,6 +1318,62 @@ export default function ConfigPage() {
                 </div>
               )}
 
+              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Variants</h3>
+              <p className="section-hint">
+                Add secrets to enable variants for quick launch and spawning.
+              </p>
+              {availableVariants.length === 0 ? (
+                <div className="empty-state-hint">
+                  No variants available. Install the base tool to enable variants.
+                </div>
+              ) : (
+                <div className="item-list">
+                  {availableVariants.map((variant) => (
+                    <div className="item-list__item" key={variant.name}>
+                      <div className="item-list__item-primary">
+                        <span className="item-list__item-name">{variant.display_name}</span>
+                        <span className="item-list__item-detail">
+                          {variant.name} · base: {variant.base_tool}
+                        </span>
+                        {variant.usage_url && (
+                          <a
+                            className="item-list__item-detail link"
+                            href={variant.usage_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {variant.usage_url}
+                          </a>
+                        )}
+                      </div>
+                      {variant.configured ? (
+                        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+                          <button
+                            className="btn btn--primary"
+                            onClick={() => openVariantModal(variant, 'update')}
+                          >
+                            Update
+                          </button>
+                          <button
+                            className="btn btn--danger"
+                            onClick={() => openVariantModal(variant, 'remove')}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn btn--primary"
+                          onClick={() => openVariantModal(variant, 'add')}
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Promptable Targets</h3>
               <p className="section-hint">
                 Custom coding agents that accept prompts. We append the prompt to the command.
@@ -1455,67 +1510,6 @@ export default function ConfigPage() {
 
           {currentTab === 3 && (
             <div className="wizard-step-content" data-step="3">
-              <h2 className="wizard-step-content__title">Variants</h2>
-              <p className="wizard-step-content__description">
-                Add secrets to enable variants for quick launch and spawning.
-              </p>
-
-              {availableVariants.length === 0 ? (
-                <div className="empty-state-hint">
-                  No variants available. Install the base tool to enable variants.
-                </div>
-              ) : (
-                <div className="item-list">
-                  {availableVariants.map((variant) => (
-                    <div className="item-list__item" key={variant.name}>
-                      <div className="item-list__item-primary">
-                        <span className="item-list__item-name">{variant.display_name}</span>
-                        <span className="item-list__item-detail">
-                          {variant.name} · base: {variant.base_tool}
-                        </span>
-                        {variant.usage_url && (
-                          <a
-                            className="item-list__item-detail link"
-                            href={variant.usage_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {variant.usage_url}
-                          </a>
-                        )}
-                      </div>
-                      {variant.configured ? (
-                        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-                          <button
-                            className="btn btn--primary"
-                            onClick={() => openVariantModal(variant, 'update')}
-                          >
-                            Update
-                          </button>
-                          <button
-                            className="btn btn--danger"
-                            onClick={() => openVariantModal(variant, 'remove')}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          className="btn btn--primary"
-                          onClick={() => openVariantModal(variant, 'add')}
-                        >
-                          Add
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {currentTab === 4 && (
-            <div className="wizard-step-content" data-step="4">
               <h2 className="wizard-step-content__title">Quick Launch</h2>
               <p className="wizard-step-content__description">
                 Quick launch runs a target with a prompt. Promptable targets require a prompt.
@@ -1709,8 +1703,8 @@ export default function ConfigPage() {
             </div>
           )}
 
-          {currentTab === 5 && (
-            <div className="wizard-step-content" data-step="5">
+          {currentTab === 4 && (
+            <div className="wizard-step-content" data-step="4">
               <h2 className="wizard-step-content__title">External Diff Tools</h2>
               <p className="wizard-step-content__description">
                 Configure external diff tools to view git changes outside the browser.
@@ -1833,8 +1827,8 @@ export default function ConfigPage() {
             </div>
           )}
 
-          {currentTab === 6 && (
-            <div className="wizard-step-content" data-step="6">
+          {currentTab === 5 && (
+            <div className="wizard-step-content" data-step="5">
               <h2 className="wizard-step-content__title">Advanced Settings</h2>
               <p className="wizard-step-content__description">
                 Terminal dimensions and advanced timing controls. You can leave these as defaults unless you have specific needs.
