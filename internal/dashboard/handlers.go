@@ -1371,6 +1371,13 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refresh git status so the client gets updated stats
+	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
+	if _, err := s.workspace.UpdateGitStatus(refreshCtx, workspaceID); err != nil {
+		fmt.Printf("[workspace] warning: failed to update git status: %v\n", err)
+	}
+	refreshCancel()
+
 	// Run git diff in workspace directory
 	type FileDiff struct {
 		OldPath      string `json:"old_path,omitempty"`
