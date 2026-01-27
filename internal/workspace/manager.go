@@ -505,8 +505,8 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 		// Track existing remote branch (create local branch)
 		args = []string{"worktree", "add", "--track", "-b", branch, workspacePath, remoteBranch}
 	} else {
-		// Create new local branch (use HEAD as starting point)
-		args = []string{"worktree", "add", "-b", branch, workspacePath, "HEAD"}
+		// Create new local branch from origin/main (ensures we start from latest)
+		args = []string{"worktree", "add", "-b", branch, workspacePath, "origin/main"}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
