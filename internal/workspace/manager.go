@@ -1209,9 +1209,15 @@ func (m *Manager) LinearSyncFromMain(ctx context.Context, workspaceID string) (*
 		}, nil
 	}
 
-	// 5. git commit -a -m "WIP: <UUID>" to save local changes
+	// 5. git add -A + git commit -m "WIP: <UUID>" to save local changes (including untracked files)
+	addCmd := exec.CommandContext(ctx, "git", "add", "-A")
+	addCmd.Dir = workspacePath
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git add -A failed: %w: %s", err, string(output))
+	}
+
 	wipUUID := fmt.Sprintf("WIP: %d", time.Now().UnixNano())
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "-a", "-m", wipUUID)
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", wipUUID)
 	commitCmd.Dir = workspacePath
 	commitOutput, err := commitCmd.CombinedOutput()
 	didCommit := true
