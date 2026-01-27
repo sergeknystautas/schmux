@@ -623,6 +623,9 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 						fmt.Printf("[nudgenik] error clearing nudge: %v\n", err)
 					} else if err := s.state.Save(); err != nil {
 						fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+					} else {
+						// Broadcast update to WebSocket clients
+						go s.BroadcastSessions()
 					}
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)

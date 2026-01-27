@@ -100,7 +100,7 @@ export default function SpawnDropdown({ workspace, quickLaunch, disabled }: Spaw
         toastError(`Failed to spawn ${preset.name}: ${result.error}`);
       } else {
         success(`Spawned ${preset.name} session`);
-        await refresh(true);
+        refresh();
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }

@@ -1,6 +1,5 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
-import useConnectionMonitor from '../hooks/useConnectionMonitor'
 import useTheme from '../hooks/useTheme'
 import useVersionInfo from '../hooks/useVersionInfo'
 import useLocalStorage from '../hooks/useLocalStorage'
@@ -32,11 +31,10 @@ function formatNudgeSummary(summary?: string) {
 }
 
 export default function AppShell() {
-  const connected = useConnectionMonitor();
   const { toggleTheme } = useTheme();
   const { isNotConfigured, config } = useConfig();
   const { versionInfo } = useVersionInfo();
-  const { workspaces } = useSessions();
+  const { workspaces, connected } = useSessions();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();

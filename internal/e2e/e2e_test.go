@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestMain(m *testing.M) {
@@ -648,5 +650,109 @@ func TestE2EBranchConflictCheck(t *testing.T) {
 		if result.Conflict {
 			t.Errorf("Expected no conflict for different branch, got conflict with workspace %s", result.WorkspaceID)
 		}
+	})
+}
+
+// TestE2EDashboardWebSocket validates the /ws/dashboard websocket endpoint.
+func TestE2EDashboardWebSocket(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/ws-dashboard-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Dashboard WS Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("ws-dashboard-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var conn *websocket.Conn
+	t.Run("ConnectWebSocket", func(t *testing.T) {
+		var err error
+		conn, err = env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect to dashboard websocket: %v", err)
+		}
+	})
+
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+
+	t.Run("ReceiveInitialState", func(t *testing.T) {
+		msg, err := env.ReadDashboardMessage(conn, 3*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to read initial message: %v", err)
+		}
+		if msg.Type != "sessions" {
+			t.Fatalf("Expected message type 'sessions', got %q", msg.Type)
+		}
+		t.Logf("Initial state: %d workspaces", len(msg.Workspaces))
+
+		// Wait for debounce window to pass (server debounces broadcasts at 500ms)
+		// The git status goroutine broadcasts on startup, and we need to wait
+		// for that debounce window to close before spawning
+		time.Sleep(600 * time.Millisecond)
+	})
+
+	var sessionID string
+	t.Run("SpawnAndReceiveUpdate", func(t *testing.T) {
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-dashboard-repo", "main", "echo", "", "ws-dash-test")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		t.Logf("Spawned session: %s", sessionID)
+
+		// Wait for a message that contains our session
+		// The spawn handler broadcasts after success, so we should receive it
+		msg, err := env.WaitForDashboardSession(conn, sessionID, 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive session via websocket: %v", err)
+		}
+		t.Logf("Received update with session, workspaces: %d", len(msg.Workspaces))
+	})
+
+	t.Run("DisposeAndReceiveUpdate", func(t *testing.T) {
+		// Wait for debounce window to pass from spawn broadcast
+		time.Sleep(600 * time.Millisecond)
+		env.DisposeSession(sessionID)
+
+		// Wait for the session to disappear via websocket
+		msg, err := env.WaitForDashboardSessionGone(conn, sessionID, 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive update after dispose: %v", err)
+		}
+		t.Logf("Received update without session, workspaces: %d", len(msg.Workspaces))
 	})
 }
