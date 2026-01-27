@@ -19,7 +19,7 @@ const ConfigContext = createContext<ConfigContextValue | null>(null);
 
 const DEFAULT_CONFIG: ConfigResponse = {
   workspace_path: '',
-  source_code_manager: 'git-worktree',
+  source_code_management: 'git-worktree',
   repos: [],
   run_targets: [],
   quick_launch: [],

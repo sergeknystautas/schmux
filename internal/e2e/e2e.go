@@ -566,10 +566,10 @@ func (e *Env) CaptureArtifacts() {
 	e.T.Logf("Artifacts captured to: %s", failureDir)
 }
 
-// SetSourceCodeManager updates the config file to use the specified source code manager.
-func (e *Env) SetSourceCodeManager(scm string) {
+// SetSourceCodeManagement updates the config file to use the specified source code manager.
+func (e *Env) SetSourceCodeManagement(scm string) {
 	e.T.Helper()
-	e.T.Logf("Setting source_code_manager to: %s", scm)
+	e.T.Logf("Setting source_code_management to: %s", scm)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -584,7 +584,7 @@ func (e *Env) SetSourceCodeManager(scm string) {
 		e.T.Fatalf("Failed to load config: %v", err)
 	}
 
-	cfg.SourceCodeManager = scm
+	cfg.SourceCodeManagement = scm
 	if err := cfg.Save(); err != nil {
 		e.T.Fatalf("Failed to save config: %v", err)
 	}

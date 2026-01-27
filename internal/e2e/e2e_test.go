@@ -80,9 +80,9 @@ func TestE2EFullLifecycle(t *testing.T) {
 		env.AddRepoToConfig("test-repo", "file://"+repoPath)
 	})
 
-	// Step 3: Enable git source code manager to allow multiple sessions per branch
+	// Step 3: Enable git source code management to allow multiple sessions per branch
 	t.Run("03_EnableGitSCM", func(t *testing.T) {
-		env.SetSourceCodeManager("git")
+		env.SetSourceCodeManagement("git")
 	})
 
 	// Step 4: Start daemon (will load config with the repo)
@@ -304,7 +304,7 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 	})
 
 	t.Run("EnableGitSCM", func(t *testing.T) {
-		env.SetSourceCodeManager("git")
+		env.SetSourceCodeManagement("git")
 	})
 
 	t.Run("DaemonStart", func(t *testing.T) {
@@ -452,9 +452,9 @@ func TestE2ETwitterStream(t *testing.T) {
 	})
 }
 
-// TestE2ESourceCodeManager tests that the source_code_manager config controls
+// TestE2ESourceCodeManagement tests that the source_code_manager config controls
 // whether workspaces are created via worktree or full clone.
-func TestE2ESourceCodeManager(t *testing.T) {
+func TestE2ESourceCodeManagement(t *testing.T) {
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -484,9 +484,9 @@ func TestE2ESourceCodeManager(t *testing.T) {
 		env.AddRepoToConfig("scm-test-repo", "file://"+repoPath)
 	})
 
-	t.Run("SetSourceCodeManagerGit", func(t *testing.T) {
+	t.Run("SetSourceCodeManagementGit", func(t *testing.T) {
 		// Set source_code_manager to "git" (full clone mode)
-		env.SetSourceCodeManager("git")
+		env.SetSourceCodeManagement("git")
 	})
 
 	t.Run("DaemonStart", func(t *testing.T) {

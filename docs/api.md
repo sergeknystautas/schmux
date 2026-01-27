@@ -253,8 +253,8 @@ Or if conflict exists:
 ```
 
 Notes:
-- Only relevant when `source_code_manager` is `"git-worktree"` (the default)
-- When `source_code_manager` is `"git"`, always returns `{"conflict": false}`
+- Only relevant when `source_code_management` is `"git-worktree"` (the default)
+- When `source_code_management` is `"git"`, always returns `{"conflict": false}`
 
 ### POST /api/dispose/{sessionId}
 Dispose a session.
@@ -303,7 +303,7 @@ Response:
 ```json
 {
   "workspace_path":"/path",
-  "source_code_manager":"git-worktree",
+  "source_code_management":"git-worktree",
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
@@ -348,7 +348,7 @@ Request:
 ```json
 {
   "workspace_path":"/path",
-  "source_code_manager":"git-worktree",
+  "source_code_management":"git-worktree",
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],

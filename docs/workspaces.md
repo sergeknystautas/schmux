@@ -137,9 +137,9 @@ schmux prevents accidental data loss:
 
 ## Git Behavior
 
-### Source Code Manager
+### Source Code Management
 
-schmux supports two modes for creating workspace directories, configurable in **Settings > Workspace > Source Code Manager**:
+schmux supports two modes for creating workspace directories, configurable in **Settings > Workspace > Source Code Management**:
 
 | Mode | Description | Branch Handling |
 |------|-------------|-----------------|

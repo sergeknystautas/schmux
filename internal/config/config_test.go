@@ -749,3 +749,243 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 		t.Errorf("WorkspacePath = %q, want %q", cfg.WorkspacePath, tmpDir)
 	}
 }
+
+func TestMigration_SourceCodeManagerRenamed(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create an old config with source_code_manager field
+	oldConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"source_code_manager": "git",
+		"repos": [],
+		"run_targets": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Load should trigger migration
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify the migration copied the value to the new field
+	if cfg.SourceCodeManagement != "git" {
+		t.Errorf("SourceCodeManagement = %q, want \"git\"", cfg.SourceCodeManagement)
+	}
+
+	// GetSourceCodeManagement should return the migrated value
+	if got := cfg.GetSourceCodeManagement(); got != "git" {
+		t.Errorf("GetSourceCodeManagement() = %q, want \"git\"", got)
+	}
+
+	// Reload to verify the migration was saved to disk
+	cfg2, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() after migration failed: %v", err)
+	}
+
+	// The new field should persist
+	if cfg2.SourceCodeManagement != "git" {
+		t.Errorf("SourceCodeManagement after reload = %q, want \"git\"", cfg2.SourceCodeManagement)
+	}
+}
+
+func TestMigration_BothFieldsPresent_NewFieldWins(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a config with both old and new fields
+	// Migration should NOT overwrite the new field
+	bothFieldsConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"source_code_manager": "git",
+		"source_code_management": "git-worktree",
+		"repos": [],
+		"run_targets": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(bothFieldsConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Load should not trigger migration (Detect returns false since new field is set)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// New field value should be preserved (not overwritten by old field)
+	if cfg.SourceCodeManagement != "git-worktree" {
+		t.Errorf("SourceCodeManagement = %q, want \"git-worktree\" (should not be overwritten)", cfg.SourceCodeManagement)
+	}
+
+	// GetSourceCodeManagement should prefer the new field
+	if got := cfg.GetSourceCodeManagement(); got != "git-worktree" {
+		t.Errorf("GetSourceCodeManagement() = %q, want \"git-worktree\"", got)
+	}
+}
+
+func TestMigration_NullValueHandledGracefully(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a config with null value for old field
+	nullConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"source_code_manager": null,
+		"repos": [],
+		"run_targets": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(nullConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Load should not fail - null should be handled gracefully
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed with null value: %v", err)
+	}
+
+	// New field should remain empty (null was treated as empty)
+	if cfg.SourceCodeManagement != "" {
+		t.Errorf("SourceCodeManagement = %q, want empty (null handled as empty)", cfg.SourceCodeManagement)
+	}
+
+	// GetSourceCodeManagement should return default
+	if got := cfg.GetSourceCodeManagement(); got != "git-worktree" {
+		t.Errorf("GetSourceCodeManagement() = %q, want \"git-worktree\" (default)", got)
+	}
+}
+
+// Note: Non-string values are caught by struct unmarshal before migration runs,
+// which provides good error messages to users. The migration's Apply function
+// does handle errors gracefully, but struct validation happens first.
+
+func TestMigration_DoesNotRunWhenOnlyNewFieldPresent(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create a config with only the new field
+	newConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"source_code_management": "git-worktree",
+		"repos": [],
+		"run_targets": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(newConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// Load should not trigger migration (no old field)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Value should remain as-is
+	if cfg.SourceCodeManagement != "git-worktree" {
+		t.Errorf("SourceCodeManagement = %q, want \"git-worktree\"", cfg.SourceCodeManagement)
+	}
+}
+
+func TestMigration_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.json")
+
+	// Create an old config with source_code_manager field
+	oldConfig := `{
+		"workspace_path": "/tmp/workspaces",
+		"source_code_manager": "git",
+		"repos": [],
+		"run_targets": [],
+		"terminal": {
+			"width": 120,
+			"height": 40,
+			"seed_lines": 100
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfig), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	// First load - should migrate
+	cfg1, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("First Load() failed: %v", err)
+	}
+	if cfg1.SourceCodeManagement != "git" {
+		t.Errorf("After first load, SourceCodeManagement = %q, want \"git\"", cfg1.SourceCodeManagement)
+	}
+
+	// Second load - should not re-migrate (detect returns false)
+	cfg2, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Second Load() failed: %v", err)
+	}
+	if cfg2.SourceCodeManagement != "git" {
+		t.Errorf("After second load, SourceCodeManagement = %q, want \"git\"", cfg2.SourceCodeManagement)
+	}
+}
+
+func TestGetSourceCodeManagement(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		want  string
+	}{
+		{
+			name:  "field set to git",
+			field: "git",
+			want:  "git",
+		},
+		{
+			name:  "field set to git-worktree",
+			field: "git-worktree",
+			want:  "git-worktree",
+		},
+		{
+			name:  "field empty - returns default",
+			field: "",
+			want:  "git-worktree",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				SourceCodeManagement: tt.field,
+			}
+			got := cfg.GetSourceCodeManagement()
+			if got != tt.want {
+				t.Errorf("GetSourceCodeManagement() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

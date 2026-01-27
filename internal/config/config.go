@@ -42,18 +42,18 @@ const (
 	DefaultAuthSessionTTLMinutes = 1440
 )
 
-// Source code manager constants
+// Source code management constants
 const (
-	SourceCodeManagerGitWorktree = "git-worktree" // default: use git worktrees
-	SourceCodeManagerGit         = "git"          // vanilla full clone
+	SourceCodeManagementGitWorktree = "git-worktree" // default: use git worktrees
+	SourceCodeManagementGit         = "git"          // vanilla full clone
 )
 
 // Config represents the application configuration.
 type Config struct {
 	ConfigVersion              string                `json:"config_version,omitempty"`
 	WorkspacePath              string                `json:"workspace_path"`
-	BaseReposPath              string                `json:"base_repos_path,omitempty"`     // path for bare clones (worktree base repos)
-	SourceCodeManager          string                `json:"source_code_manager,omitempty"` // "git-worktree" (default) or "git"
+	BaseReposPath              string                `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
+	SourceCodeManagement       string                `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
 	Repos                      []Repo                `json:"repos"`
 	RunTargets                 []RunTarget           `json:"run_targets"`
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
@@ -173,6 +173,48 @@ const (
 	RunTargetSourceDetected = "detected"
 )
 
+// Migration represents a single config transformation.
+type Migration struct {
+	// Name identifies this migration (for logging/debugging)
+	Name string
+
+	// Detect returns true if this migration needs to be applied.
+	// It receives the raw JSON (for detecting old field names) and
+	// the parsed config (for detecting missing values).
+	Detect func(rawJSON map[string]json.RawMessage, cfg *Config) bool
+
+	// Apply transforms the config. Receives both raw JSON (for reading
+	// old field names) and the parsed config struct.
+	Apply func(rawJSON map[string]json.RawMessage, cfg *Config) error
+}
+
+// migrations is the registry of all migrations, in dependency order.
+// Each migration self-selects via its Detect function.
+var migrations = []Migration{
+	{
+		Name: "rename_source_code_manager_to_management",
+		Detect: func(raw map[string]json.RawMessage, cfg *Config) bool {
+			_, hasOldField := raw["source_code_manager"]
+			// Only run if old field exists and new field is not already set
+			return hasOldField && cfg.SourceCodeManagement == ""
+		},
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			var val string
+			// Handle null gracefully - treat as empty string
+			if len(raw["source_code_manager"]) == 0 || string(raw["source_code_manager"]) == "null" {
+				return nil
+			}
+			if err := json.Unmarshal(raw["source_code_manager"], &val); err != nil {
+				// If unmarshal fails (non-string value), log and skip rather than fail
+				// This allows the config to load even if user edited it incorrectly
+				return nil
+			}
+			cfg.SourceCodeManagement = val
+			return nil
+		},
+	},
+}
+
 // Validate validates the config including terminal settings, run targets, variants, and quick launch presets.
 func (c *Config) Validate() error {
 	_, err := c.validate(true)
@@ -248,18 +290,18 @@ func (c *Config) GetBaseReposPath() string {
 	return filepath.Join(homeDir, ".schmux", "repos")
 }
 
-// GetSourceCodeManager returns the configured source code manager.
+// GetSourceCodeManagement returns the configured source code management mode.
 // Defaults to "git-worktree" if not set.
-func (c *Config) GetSourceCodeManager() string {
-	if c.SourceCodeManager == "" {
-		return SourceCodeManagerGitWorktree
+func (c *Config) GetSourceCodeManagement() string {
+	if c.SourceCodeManagement == "" {
+		return SourceCodeManagementGitWorktree
 	}
-	return c.SourceCodeManager
+	return c.SourceCodeManagement
 }
 
-// UseWorktrees returns true if the source code manager is git-worktree.
+// UseWorktrees returns true if the source code management mode is git-worktree.
 func (c *Config) UseWorktrees() bool {
-	return c.GetSourceCodeManager() == SourceCodeManagerGitWorktree
+	return c.GetSourceCodeManagement() == SourceCodeManagementGitWorktree
 }
 
 // GetRepos returns the list of repositories.
@@ -441,6 +483,7 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
+	// First pass: unmarshal into struct (for better error messages)
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		// Try to extract line and column from JSON errors
@@ -456,15 +499,22 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 
-	// Apply migrations before validation
-	if err := cfg.Migrate(); err != nil {
+	// Second pass: unmarshal to map to preserve old field names for migrations
+	// (Now we know the JSON is valid)
+	var rawJSON map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawJSON); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+
+	// Store the config path early so Save() works during migration
+	cfg.path = configPath
+
+	// Apply migrations - each detects if it needs to run
+	if err := cfg.Migrate(rawJSON); err != nil {
 		return nil, fmt.Errorf("config migration failed: %w", err)
 	}
 
 	normalizeRunTargets(cfg.RunTargets)
-
-	// Store the config path so Save() writes to the same location
-	cfg.path = configPath
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -489,27 +539,31 @@ func Load(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Migrate applies config migrations to roll the config forward to the current version.
-// For now, this is a no-op. When we add config changes in the future, add migration
-// logic here keyed by the config's version.
-//
-// Example using semver.Compare:
-//
-//	// semver.Compare returns -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
-//	// Versions must have a "v" prefix for comparison
-//	fromVersion := c.ConfigVersion
-//	if fromVersion == "" {
-//	    fromVersion = "v0.0.0"
-//	} else if !strings.HasPrefix(fromVersion, "v") {
-//	    fromVersion = "v" + fromVersion
-//	}
-//	if semver.Compare(fromVersion, "v1.5.0") < 0 {
-//	    // Migrate from pre-1.5.0 format
-//	    cfg.SomeNewField = defaultValue
-//	}
-func (c *Config) Migrate() error {
-	// No migrations yet - config version tracking is newly added
-	// Add migration logic here as config schema evolves
+// Migrate runs detection-based migrations on the config.
+// Each migration in the registry checks if it needs to run via its Detect function.
+// If any migration runs, the config is auto-saved to disk (best-effort).
+func (c *Config) Migrate(rawJSON map[string]json.RawMessage) error {
+	var ranAny []string
+	for _, m := range migrations {
+		if m.Detect(rawJSON, c) {
+			if err := m.Apply(rawJSON, c); err != nil {
+				return fmt.Errorf("migration %q failed: %w", m.Name, err)
+			}
+			ranAny = append(ranAny, m.Name)
+		}
+	}
+	if len(ranAny) > 0 {
+		// Log which migrations ran
+		for _, name := range ranAny {
+			fmt.Fprintf(os.Stderr, "[config] migration applied: %s\n", name)
+		}
+		// Best-effort save: if it fails (e.g., read-only config), the in-memory
+		// config is still migrated correctly. Next load will attempt migration again.
+		if err := c.Save(); err != nil {
+			// Log warning but don't fail the load
+			fmt.Fprintf(os.Stderr, "[config] warning: migration succeeded but could not save to disk: %v\n", err)
+		}
+	}
 	return nil
 }
 

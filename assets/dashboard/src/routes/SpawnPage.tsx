@@ -87,7 +87,7 @@ export default function SpawnPage() {
   const [branchConflict, setBranchConflict] = useState<{ conflict: boolean; workspace_id?: string } | null>(null);
   const [checkingConflict, setCheckingConflict] = useState(false);
   const [conflictCheckError, setConflictCheckError] = useState(false);
-  const [sourceCodeManager, setSourceCodeManager] = useState('git-worktree');
+  const [sourceCodeManagement, setSourceCodeManager] = useState('git-worktree');
   const prefillApplied = useRef(false);
   // Track which workspace key we've hydrated (null = not yet hydrated)
   const draftHydratedKey = useRef<string | null>(null);
@@ -133,7 +133,7 @@ export default function SpawnPage() {
         const cfg = await getConfig();
         if (!active) return;
         setRepos(cfg.repos || []);
-        setSourceCodeManager(cfg.source_code_manager || 'git-worktree');
+        setSourceCodeManager(cfg.source_code_management || 'git-worktree');
 
         const promptableItems = (cfg.run_targets || []).filter(t => t.type === 'promptable');
         const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command');
@@ -363,7 +363,7 @@ export default function SpawnPage() {
     // 2. Using worktrees
     // 3. Have both repo and branch set
     // 4. Not creating a new repo
-    if (inExistingWorkspace || sourceCodeManager !== 'git-worktree' || !repo || !branch || repo === '__new__') {
+    if (inExistingWorkspace || sourceCodeManagement !== 'git-worktree' || !repo || !branch || repo === '__new__') {
       setBranchConflict(null);
       setConflictCheckError(false);
       return;
@@ -397,7 +397,7 @@ export default function SpawnPage() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [repo, branch, inExistingWorkspace, sourceCodeManager]);
+  }, [repo, branch, inExistingWorkspace, sourceCodeManagement]);
 
   const generateBranchName = useCallback(async (promptText: string) => {
     if (!promptText.trim()) {

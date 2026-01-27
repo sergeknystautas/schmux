@@ -171,7 +171,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	}()
 
-	// Check source code manager setting
+	// Check source code management setting
 	if m.config.UseWorktrees() {
 		// Using worktrees - no fallback, branch conflicts should be caught by UI
 		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {

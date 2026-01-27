@@ -745,7 +745,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 
 	response := contracts.ConfigResponse{
 		WorkspacePath:              s.config.GetWorkspacePath(),
-		SourceCodeManager:          s.config.GetSourceCodeManager(),
+		SourceCodeManagement:       s.config.GetSourceCodeManagement(),
 		Repos:                      repoResp,
 		RunTargets:                 runTargetResp,
 		QuickLaunch:                quickLaunchResp,
@@ -833,14 +833,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		cfg.WorkspacePath = newPath
 	}
 
-	if req.SourceCodeManager != nil {
-		scm := *req.SourceCodeManager
-		if scm != "" && scm != config.SourceCodeManagerGit && scm != config.SourceCodeManagerGitWorktree {
-			http.Error(w, fmt.Sprintf("invalid source_code_manager: %q (must be %q or %q)",
-				scm, config.SourceCodeManagerGit, config.SourceCodeManagerGitWorktree), http.StatusBadRequest)
+	if req.SourceCodeManagement != nil {
+		scm := *req.SourceCodeManagement
+		if scm != "" && scm != config.SourceCodeManagementGit && scm != config.SourceCodeManagementGitWorktree {
+			http.Error(w, fmt.Sprintf("invalid source_code_management: %q (must be %q or %q)",
+				scm, config.SourceCodeManagementGit, config.SourceCodeManagementGitWorktree), http.StatusBadRequest)
 			return
 		}
-		cfg.SourceCodeManager = scm
+		cfg.SourceCodeManagement = scm
 	}
 
 	if req.Repos != nil {
