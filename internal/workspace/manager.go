@@ -1395,6 +1395,178 @@ func (m *Manager) LinearSyncToMain(ctx context.Context, workspaceID string) (*Li
 	}, nil
 }
 
+// LinearSyncResolveConflictResult contains the result of a conflict resolution rebase.
+type LinearSyncResolveConflictResult struct {
+	Success         bool     `json:"success"`
+	Message         string   `json:"message"`
+	Hash            string   `json:"hash,omitempty"`
+	ConflictedFiles []string `json:"conflicted_files,omitempty"`
+	HadConflict     bool     `json:"had_conflict"`
+}
+
+// LinearSyncResolveConflict rebases exactly one commit from origin/main, handling conflicts.
+// If there's a conflict, it captures the conflicted files, resolves structurally (git add + continue),
+// and returns the list of files that had conflicts for semantic resolution by an LLM.
+func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	workspacePath := w.Path
+
+	// 1. Get the oldest commit hash from HEAD..origin/main
+	logCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "--reverse", "HEAD..origin/main")
+	logCmd.Dir = workspacePath
+	output, err := logCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w: %s", err, string(output))
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return &LinearSyncResolveConflictResult{
+			Success: true,
+			Message: "Caught up to main",
+		}, nil
+	}
+
+	// Get the first (oldest) commit hash
+	parts := strings.Fields(lines[0])
+	if len(parts) == 0 {
+		return &LinearSyncResolveConflictResult{
+			Success: true,
+			Message: "Caught up to main",
+		}, nil
+	}
+	hash := parts[0]
+	fmt.Printf("[workspace] linear-sync-resolve-conflict: workspace_id=%s rebasing hash=%s\n", workspaceID, hash)
+
+	// 2. Create WIP commit to preserve local changes (including untracked files)
+	addWipCmd := exec.CommandContext(ctx, "git", "add", "-A")
+	addWipCmd.Dir = workspacePath
+	if output, err := addWipCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git add -A failed: %w: %s", err, string(output))
+	}
+
+	wipUUID := fmt.Sprintf("WIP: %d", time.Now().UnixNano())
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", wipUUID)
+	commitCmd.Dir = workspacePath
+	commitOutput, err := commitCmd.CombinedOutput()
+	didCommit := true
+	if err != nil {
+		if strings.Contains(string(commitOutput), "nothing to commit") {
+			didCommit = false
+			fmt.Printf("[workspace] linear-sync-resolve-conflict: no local changes to commit\n")
+		} else {
+			return nil, fmt.Errorf("git commit failed: %w: %s", err, string(commitOutput))
+		}
+	} else {
+		fmt.Printf("[workspace] linear-sync-resolve-conflict: committed local changes as: %s\n", wipUUID)
+	}
+
+	// 3. git rebase <hash>
+	rebaseCmd := exec.CommandContext(ctx, "git", "rebase", hash)
+	rebaseCmd.Dir = workspacePath
+	rebaseErr := rebaseCmd.Run()
+
+	var conflictedFiles []string
+	hadConflict := false
+
+	if rebaseErr != nil {
+		hadConflict = true
+		fmt.Printf("[workspace] linear-sync-resolve-conflict: conflict detected during rebase\n")
+
+		// 4. Note the conflicts
+		diffCmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "--diff-filter=U")
+		diffCmd.Dir = workspacePath
+		diffOutput, err := diffCmd.Output()
+		if err != nil {
+			// Abort and restore
+			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
+			abortCmd.Dir = workspacePath
+			_ = abortCmd.Run()
+			if didCommit {
+				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+				resetCmd.Dir = workspacePath
+				_ = resetCmd.Run()
+			}
+			return nil, fmt.Errorf("git diff --name-only failed: %w", err)
+		}
+
+		conflictedFiles = strings.Split(strings.TrimSpace(string(diffOutput)), "\n")
+		// Filter out empty strings
+		filtered := make([]string, 0, len(conflictedFiles))
+		for _, f := range conflictedFiles {
+			if f != "" {
+				filtered = append(filtered, f)
+			}
+		}
+		conflictedFiles = filtered
+		fmt.Printf("[workspace] linear-sync-resolve-conflict: conflicted files: %v\n", conflictedFiles)
+
+		// 5. git add the files
+		addCmd := exec.CommandContext(ctx, "git", "add", "-A")
+		addCmd.Dir = workspacePath
+		if addOutput, err := addCmd.CombinedOutput(); err != nil {
+			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
+			abortCmd.Dir = workspacePath
+			_ = abortCmd.Run()
+			if didCommit {
+				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+				resetCmd.Dir = workspacePath
+				_ = resetCmd.Run()
+			}
+			return nil, fmt.Errorf("git add failed: %w: %s", err, string(addOutput))
+		}
+
+		// 6. git rebase --continue
+		continueCmd := exec.CommandContext(ctx, "git", "rebase", "--continue")
+		continueCmd.Dir = workspacePath
+		continueCmd.Env = append(os.Environ(), "GIT_EDITOR=true") // Skip commit message editor
+		if continueOutput, err := continueCmd.CombinedOutput(); err != nil {
+			fmt.Printf("[workspace] linear-sync-resolve-conflict: rebase --continue failed: %s\n", string(continueOutput))
+			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
+			abortCmd.Dir = workspacePath
+			_ = abortCmd.Run()
+			if didCommit {
+				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+				resetCmd.Dir = workspacePath
+				_ = resetCmd.Run()
+			}
+			return nil, fmt.Errorf("git rebase --continue failed: %w: %s", err, string(continueOutput))
+		}
+	}
+
+	// 7. git reset --mixed HEAD~1
+	if didCommit {
+		resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+		resetCmd.Dir = workspacePath
+		if output, err := resetCmd.CombinedOutput(); err != nil {
+			fmt.Printf("[workspace] linear-sync-resolve-conflict: warning: git reset --mixed failed: %s\n", string(output))
+		} else {
+			fmt.Printf("[workspace] linear-sync-resolve-conflict: restored local changes after rebase\n")
+		}
+	}
+
+	if hadConflict {
+		return &LinearSyncResolveConflictResult{
+			Success:         true,
+			Message:         fmt.Sprintf("Rebased %s with conflicts", hash),
+			Hash:            hash,
+			ConflictedFiles: conflictedFiles,
+			HadConflict:     true,
+		}, nil
+	}
+
+	return &LinearSyncResolveConflictResult{
+		Success:     true,
+		Message:     fmt.Sprintf("Rebased %s cleanly", hash),
+		Hash:        hash,
+		HadConflict: false,
+	}, nil
+}
+
 // Dispose deletes a workspace by removing its directory and removing it from state.
 func (m *Manager) Dispose(workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)

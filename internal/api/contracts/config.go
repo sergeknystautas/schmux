@@ -64,6 +64,11 @@ type BranchSuggest struct {
 	Target string `json:"target,omitempty"`
 }
 
+// ConflictResolve represents conflict resolution configuration.
+type ConflictResolve struct {
+	Target string `json:"target,omitempty"`
+}
+
 // Sessions represents session and git-related timing configuration.
 type Sessions struct {
 	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
@@ -115,6 +120,7 @@ type ConfigResponse struct {
 	Terminal                   Terminal              `json:"terminal"`
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
+	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
 	Sessions                   Sessions              `json:"sessions"`
 	Xterm                      Xterm                 `json:"xterm"`
 	Network                    Network               `json:"network"`
@@ -139,6 +145,11 @@ type NudgenikUpdate struct {
 
 // BranchSuggestUpdate represents partial branch suggest updates.
 type BranchSuggestUpdate struct {
+	Target *string `json:"target,omitempty"`
+}
+
+// ConflictResolveUpdate represents partial conflict resolve updates.
+type ConflictResolveUpdate struct {
 	Target *string `json:"target,omitempty"`
 }
 
@@ -182,19 +193,20 @@ type AccessControlUpdate struct {
 
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
 type ConfigUpdateRequest struct {
-	WorkspacePath              *string               `json:"workspace_path,omitempty"`
-	SourceCodeManagement       *string               `json:"source_code_management,omitempty"`
-	Repos                      []Repo                `json:"repos,omitempty"`
-	RunTargets                 []RunTarget           `json:"run_targets,omitempty"`
-	QuickLaunch                []QuickLaunch         `json:"quick_launch,omitempty"`
-	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
-	ExternalDiffCleanupAfterMs *int                  `json:"external_diff_cleanup_after_ms,omitempty"`
-	Variants                   []Variant             `json:"variants,omitempty"`
-	Nudgenik                   *NudgenikUpdate       `json:"nudgenik,omitempty"`
-	BranchSuggest              *BranchSuggestUpdate  `json:"branch_suggest,omitempty"`
-	Terminal                   *TerminalUpdate       `json:"terminal,omitempty"`
-	Sessions                   *SessionsUpdate       `json:"sessions,omitempty"`
-	Xterm                      *XtermUpdate          `json:"xterm,omitempty"`
-	Network                    *NetworkUpdate        `json:"network,omitempty"`
-	AccessControl              *AccessControlUpdate  `json:"access_control,omitempty"`
+	WorkspacePath              *string                `json:"workspace_path,omitempty"`
+	SourceCodeManagement       *string                `json:"source_code_management,omitempty"`
+	Repos                      []Repo                 `json:"repos,omitempty"`
+	RunTargets                 []RunTarget            `json:"run_targets,omitempty"`
+	QuickLaunch                []QuickLaunch          `json:"quick_launch,omitempty"`
+	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs *int                   `json:"external_diff_cleanup_after_ms,omitempty"`
+	Variants                   []Variant              `json:"variants,omitempty"`
+	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
+	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`
+	Terminal                   *TerminalUpdate        `json:"terminal,omitempty"`
+	Sessions                   *SessionsUpdate        `json:"sessions,omitempty"`
+	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`
+	Network                    *NetworkUpdate         `json:"network,omitempty"`
+	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 }

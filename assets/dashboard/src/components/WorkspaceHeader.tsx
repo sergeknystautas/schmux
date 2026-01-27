@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { openVSCode, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { openVSCode, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useSessions } from '../contexts/SessionsContext';
+import { useConfig } from '../contexts/ConfigContext';
 import Tooltip from './Tooltip';
 import VSCodeResultModal from './VSCodeResultModal';
 import type { WorkspaceResponse, OpenVSCodeResponse } from '../lib/types';
@@ -13,9 +15,11 @@ type WorkspaceHeaderProps = {
 };
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
+  const navigate = useNavigate();
   const { refresh } = useSessions();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
+  const { config } = useConfig();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
 
@@ -23,6 +27,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [rebasing, setRebasing] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [placementAbove, setPlacementAbove] = useState(false);
   const gitStatusRef = useRef<HTMLDivElement | null>(null);
@@ -150,6 +155,32 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     }
   };
 
+  const handleLinearSyncResolveConflict = async () => {
+    setIsDropdownOpen(false);
+    setResolving(true);
+
+    try {
+      const result = await linearSyncResolveConflict(workspace.id);
+      if (result.success) {
+        if (result.session_id) {
+          success(`${result.message} - spawned session for conflict resolution`);
+          refresh();
+          navigate(`/sessions/${result.session_id}`);
+        } else {
+          success(result.message);
+          refresh();
+        }
+      } else {
+        toastError(result.message);
+        refresh();
+      }
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to resolve conflict'));
+    } finally {
+      setResolving(false);
+    }
+  };
+
   return (
     <>
       <div className="workspace-header">
@@ -227,7 +258,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         />
       )}
 
-      {isDropdownOpen && !rebasing && !merging && createPortal(
+      {isDropdownOpen && !rebasing && !merging && !resolving && createPortal(
         <div
           ref={menuRef}
           className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
@@ -246,7 +277,16 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
             disabled={behind === 0}
             aria-disabled={behind === 0}
           >
-            <span className="spawn-dropdown__item-label">sync from main</span>
+            <span className="spawn-dropdown__item-label">sync from main clean</span>
+          </button>
+          <button
+            className="spawn-dropdown__item"
+            onClick={handleLinearSyncResolveConflict}
+            role="menuitem"
+            disabled={behind === 0 || !config.conflict_resolve?.target}
+            aria-disabled={behind === 0 || !config.conflict_resolve?.target}
+          >
+            <span className="spawn-dropdown__item-label">sync from main conflict</span>
           </button>
           <button
             className="spawn-dropdown__item"

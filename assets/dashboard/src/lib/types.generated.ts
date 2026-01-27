@@ -32,6 +32,7 @@ export interface ConfigResponse {
   terminal: Terminal;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
+  conflict_resolve: ConflictResolve;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -50,11 +51,20 @@ export interface ConfigUpdateRequest {
   variants?: Variant[];
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
+  conflict_resolve?: ConflictResolveUpdate;
   terminal?: TerminalUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
   access_control?: AccessControlUpdate;
+}
+
+export interface ConflictResolve {
+  target?: string;
+}
+
+export interface ConflictResolveUpdate {
+  target?: string;
 }
 
 export interface ExternalDiffCommand {

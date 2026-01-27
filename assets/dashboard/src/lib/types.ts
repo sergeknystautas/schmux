@@ -177,3 +177,12 @@ export interface LinearSyncResponse {
   success: boolean;
   message: string;
 }
+
+export interface LinearSyncResolveConflictResponse {
+  success: boolean;
+  message: string;
+  hash?: string;
+  conflicted_files?: string[];
+  had_conflict: boolean;
+  session_id?: string;
+}

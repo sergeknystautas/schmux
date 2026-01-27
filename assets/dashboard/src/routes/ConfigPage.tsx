@@ -43,6 +43,7 @@ type ConfigSnapshot = {
   externalDiffCleanupMinutes: number;
   nudgenikTarget: string;
   branchSuggestTarget: string;
+  conflictResolveTarget: string;
   terminalWidth: string;
   terminalHeight: string;
   terminalSeedLines: string;
@@ -141,6 +142,7 @@ export default function ConfigPage() {
   const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
+  const [conflictResolveTarget, setConflictResolveTarget] = useState('');
 
   // External diff new item state
   const [newDiffName, setNewDiffName] = useState('');
@@ -199,6 +201,7 @@ export default function ConfigPage() {
       externalDiffCleanupMinutes,
       nudgenikTarget,
       branchSuggestTarget,
+      conflictResolveTarget,
       terminalWidth,
       terminalHeight,
       terminalSeedLines,
@@ -239,6 +242,7 @@ export default function ConfigPage() {
       !arraysMatch(current.externalDiffCommands, originalConfig.externalDiffCommands) ||
       current.nudgenikTarget !== originalConfig.nudgenikTarget ||
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
+      current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
       current.terminalHeight !== originalConfig.terminalHeight ||
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
@@ -334,6 +338,7 @@ export default function ConfigPage() {
         setExternalDiffCleanupMinutes(Math.max(1, cleanupMs / 60000));
         setNudgenikTarget(data.nudgenik?.target || '');
         setBranchSuggestTarget(data.branch_suggest?.target || '');
+        setConflictResolveTarget(data.conflict_resolve?.target || '');
 
         setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
@@ -370,6 +375,7 @@ export default function ConfigPage() {
             externalDiffCleanupMinutes: Math.max(1, (data.external_diff_cleanup_after_ms || 3600000) / 60000),
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
+            conflictResolveTarget: data.conflict_resolve?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
@@ -538,6 +544,9 @@ export default function ConfigPage() {
         branch_suggest: {
           target: branchSuggestTarget || '',
         },
+        conflict_resolve: {
+          target: conflictResolveTarget || '',
+        },
         sessions: {
           dashboard_poll_interval_ms: dashboardPollInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
@@ -589,6 +598,7 @@ export default function ConfigPage() {
           externalDiffCleanupMinutes,
           nudgenikTarget,
           branchSuggestTarget,
+          conflictResolveTarget,
           terminalWidth,
           terminalHeight,
           terminalSeedLines,
@@ -696,16 +706,18 @@ export default function ConfigPage() {
     const inQuickLaunch = quickLaunch.some((item) => item.target === targetName);
     const inNudgenik = nudgenikTarget && nudgenikTarget === targetName;
     const inBranchSuggest = branchSuggestTarget && branchSuggestTarget === targetName;
-    return { inQuickLaunch, inNudgenik, inBranchSuggest };
+    const inConflictResolve = conflictResolveTarget && conflictResolveTarget === targetName;
+    return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve };
   };
 
   const removePromptableTarget = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
-        usage.inBranchSuggest ? 'branch suggest target' : null
+        usage.inBranchSuggest ? 'branch suggest target' : null,
+        usage.inConflictResolve ? 'conflict resolve target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -738,11 +750,12 @@ export default function ConfigPage() {
 
   const removeCommand = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
-        usage.inBranchSuggest ? 'branch suggest target' : null
+        usage.inBranchSuggest ? 'branch suggest target' : null,
+        usage.inConflictResolve ? 'conflict resolve target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -1028,6 +1041,7 @@ export default function ConfigPage() {
   const commandTargetNames = new Set(commandTargets.map((target) => target.name));
   const nudgenikTargetMissing = nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
   const branchSuggestTargetMissing = branchSuggestTarget.trim() !== '' && !promptableTargetNames.has(branchSuggestTarget.trim());
+  const conflictResolveTargetMissing = conflictResolveTarget.trim() !== '' && !promptableTargetNames.has(conflictResolveTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -1932,6 +1946,45 @@ export default function ConfigPage() {
                       Select a promptable target for branch name suggestion, or leave disabled.
                     </p>
                     {branchSuggestTargetMissing && (
+                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Conflict Resolution</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={conflictResolveTarget}
+                      onChange={(e) => setConflictResolveTarget(e.target.value)}
+                    >
+                      <option value="">Disabled</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Variants">
+                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
+                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Select a promptable target for merge conflict resolution. When &quot;sync from main conflict&quot; encounters a conflict, this target will be spawned to resolve it.
+                    </p>
+                    {conflictResolveTargetMissing && (
                       <p className="form-group__error">Selected target is not available or not promptable.</p>
                     )}
                   </div>

@@ -50,23 +50,24 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	ConfigVersion              string                `json:"config_version,omitempty"`
-	WorkspacePath              string                `json:"workspace_path"`
-	BaseReposPath              string                `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
-	SourceCodeManagement       string                `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
-	Repos                      []Repo                `json:"repos"`
-	RunTargets                 []RunTarget           `json:"run_targets"`
-	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
-	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
-	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
-	Variants                   []VariantConfig       `json:"variants,omitempty"`
-	Terminal                   *TerminalSize         `json:"terminal,omitempty"`
-	Nudgenik                   *NudgenikConfig       `json:"nudgenik,omitempty"`
-	BranchSuggest              *BranchSuggestConfig  `json:"branch_suggest,omitempty"`
-	Sessions                   *SessionsConfig       `json:"sessions,omitempty"`
-	Xterm                      *XtermConfig          `json:"xterm,omitempty"`
-	Network                    *NetworkConfig        `json:"network,omitempty"`
-	AccessControl              *AccessControlConfig  `json:"access_control,omitempty"`
+	ConfigVersion              string                 `json:"config_version,omitempty"`
+	WorkspacePath              string                 `json:"workspace_path"`
+	BaseReposPath              string                 `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
+	SourceCodeManagement       string                 `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
+	Repos                      []Repo                 `json:"repos"`
+	RunTargets                 []RunTarget            `json:"run_targets"`
+	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
+	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
+	Variants                   []VariantConfig        `json:"variants,omitempty"`
+	Terminal                   *TerminalSize          `json:"terminal,omitempty"`
+	Nudgenik                   *NudgenikConfig        `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
+	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
+	Sessions                   *SessionsConfig        `json:"sessions,omitempty"`
+	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
+	Network                    *NetworkConfig         `json:"network,omitempty"`
+	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -90,6 +91,11 @@ type NudgenikConfig struct {
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
 type BranchSuggestConfig struct {
+	Target string `json:"target,omitempty"`
+}
+
+// ConflictResolveConfig represents configuration for conflict resolution.
+type ConflictResolveConfig struct {
 	Target string `json:"target,omitempty"`
 }
 
@@ -346,6 +352,14 @@ func (c *Config) GetBranchSuggestTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.BranchSuggest.Target)
+}
+
+// GetConflictResolveTarget returns the configured conflict resolution target name, if any.
+func (c *Config) GetConflictResolveTarget() string {
+	if c == nil || c.ConflictResolve == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.ConflictResolve.Target)
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

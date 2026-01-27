@@ -761,6 +761,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		BranchSuggest: contracts.BranchSuggest{
 			Target: s.config.GetBranchSuggestTarget(),
 		},
+		ConflictResolve: contracts.ConflictResolve{
+			Target: s.config.GetConflictResolveTarget(),
+		},
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
@@ -949,6 +952,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.BranchSuggest.Target == "" {
 			cfg.BranchSuggest = nil
+		}
+	}
+
+	if req.ConflictResolve != nil {
+		if cfg.ConflictResolve == nil {
+			cfg.ConflictResolve = &config.ConflictResolveConfig{}
+		}
+		if req.ConflictResolve.Target != nil {
+			cfg.ConflictResolve.Target = strings.TrimSpace(*req.ConflictResolve.Target)
+		}
+		if cfg.ConflictResolve.Target == "" {
+			cfg.ConflictResolve = nil
 		}
 	}
 
@@ -2146,6 +2161,8 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 		s.handleLinearSyncFromMain(w, r)
 	} else if strings.HasSuffix(path, "/linear-sync-to-main") {
 		s.handleLinearSyncToMain(w, r)
+	} else if strings.HasSuffix(path, "/linear-sync-resolve-conflict") {
+		s.handleLinearSyncResolveConflict(w, r)
 	} else {
 		http.NotFound(w, r)
 	}
@@ -2268,6 +2285,124 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleLinearSyncResolveConflict handles POST requests to rebase one commit from main, handling conflicts.
+// POST /api/workspaces/{id}/linear-sync-resolve-conflict
+//
+// This rebases exactly one commit from origin/main, captures any conflicts, resolves them structurally,
+// and optionally spawns an LLM session for semantic conflict resolution.
+func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.Request) {
+	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-resolve-conflict
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/linear-sync-resolve-conflict")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type LinearSyncResolveConflictResponse struct {
+		Success         bool     `json:"success"`
+		Message         string   `json:"message"`
+		Hash            string   `json:"hash,omitempty"`
+		ConflictedFiles []string `json:"conflicted_files,omitempty"`
+		HadConflict     bool     `json:"had_conflict"`
+		SessionID       string   `json:"session_id,omitempty"`
+	}
+
+	// Get workspace from state
+	ws, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(LinearSyncResolveConflictResponse{
+			Success: false,
+			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		})
+		return
+	}
+
+	fmt.Printf("[workspace] linear-sync-resolve-conflict: workspace_id=%s\n", workspaceID)
+
+	// Perform the conflict resolution rebase
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+
+	result, err := s.workspace.LinearSyncResolveConflict(ctx, workspaceID)
+	if err != nil {
+		fmt.Printf("[workspace] linear-sync-resolve-conflict error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(LinearSyncResolveConflictResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to resolve conflict: %v", err),
+		})
+		return
+	}
+
+	// Update git status after sync
+	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+		fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to update git status: %v\n", err)
+	}
+
+	response := LinearSyncResolveConflictResponse{
+		Success:         result.Success,
+		Message:         result.Message,
+		Hash:            result.Hash,
+		ConflictedFiles: result.ConflictedFiles,
+		HadConflict:     result.HadConflict,
+	}
+
+	// If there was a conflict, spawn an LLM session for semantic resolution
+	if result.HadConflict && len(result.ConflictedFiles) > 0 {
+		targetName := s.config.GetConflictResolveTarget()
+		if targetName != "" {
+			// Build the prompt for the LLM
+			filesStr := strings.Join(result.ConflictedFiles, ", ")
+			prompt := fmt.Sprintf(`You must resolve merge conflicts from main.
+
+**Context:**
+- Commit hash being rebased: %s
+- Files with conflicts: %s
+
+**Direction of changes (IMPORTANT - read carefully):**
+- HEAD now contains the commit from MAIN (hash %s) - this is the INCOMING change
+- The UNCOMMITTED modifications are from the LOCAL branch - this is YOUR work that was here before
+- So: HEAD = main's changes, uncommitted = local's changes
+
+**Your task:**
+- Examine the conflicted files and resolve the conflict markers
+- Preserve functionality from BOTH directions where possible
+- Don't be lazy - actually think through what both sides were trying to accomplish
+- Test the code if possible after resolving
+
+Get to work.`, result.Hash, filesStr, result.Hash)
+
+			nickname := fmt.Sprintf("Resolve rebase %s from main", result.Hash[:7])
+
+			// Spawn the session
+			spawnCtx, spawnCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+			defer spawnCancel()
+
+			sess, err := s.session.Spawn(spawnCtx, ws.Repo, ws.Branch, targetName, prompt, nickname, workspaceID)
+			if err != nil {
+				fmt.Printf("[workspace] linear-sync-resolve-conflict: failed to spawn session: %v\n", err)
+				// Don't fail the whole request, just note the error
+				response.Message = fmt.Sprintf("%s (failed to spawn LLM session: %v)", result.Message, err)
+			} else {
+				fmt.Printf("[workspace] linear-sync-resolve-conflict: spawned session %s for conflict resolution\n", sess.ID)
+				response.SessionID = sess.ID
+			}
+		} else {
+			fmt.Printf("[workspace] linear-sync-resolve-conflict: no conflict_resolve target configured, skipping LLM spawn\n")
+		}
+	}
+
+	fmt.Printf("[workspace] linear-sync-resolve-conflict success: workspace_id=%s message=%s had_conflict=%v\n",
+		workspaceID, result.Message, result.HadConflict)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.

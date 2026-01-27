@@ -7,6 +7,7 @@ import type {
   DiffExternalResponse,
   DiffResponse,
   LinearSyncResponse,
+  LinearSyncResolveConflictResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
   ScanResult,
@@ -296,6 +297,18 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.message || err.error || 'Failed to sync to main');
+  }
+  return response.json();
+}
+
+export async function linearSyncResolveConflict(workspaceId: string): Promise<LinearSyncResolveConflictResponse> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || err.error || 'Failed to resolve conflict');
   }
   return response.json();
 }

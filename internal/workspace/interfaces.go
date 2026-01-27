@@ -60,6 +60,9 @@ type WorkspaceManager interface {
 
 	// LinearSyncToMain performs a fast-forward push to origin/main.
 	LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+
+	// LinearSyncResolveConflict rebases exactly one commit from main, handling conflicts.
+	LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.
