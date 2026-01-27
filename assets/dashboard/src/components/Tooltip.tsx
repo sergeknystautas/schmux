@@ -69,31 +69,29 @@ export default function Tooltip({
 
     const trigger = triggerRef.current.getBoundingClientRect();
     const tooltip = tooltipRef.current.getBoundingClientRect();
-    const scrollX = window.scrollX || window.pageXOffset;
-    const scrollY = window.scrollY || window.pageYOffset;
     const gap = 8; // Space between trigger and tooltip
 
     // Get viewport dimensions
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    // Calculate positions for each placement
+    // Calculate positions for each placement (fixed positioning, no scroll offset)
     const positions = {
       top: {
-        top: trigger.top + scrollY - tooltip.height - gap,
-        left: trigger.left + scrollX + (trigger.width - tooltip.width) / 2,
+        top: trigger.top - tooltip.height - gap,
+        left: trigger.left + (trigger.width - tooltip.width) / 2,
       },
       bottom: {
-        top: trigger.bottom + scrollY + gap,
-        left: trigger.left + scrollX + (trigger.width - tooltip.width) / 2,
+        top: trigger.bottom + gap,
+        left: trigger.left + (trigger.width - tooltip.width) / 2,
       },
       left: {
-        top: trigger.top + scrollY + (trigger.height - tooltip.height) / 2,
-        left: trigger.left + scrollX - tooltip.width - gap,
+        top: trigger.top + (trigger.height - tooltip.height) / 2,
+        left: trigger.left - tooltip.width - gap,
       },
       right: {
-        top: trigger.top + scrollY + (trigger.height - tooltip.height) / 2,
-        left: trigger.right + scrollX + gap,
+        top: trigger.top + (trigger.height - tooltip.height) / 2,
+        left: trigger.right + gap,
       },
     };
 
@@ -200,7 +198,7 @@ export default function Tooltip({
           id="tooltip-content"
           className={`tooltip-react ${variantClasses[variant]}`}
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: position.top,
             left: position.left,
             zIndex: 1000,
