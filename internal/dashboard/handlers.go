@@ -80,63 +80,60 @@ func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
-// handleSessions returns the list of workspaces and their sessions as JSON.
-// Returns a hierarchical structure: workspaces -> sessions
-func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+// SessionResponseItem represents a session in the API response.
+type SessionResponseItem struct {
+	ID           string `json:"id"`
+	Target       string `json:"target"`
+	Branch       string `json:"branch"`
+	BranchURL    string `json:"branch_url,omitempty"`
+	Nickname     string `json:"nickname,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	LastOutputAt string `json:"last_output_at,omitempty"`
+	Running      bool   `json:"running"`
+	AttachCmd    string `json:"attach_cmd"`
+	NudgeState   string `json:"nudge_state,omitempty"`
+	NudgeSummary string `json:"nudge_summary,omitempty"`
+}
 
+// WorkspaceResponseItem represents a workspace in the API response.
+type WorkspaceResponseItem struct {
+	ID              string                `json:"id"`
+	Repo            string                `json:"repo"`
+	Branch          string                `json:"branch"`
+	BranchURL       string                `json:"branch_url,omitempty"`
+	Path            string                `json:"path"`
+	SessionCount    int                   `json:"session_count"`
+	Sessions        []SessionResponseItem `json:"sessions"`
+	GitAhead        int                   `json:"git_ahead"`
+	GitBehind       int                   `json:"git_behind"`
+	GitLinesAdded   int                   `json:"git_lines_added"`
+	GitLinesRemoved int                   `json:"git_lines_removed"`
+	GitFilesChanged int                   `json:"git_files_changed"`
+}
+
+// buildSessionsResponse builds the sessions/workspaces response data.
+// Used by both the HTTP handler and WebSocket broadcast.
+func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 	sessions := s.session.GetAllSessions()
 
-	// Group sessions by workspace
-	type SessionResponse struct {
-		ID           string `json:"id"`
-		Target       string `json:"target"`
-		Branch       string `json:"branch"`
-		BranchURL    string `json:"branch_url,omitempty"`
-		Nickname     string `json:"nickname,omitempty"`
-		CreatedAt    string `json:"created_at"`
-		LastOutputAt string `json:"last_output_at,omitempty"`
-		Running      bool   `json:"running"`
-		AttachCmd    string `json:"attach_cmd"`
-		NudgeState   string `json:"nudge_state,omitempty"`
-		NudgeSummary string `json:"nudge_summary,omitempty"`
-	}
-
-	type WorkspaceResponse struct {
-		ID              string            `json:"id"`
-		Repo            string            `json:"repo"`
-		Branch          string            `json:"branch"`
-		BranchURL       string            `json:"branch_url,omitempty"`
-		Path            string            `json:"path"`
-		SessionCount    int               `json:"session_count"`
-		Sessions        []SessionResponse `json:"sessions"`
-		GitAhead        int               `json:"git_ahead"`
-		GitBehind       int               `json:"git_behind"`
-		GitLinesAdded   int               `json:"git_lines_added"`
-		GitLinesRemoved int               `json:"git_lines_removed"`
-		GitFilesChanged int               `json:"git_files_changed"`
-	}
-
-	workspaceMap := make(map[string]*WorkspaceResponse)
+	workspaceMap := make(map[string]*WorkspaceResponseItem)
 	workspaces := s.state.GetWorkspaces()
+	ctx := context.Background()
 	for _, ws := range workspaces {
 		// Only build branch URL if the branch has a remote tracking branch (upstream)
 		branchURL := ""
-		if workspace.BranchHasUpstream(r.Context(), ws.Path) {
+		if workspace.BranchHasUpstream(ctx, ws.Path) {
 			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
 		}
 
-		workspaceMap[ws.ID] = &WorkspaceResponse{
+		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:              ws.ID,
 			Repo:            ws.Repo,
 			Branch:          ws.Branch,
 			BranchURL:       branchURL,
 			Path:            ws.Path,
 			SessionCount:    0,
-			Sessions:        []SessionResponse{},
+			Sessions:        []SessionResponseItem{},
 			GitAhead:        ws.GitAhead,
 			GitBehind:       ws.GitBehind,
 			GitLinesAdded:   ws.GitLinesAdded,
@@ -157,11 +154,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if !sess.LastOutputAt.IsZero() {
 			lastOutputAt = sess.LastOutputAt.Format("2006-01-02T15:04:05")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
-		running := s.session.IsRunning(ctx, sess.ID)
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
+		running := s.session.IsRunning(timeoutCtx, sess.ID)
 		cancel()
 		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
-		wsResp.Sessions = append(wsResp.Sessions, SessionResponse{
+		wsResp.Sessions = append(wsResp.Sessions, SessionResponseItem{
 			ID:           sess.ID,
 			Target:       sess.Target,
 			Branch:       wsResp.Branch,
@@ -178,7 +175,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert map to slice and sort workspaces by ID
-	response := make([]WorkspaceResponse, 0, len(workspaceMap))
+	response := make([]WorkspaceResponseItem, 0, len(workspaceMap))
 	for _, ws := range workspaceMap {
 		response = append(response, *ws)
 	}
@@ -201,6 +198,18 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	return response
+}
+
+// handleSessions returns the list of workspaces and their sessions as JSON.
+// Returns a hierarchical structure: workspaces -> sessions
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := s.buildSessionsResponse()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -449,12 +458,19 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log the results
+	hasSuccess := false
 	for _, r := range results {
 		if r.Error != "" {
 			fmt.Printf("[session] spawn error: target=%s error=%s\n", r.Target, r.Error)
 		} else {
 			fmt.Printf("[session] spawn success: target=%s session_id=%s workspace_id=%s\n", r.Target, r.SessionID, r.WorkspaceID)
+			hasSuccess = true
 		}
+	}
+
+	// Broadcast update to WebSocket clients
+	if hasSuccess {
+		go s.BroadcastSessions()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -545,6 +561,9 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	fmt.Printf("[session] dispose success: session_id=%s\n", sessionID)
 
+	// Broadcast update to WebSocket clients
+	go s.BroadcastSessions()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -571,6 +590,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	fmt.Printf("[workspace] dispose success: workspace_id=%s\n", workspaceID)
+
+	// Broadcast update to WebSocket clients
+	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -616,6 +638,9 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Broadcast update to WebSocket clients
+	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

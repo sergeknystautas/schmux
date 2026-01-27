@@ -164,8 +164,8 @@ export default function SessionDetailPage() {
       try {
         await updateNickname(sessionId, newNickname);
         success('Nickname updated');
-        // Refresh session data to show updated nickname
-        refresh(true);
+        // Session data will be updated via WebSocket
+        refresh();
         return; // Success, exit loop
       } catch (err) {
         if ((err as { isConflict?: boolean }).isConflict) {

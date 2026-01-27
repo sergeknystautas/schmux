@@ -232,10 +232,16 @@ func (e *Env) CreateConfig(workspacePath string) {
 	}
 }
 
-// WSOutputMessage represents a WebSocket message to the client.
+// WSOutputMessage represents a WebSocket message to the client (for terminal).
 type WSOutputMessage struct {
 	Type    string `json:"type"` // "full", "append", "reconnect"
 	Content string `json:"content"`
+}
+
+// DashboardMessage represents a WebSocket message from /ws/dashboard.
+type DashboardMessage struct {
+	Type       string         `json:"type"` // "sessions", "config"
+	Workspaces []APIWorkspace `json:"workspaces,omitempty"`
 }
 
 // ConnectTerminalWebSocket connects to the terminal websocket for a session.
@@ -257,6 +263,98 @@ func (e *Env) ConnectTerminalWebSocket(sessionID string) (*websocket.Conn, error
 		return nil, err
 	}
 	return conn, nil
+}
+
+// ConnectDashboardWebSocket connects to the dashboard websocket.
+func (e *Env) ConnectDashboardWebSocket() (*websocket.Conn, error) {
+	base, err := url.Parse(e.DaemonURL)
+	if err != nil {
+		return nil, err
+	}
+	wsURL := url.URL{
+		Scheme: "ws",
+		Host:   base.Host,
+		Path:   "/ws/dashboard",
+	}
+
+	header := http.Header{}
+	header.Set("Origin", "http://localhost:7337")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+// ReadDashboardMessage reads a single message from the dashboard websocket.
+func (e *Env) ReadDashboardMessage(conn *websocket.Conn, timeout time.Duration) (*DashboardMessage, error) {
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	var msg DashboardMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dashboard message: %w", err)
+	}
+	return &msg, nil
+}
+
+// WaitForDashboardSession waits for a session to appear in dashboard websocket messages.
+func (e *Env) WaitForDashboardSession(conn *websocket.Conn, sessionID string, timeout time.Duration) (*DashboardMessage, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		msg, err := e.ReadDashboardMessage(conn, time.Until(deadline))
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				return nil, fmt.Errorf("timed out waiting for session %s", sessionID)
+			}
+			return nil, err
+		}
+		if msg.Type == "sessions" {
+			for _, ws := range msg.Workspaces {
+				for _, sess := range ws.Sessions {
+					if sess.ID == sessionID {
+						return msg, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("timed out waiting for session %s", sessionID)
+}
+
+// WaitForDashboardSessionGone waits for a session to disappear from dashboard websocket messages.
+func (e *Env) WaitForDashboardSessionGone(conn *websocket.Conn, sessionID string, timeout time.Duration) (*DashboardMessage, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		msg, err := e.ReadDashboardMessage(conn, time.Until(deadline))
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				return nil, fmt.Errorf("timed out waiting for session %s to be gone", sessionID)
+			}
+			return nil, err
+		}
+		if msg.Type == "sessions" {
+			found := false
+			for _, ws := range msg.Workspaces {
+				for _, sess := range ws.Sessions {
+					if sess.ID == sessionID {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				return msg, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("timed out waiting for session %s to be gone", sessionID)
 }
 
 // WaitForWebSocketContent reads websocket output until it finds the substring or times out.

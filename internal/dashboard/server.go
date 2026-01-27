@@ -38,9 +38,15 @@ type Server struct {
 	httpServer *http.Server
 	shutdown   func() // Callback to trigger daemon shutdown
 
-	// WebSocket connection registry: sessionID -> list of active connections
+	// WebSocket connection registry: sessionID -> list of active connections (for terminal)
 	wsConns   map[string][]*websocket.Conn
 	wsConnsMu sync.RWMutex
+
+	// Sessions WebSocket connections (for /ws/sessions real-time updates)
+	sessionsConns   map[*websocket.Conn]bool
+	sessionsConnsMu sync.RWMutex
+	lastBroadcast   time.Time
+	lastBroadcastMu sync.Mutex
 
 	// Per-session rotation locks to prevent concurrent rotations
 	rotationLocks   map[string]*sync.Mutex
@@ -73,6 +79,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:     wm,
 		shutdown:      shutdown,
 		wsConns:       make(map[string][]*websocket.Conn),
+		sessionsConns: make(map[*websocket.Conn]bool),
 		rotationLocks: make(map[string]*sync.Mutex),
 	}
 }
@@ -150,6 +157,9 @@ func (s *Server) Start() error {
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)
+
+	// WebSocket for real-time dashboard state updates
+	mux.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 
 	// Bind address from config
 	bindAddr := s.config.GetBindAddress()
@@ -401,4 +411,115 @@ func (s *Server) GetVersionInfo() versionInfo {
 	s.versionInfoMu.RLock()
 	defer s.versionInfoMu.RUnlock()
 	return s.versionInfo
+}
+
+// RegisterDashboardConn registers a WebSocket connection for dashboard updates.
+func (s *Server) RegisterDashboardConn(conn *websocket.Conn) {
+	s.sessionsConnsMu.Lock()
+	defer s.sessionsConnsMu.Unlock()
+	s.sessionsConns[conn] = true
+}
+
+// UnregisterDashboardConn removes a WebSocket connection for dashboard updates.
+func (s *Server) UnregisterDashboardConn(conn *websocket.Conn) {
+	s.sessionsConnsMu.Lock()
+	defer s.sessionsConnsMu.Unlock()
+	delete(s.sessionsConns, conn)
+}
+
+// BroadcastSessions sends the current sessions state to all connected WebSocket clients.
+// Debounces to avoid overwhelming clients during rapid changes.
+func (s *Server) BroadcastSessions() {
+	// Debounce: skip if we broadcast less than 500ms ago
+	s.lastBroadcastMu.Lock()
+	if time.Since(s.lastBroadcast) < 500*time.Millisecond {
+		s.lastBroadcastMu.Unlock()
+		return
+	}
+	s.lastBroadcast = time.Now()
+	s.lastBroadcastMu.Unlock()
+
+	// Build the sessions response
+	data := s.buildSessionsResponse()
+
+	// Marshal to JSON with type field
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":       "sessions",
+		"workspaces": data,
+	})
+	if err != nil {
+		fmt.Printf("[ws/dashboard] failed to marshal response: %v\n", err)
+		return
+	}
+
+	// Send to all connected clients
+	s.sessionsConnsMu.RLock()
+	conns := make([]*websocket.Conn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			// Connection error - will be cleaned up by the handler
+			continue
+		}
+	}
+}
+
+// handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
+func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Authenticate if auth is enabled
+	if s.config.GetAuthEnabled() {
+		if _, err := s.authenticateRequest(r); err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	// Upgrade connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
+			return s.isAllowedOrigin(origin)
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		fmt.Printf("[ws/dashboard] upgrade error: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	// Register connection
+	s.RegisterDashboardConn(conn)
+	defer s.UnregisterDashboardConn(conn)
+
+	// Send initial full state with type field
+	data := s.buildSessionsResponse()
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":       "sessions",
+		"workspaces": data,
+	})
+	if err != nil {
+		fmt.Printf("[ws/dashboard] failed to marshal initial response: %v\n", err)
+		return
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		return
+	}
+
+	// Keep connection alive - read messages (client doesn't send any, but we need to detect close)
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			// Connection closed
+			break
+		}
+	}
 }

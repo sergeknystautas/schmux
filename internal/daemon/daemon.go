@@ -369,9 +369,6 @@ func Run(background bool) error {
 		}
 	}()
 
-	// Start background goroutine to check for inactive sessions and ask NudgeNik
-	go startNudgeNikChecker(shutdownCtx, cfg, st, sm)
-
 	// Bootstrap log streams for active sessions with missing pipe-pane.
 	seedLines := cfg.GetTerminalSeedLines()
 	if seedLines <= 0 {
@@ -393,8 +390,12 @@ func Run(background bool) error {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
+	// Create dashboard server
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)
+
 	// Start background goroutine to update git status for all workspaces.
 	// Started after EnsureWorkspaceDir to avoid race with directory creation.
+	// Started after server creation so it can broadcast updates to WebSocket clients.
 	go func() {
 		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
 		ticker := time.NewTicker(pollInterval)
@@ -407,6 +408,7 @@ func Run(background bool) error {
 			ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
 			wm.UpdateAllGitStatus(ctx, true)
 			cancel()
+			server.BroadcastSessions()
 		}
 		for {
 			select {
@@ -414,14 +416,15 @@ func Run(background bool) error {
 				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
 				wm.UpdateAllGitStatus(ctx, false)
 				cancel()
+				server.BroadcastSessions()
 			case <-shutdownCtx.Done():
 				return
 			}
 		}
 	}()
 
-	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)
+	// Start background goroutine to check for inactive sessions and ask NudgeNik
+	go startNudgeNikChecker(shutdownCtx, cfg, st, sm, server.BroadcastSessions)
 
 	// Log where dashboard assets are being served from
 	server.LogDashboardAssetPath()
@@ -543,7 +546,7 @@ func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manag
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions
 // and automatically asks NudgeNik for consultation.
-func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager) {
+func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func()) {
 	// Check every 15 seconds
 	pollInterval := 15 * time.Second
 	ticker := time.NewTicker(pollInterval)
@@ -560,7 +563,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 	for {
 		select {
 		case <-ticker.C:
-			checkInactiveSessionsForNudge(ctx, cfg, st, sm)
+			checkInactiveSessionsForNudge(ctx, cfg, st, sm, onUpdate)
 		case <-ctx.Done():
 			return
 		}
@@ -568,7 +571,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 }
 
 // checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
-func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager) {
+func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func()) {
 	// Check if nudgenik is enabled (non-empty target)
 	target := cfg.GetNudgenikTarget()
 	if target == "" {
@@ -609,6 +612,9 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 				fmt.Printf("[nudgenik] failed to persist state for %s: %v\n", sess.ID, err)
 			} else {
 				fmt.Printf("[nudgenik] saved nudge for %s\n", sess.ID)
+				if onUpdate != nil {
+					onUpdate()
+				}
 			}
 		}
 	}

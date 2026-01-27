@@ -1,13 +1,13 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getSessions, getErrorMessage } from '../lib/api';
-import { useConfig } from './ConfigContext';
+import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import type { SessionWithWorkspace, WorkspaceResponse } from '../lib/types';
 
 type SessionsContextValue = {
   workspaces: WorkspaceResponse[];
   loading: boolean;
   error: string;
-  refresh: (silent?: boolean) => Promise<WorkspaceResponse[] | null>;
+  connected: boolean;
+  refresh: () => void;
   waitForSession: (sessionId: string, opts?: { timeoutMs?: number; intervalMs?: number }) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
 };
@@ -15,43 +15,7 @@ type SessionsContextValue = {
 const SessionsContext = createContext<SessionsContextValue | null>(null);
 
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
-  const { config } = useConfig();
-  const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const loadSessions = useCallback(async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-    }
-    setError('');
-    try {
-      const data = await getSessions();
-      setWorkspaces(data);
-      return data;
-    } catch (err) {
-      if (!silent) {
-        setError(getErrorMessage(err, 'Failed to load sessions'));
-      }
-      return null;
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
-
-  useEffect(() => {
-    const pollInterval = config.sessions?.dashboard_poll_interval_ms || 5000;
-    const interval = setInterval(() => {
-      loadSessions(true);
-    }, pollInterval);
-    return () => clearInterval(interval);
-  }, [loadSessions, config]);
+  const { workspaces, loading, connected, refresh } = useSessionsWebSocket();
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -73,29 +37,26 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     if (!sessionId) return false;
     if (sessionsById[sessionId]) return true;
 
+    // With WebSocket, we just need to wait for the next update
+    // The server will broadcast when a session is created
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const data = await loadSessions(true);
-      if (data) {
-        for (const ws of data) {
-          if ((ws.sessions || []).some((sess) => sess.id === sessionId)) {
-            return true;
-          }
-        }
-      }
+      // Check if session appeared (state updated via WebSocket)
+      if (sessionsById[sessionId]) return true;
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
     return false;
-  }, [loadSessions, sessionsById]);
+  }, [sessionsById]);
 
   const value = useMemo(() => ({
     workspaces,
     loading,
-    error,
-    refresh: loadSessions,
+    error: '', // No error state with WebSocket - connected/disconnected handles it
+    connected,
+    refresh,
     waitForSession,
     sessionsById,
-  }), [workspaces, loading, error, loadSessions, waitForSession, sessionsById]);
+  }), [workspaces, loading, connected, refresh, waitForSession, sessionsById]);
 
   return (
     <SessionsContext.Provider value={value}>

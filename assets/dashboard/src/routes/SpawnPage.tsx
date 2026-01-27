@@ -514,7 +514,7 @@ export default function SpawnPage() {
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
       }
-      refresh(true);
+      refresh();
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
       let expanded: Record<string, boolean> = {};
