@@ -146,7 +146,7 @@ body {
 /* App Shell */
 .app-shell {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 280px 1fr;
     min-height: 100vh;
 }
 
@@ -289,7 +289,7 @@ body {
 }
 
 .nav-workspace__name {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     font-weight: 600;
     font-family: var(--font-mono);
     color: var(--color-text);
@@ -298,6 +298,14 @@ body {
 .nav-workspace__changes {
     font-size: 0.7rem;
     font-family: var(--font-mono);
+}
+
+.nav-workspace__repo {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    padding: 0 var(--spacing-lg);
+    margin-top: -4px;
+    padding-bottom: var(--spacing-xs);
 }
 
 .nav-workspace__sessions {

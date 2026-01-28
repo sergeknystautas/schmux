@@ -32,7 +32,7 @@ function formatNudgeSummary(summary?: string) {
 
 export default function AppShell() {
   const { toggleTheme } = useTheme();
-  const { isNotConfigured, config } = useConfig();
+  const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
   const { workspaces, connected } = useSessions();
   const navigate = useNavigate();
@@ -123,7 +123,9 @@ export default function AppShell() {
                     className="nav-workspace__header"
                     onClick={() => handleWorkspaceClick(workspace.id)}
                   >
-                    <span className="nav-workspace__name">{workspace.id}</span>
+                    <span className="nav-workspace__name">
+                      {workspace.branch.length > 22 ? workspace.branch.substring(0, 22) + '...' : workspace.branch}
+                    </span>
                     {hasChanges && (
                       <span className="nav-workspace__changes">
                         {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
@@ -131,6 +133,7 @@ export default function AppShell() {
                       </span>
                     )}
                   </div>
+                  <div className="nav-workspace__repo">{getRepoName(workspace.repo)}</div>
                   <div className="nav-workspace__sessions">
                     {workspace.sessions?.map((sess) => {
                       const isActive = sess.id === sessionId;
