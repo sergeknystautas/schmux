@@ -1,4 +1,5 @@
 import { Terminal } from '@xterm/xterm';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSize } from './types';
 
 type TerminalStreamOptions = {
@@ -96,6 +97,7 @@ export default class TerminalStream {
       convertEol: true
     });
 
+    this.terminal.loadAddon(new WebLinksAddon());
     this.terminal.open(this.containerElement);
     this.terminal.onData((data) => {
       this.sendInput(data);
