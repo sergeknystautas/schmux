@@ -288,13 +288,20 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
+// shellQuote quotes a string for safe use in shell commands using single quotes.
+// Single quotes preserve everything literally, including newlines.
+// Embedded single quotes are handled with the '\” trick.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func buildCommand(target ResolvedTarget, prompt string) (string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
 	if target.Promptable {
 		if trimmedPrompt == "" {
 			return "", fmt.Errorf("prompt is required for target %s", target.Name)
 		}
-		command := fmt.Sprintf("%s %s", target.Command, strconv.Quote(prompt))
+		command := fmt.Sprintf("%s %s", target.Command, shellQuote(prompt))
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil
 		}
@@ -319,7 +326,7 @@ func buildEnvPrefix(env map[string]string) string {
 
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, strconv.Quote(env[k])))
+		parts = append(parts, fmt.Sprintf("%s=%s", k, shellQuote(env[k])))
 	}
 	return strings.Join(parts, " ")
 }
