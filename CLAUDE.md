@@ -96,7 +96,7 @@ See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns
 - **Real-time updates**: connection indicator, preserve scroll position
 
 Routes:
-- `/` - Sessions list (default landing)
+- `/` - Tips (tmux shortcuts, quick reference)
 - `/spawn` - Spawn wizard (multi-step form)
 - `/sessions/{id}` - Session detail with terminal
 - `/ws/terminal/{id}` - WebSocket for live terminal output

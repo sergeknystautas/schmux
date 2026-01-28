@@ -49,18 +49,13 @@ The CLI is for **speed and scripting**:
 
 Open `http://localhost:7337` after starting the daemon.
 
-### Sessions (`/`, `/sessions`)
-Default landing page. View all sessions grouped by workspace, filter by status or repo.
+### Tips (`/`, `/tips`)
+Default landing page. tmux keyboard shortcuts and quick reference.
 
 **Features:**
-- Filter by status (Running/Stopped/Waiting/Error), agent, or repo
-- Search across sessions
-- **Tree navigation sidebar**: Hierarchical workspace and session tree with collapse toggle (full/icon-only)
-  - Workspaces show git diff stats
-  - Sessions show activity and nudge state
-  - Expand/collapse branches for quick navigation
-- Inline spawn controls (+ button in tabs with quick launch dropdown)
-- Quick actions: Open, copy attach command, dispose
+- tmux key bindings reference
+- Common workflows
+- Quick links to other pages
 
 ### Session Detail (`/sessions/:id`)
 Watch terminal output and manage a session.
@@ -196,9 +191,6 @@ First-class support via `[data-theme="dark"]` attribute. Persists to localStorag
 - CopyField, Skeleton, Spinner
 
 ### Domain Components
-- WorkspaceList (filterable, grouped by repo)
-- WorkspaceRow (repo, branch, session count, quick actions)
-- SessionTable (agent, status, created, actions)
 - SpawnWizard (multi-step form)
 - SessionDetailView (terminal + metadata)
 - LogViewer (xterm.js wrapper)

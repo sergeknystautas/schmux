@@ -135,7 +135,7 @@ export default function DiffPage() {
           <div className="empty-state__icon">⚠️</div>
           <h3 className="empty-state__title">Failed to load diff</h3>
           <p className="empty-state__description">{error}</p>
-          <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+          <Link to="/" className="btn btn--primary">Back to Home</Link>
         </div>
       </>
     );
@@ -154,7 +154,7 @@ export default function DiffPage() {
         <div className="empty-state">
           <h3 className="empty-state__title">No changes in workspace</h3>
           <p className="empty-state__description">This workspace has no uncommitted changes</p>
-          <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+          <Link to="/" className="btn btn--primary">Back to Home</Link>
         </div>
       </>
     );

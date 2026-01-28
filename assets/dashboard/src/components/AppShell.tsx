@@ -48,12 +48,12 @@ export default function AppShell() {
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
   const handleWorkspaceClick = (workspaceId: string) => {
-    // Navigate to first session in workspace, or sessions page if no sessions
+    // Navigate to first session in workspace, or home if no sessions
     const workspace = workspaces?.find(ws => ws.id === workspaceId);
     if (workspace?.sessions?.length) {
       navigate(`/sessions/${workspace.sessions[0].id}`);
     } else {
-      navigate('/sessions');
+      navigate('/');
     }
   };
 
@@ -66,7 +66,7 @@ export default function AppShell() {
       <nav className="app-shell__nav">
         <div className="nav-top">
           <div className="nav-header">
-            <NavLink to="/sessions" className="logo">
+            <NavLink to="/" className="logo">
               schmux
               {showUpdateBadge && (
                 <span className="update-badge" title={`Update available: ${versionInfo.latest_version}`}></span>
