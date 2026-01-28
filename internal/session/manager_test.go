@@ -234,6 +234,64 @@ func TestGetLogPath(t *testing.T) {
 	}
 }
 
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple string",
+			input:    "hello world",
+			expected: "'hello world'",
+		},
+		{
+			name:     "string with single quote",
+			input:    "don't",
+			expected: "'don'\\''t'",
+		},
+		{
+			name:     "string with multiple single quotes",
+			input:    "it's a 'test'",
+			expected: "'it'\\''s a '\\''test'\\'''",
+		},
+		{
+			name:     "string with newline",
+			input:    "hello\nworld",
+			expected: "'hello\nworld'",
+		},
+		{
+			name:     "string with newline and single quote",
+			input:    "hello\nit's me",
+			expected: "'hello\nit'\\''s me'",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "''",
+		},
+		{
+			name:     "string with backslash",
+			input:    "path\\to\\file",
+			expected: "'path\\to\\file'",
+		},
+		{
+			name:     "string with double quotes",
+			input:    `say "hello"`,
+			expected: `'say "hello"'`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shellQuote(tt.input)
+			if got != tt.expected {
+				t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSanitizeNickname(t *testing.T) {
 	tests := []struct {
 		name     string
