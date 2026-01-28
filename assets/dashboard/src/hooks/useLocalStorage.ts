@@ -5,7 +5,8 @@ import { useEffect, useState, useCallback } from 'react';
  * These are unprefixed - useLocalStorage auto-adds 'schmux:' prefix.
  * For direct localStorage access, add the 'schmux:' prefix yourself.
  */
-export const SESSIONS_FILTERS_KEY = 'sessions-filters';
+// TODO: Add sessions filter UI to ConfigPage to restore this functionality
+// export const SESSIONS_FILTERS_KEY = 'sessions-filters';
 export const WORKSPACE_EXPANDED_KEY = 'workspace-expanded';
 export const VIEWED_SESSIONS_KEY = 'viewedSessions';
 export const SESSION_SIDEBAR_COLLAPSED_KEY = 'sessionSidebarCollapsed';

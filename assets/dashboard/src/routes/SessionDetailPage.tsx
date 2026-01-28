@@ -41,10 +41,10 @@ export default function SessionDetailPage() {
     }
   }, [sessionData?.workspace_id]);
 
-  // If session is missing and we don't have a stored workspaceId, navigate to sessions
+  // If session is missing and we don't have a stored workspaceId, navigate to home
   useEffect(() => {
     if (sessionMissing && !workspaceId) {
-      navigate('/sessions');
+      navigate('/');
     }
   }, [sessionMissing, workspaceId, navigate]);
 
@@ -197,7 +197,7 @@ export default function SessionDetailPage() {
         <div className="empty-state__icon">⚠️</div>
         <h3 className="empty-state__title">Error</h3>
         <p className="empty-state__description">{message}</p>
-        <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+        <Link to="/" className="btn btn--primary">Back to Home</Link>
       </div>
     );
   }

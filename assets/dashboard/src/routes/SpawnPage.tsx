@@ -637,7 +637,7 @@ export default function SpawnPage() {
             </div>
           ) : null}
           <div style={{ marginTop: 'var(--spacing-lg)' }}>
-            <Link to="/sessions" className="btn btn--primary">Back to Sessions</Link>
+            <Link to="/" className="btn btn--primary">Back to Home</Link>
           </div>
         </div>
       </>

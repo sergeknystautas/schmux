@@ -116,9 +116,7 @@ assets/dashboard/
 │   │   ├── EmptyState.tsx    # Empty data display (planned)
 │   │   ├── ModalProvider.tsx # Modal dialogs
 │   │   ├── ToastProvider.tsx # Toast notifications
-│   │   ├── Tooltip.tsx       # Custom tooltip
-│   │   ├── SessionTableRow.tsx    # Session list item
-│   │   └── WorkspaceTableRow.tsx  # Workspace list item
+│   │   └── Tooltip.tsx       # Custom tooltip
 │   │
 │   ├── contexts/             # React Context providers
 │   │   ├── ConfigContext.tsx      # Daemon configuration
@@ -135,7 +133,6 @@ assets/dashboard/
 │   │   └── utils.ts          # Helper functions
 │   │
 │   ├── routes/               # Page components
-│   │   ├── SessionsPage.tsx        # Sessions/workspaces list view
 │   │   ├── SessionDetailPage.tsx   # Session terminal view
 │   │   ├── SpawnPage.tsx           # Multi-step spawn wizard
 │   │   ├── DiffPage.tsx            # Git diff viewer
@@ -183,7 +180,7 @@ export default function AppShell() {
 
 Components that implement specific features or views.
 
-**Examples:** `SessionsPage.tsx`, `SessionDetailPage.tsx`
+**Examples:** `SessionDetailPage.tsx`, `SpawnPage.tsx`
 
 **Characteristics:**
 - May contain business logic
@@ -444,8 +441,7 @@ class TerminalStream {
 ```jsx
 <Routes>
   <Route element={<AppShell />}>
-    <Route path="/" element={<SessionsPage />} />
-    <Route path="/sessions" element={<SessionsPage />} />
+    <Route path="/" element={<TipsPage />} />
     <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
     <Route path="/spawn" element={<SpawnPage />} />
     {/* ... */}
