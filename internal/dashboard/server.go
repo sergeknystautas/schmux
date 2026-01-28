@@ -28,6 +28,49 @@ const (
 	writeTimeout = 15 * time.Second
 )
 
+// wsConn wraps a websocket.Conn with a mutex for concurrent write safety.
+// The gorilla/websocket package is not concurrent-safe for writes,
+// so we need to serialize writes per connection.
+type wsConn struct {
+	conn   *websocket.Conn
+	mu     sync.Mutex
+	closed bool
+}
+
+// WriteMessage writes a message to the websocket connection in a thread-safe manner.
+func (w *wsConn) WriteMessage(messageType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return fmt.Errorf("websocket connection closed")
+	}
+	return w.conn.WriteMessage(messageType, data)
+}
+
+// ReadMessage reads a message from the websocket connection.
+func (w *wsConn) ReadMessage() (messageType int, p []byte, err error) {
+	return w.conn.ReadMessage()
+}
+
+// Close closes the underlying websocket connection in a thread-safe manner.
+// Once closed, WriteMessage calls will fail without attempting to write.
+func (w *wsConn) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil // Already closed
+	}
+	w.closed = true
+	return w.conn.Close()
+}
+
+// IsClosed returns whether the connection has been closed.
+func (w *wsConn) IsClosed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
+}
+
 // Server represents the dashboard HTTP server.
 type Server struct {
 	config     *config.Config
@@ -39,11 +82,11 @@ type Server struct {
 	shutdown   func() // Callback to trigger daemon shutdown
 
 	// WebSocket connection registry: sessionID -> list of active connections (for terminal)
-	wsConns   map[string][]*websocket.Conn
+	wsConns   map[string][]*wsConn
 	wsConnsMu sync.RWMutex
 
 	// Sessions WebSocket connections (for /ws/sessions real-time updates)
-	sessionsConns   map[*websocket.Conn]bool
+	sessionsConns   map[*wsConn]bool
 	sessionsConnsMu sync.RWMutex
 	lastBroadcast   time.Time
 	lastBroadcastMu sync.Mutex
@@ -78,8 +121,8 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		session:       sm,
 		workspace:     wm,
 		shutdown:      shutdown,
-		wsConns:       make(map[string][]*websocket.Conn),
-		sessionsConns: make(map[*websocket.Conn]bool),
+		wsConns:       make(map[string][]*wsConn),
+		sessionsConns: make(map[*wsConn]bool),
 		rotationLocks: make(map[string]*sync.Mutex),
 	}
 }
@@ -321,14 +364,14 @@ func (s *Server) getDashboardDistPath() string {
 }
 
 // RegisterWebSocket registers a WebSocket connection for a session.
-func (s *Server) RegisterWebSocket(sessionID string, conn *websocket.Conn) {
+func (s *Server) RegisterWebSocket(sessionID string, conn *wsConn) {
 	s.wsConnsMu.Lock()
 	defer s.wsConnsMu.Unlock()
 	s.wsConns[sessionID] = append(s.wsConns[sessionID], conn)
 }
 
 // UnregisterWebSocket removes a WebSocket connection for a session.
-func (s *Server) UnregisterWebSocket(sessionID string, conn *websocket.Conn) {
+func (s *Server) UnregisterWebSocket(sessionID string, conn *wsConn) {
 	s.wsConnsMu.Lock()
 	defer s.wsConnsMu.Unlock()
 	conns := s.wsConns[sessionID]
@@ -413,14 +456,14 @@ func (s *Server) GetVersionInfo() versionInfo {
 }
 
 // RegisterDashboardConn registers a WebSocket connection for dashboard updates.
-func (s *Server) RegisterDashboardConn(conn *websocket.Conn) {
+func (s *Server) RegisterDashboardConn(conn *wsConn) {
 	s.sessionsConnsMu.Lock()
 	defer s.sessionsConnsMu.Unlock()
 	s.sessionsConns[conn] = true
 }
 
 // UnregisterDashboardConn removes a WebSocket connection for dashboard updates.
-func (s *Server) UnregisterDashboardConn(conn *websocket.Conn) {
+func (s *Server) UnregisterDashboardConn(conn *wsConn) {
 	s.sessionsConnsMu.Lock()
 	defer s.sessionsConnsMu.Unlock()
 	delete(s.sessionsConns, conn)
@@ -453,7 +496,7 @@ func (s *Server) BroadcastSessions() {
 
 	// Send to all connected clients
 	s.sessionsConnsMu.RLock()
-	conns := make([]*websocket.Conn, 0, len(s.sessionsConns))
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
 	for conn := range s.sessionsConns {
 		conns = append(conns, conn)
 	}
@@ -461,8 +504,10 @@ func (s *Server) BroadcastSessions() {
 
 	for _, conn := range conns {
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			// Connection error - will be cleaned up by the handler
-			continue
+			// Connection error - unregister to avoid repeated failures
+			s.UnregisterDashboardConn(conn)
+			// Close the connection to clean up resources
+			conn.Close()
 		}
 	}
 }
@@ -488,11 +533,14 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		},
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Printf("[ws/dashboard] upgrade error: %v\n", err)
 		return
 	}
+
+	// Wrap the connection in a wsConn for concurrent write safety
+	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
 	// Register connection

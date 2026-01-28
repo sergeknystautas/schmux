@@ -174,9 +174,9 @@ func TestGetRotationLock(t *testing.T) {
 func TestRegisterUnregisterWebSocket(t *testing.T) {
 	t.Run("register adds connection to list", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
-		conn := &websocket.Conn{}
+		conn := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn)
@@ -192,10 +192,10 @@ func TestRegisterUnregisterWebSocket(t *testing.T) {
 
 	t.Run("register multiple connections for same session", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
-		conn1 := &websocket.Conn{}
-		conn2 := &websocket.Conn{}
+		conn1 := &wsConn{conn: &websocket.Conn{}}
+		conn2 := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn1)
@@ -209,10 +209,10 @@ func TestRegisterUnregisterWebSocket(t *testing.T) {
 
 	t.Run("unregister removes specific connection", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
-		conn1 := &websocket.Conn{}
-		conn2 := &websocket.Conn{}
+		conn1 := &wsConn{conn: &websocket.Conn{}}
+		conn2 := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn1)
@@ -230,9 +230,9 @@ func TestRegisterUnregisterWebSocket(t *testing.T) {
 
 	t.Run("unregister last connection deletes entry", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
-		conn := &websocket.Conn{}
+		conn := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn)
@@ -250,11 +250,11 @@ func TestBroadcastToSession(t *testing.T) {
 
 	t.Run("clears entry even when connections exist", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
 		// Can't use a real websocket.Conn as it has internal state
 		// Just verify the registry is cleared
-		s.wsConns["session-123"] = []*websocket.Conn{{}}
+		s.wsConns["session-123"] = []*wsConn{{conn: &websocket.Conn{}}}
 
 		// This will panic on WriteMessage, but entry should be cleared first
 		func() {
@@ -273,7 +273,7 @@ func TestBroadcastToSession(t *testing.T) {
 
 	t.Run("returns 0 for session with no connections", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*websocket.Conn),
+			wsConns: make(map[string][]*wsConn),
 		}
 
 		count := s.BroadcastToSession("nonexistent", "test", "message")

@@ -426,10 +426,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			return s.isAllowedOrigin(origin)
 		},
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
+
+	// Wrap the connection for concurrent write safety
+	conn := &wsConn{conn: rawConn}
 
 	// Register this connection
 	s.RegisterWebSocket(sessionID, conn)
