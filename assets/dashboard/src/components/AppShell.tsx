@@ -48,12 +48,20 @@ export default function AppShell() {
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
   const handleWorkspaceClick = (workspaceId: string) => {
-    // Navigate to first session in workspace, or home if no sessions
     const workspace = workspaces?.find(ws => ws.id === workspaceId);
     if (workspace?.sessions?.length) {
+      // Navigate to first session in workspace
       navigate(`/sessions/${workspace.sessions[0].id}`);
     } else {
-      navigate('/');
+      // No sessions - check for git changes
+      const linesAdded = workspace?.git_lines_added ?? 0;
+      const linesRemoved = workspace?.git_lines_removed ?? 0;
+      const hasChanges = linesAdded > 0 || linesRemoved > 0;
+      if (hasChanges) {
+        navigate(`/diff/${workspaceId}`);
+      } else {
+        navigate(`/spawn?workspace_id=${workspaceId}`);
+      }
     }
   };
 
