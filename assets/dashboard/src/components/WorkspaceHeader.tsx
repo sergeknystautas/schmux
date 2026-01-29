@@ -66,6 +66,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       await disposeWorkspace(workspace.id);
       success('Workspace disposed');
+      navigate('/');
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dispose workspace'));
     }
@@ -144,6 +145,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         if (disposeConfirmed) {
           await disposeWorkspaceAll(workspace.id);
           setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+          navigate('/');
         }
       } else {
         setSyncResult({ success: false, message: result.message });

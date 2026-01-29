@@ -48,6 +48,13 @@ export default function SessionDetailPage() {
     }
   }, [sessionMissing, workspaceId, navigate]);
 
+  // If session is missing and workspace was disposed, navigate to home
+  useEffect(() => {
+    if (sessionMissing && workspaceId && !workspaceExists) {
+      navigate('/');
+    }
+  }, [sessionMissing, workspaceId, workspaceExists, navigate]);
+
   useEffect(() => {
     if (sessionData?.id) {
       markAsViewed(sessionData.id);
@@ -208,6 +215,11 @@ export default function SessionDetailPage() {
       return null;
     }
 
+    // Workspace was disposed (no longer in global state) - navigate home
+    if (!workspaceExists) {
+      return null;
+    }
+
     return (
       <>
         {currentWorkspace && (
@@ -216,13 +228,11 @@ export default function SessionDetailPage() {
             <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} />
           </>
         )}
-        {workspaceExists && (
-          <div className="empty-state">
-            <div className="empty-state__icon">⚠️</div>
-            <h3 className="empty-state__title">Session unavailable</h3>
-            <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the tabs above.</p>
-          </div>
-        )}
+        <div className="empty-state">
+          <div className="empty-state__icon">⚠️</div>
+          <h3 className="empty-state__title">Session unavailable</h3>
+          <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the tabs above.</p>
+        </div>
       </>
     );
   }

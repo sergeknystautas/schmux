@@ -173,6 +173,14 @@ export default function SpawnPage() {
 
   // Get current workspace for header display
   const currentWorkspace = workspaces?.find(ws => ws.id === resolvedWorkspaceId);
+  const workspaceExists = resolvedWorkspaceId && workspaces?.some(ws => ws.id === resolvedWorkspaceId);
+
+  // Navigate home if workspace was disposed while on this page (in workspace mode)
+  useEffect(() => {
+    if (inExistingWorkspace && resolvedWorkspaceId && !workspaceExists && !sessionsLoading) {
+      navigate('/');
+    }
+  }, [inExistingWorkspace, resolvedWorkspaceId, workspaceExists, sessionsLoading, navigate]);
 
   // Get branch suggest target from config
   const branchSuggestTarget = config?.branch_suggest?.target || '';
