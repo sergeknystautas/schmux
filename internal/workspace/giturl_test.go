@@ -167,33 +167,30 @@ func TestBuildGitBranchURL(t *testing.T) {
 	}
 }
 
-func TestBranchHasUpstream(t *testing.T) {
-	// Create a test git repository
-	dir := gitTestWorkTree(t)
+func TestRemoteBranchExists(t *testing.T) {
+	// Create a test worktree repo
+	repoDir := gitTestWorkTree(t)
+
+	// Add the repo as its own remote (so we can fetch from it)
+	runGit(t, repoDir, "remote", "add", "origin", repoDir)
+
+	// Create a bare clone of it (simulating the bare clone for querying)
+	bareDir := t.TempDir()
+	runGit(t, "", "clone", "--bare", repoDir, bareDir)
+
+	// Configure fetch refspec and fetch to populate refs/remotes/origin/*
+	runGit(t, bareDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+	runGit(t, bareDir, "fetch", "origin")
 
 	ctx := context.Background()
 
-	// main branch has no upstream by default in a fresh repo
-	if BranchHasUpstream(ctx, dir) {
-		t.Error("BranchHasUpstream() returned true for branch with no upstream")
+	// main branch should exist in bare clone
+	if !RemoteBranchExists(ctx, bareDir, "main") {
+		t.Error("RemoteBranchExists() returned false for main branch")
 	}
 
-	// Create a bare repo to use as a remote
-	bareDir := t.TempDir()
-	runGit(t, dir, "init", "--bare", bareDir)
-
-	// Add the bare repo as a remote and push main branch to it
-	runGit(t, dir, "remote", "add", "origin", bareDir)
-	runGit(t, dir, "push", "-u", "origin", "main")
-
-	// Now main should have an upstream
-	if !BranchHasUpstream(ctx, dir) {
-		t.Error("BranchHasUpstream() returned false for branch with upstream")
-	}
-
-	// Create a local branch without upstream
-	runGit(t, dir, "checkout", "-b", "local-branch")
-	if BranchHasUpstream(ctx, dir) {
-		t.Error("BranchHasUpstream() returned true for local branch without upstream")
+	// Non-existent branch should return false
+	if RemoteBranchExists(ctx, bareDir, "nonexistent-branch") {
+		t.Error("RemoteBranchExists() returned true for non-existent branch")
 	}
 }

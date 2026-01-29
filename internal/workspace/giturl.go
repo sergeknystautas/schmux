@@ -87,11 +87,12 @@ func encodeBranch(branch string) string {
 	return strings.Join(parts, "/")
 }
 
-// BranchHasUpstream checks if the current branch in a directory has a remote tracking branch (upstream).
-// Returns true if @{u} (upstream) is configured for the current branch.
-func BranchHasUpstream(ctx context.Context, dir string) bool {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	cmd.Dir = dir
+// RemoteBranchExists checks if a branch exists on the remote (origin/<branch>).
+// Queries the bare clone at bareClonePath for refs/remotes/origin/<branch>.
+func RemoteBranchExists(ctx context.Context, bareClonePath, branch string) bool {
+	ref := "refs/remotes/origin/" + branch
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
+	cmd.Dir = bareClonePath
 	err := cmd.Run()
 	return err == nil
 }

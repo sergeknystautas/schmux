@@ -121,10 +121,12 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 	workspaces := s.state.GetWorkspaces()
 	ctx := context.Background()
 	for _, ws := range workspaces {
-		// Only build branch URL if the branch has a remote tracking branch (upstream)
+		// Only build branch URL if the branch exists on the remote
 		branchURL := ""
-		if workspace.BranchHasUpstream(ctx, ws.Path) {
-			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
+		if br, found := s.state.GetBaseRepoByURL(ws.Repo); found {
+			if workspace.RemoteBranchExists(ctx, br.Path, ws.Branch) {
+				branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
+			}
 		}
 
 		var quickLaunchNames []string
