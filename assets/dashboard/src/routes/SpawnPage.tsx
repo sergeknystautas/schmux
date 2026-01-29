@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { getConfig, spawnSessions, getErrorMessage, suggestBranch, checkBranchConflict } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
-import useLocalStorage from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import type { RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
@@ -22,12 +21,11 @@ const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
 };
 
 
-// Shape of the draft we persist to sessionStorage
+// Shape of the draft we persist to sessionStorage (keyed by workspace_id or 'fresh')
 interface SpawnDraft {
   prompt: string;
   spawnMode: 'promptable' | 'command';
   selectedCommand: string;
-  targetCounts: Record<string, number>;
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
@@ -68,6 +66,29 @@ function clearSpawnDraft(workspaceId: string | null): void {
   }
 }
 
+// Target counts stored separately (shared across all spawn modes)
+const TARGET_COUNTS_KEY = 'spawn-target-counts';
+
+function loadTargetCounts(): Record<string, number> | null {
+  try {
+    const stored = sessionStorage.getItem(TARGET_COUNTS_KEY);
+    if (stored) {
+      return JSON.parse(stored) as Record<string, number>;
+    }
+  } catch (err) {
+    console.warn('Failed to load target counts:', err);
+  }
+  return null;
+}
+
+function saveTargetCounts(counts: Record<string, number>): void {
+  try {
+    sessionStorage.setItem(TARGET_COUNTS_KEY, JSON.stringify(counts));
+  } catch (err) {
+    console.warn('Failed to save target counts:', err);
+  }
+}
+
 export default function SpawnPage() {
   useRequireConfig();
   const [screen, setScreen] = useState<'form' | 'confirm'>('form');
@@ -88,10 +109,6 @@ export default function SpawnPage() {
   const [checkingConflict, setCheckingConflict] = useState(false);
   const [conflictCheckError, setConflictCheckError] = useState(false);
   const [sourceCodeManagement, setSourceCodeManager] = useState('git-worktree');
-  const prefillApplied = useRef(false);
-  // Track which workspace key we've hydrated (null = not yet hydrated)
-  const draftHydratedKey = useRef<string | null>(null);
-  // Skip one persist cycle after hydration (to let state updates propagate)
   const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
@@ -102,13 +119,20 @@ export default function SpawnPage() {
   const { workspaces, loading: sessionsLoading, refresh, waitForSession } = useSessions();
   const { config, getRepoName } = useConfig();
 
-  // Use useLocalStorage for last-used values (with cross-tab sync)
-  const [lastRepo, setLastRepo] = useLocalStorage<string>('last-repo', '');
-  const [lastTargets, setLastTargets] = useLocalStorage<Record<string, number>>('last-targets', {});
+  const location = useLocation();
+
+  // Spawn page mode: determined once on mount (see docs/sessions.md)
+  const [mode] = useState<'workspace' | 'prefilled' | 'fresh'>(() => {
+    const wsId = searchParams.get('workspace_id');
+    if (wsId) return 'workspace';
+    if (location.state?.repo && location.state?.branch) return 'prefilled';
+    return 'fresh';
+  });
+  const initialized = useRef(false);
 
   const isMounted = useRef(true);
   const navigate = useNavigate();
-  const inExistingWorkspace = !!resolvedWorkspaceId;
+  const inExistingWorkspace = mode === 'workspace';
 
   // Get current workspace for header display
   const currentWorkspace = workspaces?.find(ws => ws.id === resolvedWorkspaceId);
@@ -152,68 +176,56 @@ export default function SpawnPage() {
     return () => { active = false; };
   }, []);
 
-  // Handle URL prefill
+  // Initialize form fields based on mode (runs once; see docs/sessions.md)
+  const urlWorkspaceId = searchParams.get('workspace_id');
+  const draftKey = getSpawnDraftKey(urlWorkspaceId);
   useEffect(() => {
-    const workspaceId = searchParams.get('workspace_id');
+    if (initialized.current) return;
 
-    // If workspace_id was removed from URL, clear workspace state
-    if (!workspaceId && resolvedWorkspaceId) {
-      setPrefillWorkspaceId('');
-      setResolvedWorkspaceId('');
-      prefillApplied.current = false;
-      return;
-    }
+    // Workspace mode: wait for workspace data to load
+    if (mode === 'workspace') {
+      if (sessionsLoading) return;
 
-    if (prefillApplied.current) return;
-    if (!workspaceId) return;
-    setPrefillWorkspaceId(workspaceId);
+      const workspaceId = searchParams.get('workspace_id')!;
+      setPrefillWorkspaceId(workspaceId);
+      setResolvedWorkspaceId(workspaceId);
 
-    const urlRepo = searchParams.get('repo');
-    const urlBranch = searchParams.get('branch');
-    let prefillRepo = urlRepo;
-    let prefillBranch = urlBranch;
-
-    if ((!prefillRepo || !prefillBranch) && sessionsLoading) {
-      return;
-    }
-
-    let workspaceFound = false;
-    if (!prefillRepo || !prefillBranch) {
-      const workspace = workspaces.find((ws) => ws.id === workspaceId);
+      const workspace = workspaces.find(ws => ws.id === workspaceId);
       if (workspace) {
-        workspaceFound = true;
-        prefillRepo = prefillRepo || workspace.repo;
-        prefillBranch = prefillBranch || workspace.branch;
+        setRepo(workspace.repo);
+        setBranch(workspace.branch);
+      }
+    } else if (mode === 'prefilled') {
+      const state = location.state as { repo: string; branch: string; prompt: string; nickname: string };
+      setRepo(state.repo);
+      setBranch(state.branch);
+      setPrompt(state.prompt);
+      if (state.nickname) setNickname(state.nickname);
+    }
+    // fresh mode: repo/branch come from draft below
+
+    // Load draft (common fields for all modes, but not prompt in prefilled mode)
+    const draft = loadSpawnDraft(urlWorkspaceId);
+    if (draft) {
+      if (mode !== 'prefilled' && draft.prompt) setPrompt(draft.prompt);
+      if (draft.spawnMode) setSpawnMode(draft.spawnMode);
+      if (draft.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      // Only restore repo/newRepoName in fresh mode
+      if (mode === 'fresh') {
+        if (draft.repo) setRepo(draft.repo);
+        if (draft.newRepoName) setNewRepoName(draft.newRepoName);
       }
     }
 
-    if (prefillRepo && prefillRepo !== repo) setRepo(prefillRepo);
-    if (prefillBranch && prefillBranch !== branch) setBranch(prefillBranch);
-
-    if (prefillRepo && prefillBranch) {
-      prefillApplied.current = true;
-      setResolvedWorkspaceId(workspaceId);
-    } else if (workspaceFound) {
-      prefillApplied.current = true;
-      setResolvedWorkspaceId(workspaceId);
-    } else if (!workspaceId) {
-      setResolvedWorkspaceId('');
-    } else {
-      setResolvedWorkspaceId('');
+    // Load target counts (shared across all modes)
+    const savedCounts = loadTargetCounts();
+    if (savedCounts && Object.keys(savedCounts).length > 0) {
+      setTargetCounts(savedCounts);
     }
-  }, [searchParams, workspaces, sessionsLoading, repo, branch, resolvedWorkspaceId]);
 
-  // Initialize from last-used values (only if repo not already set by URL prefill)
-  useEffect(() => {
-    if (inExistingWorkspace) return; // Don't use last-values when spawning into existing workspace
-    if (!repo && lastRepo && repos.length > 0) {
-      // Check if lastRepo still exists
-      const stillExists = repos.some(r => r.url === lastRepo);
-      if (stillExists) {
-        setRepo(lastRepo);
-      }
-    }
-  }, [repos, lastRepo, repo, inExistingWorkspace]);
+    initialized.current = true;
+    skipNextPersist.current = true;
+  }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId]);
 
   type PromptableListItem = {
     name: string;
@@ -227,27 +239,11 @@ export default function SpawnPage() {
     }));
   }, [promptableTargets]);
 
-  // Initialize target counts from last-used values (only once, after promptableList is loaded)
-  const [initialized, setInitialized] = useState(false);
   const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
 
+  // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)
   useEffect(() => {
-    if (initialized || promptableList.length === 0) return;
-
-    if (Object.keys(lastTargets).length > 0) {
-      const filtered: Record<string, number> = {};
-      promptableList.forEach((item) => {
-        if (lastTargets[item.name] !== undefined) {
-          filtered[item.name] = lastTargets[item.name];
-        }
-      });
-      setTargetCounts(filtered);
-    }
-    setInitialized(true);
-  }, [promptableList, lastTargets, initialized]);
-
-  // Ensure all items are in targetCounts
-  useEffect(() => {
+    if (promptableList.length === 0) return;
     setTargetCounts((current) => {
       const next = { ...current };
       let changed = false;
@@ -267,39 +263,9 @@ export default function SpawnPage() {
     });
   }, [promptableList]);
 
-  // Hydrate from sessionStorage draft (runs when workspace_id changes)
-  const urlWorkspaceId = searchParams.get('workspace_id');
-  const draftKey = getSpawnDraftKey(urlWorkspaceId);
-  useEffect(() => {
-    // Skip if we've already hydrated this key
-    if (draftHydratedKey.current === draftKey) return;
-    // Wait for URL prefill to be processed first (if there's a workspace_id)
-    if (urlWorkspaceId && !prefillApplied.current && sessionsLoading) return;
-
-    const draft = loadSpawnDraft(urlWorkspaceId);
-    if (draft) {
-      // Skip the next persist cycle to let state updates propagate
-      skipNextPersist.current = true;
-      if (draft.prompt) setPrompt(draft.prompt);
-      if (draft.spawnMode) setSpawnMode(draft.spawnMode);
-      if (draft.selectedCommand) setSelectedCommand(draft.selectedCommand);
-      if (draft.targetCounts && Object.keys(draft.targetCounts).length > 0) {
-        setTargetCounts(draft.targetCounts);
-      }
-      // Only restore repo/newRepoName for fresh spawns
-      if (!urlWorkspaceId) {
-        if (draft.repo) setRepo(draft.repo);
-        if (draft.newRepoName) setNewRepoName(draft.newRepoName);
-      }
-    }
-    draftHydratedKey.current = draftKey;
-  }, [draftKey, urlWorkspaceId, sessionsLoading]);
-
   // Persist to sessionStorage on changes
   useEffect(() => {
-    // Don't save until we've hydrated this key (to avoid overwriting with empty state)
-    if (draftHydratedKey.current !== draftKey) return;
-    // Skip one cycle after hydration to let state updates propagate
+    if (!initialized.current) return;
     if (skipNextPersist.current) {
       skipNextPersist.current = false;
       return;
@@ -311,7 +277,6 @@ export default function SpawnPage() {
       prompt,
       spawnMode,
       selectedCommand,
-      targetCounts,
     };
     // Only save repo/newRepoName for fresh spawns
     if (!urlWorkspaceId) {
@@ -319,6 +284,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
+    saveTargetCounts(targetCounts);
   }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, draftKey, urlWorkspaceId, results]);
 
   const totalPromptableCount = useMemo(() => {
@@ -347,11 +313,6 @@ export default function SpawnPage() {
   const updateTargetCount = (name: string, delta: number) => {
     setTargetCounts((current) => {
       const next = Math.max(0, Math.min(10, (current[name] || 0) + delta));
-      setLastTargets((currentTargets) => {
-        const currentCount = currentTargets[name] || 0;
-        const newCount = Math.max(0, Math.min(10, currentCount + delta));
-        return { ...currentTargets, [name]: newCount };
-      });
       return { ...current, [name]: next };
     });
   };
@@ -441,18 +402,19 @@ export default function SpawnPage() {
   const handleNext = () => {
     if (!validateForm()) return;
 
-    // Save to localStorage
-    setLastRepo(repo);
-    // lastTargets is already updated via updateTargetCount
-
     if (spawnMode === 'command') {
       setNickname('');
     }
 
-    if (inExistingWorkspace || spawnMode !== 'promptable' || !prompt.trim()) {
-      if (!inExistingWorkspace) {
-        setBranch('main');
-      }
+    // Workspace/prefilled: branch already set, skip suggestion
+    if (mode !== 'fresh') {
+      setScreen('confirm');
+      return;
+    }
+
+    // Fresh mode: suggest branch or default to 'main'
+    if (spawnMode !== 'promptable' || !prompt.trim()) {
+      setBranch('main');
       setScreen('confirm');
       return;
     }
@@ -708,9 +670,9 @@ export default function SpawnPage() {
 
             <div className="form-group">
               <label className="form-group__label">Branch</label>
-              {inExistingWorkspace ? (
+              {mode !== 'fresh' ? (
                 <div className="metadata-field">
-                  <span className="metadata-field__value">{repo === '__new__' ? 'main' : branch}</span>
+                  <span className="metadata-field__value">{branch}</span>
                 </div>
               ) : (
                 <>
@@ -851,7 +813,7 @@ export default function SpawnPage() {
                   setNewRepoName('');
                 }
               }}
-              disabled={inExistingWorkspace}
+              disabled={mode !== 'fresh'}
             >
               <option value="">Select repository...</option>
               {repos.map((item) => (
@@ -870,7 +832,7 @@ export default function SpawnPage() {
                   onChange={(event) => setNewRepoName(event.target.value)}
                   placeholder="Repository name"
                   required
-                  disabled={inExistingWorkspace}
+                  disabled={mode !== 'fresh'}
                 />
               </div>
             )}

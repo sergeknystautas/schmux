@@ -70,28 +70,11 @@ Dashboard also supports:
 
 ---
 
-## Spawn Draft Persistence
-
-The dashboard preserves your spawn form state in browser sessionStorage, so you don't lose your prompt if you navigate away or refresh:
-
-- **Per-tab isolation**: Each browser tab maintains its own draft (sessionStorage is per-tab and per-origin)
-- **Per-workspace drafts**: Fresh spawns and existing workspace spawns are stored separately
-- **Auto-save**: Prompt, mode, targets, and repo selection are saved as you type
-- **Auto-clear on success**: Draft is cleared only when at least one session spawns successfully
-
-Storage keys:
-- `spawn-draft-fresh` — new workspace spawns
-- `spawn-draft-{workspaceId}` — spawning into existing workspace
-
-Drafts survive navigation and page refresh within the same tab, but are cleared when the tab is closed.
-
----
-
 ## Web Spawn Interface
 
 ### Prompt-First Single-Page Design
 
-The spawn wizard has been redesigned as a single-page interface that prioritizes your task description:
+The spawn wizard is a single-page interface that prioritizes your task description:
 
 - **Prompt first**: Large textarea at the top for your task description
 - **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
@@ -99,6 +82,122 @@ The spawn wizard has been redesigned as a single-page interface that prioritizes
 - **Enter to submit**: Press Enter in the branch or nickname fields to trigger spawn (faster keyboard workflow)
 
 When spawning into an existing workspace, the page shows workspace context (header + tabs) and auto-navigates to the newly created session after successful spawn.
+
+### Spawn Modes
+
+The spawn page has three modes, determined once on page load:
+
+| Mode | Source | Description |
+|------|--------|-------------|
+| `workspace` | URL `?workspace_id=xxx` | Spawn into existing workspace |
+| `prefilled` | React Router `location.state` | Pre-selected repo/branch with prepared prompt and nickname (from home page recent branches) |
+| `fresh` | no params, no state | New spawn from scratch |
+
+### Data Sources
+
+**URL Parameters:**
+- `workspace_id` — ID of existing workspace to spawn into
+
+**React Router Location State (prefilled mode):**
+- Passed via `navigate('/spawn', { state })` from the home page
+- Contains: `repo`, `branch`, `prompt`, `nickname`
+- Produced by `POST /api/prepare-branch-spawn` (see below)
+
+**Session Storage Draft (keyed):**
+- Persisted form state, survives page refresh within browser session
+- Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
+- Per-tab isolation (sessionStorage is per-tab and per-origin)
+- Auto-saved as user types; auto-cleared when at least one session spawns successfully
+- Fields saved: `prompt`, `spawnMode`, `selectedCommand`
+- Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
+
+**Session Storage Target Counts (shared):**
+- Stored under key `spawn-target-counts`, shared across all spawn modes
+- Remembers how many of each target the user last configured (e.g. `{'claude-code': 2}`)
+
+### Form Fields
+
+| Field | Description |
+|-------|-------------|
+| repo | Repository URL, or `'__new__'` for new local repo |
+| branch | Git branch name |
+| newRepoName | Name for new local repo (only when repo is `'__new__'`) |
+| prompt | Task description for AI agents |
+| spawnMode | `'promptable'` or `'command'` |
+| selectedCommand | Which command to run (only when spawnMode is `'command'`) |
+| targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
+| nickname | Friendly name for the session |
+
+### Field Initialization by Mode
+
+**Mode: `workspace`**
+
+| Field | Source |
+|-------|--------|
+| repo | workspace.repo (locked) |
+| branch | workspace.branch (locked) |
+| prompt | session storage draft |
+| spawnMode | session storage draft, default `'promptable'` |
+| selectedCommand | session storage draft |
+| targetCounts | shared session storage `spawn-target-counts` |
+| nickname | empty string |
+
+**Mode: `prefilled`**
+
+| Field | Source |
+|-------|--------|
+| repo | location state `repo` (locked) |
+| branch | location state `branch` (locked) |
+| prompt | location state `prompt` (editable; standardized branch review prompt) |
+| spawnMode | session storage draft, default `'promptable'` |
+| selectedCommand | session storage draft |
+| targetCounts | shared session storage `spawn-target-counts` |
+| nickname | location state `nickname` (editable; generated from commit messages) |
+
+**Mode: `fresh`**
+
+| Field | Source |
+|-------|--------|
+| repo | session storage draft `repo` |
+| branch | empty string |
+| newRepoName | session storage draft |
+| prompt | session storage draft |
+| spawnMode | session storage draft, default `'promptable'` |
+| selectedCommand | session storage draft |
+| targetCounts | shared session storage `spawn-target-counts` |
+| nickname | empty string |
+
+### Prepare Branch Spawn
+
+When the user clicks a recent branch on the home page:
+
+1. Home page calls `POST /api/prepare-branch-spawn` with `{ repo, branch }`
+2. Server does all work in one round-trip:
+   - Runs `git log --oneline main..{branch}` on the bare clone to get commit messages
+   - Passes commit messages to the branch suggestion target for a nickname
+   - Builds a standardized branch review prompt
+3. Returns `{ repo, branch, prompt, nickname }`
+4. Home page navigates to `/spawn` via `navigate('/spawn', { state: result })`
+5. Spawn page detects `location.state` → enters prefilled mode
+
+**Branch review prompt** instructs the agent to:
+1. Read markdown/spec files in repo root and docs/ for project context and goals
+2. Review commit history on the branch
+3. Understand the scope of changes
+4. Identify what's completed, in progress, and remaining
+5. Summarize findings, then ask what to work on next
+
+The user can edit both the prompt and nickname before spawning.
+
+### Branch Suggestion
+
+Called in `handleNext` when ALL of these are true:
+- Mode is `fresh`
+- `spawnMode` is `'promptable'`
+- `prompt` is not empty
+- `branchSuggestTarget` is configured
+
+On success, sets both `branch` and `nickname` from the API response. Otherwise, branch defaults to `'main'`.
 
 ### Inline Spawn Controls
 

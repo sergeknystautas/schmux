@@ -7,6 +7,7 @@ import Tooltip from './Tooltip'
 import { useConfig } from '../contexts/ConfigContext'
 import { useSessions } from '../contexts/SessionsContext'
 import { formatRelativeTime } from '../lib/utils'
+import { navigateToWorkspace } from '../lib/navigation'
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -48,21 +49,7 @@ export default function AppShell() {
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
 
   const handleWorkspaceClick = (workspaceId: string) => {
-    const workspace = workspaces?.find(ws => ws.id === workspaceId);
-    if (workspace?.sessions?.length) {
-      // Navigate to first session in workspace
-      navigate(`/sessions/${workspace.sessions[0].id}`);
-    } else {
-      // No sessions - check for git changes
-      const linesAdded = workspace?.git_lines_added ?? 0;
-      const linesRemoved = workspace?.git_lines_removed ?? 0;
-      const hasChanges = linesAdded > 0 || linesRemoved > 0;
-      if (hasChanges) {
-        navigate(`/diff/${workspaceId}`);
-      } else {
-        navigate(`/spawn?workspace_id=${workspaceId}`);
-      }
-    }
+    navigateToWorkspace(navigate, workspaces || [], workspaceId);
   };
 
   const handleSessionClick = (sessId: string) => {

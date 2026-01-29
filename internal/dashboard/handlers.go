@@ -615,6 +615,92 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// handlePrepareBranchSpawn prepares spawn data for an existing branch.
+// Gets commit log from the bare clone, generates a nickname via branch suggestion, and returns
+// everything needed to populate the spawn form.
+func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+		return
+	}
+
+	start := time.Now()
+
+	var req struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
+	}
+	if req.Repo == "" || req.Branch == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo and branch are required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Get commit subjects from bare clone
+	subjects, err := s.workspace.GetBranchCommitLog(ctx, req.Repo, req.Branch, 20)
+	if err != nil {
+		fmt.Printf("[workspace] prepare-branch-spawn: failed to get commit log: %v\n", err)
+		// Non-fatal: proceed without commit log
+		subjects = nil
+	}
+
+	// Build the review prompt with commit history included
+	prompt := "Review the current state of this branch and prepare to resume work.\n\n" +
+		"1. Read any markdown or spec files in the repo root and docs/ to understand project context and goals\n" +
+		"2. Run `git diff --stat main` to understand the scope of changes\n" +
+		"3. Identify what's been completed, what's in progress, and what remains\n\n"
+
+	if len(subjects) > 0 {
+		prompt += "Here is the commit history on this branch:\n\n"
+		for i, msg := range subjects {
+			if i > 0 {
+				prompt += "\n"
+			}
+			prompt += "---\n" + msg + "\n"
+		}
+		prompt += "---\n\n"
+	}
+
+	prompt += "Summarize your findings, then ask what to work on next."
+
+	// Generate nickname from commit messages if branch suggestion is enabled
+	nickname := ""
+	if branchsuggest.IsEnabled(s.config) && len(subjects) > 0 {
+		commitSummary := strings.Join(subjects, "\n")
+		suggestionPrompt := fmt.Sprintf("Branch: %s\n\nCommit messages:\n%s", req.Branch, commitSummary)
+
+		fmt.Printf("[workspace] prepare-branch-spawn: asking for nickname from %d commits\n", len(subjects))
+		result, err := branchsuggest.AskForPrompt(ctx, s.config, suggestionPrompt)
+		if err != nil {
+			fmt.Printf("[workspace] prepare-branch-spawn: nickname suggestion failed: %v\n", err)
+			// Non-fatal: proceed without nickname
+		} else {
+			nickname = result.Nickname
+			fmt.Printf("[workspace] prepare-branch-spawn ok: duration=%s nickname=%q\n", time.Since(start).Truncate(time.Millisecond), nickname)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"repo":     req.Repo,
+		"branch":   req.Branch,
+		"prompt":   prompt,
+		"nickname": nickname,
+	})
+}
+
 // handleDispose handles session disposal requests.
 func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -2717,4 +2803,38 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+}
+
+// handleRecentBranches returns recent branches from all configured repos.
+// GET /api/recent-branches?limit=10
+func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse limit from query string, default to 10
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	// Cap limit
+	if limit > 50 {
+		limit = 50
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	branches, err := s.workspace.GetRecentBranches(ctx, limit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(branches)
 }

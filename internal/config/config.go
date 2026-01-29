@@ -298,6 +298,16 @@ func (c *Config) GetBaseReposPath() string {
 	return filepath.Join(homeDir, ".schmux", "repos")
 }
 
+// GetBareReposPath returns the path for bare clones used for branch querying.
+// Always ~/.schmux/bare/ - separate from worktree base repos.
+func (c *Config) GetBareReposPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".schmux", "bare")
+}
+
 // GetSourceCodeManagement returns the configured source code management mode.
 // Defaults to "git-worktree" if not set.
 func (c *Config) GetSourceCodeManagement() string {
