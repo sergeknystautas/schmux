@@ -119,7 +119,7 @@ export default function AppShell() {
                     onClick={() => handleWorkspaceClick(workspace.id)}
                   >
                     <span className="nav-workspace__name">
-                      {workspace.branch.length > 22 ? workspace.branch.substring(0, 22) + '...' : workspace.branch}
+                      {workspace.branch}
                     </span>
                     {hasChanges && (
                       <span className="nav-workspace__changes">

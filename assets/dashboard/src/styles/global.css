@@ -293,6 +293,9 @@ body {
     font-weight: 600;
     font-family: var(--font-mono);
     color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .nav-workspace__changes {
