@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
@@ -27,6 +27,7 @@ const MAX_SIDEBAR_WIDTH = 600;
 
 export default function DiffPage() {
   const { workspaceId } = useParams();
+  const navigate = useNavigate();
   const { theme } = useTheme();
   const { config } = useConfig();
   const { workspaces } = useSessions();
@@ -41,7 +42,15 @@ export default function DiffPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const workspace = workspaces?.find(ws => ws.id === workspaceId);
+  const workspaceExists = workspaceId && workspaces?.some(ws => ws.id === workspaceId);
   const externalDiffCommands = config?.external_diff_commands || [];
+
+  // Navigate home if workspace was disposed
+  useEffect(() => {
+    if (!loading && workspaceId && !workspaceExists) {
+      navigate('/');
+    }
+  }, [loading, workspaceId, workspaceExists, navigate]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
