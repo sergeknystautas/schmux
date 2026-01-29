@@ -256,6 +256,61 @@ Notes:
 - Only relevant when `source_code_management` is `"git-worktree"` (the default)
 - When `source_code_management` is `"git"`, always returns `{"conflict": false}`
 
+### GET /api/recent-branches
+Returns recent branches across all repos, sorted by commit date (most recent first).
+
+Query Parameters:
+- `limit` (optional): Maximum number of branches to return (default: 10)
+
+Response:
+```json
+[
+  {
+    "repo_url": "git@github.com:user/repo.git",
+    "repo_name": "repo",
+    "branch": "feature-branch",
+    "commit_date": "2026-01-28T15:30:00Z",
+    "subject": "Add new feature"
+  }
+]
+```
+
+Notes:
+- Uses bare clones to query branch information without worktree checkouts
+- Returns branches from all configured repos
+- Excludes `main` branch by default
+
+### POST /api/prepare-branch-spawn
+Prepares spawn data for an existing branch. Used when clicking a recent branch on the home page.
+
+Request:
+```json
+{
+  "repo": "git@github.com:user/repo.git",
+  "branch": "feature-branch"
+}
+```
+
+Response:
+```json
+{
+  "repo": "git@github.com:user/repo.git",
+  "branch": "feature-branch",
+  "prompt": "Review the current state of this branch and prepare to resume work.\n\n...",
+  "nickname": "Add new feature"
+}
+```
+
+Process:
+1. Runs `git log --oneline main..{branch}` on the bare clone to get commit messages
+2. Passes commit messages to the branch suggestion target to generate a nickname (if configured)
+3. Builds a standardized branch review prompt with commit history
+4. Returns all data needed to populate the spawn form
+
+Notes:
+- Non-fatal errors (e.g., branch suggestion failure) still return a response with empty nickname
+- The prompt instructs the agent to review project context, understand changes, and prepare to resume work
+
 ### POST /api/sessions/{sessionId}/dispose
 Dispose a session.
 

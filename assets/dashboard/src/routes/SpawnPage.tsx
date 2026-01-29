@@ -21,11 +21,16 @@ const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
 };
 
 
-// Shape of the draft we persist to sessionStorage (keyed by workspace_id or 'fresh')
+// ============================================================================
+// Layer 2: Session Storage Draft (Active Draft)
+// Per-tab, cleared on successful spawn
+// ============================================================================
+
 interface SpawnDraft {
   prompt: string;
   spawnMode: 'promptable' | 'command';
   selectedCommand: string;
+  targetCounts: Record<string, number>;
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
@@ -66,26 +71,57 @@ function clearSpawnDraft(workspaceId: string | null): void {
   }
 }
 
-// Target counts stored separately (shared across all spawn modes)
-const TARGET_COUNTS_KEY = 'spawn-target-counts';
+// ============================================================================
+// Layer 3: Local Storage (Long-term Memory)
+// Cross-tab, never auto-cleared, updated on successful spawn
+// Keys use 'schmux:' prefix for consistency with other localStorage usage
+// Cross-tab sync happens automatically via storage event on next page load
+// ============================================================================
 
-function loadTargetCounts(): Record<string, number> | null {
+const LAST_REPO_KEY = 'schmux:spawn-last-repo';
+const LAST_TARGET_COUNTS_KEY = 'schmux:spawn-last-target-counts';
+
+function loadLastRepo(): string | null {
   try {
-    const stored = sessionStorage.getItem(TARGET_COUNTS_KEY);
+    return localStorage.getItem(LAST_REPO_KEY);
+  } catch (err) {
+    console.warn('Failed to load last repo:', err);
+    return null;
+  }
+}
+
+function saveLastRepo(repo: string): void {
+  try {
+    localStorage.setItem(LAST_REPO_KEY, repo);
+  } catch (err) {
+    console.warn('Failed to save last repo:', err);
+  }
+}
+
+function loadLastTargetCounts(): Record<string, number> | null {
+  try {
+    const stored = localStorage.getItem(LAST_TARGET_COUNTS_KEY);
     if (stored) {
       return JSON.parse(stored) as Record<string, number>;
     }
   } catch (err) {
-    console.warn('Failed to load target counts:', err);
+    console.warn('Failed to load last target counts:', err);
   }
   return null;
 }
 
-function saveTargetCounts(counts: Record<string, number>): void {
+function saveLastTargetCounts(counts: Record<string, number>): void {
   try {
-    sessionStorage.setItem(TARGET_COUNTS_KEY, JSON.stringify(counts));
+    // Only save non-zero counts
+    const nonZero: Record<string, number> = {};
+    Object.entries(counts).forEach(([name, count]) => {
+      if (count > 0) {
+        nonZero[name] = count;
+      }
+    });
+    localStorage.setItem(LAST_TARGET_COUNTS_KEY, JSON.stringify(nonZero));
   } catch (err) {
-    console.warn('Failed to save target counts:', err);
+    console.warn('Failed to save last target counts:', err);
   }
 }
 
@@ -188,13 +224,14 @@ export default function SpawnPage() {
   }, []);
 
   // Initialize form fields based on mode (runs once; see docs/sessions.md)
+  // Three-layer waterfall: Mode Logic → sessionStorage → localStorage → Default
   const urlWorkspaceId = searchParams.get('workspace_id');
-  const draftKey = getSpawnDraftKey(urlWorkspaceId);
   useEffect(() => {
     if (initialized.current) return;
 
-    // Workspace mode: wait for workspace data to load
+    // Layer 1: Mode Logic (Entry Point)
     if (mode === 'workspace') {
+      // Wait for workspace data to load
       if (sessionsLoading) return;
 
       const workspaceId = searchParams.get('workspace_id')!;
@@ -213,30 +250,52 @@ export default function SpawnPage() {
       setPrompt(state.prompt);
       if (state.nickname) setNickname(state.nickname);
     }
-    // fresh mode: repo/branch come from draft below
 
-    // Load draft (common fields for all modes, but not prompt in prefilled mode)
+    // Layer 2: sessionStorage Draft (Active Draft)
     const draft = loadSpawnDraft(urlWorkspaceId);
-    if (draft) {
-      if (mode !== 'prefilled' && draft.prompt) setPrompt(draft.prompt);
-      if (draft.spawnMode) setSpawnMode(draft.spawnMode);
-      if (draft.selectedCommand) setSelectedCommand(draft.selectedCommand);
-      // Only restore repo/newRepoName in fresh mode
-      if (mode === 'fresh') {
-        if (draft.repo) setRepo(draft.repo);
-        if (draft.newRepoName) setNewRepoName(draft.newRepoName);
-      }
-    }
 
-    // Load target counts (shared across all modes)
-    const savedCounts = loadTargetCounts();
-    if (savedCounts && Object.keys(savedCounts).length > 0) {
-      setTargetCounts(savedCounts);
+    // Layer 3: localStorage (Long-term Memory)
+    const lastRepo = loadLastRepo();
+    const lastTargetCounts = loadLastTargetCounts();
+
+    // Apply three-layer waterfall for each field
+    if (mode === 'workspace' || mode === 'prefilled') {
+      // prompt: draft (workspace/prefilled already set prompt in Layer 1 for prefilled)
+      if (mode === 'workspace' && draft?.prompt) {
+        setPrompt(draft.prompt);
+      }
+      // spawnMode: draft → default
+      setSpawnMode(draft?.spawnMode || 'promptable');
+      // selectedCommand: draft → default
+      if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      // targetCounts: draft → localStorage → default
+      if (draft?.targetCounts) {
+        setTargetCounts(draft.targetCounts);
+      } else if (lastTargetCounts) {
+        setTargetCounts(lastTargetCounts);
+      }
+    } else if (mode === 'fresh') {
+      // repo: draft → localStorage → default
+      setRepo(draft?.repo || lastRepo || '');
+      // newRepoName: draft → default
+      if (draft?.newRepoName) setNewRepoName(draft.newRepoName);
+      // prompt: draft → default
+      if (draft?.prompt) setPrompt(draft.prompt);
+      // spawnMode: draft → default
+      setSpawnMode(draft?.spawnMode || 'promptable');
+      // selectedCommand: draft → default
+      if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      // targetCounts: draft → localStorage → default
+      if (draft?.targetCounts) {
+        setTargetCounts(draft.targetCounts);
+      } else if (lastTargetCounts) {
+        setTargetCounts(lastTargetCounts);
+      }
     }
 
     initialized.current = true;
     skipNextPersist.current = true;
-  }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId]);
+  }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId, location.state]);
 
   type PromptableListItem = {
     name: string;
@@ -289,6 +348,7 @@ export default function SpawnPage() {
       prompt,
       spawnMode,
       selectedCommand,
+      targetCounts,
     };
     // Only save repo/newRepoName for fresh spawns
     if (!urlWorkspaceId) {
@@ -296,8 +356,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
-    saveTargetCounts(targetCounts);
-  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, draftKey, urlWorkspaceId, results]);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, urlWorkspaceId, results]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -483,10 +542,13 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || ''
       });
       setResults(response);
-      // Clear draft only if at least one spawn succeeded
+      // Clear draft and write-back to localStorage if at least one spawn succeeded
       const hasSuccess = response.some(r => !r.error);
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
+        // Write-back to localStorage (long-term memory)
+        saveLastRepo(actualRepo);
+        saveLastTargetCounts(selectedTargets);
       }
       refresh();
 
