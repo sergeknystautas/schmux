@@ -570,8 +570,10 @@ export default function SpawnPage() {
           </>
         )}
         {!currentWorkspace && (
-          <div className="page-header">
-            <h1 className="page-header__title">Spawn Sessions</h1>
+          <div className="app-header">
+            <div className="app-header__info">
+              <h1 className="app-header__meta">Spawn Sessions</h1>
+            </div>
           </div>
         )}
         <div className="spawn-content">
@@ -629,8 +631,10 @@ export default function SpawnPage() {
           </>
         )}
         {!currentWorkspace && (
-          <div className="page-header">
-            <h1 className="page-header__title">Spawn Sessions</h1>
+          <div className="app-header">
+            <div className="app-header__info">
+              <h1 className="app-header__meta">Spawn Sessions</h1>
+            </div>
           </div>
         )}
 
@@ -778,8 +782,10 @@ export default function SpawnPage() {
         </>
       )}
       {!currentWorkspace && (
-        <div className="page-header">
-          <h1 className="page-header__title">Spawn Sessions</h1>
+        <div className="app-header">
+          <div className="app-header__info">
+            <h1 className="app-header__meta">Spawn Sessions</h1>
+          </div>
         </div>
       )}
 

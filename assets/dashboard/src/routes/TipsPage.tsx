@@ -6,8 +6,10 @@ export default function TipsPage() {
   useRequireConfig();
   return (
     <>
-      <div className="page-header">
-        <h1 className="page-header__title">Tips</h1>
+      <div className="app-header">
+        <div className="app-header__info">
+          <h1 className="app-header__meta">Tips</h1>
+        </div>
       </div>
 
       <div className={styles.tipsSection}>

@@ -707,7 +707,7 @@ body {
     gap: var(--spacing-md);
 }
 
-/* Config Sticky Header - matches workspace-header style exactly */
+/* Config Sticky Header - matches app-header style exactly */
 .config-sticky-header {
     position: sticky;
     top: 0;
@@ -944,8 +944,8 @@ body {
     flex-direction: column;
 }
 
-/* Workspace Header (for session detail page) */
-.workspace-header {
+/* App Header (used across pages) */
+.app-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -955,29 +955,30 @@ body {
     margin-bottom: var(--spacing-sm);
 }
 
-.workspace-header__info {
+.app-header__info {
     display: flex;
     align-items: center;
     gap: var(--spacing-lg);
 }
 
-.workspace-header__name {
+.app-header__name {
     font-family: var(--font-mono);
     font-size: 0.875rem;
     font-weight: 400;
     color: var(--color-text-muted);
 }
 
-.workspace-header__meta {
+.app-header__meta {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
     color: var(--color-text);
     font-size: 1rem;
     font-weight: 600;
+    margin: 0;
 }
 
-.workspace-header__branch-link {
+.app-header__branch-link {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -986,32 +987,32 @@ body {
     font-family: var(--font-mono);
 }
 
-.workspace-header__branch-link:hover {
+.app-header__branch-link:hover {
     color: var(--color-accent);
     text-decoration: underline;
 }
 
-.workspace-header__branch {
+.app-header__branch {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     font-family: var(--font-mono);
 }
 
-.workspace-header__git-status {
+.app-header__git-status {
     font-family: var(--font-mono);
     font-size: 0.75rem;
     color: var(--color-text-muted);
 }
 
-.workspace-header__lines-changed {
+.app-header__lines-changed {
     display: inline-flex;
     align-items: center;
     font-family: var(--font-mono);
     font-size: 0.75rem;
 }
 
-.workspace-header__actions {
+.app-header__actions {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);

@@ -187,23 +187,23 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
   return (
     <>
-      <div className="workspace-header">
-        <div className="workspace-header__info">
-          <span className="workspace-header__meta">
+      <div className="app-header">
+        <div className="app-header__info">
+          <span className="app-header__meta">
             {workspace.branch_url ? (
               <Tooltip content="View branch in git">
                 <a
                   href={workspace.branch_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="workspace-header__branch-link"
+                  className="app-header__branch-link"
                 >
                   {branchIcon}
                   {workspace.branch}
                 </a>
               </Tooltip>
             ) : (
-              <span className="workspace-header__branch">
+              <span className="app-header__branch">
                 {branchIcon}
                 {workspace.branch}
               </span>
@@ -211,7 +211,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
             <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>
               <Tooltip content={`${behind} behind, ${ahead} ahead`}>
                 <span
-                  className="workspace-header__git-status"
+                  className="app-header__git-status"
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -220,9 +220,9 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               </Tooltip>
             </div>
           </span>
-          <span className="workspace-header__name">{workspace.id}</span>
+          <span className="app-header__name">{workspace.id}</span>
         </div>
-        <div className="workspace-header__actions">
+        <div className="app-header__actions">
           <Tooltip content="Open in VS Code">
             <button
               className="btn btn--sm btn--ghost btn--bordered"
