@@ -30,7 +30,7 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 - Go: keep changes `gofmt`-clean (`gofmt -w .` or `go fmt ./...`).
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
-- Frontend assets live in `assets/dashboard/`; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
+- Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
 
 ## Testing Guidelines
 
