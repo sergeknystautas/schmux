@@ -10,6 +10,7 @@ import type {
   LinearSyncResolveConflictResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
+  RecentBranch,
   ScanResult,
   SpawnRequest,
   SpawnResult,
@@ -81,6 +82,30 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
   if (!response.ok) {
     const err = await response.text();
     throw new Error(err || 'Failed to suggest branch name');
+  }
+  return response.json();
+}
+
+/**
+ * Prepares spawn data for an existing branch.
+ * Gets commit log, generates nickname, and returns everything for the spawn form.
+ */
+export interface PrepareBranchSpawnResponse {
+  repo: string;
+  branch: string;
+  prompt: string;
+  nickname: string;
+}
+
+export async function prepareBranchSpawn(repo: string, branch: string): Promise<PrepareBranchSpawnResponse> {
+  const response = await fetch('/api/prepare-branch-spawn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo, branch })
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || 'Failed to prepare branch spawn');
   }
   return response.json();
 }
@@ -318,6 +343,14 @@ export async function linearSyncResolveConflict(workspaceId: string): Promise<Li
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.message || err.error || 'Failed to resolve conflict');
+  }
+  return response.json();
+}
+
+export async function getRecentBranches(limit: number = 10): Promise<RecentBranch[]> {
+  const response = await fetch(`/api/recent-branches?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch recent branches');
   }
   return response.json();
 }

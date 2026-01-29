@@ -191,3 +191,11 @@ export interface LinearSyncResolveConflictResponse {
   had_conflict: boolean;
   session_id?: string;
 }
+
+export interface RecentBranch {
+  repo_name: string;
+  repo_url: string;
+  branch: string;
+  commit_date: string;
+  subject: string;
+}

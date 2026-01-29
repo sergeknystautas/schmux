@@ -1,0 +1,356 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useSessions } from '../contexts/SessionsContext';
+import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
+import { useToast } from '../components/ToastProvider';
+import { scanWorkspaces, getRecentBranches, prepareBranchSpawn, getErrorMessage } from '../lib/api';
+import { navigateToWorkspace } from '../lib/navigation';
+import type { WorkspaceResponse, RecentBranch } from '../lib/types';
+import styles from '../styles/home.module.css';
+
+// Helper to format relative date from ISO string
+function formatRelativeDate(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  return date.toLocaleDateString();
+}
+
+// SVG Icons
+const GitBranchIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="4" cy="4" r="2" />
+    <circle cx="4" cy="12" r="2" />
+    <circle cx="12" cy="4" r="2" />
+    <path d="M4 6v4M12 6c0 3-2 4-6 4" />
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M8 3v10M3 8h10" />
+  </svg>
+);
+
+const RocketIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
+    <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
+    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
+    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+  </svg>
+);
+
+const FolderIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 4a1 1 0 0 1 1-1h3l2 2h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z" />
+  </svg>
+);
+
+const ScanIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="8" cy="8" r="6" />
+    <path d="M8 2v6l4 2" />
+  </svg>
+);
+
+const ChevronRightIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 4l4 4-4 4" />
+  </svg>
+);
+
+const TerminalIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </svg>
+);
+
+export default function HomePage() {
+  useRequireConfig();
+  const { workspaces, loading: sessionsLoading, connected } = useSessions();
+  const { config, loading: configLoading, getRepoName } = useConfig();
+  const { success, error: toastError } = useToast();
+  const navigate = useNavigate();
+
+  const [scanning, setScanning] = useState(false);
+  const [recentBranches, setRecentBranches] = useState<RecentBranch[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(true);
+  const [preparingBranch, setPreparingBranch] = useState<string | null>(null);
+  const [heroDismissed, setHeroDismissed] = useState(() => {
+    return localStorage.getItem('home-hero-dismissed') === 'true';
+  });
+
+  const handleDismissHero = () => {
+    setHeroDismissed(true);
+    localStorage.setItem('home-hero-dismissed', 'true');
+  };
+
+  // Fetch recent branches on mount
+  const fetchBranches = useCallback(async () => {
+    setBranchesLoading(true);
+    try {
+      const branches = await getRecentBranches(10);
+      setRecentBranches(branches || []);
+    } catch (err) {
+      console.error('Failed to fetch recent branches:', err);
+    } finally {
+      setBranchesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBranches();
+  }, [fetchBranches]);
+
+
+  // Handle scan workspaces
+  const handleScan = async () => {
+    setScanning(true);
+    try {
+      const result = await scanWorkspaces();
+      const changes = (result.added?.length || 0) +
+                      (result.updated?.length || 0) +
+                      (result.removed?.length || 0);
+      if (changes > 0) {
+        success(`Scan complete: ${changes} change${changes !== 1 ? 's' : ''} found`);
+      } else {
+        success('Scan complete: no changes');
+      }
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to scan workspaces'));
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleBranchClick = async (repoUrl: string, branchName: string) => {
+    const key = `${repoUrl}:${branchName}`;
+    setPreparingBranch(key);
+    try {
+      const result = await prepareBranchSpawn(repoUrl, branchName);
+      navigate('/spawn', { state: result });
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to prepare branch spawn'));
+      setPreparingBranch(null);
+    }
+  };
+
+  const handleWorkspaceClick = (workspaceId: string) => {
+    navigateToWorkspace(navigate, workspaces, workspaceId);
+  };
+
+  const loading = sessionsLoading || configLoading;
+
+  return (
+    <div className={styles.homePage}>
+      {/* Left Column - Quick Actions */}
+      <div className={styles.leftColumn}>
+        {/* Hero Section - dismissable */}
+        {!heroDismissed && (
+          <div className={styles.heroSection}>
+            <button
+              className={styles.heroDismiss}
+              onClick={handleDismissHero}
+              title="Dismiss"
+            >
+              <CloseIcon />
+            </button>
+            <div className={styles.heroContent}>
+              <h1 className={styles.heroTitle}>
+                <span className={styles.heroIcon}><TerminalIcon /></span>
+                schmux
+              </h1>
+              <p className={styles.heroSubtitle}>
+                Multi-agent orchestration for AI coding assistants
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Primary Action - Spawn New Session (only when no workspaces) */}
+        {workspaces.length === 0 && (
+          <Link to="/spawn" className={styles.primaryAction}>
+            <span className={styles.primaryActionIcon}><RocketIcon /></span>
+            <span className={styles.primaryActionText}>
+              <span className={styles.primaryActionTitle}>Spawn New Session</span>
+              <span className={styles.primaryActionHint}>
+                Start your first AI coding session
+              </span>
+            </span>
+            <span className={styles.primaryActionArrow}><ChevronRightIcon /></span>
+          </Link>
+        )}
+
+        {/* Recent Branches Section */}
+        <div className={styles.sectionCard}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              <GitBranchIcon />
+              Recent Branches
+            </h2>
+          </div>
+          <div className={styles.sectionContent}>
+            {branchesLoading ? (
+              <div className={styles.loadingState}>
+                <div className="spinner spinner--small" />
+                <span>Loading branches...</span>
+              </div>
+            ) : recentBranches.length === 0 ? (
+              <div className={styles.placeholderState}>
+                <p className={styles.placeholderText}>
+                  No branches found yet.
+                </p>
+                <p className={styles.placeholderHint}>
+                  Branches will appear after the first fetch completes.
+                </p>
+              </div>
+            ) : (
+              <div className={styles.branchList}>
+                {recentBranches.slice(0, 5).map((branch, idx) => {
+                  const key = `${branch.repo_url}:${branch.branch}`;
+                  const isPreparing = preparingBranch === key;
+                  return (
+                    <button
+                      key={`${branch.repo_url}-${branch.branch}-${idx}`}
+                      className={styles.branchItem}
+                      onClick={() => handleBranchClick(branch.repo_url, branch.branch)}
+                      title={`Spawn session on ${branch.branch}`}
+                      disabled={!!preparingBranch}
+                    >
+                      <div className={styles.branchRow1}>
+                        <span className={styles.branchName}>
+                          {branch.branch}
+                          {isPreparing && (
+                            <span className={styles.branchSpinner}>
+                              <div className="spinner spinner--small" />
+                            </span>
+                          )}
+                        </span>
+                        <span className={styles.branchRepo}>{branch.repo_name}</span>
+                        <span className={styles.branchDate}>{formatRelativeDate(branch.commit_date)}</span>
+                      </div>
+                      <div className={styles.branchRow2}>
+                        <span className={styles.branchSubject}>{branch.subject}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Right Column - Workspaces */}
+      <div className={styles.rightColumn}>
+        <div className={styles.sectionCard}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              <FolderIcon />
+              Active Workspaces
+            </h2>
+            <button
+              className={styles.scanButton}
+              onClick={handleScan}
+              disabled={scanning}
+              title="Scan for workspace changes"
+            >
+              <ScanIcon />
+              {scanning ? 'Scanning...' : 'Scan'}
+            </button>
+          </div>
+
+          <div className={styles.sectionContent}>
+            {loading ? (
+              <div className={styles.loadingState}>
+                <div className="spinner spinner--small" />
+                <span>Loading workspaces...</span>
+              </div>
+            ) : workspaces.length === 0 ? (
+              <div className={styles.emptyState}>
+                <p className={styles.emptyStateText}>No active workspaces</p>
+                <p className={styles.emptyStateHint}>
+                  Spawn a session to create your first workspace
+                </p>
+              </div>
+            ) : (
+              <div className={styles.workspaceTable}>
+                <div className={styles.tableHeader}>
+                  <span className={styles.headerCell}>Workspace</span>
+                  <span className={styles.headerCellRight}>Sessions</span>
+                </div>
+                <div className={styles.tableBody}>
+                  {workspaces.map((ws) => {
+                    const runningCount = ws.sessions.filter(s => s.running).length;
+                    return (
+                      <button
+                        key={ws.id}
+                        className={styles.workspaceRow}
+                        onClick={() => handleWorkspaceClick(ws.id)}
+                        type="button"
+                      >
+                        <div className={styles.workspaceInfo}>
+                          <span className={styles.workspaceBranch}>{ws.branch}</span>
+                          <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
+                        </div>
+                        <div className={styles.workspaceStats}>
+                          <span className={styles.sessionCount}>
+                            {ws.session_count}
+                          </span>
+                          {runningCount > 0 && (
+                            <span className={styles.runningBadge} title={`${runningCount} running`}>
+                              <span className={styles.runningDot} />
+                              {runningCount}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Connection Status */}
+        {!loading && (
+          <div className={styles.connectionStatus}>
+            <span className={`${styles.connectionDot} ${connected ? styles.connectionDotConnected : styles.connectionDotDisconnected}`} />
+            <span className={styles.connectionText}>
+              {connected ? 'Live updates' : 'Reconnecting...'}
+            </span>
+          </div>
+        )}
+
+        {/* Tips */}
+        <div className={styles.tipsCard}>
+          <div className={styles.tipItem}>
+            <span className={styles.tipKey}>Tip:</span>
+            <span className={styles.tipText}>
+              Use <code>tmux attach -t SESSION_NAME</code> to connect directly from terminal
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

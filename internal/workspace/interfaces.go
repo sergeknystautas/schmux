@@ -21,6 +21,15 @@ type WorkspaceChange struct {
 	New state.Workspace `json:"new"`
 }
 
+// RecentBranch represents a branch with its recent commit information.
+type RecentBranch struct {
+	RepoName   string `json:"repo_name"`
+	RepoURL    string `json:"repo_url"`
+	Branch     string `json:"branch"`
+	CommitDate string `json:"commit_date"`
+	Subject    string `json:"subject"`
+}
+
 // WorkspaceManager defines the interface for workspace operations.
 type WorkspaceManager interface {
 	// GetByID returns a workspace by its ID.
@@ -67,6 +76,18 @@ type WorkspaceManager interface {
 
 	// LinearSyncResolveConflict rebases exactly one commit from main, handling conflicts.
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error)
+
+	// EnsureBareClones ensures bare clones exist for all configured repos (for branch querying).
+	EnsureBareClones(ctx context.Context) error
+
+	// FetchBareClones fetches updates for all bare clones.
+	FetchBareClones(ctx context.Context)
+
+	// GetRecentBranches returns recent branches from all bare clones, sorted by commit date.
+	GetRecentBranches(ctx context.Context, limit int) ([]RecentBranch, error)
+
+	// GetBranchCommitLog returns commit subjects for a branch relative to the default branch.
+	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

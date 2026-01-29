@@ -5,6 +5,7 @@ import ModalProvider from './components/ModalProvider'
 import { ConfigProvider } from './contexts/ConfigContext'
 import { SessionsProvider } from './contexts/SessionsContext'
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext'
+import HomePage from './routes/HomePage'
 import SpawnPage from './routes/SpawnPage'
 import TipsPage from './routes/TipsPage'
 import ConfigPage from './routes/ConfigPage'
@@ -22,7 +23,7 @@ export default function App() {
             <ViewedSessionsProvider>
               <Routes>
                 <Route element={<AppShell />}>
-                  <Route path="/" element={<TipsPage />} />
+                  <Route path="/" element={<HomePage />} />
                   <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                   <Route path="/diff/:workspaceId" element={<DiffPage />} />
                   <Route path="/spawn" element={<SpawnPage />} />
