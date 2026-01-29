@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **schmux** is a multi-agent AI orchestration system that runs multiple AI coding agents (Claude Code, Codex, etc.) simultaneously across tmux sessions, each in isolated workspace directories. A web dashboard provides real-time monitoring and management.
 
+## ⚠️ React Dashboard Builds — Use Go Wrapper, NOT npm
+
+**NEVER run `npm install`, `npm run build`, or `vite build` directly.**
+
+The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wrapper:
+- Installs npm deps correctly
+- Runs vite build with proper environment
+- Outputs to `assets/dashboard/dist/` which gets embedded in the Go binary
+
+❌ **WRONG**: `cd assets/dashboard && npm install && npm run build`
+✅ **RIGHT**: `go run ./cmd/build-dashboard`
+
 ## Build, Test, and Run Commands
 
 ```bash
@@ -15,7 +27,7 @@ go build ./cmd/schmux
 # Generate TypeScript types from Go contracts**:
 go run ./cmd/gen-types
 
-# Build the React dashboard (installs npm deps, runs vite build)
+# Build the React dashboard (see warning above)
 go run ./cmd/build-dashboard
 
 # Run all tests
