@@ -18,7 +18,7 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
     return mergeQuickLaunchNames(globalQuickLaunchNames, workspace.quick_launch || []);
   }, [globalQuickLaunchNames, workspace.quick_launch]);
   const { success, error: toastError } = useToast();
-  const { refresh, waitForSession } = useSessions();
+  const { waitForSession } = useSessions();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [spawning, setSpawning] = useState(false);
@@ -104,7 +104,6 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
         toastError(`Failed to spawn ${name}: ${result.error}`);
       } else {
         success(`Spawned ${name} session`);
-        await refresh();
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }
