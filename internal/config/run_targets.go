@@ -24,7 +24,7 @@ func validateRunTargets(targets []RunTarget) error {
 		if source == "" {
 			source = RunTargetSourceUser
 		}
-		if source != RunTargetSourceUser && source != RunTargetSourceDetected {
+		if source != RunTargetSourceUser && source != RunTargetSourceDetected && source != RunTargetSourceModel {
 			return fmt.Errorf("%w: run target %s has invalid source %q", ErrInvalidConfig, name, source)
 		}
 		if _, exists := seen[name]; exists {
@@ -33,9 +33,6 @@ func validateRunTargets(targets []RunTarget) error {
 		if source == RunTargetSourceUser {
 			if detect.IsBuiltinToolName(name) {
 				return fmt.Errorf("%w: run target name %s collides with detected tool", ErrInvalidConfig, name)
-			}
-			if detect.IsVariantName(name) {
-				return fmt.Errorf("%w: run target name %s collides with variant", ErrInvalidConfig, name)
 			}
 		}
 		if source == RunTargetSourceDetected {
@@ -46,23 +43,10 @@ func validateRunTargets(targets []RunTarget) error {
 				return fmt.Errorf("%w: detected run target %s must be promptable", ErrInvalidConfig, name)
 			}
 		}
-		seen[name] = struct{}{}
-	}
-	return nil
-}
-
-func validateVariantConfigs(variants []VariantConfig) error {
-	seen := make(map[string]struct{})
-	for _, v := range variants {
-		name := strings.TrimSpace(v.Name)
-		if name == "" {
-			return fmt.Errorf("%w: variant name is required", ErrInvalidConfig)
-		}
-		if _, exists := seen[name]; exists {
-			return fmt.Errorf("%w: duplicate variant config: %s", ErrInvalidConfig, name)
-		}
-		if !detect.IsVariantName(name) {
-			return fmt.Errorf("%w: unknown variant: %s", ErrInvalidConfig, name)
+		if source == RunTargetSourceModel {
+			if !detect.IsModelID(name) {
+				return fmt.Errorf("%w: run target name %s is not a valid model ID", ErrInvalidConfig, name)
+			}
 		}
 		seen[name] = struct{}{}
 	}
@@ -71,16 +55,17 @@ func validateVariantConfigs(variants []VariantConfig) error {
 
 // IsTargetPromptable returns whether the named target is promptable and whether it exists.
 func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, bool) {
-	if detect.IsVariantName(name) {
-		for _, v := range cfg.GetVariantConfigs() {
-			if v.Name == name {
-				if v.Enabled != nil && !*v.Enabled {
-					return false, false
-				}
-				break
+	// Check if it's a model ID or alias
+	model, ok := detect.FindModel(name)
+	if ok {
+		// Check if the model's base tool is detected
+		for _, target := range detected {
+			if target.Name == model.BaseTool && target.Source == RunTargetSourceDetected {
+				return true, true
 			}
 		}
-		return true, true
+		// Model exists but base tool not detected
+		return true, false
 	}
 	if detect.IsBuiltinToolName(name) {
 		for _, target := range detected {
@@ -96,22 +81,8 @@ func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, b
 	return false, false
 }
 
-func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, variants []VariantConfig) error {
+func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget) error {
 	seen := make(map[string]struct{})
-	variantEnabled := make(map[string]bool)
-	for _, v := range variants {
-		if v.Name == "" {
-			return fmt.Errorf("%w: variant name is required", ErrInvalidConfig)
-		}
-		if !detect.IsVariantName(v.Name) {
-			return fmt.Errorf("%w: unknown variant: %s", ErrInvalidConfig, v.Name)
-		}
-		enabled := true
-		if v.Enabled != nil {
-			enabled = *v.Enabled
-		}
-		variantEnabled[v.Name] = enabled
-	}
 
 	for _, preset := range presets {
 		name := strings.TrimSpace(preset.Name)
@@ -126,7 +97,7 @@ func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, variants []
 			return fmt.Errorf("%w: quick launch target is required for %s", ErrInvalidConfig, name)
 		}
 
-		promptable, ok := quickLaunchTargetPromptable(targetName, targets, variantEnabled)
+		promptable, ok := quickLaunchTargetPromptable(targetName, targets)
 		if !ok {
 			return fmt.Errorf("%w: quick launch target not found: %s", ErrInvalidConfig, targetName)
 		}
@@ -148,7 +119,7 @@ func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, variants []
 	return nil
 }
 
-func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget, variants []VariantConfig) error {
+func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget) error {
 	if nudgenik == nil {
 		return nil
 	}
@@ -157,16 +128,7 @@ func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget, varia
 		return nil
 	}
 
-	variantEnabled := make(map[string]bool)
-	for _, v := range variants {
-		enabled := true
-		if v.Enabled != nil {
-			enabled = *v.Enabled
-		}
-		variantEnabled[v.Name] = enabled
-	}
-
-	promptable, ok := quickLaunchTargetPromptable(targetName, targets, variantEnabled)
+	promptable, ok := quickLaunchTargetPromptable(targetName, targets)
 	if !ok {
 		return fmt.Errorf("%w: nudgenik target not found: %s", ErrInvalidConfig, targetName)
 	}
@@ -176,44 +138,35 @@ func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget, varia
 	return nil
 }
 
-func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget, variants []VariantConfig) error {
-	variantEnabled := make(map[string]bool)
-	for _, v := range variants {
-		enabled := true
-		if v.Enabled != nil {
-			enabled = *v.Enabled
-		}
-		variantEnabled[v.Name] = enabled
-	}
-
+func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget) error {
 	for _, preset := range presets {
 		name := strings.TrimSpace(preset.Name)
 		targetName := strings.TrimSpace(preset.Target)
 		if name == "" || targetName == "" {
 			continue
 		}
-		if _, ok := quickLaunchTargetPromptable(targetName, targets, variantEnabled); !ok {
+		if _, ok := quickLaunchTargetPromptable(targetName, targets); !ok {
 			return fmt.Errorf("%w: quick launch target not found: %s", ErrInvalidConfig, targetName)
 		}
 	}
 	return nil
 }
 
-func validateRunTargetDependencies(targets []RunTarget, variants []VariantConfig, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig) error {
-	if err := validateQuickLaunchTargets(quickLaunch, targets, variants); err != nil {
+func validateRunTargetDependencies(targets []RunTarget, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig) error {
+	if err := validateQuickLaunchTargets(quickLaunch, targets); err != nil {
 		return err
 	}
-	if err := validateNudgenikConfig(nudgenik, targets, variants); err != nil {
+	if err := validateNudgenikConfig(nudgenik, targets); err != nil {
 		return err
 	}
 	return nil
 }
 
-func quickLaunchTargetPromptable(targetName string, targets []RunTarget, variantEnabled map[string]bool) (bool, bool) {
-	if detect.IsVariantName(targetName) {
-		if enabled, ok := variantEnabled[targetName]; ok && !enabled {
-			return false, false
-		}
+func quickLaunchTargetPromptable(targetName string, targets []RunTarget) (bool, bool) {
+	if detect.IsModelID(targetName) {
+		return true, true
+	}
+	if detect.IsBuiltinToolName(targetName) {
 		return true, true
 	}
 	for _, target := range targets {

@@ -31,7 +31,7 @@ type RunTarget struct {
 type QuickLaunch struct {
 	Name    string  `json:"name"`
 	Command string  `json:"command,omitempty"` // shell command to run directly
-	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, model, etc.)
 	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
@@ -41,21 +41,16 @@ type ExternalDiffCommand struct {
 	Command string `json:"command"`
 }
 
-// Variant represents a variant config entry.
-type Variant struct {
-	Name    string            `json:"name"`
-	Enabled *bool             `json:"enabled,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-}
-
-// AvailableVariant represents a detected variant with metadata and configuration status.
-type AvailableVariant struct {
-	Name            string   `json:"name"`
-	DisplayName     string   `json:"display_name"`
-	BaseTool        string   `json:"base_tool"`
-	RequiredSecrets []string `json:"required_secrets"`
-	UsageURL        string   `json:"usage_url"`
-	Configured      bool     `json:"configured"`
+// Model represents an AI model with metadata and configuration status.
+type Model struct {
+	ID              string   `json:"id"`                         // e.g., "claude-sonnet", "kimi-thinking"
+	DisplayName     string   `json:"display_name"`               // e.g., "Claude Sonnet 4.5"
+	BaseTool        string   `json:"base_tool"`                  // e.g., "claude"
+	Provider        string   `json:"provider"`                   // "anthropic", "moonshot", "zai", "minimax"
+	Category        string   `json:"category"`                   // "native" or "third-party"
+	RequiredSecrets []string `json:"required_secrets,omitempty"` // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
+	UsageURL        string   `json:"usage_url,omitempty"`        // signup/pricing page
+	Configured      bool     `json:"configured"`                 // true if secrets are configured (or native model)
 }
 
 // Terminal represents terminal dimensions.
@@ -130,7 +125,7 @@ type ConfigResponse struct {
 	QuickLaunch                []QuickLaunch         `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
-	Variants                   []Variant             `json:"variants,omitempty"`
+	Models                     []Model               `json:"models"`
 	Terminal                   Terminal              `json:"terminal"`
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
@@ -214,7 +209,6 @@ type ConfigUpdateRequest struct {
 	QuickLaunch                []QuickLaunch          `json:"quick_launch,omitempty"`
 	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs *int                   `json:"external_diff_cleanup_after_ms,omitempty"`
-	Variants                   []Variant              `json:"variants,omitempty"`
 	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`

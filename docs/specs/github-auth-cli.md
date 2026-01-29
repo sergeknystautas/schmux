@@ -30,7 +30,7 @@ Writes:
 - `auth.github.client_id`
 - `auth.github.client_secret`
 
-Must preserve existing variant secrets and existing auth secrets for other providers.
+Must preserve existing model secrets and existing auth secrets for other providers.
 
 ---
 

@@ -16,7 +16,6 @@ import type {
   SpawnResult,
   SuggestBranchRequest,
   SuggestBranchResponse,
-  VariantsResponse,
   WorkspaceResponse,
 } from './types';
 
@@ -251,32 +250,32 @@ export async function detectTools(): Promise<DetectToolsResponse> {
   return response.json();
 }
 
-export async function getVariants(): Promise<VariantsResponse> {
-  const response = await fetch('/api/variants');
-  if (!response.ok) throw new Error('Failed to fetch variants');
-  return response.json();
-}
-
-export async function configureVariantSecrets(variantName: string, secrets: Record<string, string>): Promise<{ status: string }> {
-  const response = await fetch(`/api/variants/${variantName}/secrets`, {
+/**
+ * Configures secrets for a third-party model.
+ */
+export async function configureModelSecrets(modelId: string, secrets: Record<string, string>): Promise<{ status: string }> {
+  const response = await fetch(`/api/models/${modelId}/secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ secrets })
   });
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(err || 'Failed to save variant secrets');
+    throw new Error(err || 'Failed to save model secrets');
   }
   return response.json();
 }
 
-export async function removeVariantSecrets(variantName: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/variants/${variantName}/secrets`, {
+/**
+ * Removes secrets for a third-party model.
+ */
+export async function removeModelSecrets(modelId: string): Promise<{ status: string }> {
+  const response = await fetch(`/api/models/${modelId}/secrets`, {
     method: 'DELETE'
   });
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(err || 'Failed to remove variant secrets');
+    throw new Error(err || 'Failed to remove model secrets');
   }
   return response.json();
 }

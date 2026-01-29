@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -59,7 +60,6 @@ type Config struct {
 	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
-	Variants                   []VariantConfig        `json:"variants,omitempty"`
 	Terminal                   *TerminalSize          `json:"terminal,omitempty"`
 	Nudgenik                   *NudgenikConfig        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
@@ -156,7 +156,7 @@ type RunTarget struct {
 type QuickLaunch struct {
 	Name    string  `json:"name"`
 	Command string  `json:"command,omitempty"` // shell command to run directly
-	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, model, etc.)
 	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
@@ -166,19 +166,12 @@ type ExternalDiffCommand struct {
 	Command string `json:"command"`
 }
 
-// VariantConfig represents a variant in config.json.
-// Used when users customize or disable variants.
-type VariantConfig struct {
-	Name    string            `json:"name"`
-	Enabled *bool             `json:"enabled,omitempty"` // nil = enabled by default
-	Env     map[string]string `json:"env,omitempty"`     // overrides
-}
-
 const (
 	RunTargetTypePromptable = "promptable"
 	RunTargetTypeCommand    = "command"
 	RunTargetSourceUser     = "user"
 	RunTargetSourceDetected = "detected"
+	RunTargetSourceModel    = "model"
 )
 
 // Migration represents a single config transformation.
@@ -221,9 +214,21 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Name: "drop_variants_field",
+		Detect: func(raw map[string]json.RawMessage, cfg *Config) bool {
+			_, hasOldField := raw["variants"]
+			return hasOldField
+		},
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			// Just drop the variants field - it's no longer used
+			// Models are now built-in and don't require user configuration
+			return nil
+		},
+	},
 }
 
-// Validate validates the config including terminal settings, run targets, variants, and quick launch presets.
+// Validate validates the config including terminal settings, run targets, models, and quick launch presets.
 func (c *Config) Validate() error {
 	_, err := c.validate(true)
 	return err
@@ -252,13 +257,10 @@ func (c *Config) validate(strict bool) ([]string, error) {
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
-	if err := validateVariantConfigs(c.Variants); err != nil {
+	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets); err != nil {
 		return nil, err
 	}
-	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets, c.Variants); err != nil {
-		return nil, err
-	}
-	if err := validateRunTargetDependencies(c.RunTargets, c.Variants, c.QuickLaunch, c.Nudgenik); err != nil {
+	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik); err != nil {
 		return nil, err
 	}
 	warnings, err := c.validateAccessControl(strict)
@@ -970,4 +972,27 @@ func offsetToLineCol(data []byte, offset int64) (line, col int) {
 		}
 	}
 	return line, col
+}
+
+// DetectedToolsFromConfig returns detected tools as detect.Tool slices from the config.
+// This is a shared helper used by multiple packages (session, oneshot, nudgenik).
+func DetectedToolsFromConfig(cfg *Config) []detect.Tool {
+	detectedTargets := cfg.GetDetectedRunTargets()
+	tools := make([]detect.Tool, 0, len(detectedTargets))
+	for _, target := range detectedTargets {
+		tools = append(tools, detect.Tool{Name: target.Name, Command: target.Command})
+	}
+	return tools
+}
+
+// EnsureModelSecrets validates that all required secrets for a model are non-empty.
+// This is a shared helper used by multiple packages (session, oneshot, nudgenik).
+func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
+	for _, key := range model.RequiredSecrets {
+		val := strings.TrimSpace(secrets[key])
+		if val == "" {
+			return fmt.Errorf("%w: model %s missing required secret: %s", ErrInvalidConfig, model.ID, key)
+		}
+	}
+	return nil
 }

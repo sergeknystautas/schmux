@@ -167,7 +167,7 @@ schmux spawn -t <target> [flags]
 **Required Flags:**
 | Flag | Description |
 |------|-------------|
-| `-t, --target` | Run target name (user target, detected tool, or variant) |
+| `-t, --target` | Run target name (user target, detected tool, or model) |
 
 **Optional Flags:**
 | Flag | Description |
@@ -385,7 +385,7 @@ schmux attach $SESSION_ID
 
 The CLI reads configuration from `~/.schmux/config.json`. See [targets.md](targets.md) for run target configuration and [PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
 
-Run targets can be referenced by name in the `-t` flag. Detected tools and variants are also valid targets.
+Run targets can be referenced by name in the `-t` flag. Detected tools and models are also valid targets.
 
 **Example config:**
 ```json

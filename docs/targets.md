@@ -21,16 +21,16 @@ Each detected tool has two command modes:
 - **Interactive**: Spawns an interactive shell (e.g., `claude`)
 - **Oneshot**: Prompt-in, immediate output (e.g., `claude -p`)
 
-Detected tools are always **promptable** and support **variants**.
+Detected tools are always **promptable** and support **models**.
 
 #### 2. User Promptable Commands
 User-supplied command lines that accept a prompt as their final argument:
 
 ```json
 {
-  "name": "glm-4.7",
+  "name": "my-custom-agent",
   "type": "promptable",
-  "command": "~/bin/glm-4.7"
+  "command": "~/bin/my-agent"
 }
 ```
 
@@ -47,54 +47,70 @@ User-supplied command lines that do not accept prompts (shell scripts, tools):
 
 ---
 
-## Variants
+## Models
 
-Variants are **profiles over detected tools** that redirect to alternative providers or models via environment variables.
+Models are the AI models you can use for spawning sessions. They include native Claude models and third-party providers.
 
-### Supported Variants
+### Native Claude Models
 
-| Name | Provider | Base Tool |
-|------|----------|-----------|
-| `kimi-thinking` | Moonshot AI | claude |
-| `glm-4.7` | Z.AI | claude |
-| `minimax` | MiniMax | claude |
+Native models require no configuration—just select them when spawning.
 
-All variants apply environment variables like `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` to redirect requests.
+| ID | Display Name |
+|----|--------------|
+| `claude-opus` | claude opus 4.5 |
+| `claude-sonnet` | claude sonnet 4.5 |
+| `claude-haiku` | claude haiku 4.5 |
+
+You can also use short aliases: `opus`, `sonnet`, `haiku`.
+
+### Third-Party Models
+
+Third-party models require API secrets to be configured.
+
+| ID | Display Name | Provider |
+|----|--------------|----------|
+| `kimi-thinking` | kimi k2 thinking | Moonshot AI |
+| `kimi-k2.5` | kimi k2.5 | Moonshot AI |
+| `glm-4.7` | glm 4.7 | Z.AI |
+| `minimax` | minimax m2.1 | MiniMax |
+
+> **Note:** For backward compatibility, `minimax-m2.1` is also accepted as an alias for the `minimax` model.
 
 ### Configuration
 
-Variants are **not** configured in `config.json`. The registry is fixed and tied to detected tools. Users only provide API secrets.
-
-Create `~/.schmux/secrets.json` to store variant API keys:
+Third-party models require API secrets. Create `~/.schmux/secrets.json`:
 
 ```json
 {
-  "variants": {
+  "models": {
     "kimi-thinking": {
       "ANTHROPIC_AUTH_TOKEN": "sk-..."
     },
     "glm-4.7": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
+    },
+    "minimax": {
       "ANTHROPIC_AUTH_TOKEN": "..."
     }
   }
 }
 ```
 
-Legacy format (top-level variants map) is still supported and will be migrated on write.
+Provider-scoped secrets are shared across models for a given provider. For example, adding Moonshot secrets once unlocks both Kimi models.
 
 This file is:
-- Created automatically when you first configure a variant
+- Created automatically when you first configure a model
 - Never logged or displayed in the UI
 - Read-only to the daemon
 
 ### Context Compatibility
 
-Variants are available anywhere their base detected tool is allowed:
+Models are available anywhere their base detected tool is allowed:
 - Internal use (NudgeNik)
 - Spawn wizard
 - Quick launch presets
 
-Variants do **not** apply to user-supplied run targets.
+Models do **not** apply to user-supplied run targets.
 
 ---
 
@@ -152,7 +168,7 @@ Quick Launch provides one-click execution of shell commands or AI agents with pr
 |-------|------|-------------|
 | `name` | string | Display name (required) |
 | `command` | string | Shell command to run directly |
-| `target` | string | Run target (claude, codex, variant, or user-defined) |
+| `target` | string | Run target (claude, codex, model, or user-defined) |
 | `prompt` | string | Prompt to send to the target |
 
 ### Rules
@@ -172,7 +188,7 @@ Quick Launch provides one-click execution of shell commands or AI agents with pr
     },
     {
       "name": "Review Changes",
-      "target": "claude",
+      "target": "claude-sonnet",
       "prompt": "Review these changes for bugs and style issues"
     },
     {
@@ -197,7 +213,7 @@ Workspace presets are merged with global presets (workspace takes precedence on 
 
 ### Internal Use
 - Used by schmux itself (e.g., NudgeNik)
-- **Restricted to detected tools only** (and their variants)
+- **Restricted to detected tools only** (and their models)
 - Uses **oneshot** mode
 
 ### Wizard
@@ -222,7 +238,7 @@ Workspace presets are merged with global presets (workspace takes precedence on 
     {"name": "myproject", "url": "git@github.com:user/myproject.git"}
   ],
   "run_targets": [
-    {"name": "glm-4.7", "type": "promptable", "command": "/path/to/glm-4.7"}
+    {"name": "my-custom-agent", "type": "promptable", "command": "/path/to/my-agent"}
   ],
   "quick_launch": [
     {"name": "Review: Kimi", "target": "kimi-thinking", "prompt": "..."}
@@ -230,4 +246,4 @@ Workspace presets are merged with global presets (workspace takes precedence on 
 }
 ```
 
-**Secrets** (optional): `~/.schmux/secrets.json` for variant API keys.
+**Secrets** (optional): `~/.schmux/secrets.json` for third-party model API keys.

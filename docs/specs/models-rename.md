@@ -1,6 +1,6 @@
 # Spec: Rename Variants to Models
 
-**Status:** Draft
+**Status:** Implemented
 **Created:** 2026-01-27
 
 ## Summary
@@ -26,21 +26,21 @@ After the rename:
 
 | ID | Display Name | Model Value |
 |----|--------------|-------------|
-| `claude-opus` | Claude Opus 4.5 | `claude-opus-4-5-20251101` |
-| `claude-sonnet` | Claude Sonnet 4.5 | `claude-sonnet-4-5-20250929` |
-| `claude-haiku` | Claude Haiku 4.5 | `claude-haiku-4-5-20251001` |
+| `claude-opus` | claude opus 4.5 | `claude-opus-4-5-20251101` |
+| `claude-sonnet` | claude sonnet 4.5 | `claude-sonnet-4-5-20250929` |
+| `claude-haiku` | claude haiku 4.5 | `claude-haiku-4-5-20251001` |
 
 ### Third-Party Models (endpoint + model change)
 
 | ID | Display Name | Provider | Endpoint | Model Value |
 |----|--------------|----------|----------|-------------|
-| `kimi-thinking` | Kimi K2 Thinking | Moonshot | `api.moonshot.ai/anthropic` | `kimi-thinking` |
-| `kimi-instruct` | Kimi K2 Instruct | Moonshot | `api.moonshot.ai/anthropic` | `kimi-k2-instruct` |
-| `glm-4.7` | GLM 4.7 | Z.AI | `api.z.ai/api/anthropic` | `glm-4.7` |
-| `minimax-m2.1` | MiniMax M2.1 | MiniMax | `api.minimax.io/anthropic` | `minimax-m2.1` |
+| `kimi-thinking` | kimi k2 thinking | Moonshot | `api.moonshot.ai/anthropic` | `kimi-thinking` |
+| `kimi-k2.5` | kimi k2.5 | Moonshot | `api.moonshot.ai/anthropic` | `kimi-k2.5` |
+| `glm-4.7` | glm 4.7 | Z.AI | `api.z.ai/api/anthropic` | `glm-4.7` |
+| `minimax-m2.1` | minimax m2.1 | MiniMax | `api.minimax.io/anthropic` | `minimax-m2.1` |
 
 **Not included (experimental/outdated):**
-- Kimi K2.5 - too new, not yet documented for Claude Code
+- Kimi K2 Instruct - not used
 - Claude Sonnet 4, Haiku 3.5 - superseded by 4.5 versions
 - GLM 4.5 - superseded by 4.7
 - MiniMax M2 - superseded by M2.1
@@ -52,10 +52,10 @@ After the rename:
 | Claude Opus 4.5 | $5.00 | $25.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
 | Claude Sonnet 4.5 | $3.00 | $15.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
 | Claude Haiku 4.5 | $1.00 | $5.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
-| Kimi K2 Thinking | $0.60 | $2.50 | [Moonshot](https://platform.moonshot.ai/docs/pricing/chat) |
-| Kimi K2 Instruct | $0.60 | $2.50 | [Moonshot](https://platform.moonshot.ai/docs/pricing/chat) |
-| GLM 4.7 | $0.60 | $2.20 | [Z.AI](https://docs.z.ai/guides/overview/pricing) |
-| MiniMax M2.1 | $0.27 | $1.12 | [MiniMax](https://platform.minimax.io/docs/guides/pricing) |
+| kimi k2 thinking | $0.60 | $2.50 | [Moonshot](https://platform.moonshot.ai/docs/pricing/chat) |
+| kimi k2.5 | $0.60 | $3.00 | [VentureBeat](https://venturebeat.com/orchestration/moonshot-ai-debuts-kimi-k2-5-most-powerful-open-source-llm-beating-opus-4-5) |
+| glm 4.7 | $0.60 | $2.20 | [Z.AI](https://docs.z.ai/guides/overview/pricing) |
+| minimax m2.1 | $0.27 | $1.12 | [MiniMax](https://platform.minimax.io/docs/guides/pricing) |
 
 ## Data Model Changes
 
@@ -77,7 +77,7 @@ type Variant struct {
 ```go
 type Model struct {
     ID              string            // e.g., "claude-sonnet", "kimi-thinking"
-    DisplayName     string            // e.g., "Claude Sonnet 4.5", "Kimi K2 Thinking"
+    DisplayName     string            // e.g., "claude sonnet 4.5", "kimi k2 thinking"
     BaseTool        string            // e.g., "claude" (the CLI tool to invoke)
     Provider        string            // e.g., "anthropic", "moonshot", "zai", "minimax"
     Endpoint        string            // API endpoint (empty = default Anthropic)
@@ -331,6 +331,7 @@ Accessible from Settings. Shows:
 
 2. **Model aliases**: Should we support short aliases like "opus", "sonnet", "haiku"?
    - **Recommendation**: Yes, map them to full model IDs internally
+   - **Implementation note**: The dashboard mirrors these aliases in the UI. Keep `assets/dashboard/src/routes/ConfigPage.tsx` model alias map in sync with `internal/detect/models.go`.
 
 3. **Backward compat duration**: How long to support `variants` field name?
    - **Recommendation**: 2 minor versions, then remove

@@ -118,7 +118,7 @@ View git changes for a workspace.
 - Compare across multiple workspaces
 
 ### Settings (`/config`)
-Configure repos, run targets, variants, and workspace path.
+Configure repos, run targets, models, and workspace path.
 
 **Edit mode:**
 - Sticky header with "Save Changes" button (persistent while editing)
@@ -129,7 +129,7 @@ Configure repos, run targets, variants, and workspace path.
 - Repository management
 - Run target configuration (edit modals for user-defined targets)
 - Quick launch item editing (prompts for promptable targets, commands for command targets)
-- Variant secrets
+- Model secrets (for third-party models)
 - Workspace overlay status
 - Access control (network access + optional GitHub auth)
 

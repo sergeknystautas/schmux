@@ -22,6 +22,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   source_code_management: 'git-worktree',
   repos: [],
   run_targets: [],
+  models: [],
   quick_launch: [],
   nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
   branch_suggest: { target: '' },

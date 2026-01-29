@@ -50,7 +50,7 @@ export interface RunTargetResponse {
 export interface QuickLaunchPreset {
   name: string;
   command?: string;        // shell command to run directly
-  target?: string;         // run target (claude, codex, variant, etc.)
+  target?: string;         // run target (claude, codex, model, etc.)
   prompt?: string | null;  // prompt for the target
 }
 
@@ -60,7 +60,7 @@ export interface BuiltinQuickLaunchCookbook {
   prompt: string;
 }
 
-export type { ConfigResponse, ConfigUpdateRequest } from './types.generated';
+export type { ConfigResponse, ConfigUpdateRequest, Model } from './types.generated';
 
 export interface SpawnRequest {
   repo: string;
@@ -100,19 +100,6 @@ export interface DetectTool {
 
 export interface DetectToolsResponse {
   tools: DetectTool[];
-}
-
-export interface VariantResponse {
-  name: string;
-  display_name: string;
-  base_tool: string;
-  required_secrets: string[];
-  usage_url: string;
-  configured: boolean;
-}
-
-export interface VariantsResponse {
-  variants: VariantResponse[];
 }
 
 export interface OverlayInfo {

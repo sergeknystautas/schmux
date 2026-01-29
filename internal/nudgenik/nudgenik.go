@@ -169,7 +169,7 @@ type nudgenikTarget struct {
 
 const (
 	targetKindDetected = "detected"
-	targetKindVariant  = "variant"
+	targetKindModel    = "model"
 	targetKindUser     = "user"
 )
 
@@ -178,28 +178,39 @@ func resolveNudgenikTarget(cfg *config.Config, targetName string) (nudgenikTarge
 		return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	for _, variant := range cfg.GetMergedVariants() {
-		if variant.Name != targetName {
-			continue
+	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
+	model, ok := detect.FindModel(targetName)
+	if ok {
+		// Verify the base tool is detected
+		detectedTools := config.DetectedToolsFromConfig(cfg)
+		baseToolDetected := false
+		for _, tool := range detectedTools {
+			if tool.Name == model.BaseTool {
+				baseToolDetected = true
+				break
+			}
 		}
-		baseTarget, found := cfg.GetDetectedRunTarget(variant.BaseTool)
+		if !baseToolDetected {
+			return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+		}
+		baseTarget, found := cfg.GetDetectedRunTarget(model.BaseTool)
 		if !found {
 			return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 		}
-		secrets, err := config.GetVariantSecrets(variant.Name)
+		secrets, err := config.GetEffectiveModelSecrets(model)
 		if err != nil {
-			return nudgenikTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
+			return nudgenikTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := ensureVariantSecrets(variant, secrets); err != nil {
+		if err := config.EnsureModelSecrets(model, secrets); err != nil {
 			return nudgenikTarget{}, err
 		}
 		return nudgenikTarget{
-			Name:       variant.Name,
-			Kind:       targetKindVariant,
-			ToolName:   variant.BaseTool,
+			Name:       model.ID,
+			Kind:       targetKindModel,
+			ToolName:   model.BaseTool,
 			Command:    baseTarget.Command,
 			Promptable: true,
-			Env:        mergeEnvMaps(variant.Env, secrets),
+			Env:        mergeEnvMaps(model.BuildEnv(), secrets),
 		}, nil
 	}
 
@@ -234,16 +245,6 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
-	for _, key := range variant.RequiredSecrets {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("%w: %s", ErrTargetNoSecrets, variant.Name)
-		}
-	}
-	return nil
 }
 
 // ExtractLatestFromCapture extracts the latest agent response from a raw tmux capture.
