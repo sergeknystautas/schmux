@@ -10,9 +10,7 @@ type SessionsWebSocketState = {
   loading: boolean;
 };
 
-export default function useSessionsWebSocket(): SessionsWebSocketState & {
-  refresh: () => void;
-} {
+export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -83,11 +81,6 @@ export default function useSessionsWebSocket(): SessionsWebSocketState & {
     };
   }, []);
 
-  // Manual refresh - just reconnect to get fresh state
-  const refresh = useCallback(() => {
-    connect();
-  }, [connect]);
-
   useEffect(() => {
     mountedRef.current = true;
     connect();
@@ -103,5 +96,5 @@ export default function useSessionsWebSocket(): SessionsWebSocketState & {
     };
   }, [connect]);
 
-  return { workspaces, connected, loading, refresh };
+  return { workspaces, connected, loading };
 }

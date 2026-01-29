@@ -17,7 +17,7 @@ import SessionTabs from '../components/SessionTabs';
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
   const { config, loading: configLoading } = useConfig();
-  const { sessionsById, workspaces, loading: sessionsLoading, error: sessionsError, refresh } = useSessions();
+  const { sessionsById, workspaces, loading: sessionsLoading, error: sessionsError } = useSessions();
   const navigate = useNavigate();
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'>('connecting');
   const [showResume, setShowResume] = useState(false);
@@ -139,7 +139,6 @@ export default function SessionDetailPage() {
     try {
       await disposeSession(sessionId);
       success('Session disposed');
-      refresh();
     } catch (err) {
       toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
@@ -164,8 +163,6 @@ export default function SessionDetailPage() {
       try {
         await updateNickname(sessionId, newNickname);
         success('Nickname updated');
-        // Session data will be updated via WebSocket
-        refresh();
         return; // Success, exit loop
       } catch (err) {
         if ((err as { isConflict?: boolean }).isConflict) {

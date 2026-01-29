@@ -29,7 +29,7 @@ export default function DiffPage() {
   const { workspaceId } = useParams();
   const { theme } = useTheme();
   const { config } = useConfig();
-  const { workspaces, refresh } = useSessions();
+  const { workspaces } = useSessions();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -98,8 +98,6 @@ export default function DiffPage() {
         if (data.files?.length > 0) {
           setSelectedFileIndex(0);
         }
-        // Refresh session data to get updated git stats
-        refresh();
       } catch (err) {
         setError(getErrorMessage(err, 'Failed to load diff'));
       } finally {

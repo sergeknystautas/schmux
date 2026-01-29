@@ -153,7 +153,7 @@ export default function SpawnPage() {
   const [spawning, setSpawning] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
-  const { workspaces, loading: sessionsLoading, refresh, waitForSession } = useSessions();
+  const { workspaces, loading: sessionsLoading, waitForSession } = useSessions();
   const { config, getRepoName } = useConfig();
 
   const location = useLocation();
@@ -550,7 +550,6 @@ export default function SpawnPage() {
         saveLastRepo(actualRepo);
         saveLastTargetCounts(selectedTargets);
       }
-      refresh();
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
       let expanded: Record<string, boolean> = {};

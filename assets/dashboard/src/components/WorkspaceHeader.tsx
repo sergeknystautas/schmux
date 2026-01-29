@@ -17,7 +17,6 @@ type WorkspaceHeaderProps = {
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
-  const { refresh } = useSessions();
   const { confirm } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
@@ -67,7 +66,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       await disposeWorkspace(workspace.id);
       success('Workspace disposed');
-      refresh();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dispose workspace'));
     }
@@ -126,7 +124,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncFromMain(workspace.id);
       setSyncResult({ success: result.success, message: result.message });
-      refresh();
     } catch (err) {
       setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync from main') });
     } finally {
@@ -141,18 +138,15 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncToMain(workspace.id);
       if (result.success) {
-        refresh();
         const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
           detailedMessage: result.message
         });
         if (disposeConfirmed) {
           await disposeWorkspaceAll(workspace.id);
           setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
-          refresh();
         }
       } else {
         setSyncResult({ success: false, message: result.message });
-        refresh();
       }
     } catch (err) {
       setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync or dispose') });
@@ -173,10 +167,8 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           message: result.message + (result.session_id ? ' - spawned session for conflict resolution' : ''),
           navigateTo: result.session_id
         });
-        refresh();
       } else {
         setSyncResult({ success: false, message: result.message });
-        refresh();
       }
     } catch (err) {
       setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to resolve conflict') });

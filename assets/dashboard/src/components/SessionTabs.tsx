@@ -44,7 +44,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
-  const { refresh, waitForSession } = useSessions();
+  const { waitForSession } = useSessions();
 
   // Spawn dropdown state
   const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
@@ -155,7 +155,6 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
         toastError(`Failed to spawn ${name}: ${result.error}`);
       } else {
         success(`Spawned ${name} session`);
-        await refresh();
         await waitForSession(result.session_id);
         navigate(`/sessions/${result.session_id}`);
       }
@@ -181,7 +180,6 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     try {
       await disposeSession(sessionId);
       success('Session disposed');
-      refresh();
     } catch (err) {
       toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
