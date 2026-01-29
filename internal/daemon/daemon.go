@@ -406,12 +406,12 @@ func Run(background bool) error {
 			return
 		default:
 			ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
-			// Ensure bare clones exist for branch queries (creates if missing)
-			if err := wm.EnsureBareClones(ctx); err != nil {
-				fmt.Printf("[daemon] warning: failed to ensure bare clones: %v\n", err)
+			// Ensure origin query repos exist for branch queries (creates if missing)
+			if err := wm.EnsureOriginQueries(ctx); err != nil {
+				fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
 			}
-			// Fetch bare clones to get latest branch info
-			wm.FetchBareClones(ctx)
+			// Fetch origin query repos to get latest branch info
+			wm.FetchOriginQueries(ctx)
 			wm.UpdateAllGitStatus(ctx, true)
 			cancel()
 			server.BroadcastSessions()
@@ -420,12 +420,12 @@ func Run(background bool) error {
 			select {
 			case <-ticker.C:
 				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
-				// Ensure bare clones exist (in case new repos were added)
-				if err := wm.EnsureBareClones(ctx); err != nil {
-					fmt.Printf("[daemon] warning: failed to ensure bare clones: %v\n", err)
+				// Ensure origin query repos exist (in case new repos were added)
+				if err := wm.EnsureOriginQueries(ctx); err != nil {
+					fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
 				}
-				// Fetch bare clones to get latest branch info
-				wm.FetchBareClones(ctx)
+				// Fetch origin query repos to get latest branch info
+				wm.FetchOriginQueries(ctx)
 				wm.UpdateAllGitStatus(ctx, false)
 				cancel()
 				server.BroadcastSessions()
