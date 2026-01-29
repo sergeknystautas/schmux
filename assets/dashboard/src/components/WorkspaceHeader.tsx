@@ -189,7 +189,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     <>
       <div className="workspace-header">
         <div className="workspace-header__info">
-          <span className="workspace-header__name">{workspace.id}</span>
           <span className="workspace-header__meta">
             {workspace.branch_url ? (
               <Tooltip content="View branch in git">
@@ -221,6 +220,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               </Tooltip>
             </div>
           </span>
+          <span className="workspace-header__name">{workspace.id}</span>
         </div>
         <div className="workspace-header__actions">
           <Tooltip content="Open in VS Code">
