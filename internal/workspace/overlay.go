@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // OverlayDir returns the overlay directory path for a given repo name.
@@ -160,6 +162,63 @@ func isIgnoredByGit(ctx context.Context, dir, filePath string) (bool, error) {
 
 	// Some other error occurred
 	return false, fmt.Errorf("git check-ignore failed: %w", err)
+}
+
+// copyOverlayFiles copies overlay files from the overlay directory to the workspace.
+// If the overlay directory doesn't exist, this is a no-op.
+func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath string) error {
+	overlayDir, err := OverlayDir(repoName)
+	if err != nil {
+		return fmt.Errorf("failed to get overlay directory: %w", err)
+	}
+
+	// Check if overlay directory exists
+	if _, err := os.Stat(overlayDir); os.IsNotExist(err) {
+		fmt.Printf("[workspace] no overlay directory for repo %s, skipping\n", repoName)
+		return nil
+	}
+
+	fmt.Printf("[workspace] copying overlay files: repo=%s to=%s\n", repoName, workspacePath)
+	if err := CopyOverlay(ctx, overlayDir, workspacePath); err != nil {
+		return fmt.Errorf("failed to copy overlay files: %w", err)
+	}
+
+	fmt.Printf("[workspace] overlay files copied successfully\n")
+	return nil
+}
+
+// RefreshOverlay reapplies overlay files to an existing workspace.
+func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	// Find repo config by URL to get repo name
+	repoConfig, found := m.findRepoByURL(w.Repo)
+	if !found {
+		return fmt.Errorf("repo URL not found in config: %s", w.Repo)
+	}
+
+	fmt.Printf("[workspace] refreshing overlay: id=%s repo=%s\n", workspaceID, repoConfig.Name)
+
+	if err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+		return fmt.Errorf("failed to copy overlay files: %w", err)
+	}
+
+	fmt.Printf("[workspace] overlay refreshed successfully: %s\n", workspaceID)
+	return nil
+}
+
+// EnsureOverlayDirs ensures overlay directories exist for all configured repos.
+func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
+	for _, repo := range repos {
+		if err := EnsureOverlayDir(repo.Name); err != nil {
+			return fmt.Errorf("failed to ensure overlay directory for %s: %w", repo.Name, err)
+		}
+	}
+	fmt.Printf("[workspace] ensured overlay directories for %d repos\n", len(repos))
+	return nil
 }
 
 // ListOverlayFiles returns a list of files in the overlay directory for a repo.
