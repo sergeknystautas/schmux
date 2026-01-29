@@ -95,25 +95,33 @@ The spawn page has three modes, determined once on page load:
 
 ### Data Sources
 
-**URL Parameters:**
-- `workspace_id` — ID of existing workspace to spawn into
+The spawn page uses a three-layer persistence model:
 
-**React Router Location State (prefilled mode):**
-- Passed via `navigate('/spawn', { state })` from the home page
-- Contains: `repo`, `branch`, `prompt`, `nickname`
-- Produced by `POST /api/prepare-branch-spawn` (see below)
+**Layer 1: Mode Logic (Entry Point)**
+- Highest priority, determined by navigation method
+- URL parameters: `workspace_id` for existing workspace spawns
+- React Router location state: `repo`, `branch`, `prompt`, `nickname` for prefilled mode
+  - Passed via `navigate('/spawn', { state })` from home page
+  - Produced by `POST /api/prepare-branch-spawn` (see below)
 
-**Session Storage Draft (keyed):**
-- Persisted form state, survives page refresh within browser session
+**Layer 2: Session Storage Draft (Active Draft)**
+- Per-tab, survives page refresh within the same tab
+- What you're actively typing right now
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
-- Per-tab isolation (sessionStorage is per-tab and per-origin)
-- Auto-saved as user types; auto-cleared when at least one session spawns successfully
-- Fields saved: `prompt`, `spawnMode`, `selectedCommand`
+- Auto-saved as user types
+- **Cleared on successful spawn**
+- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`
 - Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
 
-**Session Storage Target Counts (shared):**
-- Stored under key `spawn-target-counts`, shared across all spawn modes
-- Remembers how many of each target the user last configured (e.g. `{'claude-code': 2}`)
+**Layer 3: Local Storage (Long-term Memory)**
+- Cross-tab, survives browser close/reopen
+- Last successful configuration
+- **Never auto-cleared**
+- Keys (with `schmux:` prefix):
+  - `schmux:spawn-last-repo` — Last repository used
+  - `schmux:spawn-last-target-counts` — Last target counts used (e.g. `{'claude-sonnet': 1}`)
+- **Updated on successful spawn** with the values that were actually used
+- **Cross-tab sync**: Changes propagate to other tabs via browser `storage` event, taking effect on next page load/navigation
 
 ### Form Fields
 
@@ -130,42 +138,44 @@ The spawn page has three modes, determined once on page load:
 
 ### Field Initialization by Mode
 
+Field resolution follows priority order: **Mode Logic → Session Storage → Local Storage → Default**
+
 **Mode: `workspace`**
 
-| Field | Source |
-|-------|--------|
-| repo | workspace.repo (locked) |
-| branch | workspace.branch (locked) |
-| prompt | session storage draft |
-| spawnMode | session storage draft, default `'promptable'` |
-| selectedCommand | session storage draft |
-| targetCounts | shared session storage `spawn-target-counts` |
-| nickname | empty string |
+| Field | 1. Mode Logic | 2. sessionStorage Draft | 3. localStorage | 4. Default |
+|-------|---------------|------------------------|-----------------|-----------|
+| repo | `workspace.repo` (locked) | - | - | - |
+| branch | `workspace.branch` (locked) | - | - | - |
+| prompt | - | `prompt` | - | `""` |
+| spawnMode | - | `spawnMode` | - | `'promptable'` |
+| selectedCommand | - | `selectedCommand` | - | `""` |
+| targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
+| nickname | - | - | - | `""` |
 
 **Mode: `prefilled`**
 
-| Field | Source |
-|-------|--------|
-| repo | location state `repo` (locked) |
-| branch | location state `branch` (locked) |
-| prompt | location state `prompt` (editable; standardized branch review prompt) |
-| spawnMode | session storage draft, default `'promptable'` |
-| selectedCommand | session storage draft |
-| targetCounts | shared session storage `spawn-target-counts` |
-| nickname | location state `nickname` (editable; generated from commit messages) |
+| Field | 1. Mode Logic | 2. sessionStorage Draft | 3. localStorage | 4. Default |
+|-------|---------------|------------------------|-----------------|-----------|
+| repo | `location.state.repo` (locked) | - | - | - |
+| branch | `location.state.branch` (locked) | - | - | - |
+| prompt | `location.state.prompt` | - | - | - |
+| spawnMode | - | `spawnMode` | - | `'promptable'` |
+| selectedCommand | - | `selectedCommand` | - | `""` |
+| targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
+| nickname | `location.state.nickname` | - | - | - |
 
 **Mode: `fresh`**
 
-| Field | Source |
-|-------|--------|
-| repo | session storage draft `repo` |
-| branch | empty string |
-| newRepoName | session storage draft |
-| prompt | session storage draft |
-| spawnMode | session storage draft, default `'promptable'` |
-| selectedCommand | session storage draft |
-| targetCounts | shared session storage `spawn-target-counts` |
-| nickname | empty string |
+| Field | 1. sessionStorage Draft | 2. localStorage | 3. Default |
+|-------|------------------------|-----------------|-----------|
+| repo | `repo` | `spawn-last-repo` | `""` |
+| branch | - | - | `""` |
+| newRepoName | `newRepoName` | - | `""` |
+| prompt | `prompt` | - | `""` |
+| spawnMode | `spawnMode` | - | `'promptable'` |
+| selectedCommand | `selectedCommand` | - | `""` |
+| targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
+| nickname | - | - | `""` |
 
 ### Prepare Branch Spawn
 
@@ -188,6 +198,20 @@ When the user clicks a recent branch on the home page:
 5. Summarize findings, then ask what to work on next
 
 The user can edit both the prompt and nickname before spawning.
+
+### On Successful Spawn
+
+When at least one session spawns successfully:
+
+**Cleared:**
+- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `repo`, `newRepoName`)
+
+**Updated (write-back to localStorage):**
+- `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo)
+- `spawn-last-target-counts` ← actual target counts used (only non-zero entries)
+
+**Never Cleared:**
+- localStorage values persist indefinitely
 
 ### Branch Suggestion
 
