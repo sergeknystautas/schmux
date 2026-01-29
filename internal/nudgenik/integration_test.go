@@ -32,7 +32,7 @@ func TestNudgenikClassification(t *testing.T) {
 		passRuns = parsed
 	}
 
-	// Load config to access variants and run targets
+	// Load config to access models and run targets
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("get home dir: %v", err)
@@ -46,7 +46,7 @@ func TestNudgenikClassification(t *testing.T) {
 	// Get target name from config's nudgenik_target field
 	targetName := cfg.GetNudgenikTarget()
 	if targetName == "" {
-		t.Fatalf("nudgenik_target not set in config.json (set to a variant name like \"claude-opus\")")
+		t.Fatalf("nudgenik_target not set in config.json (set to a model name like \"claude-opus\")")
 	}
 
 	cases := loadNudgenikManifest(t)

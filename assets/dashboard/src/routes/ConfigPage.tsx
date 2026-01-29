@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getConfig, updateConfig, getVariants, configureVariantSecrets, removeVariantSecrets, getOverlays, getBuiltinQuickLaunch, getAuthSecretsStatus, saveAuthSecrets, getErrorMessage } from '../lib/api';
+import { getConfig, updateConfig, configureModelSecrets, removeModelSecrets, getOverlays, getBuiltinQuickLaunch, getAuthSecretsStatus, saveAuthSecrets, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -10,11 +10,11 @@ import type {
   BuiltinQuickLaunchCookbook,
   ConfigResponse,
   ConfigUpdateRequest,
+  Model,
   OverlayInfo,
   QuickLaunchPreset,
   RepoResponse,
   RunTargetResponse,
-  VariantResponse,
 } from '../lib/types';
 
 const TOTAL_STEPS = 5;
@@ -30,6 +30,14 @@ const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 const slugToStep = (slug: string | null) => {
   const index = TAB_SLUGS.indexOf(slug);
   return index >= 0 ? index + 1 : 1;
+};
+
+// Model aliases for canonical ID normalization
+const modelAliases: Record<string, string> = {
+  'opus': 'claude-opus',
+  'sonnet': 'claude-sonnet',
+  'haiku': 'claude-haiku',
+  'minimax-m2.1': 'minimax',
 };
 
 type ConfigSnapshot = {
@@ -68,8 +76,8 @@ type ConfigSnapshot = {
   authTlsKeyPath: string;
 };
 
-type VariantModalState = {
-  variant: VariantResponse;
+type ModelModalState = {
+  model: Model;
   mode: 'add' | 'remove' | 'update';
   values: Record<string, string>;
   error: string;
@@ -139,7 +147,7 @@ export default function ConfigPage() {
   const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch presets
   const [externalDiffCommands, setExternalDiffCommands] = useState<{ name: string; command: string }[]>([]);
   const [externalDiffCleanupMinutes, setExternalDiffCleanupMinutes] = useState(60);
-  const [availableVariants, setAvailableVariants] = useState<VariantResponse[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
   const [conflictResolveTarget, setConflictResolveTarget] = useState('');
@@ -320,15 +328,17 @@ export default function ConfigPage() {
         setRepos(data.repos || []);
 
         const detectedItems = (data.run_targets || []).filter(t => t.source === 'detected');
+        const modelBaseTools = new Set((data.models || []).map((model) => model.base_tool));
+        const filteredDetectedItems = detectedItems.filter((target) => !modelBaseTools.has(target.name));
         const promptableItems = (data.run_targets || []).filter(
-          t => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'variant'
+          t => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'model'
         );
         const commandItems = (data.run_targets || []).filter(
-          t => t.type === 'command' && t.source !== 'detected' && t.source !== 'variant'
+          t => t.type === 'command' && t.source !== 'detected' && t.source !== 'model'
         );
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
-        setDetectedTargets(detectedItems);
+        setDetectedTargets(filteredDetectedItems);
         setQuickLaunch(data.quick_launch || []);
         // External diff commands - add VS Code as a built-in default
         // Built-in commands are not editable/deletable in the UI
@@ -401,9 +411,9 @@ export default function ConfigPage() {
           });
         }
 
-        const variantData = await getVariants();
+        // Models are now included in config response
         if (active) {
-          setAvailableVariants(variantData.variants || []);
+          setModels(data.models || []);
         }
 
         const authStatus = await getAuthSecretsStatus();
@@ -468,12 +478,12 @@ export default function ConfigPage() {
     return () => { active = false };
   }, []);
 
-  const reloadVariants = async () => {
+  const reloadModels = async () => {
     try {
-      const variantData = await getVariants();
-      setAvailableVariants(variantData.variants || []);
+      const data = await getConfig();
+      setModels(data.models || []);
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to load variants'));
+      toastError(getErrorMessage(err, 'Failed to load models'));
     }
   };
 
@@ -490,7 +500,7 @@ export default function ConfigPage() {
     } else if (step === 2) {
       // Run targets are optional
     } else if (step === 3) {
-      // Variants are optional
+      // Models are optional
     } else if (step === 4) {
       // Quick launch is optional
     } else if (step === 5) {
@@ -703,10 +713,17 @@ export default function ConfigPage() {
   };
 
   const checkTargetUsage = (targetName) => {
-    const inQuickLaunch = quickLaunch.some((item) => item.target === targetName);
-    const inNudgenik = nudgenikTarget && nudgenikTarget === targetName;
-    const inBranchSuggest = branchSuggestTarget && branchSuggestTarget === targetName;
-    const inConflictResolve = conflictResolveTarget && conflictResolveTarget === targetName;
+    // Normalize to canonical model ID if targetName is a model ID or alias
+    let canonicalName = targetName
+    const model = models.find(m => m.id === targetName || (modelAliases[m.id] === targetName))
+    if (model) {
+      canonicalName = model.id
+    }
+
+    const inQuickLaunch = quickLaunch.some((item) => item.target === canonicalName || (modelAliases[item.target] === canonicalName));
+    const inNudgenik = nudgenikTarget && (nudgenikTarget === canonicalName || (modelAliases[nudgenikTarget] === canonicalName));
+    const inBranchSuggest = branchSuggestTarget && (branchSuggestTarget === canonicalName || (modelAliases[branchSuggestTarget] === canonicalName));
+    const inConflictResolve = conflictResolveTarget && (conflictResolveTarget === canonicalName || (modelAliases[conflictResolveTarget] === canonicalName));
     return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve };
   };
 
@@ -805,7 +822,7 @@ export default function ConfigPage() {
     }
   };
 
-  const [variantModal, setVariantModal] = useState<VariantModalState>(null);
+  const [modelModal, setModelModal] = useState<ModelModalState>(null);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [workspaceModalPath, setWorkspaceModalPath] = useState('');
   const [runTargetEditModal, setRunTargetEditModal] = useState<RunTargetEditModalState>(null);
@@ -829,31 +846,31 @@ export default function ConfigPage() {
     }
   };
 
-  const openVariantModal = (variant: VariantResponse, mode: 'add' | 'remove' | 'update') => {
+  const openModelModal = (model: Model, mode: 'add' | 'remove' | 'update') => {
     if (mode === 'remove') {
-      const usage = checkTargetUsage(variant.name);
+      const usage = checkTargetUsage(model.id);
       if (usage.inQuickLaunch || usage.inNudgenik) {
         const reasons = [
           usage.inQuickLaunch ? 'quick launch item' : null,
           usage.inNudgenik ? 'nudgenik target' : null
         ].filter(Boolean).join(' and ');
-        toastError(`Cannot remove variant "${variant.display_name}" while used by ${reasons}.`);
+        toastError(`Cannot remove model "${model.display_name}" while used by ${reasons}.`);
         return;
       }
     }
     const values: Record<string, string> = {};
-    for (const key of variant.required_secrets || []) {
+    for (const key of model.required_secrets || []) {
       values[key] = '';
     }
-    setVariantModal({ variant, mode, values, error: '' });
+    setModelModal({ model, mode, values, error: '' });
   };
 
-  const closeVariantModal = () => {
-    setVariantModal(null);
+  const closeModelModal = () => {
+    setModelModal(null);
   };
 
-  const updateVariantValue = (key: string, value: string) => {
-    setVariantModal((current) => {
+  const updateModelValue = (key: string, value: string) => {
+    setModelModal((current) => {
       if (!current) return current;
       return {
         ...current,
@@ -862,31 +879,31 @@ export default function ConfigPage() {
     });
   };
 
-  const saveVariantModal = async () => {
-    if (!variantModal) return;
-    const { variant, mode, values } = variantModal;
+  const saveModelModal = async () => {
+    if (!modelModal) return;
+    const { model, mode, values } = modelModal;
 
     if (mode === 'remove') {
       try {
-        await removeVariantSecrets(variant.name);
-        await reloadVariants();
-        success(`Removed secrets for ${variant.display_name}`);
-        closeVariantModal();
+        await removeModelSecrets(model.id);
+        await reloadModels();
+        success(`Removed secrets for ${model.display_name}`);
+        closeModelModal();
       } catch (err) {
-        setVariantModal((current) => {
+        setModelModal((current) => {
           if (!current) return current;
           return {
             ...current,
-            error: getErrorMessage(err, 'Failed to remove variant secrets')
+            error: getErrorMessage(err, 'Failed to remove model secrets')
           };
         });
       }
       return;
     }
 
-    const missingKey = (variant.required_secrets || []).find((key) => !values[key]?.trim());
+    const missingKey = (model.required_secrets || []).find((key) => !values[key]?.trim());
     if (missingKey) {
-      setVariantModal((current) => {
+      setModelModal((current) => {
         if (!current) return current;
         return {
           ...current,
@@ -897,16 +914,16 @@ export default function ConfigPage() {
     }
 
     try {
-      await configureVariantSecrets(variant.name, values);
-      await reloadVariants();
-      success(`Saved secrets for ${variant.display_name}`);
-      closeVariantModal();
+      await configureModelSecrets(model.id, values);
+      await reloadModels();
+      success(`Saved secrets for ${model.display_name}`);
+      closeModelModal();
     } catch (err) {
-      setVariantModal((current) => {
+      setModelModal((current) => {
         if (!current) return current;
         return {
           ...current,
-          error: getErrorMessage(err, 'Failed to save variant secrets')
+          error: getErrorMessage(err, 'Failed to save model secrets')
         };
       });
     }
@@ -1035,7 +1052,7 @@ export default function ConfigPage() {
   const promptableTargetNames = new Set([
     ...detectedTargets.map((target) => target.name),
     ...promptableTargets.map((target) => target.name),
-    ...availableVariants.filter((variant) => variant.configured).map((variant) => variant.name)
+    ...models.filter((model) => model.configured).map((model) => model.id)
   ]);
 
   const commandTargetNames = new Set(commandTargets.map((target) => target.name));
@@ -1051,7 +1068,7 @@ export default function ConfigPage() {
   // Check if each step is valid
   const stepValid = {
     1: workspacePath.trim().length > 0 && repos.length > 0,
-    2: true, // Run targets (now includes variants) are optional
+    2: true, // Run targets (now includes models) are optional
     3: true, // Quick launch is optional
     4: true, // External diff is optional
     5: true // Advanced step is always valid (has defaults)
@@ -1332,56 +1349,61 @@ export default function ConfigPage() {
                 </div>
               )}
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Variants</h3>
+              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Models</h3>
               <p className="section-hint">
-                Add secrets to enable variants for quick launch and spawning.
+                Add secrets to enable third-party models for quick launch and spawning.
               </p>
-              {availableVariants.length === 0 ? (
+              {models.length === 0 ? (
                 <div className="empty-state-hint">
-                  No variants available. Install the base tool to enable variants.
+                  No models available. Install the base tool to enable models.
                 </div>
               ) : (
                 <div className="item-list">
-                  {availableVariants.map((variant) => (
-                    <div className="item-list__item" key={variant.name}>
+                  {models.map((model) => (
+                    <div className="item-list__item" key={model.id}>
                       <div className="item-list__item-primary">
-                        <span className="item-list__item-name">{variant.display_name}</span>
+                        <span className="item-list__item-name">{model.display_name}</span>
                         <span className="item-list__item-detail">
-                          {variant.name} · base: {variant.base_tool}
+                          {model.id} · base: {model.base_tool}
                         </span>
-                        {variant.usage_url && (
+                        {model.usage_url && (
                           <a
                             className="item-list__item-detail link"
-                            href={variant.usage_url}
+                            href={model.usage_url}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            {variant.usage_url}
+                            {model.usage_url}
                           </a>
                         )}
                       </div>
-                      {variant.configured ? (
-                        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+                      {/* Native models have no required secrets */}
+                      {model.required_secrets && model.required_secrets.length > 0 ? (
+                        model.configured ? (
+                          <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+                            <button
+                              className="btn btn--primary"
+                              onClick={() => openModelModal(model, 'update')}
+                            >
+                              Update
+                            </button>
+                            <button
+                              className="btn btn--danger"
+                              onClick={() => openModelModal(model, 'remove')}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             className="btn btn--primary"
-                            onClick={() => openVariantModal(variant, 'update')}
+                            onClick={() => openModelModal(model, 'add')}
                           >
-                            Update
+                            Add Secrets
                           </button>
-                          <button
-                            className="btn btn--danger"
-                            onClick={() => openVariantModal(variant, 'remove')}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        )
                       ) : (
-                        <button
-                          className="btn btn--primary"
-                          onClick={() => openVariantModal(variant, 'add')}
-                        >
-                          Add
-                        </button>
+                        <span className="status-badge status-badge--success">No secrets required</span>
                       )}
                     </div>
                   ))}
@@ -1614,9 +1636,9 @@ export default function ConfigPage() {
                           <optgroup label="Promptable Targets">
                             {[
                               ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
-                              ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
-                                value: variant.name,
-                                label: variant.display_name
+                              ...models.filter((model) => model.configured).map((model) => ({
+                                value: model.id,
+                                label: model.display_name
                               })),
                               ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
                             ].map((option) => (
@@ -1630,9 +1652,9 @@ export default function ConfigPage() {
                           <optgroup label="Promptable Targets">
                             {[
                               ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
-                              ...availableVariants.filter((variant) => variant.configured).map((variant) => ({
-                                value: variant.name,
-                                label: variant.display_name
+                              ...models.filter((model) => model.configured).map((model) => ({
+                                value: model.id,
+                                label: model.display_name
                               })),
                               ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
                             ].map((option) => (
@@ -1866,9 +1888,9 @@ export default function ConfigPage() {
                           <option key={target.name} value={target.name}>{target.name}</option>
                         ))}
                       </optgroup>
-                      <optgroup label="Variants">
-                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
-                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                      <optgroup label="Models">
+                        {models.filter((model) => model.configured).map((model) => (
+                          <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
                       <optgroup label="User Promptable">
@@ -1931,9 +1953,9 @@ export default function ConfigPage() {
                           <option key={target.name} value={target.name}>{target.name}</option>
                         ))}
                       </optgroup>
-                      <optgroup label="Variants">
-                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
-                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                      <optgroup label="Models">
+                        {models.filter((model) => model.configured).map((model) => (
+                          <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
                       <optgroup label="User Promptable">
@@ -1970,9 +1992,9 @@ export default function ConfigPage() {
                           <option key={target.name} value={target.name}>{target.name}</option>
                         ))}
                       </optgroup>
-                      <optgroup label="Variants">
-                        {availableVariants.filter((variant) => variant.configured).map((variant) => (
-                          <option key={variant.name} value={variant.name}>{variant.display_name}</option>
+                      <optgroup label="Models">
+                        {models.filter((model) => model.configured).map((model) => (
+                          <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
                       <optgroup label="User Promptable">
@@ -2451,61 +2473,61 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {variantModal && (
+      {modelModal && (
         <div
           className="modal-overlay"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="variant-modal-title"
+          aria-labelledby="model-modal-title"
           onKeyDown={(e) => {
-            if (e.key === 'Escape') closeVariantModal();
+            if (e.key === 'Escape') closeModelModal();
           }}
         >
           <div className="modal">
             <div className="modal__header">
-              <h2 className="modal__title" id="variant-modal-title">
-                {variantModal.mode === 'remove'
-                  ? `Remove ${variantModal.variant.display_name}`
-                  : `${variantModal.mode === 'add' ? 'Add' : 'Update'} ${variantModal.variant.display_name}`}
+              <h2 className="modal__title" id="model-modal-title">
+                {modelModal.mode === 'remove'
+                  ? `Remove ${modelModal.model.display_name}`
+                  : `${modelModal.mode === 'add' ? 'Add' : 'Update'} ${modelModal.model.display_name}`}
               </h2>
             </div>
             <div className="modal__body">
-              {variantModal.mode === 'remove' ? (
-                <p>Remove stored secrets for this variant?</p>
+              {modelModal.mode === 'remove' ? (
+                <p>Remove stored secrets for this model?</p>
               ) : (
                 <>
-                  {(variantModal.variant.required_secrets || []).map((key, index) => (
+                  {(modelModal.model.required_secrets || []).map((key, index) => (
                     <div className="form-group" key={key}>
                       <label className="form-group__label">{key}</label>
                       <input
                         type="password"
                         className="input"
                         autoFocus={index === 0}
-                        value={variantModal.values[key] || ''}
-                        onChange={(e) => updateVariantValue(key, e.target.value)}
+                        value={modelModal.values[key] || ''}
+                        onChange={(e) => updateModelValue(key, e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveVariantModal();
+                          if (e.key === 'Enter') saveModelModal();
                         }}
                       />
                     </div>
                   ))}
                 </>
               )}
-              {variantModal.error && (
+              {modelModal.error && (
                 <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)' }}>
-                  {variantModal.error}
+                  {modelModal.error}
                 </p>
               )}
             </div>
             <div className="modal__footer">
-              <button className="btn" onClick={closeVariantModal}>Cancel</button>
+              <button className="btn" onClick={closeModelModal}>Cancel</button>
               <button
-                className={`btn ${variantModal.mode === 'remove' ? 'btn--danger' : 'btn--primary'}`}
-                onClick={saveVariantModal}
+                className={`btn ${modelModal.mode === 'remove' ? 'btn--danger' : 'btn--primary'}`}
+                onClick={saveModelModal}
               >
-                {variantModal.mode === 'remove'
+                {modelModal.mode === 'remove'
                   ? 'Remove'
-                  : variantModal.mode === 'add'
+                  : modelModal.mode === 'add'
                     ? 'Add'
                     : 'Update'}
               </button>

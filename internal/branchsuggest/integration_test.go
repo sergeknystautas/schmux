@@ -37,7 +37,7 @@ func TestBranchSuggestion(t *testing.T) {
 		passRuns = parsed
 	}
 
-	// Load config to access variants and run targets
+	// Load config to access models and run targets
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("get home dir: %v", err)

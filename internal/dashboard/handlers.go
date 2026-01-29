@@ -957,33 +957,32 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		externalDiffCommandsResp[i] = contracts.ExternalDiffCommand{Name: cmd.Name, Command: cmd.Command}
 	}
 
-	variants := make([]contracts.Variant, len(s.config.GetVariantConfigs()))
-	for i, variant := range s.config.GetVariantConfigs() {
-		variants[i] = contracts.Variant{Name: variant.Name, Enabled: variant.Enabled, Env: variant.Env}
-	}
-	availableVariants, err := buildAvailableVariants(s.config)
+	// Build models list with full metadata
+	models, err := buildAvailableModels(s.config)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read variants: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
-	for _, variant := range availableVariants {
-		if !variant.Configured {
+
+	// Add configured models as run targets
+	for _, model := range models {
+		if !model.Configured {
 			continue
 		}
-		baseTarget, found := s.config.GetDetectedRunTarget(variant.BaseTool)
+		baseTarget, found := s.config.GetDetectedRunTarget(model.BaseTool)
 		if !found {
 			continue
 		}
-		if _, exists := seenTargets[variant.Name]; exists {
+		if _, exists := seenTargets[model.ID]; exists {
 			continue
 		}
 		runTargetResp = append(runTargetResp, contracts.RunTarget{
-			Name:    variant.Name,
+			Name:    model.ID,
 			Type:    config.RunTargetTypePromptable,
 			Command: baseTarget.Command,
-			Source:  "variant",
+			Source:  "model",
 		})
-		seenTargets[variant.Name] = struct{}{}
+		seenTargets[model.ID] = struct{}{}
 	}
 
 	response := contracts.ConfigResponse{
@@ -994,7 +993,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		QuickLaunch:                quickLaunchResp,
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
-		Variants:                   variants,
+		Models:                     models,
 		Terminal:                   contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
@@ -1134,7 +1133,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			userTargets[i] = config.RunTarget{Name: t.Name, Type: t.Type, Command: t.Command, Source: source}
 		}
-		detectedTools := detectedToolsFromRunTargets(cfg.GetDetectedRunTargets())
+		detectedTools := config.DetectedToolsFromConfig(cfg)
 		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedTools)
 	}
 
@@ -1158,13 +1157,6 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.ExternalDiffCleanupAfterMs = *req.ExternalDiffCleanupAfterMs
-	}
-
-	if req.Variants != nil {
-		cfg.Variants = make([]config.VariantConfig, len(req.Variants))
-		for i, v := range req.Variants {
-			cfg.Variants[i] = config.VariantConfig{Name: v.Name, Enabled: v.Enabled, Env: v.Env}
-		}
 	}
 
 	if req.Nudgenik != nil {
@@ -1414,53 +1406,38 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleVariants lists available variants.
-func (s *Server) handleVariants(w http.ResponseWriter, r *http.Request) {
+// handleModels lists available models.
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	resp, err := buildAvailableVariants(s.config)
+	resp, err := buildAvailableModels(s.config)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read variants: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"variants": resp})
+	json.NewEncoder(w).Encode(map[string]any{"models": resp})
 }
 
-func detectedToolsFromConfig(cfg *config.Config) []detect.Tool {
-	return detectedToolsFromRunTargets(cfg.GetDetectedRunTargets())
-}
-
-func detectedToolsFromRunTargets(targets []config.RunTarget) []detect.Tool {
-	tools := make([]detect.Tool, 0, len(targets))
-	for _, target := range targets {
-		tools = append(tools, detect.Tool{
-			Name:    target.Name,
-			Command: target.Command,
-			Source:  "config",
-			Agentic: true,
-		})
-	}
-	return tools
-}
-
-func buildAvailableVariants(cfg *config.Config) ([]contracts.AvailableVariant, error) {
-	available := cfg.GetAvailableVariants(detectedToolsFromConfig(cfg))
-	resp := make([]contracts.AvailableVariant, 0, len(available))
-	for _, variant := range available {
-		configured, err := variantConfigured(variant)
+func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
+	available := cfg.GetAvailableModels(config.DetectedToolsFromConfig(cfg))
+	resp := make([]contracts.Model, 0, len(available))
+	for _, model := range available {
+		configured, err := modelConfigured(model)
 		if err != nil {
 			return nil, err
 		}
-		resp = append(resp, contracts.AvailableVariant{
-			Name:            variant.Name,
-			DisplayName:     variant.DisplayName,
-			BaseTool:        variant.BaseTool,
-			RequiredSecrets: variant.RequiredSecrets,
-			UsageURL:        variant.UsageURL,
+		resp = append(resp, contracts.Model{
+			ID:              model.ID,
+			DisplayName:     model.DisplayName,
+			BaseTool:        model.BaseTool,
+			Provider:        model.Provider,
+			Category:        model.Category,
+			RequiredSecrets: model.RequiredSecrets,
+			UsageURL:        model.UsageURL,
 			Configured:      configured,
 		})
 	}
@@ -1499,20 +1476,20 @@ func cloneAccessControl(src *config.AccessControlConfig) *config.AccessControlCo
 	return &cpy
 }
 
-// handleVariant handles variant secret/configured requests.
-func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/variants/")
+// handleModel handles model secret/configured requests.
+func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/models/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 {
-		http.Error(w, "variant name and action required", http.StatusBadRequest)
+		http.Error(w, "model name and action required", http.StatusBadRequest)
 		return
 	}
 	name := parts[0]
 	action := parts[1]
 
-	variant, ok := detect.FindVariant(name)
+	model, ok := detect.FindModel(name)
 	if !ok {
-		http.Error(w, "variant not found", http.StatusNotFound)
+		http.Error(w, "model not found", http.StatusNotFound)
 		return
 	}
 
@@ -1522,7 +1499,7 @@ func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		configured, err := variantConfigured(variant)
+		configured, err := modelConfigured(model)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
 			return
@@ -1540,24 +1517,31 @@ func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 				return
 			}
-			if err := validateVariantSecrets(variant, req.Secrets); err != nil {
+			if err := validateModelSecrets(model, req.Secrets); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := config.SaveVariantSecrets(variant.Name, req.Secrets); err != nil {
+			if err := config.SaveModelSecrets(model.ID, req.Secrets); err != nil {
 				http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		case http.MethodDelete:
-			if targetInUseByNudgenikOrQuickLaunch(s.config, variant.Name) {
-				http.Error(w, "variant is in use by nudgenik or quick launch", http.StatusBadRequest)
+			if targetInUseByNudgenikOrQuickLaunch(s.config, model.ID) {
+				http.Error(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
 				return
 			}
-			if err := config.DeleteVariantSecrets(variant.Name); err != nil {
-				http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
-				return
+			if model.Provider != "" && model.Provider != "anthropic" {
+				if err := config.DeleteProviderSecrets(model.Provider); err != nil {
+					http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				if err := config.DeleteModelSecrets(model.ID); err != nil {
+					http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+					return
+				}
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -1566,7 +1550,7 @@ func (s *Server) handleVariant(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		http.Error(w, "unknown variant action", http.StatusNotFound)
+		http.Error(w, "unknown model action", http.StatusNotFound)
 	}
 }
 
@@ -1574,23 +1558,34 @@ func targetInUseByNudgenikOrQuickLaunch(cfg *config.Config, targetName string) b
 	if cfg == nil || targetName == "" {
 		return false
 	}
-	if cfg.GetNudgenikTarget() == targetName {
+
+	// Normalize to canonical model ID if targetName is a model or alias
+	canonicalName := targetName
+	if model, ok := detect.FindModel(targetName); ok {
+		canonicalName = model.ID
+	}
+
+	if cfg.GetNudgenikTarget() == canonicalName {
 		return true
 	}
 	for _, preset := range cfg.GetQuickLaunch() {
-		if preset.Target == targetName {
+		if preset.Target == canonicalName {
+			return true
+		}
+		// Also check if preset.Target is an alias that resolves to this model
+		if model, ok := detect.FindModel(preset.Target); ok && model.ID == canonicalName {
 			return true
 		}
 	}
 	return false
 }
 
-func variantConfigured(variant detect.Variant) (bool, error) {
-	secrets, err := config.GetVariantSecrets(variant.Name)
+func modelConfigured(model detect.Model) (bool, error) {
+	secrets, err := config.GetEffectiveModelSecrets(model)
 	if err != nil {
 		return false, err
 	}
-	for _, key := range variant.RequiredSecrets {
+	for _, key := range model.RequiredSecrets {
 		if strings.TrimSpace(secrets[key]) == "" {
 			return false, nil
 		}
@@ -1598,8 +1593,8 @@ func variantConfigured(variant detect.Variant) (bool, error) {
 	return true, nil
 }
 
-func validateVariantSecrets(variant detect.Variant, secrets map[string]string) error {
-	for _, key := range variant.RequiredSecrets {
+func validateModelSecrets(model detect.Model, secrets map[string]string) error {
+	for _, key := range model.RequiredSecrets {
 		val := strings.TrimSpace(secrets[key])
 		if val == "" {
 			return fmt.Errorf("missing required secret %s", key)

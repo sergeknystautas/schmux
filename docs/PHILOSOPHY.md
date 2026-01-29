@@ -52,7 +52,7 @@ schmux is deliberately *not* trying to be:
 - **Multiple agents can work in the same workspace simultaneously**
 - **Unopinionated about what you run**: support a wide variety of tools
 - **Out-of-box support** for Claude, Codex, and Gemini; will add more over time
-- **Variants**: different endpoints/models of the same tool
+- **Models**: native Claude models (Opus, Sonnet, Haiku) and third-party providers (Kimi, GLM, MiniMax)
 - **User-defined run targets**: supply your own CLI scripts for tools we don't support
 - **Quick launch presets**: saved combinations of target + prompt for fully automated, non-prompt-needing actions
 - **Cookbooks**: reusable prompt libraries for common tasks

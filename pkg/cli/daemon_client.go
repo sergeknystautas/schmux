@@ -276,12 +276,12 @@ func (c *Client) RefreshOverlay(ctx context.Context, workspaceID string) error {
 
 // Config represents the daemon configuration.
 type Config struct {
-	WorkspacePath string          `json:"workspace_path"`
-	Repos         []Repo          `json:"repos"`
-	RunTargets    []RunTarget     `json:"run_targets"`
-	QuickLaunch   []QuickLaunch   `json:"quick_launch"`
-	Variants      []VariantConfig `json:"variants,omitempty"`
-	Terminal      TerminalConfig  `json:"terminal"`
+	WorkspacePath string         `json:"workspace_path"`
+	Repos         []Repo         `json:"repos"`
+	RunTargets    []RunTarget    `json:"run_targets"`
+	QuickLaunch   []QuickLaunch  `json:"quick_launch"`
+	Models        []Model        `json:"models"`
+	Terminal      TerminalConfig `json:"terminal"`
 }
 
 // Repo represents a git repository configuration.
@@ -302,15 +302,20 @@ type RunTarget struct {
 type QuickLaunch struct {
 	Name    string  `json:"name"`
 	Command string  `json:"command,omitempty"` // shell command to run directly
-	Target  string  `json:"target,omitempty"`  // run target (claude, codex, variant, etc.)
+	Target  string  `json:"target,omitempty"`  // run target (claude, codex, model, etc.)
 	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
-// VariantConfig represents a variant config entry.
-type VariantConfig struct {
-	Name    string            `json:"name"`
-	Enabled *bool             `json:"enabled,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+// Model represents an AI model with metadata and configuration status.
+type Model struct {
+	ID              string   `json:"id"`
+	DisplayName     string   `json:"display_name"`
+	BaseTool        string   `json:"base_tool"`
+	Provider        string   `json:"provider"`
+	Category        string   `json:"category"`
+	RequiredSecrets []string `json:"required_secrets,omitempty"`
+	UsageURL        string   `json:"usage_url,omitempty"`
+	Configured      bool     `json:"configured"`
 }
 
 // TerminalConfig represents terminal dimensions.

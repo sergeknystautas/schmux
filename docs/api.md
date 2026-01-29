@@ -320,7 +320,16 @@ Response:
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
-  "variants":[{"name":"...","enabled":true,"env":{"KEY":"VALUE"}}],
+  "models":[{
+    "id":"claude-sonnet",
+    "display_name":"Claude Sonnet 4.5",
+    "base_tool":"claude",
+    "provider":"anthropic",
+    "category":"native",
+    "required_secrets":[],
+    "usage_url":"",
+    "configured":true
+  }],
   "nudgenik":{"target":"optional","viewed_buffer_ms":0,"seen_interval_ms":0},
   "terminal":{"width":0,"height":0,"seed_lines":0,"bootstrap_lines":0},
   "sessions":{
@@ -365,7 +374,16 @@ Request:
   "repos":[{"name":"repo","url":"https://..."}],
   "run_targets":[{"name":"target","type":"promptable","command":"...","source":"user"}],
   "quick_launch":[{"name":"preset","target":"target","prompt":"optional"}],
-  "variants":[{"name":"...","enabled":true,"env":{"KEY":"VALUE"}}],
+  "models":[{
+    "id":"claude-sonnet",
+    "display_name":"Claude Sonnet 4.5",
+    "base_tool":"claude",
+    "provider":"anthropic",
+    "category":"native",
+    "required_secrets":[],
+    "usage_url":"",
+    "configured":true
+  }],
   "nudgenik":{"target":"optional","viewed_buffer_ms":0,"seen_interval_ms":0},
   "terminal":{"width":120,"height":30,"seed_lines":1000,"bootstrap_lines":200},
   "sessions":{
@@ -456,33 +474,55 @@ Response:
 }
 ```
 
-### GET /api/variants
-Lists available variants and whether they are configured.
+### GET /api/models
+Lists available models and whether they are configured (provider-scoped secrets apply).
 
 Response:
 ```json
 {
-  "variants":[
+  "models":[
     {
-      "name":"variant",
-      "display_name":"Variant",
-      "base_tool":"tool",
-      "required_secrets":["KEY"],
-      "usage_url":"https://...",
+      "id":"claude-sonnet",
+      "display_name":"claude sonnet 4.5",
+      "base_tool":"claude",
+      "provider":"anthropic",
+      "category":"native",
+      "required_secrets":[],
+      "usage_url":"",
       "configured":true
+    },
+    {
+      "id":"kimi-thinking",
+      "display_name":"kimi k2 thinking",
+      "base_tool":"claude",
+      "provider":"moonshot",
+      "category":"third-party",
+      "required_secrets":["ANTHROPIC_AUTH_TOKEN"],
+      "usage_url":"https://platform.moonshot.ai/console/account",
+      "configured":false
+    },
+    {
+      "id":"kimi-k2.5",
+      "display_name":"kimi k2.5",
+      "base_tool":"claude",
+      "provider":"moonshot",
+      "category":"third-party",
+      "required_secrets":["ANTHROPIC_AUTH_TOKEN"],
+      "usage_url":"https://platform.moonshot.ai/console/account",
+      "configured":false
     }
   ]
 }
 ```
 
-### GET /api/variants/{name}/configured
+### GET /api/models/{id}/configured
 Response:
 ```json
 {"configured":true}
 ```
 
-### POST /api/variants/{name}/secrets
-Set secrets for a variant.
+### POST /api/models/{id}/secrets
+Set secrets for a third-party model (shared across all models for that provider).
 
 Request:
 ```json
@@ -498,8 +538,8 @@ Errors:
 - 400: missing secrets or invalid payload (plain text)
 - 500: "Failed to save secrets: ..."
 
-### DELETE /api/variants/{name}/secrets
-Delete secrets for a variant.
+### DELETE /api/models/{id}/secrets
+Delete secrets for a third-party model (clears provider secrets).
 
 Response:
 ```json
@@ -507,7 +547,7 @@ Response:
 ```
 
 Errors:
-- 400: "variant is in use by nudgenik or quick launch"
+- 400: "model is in use by nudgenik or quick launch"
 
 ### GET /api/builtin-quick-launch
 Returns built-in quick launch presets.

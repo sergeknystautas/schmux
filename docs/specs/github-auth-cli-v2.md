@@ -454,7 +454,7 @@ Users can press Enter through all prompts to keep existing configuration, or cha
       "client_secret": "..."
     }
   },
-  "variants": { ... }
+  "models": { ... }
 }
 ```
 

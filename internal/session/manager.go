@@ -47,7 +47,7 @@ type ResolvedTarget struct {
 
 const (
 	TargetKindDetected = "detected"
-	TargetKindVariant  = "variant"
+	TargetKindModel    = "model"
 	TargetKindUser     = "user"
 )
 
@@ -248,28 +248,40 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 
 // ResolveTarget resolves a target name to a command and env.
 func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedTarget, error) {
-	for _, variant := range m.config.GetMergedVariants() {
-		if variant.Name == targetName {
-			baseTarget, found := m.config.GetDetectedRunTarget(variant.BaseTool)
-			if !found {
-				return ResolvedTarget{}, fmt.Errorf("variant %s requires base tool %s which is not available", variant.Name, variant.BaseTool)
+	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
+	model, ok := detect.FindModel(targetName)
+	if ok {
+		// Verify the base tool is detected
+		detectedTools := config.DetectedToolsFromConfig(m.config)
+		baseToolDetected := false
+		for _, tool := range detectedTools {
+			if tool.Name == model.BaseTool {
+				baseToolDetected = true
+				break
 			}
-			secrets, err := config.GetVariantSecrets(variant.Name)
-			if err != nil {
-				return ResolvedTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
-			}
-			if err := ensureVariantSecrets(variant, secrets); err != nil {
-				return ResolvedTarget{}, err
-			}
-			env := mergeEnvMaps(variant.Env, secrets)
-			return ResolvedTarget{
-				Name:       variant.Name,
-				Kind:       TargetKindVariant,
-				Command:    baseTarget.Command,
-				Promptable: true,
-				Env:        env,
-			}, nil
 		}
+		if !baseToolDetected {
+			return ResolvedTarget{}, fmt.Errorf("model %s requires base tool %s which is not available", model.ID, model.BaseTool)
+		}
+		baseTarget, found := m.config.GetDetectedRunTarget(model.BaseTool)
+		if !found {
+			return ResolvedTarget{}, fmt.Errorf("model %s requires base tool %s which is not available", model.ID, model.BaseTool)
+		}
+		secrets, err := config.GetEffectiveModelSecrets(model)
+		if err != nil {
+			return ResolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
+		}
+		if err := ensureModelSecrets(model, secrets); err != nil {
+			return ResolvedTarget{}, err
+		}
+		env := mergeEnvMaps(model.BuildEnv(), secrets)
+		return ResolvedTarget{
+			Name:       model.ID,
+			Kind:       TargetKindModel,
+			Command:    baseTarget.Command,
+			Promptable: true,
+			Env:        env,
+		}, nil
 	}
 
 	if target, found := m.config.GetRunTarget(targetName); found {
@@ -345,14 +357,8 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 	return out
 }
 
-func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
-	for _, key := range variant.RequiredSecrets {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("variant %s missing required secret %s", variant.Name, key)
-		}
-	}
-	return nil
+func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
+	return config.EnsureModelSecrets(model, secrets)
 }
 
 // IsRunning checks if the agent process is still running.

@@ -6,7 +6,7 @@ import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import type { RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
+import type { Model, RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
@@ -95,6 +95,7 @@ export default function SpawnPage() {
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
   const [selectedCommand, setSelectedCommand] = useState('');
   const [spawnMode, setSpawnMode] = useState<'promptable' | 'command'>('promptable');
   const [repo, setRepo] = useState('');
@@ -159,10 +160,20 @@ export default function SpawnPage() {
         setRepos(cfg.repos || []);
         setSourceCodeManager(cfg.source_code_management || 'git-worktree');
 
-        const promptableItems = (cfg.run_targets || []).filter(t => t.type === 'promptable');
+        const modelBaseTools = new Set((cfg.models || []).map((model) => model.base_tool));
+        const promptableItems = (cfg.run_targets || []).filter(t => {
+          if (t.type !== 'promptable') {
+            return false;
+          }
+          if (t.source === 'detected' && modelBaseTools.has(t.name)) {
+            return false;
+          }
+          return true;
+        });
         const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command');
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
+        setModels(cfg.models || []);
 
       } catch (err) {
         if (!active) return;
@@ -233,11 +244,12 @@ export default function SpawnPage() {
   };
 
   const promptableList = useMemo<PromptableListItem[]>(() => {
+    const modelLabels = new Map(models.map((model) => [model.id, model.display_name]));
     return promptableTargets.map((target) => ({
       name: target.name,
-      label: target.name,
+      label: modelLabels.get(target.name) || target.name,
     }));
-  }, [promptableTargets]);
+  }, [models, promptableTargets]);
 
   const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
 

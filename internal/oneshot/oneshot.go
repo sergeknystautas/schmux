@@ -85,7 +85,7 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 }
 
 // ExecuteTarget runs a one-shot execution for a named target from config.
-// It resolves variants, loads secrets, and merges env vars automatically.
+// It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
 // The timeout parameter controls how long to wait for the one-shot execution to complete.
 func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt string, timeout time.Duration) (string, error) {
@@ -192,39 +192,49 @@ type resolvedTarget struct {
 
 const (
 	targetKindDetected = "detected"
-	targetKindVariant  = "variant"
+	targetKindModel    = "model"
 	targetKindUser     = "user"
 )
 
-// resolveTarget resolves a target name to its full configuration including variants and secrets.
+// resolveTarget resolves a target name to its full configuration including models and secrets.
 func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error) {
 	if cfg == nil {
 		return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	// Check variants first
-	for _, variant := range cfg.GetMergedVariants() {
-		if variant.Name != targetName {
-			continue
+	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
+	model, ok := detect.FindModel(targetName)
+	if ok {
+		// Verify the base tool is detected
+		detectedTools := config.DetectedToolsFromConfig(cfg)
+		baseToolDetected := false
+		for _, tool := range detectedTools {
+			if tool.Name == model.BaseTool {
+				baseToolDetected = true
+				break
+			}
 		}
-		baseTarget, found := cfg.GetDetectedRunTarget(variant.BaseTool)
+		if !baseToolDetected {
+			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+		}
+		baseTarget, found := cfg.GetDetectedRunTarget(model.BaseTool)
 		if !found {
 			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 		}
-		secrets, err := config.GetVariantSecrets(variant.Name)
+		secrets, err := config.GetEffectiveModelSecrets(model)
 		if err != nil {
-			return resolvedTarget{}, fmt.Errorf("failed to load secrets for variant %s: %w", variant.Name, err)
+			return resolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := ensureVariantSecrets(variant, secrets); err != nil {
+		if err := ensureModelSecrets(model, secrets); err != nil {
 			return resolvedTarget{}, err
 		}
 		return resolvedTarget{
-			Name:       variant.Name,
-			Kind:       targetKindVariant,
-			ToolName:   variant.BaseTool,
+			Name:       model.ID,
+			Kind:       targetKindModel,
+			ToolName:   model.BaseTool,
 			Command:    baseTarget.Command,
 			Promptable: true,
-			Env:        mergeEnvMaps(variant.Env, secrets),
+			Env:        mergeEnvMaps(model.BuildEnv(), secrets),
 		}, nil
 	}
 
@@ -263,12 +273,6 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 	return out
 }
 
-func ensureVariantSecrets(variant detect.Variant, secrets map[string]string) error {
-	for _, key := range variant.RequiredSecrets {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("variant %s missing required secret: %s", variant.Name, key)
-		}
-	}
-	return nil
+func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
+	return config.EnsureModelSecrets(model, secrets)
 }

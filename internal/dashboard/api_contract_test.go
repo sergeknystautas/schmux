@@ -176,14 +176,11 @@ func TestAPIContract_ConfigGet(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	required := []string{"workspace_path", "repos", "run_targets", "quick_launch", "nudgenik", "terminal", "sessions", "xterm", "access_control", "needs_restart"}
+	required := []string{"workspace_path", "repos", "run_targets", "quick_launch", "models", "nudgenik", "terminal", "sessions", "xterm", "access_control", "needs_restart"}
 	for _, key := range required {
 		if _, ok := resp[key]; !ok {
 			t.Fatalf("expected key %q in config response", key)
 		}
-	}
-	if variants, ok := resp["variants"]; ok && variants == nil {
-		t.Fatalf("expected variants to be non-nil when present")
 	}
 }
 

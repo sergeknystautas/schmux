@@ -52,7 +52,7 @@ Extend format to allow auth credentials while remaining backward compatible.
 Preferred structure:
 ```json
 {
-  "variants": {
+  "models": {
     "anthropic": {"ANTHROPIC_AUTH_TOKEN":"..."}
   },
   "auth": {
@@ -142,7 +142,7 @@ When auth is enabled:
   - Session TTL (minutes)
 
 ### Secrets UI
-- Reuse existing “Variant secrets” pattern for auth secrets.
+- Reuse existing "Model secrets" pattern for auth secrets.
 - Add “Auth secrets (GitHub)” modal/input:
   - `client_id`
   - `client_secret`

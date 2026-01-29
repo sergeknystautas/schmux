@@ -28,7 +28,7 @@ export interface ConfigResponse {
   quick_launch: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
-  variants?: Variant[];
+  models: Model[];
   terminal: Terminal;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
@@ -48,7 +48,6 @@ export interface ConfigUpdateRequest {
   quick_launch?: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
-  variants?: Variant[];
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
@@ -70,6 +69,17 @@ export interface ConflictResolveUpdate {
 export interface ExternalDiffCommand {
   name: string;
   command: string;
+}
+
+export interface Model {
+  id: string;
+  display_name: string;
+  base_tool: string;
+  provider: string;
+  category: string;
+  required_secrets?: string[];
+  usage_url?: string;
+  configured: boolean;
 }
 
 export interface Network {
@@ -163,12 +173,6 @@ export interface TerminalUpdate {
   height?: number;
   seed_lines?: number;
   bootstrap_lines?: number;
-}
-
-export interface Variant {
-  name: string;
-  enabled?: boolean;
-  env?: Record<string, string>;
 }
 
 export interface Xterm {

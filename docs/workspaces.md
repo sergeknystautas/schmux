@@ -272,7 +272,7 @@ Define quick launch presets that only appear for this repository:
 |-------|------|-------------|
 | `name` | string | Display name (required) |
 | `command` | string | Shell command to run directly |
-| `target` | string | Run target (claude, codex, variant, or user-defined) |
+| `target` | string | Run target (claude, codex, model, or user-defined) |
 | `prompt` | string | Prompt to send to the target |
 
 #### Rules

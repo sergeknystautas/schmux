@@ -46,7 +46,7 @@ schmux spawn -t codex -w myproject-001
 ```
 
 ### Options
-- `-t, --target`: Which target to run (detected tool, variant, or user-defined)
+- `-t, --target`: Which target to run (detected tool, model, or user-defined)
 - `-r, --repo`: Repository name (for new workspace)
 - `-b, --branch`: Git branch to checkout
 - `-w, --workspace`: Existing workspace ID
