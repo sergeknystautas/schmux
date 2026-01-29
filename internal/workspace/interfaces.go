@@ -30,6 +30,30 @@ type RecentBranch struct {
 	Subject    string `json:"subject"`
 }
 
+// LinearSyncResult represents the result of a linear sync operation (from or to main).
+type LinearSyncResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// LinearSyncResolveConflictResult contains the result of a conflict resolution rebase.
+type LinearSyncResolveConflictResult struct {
+	Success         bool     `json:"success"`
+	Message         string   `json:"message"`
+	Hash            string   `json:"hash,omitempty"`
+	ConflictedFiles []string `json:"conflicted_files,omitempty"`
+	HadConflict     bool     `json:"had_conflict"`
+}
+
+// GitSafetyStatus represents the git safety status of a workspace.
+type GitSafetyStatus struct {
+	Safe           bool   // true if workspace is safe to dispose
+	Reason         string // explanation if not safe
+	ModifiedFiles  int    // number of modified files
+	UntrackedFiles int    // number of untracked files
+	AheadCommits   int    // number of unpushed commits
+}
+
 // WorkspaceManager defines the interface for workspace operations.
 type WorkspaceManager interface {
 	// GetByID returns a workspace by its ID.
@@ -68,6 +92,9 @@ type WorkspaceManager interface {
 	// GetWorkspaceConfig returns the cached workspace config for the given workspace ID.
 	GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig
 
+	// CreateLocalRepo creates a new workspace with a fresh local git repository.
+	CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error)
+
 	// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
 	LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 
@@ -77,11 +104,11 @@ type WorkspaceManager interface {
 	// LinearSyncResolveConflict rebases exactly one commit from main, handling conflicts.
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error)
 
-	// EnsureBareClones ensures bare clones exist for all configured repos (for branch querying).
-	EnsureBareClones(ctx context.Context) error
+	// EnsureOriginQueries ensures origin query repos exist for all configured repos.
+	EnsureOriginQueries(ctx context.Context) error
 
-	// FetchBareClones fetches updates for all bare clones.
-	FetchBareClones(ctx context.Context)
+	// FetchOriginQueries fetches updates for all origin query repos.
+	FetchOriginQueries(ctx context.Context)
 
 	// GetRecentBranches returns recent branches from all bare clones, sorted by commit date.
 	GetRecentBranches(ctx context.Context, limit int) ([]RecentBranch, error)
