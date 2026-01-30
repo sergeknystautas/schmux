@@ -199,6 +199,10 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 }
 ```
 
+#### Branch conflicts
+
+Git worktrees cannot share a branch. When a requested branch is already checked out in another worktree, schmux appends a 3-character suffix to make a unique branch name (e.g., `feature/foo-a1b`) and creates it from the requested branch tip (prefer `origin/<branch>`, fall back to local). The workspace state stores the actual branch name used.
+
 #### New: `removeWorktree()`
 
 ```go

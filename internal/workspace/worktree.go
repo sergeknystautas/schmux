@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,6 +125,89 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 
 	fmt.Printf("[workspace] worktree added: path=%s\n", workspacePath)
 	return nil
+}
+
+// ensureUniqueBranch returns a unique branch name if the requested one is already
+// checked out by another worktree. The new branch is created from the requested
+// branch's tip (origin/<branch> preferred, else local).
+func (m *Manager) ensureUniqueBranch(ctx context.Context, baseRepoPath, branch string) (string, bool, error) {
+	if !m.isBranchInWorktree(ctx, baseRepoPath, branch) {
+		return branch, false, nil
+	}
+
+	sourceRef, err := m.branchSourceRef(ctx, baseRepoPath, branch)
+	if err != nil {
+		return "", false, err
+	}
+
+	for i := 0; i < 10; i++ {
+		suffix := m.randSuffix(3)
+		candidate := fmt.Sprintf("%s-%s", branch, suffix)
+		if m.isBranchInWorktree(ctx, baseRepoPath, candidate) {
+			continue
+		}
+		if m.localBranchExists(ctx, baseRepoPath, candidate) {
+			continue
+		}
+		if err := m.createBranchFromRef(ctx, baseRepoPath, candidate, sourceRef); err != nil {
+			return "", false, err
+		}
+		return candidate, true, nil
+	}
+
+	return "", false, fmt.Errorf("could not find a unique branch name for %s", branch)
+}
+
+func (m *Manager) branchSourceRef(ctx context.Context, baseRepoPath, branch string) (string, error) {
+	remoteRef := "refs/remotes/origin/" + branch
+	remoteCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", remoteRef)
+	remoteCmd.Dir = baseRepoPath
+	if remoteCmd.Run() == nil {
+		return "origin/" + branch, nil
+	}
+
+	localRef := "refs/heads/" + branch
+	localCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
+	localCmd.Dir = baseRepoPath
+	if localCmd.Run() == nil {
+		return branch, nil
+	}
+
+	return "", fmt.Errorf("branch %s not found in base repo", branch)
+}
+
+func (m *Manager) localBranchExists(ctx context.Context, baseRepoPath, branch string) bool {
+	localRef := "refs/heads/" + branch
+	localCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
+	localCmd.Dir = baseRepoPath
+	return localCmd.Run() == nil
+}
+
+func (m *Manager) createBranchFromRef(ctx context.Context, baseRepoPath, branch, sourceRef string) error {
+	cmd := exec.CommandContext(ctx, "git", "branch", branch, sourceRef)
+	cmd.Dir = baseRepoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git branch %s %s failed: %w: %s", branch, sourceRef, err, string(output))
+	}
+	return nil
+}
+
+func (m *Manager) deleteBranch(ctx context.Context, baseRepoPath, branch string) error {
+	cmd := exec.CommandContext(ctx, "git", "branch", "-D", branch)
+	cmd.Dir = baseRepoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git branch -D %s failed: %w: %s", branch, err, string(output))
+	}
+	return nil
+}
+
+func defaultRandSuffix(length int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 // isBranchInWorktree checks if a branch is already checked out in any worktree.

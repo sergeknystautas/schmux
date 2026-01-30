@@ -149,6 +149,87 @@ func TestCreateLocalRepo(t *testing.T) {
 	}
 }
 
+func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.BaseReposPath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+
+	ctx := context.Background()
+	repoDir := gitTestWorkTree(t)
+
+	baseRepoPath, err := m.ensureBaseRepo(ctx, repoDir)
+	if err != nil {
+		t.Fatalf("ensureBaseRepo() failed: %v", err)
+	}
+
+	worktreePath := filepath.Join(tmpDir, "wt-main")
+	runGit(t, baseRepoPath, "worktree", "add", worktreePath, "main")
+	runGit(t, baseRepoPath, "branch", "main-aaa", "main")
+
+	origRandSuffix := m.randSuffix
+	m.randSuffix = func(length int) string {
+		return "aaa"
+	}
+	defer func() {
+		m.randSuffix = origRandSuffix
+	}()
+
+	if _, _, err := m.ensureUniqueBranch(ctx, baseRepoPath, "main"); err == nil {
+		t.Fatalf("ensureUniqueBranch() expected error, got nil")
+	}
+}
+
+func TestBranchSourceRefPrefersRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.BaseReposPath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+
+	ctx := context.Background()
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature")
+
+	baseRepoPath, err := m.ensureBaseRepo(ctx, repoDir)
+	if err != nil {
+		t.Fatalf("ensureBaseRepo() failed: %v", err)
+	}
+
+	cmd := exec.Command("git", "rev-parse", "refs/heads/feature")
+	cmd.Dir = baseRepoPath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to resolve feature hash: %v", err)
+	}
+	featureHash := strings.TrimSpace(string(output))
+
+	runGit(t, baseRepoPath, "update-ref", "refs/remotes/origin/feature", featureHash)
+
+	ref, err := m.branchSourceRef(ctx, baseRepoPath, "feature")
+	if err != nil {
+		t.Fatalf("branchSourceRef() failed: %v", err)
+	}
+	if ref != "origin/feature" {
+		t.Fatalf("branchSourceRef() = %s, want origin/feature", ref)
+	}
+}
+
 // TestCreateLocalRepoCleanupOnStateSaveFailure verifies that local repo directory is cleaned up
 // when init succeeds but state.Save() fails.
 func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
