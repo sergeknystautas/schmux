@@ -17,6 +17,11 @@ This command will:
 2. Run the Vite build
 3. Output to `./schmux` binary
 
+### Why not build directly?
+
+The Go wrapper ensures environment variables are set correctly for Vite and
+that output goes to the right location for embedding in the Go binary.
+
 ## What NOT to do
 
 ❌ `cd assets/dashboard && npm install`

@@ -115,10 +115,10 @@ Routes:
 
 ## Important Files
 
-- `docs/PHILOSOPHY.md` - Product philosophy (source of truth)
-- `docs/cli.md` - CLI command reference
-- `docs/web.md` - Web dashboard UX
-- `docs/api.md` - Daemon HTTP API contract (client-agnostic)
-- `docs/dev/react.md` - React architecture
-- `docs/dev/architecture.md` - Backend architecture
-- `AGENTS.md` - Architecture guidelines (for non-Claude agents)
+- [`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md) - Product philosophy (source of truth)
+- [`docs/cli.md`](docs/cli.md) - CLI command reference
+- [`docs/web.md`](docs/web.md) - Web dashboard UX
+- [`docs/api.md`](docs/api.md) - Daemon HTTP API contract (client-agnostic)
+- [`docs/dev/react.md`](docs/dev/react.md) - React architecture
+- [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
+- [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)

@@ -2,7 +2,7 @@
 
 ## What is schmux?
 
-**Smart Cognitive Hub on tmux**
+**Multi-Agent Orchestration on tmux** (Smart Cognitive Hub)
 
 Orchestrate multiple run targets across tmux sessions with a web dashboard for monitoring and management.
 
@@ -44,11 +44,19 @@ curl -fsSL https://raw.githubusercontent.com/sergeknystautas/schmux/main/install
 
 This installs to `~/.local/bin/schmux`. Make sure it's in your PATH, then run `schmux update` anytime to get the latest version.
 
-To build from source instead, see [Contributing](docs/dev/README.md).
+### Next Steps
+
+1. **Verify installation**: `schmux --version`
+2. **Start the daemon**: `schmux start`
+3. **Open the dashboard**: http://localhost:7337
+
+To build from source instead, see [Contributing](CONTRIBUTING.md).
 
 ### First-Time Setup
 
-1. **Start schmux** - It will guide you through creating a config file:
+When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn't exist, the daemon will guide you through creating a configuration:
+
+1. **Start schmux**:
    ```bash
    schmux start
    ```
@@ -90,6 +98,34 @@ To build from source instead, see [Contributing](docs/dev/README.md).
 - **Full CLI capabilities** - Spawn and manage sessions and workspaces from your terminal
 - **Session multitasking** - See when an agent is done, usually with a summary on what it needs.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Daemon (internal/daemon/daemon.go)                      │
+├─────────────────────────────────────────────────────────┤
+│  Dashboard Server (:7337)                               │
+│  - HTTP API (internal/dashboard/handlers.go)            │
+│  - WebSocket terminal streaming                         │
+│  - Serves static assets from assets/dashboard/          │
+│                                                         │
+│  Session Manager (internal/session/manager.go)          │
+│  - Spawn/dispose tmux sessions                          │
+│  - Track PIDs, status, terminal output                  │
+│                                                         │
+│  Workspace Manager (internal/workspace/manager.go)       │
+│  - Clone/checkout git repos                             │
+│  - Track workspace directories                          │
+│                                                         │
+│  tmux Package (internal/tmux/tmux.go)                   │
+│  - tmux CLI wrapper (create, capture, list, kill)       │
+│                                                         │
+│  Config/State (internal/config/, internal/state/)       │
+│  - ~/.schmux/config.json  (repos, agents, workspace)    │
+│  - ~/.schmux/state.json    (workspaces, sessions)       │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## Status
 
 **v1.0.1** - Stable for daily use
@@ -115,7 +151,8 @@ See [CHANGES.md](CHANGES.md) for what's new in each release.
 - [docs/cli.md](docs/cli.md) - CLI command reference
 - [docs/api.md](docs/api.md) - Daemon HTTP API contract (client-agnostic)
 - [docs/nudgenik.md](docs/nudgenik.md) - NudgeNik feature
-- [docs/dev/README.md](docs/dev/README.md) - Contributor guide
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contributor guide
+- [docs/dev/README.md](docs/dev/README.md) - Detailed development documentation
 
 ## Getting Help
 
@@ -126,3 +163,7 @@ See [CHANGES.md](CHANGES.md) for what's new in each release.
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE)
+
+Copyright 2025 Serge Knystautas
+
+Licensed under the Apache License, Version 2.0

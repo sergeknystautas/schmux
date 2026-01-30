@@ -719,16 +719,6 @@ Notes:
 - Updates workspace git status after sync
 - Supports both on-main and feature-branch workflows
 
-Response:
-```json
-{"success":true,"message":"You can now switch to VS Code."}
-```
-
-Errors:
-- 404 with JSON if workspace not found or directory missing
-- 404 with JSON if `code` command not found in PATH
-- 500 with JSON on launch failure
-
 ### GET /api/overlays
 Returns overlay information for all repos.
 
