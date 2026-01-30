@@ -228,7 +228,7 @@ export default function SpawnPage() {
       try {
         const cfg = await getConfig();
         if (!active) return;
-        setRepos(cfg.repos || []);
+        setRepos((cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name)));
         setSourceCodeManager(cfg.source_code_management || 'git-worktree');
 
         const modelBaseTools = new Set((cfg.models || []).map((model) => model.base_tool));
@@ -240,8 +240,8 @@ export default function SpawnPage() {
             return false;
           }
           return true;
-        });
-        const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command');
+        }).sort((a, b) => a.name.localeCompare(b.name));
+        const commandItems = (cfg.run_targets || []).filter(t => t.type === 'command').sort((a, b) => a.name.localeCompare(b.name));
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
         setModels(cfg.models || []);
