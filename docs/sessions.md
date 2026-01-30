@@ -110,8 +110,9 @@ The spawn page uses a three-layer persistence model:
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
 - Auto-saved as user types
 - **Cleared on successful spawn**
-- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`
+- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `stage`, `branch`, `nickname`
 - Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
+- `stage` values: `'write'` (form screen) or `'review'` (confirm screen)
 
 **Layer 3: Local Storage (Long-term Memory)**
 - Cross-tab, survives browser close/reopen
@@ -135,6 +136,7 @@ The spawn page uses a three-layer persistence model:
 | selectedCommand | Which command to run (only when spawnMode is `'command'`) |
 | targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
 | nickname | Friendly name for the session |
+| stage | Which screen user was on: `'write'` (form) or `'review'` (confirm) |
 
 ### Field Initialization by Mode
 
@@ -175,7 +177,9 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | spawnMode | `spawnMode` | - | `'promptable'` |
 | selectedCommand | `selectedCommand` | - | `""` |
 | targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
-| nickname | - | - | `""` |
+| branch | `branch` | - | `""` |
+| nickname | `nickname` | - | `""` |
+| stage (screen) | `stage` | - | `'write'` |
 
 ### Prepare Branch Spawn
 
@@ -204,7 +208,7 @@ The user can edit both the prompt and nickname before spawning.
 When at least one session spawns successfully:
 
 **Cleared:**
-- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `repo`, `newRepoName`)
+- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `repo`, `newRepoName`, `stage`, `branch`, `nickname`)
 
 **Updated (write-back to localStorage):**
 - `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo)

@@ -34,6 +34,11 @@ interface SpawnDraft {
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
+  // Remembers which screen user was on: 'write' or 'review'
+  stage?: 'write' | 'review';
+  // Branch and nickname from review screen
+  branch?: string;
+  nickname?: string;
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {
@@ -127,7 +132,7 @@ function saveLastTargetCounts(counts: Record<string, number>): void {
 
 export default function SpawnPage() {
   useRequireConfig();
-  const [screen, setScreen] = useState<'form' | 'confirm'>('form');
+  const [screen, setScreen] = useState<'write' | 'review'>('write');
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
@@ -299,6 +304,11 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
+      // branch, nickname: restore from review screen
+      if (draft?.branch) setBranch(draft.branch);
+      if (draft?.nickname) setNickname(draft.nickname);
+      // stage: restore which screen user was on
+      if (draft?.stage) setScreen(draft.stage);
     }
 
     initialized.current = true;
@@ -357,6 +367,9 @@ export default function SpawnPage() {
       spawnMode,
       selectedCommand,
       targetCounts,
+      stage: screen,
+      branch,
+      nickname,
     };
     // Only save repo/newRepoName for fresh spawns
     if (!urlWorkspaceId) {
@@ -364,7 +377,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
-  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, urlWorkspaceId, results]);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, urlWorkspaceId, results, screen, branch, nickname]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -487,20 +500,20 @@ export default function SpawnPage() {
 
     // Workspace/prefilled: branch already set, skip suggestion
     if (mode !== 'fresh') {
-      setScreen('confirm');
+      setScreen('review');
       return;
     }
 
     // Fresh mode: suggest branch or default to 'main'
     if (spawnMode !== 'promptable' || !prompt.trim()) {
       setBranch('main');
-      setScreen('confirm');
+      setScreen('review');
       return;
     }
 
     if (!branchSuggestTarget) {
       setBranch('main');
-      setScreen('confirm');
+      setScreen('review');
       return;
     }
 
@@ -515,13 +528,13 @@ export default function SpawnPage() {
         setBranch('main');
         setNickname('');
       }
-      setScreen('confirm');
+      setScreen('review');
       setReviewing(false);
     });
   };
 
   const handleBack = () => {
-    setScreen('form');
+    setScreen('write');
   };
 
   const handleSpawn = async () => {
@@ -689,8 +702,8 @@ export default function SpawnPage() {
     );
   }
 
-  // Confirmation screen
-  if (screen === 'confirm') {
+  // Review screen
+  if (screen === 'review') {
     return (
       <>
         {currentWorkspace && (
