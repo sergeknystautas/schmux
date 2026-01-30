@@ -86,10 +86,13 @@ type Server struct {
 	wsConnsMu sync.RWMutex
 
 	// Sessions WebSocket connections (for /ws/sessions real-time updates)
-	sessionsConns   map[*wsConn]bool
-	sessionsConnsMu sync.RWMutex
-	lastBroadcast   time.Time
-	lastBroadcastMu sync.Mutex
+	sessionsConns    map[*wsConn]bool
+	sessionsConnsMu  sync.RWMutex
+	broadcastTimer   *time.Timer
+	broadcastMu      sync.Mutex
+	broadcastDone    chan struct{}
+	broadcastOnce    sync.Once
+	broadcastStopped bool
 
 	// Per-session rotation locks to prevent concurrent rotations
 	rotationLocks   map[string]*sync.Mutex
@@ -114,7 +117,7 @@ type versionInfo struct {
 
 // NewServer creates a new dashboard server.
 func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, shutdown func()) *Server {
-	return &Server{
+	s := &Server{
 		config:        cfg,
 		state:         st,
 		statePath:     statePath,
@@ -124,7 +127,10 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		wsConns:       make(map[string][]*wsConn),
 		sessionsConns: make(map[*wsConn]bool),
 		rotationLocks: make(map[string]*sync.Mutex),
+		broadcastDone: make(chan struct{}),
 	}
+	go s.broadcastLoop()
+	return s
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
@@ -242,8 +248,27 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Stop stops the HTTP server.
+// Stop stops the HTTP server. Idempotent - safe to call multiple times.
 func (s *Server) Stop() error {
+	// Use sync.Once to ensure cleanup happens exactly once
+	s.broadcastOnce.Do(func() {
+		// Set stopped flag to prevent new broadcasts
+		s.broadcastMu.Lock()
+		s.broadcastStopped = true
+		// Stop and drain the timer
+		if s.broadcastTimer != nil {
+			s.broadcastTimer.Stop()
+			select {
+			case <-s.broadcastTimer.C:
+			default:
+			}
+		}
+		s.broadcastMu.Unlock()
+
+		// Signal the broadcast loop to exit
+		close(s.broadcastDone)
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -472,17 +497,64 @@ func (s *Server) UnregisterDashboardConn(conn *wsConn) {
 }
 
 // BroadcastSessions sends the current sessions state to all connected WebSocket clients.
-// Debounces to avoid overwhelming clients during rapid changes.
+// Uses trailing debounce: waits 500ms after the last call before broadcasting,
+// coalescing rapid changes into a single broadcast. No events are dropped.
 func (s *Server) BroadcastSessions() {
-	// Debounce: skip if we broadcast less than 500ms ago
-	s.lastBroadcastMu.Lock()
-	if time.Since(s.lastBroadcast) < 500*time.Millisecond {
-		s.lastBroadcastMu.Unlock()
+	s.broadcastMu.Lock()
+	defer s.broadcastMu.Unlock()
+
+	// Check if server has been stopped
+	if s.broadcastStopped {
 		return
 	}
-	s.lastBroadcast = time.Now()
-	s.lastBroadcastMu.Unlock()
 
+	// Lazy initialization: create timer on first use
+	if s.broadcastTimer == nil {
+		s.broadcastTimer = time.NewTimer(500 * time.Millisecond)
+		return
+	}
+
+	if !s.broadcastTimer.Stop() {
+		// Timer already fired, drain the channel if possible
+		select {
+		case <-s.broadcastTimer.C:
+		default:
+		}
+	}
+	// Reset timer for 500ms from now
+	s.broadcastTimer.Reset(500 * time.Millisecond)
+}
+
+// broadcastLoop waits for the debounce timer to fire, then broadcasts to all clients.
+func (s *Server) broadcastLoop() {
+	for {
+		if s.broadcastTimer == nil {
+			// Timer not yet initialized, wait for it or shutdown
+			select {
+			case <-s.broadcastDone:
+				return
+			case <-time.After(10 * time.Millisecond):
+				continue
+			}
+		}
+
+		select {
+		case <-s.broadcastTimer.C:
+			// Check shutdown flag before broadcasting
+			s.broadcastMu.Lock()
+			stopped := s.broadcastStopped
+			s.broadcastMu.Unlock()
+			if !stopped {
+				s.doBroadcast()
+			}
+		case <-s.broadcastDone:
+			return
+		}
+	}
+}
+
+// doBroadcast performs the actual broadcast to all connected WebSocket clients.
+func (s *Server) doBroadcast() {
 	// Build the sessions response
 	data := s.buildSessionsResponse()
 
