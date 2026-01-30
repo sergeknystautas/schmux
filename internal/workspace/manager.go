@@ -30,6 +30,9 @@ type Manager struct {
 	configStates       map[string]configState // workspace path -> last known config file state
 	configStatesMu     sync.RWMutex
 	gitWatcher         *GitWatcher
+	repoLocks          map[string]*sync.Mutex
+	repoLocksMu        sync.Mutex
+	randSuffix         func(length int) string
 }
 
 // New creates a new workspace manager.
@@ -39,6 +42,8 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 		state:            st,
 		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
 		configStates:     make(map[string]configState),           // track config file mtime to detect changes
+		repoLocks:        make(map[string]*sync.Mutex),
+		randSuffix:       defaultRandSuffix,
 	}
 	// Pre-load workspace configs so they're available on first API call
 	// (before the first poll cycle runs)
@@ -51,6 +56,17 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 // SetGitWatcher sets the git watcher for the manager.
 func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
+}
+
+func (m *Manager) repoLock(repoURL string) *sync.Mutex {
+	m.repoLocksMu.Lock()
+	defer m.repoLocksMu.Unlock()
+	lock, ok := m.repoLocks[repoURL]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.repoLocks[repoURL] = lock
+	}
+	return lock
 }
 
 // GetByID returns a workspace by its ID.
@@ -81,6 +97,10 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 		repoName := strings.TrimPrefix(repoURL, "local:")
 		return m.CreateLocalRepo(ctx, repoName, branch)
 	}
+
+	lock := m.repoLock(repoURL)
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Try to find an existing workspace with matching repoURL and branch
 	for _, w := range m.state.GetWorkspaces() {
@@ -127,10 +147,10 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[workspace] created: id=%s path=%s branch=%s repo=%s\n", w.ID, w.Path, branch, repoURL)
+	fmt.Printf("[workspace] created: id=%s path=%s branch=%s repo=%s\n", w.ID, w.Path, w.Branch, repoURL)
 
 	// Prepare the workspace
-	if err := m.prepare(ctx, w.ID, branch); err != nil {
+	if err := m.prepare(ctx, w.ID, w.Branch); err != nil {
 		return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 	}
 
@@ -166,6 +186,19 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
 	}
 
+	createdUniqueBranch := false
+	if m.config.UseWorktrees() {
+		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, baseRepoPath, branch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
+		}
+		if uniqueBranch != branch {
+			fmt.Printf("[workspace] using unique branch: requested=%s actual=%s\n", branch, uniqueBranch)
+		}
+		branch = uniqueBranch
+		createdUniqueBranch = wasCreated
+	}
+
 	// Clean up worktree if creation fails
 	cleanupNeeded := true
 	defer func() {
@@ -175,12 +208,17 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 			if err := m.removeWorktree(ctx, baseRepoPath, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
+			if createdUniqueBranch {
+				if err := m.deleteBranch(ctx, baseRepoPath, branch); err != nil {
+					fmt.Printf("[workspace] warning: failed to delete branch %s: %v\n", branch, err)
+				}
+			}
 		}
 	}()
 
 	// Check source code management setting
 	if m.config.UseWorktrees() {
-		// Using worktrees - no fallback, branch conflicts should be caught by UI
+		// Using worktrees - no fallback, branch conflicts are auto-resolved with suffixes
 		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}

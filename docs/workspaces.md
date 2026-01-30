@@ -153,11 +153,11 @@ When using worktrees (the default):
 1. **First workspace for a repo**: Creates a bare clone in `~/.schmux/repos/<repo>.git`
 2. **Additional workspaces**: Uses `git worktree add` from the bare clone (instant, no network)
 
-**Worktree constraint**: Git only allows one worktree per branch. The spawn UI will show an error if you try to create a new workspace on a branch that's already in use:
+**Worktree constraint**: Git only allows one worktree per branch. If you request a branch that's already checked out by another worktree, schmux will automatically create a unique branch name by appending a 3-character suffix (e.g., `feature/foo-x7k`) and create it from the requested branch's tip.
 
 ```
-Branch "main" is already in use by workspace "myrepo-001".
-Use a different branch name or spawn into the existing workspace.
+Requested "feature/foo" is already in use by workspace "myrepo-001".
+Using "feature/foo-x7k" for this workspace.
 ```
 
 **Why Worktrees?**
