@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import AppShell from './components/AppShell'
 import ToastProvider from './components/ToastProvider'
 import ModalProvider from './components/ModalProvider'
@@ -15,6 +15,7 @@ import LegacyTerminalPage from './routes/LegacyTerminalPage'
 import NotFoundPage from './routes/NotFoundPage'
 
 export default function App() {
+  const location = useLocation();
   return (
     <ConfigProvider>
       <ToastProvider>
@@ -26,7 +27,7 @@ export default function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                   <Route path="/diff/:workspaceId" element={<DiffPage />} />
-                  <Route path="/spawn" element={<SpawnPage />} />
+                  <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                   <Route path="/tips" element={<TipsPage />} />
                   <Route path="/config" element={<ConfigPage />} />
                   <Route path="/terminal.html" element={<LegacyTerminalPage />} />
