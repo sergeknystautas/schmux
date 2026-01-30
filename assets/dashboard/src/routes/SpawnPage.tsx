@@ -31,6 +31,7 @@ interface SpawnDraft {
   spawnMode: 'promptable' | 'command';
   selectedCommand: string;
   targetCounts: Record<string, number>;
+  modelSelectionMode: 'single' | 'multiple' | 'advanced';
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
@@ -85,6 +86,7 @@ function clearSpawnDraft(workspaceId: string | null): void {
 
 const LAST_REPO_KEY = 'schmux:spawn-last-repo';
 const LAST_TARGET_COUNTS_KEY = 'schmux:spawn-last-target-counts';
+const LAST_MODEL_SELECTION_MODE_KEY = 'schmux:spawn-last-model-selection-mode';
 
 function loadLastRepo(): string | null {
   try {
@@ -127,6 +129,26 @@ function saveLastTargetCounts(counts: Record<string, number>): void {
     localStorage.setItem(LAST_TARGET_COUNTS_KEY, JSON.stringify(nonZero));
   } catch (err) {
     console.warn('Failed to save last target counts:', err);
+  }
+}
+
+function loadLastModelSelectionMode(): 'single' | 'multiple' | 'advanced' | null {
+  try {
+    const stored = localStorage.getItem(LAST_MODEL_SELECTION_MODE_KEY);
+    if (stored) {
+      return stored as 'single' | 'multiple' | 'advanced';
+    }
+  } catch (err) {
+    console.warn('Failed to load last model selection mode:', err);
+  }
+  return null;
+}
+
+function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): void {
+  try {
+    localStorage.setItem(LAST_MODEL_SELECTION_MODE_KEY, mode);
+  } catch (err) {
+    console.warn('Failed to save last model selection mode:', err);
   }
 }
 
@@ -270,6 +292,7 @@ export default function SpawnPage() {
     // Layer 3: localStorage (Long-term Memory)
     const lastRepo = loadLastRepo();
     const lastTargetCounts = loadLastTargetCounts();
+    const lastModelSelectionMode = loadLastModelSelectionMode();
 
     // Apply three-layer waterfall for each field
     if (mode === 'workspace' || mode === 'prefilled') {
@@ -279,6 +302,8 @@ export default function SpawnPage() {
       }
       // spawnMode: draft → default
       setSpawnMode(draft?.spawnMode || 'promptable');
+      // modelSelectionMode: draft → localStorage → default
+      setModelSelectionMode(draft?.modelSelectionMode || lastModelSelectionMode || 'single');
       // selectedCommand: draft → default
       if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
       // targetCounts: draft → localStorage → default
@@ -296,6 +321,8 @@ export default function SpawnPage() {
       if (draft?.prompt) setPrompt(draft.prompt);
       // spawnMode: draft → default
       setSpawnMode(draft?.spawnMode || 'promptable');
+      // modelSelectionMode: draft → localStorage → default
+      setModelSelectionMode(draft?.modelSelectionMode || lastModelSelectionMode || 'single');
       // selectedCommand: draft → default
       if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
       // targetCounts: draft → localStorage → default
@@ -329,6 +356,7 @@ export default function SpawnPage() {
   }, [models, promptableTargets]);
 
   const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
+  const [modelSelectionMode, setModelSelectionMode] = useState<'single' | 'multiple' | 'advanced'>('single');
 
   // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)
   useEffect(() => {
@@ -352,6 +380,25 @@ export default function SpawnPage() {
     });
   }, [promptableList]);
 
+  // Enforce single mode constraint: when switching to single, reduce to at most one selection
+  useEffect(() => {
+    if (modelSelectionMode !== 'single') return;
+    if (promptableList.length === 0) return;
+    setTargetCounts((current) => {
+      // Find all selected agents
+      const selected = promptableList.filter((item) => (current[item.name] || 0) > 0);
+      if (selected.length <= 1) return current; // Already at most one
+
+      // Keep only the first selected, clear the rest
+      const firstSelected = selected[0].name;
+      const next: Record<string, number> = {};
+      promptableList.forEach((item) => {
+        next[item.name] = item.name === firstSelected ? 1 : 0;
+      });
+      return next;
+    });
+  }, [modelSelectionMode, promptableList]);
+
   // Persist to sessionStorage on changes
   useEffect(() => {
     if (!initialized.current) return;
@@ -367,6 +414,7 @@ export default function SpawnPage() {
       spawnMode,
       selectedCommand,
       targetCounts,
+      modelSelectionMode,
       stage: screen,
       branch,
       nickname,
@@ -377,7 +425,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
-  }, [prompt, spawnMode, selectedCommand, targetCounts, repo, newRepoName, urlWorkspaceId, results, screen, branch, nickname]);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, modelSelectionMode, repo, newRepoName, urlWorkspaceId, results, screen, branch, nickname]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -406,6 +454,30 @@ export default function SpawnPage() {
     setTargetCounts((current) => {
       const next = Math.max(0, Math.min(10, (current[name] || 0) + delta));
       return { ...current, [name]: next };
+    });
+  };
+
+  const toggleAgent = (name: string) => {
+    setTargetCounts((current) => {
+      if (modelSelectionMode === 'single') {
+        // Single mode: only one agent at a time, count is 0 or 1
+        const isCurrentlySelected = current[name] === 1;
+        if (isCurrentlySelected) {
+          // Deselect
+          return { ...current, [name]: 0 };
+        } else {
+          // Select this one, deselect all others
+          const next: Record<string, number> = {};
+          promptableList.forEach((item) => {
+            next[item.name] = item.name === name ? 1 : 0;
+          });
+          return next;
+        }
+      } else {
+        // Multiple mode: toggle on/off (0 or 1)
+        const isCurrentlySelected = current[name] === 1;
+        return { ...current, [name]: isCurrentlySelected ? 0 : 1 };
+      }
     });
   };
 
@@ -570,6 +642,7 @@ export default function SpawnPage() {
         // Write-back to localStorage (long-term memory)
         saveLastRepo(actualRepo);
         saveLastTargetCounts(selectedTargets);
+        saveLastModelSelectionMode(modelSelectionMode);
       }
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
@@ -972,72 +1045,138 @@ export default function SpawnPage() {
         )}
       </div>
 
-      {/* Agent selection - compact horizontal chips */}
+      {/* Agent selection - mode selector + grid layout */}
       {spawnMode === 'promptable' && promptableList.length > 0 && (
         <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
           <div className="card__body">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
-              {promptableList.map((item) => {
-                const count = targetCounts[item.name] || 0;
-                return (
-                  <div
-                    key={item.name}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 'var(--spacing-xs)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: 'var(--spacing-xs)',
-                      backgroundColor: count > 0 ? 'var(--color-accent)' : 'var(--color-surface-alt)',
-                    }}
+            <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
+              {/* Mode selector - left column */}
+              <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                  <button
+                    type="button"
+                    className={`btn${modelSelectionMode === 'single' ? ' btn--primary' : ''}`}
+                    onClick={() => setModelSelectionMode('single')}
+                    style={{ justifyContent: 'flex-start' }}
                   >
-                    <span style={{ fontSize: '0.875rem' }}>
-                      {item.label}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => updateTargetCount(item.name, -1)}
-                      disabled={count === 0}
-                      style={{
-                        padding: '2px 16px',
-                        fontSize: '0.75rem',
-                        minHeight: '24px',
-                        minWidth: '32px',
-                        lineHeight: '1',
-                        backgroundColor: count > 0 ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                        color: count > 0 ? 'white' : 'var(--color-text)',
-                        border: 'none',
-                        borderRadius: 'var(--radius-sm)'
-                      }}
-                    >
-                      −
-                    </button>
-                    <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
-                      {count}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => updateTargetCount(item.name, 1)}
-                      style={{
-                        padding: '2px 16px',
-                        fontSize: '0.75rem',
-                        minHeight: '24px',
-                        minWidth: '32px',
-                        lineHeight: '1',
-                        backgroundColor: count > 0 ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                        color: count > 0 ? 'white' : 'var(--color-text)',
-                        border: 'none',
-                        borderRadius: 'var(--radius-sm)'
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-                );
-              })}
+                    Single
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn${modelSelectionMode === 'multiple' ? ' btn--primary' : ''}`}
+                    onClick={() => setModelSelectionMode('multiple')}
+                    style={{ justifyContent: 'flex-start' }}
+                  >
+                    Multiple
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn${modelSelectionMode === 'advanced' ? ' btn--primary' : ''}`}
+                    onClick={() => setModelSelectionMode('advanced')}
+                    style={{ justifyContent: 'flex-start' }}
+                  >
+                    Advanced
+                  </button>
+                </div>
+              </div>
+
+              {/* Agent grid - right column */}
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: modelSelectionMode === 'advanced'
+                    ? 'repeat(auto-fill, minmax(200px, 1fr))'
+                    : 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: 'var(--spacing-sm)',
+                }}>
+                  {promptableList.map((item) => {
+                    const count = targetCounts[item.name] || 0;
+                    const isSelected = count > 0;
+
+                    // Advanced mode: show counter buttons
+                    if (modelSelectionMode === 'advanced') {
+                      return (
+                        <div
+                          key={item.name}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'var(--spacing-xs)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: 'var(--spacing-xs)',
+                            backgroundColor: isSelected ? 'var(--color-accent)' : 'var(--color-surface-alt)',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.875rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.label}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => updateTargetCount(item.name, -1)}
+                            disabled={count === 0}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              minHeight: '24px',
+                              minWidth: '28px',
+                              lineHeight: '1',
+                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                              color: isSelected ? 'white' : 'var(--color-text)',
+                              border: 'none',
+                              borderRadius: 'var(--radius-sm)'
+                            }}
+                          >
+                            −
+                          </button>
+                          <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
+                            {count}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => updateTargetCount(item.name, 1)}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              minHeight: '24px',
+                              minWidth: '28px',
+                              lineHeight: '1',
+                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                              color: isSelected ? 'white' : 'var(--color-text)',
+                              border: 'none',
+                              borderRadius: 'var(--radius-sm)'
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // Single/Multiple mode: toggle button
+                    return (
+                      <button
+                        key={item.name}
+                        type="button"
+                        className={`btn${isSelected ? ' btn--primary' : ''}`}
+                        onClick={() => toggleAgent(item.name)}
+                        style={{
+                          height: 'auto',
+                          padding: 'var(--spacing-sm)',
+                          textAlign: 'left',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>

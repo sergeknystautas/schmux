@@ -110,9 +110,10 @@ The spawn page uses a three-layer persistence model:
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
 - Auto-saved as user types
 - **Cleared on successful spawn**
-- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `stage`, `branch`, `nickname`
+- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `stage`, `branch`, `nickname`
 - Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
 - `stage` values: `'write'` (form screen) or `'review'` (confirm screen)
+- `modelSelectionMode` values: `'single'` (one agent), `'multiple'` (toggle multiple), `'advanced'` (0-10 per agent)
 
 **Layer 3: Local Storage (Long-term Memory)**
 - Cross-tab, survives browser close/reopen
@@ -121,6 +122,7 @@ The spawn page uses a three-layer persistence model:
 - Keys (with `schmux:` prefix):
   - `schmux:spawn-last-repo` — Last repository used
   - `schmux:spawn-last-target-counts` — Last target counts used (e.g. `{'claude-sonnet': 1}`)
+  - `schmux:spawn-last-model-selection-mode` — Last model selection mode used (`'single'`, `'multiple'`, or `'advanced'`)
 - **Updated on successful spawn** with the values that were actually used
 - **Cross-tab sync**: Changes propagate to other tabs via browser `storage` event, taking effect on next page load/navigation
 
@@ -135,8 +137,25 @@ The spawn page uses a three-layer persistence model:
 | spawnMode | `'promptable'` or `'command'` |
 | selectedCommand | Which command to run (only when spawnMode is `'command'`) |
 | targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
+| modelSelectionMode | `'single'`, `'multiple'`, or `'advanced'` - controls how agents are selected |
 | nickname | Friendly name for the session |
 | stage | Which screen user was on: `'write'` (form) or `'review'` (confirm) |
+
+### Model Selection Modes
+
+When `spawnMode` is `'promptable'`, the agent selection UI offers three modes:
+
+| Mode | Description | Agent Behavior |
+|------|-------------|----------------|
+| `single` | One agent only | Clicking an agent deselects others (radio button behavior) |
+| `multiple` | Multiple agents, one session each | Each agent toggles on/off independently (0 or 1 sessions per agent) |
+| `advanced` | Full control | Each agent can have 0-10 sessions via +/- counter buttons |
+
+The mode selector appears as a left column with buttons for each mode. The agent grid appears on the right, arranged in a responsive grid layout (wider columns in advanced mode for the counter controls).
+
+**Default mode:** `'single'`
+
+**Single mode constraint:** When switching to `single` mode, if multiple agents were previously selected, only the first selected agent remains selected; all others are deselected.
 
 ### Field Initialization by Mode
 
@@ -150,6 +169,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | branch | `workspace.branch` (locked) | - | - | - |
 | prompt | - | `prompt` | - | `""` |
 | spawnMode | - | `spawnMode` | - | `'promptable'` |
+| modelSelectionMode | - | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
 | selectedCommand | - | `selectedCommand` | - | `""` |
 | targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
 | nickname | - | - | - | `""` |
@@ -162,6 +182,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | branch | `location.state.branch` (locked) | - | - | - |
 | prompt | `location.state.prompt` | - | - | - |
 | spawnMode | - | `spawnMode` | - | `'promptable'` |
+| modelSelectionMode | - | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
 | selectedCommand | - | `selectedCommand` | - | `""` |
 | targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
 | nickname | `location.state.nickname` | - | - | - |
@@ -175,6 +196,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | newRepoName | `newRepoName` | - | `""` |
 | prompt | `prompt` | - | `""` |
 | spawnMode | `spawnMode` | - | `'promptable'` |
+| modelSelectionMode | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
 | selectedCommand | `selectedCommand` | - | `""` |
 | targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
 | branch | `branch` | - | `""` |
@@ -208,11 +230,12 @@ The user can edit both the prompt and nickname before spawning.
 When at least one session spawns successfully:
 
 **Cleared:**
-- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `repo`, `newRepoName`, `stage`, `branch`, `nickname`)
+- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`, `stage`, `branch`, `nickname`)
 
 **Updated (write-back to localStorage):**
 - `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo)
 - `spawn-last-target-counts` ← actual target counts used (only non-zero entries)
+- `spawn-last-model-selection-mode` ← actual model selection mode used
 
 **Never Cleared:**
 - localStorage values persist indefinitely
