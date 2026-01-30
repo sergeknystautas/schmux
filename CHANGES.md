@@ -2,6 +2,31 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.1.0 (2026-01-30)
+
+**Major features:**
+- Model selection overhaul with native Claude models (Opus, Sonnet, Haiku) and more third-party options (Kimi 2.5)
+  **Note: Your config.json will be automatically migrated. No manual intervention required.**
+- Home dashboard with recent branches from all repos and one-click resume work flow
+- Filesystem-based git status watcher for faster dashboard updates
+- Spawn form persistence across page refreshes and browser restarts
+- Spawn gets easier model selection modes: single model, multiple models, or advanced (0-10 per model)
+
+**Improvements:**
+- Clickable URLs in terminal
+- Auto-resolve worktree branch conflicts with unique suffix
+- Linear sync captures untracked files
+- Improved diff viewer readability
+- Repo and branch promoted to primary visual position in workspace header
+
+**Tech debt tackled:**
+- Split workspace manager into focused modules (git, git_watcher, worktree, origin_queries, overlay, linear_sync)
+
+**Bug fixes:**
+- Fixed concurrent write safety in WebSocket connections
+- Fixed multiline prompt handling with proper shell quoting
+- Fixed tooltip positioning on scroll
+
 ## Version 1.0.1 (2026-01-25)
 
 **Bug fixes:**
