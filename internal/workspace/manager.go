@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -30,6 +29,7 @@ type Manager struct {
 	workspaceConfigsMu sync.RWMutex
 	configStates       map[string]configState // workspace path -> last known config file state
 	configStatesMu     sync.RWMutex
+	gitWatcher         *GitWatcher
 }
 
 // New creates a new workspace manager.
@@ -46,6 +46,11 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 		m.RefreshWorkspaceConfig(w)
 	}
 	return m
+}
+
+// SetGitWatcher sets the git watcher for the manager.
+func (m *Manager) SetGitWatcher(gw *GitWatcher) {
+	m.gitWatcher = gw
 }
 
 // GetByID returns a workspace by its ID.
@@ -65,17 +70,6 @@ func (m *Manager) hasActiveSessions(workspaceID string) bool {
 		}
 	}
 	return false
-}
-
-// isQuietSince returns true if the workspace has no sessions with activity
-// after the cutoff time (i.e., it's safe to run git operations).
-func (m *Manager) isQuietSince(workspaceID string, cutoff time.Time) bool {
-	for _, s := range m.state.GetSessions() {
-		if s.WorkspaceID == workspaceID && s.LastOutputAt.After(cutoff) {
-			return false
-		}
-	}
-	return true
 }
 
 // GetOrCreate finds an existing workspace for the repoURL/branch or creates a new one.
@@ -221,6 +215,12 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 
 	// State is persisted, workspace is valid
 	cleanupNeeded = false
+
+	// Add filesystem watches for git metadata
+	if m.gitWatcher != nil {
+		m.gitWatcher.AddWorkspace(w.ID, w.Path)
+	}
+
 	return &w, nil
 }
 
@@ -471,27 +471,12 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 
 // UpdateAllGitStatus refreshes git status for all workspaces.
 // This is called periodically by the background goroutine.
-// Skips workspaces that have active sessions (recent terminal output),
-// unless forceAll is true.
-func (m *Manager) UpdateAllGitStatus(ctx context.Context, forceAll bool) {
+func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
-
-	var cutoff time.Time
-	if !forceAll {
-		// Calculate activity threshold - only update workspaces that have been
-		// quiet (no session output) within the last poll interval
-		pollIntervalMs := m.config.GetGitStatusPollIntervalMs()
-		cutoff = time.Now().Add(-time.Duration(pollIntervalMs) * time.Millisecond)
-	}
 
 	for _, w := range workspaces {
 		// Refresh workspace config for this workspace
 		m.RefreshWorkspaceConfig(w)
-
-		// Skip if workspace has recent activity (not quiet), unless forcing all
-		if !forceAll && !m.isQuietSince(w.ID, cutoff) {
-			continue
-		}
 
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			fmt.Printf("[workspace] failed to update git status for %s: %v\n", w.ID, err)
@@ -544,6 +529,11 @@ func (m *Manager) Dispose(workspaceID string) error {
 		if !gitStatus.Safe {
 			return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
 		}
+	}
+
+	// Remove filesystem watches before directory removal
+	if m.gitWatcher != nil {
+		m.gitWatcher.RemoveWorkspace(workspaceID)
 	}
 
 	// Find base repo for worktree cleanup (works even if directory is gone)

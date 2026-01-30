@@ -393,6 +393,18 @@ func Run(background bool) error {
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)
 
+	// Create and start git watcher for filesystem-based change detection.
+	// Started after server creation so broadcasts reach WebSocket clients.
+	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions)
+	if gitWatcher != nil {
+		wm.SetGitWatcher(gitWatcher)
+		// Add watches for all existing workspaces
+		for _, w := range st.GetWorkspaces() {
+			gitWatcher.AddWorkspace(w.ID, w.Path)
+		}
+		gitWatcher.Start()
+	}
+
 	// Start background goroutine to update git status for all workspaces.
 	// Started after EnsureWorkspaceDir to avoid race with directory creation.
 	// Started after server creation so it can broadcast updates to WebSocket clients.
@@ -400,7 +412,7 @@ func Run(background bool) error {
 		pollInterval := time.Duration(cfg.GetGitStatusPollIntervalMs()) * time.Millisecond
 		ticker := time.NewTicker(pollInterval)
 		defer ticker.Stop()
-		// Do initial update immediately on startup (force all workspaces)
+		// Do initial update immediately on startup
 		select {
 		case <-shutdownCtx.Done():
 			return
@@ -412,7 +424,7 @@ func Run(background bool) error {
 			}
 			// Fetch origin query repos to get latest branch info
 			wm.FetchOriginQueries(ctx)
-			wm.UpdateAllGitStatus(ctx, true)
+			wm.UpdateAllGitStatus(ctx)
 			cancel()
 			server.BroadcastSessions()
 		}
@@ -426,7 +438,7 @@ func Run(background bool) error {
 				}
 				// Fetch origin query repos to get latest branch info
 				wm.FetchOriginQueries(ctx)
-				wm.UpdateAllGitStatus(ctx, false)
+				wm.UpdateAllGitStatus(ctx)
 				cancel()
 				server.BroadcastSessions()
 			case <-shutdownCtx.Done():
@@ -471,6 +483,11 @@ func Run(background bool) error {
 		return fmt.Errorf("dashboard server error: %w", err)
 	case <-shutdownChan:
 		fmt.Println("[daemon] shutdown requested")
+	}
+
+	// Stop git watcher
+	if gitWatcher != nil {
+		gitWatcher.Stop()
 	}
 
 	// Stop dashboard server

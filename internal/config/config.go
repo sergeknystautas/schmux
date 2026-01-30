@@ -33,7 +33,8 @@ const (
 
 	// Default timeout values in milliseconds
 	DefaultGitCloneTimeoutMs          = 300000  // 5 minutes
-	DefaultGitStatusPollIntervalMs    = 2000    // 2 seconds
+	DefaultGitStatusPollIntervalMs    = 10000   // 10 seconds
+	DefaultGitStatusWatchDebounceMs   = 1000    // 1 second
 	DefaultGitStatusTimeoutMs         = 30000   // 30 seconds
 	DefaultXtermQueryTimeoutMs        = 5000    // 5 seconds
 	DefaultXtermOperationTimeoutMs    = 10000   // 10 seconds
@@ -101,10 +102,12 @@ type ConflictResolveConfig struct {
 
 // SessionsConfig represents session and git-related timing configuration.
 type SessionsConfig struct {
-	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
-	GitStatusPollIntervalMs int `json:"git_status_poll_interval_ms"`
-	GitCloneTimeoutMs       int `json:"git_clone_timeout_ms"`
-	GitStatusTimeoutMs      int `json:"git_status_timeout_ms"`
+	DashboardPollIntervalMs  int   `json:"dashboard_poll_interval_ms"`
+	GitStatusPollIntervalMs  int   `json:"git_status_poll_interval_ms"`
+	GitCloneTimeoutMs        int   `json:"git_clone_timeout_ms"`
+	GitStatusTimeoutMs       int   `json:"git_status_timeout_ms"`
+	GitStatusWatchEnabled    *bool `json:"git_status_watch_enabled,omitempty"`
+	GitStatusWatchDebounceMs int   `json:"git_status_watch_debounce_ms,omitempty"`
 }
 
 // XtermConfig represents terminal capture, timeouts, and log rotation settings.
@@ -731,6 +734,27 @@ func (c *Config) GetGitStatusPollIntervalMs() int {
 		return 10000
 	}
 	return c.Sessions.GitStatusPollIntervalMs
+}
+
+// GetGitStatusWatchEnabled returns whether the git status file watcher is enabled. Defaults to true.
+func (c *Config) GetGitStatusWatchEnabled() bool {
+	if c.Sessions == nil || c.Sessions.GitStatusWatchEnabled == nil {
+		return true
+	}
+	return *c.Sessions.GitStatusWatchEnabled
+}
+
+// GetGitStatusWatchDebounceMs returns the git status watcher debounce interval in ms. Defaults to 1000.
+func (c *Config) GetGitStatusWatchDebounceMs() int {
+	if c.Sessions == nil || c.Sessions.GitStatusWatchDebounceMs <= 0 {
+		return DefaultGitStatusWatchDebounceMs
+	}
+	return c.Sessions.GitStatusWatchDebounceMs
+}
+
+// GitStatusWatchDebounce returns the git status watcher debounce interval as a time.Duration.
+func (c *Config) GitStatusWatchDebounce() time.Duration {
+	return time.Duration(c.GetGitStatusWatchDebounceMs()) * time.Millisecond
 }
 
 // GetXtermMaxLogSizeMB returns the max log size in MB before rotation. Defaults to 50MB.
