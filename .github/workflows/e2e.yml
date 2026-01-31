@@ -33,3 +33,7 @@ jobs:
           name: e2e-failure-artifacts
           path: /tmp/schmux-e2e-artifacts/
           if-no-files-found: ignore
+
+      - name: Clean up dangling images
+        if: always()
+        run: docker image prune -af
