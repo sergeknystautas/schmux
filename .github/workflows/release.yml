@@ -22,14 +22,14 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
 
       - name: Build dashboard assets
         run: |
           cd assets/dashboard
           npm ci
           npm run build
-          tar -czf ../../dashboard-assets.tar.gz -C dist $(ls -A)
+          tar -czf ../../dashboard-assets.tar.gz -C dist .
 
       - name: Run tests
         run: go test ./...
