@@ -99,6 +99,9 @@ export default function SessionDetailPage() {
     setWsStatus('connecting');
     setShowResume(false);
     setFollowTail(true);
+    // Reset selection mode when switching sessions
+    setSelectionMode(false);
+    setSelectedLines([]);
   }, [sessionData?.id]);
 
   // Keep marking as viewed while WebSocket is connected (you're seeing output live)
@@ -189,10 +192,12 @@ export default function SessionDetailPage() {
   const handleToggleSelectionMode = () => {
     const newMode = terminalStreamRef.current?.toggleSelectionMode() ?? false;
     setSelectionMode(newMode);
-    if (!newMode) {
-      // When exiting selection mode, we could keep selections or clear them
-      // For now, let's keep them
-    }
+  };
+
+  const handleCancelSelection = () => {
+    terminalStreamRef.current?.toggleSelectionMode(); // This will clear selection
+    setSelectionMode(false);
+    setSelectedLines([]);
   };
 
   const handleCopySelectedLines = async () => {
@@ -204,14 +209,11 @@ export default function SessionDetailPage() {
     const ok = await copyToClipboard(content);
     if (ok) {
       success(`Copied ${selectedLines.length} line${selectedLines.length !== 1 ? 's' : ''}`);
+      // Exit selection mode after successful copy
+      handleCancelSelection();
     } else {
       toastError('Failed to copy');
     }
-  };
-
-  const handleClearSelection = () => {
-    terminalStreamRef.current?.clearSelection();
-    setSelectedLines([]);
   };
 
   if (sessionsLoading && !sessionData && !sessionsError) {
@@ -305,19 +307,40 @@ export default function SessionDetailPage() {
                 </Tooltip>
               </div>
               <div className="log-viewer__actions">
-                <Tooltip content={selectionMode ? 'Exit selection mode' : 'Select lines'}>
-                  <button
-                    className={`btn btn--sm ${selectionMode ? 'btn--primary' : ''}`}
-                    onClick={handleToggleSelectionMode}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 3h7v7H3z"></path>
-                      <path d="M14 3h7v7h-7z"></path>
-                      <path d="M14 14h7v7h-7z"></path>
-                      <path d="M3 14h7v7H3z"></path>
-                    </svg>
-                  </button>
-                </Tooltip>
+                {selectionMode ? (
+                  <>
+                    <Tooltip content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}>
+                      <button
+                        className="btn btn--sm btn--primary"
+                        onClick={handleCopySelectedLines}
+                        disabled={selectedLines.length === 0}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copy</span>
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Cancel selection">
+                      <button
+                        className="btn btn--sm"
+                        onClick={handleCancelSelection}
+                      >
+                        Cancel
+                      </button>
+                    </Tooltip>
+                  </>
+                ) : (
+                  <Tooltip content="Select lines to copy">
+                    <button
+                      className="btn btn--sm"
+                      onClick={handleToggleSelectionMode}
+                    >
+                      Select lines
+                    </button>
+                  </Tooltip>
+                )}
                 <Tooltip content="Download log">
                   <button
                     className="btn btn--sm"
