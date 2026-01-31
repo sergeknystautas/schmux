@@ -11,6 +11,7 @@ import TipsPage from './routes/TipsPage'
 import ConfigPage from './routes/ConfigPage'
 import SessionDetailPage from './routes/SessionDetailPage'
 import DiffPage from './routes/DiffPage'
+import GitGraphPage from './routes/GitGraphPage'
 import LegacyTerminalPage from './routes/LegacyTerminalPage'
 import NotFoundPage from './routes/NotFoundPage'
 
@@ -27,6 +28,7 @@ export default function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                   <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                  <Route path="/git/:workspaceId" element={<GitGraphPage />} />
                   <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                   <Route path="/tips" element={<TipsPage />} />
                   <Route path="/config" element={<ConfigPage />} />

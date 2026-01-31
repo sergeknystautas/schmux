@@ -77,6 +77,12 @@ export interface GitGraphBranch {
   workspace_ids: string[];
 }
 
+export interface GitGraphDirtyState {
+  files_changed: number;
+  lines_added: number;
+  lines_removed: number;
+}
+
 export interface GitGraphNode {
   hash: string;
   short_hash: string;
@@ -93,6 +99,7 @@ export interface GitGraphResponse {
   repo: string;
   nodes: GitGraphNode[];
   branches: Record<string, GitGraphBranch>;
+  dirty_state?: GitGraphDirtyState;
 }
 
 export interface Model {

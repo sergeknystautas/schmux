@@ -2436,12 +2436,19 @@ type BuiltinQuickLaunchCookbook struct {
 // - POST /api/workspaces/{id}/linear-sync-from-main - sync commits from main into branch
 // - POST /api/workspaces/{id}/linear-sync-to-main - sync commits from branch to main
 func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// GET routes
+	if strings.HasSuffix(path, "/git-graph") {
+		s.handleWorkspaceGitGraph(w, r)
+		return
+	}
+
+	// All other routes require POST
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	path := r.URL.Path
 
 	// Route based on URL suffix
 	if strings.HasSuffix(path, "/linear-sync-from-main") {
@@ -2842,38 +2849,26 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(branches)
 }
 
-// handleRepoRoutes dispatches repo-scoped API routes: /api/repos/{repoName}/{sub-path}
-func (s *Server) handleRepoRoutes(w http.ResponseWriter, r *http.Request) {
-	// Extract repoName and sub-path from /api/repos/{repoName}/{sub}
-	remainder := strings.TrimPrefix(r.URL.Path, "/api/repos/")
-	parts := strings.SplitN(remainder, "/", 2)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		http.NotFound(w, r)
-		return
-	}
-	repoName := parts[0]
-	subPath := parts[1]
-
-	switch subPath {
-	case "git-graph":
-		s.handleGitGraph(w, r, repoName)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-// handleGitGraph handles GET /api/repos/{repoName}/git-graph.
-func (s *Server) handleGitGraph(w http.ResponseWriter, r *http.Request, repoName string) {
+// handleWorkspaceGitGraph handles GET /api/workspaces/{id}/git-graph.
+func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Verify repo exists
-	if _, ok := s.config.FindRepo(repoName); !ok {
+	// Extract workspace ID: /api/workspaces/{id}/git-graph
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/git-graph")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify workspace exists
+	if _, ok := s.state.GetWorkspace(workspaceID); !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found: " + repoName})
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found: " + workspaceID})
 		return
 	}
 
@@ -2885,25 +2880,31 @@ func (s *Server) handleGitGraph(w http.ResponseWriter, r *http.Request, repoName
 		}
 	}
 
-	var branchFilter []string
-	if b := r.URL.Query().Get("branches"); b != "" {
-		for _, branch := range strings.Split(b, ",") {
-			branch = strings.TrimSpace(branch)
-			if branch != "" {
-				branchFilter = append(branchFilter, branch)
-			}
+	contextSize := 5
+	if cs := r.URL.Query().Get("context"); cs != "" {
+		if parsed, err := strconv.Atoi(cs); err == nil && parsed > 0 {
+			contextSize = parsed
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.workspace.GetGitGraph(ctx, repoName, maxCommits, branchFilter)
+	resp, err := s.workspace.GetGitGraph(ctx, workspaceID, maxCommits, contextSize)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Populate dirty state from workspace git stats
+	if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.GitFilesChanged > 0 {
+		resp.DirtyState = &contracts.GitGraphDirtyState{
+			FilesChanged: ws.GitFilesChanged,
+			LinesAdded:   ws.GitLinesAdded,
+			LinesRemoved: ws.GitLinesRemoved,
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

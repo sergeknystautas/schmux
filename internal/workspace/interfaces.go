@@ -126,8 +126,8 @@ type WorkspaceManager interface {
 	// GetBranchCommitLog returns commit subjects for a branch relative to the default branch.
 	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
 
-	// GetGitGraph returns the commit graph for a repo showing active workspace branches.
-	GetGitGraph(ctx context.Context, repoName string, maxCommits int, branchFilter []string) (*contracts.GitGraphResponse, error)
+	// GetGitGraph returns the commit graph for a workspace showing local branch vs origin/main.
+	GetGitGraph(ctx context.Context, workspaceID string, maxCommits int, contextSize int) (*contracts.GitGraphResponse, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

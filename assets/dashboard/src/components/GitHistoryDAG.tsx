@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getGitGraph } from '../lib/api';
 import { computeLayout, laneColorVar } from '../lib/gitGraphLayout';
-import type { GitGraphLayout, LayoutNode, LayoutEdge } from '../lib/gitGraphLayout';
+import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse } from '../lib/types';
 
 interface GitHistoryDAGProps {
-  repoName: string;
+  workspaceId: string;
 }
 
 const NODE_RADIUS = 5;
@@ -26,7 +27,8 @@ function relativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
+export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
+  const navigate = useNavigate();
   const [data, setData] = useState<GitGraphResponse | null>(null);
   const [layout, setLayout] = useState<GitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
 
   const fetchData = useCallback(async () => {
     try {
-      const resp = await getGitGraph(repoName);
+      const resp = await getGitGraph(workspaceId);
       setData(resp);
       setLayout(computeLayout(resp));
       setError(null);
@@ -44,7 +46,7 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
     } finally {
       setLoading(false);
     }
-  }, [repoName]);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchData();
@@ -69,7 +71,7 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
     return (
       <div className="empty-state">
         <div className="empty-state__title">No commits</div>
-        <div className="empty-state__description">No active workspace branches found for this repo.</div>
+        <div className="empty-state__description">No commit history found for this workspace.</div>
       </div>
     );
   }
@@ -79,22 +81,6 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
 
   return (
     <div className="git-dag">
-      <div className="git-dag__branches">
-        {Object.entries(data.branches).map(([name, info]) => (
-          <span
-            key={name}
-            className="git-dag__branch-label"
-            style={{ color: laneColorVar(layout.branchLanes[name] ?? 0) }}
-          >
-            {name}
-            {info.is_main && <span className="git-dag__branch-main"> (main)</span>}
-            {info.workspace_ids.length > 0 && (
-              <span className="git-dag__branch-ws"> [{info.workspace_ids.join(', ')}]</span>
-            )}
-          </span>
-        ))}
-      </div>
-
       <div className="git-dag__scroll" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
         <div className="git-dag__container" style={{ position: 'relative', minHeight: totalHeight }}>
           <svg
@@ -103,6 +89,11 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
             height={totalHeight}
             style={{ position: 'absolute', left: 0, top: 0 }}
           >
+            {/* Persistent lane lines (ISL-style column state) */}
+            {layout.laneLines.map((ll, i) => (
+              <LaneLinePath key={`lane-${i}`} laneLine={ll} rowHeight={layout.rowHeight} />
+            ))}
+
             {/* Edges */}
             {layout.edges.map((edge, i) => (
               <EdgePath key={i} edge={edge} rowHeight={layout.rowHeight} />
@@ -116,40 +107,74 @@ export default function GitHistoryDAG({ repoName }: GitHistoryDAGProps) {
 
           {/* Commit rows */}
           <div className="git-dag__rows" style={{ marginLeft: graphWidth }}>
-            {layout.nodes.map((ln) => (
-              <div
-                key={ln.hash}
-                className="git-dag__row"
-                style={{ height: layout.rowHeight }}
-                title={ln.node.hash}
-              >
-                <button
-                  className="git-dag__hash"
-                  onClick={() => copyHash(ln.node.hash)}
-                  title={copiedHash === ln.node.hash ? 'Copied!' : 'Click to copy full hash'}
+            {layout.nodes.map((ln) => {
+              if (ln.nodeType === 'label') {
+                if (ln.hash === '__remote-main__') {
+                  return (
+                    <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                      <span
+                        className="git-dag__head-label"
+                        style={{ borderColor: laneColorVar(0) }}
+                      >
+                        {ln.label}
+                      </span>
+                    </div>
+                  );
+                }
+                if (ln.hash === '__view-changes__') {
+                  return (
+                    <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                      <button
+                        className="git-dag__view-changes"
+                        onClick={() => navigate(`/diff/${workspaceId}`)}
+                        title="View uncommitted changes"
+                      >
+                        {ln.label}
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                    <span className="git-dag__you-are-here">{ln.label}</span>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={ln.hash}
+                  className="git-dag__row"
+                  style={{ height: layout.rowHeight }}
+                  title={ln.node.hash}
                 >
-                  {ln.node.short_hash}
-                </button>
-                <span className="git-dag__message">
-                  {ln.node.is_head.length > 0 && (
-                    <span className="git-dag__head-labels">
-                      {ln.node.is_head.map((b) => (
-                        <span
-                          key={b}
-                          className="git-dag__head-label"
-                          style={{ borderColor: laneColorVar(layout.branchLanes[b] ?? 0) }}
-                        >
-                          {b}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                  {ln.node.message}
-                </span>
-                <span className="git-dag__author">{ln.node.author}</span>
-                <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
-              </div>
-            ))}
+                  <button
+                    className="git-dag__hash"
+                    onClick={() => copyHash(ln.node.hash)}
+                    title={copiedHash === ln.node.hash ? 'Copied!' : 'Click to copy full hash'}
+                  >
+                    {ln.node.short_hash}
+                  </button>
+                  <span className="git-dag__message">
+                    {ln.node.is_head.length > 0 && (
+                      <span className="git-dag__head-labels">
+                        {ln.node.is_head.map((b) => (
+                          <span
+                            key={b}
+                            className="git-dag__head-label"
+                            style={{ borderColor: laneColorVar(layout.branchLanes[b] ?? 0) }}
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {ln.node.message}
+                  </span>
+                  <span className="git-dag__author">{ln.node.author}</span>
+                  <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -163,7 +188,6 @@ function NodeCircle({ node, rowHeight }: { node: LayoutNode; rowHeight: number }
   const color = laneColorVar(node.lane);
 
   if (node.nodeType === 'merge') {
-    // Diamond for merge/fork-point
     const s = NODE_RADIUS + 1;
     return (
       <polygon
@@ -187,8 +211,7 @@ function NodeCircle({ node, rowHeight }: { node: LayoutNode; rowHeight: number }
     );
   }
 
-  // Normal: filled circle for branch commits, open circle for main
-  const isMainOnly = node.node.branches.length === 1 && node.node.branches[0] === Object.keys({}).length.toString();
+  // Filled circle for branch commits, open circle for main
   const fill = node.lane === 0 ? 'none' : color;
   const strokeWidth = node.lane === 0 ? 1.5 : 1;
 
@@ -204,21 +227,39 @@ function NodeCircle({ node, rowHeight }: { node: LayoutNode; rowHeight: number }
   );
 }
 
+function LaneLinePath({ laneLine, rowHeight }: { laneLine: LaneLine; rowHeight: number }) {
+  const x = GRAPH_PADDING + laneLine.lane * LANE_WIDTH;
+  const y1 = laneLine.fromY + rowHeight / 2;
+  const y2 = laneLine.toY + rowHeight / 2;
+  const color = laneColorVar(laneLine.lane);
+
+  return <line x1={x} y1={y1} x2={x} y2={y2} stroke={color} strokeWidth={1.5} opacity={0.3} />;
+}
+
 function EdgePath({ edge, rowHeight }: { edge: LayoutEdge; rowHeight: number }) {
   const x1 = GRAPH_PADDING + edge.fromLane * LANE_WIDTH;
   const y1 = edge.fromY + rowHeight / 2;
   const x2 = GRAPH_PADDING + edge.toLane * LANE_WIDTH;
   const y2 = edge.toY + rowHeight / 2;
 
-  const color = laneColorVar(edge.fromLane);
+  // Use the parent's lane color for cross-lane edges (fork lines come FROM main)
+  // This matches ISL convention: the fork line is colored like main
+  const color = x1 === x2 ? laneColorVar(edge.fromLane) : laneColorVar(edge.toLane);
 
   if (x1 === x2) {
     // Straight vertical line
     return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.5} />;
   }
 
-  // Curved connector between lanes
-  const midY = (y1 + y2) / 2;
-  const d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+  // Curved connector between lanes.
+  // ISL convention: the curve goes from the fork point (bottom, lane 0)
+  // diagonally up to the branch (top, lane 1).
+  // Since edges go from child → parent (top → bottom), and the fork point
+  // is the parent (bottom, lane 0) while the first branch commit is the child
+  // (top, lane 1), we draw: start at child (x1,y1), curve down to parent (x2,y2).
+  // S-curve: leave child vertically, curve through midpoint, arrive at parent vertically.
+  const cp1Y = y1 + (y2 - y1) * 0.75;
+  const cp2Y = y1 + (y2 - y1) * 0.25;
+  const d = `M ${x1} ${y1} C ${x1} ${cp1Y}, ${x2} ${cp2Y}, ${x2} ${y2}`;
   return <path d={d} fill="none" stroke={color} strokeWidth={1.5} />;
 }

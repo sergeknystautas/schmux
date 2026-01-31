@@ -37,9 +37,10 @@ type SessionTabsProps = {
   workspace?: WorkspaceResponse;
   activeDiffTab?: boolean;
   activeSpawnTab?: boolean;
+  activeGitTab?: boolean;
 };
 
-export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab }: SessionTabsProps) {
+export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab, activeGitTab }: SessionTabsProps) {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
@@ -117,6 +118,12 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const handleDiffTabClick = () => {
     if (workspace) {
       navigate(`/diff/${workspace.id}`);
+    }
+  };
+
+  const handleGitTabClick = () => {
+    if (workspace) {
+      navigate(`/git/${workspace.id}`);
     }
   };
 
@@ -267,7 +274,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     );
   };
 
-  // Helper to render the diff tab
+  // Helper to render the diff tab (always shown)
   const renderDiffTab = () => (
     <div
       className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}`}
@@ -282,12 +289,33 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">
-          {filesChanged} file{filesChanged !== 1 ? 's' : ''}
+          {filesChanged} file{filesChanged !== 1 ? 's' : ''} changed
         </span>
-        <span className="session-tab__diff-stats">
-          {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
-          {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
-        </span>
+        {hasChanges && (
+          <span className="session-tab__diff-stats">
+            {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
+            {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  // Helper to render the git tab
+  const renderGitTab = () => (
+    <div
+      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}`}
+      onClick={handleGitTabClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleGitTabClick();
+        }
+      }}
+    >
+      <div className="session-tab__row1">
+        <span className="session-tab__name">git graph</span>
       </div>
     </div>
   );
@@ -367,41 +395,18 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   // Determine if we're showing the add button
   const showAddButton = workspace && !activeSpawnTab;
 
-  // Sessions to render normally (all except last if we need to wrap it with add button)
-  const sessionsToRender = showAddButton && !hasChanges && sessions.length > 0
-    ? sessions.slice(0, -1)
-    : sessions;
-
-  // The last session (if we need to wrap it with add button)
-  const lastSession = showAddButton && !hasChanges && sessions.length > 0
-    ? sessions[sessions.length - 1]
-    : null;
-
   return (
     <div className="session-tabs">
-      {sessionsToRender.map((sess) => renderSessionTab(sess))}
+      {sessions.map((sess) => renderSessionTab(sess))}
 
-      {/* If hasChanges and showing add button, wrap diff tab + add button together */}
-      {hasChanges && showAddButton && (
-        <span className="session-tabs__nowrap">
-          {renderDiffTab()}
-          {renderAddButton()}
-        </span>
-      )}
+      {/* Diff tab — always shown */}
+      {renderDiffTab()}
 
-      {/* If hasChanges but not showing add button, just render diff tab */}
-      {hasChanges && !showAddButton && renderDiffTab()}
+      {/* Git tab — always shown */}
+      {renderGitTab()}
 
-      {/* If no changes but have last session to wrap with add button */}
-      {lastSession && (
-        <span className="session-tabs__nowrap">
-          {renderSessionTab(lastSession)}
-          {renderAddButton()}
-        </span>
-      )}
-
-      {/* If showing add button but no last session and no diff tab */}
-      {showAddButton && !hasChanges && sessions.length === 0 && renderAddButton()}
+      {/* Add button */}
+      {showAddButton && renderAddButton()}
 
       {activeSpawnTab && (
         <div

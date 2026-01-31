@@ -3,9 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -13,155 +11,121 @@ import (
 
 const (
 	defaultMaxCommits  = 200
-	mainContextCommits = 5
+	defaultContextSize = 5
 )
 
-// GetGitGraph returns the commit graph for a repo, showing all active workspace branches
-// and their relationship to main.
-func (m *Manager) GetGitGraph(ctx context.Context, repoName string, maxCommits int, branchFilter []string) (*contracts.GitGraphResponse, error) {
+// GetGitGraph returns the commit graph for a workspace, showing the local branch
+// vs origin/{defaultBranch} with the graph scoped to the divergence region.
+func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommits int, contextSize int) (*contracts.GitGraphResponse, error) {
 	if maxCommits <= 0 {
 		maxCommits = defaultMaxCommits
 	}
+	if contextSize <= 0 {
+		contextSize = defaultContextSize
+	}
 
-	// Look up repo by name
-	repo, ok := m.config.FindRepo(repoName)
+	// Look up workspace
+	ws, ok := m.state.GetWorkspace(workspaceID)
 	if !ok {
-		return nil, fmt.Errorf("repo not found: %s", repoName)
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	// Get bare repo path
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return nil, fmt.Errorf("bare repos path not configured")
-	}
-	bareRepoName := extractRepoName(repo.URL)
-	bareRepoPath := filepath.Join(bareReposPath, bareRepoName+".git")
-	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("bare clone not found for %s", repoName)
-	}
+	gitDir := ws.Path
+	localBranch := ws.Branch
 
 	// Detect default branch
-	defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+	defaultBranch := m.getDefaultBranch(ctx, gitDir)
+	originMain := "origin/" + defaultBranch
 
-	// Build branch → workspace ID mapping from state
-	workspaces := m.state.GetWorkspaces()
-	branchWorkspaces := make(map[string][]string) // branch name → workspace IDs
-	for _, ws := range workspaces {
-		if ws.Repo == repo.URL {
-			branchWorkspaces[ws.Branch] = append(branchWorkspaces[ws.Branch], ws.ID)
+	// Resolve local HEAD and origin/main
+	localHead := resolveRef(ctx, gitDir, "HEAD")
+	originMainHead := resolveRef(ctx, gitDir, originMain)
+
+	if localHead == "" {
+		return nil, fmt.Errorf("cannot resolve HEAD in workspace %s", workspaceID)
+	}
+
+	// Build workspace ID mapping for annotations
+	branchWorkspaces := make(map[string][]string)
+	for _, w := range m.state.GetWorkspaces() {
+		if w.Repo == ws.Repo {
+			branchWorkspaces[w.Branch] = append(branchWorkspaces[w.Branch], w.ID)
 		}
 	}
 
-	// Determine which branches to include
-	includeBranches := m.resolveIncludeBranches(ctx, bareRepoPath, defaultBranch, branchFilter, branchWorkspaces)
-
-	// Resolve HEAD hash for each branch
-	branchHeads := make(map[string]string) // branch name → commit hash
-	for _, branch := range includeBranches {
-		hash := m.resolveRef(ctx, bareRepoPath, "refs/remotes/origin/"+branch)
-		if hash == "" {
-			// Also try refs/heads/ for bare repos where refs might be stored directly
-			hash = m.resolveRef(ctx, bareRepoPath, "refs/heads/"+branch)
-		}
-		if hash != "" {
-			branchHeads[branch] = hash
-		}
+	// Find fork point
+	var forkPoint string
+	if originMainHead != "" && localHead != originMainHead {
+		forkPoint = findMergeBase(ctx, gitDir, "HEAD", originMain)
 	}
 
-	// Filter to branches that actually resolved
-	var resolvedBranches []string
-	for _, branch := range includeBranches {
-		if _, ok := branchHeads[branch]; ok {
-			resolvedBranches = append(resolvedBranches, branch)
-		}
-	}
-	if len(resolvedBranches) == 0 {
-		return &contracts.GitGraphResponse{
-			Repo:     repo.URL,
-			Nodes:    []contracts.GitGraphNode{},
-			Branches: map[string]contracts.GitGraphBranch{},
-		}, nil
-	}
+	// Determine what to log
+	var rawNodes []rawNode
+	var err error
 
-	// Find fork points for trimming
-	mainHead := branchHeads[defaultBranch]
-	forkPoints := make(map[string][]string) // branch → merge base hashes
-	for _, branch := range resolvedBranches {
-		if branch == defaultBranch {
-			continue
-		}
-		bases := m.findMergeBases(ctx, bareRepoPath, branchHeads[branch], mainHead)
-		if len(bases) > 0 {
-			forkPoints[branch] = bases
-		}
+	if originMainHead == "" || localHead == originMainHead {
+		// No divergence or no origin — just show recent commits from HEAD
+		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD"}, contextSize+1)
+	} else if forkPoint == "" {
+		// No common ancestor — show both independently
+		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxCommits)
+	} else {
+		// Normal divergence — get commits in the divergence region plus context
+		rawNodes, err = m.getGraphNodes(ctx, gitDir, forkPoint, originMain, maxCommits, contextSize)
 	}
-
-	// Build ref args for git log
-	var refArgs []string
-	for _, branch := range resolvedBranches {
-		refArgs = append(refArgs, branchHeads[branch])
-	}
-
-	// Run git log
-	rawNodes, err := m.runGitLog(ctx, bareRepoPath, refArgs, maxCommits)
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
+
 	if len(rawNodes) == 0 {
 		return &contracts.GitGraphResponse{
-			Repo:     repo.URL,
+			Repo:     ws.Repo,
 			Nodes:    []contracts.GitGraphNode{},
 			Branches: map[string]contracts.GitGraphBranch{},
 		}, nil
 	}
 
-	// Build hash → node index for parent walking
+	// Build hash → node index
 	nodeIndex := make(map[string]int, len(rawNodes))
 	for i, n := range rawNodes {
 		nodeIndex[n.Hash] = i
 	}
 
-	// Derive branch membership by walking from each branch HEAD
+	// Derive branch membership by walking from each HEAD
 	nodeBranches := make(map[string]map[string]bool, len(rawNodes))
-	for _, branch := range resolvedBranches {
-		head := branchHeads[branch]
-		m.walkBranchMembership(rawNodes, nodeIndex, head, branch, nodeBranches)
+	walkBranchMembership(rawNodes, nodeIndex, localHead, localBranch, nodeBranches)
+	if originMainHead != "" {
+		walkBranchMembership(rawNodes, nodeIndex, originMainHead, defaultBranch, nodeBranches)
 	}
 
-	// Trim: determine which nodes to keep
-	keepSet := m.computeTrimSet(rawNodes, nodeIndex, resolvedBranches, branchHeads, forkPoints, defaultBranch)
+	// The two branch names
+	branches := []string{defaultBranch, localBranch}
+	branchHeads := map[string]string{
+		localBranch: localHead,
+	}
+	if originMainHead != "" {
+		branchHeads[defaultBranch] = originMainHead
+	}
 
-	// Build final node list (preserving topo order)
+	// Build final node list
 	var nodes []contracts.GitGraphNode
 	for _, n := range rawNodes {
-		if !keepSet[n.Hash] {
-			continue
-		}
-
-		// Populate branches for this node
-		var branches []string
+		var branchList []string
 		if bm, ok := nodeBranches[n.Hash]; ok {
-			for _, branch := range resolvedBranches {
+			for _, branch := range branches {
 				if bm[branch] {
-					branches = append(branches, branch)
+					branchList = append(branchList, branch)
 				}
 			}
 		}
 
-		// Populate is_head and workspace_ids
 		var isHead []string
 		var workspaceIDs []string
-		for _, branch := range resolvedBranches {
+		for _, branch := range branches {
 			if branchHeads[branch] == n.Hash {
 				isHead = append(isHead, branch)
 				workspaceIDs = append(workspaceIDs, branchWorkspaces[branch]...)
 			}
-		}
-
-		// Filter parents to only include hashes in the kept set
-		var parents []string
-		for _, p := range n.Parents {
-			parents = append(parents, p)
 		}
 
 		nodes = append(nodes, contracts.GitGraphNode{
@@ -170,8 +134,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, repoName string, maxCommits i
 			Message:      n.Message,
 			Author:       n.Author,
 			Timestamp:    n.Timestamp,
-			Parents:      nonNilSlice(parents),
-			Branches:     nonNilSlice(branches),
+			Parents:      nonNilSlice(n.Parents),
+			Branches:     nonNilSlice(branchList),
 			IsHead:       nonNilSlice(isHead),
 			WorkspaceIDs: nonNilSlice(workspaceIDs),
 		})
@@ -182,23 +146,81 @@ func (m *Manager) GetGitGraph(ctx context.Context, repoName string, maxCommits i
 	}
 
 	// Build branches map
-	branchesMap := make(map[string]contracts.GitGraphBranch, len(resolvedBranches))
-	for _, branch := range resolvedBranches {
-		branchesMap[branch] = contracts.GitGraphBranch{
-			Head:         branchHeads[branch],
-			IsMain:       branch == defaultBranch,
-			WorkspaceIDs: nonNilSlice(branchWorkspaces[branch]),
+	branchesMap := make(map[string]contracts.GitGraphBranch)
+	if originMainHead != "" {
+		branchesMap[defaultBranch] = contracts.GitGraphBranch{
+			Head:         originMainHead,
+			IsMain:       true,
+			WorkspaceIDs: nonNilSlice(branchWorkspaces[defaultBranch]),
 		}
+	}
+	branchesMap[localBranch] = contracts.GitGraphBranch{
+		Head:         localHead,
+		IsMain:       localBranch == defaultBranch,
+		WorkspaceIDs: nonNilSlice(branchWorkspaces[localBranch]),
 	}
 
 	return &contracts.GitGraphResponse{
-		Repo:     repo.URL,
+		Repo:     ws.Repo,
 		Nodes:    nodes,
 		Branches: branchesMap,
 	}, nil
 }
 
-// rawNode is an intermediate parsed commit before trimming/annotation.
+// getGraphNodes fetches commits for the divergence region: local ahead, origin ahead, fork point, context.
+func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMain string, maxCommits, contextSize int) ([]rawNode, error) {
+	// Get all commits reachable from HEAD or origin/main but not before fork point's parents,
+	// plus some context commits below the fork point.
+	// Strategy: log HEAD + origin/main with --ancestry-path from fork point, then add context.
+
+	// Commits in the divergence region (HEAD and origin/main down to fork point)
+	args := []string{"log",
+		"--format=%H|%h|%s|%an|%aI|%P",
+		"--topo-order",
+		"HEAD", originMain,
+		"--not", forkPoint + "^",
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = gitDir
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback: try without --not (fork point might be root commit)
+		return runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxCommits)
+	}
+
+	nodes := parseGitLogOutput(string(output))
+
+	// Add context commits below the fork point
+	if contextSize > 0 {
+		contextArgs := []string{"log",
+			"--format=%H|%h|%s|%an|%aI|%P",
+			"--topo-order",
+			fmt.Sprintf("--max-count=%d", contextSize),
+			forkPoint,
+		}
+		ctxCmd := exec.CommandContext(ctx, "git", contextArgs...)
+		ctxCmd.Dir = gitDir
+		ctxOutput, ctxErr := ctxCmd.Output()
+		if ctxErr == nil {
+			contextNodes := parseGitLogOutput(string(ctxOutput))
+			// Append context, deduplicating
+			seen := make(map[string]bool, len(nodes))
+			for _, n := range nodes {
+				seen[n.Hash] = true
+			}
+			for _, n := range contextNodes {
+				if !seen[n.Hash] {
+					seen[n.Hash] = true
+					nodes = append(nodes, n)
+				}
+			}
+		}
+	}
+
+	return nodes, nil
+}
+
+// rawNode is an intermediate parsed commit before annotation.
 type rawNode struct {
 	Hash      string
 	ShortHash string
@@ -208,38 +230,8 @@ type rawNode struct {
 	Parents   []string
 }
 
-// resolveIncludeBranches determines which branches to include in the graph.
-func (m *Manager) resolveIncludeBranches(ctx context.Context, bareRepoPath, defaultBranch string, branchFilter []string, branchWorkspaces map[string][]string) []string {
-	seen := make(map[string]bool)
-	var result []string
-
-	add := func(branch string) {
-		if !seen[branch] {
-			seen[branch] = true
-			result = append(result, branch)
-		}
-	}
-
-	// Always include main/default
-	add(defaultBranch)
-
-	if len(branchFilter) > 0 {
-		// Use explicit filter
-		for _, b := range branchFilter {
-			add(b)
-		}
-	} else {
-		// Include all active workspace branches
-		for branch := range branchWorkspaces {
-			add(branch)
-		}
-	}
-
-	return result
-}
-
 // resolveRef resolves a git ref to its commit hash.
-func (m *Manager) resolveRef(ctx context.Context, repoPath, ref string) string {
+func resolveRef(ctx context.Context, repoPath, ref string) string {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
@@ -249,33 +241,23 @@ func (m *Manager) resolveRef(ctx context.Context, repoPath, ref string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// findMergeBases returns merge base commits between two refs.
-func (m *Manager) findMergeBases(ctx context.Context, repoPath, ref1, ref2 string) []string {
-	if ref1 == "" || ref2 == "" {
-		return nil
-	}
-	cmd := exec.CommandContext(ctx, "git", "merge-base", "--all", ref1, ref2)
+// findMergeBase returns the merge base between two refs.
+func findMergeBase(ctx context.Context, repoPath, ref1, ref2 string) string {
+	cmd := exec.CommandContext(ctx, "git", "merge-base", ref1, ref2)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
 	if err != nil {
-		return nil
+		return ""
 	}
-	var bases []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			bases = append(bases, line)
-		}
-	}
-	return bases
+	return strings.TrimSpace(string(output))
 }
 
 // runGitLog runs git log and parses the output into rawNode structs.
-func (m *Manager) runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]rawNode, error) {
+func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]rawNode, error) {
 	args := []string{"log",
 		"--format=%H|%h|%s|%an|%aI|%P",
 		"--topo-order",
-		fmt.Sprintf("--max-count=%d", maxCommits*2), // fetch extra for trimming
+		fmt.Sprintf("--max-count=%d", maxCommits),
 	}
 	args = append(args, refs...)
 
@@ -286,9 +268,14 @@ func (m *Manager) runGitLog(ctx context.Context, repoPath string, refs []string,
 		return nil, fmt.Errorf("git log: %w", err)
 	}
 
+	return parseGitLogOutput(string(output)), nil
+}
+
+// parseGitLogOutput parses pipe-delimited git log output into rawNode structs.
+func parseGitLogOutput(output string) []rawNode {
 	var nodes []rawNode
 	seen := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}
@@ -316,12 +303,11 @@ func (m *Manager) runGitLog(ctx context.Context, repoPath string, refs []string,
 			Parents:   parents,
 		})
 	}
-
-	return nodes, nil
+	return nodes
 }
 
 // walkBranchMembership marks all nodes reachable from head as belonging to branch.
-func (m *Manager) walkBranchMembership(nodes []rawNode, nodeIndex map[string]int, head, branch string, nodeBranches map[string]map[string]bool) {
+func walkBranchMembership(nodes []rawNode, nodeIndex map[string]int, head, branch string, nodeBranches map[string]map[string]bool) {
 	stack := []string{head}
 	for len(stack) > 0 {
 		hash := stack[len(stack)-1]
@@ -331,7 +317,7 @@ func (m *Manager) walkBranchMembership(nodes []rawNode, nodeIndex map[string]int
 			nodeBranches[hash] = make(map[string]bool)
 		}
 		if nodeBranches[hash][branch] {
-			continue // already visited
+			continue
 		}
 		nodeBranches[hash][branch] = true
 
@@ -345,145 +331,6 @@ func (m *Manager) walkBranchMembership(nodes []rawNode, nodeIndex map[string]int
 			}
 		}
 	}
-}
-
-// computeTrimSet determines which commit hashes to keep in the final output.
-func (m *Manager) computeTrimSet(nodes []rawNode, nodeIndex map[string]int, branches []string, branchHeads map[string]string, forkPoints map[string][]string, defaultBranch string) map[string]bool {
-	keep := make(map[string]bool)
-
-	// Collect all fork point hashes
-	allForkPoints := make(map[string]bool)
-	for _, bases := range forkPoints {
-		for _, b := range bases {
-			allForkPoints[b] = true
-		}
-	}
-
-	// For each non-main branch: keep all commits from HEAD down to (and including) fork point
-	for _, branch := range branches {
-		if branch == defaultBranch {
-			continue
-		}
-		head := branchHeads[branch]
-		bases := forkPoints[branch]
-		baseSet := make(map[string]bool, len(bases))
-		for _, b := range bases {
-			baseSet[b] = true
-		}
-
-		// Walk from head, keep everything until we pass all fork points
-		stack := []string{head}
-		visited := make(map[string]bool)
-		for len(stack) > 0 {
-			hash := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if visited[hash] {
-				continue
-			}
-			visited[hash] = true
-			keep[hash] = true
-
-			// Stop walking past fork points
-			if baseSet[hash] {
-				continue
-			}
-
-			idx, ok := nodeIndex[hash]
-			if !ok {
-				continue
-			}
-			for _, parent := range nodes[idx].Parents {
-				if _, inGraph := nodeIndex[parent]; inGraph {
-					stack = append(stack, parent)
-				}
-			}
-		}
-	}
-
-	// For main: keep from HEAD down to the oldest fork point + context
-	mainHead := branchHeads[defaultBranch]
-	if mainHead != "" {
-		// Find the oldest fork point index in the topo-sorted list
-		oldestForkIdx := -1
-		for hash := range allForkPoints {
-			if idx, ok := nodeIndex[hash]; ok {
-				if idx > oldestForkIdx {
-					oldestForkIdx = idx
-				}
-			}
-		}
-
-		// Walk main from HEAD, keeping nodes
-		contextRemaining := mainContextCommits
-		pastOldestFork := false
-		stack := []string{mainHead}
-		visited := make(map[string]bool)
-		for len(stack) > 0 {
-			hash := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if visited[hash] {
-				continue
-			}
-			visited[hash] = true
-			keep[hash] = true
-
-			if pastOldestFork {
-				contextRemaining--
-				if contextRemaining <= 0 {
-					continue
-				}
-			}
-
-			idx, ok := nodeIndex[hash]
-			if !ok {
-				continue
-			}
-
-			// Check if we've passed the oldest fork point
-			if !pastOldestFork && allForkPoints[hash] {
-				// Check if this is the oldest (highest index) fork point
-				if idx >= oldestForkIdx {
-					pastOldestFork = true
-				}
-			}
-
-			for _, parent := range nodes[idx].Parents {
-				if _, inGraph := nodeIndex[parent]; inGraph {
-					stack = append(stack, parent)
-				}
-			}
-		}
-	}
-
-	// If no fork points exist (e.g., single branch), keep all from heads
-	if len(allForkPoints) == 0 {
-		for _, branch := range branches {
-			head := branchHeads[branch]
-			stack := []string{head}
-			visited := make(map[string]bool)
-			for len(stack) > 0 {
-				hash := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				if visited[hash] {
-					continue
-				}
-				visited[hash] = true
-				keep[hash] = true
-
-				idx, ok := nodeIndex[hash]
-				if !ok {
-					continue
-				}
-				for _, parent := range nodes[idx].Parents {
-					if _, inGraph := nodeIndex[parent]; inGraph {
-						stack = append(stack, parent)
-					}
-				}
-			}
-		}
-	}
-
-	return keep
 }
 
 // nonNilSlice returns the slice or an empty non-nil slice if nil.

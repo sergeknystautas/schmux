@@ -356,14 +356,14 @@ export async function getRecentBranches(limit: number = 10): Promise<RecentBranc
 }
 
 export async function getGitGraph(
-  repoName: string,
-  opts?: { maxCommits?: number; branches?: string[] }
+  workspaceId: string,
+  opts?: { maxCommits?: number; context?: number }
 ): Promise<GitGraphResponse> {
   const params = new URLSearchParams();
   if (opts?.maxCommits) params.set('max_commits', String(opts.maxCommits));
-  if (opts?.branches?.length) params.set('branches', opts.branches.join(','));
+  if (opts?.context) params.set('context', String(opts.context));
   const qs = params.toString();
-  const url = `/api/repos/${encodeURIComponent(repoName)}/git-graph${qs ? `?${qs}` : ''}`;
+  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error('Failed to fetch git graph');
   return response.json();

@@ -402,12 +402,12 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 	})
 }
 
-func TestGitGraphEndpoint_UnknownRepo(t *testing.T) {
+func TestGitGraphEndpoint_UnknownWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/repos/nonexistent/git-graph", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/git-graph", nil)
 	rr := httptest.NewRecorder()
-	server.handleRepoRoutes(rr, req)
+	server.handleWorkspaceGitGraph(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rr.Code)
@@ -415,12 +415,11 @@ func TestGitGraphEndpoint_UnknownRepo(t *testing.T) {
 }
 
 func TestGitGraphEndpoint_MethodNotAllowed(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-	cfg.Repos = []config.Repo{{Name: "myrepo", URL: "https://example.com/repo.git"}}
+	server, _, _ := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/myrepo/git-graph", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-123/git-graph", nil)
 	rr := httptest.NewRecorder()
-	server.handleRepoRoutes(rr, req)
+	server.handleWorkspaceGitGraph(rr, req)
 
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405, got %d", rr.Code)

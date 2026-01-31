@@ -2938,6 +2938,36 @@ a:hover {
   background-color: var(--color-surface-alt);
 }
 
+.git-dag__you-are-here {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-graph-lane-1);
+  background: color-mix(in srgb, var(--color-graph-lane-1) 12%, transparent);
+  border: 1px solid var(--color-graph-lane-1);
+  border-radius: 3px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.git-dag__view-changes {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-graph-lane-1);
+  background: color-mix(in srgb, var(--color-graph-lane-1) 12%, transparent);
+  border: 1px solid var(--color-graph-lane-1);
+  border-radius: 3px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.git-dag__view-changes:hover {
+  background: color-mix(in srgb, var(--color-graph-lane-1) 24%, transparent);
+}
+
 .git-dag__hash {
   font-family: var(--font-mono);
   font-size: 0.7rem;

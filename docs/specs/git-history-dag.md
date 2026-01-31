@@ -2,29 +2,29 @@
 
 ## Context
 
-schmux workspaces show git status (branch, ahead/behind, dirty state) but have no visual representation of commit history. When multiple agents work on branches that diverge from main, users need to understand the commit topology — which commits are theirs, where branches diverged, how branches relate to each other, and how far ahead/behind they are — without switching to a terminal and running `git log`.
+schmux workspaces show git status (branch, ahead/behind, dirty state) but have no visual representation of commit history. When agents work on branches that diverge from main, users need to understand the commit topology — which commits are theirs, where the branch diverged, how far ahead/behind they are relative to origin/main — without switching to a terminal and running `git log`.
 
-Sapling ISL (Interactive Smartlog) demonstrates a useful pattern: a vertically-rendered DAG showing commits as nodes on a graph with lane-based layout for parallel branches. We adapt this for schmux, where the key question is "what did my agents produce across all active branches in this repo?"
+Sapling ISL (Interactive Smartlog) demonstrates a useful pattern: a vertically-rendered DAG showing commits as nodes on a graph with lane-based layout for parallel branches. We adapt this for schmux, where the key question is "what did my workspace produce relative to main?"
 
-UI entry point is TBD. The component and API are repo-scoped and designed to be embedded wherever makes sense (dedicated route, workspace view, etc.).
+UI entry point: the "git" tab on the session/workspace tab bar, alongside terminal and diff tabs.
 
 ## Goals
 
-- Render a vertical commit DAG for a repo showing all active workspace branches and their relationship to main.
-- Support multiple parallel branches with proper lane assignment (branches rendered side-by-side without overlap).
+- Render a vertical commit DAG for a workspace showing the local branch vs origin/main.
+- Show the fork point where the branch diverged, commits ahead (local), and commits behind (on origin/main).
 - Show commit hash (short), message (first line), author, and relative timestamp.
-- Visually distinguish: branch commits, main commits, fork points, merge commits, and HEAD positions per branch.
+- Visually distinguish: branch commits, main commits, fork points, merge commits, and HEAD positions.
 - Render merge commits with multiple parent edges.
-- Serve the commit graph from a repo-scoped API endpoint on the daemon.
-- Work with both regular clones and worktrees.
+- Serve the commit graph from a workspace-scoped API endpoint on the daemon.
+- Query the workspace's git directory (works with both regular clones and worktrees).
 - Update when git status changes (piggyback on existing git watcher / poll cycle).
 
 ## Non-goals
 
 - Interactive rebase, commit editing, or any write operations on git history.
-- Rendering the entire repository history (scope to active workspace branches + relevant main context).
+- Rendering the entire repository history (scope to the divergence region).
 - Supporting non-git VCS.
-- Deciding where in the UI this component lives (that's a separate UX decision).
+- Showing all repo branches in one view (scope is per-workspace).
 
 ## Design
 
@@ -32,21 +32,17 @@ UI entry point is TBD. The component and API are repo-scoped and designed to be 
 
 The API returns a graph structure: a list of nodes (commits) and the edges between them (parent relationships). The frontend is responsible for layout (lane assignment, vertical ordering).
 
-Each node carries metadata about which branches reference it and whether it's a HEAD for any workspace. Edges encode parent-child relationships, which is sufficient for the frontend to compute lanes.
-
-### Definitions
-
-**Active workspace branch**: Any branch belonging to a non-disposed workspace in state (`internal/state/state.go`). Session status (running/stopped) doesn't matter — if the workspace exists, its branch is active.
+Each node carries metadata about which branches reference it and whether it's a HEAD. Edges encode parent-child relationships, which is sufficient for the frontend to compute lanes.
 
 ### API Endpoint
 
-**GET /api/repos/{repoName}/git-graph**
+**GET /api/workspaces/{workspaceId}/git-graph**
 
-Returns the commit graph for all active workspace branches in a repo. `repoName` is the repo name as configured in `config.json` (the `name` field on a repo entry, matched via `Config.FindRepo()`).
+Returns the commit graph for a single workspace, showing the workspace's local branch vs `origin/{defaultBranch}`. The graph is scoped to the divergence region: commits ahead on the local branch, commits ahead on origin/main since the fork point, and the fork point itself with a small amount of shared context.
 
 Query parameters:
-- `max_commits` (optional): Max total commits to return across all branches (default: 200).
-- `branches` (optional): Comma-separated branch names to include. Main is always included automatically. Unknown or nonexistent branch names are silently ignored. If omitted, includes all active workspace branches plus main.
+- `max_commits` (optional): Max total commits to return (default: 200).
+- `context` (optional): Number of shared-ancestor commits to include beyond the fork point (default: 5).
 
 Response:
 ```json
@@ -60,8 +56,8 @@ Response:
       "author": "Claude",
       "timestamp": "2026-01-30T14:22:00Z",
       "parents": ["d3e4f5a6890abcdef1234567890abcdef1234567"],
-      "branches": ["feature-foo"],
-      "is_head": ["feature-foo"],
+      "branches": ["explore/sapling-isl-integration"],
+      "is_head": ["explore/sapling-isl-integration"],
       "workspace_ids": ["ws-abc123"]
     },
     {
@@ -85,15 +81,10 @@ Response:
       "is_main": true,
       "workspace_ids": []
     },
-    "feature-foo": {
+    "explore/sapling-isl-integration": {
       "head": "f4e5d6c7890abcdef1234567890abcdef1234567",
       "is_main": false,
       "workspace_ids": ["ws-abc123"]
-    },
-    "feature-bar": {
-      "head": "c8d9e0f1890abcdef1234567890abcdef1234567",
-      "is_main": false,
-      "workspace_ids": ["ws-def456", "ws-ghi789"]
     }
   }
 }
@@ -101,86 +92,89 @@ Response:
 
 **`nodes`**: Commit objects in topological order (newest first), preserving `git log --topo-order` output exactly (do not re-sort by timestamp). Topo order guarantees parents appear after children, which the lane assignment algorithm depends on. Each node lists its parent hashes, which of the included branches contain it, whether it's the HEAD of any branch, and which schmux workspaces are at that commit.
 
-**`branches`**: Map of branch name to metadata. `workspace_ids` links branches back to schmux workspaces so the UI can label and color-code them.
+**`branches`**: Map of branch name to metadata. Always contains exactly two entries: the workspace's local branch and the default branch (typically main). `workspace_ids` links branches back to schmux workspaces.
 
 **`parents`**: Array of parent hashes. Length 1 for normal commits, 2+ for merges, 0 for root commits. This is the edge list — the frontend draws lines from each node to its parents.
 
 **`workspace_ids`** on nodes: Only populated for HEAD commits (where `is_head` is non-empty). Interior commits don't carry workspace IDs — the `branches` field plus the top-level `branches` map provides that mapping.
 
-**`branches`** on nodes: Only reflects branches explicitly included in the request (active workspace branches + main). Derived by walking the graph from each branch HEAD in-process, not by running `git branch --contains` per node.
+**`branches`** on nodes: Only reflects branches explicitly included (the local branch and main). Derived by walking the graph from each branch HEAD in-process, not by running `git branch --contains` per node.
 
 ### Error Handling
 
-- Unknown `repoName` (not found via `Config.FindRepo()`) → 404.
+- Unknown `workspaceId` (not found in state) → 404.
 - Git command failure (corrupted repo, timeout) → 500 with `{"error": "..."}`.
-- Never return an empty graph pretending success.
+- Empty graph (e.g., branch is main with no divergence) → return valid response with just the HEAD commit(s).
 
 ### Backend Implementation
 
 In `internal/workspace/`:
 
-1. Add a `GitGraph` function that:
-   - Identifies all active workspace branches for the repo, plus main.
-   - Runs `git log --format=%H|%P|%s|%an|%aI --topo-order --parents <branch1> <branch2> ... main` to get the combined commit history with parent info in a single pass. Uses pipe-delimited format consistent with existing git output parsing in `origin_queries.go`.
+1. Add a `GetGitGraph` function that:
+   - Looks up the workspace by ID from state to get `workspace.Path` and `workspace.Branch`.
+   - Detects the default branch name (`main` or `master`) via `git symbolic-ref refs/remotes/origin/HEAD`.
+   - Runs git commands against the **workspace's git directory** (`workspace.Path`), which has both the local branch and origin refs.
+   - Resolves `HEAD` (local branch tip) and `origin/{defaultBranch}` (remote main tip).
+   - Finds the fork point via `git merge-base HEAD origin/{defaultBranch}`.
+   - Runs `git log --format=%H|%h|%s|%an|%aI|%P --topo-order HEAD origin/{defaultBranch} --ancestry-path` scoped to the divergence region.
    - Trims the output (see Graph Trimming below).
    - Parses output into `GitGraphNode` structs.
-   - Derives branch membership by walking the parsed graph from each branch HEAD. Do not shell out to `git branch --contains` per node — that's O(N) git processes. One `git log` call gives us the full graph with parent info, then membership is computed in-process by traversing parent pointers from each HEAD.
-2. Cache the result per repo. Invalidate on git watcher events for any workspace in that repo.
-3. Handle detached HEAD: schmux always checks out a named branch when creating workspaces, so this is an edge case (manual user action). If encountered, include the workspace using the commit hash as a synthetic branch label, marked as detached.
+   - Derives branch membership by walking the parsed graph from each branch HEAD.
 
 In `internal/dashboard/handlers.go`:
 
-3. Register `GET /api/git-graph` handler. Cache invalidation hooks into the existing `GitWatcher` (`internal/workspace/git_watcher.go`) — when any workspace's git metadata changes, invalidate the cached graph for that workspace's repo.
+2. Register `GET /api/workspaces/{workspaceId}/git-graph` handler.
 
 ### Graph Trimming
 
-The full `git log` across all branches could be huge. Trimming rules:
+The graph should be tightly scoped to the divergence region:
 
-1. Start from the HEAD of each included branch.
-2. Walk parents until reaching a commit that is an ancestor of main's HEAD. Use `git merge-base --all <branch> main` to find fork points. When a branch has merged main multiple times, this returns all merge bases — use the oldest (most ancestral) one as the cutoff for that branch.
-3. Include that fork point commit plus up to N commits of main context beyond it (default: 5).
-4. For main itself, include commits from HEAD back to the oldest fork point across all branches (plus context).
-5. Apply `max_commits` as a hard cap after trimming.
+1. Find the fork point: `git merge-base HEAD origin/{defaultBranch}`.
+2. Include all commits from the local branch HEAD down to the fork point (these are the "ahead" commits).
+3. Include all commits from `origin/{defaultBranch}` HEAD down to the fork point (these are the "behind" commits the local branch is missing).
+4. Include the fork point itself.
+5. Include up to N additional shared ancestor commits below the fork point for context (default: 5).
+6. Apply `max_commits` as a hard cap.
 
-This keeps the graph focused on "what diverged" without showing irrelevant ancient history.
+For a typical workspace that is 1 ahead and 1 behind, this produces ~3-8 nodes total: the fork point, the local commit, the remote commit, and a few context commits. This is exactly the right level of detail.
+
+When `HEAD` and `origin/{defaultBranch}` point to the same commit (no divergence), show just the last N commits from HEAD.
 
 ### Frontend Component
 
-A `GitHistoryDAG` React component that takes graph data and renders an SVG-based vertical DAG.
+A `GitHistoryDAG` React component rendered in the "git" tab of the session/workspace view.
 
 **Lane assignment algorithm**:
 1. Process nodes in topological order.
-2. Main occupies lane 0 (leftmost).
-3. When a branch forks from main (or from another branch), assign it the next available lane.
-4. When a branch merges, the second parent's lane (the branch being merged in) is freed. The first parent continues in its lane. For merge commits with 2+ parents, the first parent is the "continuation" and all others are "incoming" — this matches git's parent ordering convention.
+2. Main (origin/{defaultBranch}) occupies lane 0 (leftmost).
+3. The workspace's local branch occupies lane 1.
+4. For merge commits with 2+ parents, the first parent is the "continuation" and others are "incoming" — this matches git's parent ordering convention.
 5. Draw vertical lines for each active lane, with curved connector lines for forks and merges.
 
 **Visual encoding**:
 ```
-  main          feature-foo     feature-bar
-  (lane 0)      (lane 1)        (lane 2)
+  origin/main       explore/feature-x
+  (lane 0)          (lane 1)
 
-  ○ b2c3d4e     ● f4e5d6c HEAD
-  │              │
-  ○ x1y2z3a     ● d3e4f5a       ● c8d9e0f HEAD
-  │              │               │
-  ○ a1b2c3d ────◆ c2d3e4f       │
-  │                              │
-  ○ m4n5o6p ─────────────────────◆ q7r8s9t
+                    ● f4e5d6c HEAD  "Add validation..."
+  ○ b2c3d4e HEAD    │               "Clean up tests"
+  │                 │
+  ◆ a1b2c3d ────────┘               (fork point)
   │
+  ○ x1y2z3a                         (context)
   ○ ...
 ```
 
-- `●` filled circle: branch commit (colored per branch)
+- `●` filled circle: local branch commit (colored)
 - `○` open circle: main commit
-- `◆` diamond: fork point (where a branch diverges)
+- `◆` diamond: fork point (where the branch diverges)
 - Horizontal connector: fork/merge edge
-- Each lane gets a distinct color; main is always muted (`--color-text-muted`)
-- Branch colors use a fixed palette of 8 CSS custom properties (`--color-graph-lane-1` through `--color-graph-lane-8`), cycling for repos with more than 8 branches. Colors should be distinguishable in both light and dark themes. Added to `global.css` alongside existing design tokens.
+- Main lane uses muted color (`--color-text-muted`)
+- Branch lane uses `--color-graph-lane-1`
 
 **Commit row layout**:
 ```
-[graph column ~80px] [hash] [message] [author] [time]
+[graph column ~60px] [hash] [message] [author] [time]
 ```
 
 The graph column contains the SVG lanes and nodes. The rest is a standard table row.
@@ -189,9 +183,9 @@ The graph column contains the SVG lanes and nodes. The rest is a standard table 
 - Hover on a commit row highlights it and shows full hash in a tooltip.
 - Click a commit hash copies it to clipboard.
 - Branch labels rendered at HEAD positions, color-coded.
-- Workspace IDs shown as subtle annotations next to branch labels (linking back to schmux context).
+- Workspace ID shown as subtle annotation next to branch label.
 
-**Scrolling**: The graph can be long. Virtualized rendering (only render visible rows) for performance with large histories.
+**Scrolling**: No virtualization needed in v1 — the tight trimming keeps the graph small (typically <50 nodes).
 
 ### TypeScript Types
 
@@ -225,47 +219,36 @@ interface GitGraphBranch {
 
 ### Data Flow
 
-1. Component mounts, fetches `GET /api/repos/{repoName}/git-graph`.
-2. Frontend computes lane assignment from the node/parent data.
-3. Renders SVG graph + commit table.
-4. On WebSocket session update events (which fire on git status change), refetch if visible.
-5. No additional polling beyond the existing mechanism.
+1. User clicks "git" tab → navigates to `/git/{workspaceId}`.
+2. Component mounts, fetches `GET /api/workspaces/{workspaceId}/git-graph`.
+3. Frontend computes lane assignment from the node/parent data.
+4. Renders SVG graph + commit table.
+5. On WebSocket session update events (which fire on git status change), refetch if visible.
+6. No additional polling beyond the existing mechanism.
 
 ## Testing
 
 ### Backend Unit Tests (`workspace/git_graph_test.go`)
 
 - `TestGitGraph_SingleBranch` — one branch ahead of main, correct nodes and parent edges.
-- `TestGitGraph_MultipleBranches` — two branches forking from different points on main.
+- `TestGitGraph_BranchBehind` — branch is behind origin/main, shows the "behind" commits.
+- `TestGitGraph_AheadAndBehind` — branch is both ahead and behind, shows divergence clearly.
 - `TestGitGraph_MergeCommit` — merge commit has two parents in the output.
-- `TestGitGraph_ForkPointDetection` — fork points correctly identified for each branch.
+- `TestGitGraph_ForkPointDetection` — fork point correctly identified.
 - `TestGitGraph_Trimming` — commits beyond the context window are excluded.
 - `TestGitGraph_MaxCommits` — hard cap applied correctly.
-- `TestGitGraph_Worktree` — works with worktree-based workspaces.
-- `TestGitGraph_BranchFilter` — `branches` query param limits which branches appear.
-- `TestGitGraph_WorkspaceAnnotation` — workspace_ids correctly mapped to branches and only on HEAD nodes.
-- `TestGitGraph_DetachedHead` — detached HEAD workspace included with commit hash as synthetic branch label.
-- `TestGitGraph_UnknownBranchIgnored` — unknown branch name in `branches` param is silently dropped.
-- `TestGitGraph_MultipleMergeBases` — branch that merged main multiple times uses oldest merge base for trimming.
+- `TestGitGraph_NoDivergence` — branch is at same commit as main, shows recent history.
+- `TestGitGraph_WorkspaceAnnotation` — workspace_ids correctly mapped to branch HEAD.
+- `TestGitGraph_UnknownWorkspace` — unknown workspace ID returns error.
+- `TestGitGraph_MultipleMergeBases` — branch that merged main multiple times uses correct fork point.
 
-### API Handler Tests (`dashboard/handlers_test.go`)
+### API Handler Tests (`dashboard/api_contract_test.go`)
 
-- `TestGitGraphEndpoint_Success` — returns 200 with valid JSON graph structure.
-- `TestGitGraphEndpoint_UnknownRepo` — returns 404.
-- `TestGitGraphEndpoint_BranchFilter` — query param filters branches correctly.
-
-### Frontend Tests
-
-- Lane assignment produces non-overlapping lanes for parallel branches.
-- Merge commits render edges to both parents.
-- Fork points render as diamond nodes.
-- HEAD commits per branch are visually distinguished.
-- Virtualized rendering only renders visible rows.
-- Empty state when repo has no workspace branches.
+- `TestGitGraphEndpoint_UnknownWorkspace` — returns 404.
+- `TestGitGraphEndpoint_MethodNotAllowed` — POST returns 405.
 
 ### Manual Tests
 
-- Start daemon, spawn sessions on two different branches of the same repo, verify both branches appear in the DAG.
-- Make commits in one workspace, verify the graph updates.
+- Start daemon, spawn a session, make commits, verify the branch commit appears in the DAG.
+- Advance origin/main (via another workspace or external push), verify "behind" commits appear.
 - Test with a branch that has merge commits from main (via linear sync).
-- Test with worktree-based workspaces.

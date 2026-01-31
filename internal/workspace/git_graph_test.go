@@ -10,10 +10,12 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-// setupGitGraphTest creates a "remote" repo, clones it as bare (simulating the origin query repo),
-// and returns a Manager configured to use it. The remote repo has an initial commit on main.
-func setupGitGraphTest(t *testing.T, repoName string) (mgr *Manager, remoteDir string, bareDir string) {
+// setupWorkspaceGraphTest creates a "remote" repo, clones it into a workspace directory,
+// and returns a Manager with the workspace registered in state.
+// The remote has an initial commit on main. The workspace is checked out on the given branch.
+func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteDir, wsDir, wsID string) {
 	t.Helper()
+	wsID = "ws-test-1"
 
 	// Create "remote" repo
 	remoteDir = t.TempDir()
@@ -24,73 +26,56 @@ func setupGitGraphTest(t *testing.T, repoName string) (mgr *Manager, remoteDir s
 	runGit(t, remoteDir, "add", ".")
 	runGit(t, remoteDir, "commit", "-m", "initial commit")
 
-	// Clone as bare repo — directory must match extractRepoName(remoteDir)+".git"
-	// since GetGitGraph uses extractRepoName on the repo URL to find the bare clone.
-	bareBase := t.TempDir()
-	derivedName := extractRepoName(remoteDir)
-	bareDir = filepath.Join(bareBase, derivedName+".git")
-	runGit(t, bareBase, "clone", "--bare", remoteDir, bareDir)
+	// Clone into workspace dir
+	wsDir = filepath.Join(t.TempDir(), "workspace")
+	runGit(t, t.TempDir(), "clone", remoteDir, wsDir)
+	runGit(t, wsDir, "config", "user.email", "test@test.com")
+	runGit(t, wsDir, "config", "user.name", "Test User")
 
-	// Configure fetch refspec for origin/ refs
-	cmd := exec.Command("git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	cmd.Dir = bareDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git config: %v\n%s", err, output)
+	// Create and checkout branch if not main
+	if branch != "main" {
+		runGit(t, wsDir, "checkout", "-b", branch)
 	}
 
-	// Fetch to populate origin/ refs
-	runGit(t, bareDir, "fetch", "origin")
-
-	// Create config and state
+	// Config + state
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
-	cfg.Repos = []config.Repo{{Name: repoName, URL: remoteDir}}
-	// Override bare repos path
-	cfg.BareReposPathOverride = bareBase
+	cfg.Repos = []config.Repo{{Name: "testrepo", URL: remoteDir}}
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
+	st.AddWorkspace(state.Workspace{ID: wsID, Repo: remoteDir, Branch: branch, Path: wsDir})
 
 	mgr = New(cfg, st, statePath)
-	return mgr, remoteDir, bareDir
+	return
 }
 
-// addCommitOnBranch creates a branch from current HEAD in the remote, adds a commit, and pushes it.
-func addCommitOnBranch(t *testing.T, remoteDir, bareDir, branch, msg string) {
+// commitOnWorkspace adds a commit to the workspace's current branch.
+func commitOnWorkspace(t *testing.T, wsDir, filename, msg string) {
 	t.Helper()
-	runGit(t, remoteDir, "checkout", "-B", branch)
-	writeFile(t, remoteDir, branch+".txt", msg)
+	writeFile(t, wsDir, filename, msg)
+	runGit(t, wsDir, "add", ".")
+	runGit(t, wsDir, "commit", "-m", msg)
+}
+
+// commitOnRemote adds a commit to main in the remote and fetches into the workspace.
+func commitOnRemote(t *testing.T, remoteDir, wsDir, filename, msg string) {
+	t.Helper()
+	writeFile(t, remoteDir, filename, msg)
 	runGit(t, remoteDir, "add", ".")
 	runGit(t, remoteDir, "commit", "-m", msg)
-	runGit(t, remoteDir, "checkout", "main")
-	// Fetch into bare repo
-	runGit(t, bareDir, "fetch", "origin")
+	runGit(t, wsDir, "fetch", "origin")
 }
 
-// addCommitOnMain adds a commit to main in the remote and fetches into bare.
-func addCommitOnMain(t *testing.T, remoteDir, bareDir, msg string) {
-	t.Helper()
-	runGit(t, remoteDir, "checkout", "main")
-	writeFile(t, remoteDir, msg+".txt", msg)
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", msg)
-	runGit(t, bareDir, "fetch", "origin")
-}
-
-// getCommitHash returns the hash of a ref in the remote repo.
-func getCommitHash(t *testing.T, dir, ref string) string {
+func getHash(t *testing.T, dir, ref string) string {
 	t.Helper()
 	cmd := exec.Command("git", "rev-parse", ref)
 	cmd.Dir = dir
-	output, err := cmd.Output()
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("git rev-parse %s: %v", ref, err)
 	}
-	return trimOutput(output)
-}
-
-func trimOutput(b []byte) string {
-	s := string(b)
+	s := string(out)
 	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
 		s = s[:len(s)-1]
 	}
@@ -98,124 +83,145 @@ func trimOutput(b []byte) string {
 }
 
 func TestGitGraph_SingleBranch(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-a")
 	ctx := context.Background()
 
-	// Create a branch with 2 commits
-	runGit(t, remoteDir, "checkout", "-b", "feature-a")
-	writeFile(t, remoteDir, "a1.txt", "a1")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "feature-a commit 1")
-	writeFile(t, remoteDir, "a2.txt", "a2")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "feature-a commit 2")
-	runGit(t, remoteDir, "checkout", "main")
-	runGit(t, bareDir, "fetch", "origin")
+	// Add 2 commits on the branch
+	commitOnWorkspace(t, wsDir, "a1.txt", "feature-a commit 1")
+	commitOnWorkspace(t, wsDir, "a2.txt", "feature-a commit 2")
 
-	// Add workspace for the branch
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-1", Repo: remoteDir, Branch: "feature-a"})
-
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	if resp.Repo != remoteDir {
-		t.Errorf("expected repo %s, got %s", remoteDir, resp.Repo)
+	if resp.Repo == "" {
+		t.Error("expected non-empty repo")
 	}
 
+	// Should have at least 3 nodes: 2 branch commits + initial (fork point)
 	if len(resp.Nodes) < 3 {
-		t.Fatalf("expected at least 3 nodes (2 branch + 1 initial), got %d", len(resp.Nodes))
+		t.Fatalf("expected at least 3 nodes, got %d", len(resp.Nodes))
 	}
 
-	// Check branches map
+	// Check branches map has both main and feature-a
 	if _, ok := resp.Branches["main"]; !ok {
-		t.Error("expected main in branches map")
+		t.Error("expected main in branches")
 	}
 	if _, ok := resp.Branches["feature-a"]; !ok {
-		t.Error("expected feature-a in branches map")
+		t.Error("expected feature-a in branches")
 	}
 	if !resp.Branches["main"].IsMain {
 		t.Error("expected main.is_main to be true")
 	}
 
-	// Head node should have is_head and workspace_ids
+	// HEAD node should have is_head
 	headHash := resp.Branches["feature-a"].Head
 	for _, node := range resp.Nodes {
 		if node.Hash == headHash {
 			if len(node.IsHead) == 0 {
 				t.Error("expected HEAD node to have is_head")
 			}
-			if len(node.WorkspaceIDs) == 0 {
-				t.Error("expected HEAD node to have workspace_ids")
-			}
 			break
 		}
 	}
 }
 
-func TestGitGraph_MultipleBranches(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+func TestGitGraph_BranchBehind(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-behind")
 	ctx := context.Background()
 
-	// Branch A from main
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-a", "commit on a")
+	// Add commits to remote main (workspace is behind)
+	commitOnRemote(t, remoteDir, wsDir, "remote1.txt", "remote commit 1")
+	commitOnRemote(t, remoteDir, wsDir, "remote2.txt", "remote commit 2")
 
-	// Add another commit to main
-	addCommitOnMain(t, remoteDir, bareDir, "main-second")
-
-	// Branch B from latest main
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-b", "commit on b")
-
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-a", Repo: remoteDir, Branch: "feature-a"})
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-b", Repo: remoteDir, Branch: "feature-b"})
-
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	if len(resp.Branches) != 3 {
-		t.Fatalf("expected 3 branches (main, feature-a, feature-b), got %d", len(resp.Branches))
+	// Should show the origin/main commits that are ahead
+	mainBranch := resp.Branches["main"]
+	if mainBranch.Head == "" {
+		t.Fatal("expected main branch head")
 	}
 
-	// Both branch heads should be in the nodes
-	foundA, foundB := false, false
+	// Main head should be different from the local branch head (local is behind)
+	localBranch := resp.Branches["feature-behind"]
+	if mainBranch.Head == localBranch.Head {
+		t.Error("expected main and local heads to differ (local is behind)")
+	}
+
+	// Should have nodes for the remote commits
+	if len(resp.Nodes) < 3 {
+		t.Fatalf("expected at least 3 nodes (2 remote + fork point), got %d", len(resp.Nodes))
+	}
+}
+
+func TestGitGraph_AheadAndBehind(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-diverge")
+	ctx := context.Background()
+
+	// Add a local commit (ahead)
+	commitOnWorkspace(t, wsDir, "local.txt", "local commit")
+
+	// Add a remote commit (behind)
+	commitOnRemote(t, remoteDir, wsDir, "remote.txt", "remote commit on main")
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	// Should have both local and remote heads
+	localBranch := resp.Branches["feature-diverge"]
+	mainBranch := resp.Branches["main"]
+	if localBranch.Head == mainBranch.Head {
+		t.Error("expected different heads for diverged branches")
+	}
+
+	// Should have at least 3 nodes: local commit, remote commit, fork point
+	if len(resp.Nodes) < 3 {
+		t.Fatalf("expected at least 3 nodes, got %d", len(resp.Nodes))
+	}
+
+	// Verify both heads are in nodes
+	foundLocal, foundRemote := false, false
 	for _, node := range resp.Nodes {
-		if node.Hash == resp.Branches["feature-a"].Head {
-			foundA = true
+		if node.Hash == localBranch.Head {
+			foundLocal = true
 		}
-		if node.Hash == resp.Branches["feature-b"].Head {
-			foundB = true
+		if node.Hash == mainBranch.Head {
+			foundRemote = true
 		}
 	}
-	if !foundA {
-		t.Error("feature-a HEAD not found in nodes")
+	if !foundLocal {
+		t.Error("local branch HEAD not found in nodes")
 	}
-	if !foundB {
-		t.Error("feature-b HEAD not found in nodes")
+	if !foundRemote {
+		t.Error("origin/main HEAD not found in nodes")
 	}
 }
 
 func TestGitGraph_MergeCommit(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
-	// Create branch, commit, then merge into main
-	runGit(t, remoteDir, "checkout", "-b", "feature-merge")
-	writeFile(t, remoteDir, "merge.txt", "merge content")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "merge branch commit")
-	runGit(t, remoteDir, "checkout", "main")
-	runGit(t, remoteDir, "merge", "--no-ff", "feature-merge", "-m", "Merge feature-merge")
-	runGit(t, bareDir, "fetch", "origin")
+	// Create a branch, commit, then merge into main
+	runGit(t, wsDir, "checkout", "-b", "feature-merge")
+	commitOnWorkspace(t, wsDir, "merge.txt", "merge branch commit")
+	runGit(t, wsDir, "checkout", "main")
+	runGit(t, wsDir, "merge", "--no-ff", "feature-merge", "-m", "Merge feature-merge")
 
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	// Update workspace to be on main
+	mgr.state.AddWorkspace(state.Workspace{ID: "ws-test-1", Repo: "", Branch: "main", Path: wsDir})
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	// Find the merge commit — it should have 2 parents
+	// Find merge commit with 2 parents
 	found := false
 	for _, node := range resp.Nodes {
 		if len(node.Parents) == 2 {
@@ -229,27 +235,24 @@ func TestGitGraph_MergeCommit(t *testing.T) {
 }
 
 func TestGitGraph_ForkPointDetection(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-fork")
 	ctx := context.Background()
 
-	// Add commits to main after initial
-	addCommitOnMain(t, remoteDir, bareDir, "main-2")
+	// The fork point is the initial commit (where we branched from main)
+	forkHash := getHash(t, wsDir, "HEAD")
 
-	// Fork a branch from here
-	forkHash := getCommitHash(t, remoteDir, "main")
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-fork", "branch after fork")
+	// Add local commit
+	commitOnWorkspace(t, wsDir, "local.txt", "local work")
 
-	// More commits on main
-	addCommitOnMain(t, remoteDir, bareDir, "main-3")
+	// Add remote commit
+	commitOnRemote(t, remoteDir, wsDir, "remote.txt", "remote work")
 
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-fork", Repo: remoteDir, Branch: "feature-fork"})
-
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	// Fork point commit should be in the graph
+	// Fork point should be in the graph
 	found := false
 	for _, node := range resp.Nodes {
 		if node.Hash == forkHash {
@@ -258,20 +261,20 @@ func TestGitGraph_ForkPointDetection(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("fork point %s not found in graph nodes", forkHash[:8])
+		t.Errorf("fork point %s not found in graph", forkHash[:8])
 	}
 }
 
 func TestGitGraph_MaxCommits(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-many")
 	ctx := context.Background()
 
-	// Add many commits to main
+	// Add many commits
 	for i := 0; i < 20; i++ {
-		addCommitOnMain(t, remoteDir, bareDir, "bulk-"+string(rune('a'+i)))
+		commitOnWorkspace(t, wsDir, "file"+string(rune('a'+i))+".txt", "commit "+string(rune('a'+i)))
 	}
 
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 5, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 5, 2)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
@@ -281,161 +284,117 @@ func TestGitGraph_MaxCommits(t *testing.T) {
 	}
 }
 
-func TestGitGraph_BranchFilter(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+func TestGitGraph_NoDivergence(t *testing.T) {
+	mgr, _, _, wsID := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-x", "x commit")
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-y", "y commit")
-
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-x", Repo: remoteDir, Branch: "feature-x"})
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-y", Repo: remoteDir, Branch: "feature-y"})
-
-	// Filter to only feature-x
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, []string{"feature-x"})
+	// Branch is main, no divergence — should show recent commits
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	if _, ok := resp.Branches["feature-y"]; ok {
-		t.Error("feature-y should not be in branches when filtered to feature-x")
-	}
-	if _, ok := resp.Branches["feature-x"]; !ok {
-		t.Error("feature-x should be in branches")
-	}
-	if _, ok := resp.Branches["main"]; !ok {
-		t.Error("main should always be included")
+	// Should have at least the initial commit
+	if len(resp.Nodes) == 0 {
+		t.Error("expected at least 1 node")
 	}
 }
 
 func TestGitGraph_WorkspaceAnnotation(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-ann")
 	ctx := context.Background()
 
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-ann", "annotated commit")
+	// Add a second workspace on the same branch
+	mgr.state.AddWorkspace(state.Workspace{ID: "ws-ann-2", Repo: mgr.state.GetWorkspaces()[0].Repo, Branch: "feature-ann", Path: wsDir})
 
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-ann-1", Repo: remoteDir, Branch: "feature-ann"})
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-ann-2", Repo: remoteDir, Branch: "feature-ann"})
+	commitOnWorkspace(t, wsDir, "ann.txt", "annotated commit")
 
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	// Branch should have 2 workspace IDs
-	branch, ok := resp.Branches["feature-ann"]
-	if !ok {
-		t.Fatal("expected feature-ann in branches")
-	}
+	branch := resp.Branches["feature-ann"]
 	if len(branch.WorkspaceIDs) != 2 {
 		t.Errorf("expected 2 workspace_ids on branch, got %d", len(branch.WorkspaceIDs))
 	}
 
-	// HEAD node should have workspace_ids, non-HEAD nodes should not
-	headHash := branch.Head
+	// HEAD node should have workspace_ids
 	for _, node := range resp.Nodes {
-		if node.Hash == headHash {
+		if node.Hash == branch.Head {
 			if len(node.WorkspaceIDs) != 2 {
 				t.Errorf("expected 2 workspace_ids on HEAD node, got %d", len(node.WorkspaceIDs))
 			}
-		} else {
-			if len(node.WorkspaceIDs) != 0 {
-				t.Errorf("non-HEAD node %s should have 0 workspace_ids, got %d", node.ShortHash, len(node.WorkspaceIDs))
-			}
+		} else if len(node.WorkspaceIDs) != 0 {
+			t.Errorf("non-HEAD node %s should have 0 workspace_ids, got %d", node.ShortHash, len(node.WorkspaceIDs))
 		}
 	}
 }
 
-func TestGitGraph_UnknownBranchIgnored(t *testing.T) {
-	mgr, _, _ := setupGitGraphTest(t, "testrepo")
+func TestGitGraph_UnknownWorkspace(t *testing.T) {
+	mgr, _, _, _ := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
-	// Filter to a branch that doesn't exist — should not error
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, []string{"nonexistent-branch"})
-	if err != nil {
-		t.Fatalf("GetGitGraph: %v", err)
-	}
-
-	// Should still have main
-	if _, ok := resp.Branches["main"]; !ok {
-		t.Error("expected main in branches even when filter has unknown branch")
-	}
-}
-
-func TestGitGraph_UnknownRepo(t *testing.T) {
-	mgr, _, _ := setupGitGraphTest(t, "testrepo")
-	ctx := context.Background()
-
-	_, err := mgr.GetGitGraph(ctx, "no-such-repo", 200, nil)
+	_, err := mgr.GetGitGraph(ctx, "nonexistent-ws", 200, 5)
 	if err == nil {
-		t.Fatal("expected error for unknown repo")
+		t.Fatal("expected error for unknown workspace")
 	}
 }
 
 func TestGitGraph_Trimming(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-trim")
 	ctx := context.Background()
 
-	// Add 15 commits to main
+	// Add 15 commits to remote main
 	for i := 0; i < 15; i++ {
-		addCommitOnMain(t, remoteDir, bareDir, "main-"+string(rune('a'+i)))
+		commitOnRemote(t, remoteDir, wsDir, "remote"+string(rune('a'+i))+".txt", "remote-"+string(rune('a'+i)))
 	}
 
-	// Fork a branch from latest main
-	addCommitOnBranch(t, remoteDir, bareDir, "feature-trim", "trim branch commit")
+	// Add 1 local commit
+	commitOnWorkspace(t, wsDir, "local.txt", "local work")
 
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-trim", Repo: remoteDir, Branch: "feature-trim"})
-
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 3)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	// Should include the branch commit + fork point + some main context
-	// but not necessarily all 16 main commits
+	// Should NOT have all 15+1+1 = 17 commits
+	// Should have: 1 local + ~15 remote (down to fork) + fork + 3 context
+	// But the trimming should keep it focused on the divergence region
 	if len(resp.Nodes) == 0 {
 		t.Fatal("expected non-empty graph")
 	}
 
-	// Branch HEAD should be present
+	// Both heads should be present
 	if _, ok := resp.Branches["feature-trim"]; !ok {
 		t.Error("expected feature-trim in branches")
+	}
+	if _, ok := resp.Branches["main"]; !ok {
+		t.Error("expected main in branches")
 	}
 }
 
 func TestGitGraph_MultipleMergeBases(t *testing.T) {
-	mgr, remoteDir, bareDir := setupGitGraphTest(t, "testrepo")
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-multi")
 	ctx := context.Background()
 
-	// Create feature branch
-	runGit(t, remoteDir, "checkout", "-b", "feature-multi")
-	writeFile(t, remoteDir, "multi1.txt", "content1")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "multi commit 1")
-	runGit(t, remoteDir, "checkout", "main")
+	// Add local commit
+	commitOnWorkspace(t, wsDir, "multi1.txt", "multi commit 1")
 
-	// Advance main
-	addCommitOnMain(t, remoteDir, bareDir, "main-advance")
+	// Add remote commit and fetch
+	commitOnRemote(t, remoteDir, wsDir, "remote-advance.txt", "main advance")
 
-	// Merge main into feature (creates a second merge base later)
-	runGit(t, remoteDir, "checkout", "feature-multi")
-	runGit(t, remoteDir, "merge", "main", "-m", "sync main into feature")
+	// Merge origin/main into local branch
+	runGit(t, wsDir, "merge", "origin/main", "-m", "sync main into feature")
 
-	// More work on feature
-	writeFile(t, remoteDir, "multi2.txt", "content2")
-	runGit(t, remoteDir, "add", ".")
-	runGit(t, remoteDir, "commit", "-m", "multi commit 2")
-	runGit(t, remoteDir, "checkout", "main")
-	runGit(t, bareDir, "fetch", "origin")
+	// More local work
+	commitOnWorkspace(t, wsDir, "multi2.txt", "multi commit 2")
 
-	mgr.state.AddWorkspace(state.Workspace{ID: "ws-multi", Repo: remoteDir, Branch: "feature-multi"})
-
-	resp, err := mgr.GetGitGraph(ctx, "testrepo", 200, nil)
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err != nil {
 		t.Fatalf("GetGitGraph: %v", err)
 	}
 
-	// Should include nodes from both branches without error
 	if len(resp.Nodes) < 3 {
 		t.Errorf("expected at least 3 nodes, got %d", len(resp.Nodes))
 	}
