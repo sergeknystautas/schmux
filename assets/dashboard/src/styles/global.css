@@ -2883,31 +2883,6 @@ a:hover {
 .git-dag {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.git-dag__branches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) 0;
-}
-
-.git-dag__branch-label {
-  font-size: 0.75rem;
-  font-family: var(--font-mono);
-  font-weight: 600;
-}
-
-.git-dag__branch-main {
-  font-weight: 400;
-  opacity: 0.7;
-}
-
-.git-dag__branch-ws {
-  font-weight: 400;
-  font-size: 0.65rem;
-  opacity: 0.6;
 }
 
 .git-dag__scroll {
@@ -3004,10 +2979,11 @@ a:hover {
   font-family: var(--font-mono);
   font-weight: 600;
   padding: 0 4px;
-  border: 1px solid;
+  border: 1px solid var(--color-text-muted);
   border-radius: 3px;
   margin-right: 4px;
   vertical-align: middle;
+  color: var(--color-text-muted);
 }
 
 .git-dag__author {

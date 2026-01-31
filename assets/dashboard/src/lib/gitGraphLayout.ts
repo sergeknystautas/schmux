@@ -2,25 +2,25 @@ import type { GitGraphResponse, GitGraphNode } from './types';
 
 export interface LayoutNode {
   hash: string;
-  lane: number;
+  column: number;
   y: number;
   node: GitGraphNode;
-  nodeType: 'normal' | 'merge' | 'fork-point' | 'label';
-  /** Label text for 'label' type nodes */
-  label?: string;
+  nodeType: 'commit' | 'you-are-here' | 'view-changes';
+  /** Dirty working copy state (only on view-changes nodes) */
+  dirtyState?: { filesChanged: number; linesAdded: number; linesRemoved: number };
 }
 
 export interface LayoutEdge {
   fromHash: string;
   toHash: string;
-  fromLane: number;
-  toLane: number;
+  fromColumn: number;
+  toColumn: number;
   fromY: number;
   toY: number;
 }
 
 export interface LaneLine {
-  lane: number;
+  column: number;
   fromY: number;
   toY: number;
 }
@@ -28,314 +28,234 @@ export interface LaneLine {
 export interface GitGraphLayout {
   nodes: LayoutNode[];
   edges: LayoutEdge[];
-  branchLanes: Record<string, number>;
-  laneCount: number;
+  columnCount: number;
   rowHeight: number;
-  /** Persistent vertical lines per lane (ISL-style column state) */
   laneLines: LaneLine[];
-  /** The non-main branch name (the workspace's local branch) */
   localBranch: string | null;
+  /** Column index of the you-are-here node, if present */
+  youAreHereColumn: number | null;
 }
 
 const ROW_HEIGHT = 28;
 
 /**
- * Compute a lane-based layout from the GitGraphResponse.
- * Nodes are expected in topological order (newest first).
+ * Compute a column-based layout from the GitGraphResponse.
  *
- * Lane assignment:
- * - Lane 0 (left): main/default branch — all nodes reachable from origin/main HEAD
- *   that are NOT exclusively on the local branch.
- * - Lane 1 (right): local branch — nodes reachable only from the local branch HEAD
- *   (i.e., the "ahead" commits).
- * - Fork point: stays in lane 0 (it's a shared ancestor on main).
+ * Column assignment is data-driven from branch info (not hardcoded):
+ * - Column 0: main/default branch
+ * - Column 1+: each additional branch gets the next column
+ * - Nodes on a non-main branch exclusively go to that branch's column
+ * - Shared nodes (fork points, main-only) stay in column 0
+ *
+ * One virtual node (you-are-here) represents the working directory,
+ * following ISL's pattern of a single virtual working-copy commit.
+ * Branch labels are rendered as badges on commit rows via is_head data.
  */
 export function computeLayout(response: GitGraphResponse): GitGraphLayout {
   const { nodes, branches } = response;
 
   if (nodes.length === 0) {
-    return { nodes: [], edges: [], branchLanes: {}, laneCount: 0, rowHeight: ROW_HEIGHT, laneLines: [], localBranch: null };
+    return { nodes: [], edges: [], columnCount: 0, rowHeight: ROW_HEIGHT, laneLines: [], localBranch: null, youAreHereColumn: null };
   }
 
-  // Identify the main branch and local branch
+  // Identify branches
   let mainBranch = 'main';
   let localBranch: string | null = null;
   for (const [name, info] of Object.entries(branches)) {
-    if (info.is_main) {
-      mainBranch = name;
-    } else {
-      localBranch = name;
+    if (info.is_main) mainBranch = name;
+    else localBranch = name;
+  }
+  if (!localBranch) localBranch = mainBranch;
+
+  // Build column map: main gets column 0, each additional branch gets the next
+  const branchColumns = new Map<string, number>();
+  branchColumns.set(mainBranch, 0);
+  let nextCol = 1;
+  for (const name of Object.keys(branches)) {
+    if (!branchColumns.has(name)) {
+      branchColumns.set(name, nextCol++);
     }
   }
+  const columnCount = localBranch !== mainBranch ? nextCol : 1;
 
-  // If the local branch IS main (no divergence), there's only one lane
-  if (!localBranch) {
-    localBranch = mainBranch;
-  }
-
-  const branchLanes: Record<string, number> = {};
-  branchLanes[mainBranch] = 0;
-  if (localBranch !== mainBranch) {
-    branchLanes[localBranch] = 1;
-  }
-  const laneCount = localBranch !== mainBranch ? 2 : 1;
-
-  // Determine which lane each node belongs to.
-  // Rule: if a node is on the local branch but NOT on main, it's lane 1.
-  // Everything else (main-only, shared/fork-point) is lane 0.
-  const nodeLane = (node: GitGraphNode): number => {
+  // Column assignment: nodes on a non-main branch exclusively → that branch's column
+  const nodeColumn = (node: GitGraphNode): number => {
     const onMain = node.branches.includes(mainBranch);
-    const onLocal = localBranch !== mainBranch && node.branches.includes(localBranch);
-
-    if (onLocal && !onMain) {
-      // Branch-only commit (ahead of main) → lane 1
-      return 1;
+    for (const branchName of node.branches) {
+      if (branchName !== mainBranch && branchColumns.has(branchName) && !onMain) {
+        return branchColumns.get(branchName)!;
+      }
     }
-    // Main commit, shared commit, or fork point → lane 0
     return 0;
   };
 
-  // Determine fork points: nodes that are on both branches
-  const forkPointSet = new Set<string>();
-  if (localBranch !== mainBranch) {
-    for (const node of nodes) {
-      if (node.branches.includes(mainBranch) && node.branches.includes(localBranch)) {
-        forkPointSet.add(node.hash);
-      }
-    }
-  }
-
-  // Find the local branch HEAD hash
+  // HEAD hashes
+  const mainHeadHash = branches[mainBranch]?.head ?? null;
   const localHeadHash = localBranch !== mainBranch
     ? branches[localBranch]?.head ?? null
     : null;
+  const workingCopyParent = localHeadHash ?? mainHeadHash;
+  const workingCopyColumn = localBranch !== mainBranch
+    ? (branchColumns.get(localBranch) ?? 1)
+    : 0;
 
-  // Find the main branch HEAD hash
-  const mainHeadHash = branches[mainBranch]?.head ?? null;
-
-  // Build layout nodes, inserting label rows
+  // Build layout nodes
   const layoutNodes: LayoutNode[] = [];
   let rowIndex = 0;
   const dirtyState = response.dirty_state;
+  let youAreHereColumn: number | null = null;
 
-  // Insert "remote/main" label at the top of lane 0
-  if (mainHeadHash) {
-    const remoteMainNode: GitGraphNode = {
-      hash: '__remote-main__',
-      short_hash: '',
-      message: '',
-      author: '',
-      timestamp: '',
-      parents: [],
-      branches: [],
-      is_head: [],
-      workspace_ids: [],
-    };
-    layoutNodes.push({
-      hash: '__remote-main__',
-      lane: 0,
-      y: rowIndex * ROW_HEIGHT,
-      node: remoteMainNode,
-      nodeType: 'label',
-      label: mainBranch,
-    });
-    rowIndex++;
-  }
-
+  // Commit nodes, with you-are-here inserted before the local HEAD (not at row 0)
   for (const node of nodes) {
-    // Insert label rows before the local branch HEAD
-    if (localHeadHash && node.hash === localHeadHash) {
-      // "You are here" row
-      const labelNode: GitGraphNode = {
-        hash: '__you-are-here__',
-        short_hash: '',
-        message: '',
-        author: '',
-        timestamp: '',
-        parents: [],
-        branches: [],
-        is_head: [],
-        workspace_ids: [],
-      };
+    // Insert virtual nodes right before the working copy parent
+    if (workingCopyParent && node.hash === workingCopyParent) {
+      youAreHereColumn = workingCopyColumn;
+
       layoutNodes.push({
         hash: '__you-are-here__',
-        lane: 1,
+        column: workingCopyColumn,
         y: rowIndex * ROW_HEIGHT,
-        node: labelNode,
-        nodeType: 'label',
-        label: 'You are here',
+        node,
+        nodeType: 'you-are-here',
       });
       rowIndex++;
 
-      // "View changes" row (only if dirty)
       if (dirtyState && dirtyState.files_changed > 0) {
-        const viewChangesNode: GitGraphNode = {
-          hash: '__view-changes__',
-          short_hash: '',
-          message: '',
-          author: '',
-          timestamp: '',
-          parents: [],
-          branches: [],
-          is_head: [],
-          workspace_ids: [],
-        };
-        const f = dirtyState.files_changed;
-        const label = `${f} file${f !== 1 ? 's' : ''}, +${dirtyState.lines_added} −${dirtyState.lines_removed} lines`;
         layoutNodes.push({
           hash: '__view-changes__',
-          lane: 1,
+          column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
-          node: viewChangesNode,
-          nodeType: 'label',
-          label,
+          node,
+          nodeType: 'view-changes',
+          dirtyState: {
+            filesChanged: dirtyState.files_changed,
+            linesAdded: dirtyState.lines_added,
+            linesRemoved: dirtyState.lines_removed,
+          },
         });
         rowIndex++;
       }
     }
 
-    const lane = nodeLane(node);
-    const isMerge = node.parents.length >= 2;
-    const isForkPoint = forkPointSet.has(node.hash);
-
     layoutNodes.push({
       hash: node.hash,
-      lane,
+      column: nodeColumn(node),
       y: rowIndex * ROW_HEIGHT,
       node,
-      nodeType: isMerge ? 'merge' : isForkPoint ? 'fork-point' : 'normal',
+      nodeType: 'commit',
     });
     rowIndex++;
   }
 
-  // Build layout node lookup
-  const layoutByHash = new Map<string, LayoutNode>();
+  // Node lookup
+  const nodeByHash = new Map<string, LayoutNode>();
   for (const ln of layoutNodes) {
-    layoutByHash.set(ln.hash, ln);
+    nodeByHash.set(ln.hash, ln);
   }
 
-  // Build edges from each node to its parents
+  // Build edges
   const edges: LayoutEdge[] = [];
 
-  // Synthetic edge: remote-main label → main HEAD commit
-  if (mainHeadHash) {
-    const remoteMainLn = layoutByHash.get('__remote-main__');
-    const mainHeadLn = layoutByHash.get(mainHeadHash);
-    if (remoteMainLn && mainHeadLn) {
-      edges.push({
-        fromHash: '__remote-main__',
-        toHash: mainHeadHash,
-        fromLane: remoteMainLn.lane,
-        toLane: mainHeadLn.lane,
-        fromY: remoteMainLn.y,
-        toY: mainHeadLn.y,
-      });
-    }
-  }
+  // you-are-here → [view-changes →] HEAD commit
+  if (workingCopyParent) {
+    const yahNode = nodeByHash.get('__you-are-here__');
+    const vcNode = nodeByHash.get('__view-changes__');
+    const headNode = nodeByHash.get(workingCopyParent);
 
-  // Synthetic edges: you-are-here → [view-changes →] HEAD commit
-  if (localHeadHash) {
-    const labelLn = layoutByHash.get('__you-are-here__');
-    const viewChangesLn = layoutByHash.get('__view-changes__');
-    const headLn = layoutByHash.get(localHeadHash);
-
-    if (viewChangesLn && labelLn) {
-      // you-are-here → view-changes → HEAD
+    if (vcNode && yahNode) {
       edges.push({
         fromHash: '__you-are-here__',
         toHash: '__view-changes__',
-        fromLane: labelLn.lane,
-        toLane: viewChangesLn.lane,
-        fromY: labelLn.y,
-        toY: viewChangesLn.y,
+        fromColumn: yahNode.column,
+        toColumn: vcNode.column,
+        fromY: yahNode.y,
+        toY: vcNode.y,
       });
-      if (headLn) {
+      if (headNode) {
         edges.push({
           fromHash: '__view-changes__',
-          toHash: localHeadHash,
-          fromLane: viewChangesLn.lane,
-          toLane: headLn.lane,
-          fromY: viewChangesLn.y,
-          toY: headLn.y,
+          toHash: workingCopyParent,
+          fromColumn: vcNode.column,
+          toColumn: headNode.column,
+          fromY: vcNode.y,
+          toY: headNode.y,
         });
       }
-    } else if (labelLn && headLn) {
-      // No dirty state: you-are-here → HEAD
+    } else if (yahNode && headNode) {
       edges.push({
         fromHash: '__you-are-here__',
-        toHash: localHeadHash,
-        fromLane: labelLn.lane,
-        toLane: headLn.lane,
-        fromY: labelLn.y,
-        toY: headLn.y,
+        toHash: workingCopyParent,
+        fromColumn: yahNode.column,
+        toColumn: headNode.column,
+        fromY: yahNode.y,
+        toY: headNode.y,
       });
     }
   }
 
+  // Commit → parent edges
   for (const ln of layoutNodes) {
-    if (ln.nodeType === 'label') continue;
+    if (ln.nodeType !== 'commit') continue;
     for (const parentHash of ln.node.parents) {
-      const parentLn = layoutByHash.get(parentHash);
-      if (parentLn) {
+      const parentNode = nodeByHash.get(parentHash);
+      if (parentNode) {
         edges.push({
           fromHash: ln.hash,
           toHash: parentHash,
-          fromLane: ln.lane,
-          toLane: parentLn.lane,
+          fromColumn: ln.column,
+          toColumn: parentNode.column,
           fromY: ln.y,
-          toY: parentLn.y,
+          toY: parentNode.y,
         });
       }
     }
   }
 
-  // Compute persistent lane lines (ISL-style column state).
-  // Each lane's line spans from its topmost node to its bottommost node.
-  // If two lanes exist and lane 0's top is below lane 1's top, extend lane 0
-  // upward to match — this keeps the main line visible alongside branch commits.
-  const laneExtents = new Map<number, { minY: number; maxY: number }>();
+  // Compute persistent lane lines (ISL column-reservation pattern).
+  // Each column's line spans from its topmost to bottommost node.
+  // Column 0 (main) always extends to the top of the graph — it's "reserved"
+  // even where no main commit exists, so the main line runs alongside branch commits.
+  const columnExtents = new Map<number, { minY: number; maxY: number }>();
   for (const ln of layoutNodes) {
-    const ext = laneExtents.get(ln.lane);
-    const cy = ln.y;
+    const ext = columnExtents.get(ln.column);
     if (ext) {
-      ext.minY = Math.min(ext.minY, cy);
-      ext.maxY = Math.max(ext.maxY, cy);
+      ext.minY = Math.min(ext.minY, ln.y);
+      ext.maxY = Math.max(ext.maxY, ln.y);
     } else {
-      laneExtents.set(ln.lane, { minY: cy, maxY: cy });
+      columnExtents.set(ln.column, { minY: ln.y, maxY: ln.y });
     }
   }
 
-  // Extend lane 0 upward to the top of the graph if lane 1 starts higher
-  if (laneCount === 2) {
-    const lane0 = laneExtents.get(0);
-    const lane1 = laneExtents.get(1);
-    if (lane0 && lane1 && lane1.minY < lane0.minY) {
-      lane0.minY = lane1.minY;
-    }
+  // Reserve column 0 to the top of the graph
+  const topY = layoutNodes.length > 0 ? layoutNodes[0].y : 0;
+  const col0 = columnExtents.get(0);
+  if (col0) {
+    col0.minY = Math.min(col0.minY, topY);
+  } else if (columnCount > 1) {
+    // Column 0 has no nodes but we have multiple columns — create extent from top to bottom
+    const bottomY = layoutNodes.length > 0 ? layoutNodes[layoutNodes.length - 1].y : 0;
+    columnExtents.set(0, { minY: topY, maxY: bottomY });
   }
 
   const laneLines: LaneLine[] = [];
-  for (const [lane, ext] of laneExtents) {
-    laneLines.push({ lane, fromY: ext.minY, toY: ext.maxY });
+  for (const [col, ext] of columnExtents) {
+    if (ext.minY !== ext.maxY) {
+      laneLines.push({ column: col, fromY: ext.minY, toY: ext.maxY });
+    }
   }
 
   return {
     nodes: layoutNodes,
     edges,
-    branchLanes,
-    laneCount,
+    columnCount,
     rowHeight: ROW_HEIGHT,
     laneLines,
     localBranch: localBranch !== mainBranch ? localBranch : null,
+    youAreHereColumn,
   };
 }
 
-/**
- * Returns a CSS variable name for a lane's color.
- * Lane 0 (main) uses muted text color; others cycle through 8 lane colors.
- */
-export function laneColorVar(lane: number): string {
-  if (lane === 0) return 'var(--color-text-muted)';
-  const index = ((lane - 1) % 8) + 1;
-  return `var(--color-graph-lane-${index})`;
-}
+/** Graph foreground color (ISL-style: single color for all lines/nodes) */
+export const GRAPH_COLOR = 'var(--color-text-muted)';
+/** Highlight color for the working-copy column */
+export const HIGHLIGHT_COLOR = 'var(--color-graph-lane-1)';

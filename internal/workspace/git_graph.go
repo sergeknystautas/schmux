@@ -107,8 +107,9 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 		branchHeads[defaultBranch] = originMainHead
 	}
 
-	// Build final node list
-	var nodes []contracts.GitGraphNode
+	// Build final node list, sorted ISL-style: draft (branch-only) first, then public (main/shared).
+	// Within each group, preserve the original topo order from git log.
+	var draftNodes, publicNodes []contracts.GitGraphNode
 	for _, n := range rawNodes {
 		var branchList []string
 		if bm, ok := nodeBranches[n.Hash]; ok {
@@ -128,7 +129,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 			}
 		}
 
-		nodes = append(nodes, contracts.GitGraphNode{
+		node := contracts.GitGraphNode{
 			Hash:         n.Hash,
 			ShortHash:    n.ShortHash,
 			Message:      n.Message,
@@ -138,11 +139,24 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 			Branches:     nonNilSlice(branchList),
 			IsHead:       nonNilSlice(isHead),
 			WorkspaceIDs: nonNilSlice(workspaceIDs),
-		})
-
-		if len(nodes) >= maxCommits {
-			break
 		}
+
+		// ISL sort: draft (on local branch only, not on main) before public (on main or shared)
+		bm := nodeBranches[n.Hash]
+		onMain := bm[defaultBranch]
+		onLocal := localBranch != defaultBranch && bm[localBranch]
+		if onLocal && !onMain {
+			draftNodes = append(draftNodes, node)
+		} else {
+			publicNodes = append(publicNodes, node)
+		}
+	}
+
+	nodes := make([]contracts.GitGraphNode, 0, len(draftNodes)+len(publicNodes))
+	nodes = append(nodes, draftNodes...)
+	nodes = append(nodes, publicNodes...)
+	if len(nodes) > maxCommits {
+		nodes = nodes[:maxCommits]
 	}
 
 	// Build branches map

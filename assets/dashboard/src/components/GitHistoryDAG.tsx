@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getGitGraph } from '../lib/api';
-import { computeLayout, laneColorVar } from '../lib/gitGraphLayout';
+import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse } from '../lib/types';
 
@@ -10,7 +10,7 @@ interface GitHistoryDAGProps {
 }
 
 const NODE_RADIUS = 5;
-const LANE_WIDTH = 20;
+const COLUMN_WIDTH = 20;
 const GRAPH_PADDING = 12;
 
 function relativeTime(timestamp: string): string {
@@ -76,8 +76,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     );
   }
 
-  const graphWidth = GRAPH_PADDING * 2 + layout.laneCount * LANE_WIDTH;
+  const graphWidth = GRAPH_PADDING * 2 + layout.columnCount * COLUMN_WIDTH;
   const totalHeight = layout.nodes.length * layout.rowHeight;
+  const yahCol = layout.youAreHereColumn;
 
   return (
     <div className="git-dag">
@@ -89,54 +90,42 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             height={totalHeight}
             style={{ position: 'absolute', left: 0, top: 0 }}
           >
-            {/* Persistent lane lines (ISL-style column state) */}
+            {/* Persistent column lines (ISL-style: dashed, background) */}
             {layout.laneLines.map((ll, i) => (
-              <LaneLinePath key={`lane-${i}`} laneLine={ll} rowHeight={layout.rowHeight} />
+              <ColumnLine key={`col-${i}`} laneLine={ll} rowHeight={layout.rowHeight} isHighlight={ll.column === yahCol} />
             ))}
 
-            {/* Edges */}
+            {/* Edges (solid, foreground) */}
             {layout.edges.map((edge, i) => (
               <EdgePath key={i} edge={edge} rowHeight={layout.rowHeight} />
             ))}
 
-            {/* Nodes */}
+            {/* Node glyphs (circles only — ISL style) */}
             {layout.nodes.map((ln) => (
-              <NodeCircle key={ln.hash} node={ln} rowHeight={layout.rowHeight} />
+              <NodeCircle key={ln.hash} node={ln} rowHeight={layout.rowHeight} isHighlight={ln.column === yahCol} />
             ))}
           </svg>
 
-          {/* Commit rows */}
+          {/* Row content */}
           <div className="git-dag__rows" style={{ marginLeft: graphWidth }}>
             {layout.nodes.map((ln) => {
-              if (ln.nodeType === 'label') {
-                if (ln.hash === '__remote-main__') {
-                  return (
-                    <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                      <span
-                        className="git-dag__head-label"
-                        style={{ borderColor: laneColorVar(0) }}
-                      >
-                        {ln.label}
-                      </span>
-                    </div>
-                  );
-                }
-                if (ln.hash === '__view-changes__') {
-                  return (
-                    <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                      <button
-                        className="git-dag__view-changes"
-                        onClick={() => navigate(`/diff/${workspaceId}`)}
-                        title="View uncommitted changes"
-                      >
-                        {ln.label}
-                      </button>
-                    </div>
-                  );
-                }
+              if (ln.nodeType === 'you-are-here') {
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <span className="git-dag__you-are-here">{ln.label}</span>
+                    <span className="git-dag__you-are-here">You are here</span>
+                  </div>
+                );
+              }
+              if (ln.nodeType === 'view-changes' && ln.dirtyState) {
+                return (
+                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                    <button
+                      className="git-dag__view-changes"
+                      onClick={() => navigate(`/diff/${workspaceId}`)}
+                      title="View uncommitted changes"
+                    >
+                      {ln.dirtyState.filesChanged} file{ln.dirtyState.filesChanged !== 1 ? 's' : ''}, +{ln.dirtyState.linesAdded} −{ln.dirtyState.linesRemoved}
+                    </button>
                   </div>
                 );
               }
@@ -158,13 +147,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                     {ln.node.is_head.length > 0 && (
                       <span className="git-dag__head-labels">
                         {ln.node.is_head.map((b) => (
-                          <span
-                            key={b}
-                            className="git-dag__head-label"
-                            style={{ borderColor: laneColorVar(layout.branchLanes[b] ?? 0) }}
-                          >
-                            {b}
-                          </span>
+                          <span key={b} className="git-dag__head-label">{b}</span>
                         ))}
                       </span>
                     )}
@@ -182,84 +165,67 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   );
 }
 
-function NodeCircle({ node, rowHeight }: { node: LayoutNode; rowHeight: number }) {
-  const cx = GRAPH_PADDING + node.lane * LANE_WIDTH;
+/** Circle glyph for all nodes (ISL-style: no diamonds) */
+function NodeCircle({ node, rowHeight, isHighlight }: { node: LayoutNode; rowHeight: number; isHighlight: boolean }) {
+  const cx = GRAPH_PADDING + node.column * COLUMN_WIDTH;
   const cy = node.y + rowHeight / 2;
-  const color = laneColorVar(node.lane);
 
-  if (node.nodeType === 'merge') {
-    const s = NODE_RADIUS + 1;
+  if (node.nodeType === 'you-are-here' || node.nodeType === 'view-changes') {
     return (
-      <polygon
-        points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
-        fill={color}
-        stroke={color}
-        strokeWidth={1}
-      />
-    );
-  }
-
-  if (node.nodeType === 'fork-point') {
-    const s = NODE_RADIUS + 1;
-    return (
-      <polygon
-        points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
-        fill="none"
-        stroke={color}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={NODE_RADIUS}
+        fill={HIGHLIGHT_COLOR}
+        stroke={HIGHLIGHT_COLOR}
         strokeWidth={1.5}
       />
     );
   }
-
-  // Filled circle for branch commits, open circle for main
-  const fill = node.lane === 0 ? 'none' : color;
-  const strokeWidth = node.lane === 0 ? 1.5 : 1;
 
   return (
     <circle
       cx={cx}
       cy={cy}
       r={NODE_RADIUS}
-      fill={fill}
-      stroke={color}
-      strokeWidth={strokeWidth}
+      fill="none"
+      stroke={isHighlight ? HIGHLIGHT_COLOR : GRAPH_COLOR}
+      strokeWidth={1.5}
     />
   );
 }
 
-function LaneLinePath({ laneLine, rowHeight }: { laneLine: LaneLine; rowHeight: number }) {
-  const x = GRAPH_PADDING + laneLine.lane * LANE_WIDTH;
+/** Dashed persistent column line (ISL-style column state) */
+function ColumnLine({ laneLine, rowHeight, isHighlight }: { laneLine: LaneLine; rowHeight: number; isHighlight: boolean }) {
+  const x = GRAPH_PADDING + laneLine.column * COLUMN_WIDTH;
   const y1 = laneLine.fromY + rowHeight / 2;
   const y2 = laneLine.toY + rowHeight / 2;
-  const color = laneColorVar(laneLine.lane);
 
-  return <line x1={x} y1={y1} x2={x} y2={y2} stroke={color} strokeWidth={1.5} opacity={0.3} />;
+  return (
+    <line
+      x1={x} y1={y1} x2={x} y2={y2}
+      stroke={isHighlight ? HIGHLIGHT_COLOR : GRAPH_COLOR}
+      strokeWidth={1.5}
+      strokeDasharray="3,2"
+      opacity={0.4}
+    />
+  );
 }
 
+/** Edge line (solid, single color — ISL-style) */
 function EdgePath({ edge, rowHeight }: { edge: LayoutEdge; rowHeight: number }) {
-  const x1 = GRAPH_PADDING + edge.fromLane * LANE_WIDTH;
+  const x1 = GRAPH_PADDING + edge.fromColumn * COLUMN_WIDTH;
   const y1 = edge.fromY + rowHeight / 2;
-  const x2 = GRAPH_PADDING + edge.toLane * LANE_WIDTH;
+  const x2 = GRAPH_PADDING + edge.toColumn * COLUMN_WIDTH;
   const y2 = edge.toY + rowHeight / 2;
 
-  // Use the parent's lane color for cross-lane edges (fork lines come FROM main)
-  // This matches ISL convention: the fork line is colored like main
-  const color = x1 === x2 ? laneColorVar(edge.fromLane) : laneColorVar(edge.toLane);
-
   if (x1 === x2) {
-    // Straight vertical line
-    return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.5} />;
+    return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={GRAPH_COLOR} strokeWidth={1.5} />;
   }
 
-  // Curved connector between lanes.
-  // ISL convention: the curve goes from the fork point (bottom, lane 0)
-  // diagonally up to the branch (top, lane 1).
-  // Since edges go from child → parent (top → bottom), and the fork point
-  // is the parent (bottom, lane 0) while the first branch commit is the child
-  // (top, lane 1), we draw: start at child (x1,y1), curve down to parent (x2,y2).
-  // S-curve: leave child vertically, curve through midpoint, arrive at parent vertically.
+  // S-curve for cross-column edges
   const cp1Y = y1 + (y2 - y1) * 0.75;
   const cp2Y = y1 + (y2 - y1) * 0.25;
   const d = `M ${x1} ${y1} C ${x1} ${cp1Y}, ${x2} ${cp2Y}, ${x2} ${y2}`;
-  return <path d={d} fill="none" stroke={color} strokeWidth={1.5} />;
+  return <path d={d} fill="none" stroke={GRAPH_COLOR} strokeWidth={1.5} />;
 }
