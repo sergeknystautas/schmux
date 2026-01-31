@@ -72,48 +72,38 @@ func (m *Manager) repoLock(repoURL string) *sync.Mutex {
 }
 
 // GetDefaultBranch returns the cached default branch for a repo URL.
-// Returns "unknown" if detection failed (negative caching to avoid repeated git commands).
-// Returns error only for truly fatal conditions (like unconfigured paths).
+// Returns an error if the default branch cannot be determined.
+// Uses negative caching ("unknown") to avoid repeated failed git commands.
 func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string, error) {
-	// Check in-memory cache first (includes "unknown" for failed detections)
+	// Check in-memory cache first
 	m.defaultBranchCacheMu.RLock()
 	if branch, ok := m.defaultBranchCache[repoURL]; ok {
 		m.defaultBranchCacheMu.RUnlock()
 		if branch == "unknown" {
-			// Treat "unknown" as an empty result for caller compatibility
-			return "", nil
+			// Previously failed to detect - don't keep retrying
+			return "", fmt.Errorf("default branch unknown for %s", repoURL)
 		}
 		return branch, nil
 	}
 	m.defaultBranchCacheMu.RUnlock()
 
-	// Try to detect from origin query repo (preferred - created on daemon startup)
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return "", fmt.Errorf("bare repos path not configured")
-	}
-
-	repoName := extractRepoName(repoURL)
-	bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
-
-	// Check if origin query repo exists
-	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
-		// Not created yet - cache as "unknown" and return empty (will be retried on next call)
+	// Detect from origin query repo (preferred - created on daemon startup)
+	bareRepoPath, err := m.ensureOriginQueryRepo(ctx, repoURL)
+	if err != nil {
 		m.setDefaultBranch(repoURL, "unknown")
-		return "", nil
+		return "", err
 	}
 
-	// Detect from git
 	branch := m.getDefaultBranch(ctx, bareRepoPath)
-	if branch == "" {
-		// Detection failed - cache as "unknown" and return empty (will be retried on next call)
-		m.setDefaultBranch(repoURL, "unknown")
-		return "", nil
+	if branch != "" {
+		// Cache the result
+		m.setDefaultBranch(repoURL, branch)
+		return branch, nil
 	}
 
-	// Cache the result
-	m.setDefaultBranch(repoURL, branch)
-	return branch, nil
+	// Detection failed - cache as "unknown"
+	m.setDefaultBranch(repoURL, "unknown")
+	return "", fmt.Errorf("failed to detect default branch for %s", repoURL)
 }
 
 // setDefaultBranch caches the default branch in memory.

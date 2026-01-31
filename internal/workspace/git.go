@@ -202,22 +202,21 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	// Compare against the detected default branch to show GitHub-style status:
 	// - ahead = commits in this branch not in default branch
 	// - behind = commits in default branch not in this branch
-	defaultBranch := "main" // fallback
-	if db, err := m.GetDefaultBranch(ctx, repoURL); err == nil {
-		defaultBranch = db
-	}
-	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...origin/"+defaultBranch)
-	revListCmd.Dir = dir
-	output, err = revListCmd.CombinedOutput()
-	if err != nil {
-		// No upstream or other error - log but continue to calculate line changes
-		fmt.Printf("[workspace] git rev-list HEAD...origin/%s failed for %s: %s\n", defaultBranch, dir, strings.TrimSpace(string(output)))
-	} else {
-		// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
-		parts := strings.Split(strings.TrimSpace(string(output)), "\t")
-		if len(parts) == 2 {
-			ahead, _ = strconv.Atoi(parts[0])
-			behind, _ = strconv.Atoi(parts[1])
+	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
+	if err == nil {
+		revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...origin/"+defaultBranch)
+		revListCmd.Dir = dir
+		output, err = revListCmd.CombinedOutput()
+		if err != nil {
+			// No upstream or other error - log but continue to calculate line changes
+			fmt.Printf("[workspace] git rev-list HEAD...origin/%s failed for %s: %s\n", defaultBranch, dir, strings.TrimSpace(string(output)))
+		} else {
+			// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
+			parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+			if len(parts) == 2 {
+				ahead, _ = strconv.Atoi(parts[0])
+				behind, _ = strconv.Atoi(parts[1])
+			}
 		}
 	}
 

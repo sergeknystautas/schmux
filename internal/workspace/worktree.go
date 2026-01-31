@@ -113,13 +113,10 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 		args = []string{"worktree", "add", "--track", "-b", branch, workspacePath, remoteBranch}
 	} else {
 		// Create new local branch from default branch (ensures we start from latest)
+		// Default branch is required to create a new branch from origin/<default>
 		defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 		if err != nil {
 			return fmt.Errorf("failed to get default branch: %w", err)
-		}
-		// If detection failed (empty string), fall back to "main" for worktree creation
-		if defaultBranch == "" {
-			defaultBranch = "main"
 		}
 		args = []string{"worktree", "add", "-b", branch, workspacePath, "origin/" + defaultBranch}
 	}
