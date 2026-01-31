@@ -105,6 +105,17 @@ var builtinModels = []Model{
 		UsageURL:        "https://platform.minimax.io/user-center/payment/coding-plan",
 		Category:        "third-party",
 	},
+	{
+		ID:              "qwen3-coder-plus",
+		DisplayName:     "qwen 3 coder plus",
+		BaseTool:        "claude",
+		Provider:        "dashscope",
+		Endpoint:        "https://dashscope-intl.aliyuncs.com/api/v2/apps/claude-code-proxy",
+		ModelValue:      "qwen3-coder-plus",
+		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+		UsageURL:        "https://dashscope-intl.aliyuncs.com",
+		Category:        "third-party",
+	},
 }
 
 // modelAliases maps short aliases and old version IDs to current model IDs.
