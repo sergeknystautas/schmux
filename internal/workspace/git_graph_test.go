@@ -203,6 +203,76 @@ func TestGitGraph_AheadAndBehind(t *testing.T) {
 	}
 }
 
+// sliceContains checks if a string slice contains a value.
+func sliceContains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func TestGitGraph_OrderMatchesISLSort(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-order")
+
+	// Create two draft commits on the local branch
+	commitOnWorkspace(t, wsDir, "draft1.txt", "draft 1")
+	commitOnWorkspace(t, wsDir, "draft2.txt", "draft 2")
+
+	// Create two public commits on main (origin/main) by committing
+	// directly to the remote and fetching into the workspace.
+	commitOnRemote(t, remoteDir, wsDir, "public1.txt", "public 1")
+	commitOnRemote(t, remoteDir, wsDir, "public2.txt", "public 2")
+
+	resp, err := mgr.GetGitGraph(context.Background(), wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph failed: %v", err)
+	}
+
+	if len(resp.Nodes) < 4 {
+		t.Fatalf("expected at least 4 nodes, got %d", len(resp.Nodes))
+	}
+
+	// ISL invariant: children never appear below their ancestors.
+	// Build position map and verify.
+	pos := make(map[string]int, len(resp.Nodes))
+	for i, n := range resp.Nodes {
+		pos[n.Hash] = i
+	}
+	for i, n := range resp.Nodes {
+		for _, parentHash := range n.Parents {
+			parentPos, ok := pos[parentHash]
+			if !ok {
+				continue // parent not in graph (trimmed)
+			}
+			if i >= parentPos {
+				t.Errorf("child %s (pos %d) appears at or below parent %s (pos %d) — violates topo invariant",
+					n.ShortHash, i, resp.Nodes[parentPos].ShortHash, parentPos)
+			}
+		}
+	}
+
+	// Verify draft commits (local-only) and public commits (main) are both present.
+	var draftCount, publicCount int
+	for _, n := range resp.Nodes {
+		onMain := sliceContains(n.Branches, "main")
+		onLocal := sliceContains(n.Branches, "feature-order")
+		if onLocal && !onMain {
+			draftCount++
+		}
+		if onMain {
+			publicCount++
+		}
+	}
+	if draftCount < 2 {
+		t.Errorf("expected at least 2 draft nodes, got %d", draftCount)
+	}
+	if publicCount < 2 {
+		t.Errorf("expected at least 2 public nodes, got %d", publicCount)
+	}
+}
+
 func TestGitGraph_MergeCommit(t *testing.T) {
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
@@ -400,5 +470,62 @@ func TestGitGraph_MultipleMergeBases(t *testing.T) {
 	}
 	if _, ok := resp.Branches["feature-multi"]; !ok {
 		t.Error("expected feature-multi in branches")
+	}
+}
+
+func TestGitGraph_InvalidWorkspacePath(t *testing.T) {
+	// Workspace points to a non-existent directory — git commands should fail.
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-bad-path",
+		Repo:   "fake-repo",
+		Branch: "main",
+		Path:   "/nonexistent/path/to/workspace",
+	})
+	mgr := New(cfg, st, statePath)
+
+	_, err := mgr.GetGitGraph(context.Background(), "ws-bad-path", 200, 5)
+	if err == nil {
+		t.Fatal("expected error for workspace with invalid path")
+	}
+}
+
+func TestGitGraph_CorruptedGitDir(t *testing.T) {
+	// Workspace directory exists but is not a git repo — git commands should fail.
+	wsDir := t.TempDir()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-no-git",
+		Repo:   "fake-repo",
+		Branch: "main",
+		Path:   wsDir,
+	})
+	mgr := New(cfg, st, statePath)
+
+	_, err := mgr.GetGitGraph(context.Background(), "ws-no-git", 200, 5)
+	if err == nil {
+		t.Fatal("expected error for workspace that is not a git repo")
+	}
+}
+
+func TestGitGraph_CancelledContext(t *testing.T) {
+	mgr, _, _, wsID := setupWorkspaceGraphTest(t, "feature-cancel")
+
+	// Cancel the context before calling — git commands should fail.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
 	}
 }

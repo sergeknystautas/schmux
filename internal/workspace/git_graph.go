@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
@@ -107,9 +109,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 		branchHeads[defaultBranch] = originMainHead
 	}
 
-	// Build final node list, sorted ISL-style: draft (branch-only) first, then public (main/shared).
-	// Within each group, preserve the original topo order from git log.
-	var draftNodes, publicNodes []contracts.GitGraphNode
+	// Build annotated node map keyed by hash.
+	annotatedNodes := make(map[string]contracts.GitGraphNode, len(rawNodes))
 	for _, n := range rawNodes {
 		var branchList []string
 		if bm, ok := nodeBranches[n.Hash]; ok {
@@ -129,7 +130,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 			}
 		}
 
-		node := contracts.GitGraphNode{
+		annotatedNodes[n.Hash] = contracts.GitGraphNode{
 			Hash:         n.Hash,
 			ShortHash:    n.ShortHash,
 			Message:      n.Message,
@@ -140,21 +141,143 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 			IsHead:       nonNilSlice(isHead),
 			WorkspaceIDs: nonNilSlice(workspaceIDs),
 		}
+	}
 
-		// ISL sort: draft (on local branch only, not on main) before public (on main or shared)
-		bm := nodeBranches[n.Hash]
-		onMain := bm[defaultBranch]
-		onLocal := localBranch != defaultBranch && bm[localBranch]
-		if onLocal && !onMain {
-			draftNodes = append(draftNodes, node)
-		} else {
-			publicNodes = append(publicNodes, node)
+	// ISL-style DFS topological sort with sortAscCompare tie-breaks, then reverse.
+	//
+	// This replicates ISL's BaseDag.sortAsc (base_dag.ts:250-302):
+	// - DFS from roots, using a stack (not a BFS queue).
+	// - When a node still has unvisited parents (merge), defer it to the front.
+	// - After visiting a node, push its children (sorted by compare) to the back.
+	// - This avoids interleaving branches: it follows one branch continuously
+	//   until completing it or hitting a merge.
+	// - Reverse the result for rendering (heads first).
+
+	// Parse timestamps into time.Time for proper comparison (not string-based).
+	parsedTimes := make(map[string]time.Time, len(rawNodes))
+	for _, n := range rawNodes {
+		t, err := time.Parse(time.RFC3339, n.Timestamp)
+		if err != nil {
+			t = time.Time{} // zero time for unparseable
+		}
+		parsedTimes[n.Hash] = t
+	}
+
+	// sortAscCompare: the ISL tie-break comparator.
+	// Returns negative if a < b (a should come first in ascending order).
+	sortAscCompare := func(aHash, bHash string) int {
+		bmA := nodeBranches[aHash]
+		bmB := nodeBranches[bHash]
+
+		// Phase: draft (on local, not on main) sorts before public.
+		draftA := localBranch != defaultBranch && bmA[localBranch] && !bmA[defaultBranch]
+		draftB := localBranch != defaultBranch && bmB[localBranch] && !bmB[defaultBranch]
+		if draftA != draftB {
+			if draftA {
+				return -1
+			}
+			return 1
+		}
+
+		// Date: older before newer (using parsed time, not string comparison).
+		tA := parsedTimes[aHash]
+		tB := parsedTimes[bHash]
+		if !tA.Equal(tB) {
+			if tA.Before(tB) {
+				return -1
+			}
+			return 1
+		}
+
+		// Hash: descending (higher hash sorts first = lower sort value).
+		if aHash > bHash {
+			return -1
+		}
+		if aHash < bHash {
+			return 1
+		}
+		return 0
+	}
+
+	// Build parent→children adjacency (within the graph).
+	childrenMap := make(map[string][]string, len(rawNodes))
+	graphParents := make(map[string][]string, len(rawNodes))
+	hashSet := make(map[string]bool, len(rawNodes))
+	for _, n := range rawNodes {
+		hashSet[n.Hash] = true
+	}
+	for _, n := range rawNodes {
+		for _, p := range n.Parents {
+			if hashSet[p] {
+				childrenMap[p] = append(childrenMap[p], n.Hash)
+				graphParents[n.Hash] = append(graphParents[n.Hash], p)
+			}
 		}
 	}
 
-	nodes := make([]contracts.GitGraphNode, 0, len(draftNodes)+len(publicNodes))
-	nodes = append(nodes, draftNodes...)
-	nodes = append(nodes, publicNodes...)
+	// Find roots (nodes with no in-graph parents).
+	var roots []string
+	for _, n := range rawNodes {
+		if len(graphParents[n.Hash]) == 0 {
+			roots = append(roots, n.Hash)
+		}
+	}
+
+	// Sort roots by compare (reversed because we pop from back = stack).
+	sort.Slice(roots, func(i, j int) bool {
+		return sortAscCompare(roots[i], roots[j]) > 0 // reversed for stack pop
+	})
+
+	// remaining[hash] = number of in-graph parents not yet visited.
+	remaining := make(map[string]int, len(rawNodes))
+	for _, n := range rawNodes {
+		remaining[n.Hash] = len(graphParents[n.Hash])
+	}
+
+	// DFS walk (ISL sortImpl pattern).
+	// toVisit is a deque: pop from back (stack), unshift to front for deferred merges.
+	toVisit := make([]string, len(roots))
+	copy(toVisit, roots)
+	visited := make(map[string]bool, len(rawNodes))
+	var topoOrder []string
+
+	for len(toVisit) > 0 {
+		// Pop from back (stack behavior).
+		next := toVisit[len(toVisit)-1]
+		toVisit = toVisit[:len(toVisit)-1]
+
+		if visited[next] {
+			continue
+		}
+
+		// If this node still has unvisited parents, defer it to the front.
+		if remaining[next] > 0 {
+			toVisit = append([]string{next}, toVisit...)
+			continue
+		}
+
+		// Output it.
+		topoOrder = append(topoOrder, next)
+		visited[next] = true
+
+		// Push children (sorted by compare, reversed for stack).
+		ch := childrenMap[next]
+		if len(ch) > 1 {
+			sort.Slice(ch, func(i, j int) bool {
+				return sortAscCompare(ch[i], ch[j]) > 0 // reversed for stack pop
+			})
+		}
+		for _, c := range ch {
+			remaining[c]--
+		}
+		toVisit = append(toVisit, ch...)
+	}
+
+	// Reverse for rendering (heads → roots).
+	nodes := make([]contracts.GitGraphNode, 0, len(topoOrder))
+	for i := len(topoOrder) - 1; i >= 0; i-- {
+		nodes = append(nodes, annotatedNodes[topoOrder[i]])
+	}
 	if len(nodes) > maxCommits {
 		nodes = nodes[:maxCommits]
 	}

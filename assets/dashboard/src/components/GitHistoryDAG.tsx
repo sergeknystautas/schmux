@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getGitGraph } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse } from '../lib/types';
+import { useSessions } from '../contexts/SessionsContext';
 
 interface GitHistoryDAGProps {
   workspaceId: string;
@@ -51,6 +52,22 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Refetch when git state changes via WebSocket session updates.
+  // Track the git-relevant fields and refetch when they change.
+  const { workspaces } = useSessions();
+  const ws = workspaces.find(w => w.id === workspaceId);
+  const gitFingerprint = ws
+    ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
+    : '';
+  const prevFingerprintRef = useRef(gitFingerprint);
+
+  useEffect(() => {
+    if (gitFingerprint && gitFingerprint !== prevFingerprintRef.current) {
+      prevFingerprintRef.current = gitFingerprint;
+      fetchData();
+    }
+  }, [gitFingerprint, fetchData]);
 
   const copyHash = useCallback((hash: string) => {
     navigator.clipboard.writeText(hash).then(() => {
@@ -129,6 +146,16 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                   </div>
                 );
               }
+              if (ln.nodeType === 'sync-summary' && ln.syncSummary) {
+                return (
+                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                    <span className="git-dag__sync-summary">
+                      Sync &middot; {ln.syncSummary.count} commit{ln.syncSummary.count !== 1 ? 's' : ''}
+                    </span>
+                    <span className="git-dag__time">{relativeTime(ln.syncSummary.newestTimestamp)}</span>
+                  </div>
+                );
+              }
               return (
                 <div
                   key={ln.hash}
@@ -178,6 +205,19 @@ function NodeCircle({ node, rowHeight, isHighlight }: { node: LayoutNode; rowHei
         r={NODE_RADIUS}
         fill={HIGHLIGHT_COLOR}
         stroke={HIGHLIGHT_COLOR}
+        strokeWidth={1.5}
+      />
+    );
+  }
+
+  if (node.nodeType === 'sync-summary') {
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={NODE_RADIUS}
+        fill={GRAPH_COLOR}
+        stroke={GRAPH_COLOR}
         strokeWidth={1.5}
       />
     );

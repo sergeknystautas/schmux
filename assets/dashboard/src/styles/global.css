@@ -2943,6 +2943,14 @@ a:hover {
   background: color-mix(in srgb, var(--color-graph-lane-1) 24%, transparent);
 }
 
+.git-dag__sync-summary {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .git-dag__hash {
   font-family: var(--font-mono);
   font-size: 0.7rem;

@@ -5,9 +5,11 @@ export interface LayoutNode {
   column: number;
   y: number;
   node: GitGraphNode;
-  nodeType: 'commit' | 'you-are-here' | 'view-changes';
+  nodeType: 'commit' | 'you-are-here' | 'view-changes' | 'sync-summary';
   /** Dirty working copy state (only on view-changes nodes) */
   dirtyState?: { filesChanged: number; linesAdded: number; linesRemoved: number };
+  /** Sync summary metadata (only on sync-summary nodes) */
+  syncSummary?: { count: number; newestTimestamp: string };
 }
 
 export interface LayoutEdge {
@@ -99,14 +101,64 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
     ? (branchColumns.get(localBranch) ?? 1)
     : 0;
 
+  // Identify main-ahead commits (on main exclusively, not on local branch).
+  // These get collapsed into a single "Sync" summary row per ISL pattern §10.
+  const mainAheadHashes = new Set<string>();
+  if (localBranch !== mainBranch) {
+    for (const node of nodes) {
+      const onMain = node.branches.includes(mainBranch);
+      const onLocal = node.branches.includes(localBranch);
+      if (onMain && !onLocal) {
+        mainAheadHashes.add(node.hash);
+      }
+    }
+  }
+
+  // Find the newest main-ahead commit timestamp for the sync summary.
+  // Compare using parsed Date objects, not strings (ISO 8601 strings aren't
+  // guaranteed to be sortable when timezone offsets differ).
+  let newestMainAheadTimestamp = '';
+  let newestMainAheadTime = 0;
+  let mainAheadCount = mainAheadHashes.size;
+  if (mainAheadCount > 0) {
+    for (const node of nodes) {
+      if (mainAheadHashes.has(node.hash)) {
+        const t = new Date(node.timestamp).getTime();
+        if (t > newestMainAheadTime) {
+          newestMainAheadTime = t;
+          newestMainAheadTimestamp = node.timestamp;
+        }
+      }
+    }
+  }
+
   // Build layout nodes
   const layoutNodes: LayoutNode[] = [];
   let rowIndex = 0;
   const dirtyState = response.dirty_state;
   let youAreHereColumn: number | null = null;
+  let syncSummaryInserted = false;
 
-  // Commit nodes, with you-are-here inserted before the local HEAD (not at row 0)
+  // Commit nodes, with virtual nodes inserted at appropriate positions.
   for (const node of nodes) {
+    // Skip individual main-ahead commits — they're collapsed into the sync summary.
+    if (mainAheadHashes.has(node.hash)) {
+      // Insert sync summary row on first encounter (it appears above the draft stack).
+      if (!syncSummaryInserted) {
+        syncSummaryInserted = true;
+        layoutNodes.push({
+          hash: '__sync-summary__',
+          column: 0,
+          y: rowIndex * ROW_HEIGHT,
+          node,
+          nodeType: 'sync-summary',
+          syncSummary: { count: mainAheadCount, newestTimestamp: newestMainAheadTimestamp },
+        });
+        rowIndex++;
+      }
+      continue;
+    }
+
     // Insert virtual nodes right before the working copy parent
     if (workingCopyParent && node.hash === workingCopyParent) {
       youAreHereColumn = workingCopyColumn;
@@ -210,6 +262,10 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
       }
     }
   }
+
+  // No solid edge from the sync summary node. The column 0 dashed lane line
+  // (ISL column-reservation pattern) provides visual continuity. A solid edge
+  // would imply a parent/child relationship that doesn't exist.
 
   // Compute persistent lane lines (ISL column-reservation pattern).
   // Each column's line spans from its topmost to bottommost node.

@@ -6,6 +6,10 @@ schmux workspaces show git status (branch, ahead/behind, dirty state) but have n
 
 **Reference implementation: Sapling ISL (Interactive Smartlog).** ALL design decisions for the git graph visualization follow ISL's approach. No exceptions. No alternatives. When in doubt, do what ISL does.
 
+Primary references (must stay in sync):
+- ISL docs: https://sapling-scm.com/docs/addons/isl/
+- ISL source: `~/dev/sapling/addons/isl/` (ordering + rendering logic)
+
 UI entry point: the "git" tab on the session/workspace tab bar, alongside terminal and diff tabs.
 
 ## Goals
@@ -29,14 +33,23 @@ UI entry point: the "git" tab on the session/workspace tab bar, alongside termin
 
 The following ISL patterns MUST be followed. These are non-negotiable:
 
-### 1. Node sorting: draft before public (ISL's `sortAscCompare`)
+### 1. Node sorting: ISL topo order + `sortAscCompare` tie-break, then reverse
 
-The backend sorts nodes so that **draft commits** (on the local branch only, not on main) appear **before** public commits (on main or shared). Within each group, topological order from `git log --topo-order` is preserved.
+ISL ordering does **not** follow a pure `(phase, date, hash)` sort. It is **topologically
+sorted** with `sortAscCompare` as a tie-breaker, then reversed for rendering.
 
-This means the visual order from top to bottom is:
-1. Virtual nodes (you-are-here, view-changes) — at the top
-2. Draft commits (local branch only) — next
-3. Public commits (main or shared) — below draft
+From ISL `base_dag.ts` + `dag.ts`:
+1. **Topo sort** from roots → heads, ensuring parents appear before children.
+2. **Tie-breaks** via `sortAscCompare`:
+   - **Phase**: draft before public
+   - **SeqNumber**: if present (preview/optimistic dag only)
+   - **Date**: older before newer
+   - **Hash**: descending (stable tie-break)
+3. **Reverse** the topo order for rendering (heads → roots) (`dagWalkerForRendering`).
+
+The key invariant: **children never appear below their ancestors** in the final order.
+Any ordering that groups all public commits above all draft commits is incorrect and
+will create long, misleading edges.
 
 ### 2. Dynamic N-column layout
 
@@ -48,7 +61,13 @@ Column assignment is **data-driven from branch info**, not hardcoded to 2 lanes:
 
 ### 3. Column-reservation pattern (main extends to top)
 
-Column 0 (main) always has its lane line extend to the **top of the graph**, even where no main commit exists at those rows. This provides visual continuity — the main line runs alongside branch commits, showing the parallel nature of the branches. ISL reserves column slots even when they have no node at a given row.
+Column 0 (main) always has its lane line extend to the **top of the graph**, even
+where no main commit exists at those rows. This provides visual continuity — the main
+line runs alongside branch commits, showing the parallel nature of the branches.
+ISL reserves column slots even when they have no node at a given row.
+
+When there are **0 commits ahead on main**, the main label appears at the fork point
+(below the local draft stack), but the **main lane line still extends to the top**.
 
 ### 4. Single foreground color
 
@@ -74,6 +93,18 @@ Branch names appear as inline badges on the commit row where `is_head` is non-em
 One virtual "You are here" node represents the working directory position, inserted above the local HEAD commit. If there are dirty changes, a "View changes" row appears between "You are here" and the HEAD commit. The "View changes" row is clickable and navigates to `/diff/:workspaceId`.
 
 Edge chain: `you-are-here` → [`view-changes` →] HEAD commit.
+
+### 10. Main-ahead summary row (ISL "Pull" equivalent)
+
+When there are **1+ commits ahead on main**, ISL inserts a **single summary row** above
+the local draft stack (not individual commit rows). This row represents the fact that
+the workspace can sync/pull to catch up to main.
+
+schmux behavior:
+- Label text: **"Sync"** (not "Pull")
+- Show the **count** of main-ahead commits (e.g. "Sync · 4")
+- Show the **relative timestamp** of the newest main-ahead commit
+- The main lane line continues to the top, and the summary row anchors to column 0
 
 ### 9. S-curve edges for cross-column connections
 
@@ -132,9 +163,15 @@ Response:
 }
 ```
 
-**Node ordering**: Nodes are pre-sorted by the backend following ISL's `sortAscCompare` pattern:
-1. Draft nodes (on local branch only, not on main) come first, in topo order
-2. Public nodes (on main or shared between branches) come second, in topo order
+**Node ordering**: Nodes are pre-sorted by the backend following ISL's **topological
+ordering with tie-breaks**, then reversed for rendering.
+
+1. Build the commit DAG for the divergence region
+2. Topologically sort from roots → heads
+3. Break ties with `sortAscCompare` (phase → seqNumber → date → hash)
+4. Reverse the order for rendering (heads → roots)
+
+The key invariant: children never appear below their ancestors.
 
 The frontend MUST NOT re-sort nodes. It processes them in the order received.
 
@@ -167,7 +204,9 @@ The frontend MUST NOT re-sort nodes. It processes them in the order received.
 4. Finds the fork point via `git merge-base HEAD origin/{defaultBranch}`.
 5. Runs `git log --format=%H|%h|%s|%an|%aI|%P --topo-order` scoped to the divergence region.
 6. Derives branch membership by walking the parsed graph from each branch HEAD.
-7. **Sorts nodes ISL-style**: draft (local-only) before public (main/shared), preserving topo order within each group.
+7. **Sorts nodes ISL-style**: reverse topo order with `sortAscCompare` tie-breaks
+   (phase → seqNumber → date → hash). Do **not** group all public commits above all draft
+   commits.
 8. Populates `dirty_state` from workspace state if `ws.GitFilesChanged > 0`.
 
 Handler registers `GET /api/workspaces/{workspaceId}/git-graph`.
@@ -254,19 +293,22 @@ Row content (right of SVG):
   main            explore/feature-x
   (col 0)         (col 1)
 
-  ┊               ● You are here
-  ┊               ● 3 files, +42 −7
-  ┊               ○ f4e5d6c  [explore/feature-x]  "Add validation..."
-  ┊               ○ a1b2c3d  "Fix edge case..."
   ○ fff01e5  [main]  "Reduce font sizes..."
   ○ b81131e  "Improve multi-line..."
   ○ 36ea336  "Add multi-line selection..."
   ○ 85ae863  "Detect default branch..."
+  ┊               ● You are here
+  ┊               ● 3 files, +42 −7
+  ┊               ○ f4e5d6c  [explore/feature-x]  "Add validation..."
+  ┊               ○ a1b2c3d  "Fix edge case..."
   ○ b2f2d94  "Clean up Docker..."  (fork point, shared)
   ○ 47b7fd1  "Update Go to 1.24..."
 ```
 
-Note: main's column line (┊) extends from the top to its bottommost node, running alongside the branch commits even though main has no nodes at those rows. This is ISL's column-reservation pattern.
+Note: ISL renders **reverse topo order** (heads → roots) with phase/date/hash as tie‑breaks.
+This means public commits ahead of the local branch appear above the draft stack, but
+when there are **0 main‑ahead commits**, the public base (fork point) appears **below**
+the draft stack. The main column line (┊) still runs alongside the draft commits.
 
 ### Route (`GitGraphPage.tsx`)
 
