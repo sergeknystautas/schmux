@@ -2041,7 +2041,7 @@ a:hover {
 
 .diff-sidebar__title {
     padding: var(--spacing-md) var(--spacing-lg);
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     border-bottom: 1px solid var(--color-border);
     background-color: var(--color-surface-alt);
@@ -2092,7 +2092,7 @@ a:hover {
 }
 
 .diff-file-item__name {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-family: var(--font-mono);
     font-weight: 500;
     white-space: nowrap;
@@ -2100,7 +2100,7 @@ a:hover {
 }
 
 .diff-file-item__dir {
-    font-size: 0.7rem;
+    font-size: 0.6rem;
     font-family: var(--font-mono);
     color: var(--color-text-muted);
     white-space: nowrap;
@@ -2109,7 +2109,7 @@ a:hover {
 }
 
 .diff-file-item__stats {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-family: var(--font-mono);
     white-space: nowrap;
     flex-shrink: 0;
@@ -2139,7 +2139,7 @@ a:hover {
 
 .diff-content__title {
     flex: 1;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     font-family: var(--font-mono);
     overflow: hidden;
@@ -2150,13 +2150,13 @@ a:hover {
 .diff-viewer-wrapper {
     flex: 1;
     overflow: auto;
-    font-size: 0.8125rem;
+    font-size: 0.7rem;
 }
 
 /* Override react-diff-viewer-continued default font size */
 .diff-viewer-wrapper code,
 .diff-viewer-wrapper pre {
-    font-size: 0.8125rem !important;
+    font-size: 0.7rem !important;
     line-height: 1.4;
 }
 
