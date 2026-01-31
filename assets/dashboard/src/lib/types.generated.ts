@@ -71,6 +71,30 @@ export interface ExternalDiffCommand {
   command: string;
 }
 
+export interface GitGraphBranch {
+  head: string;
+  is_main: boolean;
+  workspace_ids: string[];
+}
+
+export interface GitGraphNode {
+  hash: string;
+  short_hash: string;
+  message: string;
+  author: string;
+  timestamp: string;
+  parents: string[];
+  branches: string[];
+  is_head: string[];
+  workspace_ids: string[];
+}
+
+export interface GitGraphResponse {
+  repo: string;
+  nodes: GitGraphNode[];
+  branches: Record<string, GitGraphBranch>;
+}
+
 export interface Model {
   id: string;
   display_name: string;

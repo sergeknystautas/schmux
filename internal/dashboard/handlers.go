@@ -2841,3 +2841,71 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(branches)
 }
+
+// handleRepoRoutes dispatches repo-scoped API routes: /api/repos/{repoName}/{sub-path}
+func (s *Server) handleRepoRoutes(w http.ResponseWriter, r *http.Request) {
+	// Extract repoName and sub-path from /api/repos/{repoName}/{sub}
+	remainder := strings.TrimPrefix(r.URL.Path, "/api/repos/")
+	parts := strings.SplitN(remainder, "/", 2)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	repoName := parts[0]
+	subPath := parts[1]
+
+	switch subPath {
+	case "git-graph":
+		s.handleGitGraph(w, r, repoName)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// handleGitGraph handles GET /api/repos/{repoName}/git-graph.
+func (s *Server) handleGitGraph(w http.ResponseWriter, r *http.Request, repoName string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify repo exists
+	if _, ok := s.config.FindRepo(repoName); !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found: " + repoName})
+		return
+	}
+
+	// Parse query params
+	maxCommits := 200
+	if mc := r.URL.Query().Get("max_commits"); mc != "" {
+		if parsed, err := strconv.Atoi(mc); err == nil && parsed > 0 {
+			maxCommits = parsed
+		}
+	}
+
+	var branchFilter []string
+	if b := r.URL.Query().Get("branches"); b != "" {
+		for _, branch := range strings.Split(b, ",") {
+			branch = strings.TrimSpace(branch)
+			if branch != "" {
+				branchFilter = append(branchFilter, branch)
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.workspace.GetGitGraph(ctx, repoName, maxCommits, branchFilter)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}

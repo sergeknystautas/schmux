@@ -61,7 +61,7 @@ export interface BuiltinQuickLaunchCookbook {
   prompt: string;
 }
 
-export type { ConfigResponse, ConfigUpdateRequest, Model } from './types.generated';
+export type { ConfigResponse, ConfigUpdateRequest, GitGraphResponse, GitGraphNode, GitGraphBranch, Model } from './types.generated';
 
 export interface SpawnRequest {
   repo: string;
