@@ -73,6 +73,7 @@ Third-party models require API secrets to be configured.
 | `kimi-k2.5` | kimi k2.5 | Moonshot AI |
 | `glm-4.7` | glm 4.7 | Z.AI |
 | `minimax` | minimax m2.1 | MiniMax |
+| `qwen3-coder-plus` | qwen 3 coder plus | DashScope |
 
 > **Note:** For backward compatibility, `minimax-m2.1` is also accepted as an alias for the `minimax` model.
 
@@ -91,10 +92,19 @@ Third-party models require API secrets. Create `~/.schmux/secrets.json`:
     },
     "minimax": {
       "ANTHROPIC_AUTH_TOKEN": "..."
+    },
+    "qwen3-coder-plus": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
     }
   }
 }
 ```
+
+> **See integration docs:**
+> - [Qwen3 Coder](https://qwen.ai/blog?id=qwen3-coder)
+> - [Kimi (Moonshot)](https://platform.moonshot.ai/docs/guide/agent-support)
+> - [GLM (Z.AI)](https://docs.z.ai/scenario-example/develop-tools/claude)
+> - [MiniMax](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
 
 Provider-scoped secrets are shared across models for a given provider. For example, adding Moonshot secrets once unlocks both Kimi models.
 

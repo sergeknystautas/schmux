@@ -25,6 +25,7 @@ func TestFindModel(t *testing.T) {
 		{"kimi-k2.5", "kimi-k2.5", true},
 		{"glm-4.7", "glm-4.7", true},
 		{"minimax", "minimax", true},
+		{"qwen3-coder-plus", "qwen3-coder-plus", true},
 
 		// Backward compat alias
 		{"minimax-m2.1", "minimax", true},
@@ -61,6 +62,8 @@ func TestIsModelID(t *testing.T) {
 		{"kimi-k2.5", true},
 		{"glm-4.7", true},
 		{"minimax", true},
+		{"qwen3-coder-plus", true},
+		{"qwen3-coder-plus", true},
 
 		// Aliases
 		{"opus", true},
@@ -174,8 +177,8 @@ func TestGetAvailableModels(t *testing.T) {
 		{
 			name:          "only claude detected",
 			detected:      []Tool{{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true}},
-			expectedCount: 7,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax"},
+			expectedCount: 8,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax", "qwen3-coder-plus"},
 		},
 		{
 			name: "claude and codex detected",
@@ -183,8 +186,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 7,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax"},
+			expectedCount: 8,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax", "qwen3-coder-plus"},
 		},
 		{
 			name: "all detected tools",
@@ -192,8 +195,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 7,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax"},
+			expectedCount: 8,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax", "qwen3-coder-plus"},
 		},
 	}
 
@@ -240,9 +243,9 @@ func TestGetAvailableModels(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 7 models total
-	if len(models) != 7 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 7", len(models))
+	// Should have 8 models total
+	if len(models) != 8 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 8", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -258,7 +261,7 @@ func TestGetBuiltinModels(t *testing.T) {
 
 	expectedModels := []string{
 		"claude-opus", "claude-sonnet", "claude-haiku",
-		"kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax",
+		"kimi-thinking", "kimi-k2.5", "glm-4.7", "minimax", "qwen3-coder-plus",
 	}
 	for _, id := range expectedModels {
 		if !modelIDs[id] {
