@@ -334,6 +334,26 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
   return response.json();
 }
 
+export async function checkBranchOnOrigin(workspaceId: string): Promise<{ exists: boolean }> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/branch-on-origin`);
+  if (!response.ok) {
+    throw new Error('Failed to check branch on origin');
+  }
+  return response.json();
+}
+
+export async function deleteBranchOnOrigin(workspaceId: string): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/delete-branch-on-origin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || 'Failed to delete branch on origin');
+  }
+  return response.json();
+}
+
 export async function linearSyncResolveConflict(workspaceId: string): Promise<LinearSyncResolveConflictResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
     method: 'POST',

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { openVSCode, disposeWorkspaceAll, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict } from '../lib/api';
+import { openVSCode, disposeWorkspaceAll, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict, checkBranchOnOrigin, deleteBranchOnOrigin } from '../lib/api';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
@@ -17,7 +17,7 @@ type WorkspaceHeaderProps = {
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
-  const { confirm } = useModal();
+  const { confirm, alert } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
@@ -139,13 +139,65 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncToMain(workspace.id);
       if (result.success) {
-        const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
-          detailedMessage: result.message
-        });
-        if (disposeConfirmed) {
-          await disposeWorkspaceAll(workspace.id);
-          setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
-          navigate('/');
+        // Check if the branch exists on origin
+        const branchCheck = await checkBranchOnOrigin(workspace.id);
+
+        if (branchCheck.exists) {
+          // Branch exists on origin - prompt to delete it
+          const deleteConfirmed = await confirm(`Delete branch "${workspace.branch}" from origin?`, {
+            detailedMessage: result.message
+          });
+
+          if (deleteConfirmed) {
+            try {
+              const deleteResult = await deleteBranchOnOrigin(workspace.id);
+              if (deleteResult.success) {
+                // Branch deleted successfully - now prompt to dispose
+                const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
+                  detailedMessage: `Branch deleted from origin. ${result.message}`
+                });
+                if (disposeConfirmed) {
+                  await disposeWorkspaceAll(workspace.id);
+                  setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+                  navigate('/');
+                }
+              } else {
+                // Delete failed - show alert
+                await alert('Failed to Delete Branch', deleteResult.message);
+                // Still prompt to dispose after showing the error
+                const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
+                  detailedMessage: result.message
+                });
+                if (disposeConfirmed) {
+                  await disposeWorkspaceAll(workspace.id);
+                  setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+                  navigate('/');
+                }
+              }
+            } catch (err) {
+              // Delete threw an error - show alert
+              await alert('Failed to Delete Branch', getErrorMessage(err, 'Failed to delete branch on origin'));
+              // Still prompt to dispose after showing the error
+              const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
+                detailedMessage: result.message
+              });
+              if (disposeConfirmed) {
+                await disposeWorkspaceAll(workspace.id);
+                setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+                navigate('/');
+              }
+            }
+          }
+        } else {
+          // Branch doesn't exist on origin - prompt to dispose directly
+          const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
+            detailedMessage: result.message
+          });
+          if (disposeConfirmed) {
+            await disposeWorkspaceAll(workspace.id);
+            setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+            navigate('/');
+          }
         }
       } else {
         setSyncResult({ success: false, message: result.message });

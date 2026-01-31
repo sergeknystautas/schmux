@@ -146,6 +146,40 @@ func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string)
 	return true, nil
 }
 
+// CheckRemoteBranch checks if a branch exists on the origin remote.
+// Returns true if the branch exists on origin, false otherwise.
+// Uses git ls-remote to check the actual remote, not just local cache.
+func CheckRemoteBranch(ctx context.Context, dir, branch string) (bool, error) {
+	// First check if the remote branch exists locally (cached)
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// Not found locally, check on the remote
+			// Use git ls-remote to check if the branch exists on origin
+			lsRemoteCmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", "origin", branch)
+			lsRemoteCmd.Dir = dir
+			output, err := lsRemoteCmd.Output()
+			if err != nil {
+				return false, fmt.Errorf("git ls-remote failed: %w", err)
+			}
+			return len(strings.TrimSpace(string(output))) > 0, nil
+		}
+		return false, fmt.Errorf("git show-ref failed: %w", err)
+	}
+	return true, nil
+}
+
+// gitDeleteRemoteBranch deletes a branch from the origin remote.
+func gitDeleteRemoteBranch(ctx context.Context, dir, branch string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "origin", "--delete", branch)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push origin --delete %s failed: %w: %s", branch, err, string(output))
+	}
+	return nil
+}
+
 // gitCheckoutDot runs git checkout -- .
 func (m *Manager) gitCheckoutDot(ctx context.Context, dir string) error {
 	args := []string{"checkout", "--", "."}

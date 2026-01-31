@@ -125,6 +125,12 @@ type WorkspaceManager interface {
 
 	// GetBranchCommitLog returns commit subjects for a branch relative to the default branch.
 	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
+
+	// RemoteBranchExists checks if the workspace's branch exists on the origin remote.
+	RemoteBranchExists(ctx context.Context, workspaceID string) (bool, error)
+
+	// DeleteRemoteBranch deletes the workspace's branch from the origin remote.
+	DeleteRemoteBranch(ctx context.Context, workspaceID string) error
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

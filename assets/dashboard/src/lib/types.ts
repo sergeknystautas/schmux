@@ -187,3 +187,13 @@ export interface RecentBranch {
   commit_date: string;
   subject: string;
 }
+
+export interface BranchOnOriginResponse {
+  exists: boolean;
+  branch?: string;
+}
+
+export interface DeleteBranchOnOriginResponse {
+  success: boolean;
+  message: string;
+}

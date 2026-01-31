@@ -488,6 +488,24 @@ func (m *Manager) getWorkspacesForRepo(repoURL string) []state.Workspace {
 	return result
 }
 
+// RemoteBranchExists checks if the workspace's branch exists on the origin remote.
+func (m *Manager) RemoteBranchExists(ctx context.Context, workspaceID string) (bool, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return false, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	return CheckRemoteBranch(ctx, w.Path, w.Branch)
+}
+
+// DeleteRemoteBranch deletes the workspace's branch from the origin remote.
+func (m *Manager) DeleteRemoteBranch(ctx context.Context, workspaceID string) error {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	return gitDeleteRemoteBranch(ctx, w.Path, w.Branch)
+}
+
 // findRepoByURL finds a repo config by URL.
 func (m *Manager) findRepoByURL(repoURL string) (config.Repo, bool) {
 	for _, repo := range m.config.GetRepos() {

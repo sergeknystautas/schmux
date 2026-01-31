@@ -2450,6 +2450,10 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 		s.handleLinearSyncToMain(w, r)
 	} else if strings.HasSuffix(path, "/linear-sync-resolve-conflict") {
 		s.handleLinearSyncResolveConflict(w, r)
+	} else if strings.HasSuffix(path, "/branch-on-origin") {
+		s.handleBranchOnOrigin(w, r)
+	} else if strings.HasSuffix(path, "/delete-branch-on-origin") {
+		s.handleDeleteBranchOnOrigin(w, r)
 	} else if strings.HasSuffix(path, "/dispose") {
 		s.handleDisposeWorkspace(w, r)
 	} else if strings.HasSuffix(path, "/dispose-all") {
@@ -2694,6 +2698,112 @@ Get to work.`, result.Hash, filesStr, result.Hash)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleBranchOnOrigin handles GET requests to check if a branch exists on origin.
+// GET /api/workspaces/{id}/branch-on-origin
+func (s *Server) handleBranchOnOrigin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/workspaces/{id}/branch-on-origin
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/branch-on-origin")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type BranchOnOriginResponse struct {
+		Exists bool   `json:"exists"`
+		Branch string `json:"branch,omitempty"`
+	}
+
+	// Check if workspace exists
+	_, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(BranchOnOriginResponse{
+			Exists: false,
+		})
+		return
+	}
+
+	ctx := context.Background()
+	exists, err := s.workspace.RemoteBranchExists(ctx, workspaceID)
+	if err != nil {
+		fmt.Printf("[workspace] branch-on-origin error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(BranchOnOriginResponse{
+			Exists: false,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(BranchOnOriginResponse{
+		Exists: exists,
+	})
+}
+
+// handleDeleteBranchOnOrigin handles POST requests to delete a branch from origin.
+// POST /api/workspaces/{id}/delete-branch-on-origin
+func (s *Server) handleDeleteBranchOnOrigin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/workspaces/{id}/delete-branch-on-origin
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/delete-branch-on-origin")
+	if workspaceID == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	type DeleteBranchOnOriginResponse struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	// Get workspace from state
+	ws, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(DeleteBranchOnOriginResponse{
+			Success: false,
+			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		})
+		return
+	}
+
+	fmt.Printf("[workspace] delete-branch-on-origin: workspace_id=%s branch=%s\n", workspaceID, ws.Branch)
+
+	ctx := context.Background()
+	if err := s.workspace.DeleteRemoteBranch(ctx, workspaceID); err != nil {
+		fmt.Printf("[workspace] delete-branch-on-origin error: workspace_id=%s error=%v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(DeleteBranchOnOriginResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to delete branch: %v", err),
+		})
+		return
+	}
+
+	fmt.Printf("[workspace] delete-branch-on-origin success: workspace_id=%s\n", workspaceID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(DeleteBranchOnOriginResponse{
+		Success: true,
+		Message: fmt.Sprintf("Deleted branch %s from origin", ws.Branch),
+	})
 }
 
 // handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
