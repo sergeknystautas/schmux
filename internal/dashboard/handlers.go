@@ -123,8 +123,8 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 	for _, ws := range workspaces {
 		// Only build branch URL if the branch exists on the remote
 		branchURL := ""
-		if br, found := s.state.GetBaseRepoByURL(ws.Repo); found {
-			if workspace.RemoteBranchExists(ctx, br.Path, ws.Branch) {
+		if wb, found := s.state.GetWorktreeBaseByURL(ws.Repo); found {
+			if workspace.RemoteBranchExists(ctx, wb.Path, ws.Branch) {
 				branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
 			}
 		}

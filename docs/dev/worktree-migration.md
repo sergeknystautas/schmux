@@ -14,7 +14,7 @@ Currently, each workspace is a full clone:
 - **Fetch overhead**: Each workspace fetches independently
 
 With worktrees:
-- **Disk usage**: One base repo + lightweight worktrees (working files only)
+- **Disk usage**: One worktree base + lightweight worktrees (working files only)
 - **Creation time**: Instant local operation
 - **Fetch efficiency**: One fetch updates all worktrees
 
@@ -35,7 +35,7 @@ With worktrees:
 ### New
 
 ```
-~/.schmux/repos/                    # Base repositories (bare clones)
+~/.schmux/repos/                    # Worktree bases (bare clones)
 ├── myrepo.git/                     # Shared objects store
 │   └── worktrees/                  # Git-managed worktree metadata
 │       ├── myrepo-001/
@@ -44,9 +44,9 @@ With worktrees:
 
 ~/dev/schmux-workspaces/            # Unchanged path
 ├── myrepo-001/                     # Worktree (~0 overhead)
-│   └── .git                        # FILE pointing to base repo
+│   └── .git                        # FILE pointing to worktree base
 ├── myrepo-002/
-│   └── .git                        # FILE pointing to base repo
+│   └── .git                        # FILE pointing to worktree base
 └── another-repo-001/
 ```
 
@@ -54,11 +54,11 @@ With worktrees:
 
 ### `internal/state/state.go`
 
-Add new struct for base repos:
+Add new struct for worktree bases:
 
 ```go
-// BaseRepo tracks a bare clone that hosts worktrees
-type BaseRepo struct {
+// WorktreeBase tracks a bare clone that hosts worktrees
+type WorktreeBase struct {
     RepoURL string `json:"repo_url"`  // e.g., "git@github.com:user/repo.git"
     Path    string `json:"path"`      // e.g., "~/.schmux/repos/myrepo.git"
 }
@@ -70,7 +70,7 @@ Add to `State`:
 type State struct {
     Workspaces   []Workspace `json:"workspaces"`
     Sessions     []Session   `json:"sessions"`
-    BaseRepos    []BaseRepo  `json:"base_repos"`    // NEW
+    WorktreeBases []WorktreeBase  `json:"base_repos"`    // NEW
     // ...
 }
 ```
@@ -78,9 +78,9 @@ type State struct {
 Add accessors:
 
 ```go
-func (s *State) GetBaseRepos() []BaseRepo
-func (s *State) AddBaseRepo(br BaseRepo) error
-func (s *State) GetBaseRepoByURL(repoURL string) (BaseRepo, bool)
+func (s *State) GetBaseRepos() []WorktreeBase
+func (s *State) AddWorktreeBase(br BaseRepo) error
+func (s *State) GetWorktreeBaseByURL(repoURL string) (BaseRepo, bool)
 ```
 
 ### `Workspace` struct
@@ -91,7 +91,7 @@ No changes needed—`Path` already points to the working directory.
 
 ### `internal/config/config.go`
 
-Add base repos path (optional, defaults to `~/.schmux/repos`):
+Add worktree bases path (optional, defaults to `~/.schmux/repos`):
 
 ```go
 type Config struct {
@@ -99,7 +99,7 @@ type Config struct {
     BaseReposPath string `json:"base_repos_path,omitempty"`  // NEW
 }
 
-func (c *Config) GetBaseReposPath() string {
+func (c *Config) GetWorktreeBasePath() string {
     if c.BaseReposPath == "" {
         homeDir, _ := os.UserHomeDir()
         return filepath.Join(homeDir, ".schmux", "repos")
@@ -112,28 +112,28 @@ func (c *Config) GetBaseReposPath() string {
 
 ### `internal/workspace/manager.go`
 
-#### New: `ensureBaseRepo()`
+#### New: `ensureWorktreeBase()`
 
 Creates or returns existing bare clone for a repo URL:
 
 ```go
-func (m *Manager) ensureBaseRepo(ctx context.Context, repoURL string) (string, error) {
-    // Check if base repo already exists in state
-    if br, found := m.state.GetBaseRepoByURL(repoURL); found {
+func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (string, error) {
+    // Check if worktree base already exists in state
+    if br, found := m.state.GetWorktreeBaseByURL(repoURL); found {
         // Verify it still exists on disk
         if _, err := os.Stat(br.Path); err == nil {
             return br.Path, nil
         }
-        // Base repo missing on disk, will recreate below
+        // Worktree base missing on disk, will recreate below
     }
 
-    // Derive base repo path from repo name
+    // Derive worktree base path from repo name
     repoName := extractRepoName(repoURL)  // "myrepo" from "git@github.com:user/myrepo.git"
-    baseRepoPath := filepath.Join(m.config.GetBaseReposPath(), repoName+".git")
+    baseRepoPath := filepath.Join(m.config.GetWorktreeBasePath(), repoName+".git")
 
-    // Ensure base repos directory exists
-    if err := os.MkdirAll(m.config.GetBaseReposPath(), 0755); err != nil {
-        return "", fmt.Errorf("failed to create base repos directory: %w", err)
+    // Ensure worktree bases directory exists
+    if err := os.MkdirAll(m.config.GetWorktreeBasePath(), 0755); err != nil {
+        return "", fmt.Errorf("failed to create worktree bases directory: %w", err)
     }
 
     // Clone as bare repo
@@ -142,7 +142,7 @@ func (m *Manager) ensureBaseRepo(ctx context.Context, repoURL string) (string, e
     }
 
     // Track in state
-    m.state.AddBaseRepo(state.BaseRepo{RepoURL: repoURL, Path: baseRepoPath})
+    m.state.AddWorktreeBase(state.BaseRepo{RepoURL: repoURL, Path: baseRepoPath})
     m.state.Save()
 
     return baseRepoPath, nil
@@ -240,10 +240,10 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
     workspaceID := fmt.Sprintf("%s-"+workspaceNumberFormat, repoConfig.Name, nextNum)
     workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
-    // NEW: Ensure base repo exists (replaces cloneRepo)
-    baseRepoPath, err := m.ensureBaseRepo(ctx, repoURL)
+    // NEW: Ensure worktree base exists (replaces cloneRepo)
+    baseRepoPath, err := m.ensureWorktreeBase(ctx, repoURL)
     if err != nil {
-        return nil, fmt.Errorf("failed to ensure base repo: %w", err)
+        return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
     }
 
     // Fetch latest before creating worktree
@@ -321,10 +321,10 @@ func (m *Manager) Dispose(workspaceID string) error {
 
     // NEW: Determine if this is a worktree or legacy clone
     if isWorktree(w.Path) {
-        // Find base repo and remove worktree
-        baseRepoPath, err := m.findBaseRepoForWorkspace(w)
+        // Find worktree base and remove worktree
+        baseRepoPath, err := m.findWorktreeBaseForWorkspace(w)
         if err != nil {
-            m.logger.Printf("warning: could not find base repo, falling back to rm: %v", err)
+            m.logger.Printf("warning: could not find worktree base, falling back to rm: %v", err)
             if err := os.RemoveAll(w.Path); err != nil {
                 return fmt.Errorf("failed to delete workspace directory: %w", err)
             }
@@ -355,14 +355,14 @@ func (m *Manager) Dispose(workspaceID string) error {
 
 #### Update: `gitFetch()` for worktrees
 
-When fetching inside a worktree, resolve to the base repo:
+When fetching inside a worktree, resolve to the worktree base:
 
 ```go
 func (m *Manager) gitFetch(ctx context.Context, dir string) error {
-    // Resolve to base repo if this is a worktree
+    // Resolve to worktree base if this is a worktree
     fetchDir := dir
     if isWorktree(dir) {
-        if baseRepo, err := resolveBaseRepoFromWorktree(dir); err == nil {
+        if baseRepo, err := resolveWorktreeBaseFromWorktree(dir); err == nil {
             fetchDir = baseRepo
         }
     }
@@ -412,8 +412,8 @@ func isWorktree(path string) bool {
     return !info.IsDir()  // File = worktree, Dir = full clone
 }
 
-// resolveBaseRepoFromWorktree reads the .git file to find the base repo path
-func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
+// resolveWorktreeBaseFromWorktree reads the .git file to find the worktree base path
+func resolveWorktreeBaseFromWorktree(worktreePath string) (string, error) {
     gitFilePath := filepath.Join(worktreePath, ".git")
     content, err := os.ReadFile(gitFilePath)
     if err != nil {
@@ -428,19 +428,19 @@ func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
 
     gitdir := strings.TrimPrefix(line, "gitdir: ")
 
-    // Strip "/worktrees/xxx" to get base repo path
+    // Strip "/worktrees/xxx" to get worktree base path
     if idx := strings.Index(gitdir, "/worktrees/"); idx >= 0 {
         return gitdir[:idx], nil
     }
 
-    return "", fmt.Errorf("could not parse base repo from gitdir: %s", gitdir)
+    return "", fmt.Errorf("could not parse worktree base from gitdir: %s", gitdir)
 }
 
-// findBaseRepoForWorkspace finds the base repo for a workspace
-func (m *Manager) findBaseRepoForWorkspace(w state.Workspace) (string, error) {
+// findWorktreeBaseForWorkspace finds the worktree base for a workspace
+func (m *Manager) findWorktreeBaseForWorkspace(w state.Workspace) (string, error) {
     // First try: resolve from .git file (works for worktrees)
     if isWorktree(w.Path) {
-        return resolveBaseRepoFromWorktree(w.Path)
+        return resolveWorktreeBaseFromWorktree(w.Path)
     }
 
     // Not a worktree
@@ -475,7 +475,7 @@ func Load(path string) (*State, error) {
 
     // Initialize BaseRepos if nil (existing state files)
     if st.BaseRepos == nil {
-        st.BaseRepos = []BaseRepo{}
+        st.BaseRepos = []WorktreeBase{}
     }
 
     return &st, nil
@@ -531,21 +531,21 @@ func (m *Manager) pruneWorktrees(ctx context.Context, baseRepoPath string) error
 }
 ```
 
-Call on daemon startup for each base repo.
+Call on daemon startup for each worktree base.
 
-### Base repo deletion
+### Worktree base deletion
 
 If `~/.schmux/repos/myrepo.git` is deleted while worktrees exist:
 - Worktrees become invalid (`.git` file points to missing path)
-- Detection: Check if resolved base repo path exists
-- Recovery: Log error, allow re-creating base repo on next workspace create
+- Detection: Check if resolved worktree base path exists
+- Recovery: Log error, allow re-creating worktree base on next workspace create
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
 | `internal/state/state.go` | Add `BaseRepo` struct, `BaseRepos` field, accessors |
-| `internal/config/config.go` | Add `BaseReposPath` field and `GetBaseReposPath()` |
+| `internal/config/config.go` | Add `BaseReposPath` field and `GetWorktreeBasePath()` |
 | `internal/workspace/manager.go` | Major changes: worktree operations, helper functions |
 
 ## Files Unchanged
@@ -563,7 +563,7 @@ If `~/.schmux/repos/myrepo.git` is deleted while worktrees exist:
 
 - `extractRepoName()` with various URL formats
 - `isWorktree()` detection
-- `resolveBaseRepoFromWorktree()` parsing
+- `resolveWorktreeBaseFromWorktree()` parsing
 
 ### Integration tests
 
@@ -571,14 +571,14 @@ Add to existing workspace tests:
 
 ```go
 func TestWorktreeCreate(t *testing.T) {
-    // Create workspace → should create base repo + worktree
+    // Create workspace → should create worktree base + worktree
     // Verify .git is a file, not directory
-    // Verify base repo exists at expected path
+    // Verify worktree base exists at expected path
 }
 
 func TestWorktreeDispose(t *testing.T) {
     // Dispose worktree workspace
-    // Verify worktree removed but base repo remains
+    // Verify worktree removed but worktree base remains
 }
 
 func TestLegacyCloneDispose(t *testing.T) {
@@ -597,7 +597,7 @@ func TestSameBranchBlocked(t *testing.T) {
 Full workflow with worktrees via Docker:
 
 1. Start daemon
-2. Spawn session (creates base repo + worktree)
+2. Spawn session (creates worktree base + worktree)
 3. Verify git operations work in worktree
 4. Dispose session
 5. Verify cleanup
@@ -609,11 +609,11 @@ If issues arise after deployment:
 1. **Feature flag**: Add `use_worktrees: false` to config to disable
 2. **Fallback**: When disabled, `create()` uses `cloneRepo()` as before
 3. **Mixed state**: Existing worktrees continue to work (git is robust)
-4. **Full rollback**: Remove base repos, existing workspaces still work
+4. **Full rollback**: Remove worktree bases, existing workspaces still work
 
 ## Future Enhancements
 
-1. **Base repo garbage collection**: Remove base repos with no remaining worktrees
-2. **Shared fetch daemon**: Background job to fetch all base repos periodically
+1. **Worktree base garbage collection**: Remove worktree bases with no remaining worktrees
+2. **Shared fetch daemon**: Background job to fetch all worktree bases periodically
 3. **Detached HEAD support**: Checkout by SHA or tag
 4. **`--force` option**: Allow same branch in multiple workspaces (power user)

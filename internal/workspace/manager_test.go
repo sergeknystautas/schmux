@@ -330,8 +330,8 @@ func TestDispose_Integration(t *testing.T) {
 	gitTestBranch(t, repoDir, "feature-1")
 
 	cfg := &config.Config{
-		WorkspacePath: tmpDir,
-		BaseReposPath: filepath.Join(tmpDir, "repos"),
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
@@ -439,16 +439,16 @@ func (m *mockStateStore) RemoveWorkspace(id string) error {
 	return m.state.RemoveWorkspace(id)
 }
 
-func (m *mockStateStore) GetBaseRepos() []state.BaseRepo {
-	return m.state.GetBaseRepos()
+func (m *mockStateStore) GetWorktreeBases() []state.WorktreeBase {
+	return m.state.GetWorktreeBases()
 }
 
-func (m *mockStateStore) GetBaseRepoByURL(repoURL string) (state.BaseRepo, bool) {
-	return m.state.GetBaseRepoByURL(repoURL)
+func (m *mockStateStore) GetWorktreeBaseByURL(repoURL string) (state.WorktreeBase, bool) {
+	return m.state.GetWorktreeBaseByURL(repoURL)
 }
 
-func (m *mockStateStore) AddBaseRepo(br state.BaseRepo) error {
-	return m.state.AddBaseRepo(br)
+func (m *mockStateStore) AddWorktreeBase(wb state.WorktreeBase) error {
+	return m.state.AddWorktreeBase(wb)
 }
 
 func (m *mockStateStore) GetSessions() []state.Session {
@@ -557,8 +557,8 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 
 	// Create a minimal config
 	cfg := &config.Config{
-		WorkspacePath: workspaceBaseDir,
-		BaseReposPath: filepath.Join(tmpDir, "repos"),
+		WorkspacePath:    workspaceBaseDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
 			{Name: "test-repo", URL: repoDir},
 		},

@@ -29,8 +29,8 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 
 	// Set up isolated config
 	cfg := &config.Config{
-		WorkspacePath: t.TempDir(),
-		BaseReposPath: t.TempDir(),
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
@@ -78,8 +78,8 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 
 	cfg := &config.Config{
-		WorkspacePath: t.TempDir(),
-		BaseReposPath: t.TempDir(),
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
@@ -127,8 +127,8 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 
 	cfg := &config.Config{
-		WorkspacePath: t.TempDir(),
-		BaseReposPath: t.TempDir(),
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},
 		},
@@ -190,7 +190,7 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 
 	cfg := &config.Config{
 		WorkspacePath:        t.TempDir(),
-		BaseReposPath:        t.TempDir(),
+		WorktreeBasePath:     t.TempDir(),
 		SourceCodeManagement: config.SourceCodeManagementGit,
 		Repos: []config.Repo{
 			{Name: "test", URL: repoDir},

@@ -54,7 +54,7 @@ const (
 type Config struct {
 	ConfigVersion              string                 `json:"config_version,omitempty"`
 	WorkspacePath              string                 `json:"workspace_path"`
-	BaseReposPath              string                 `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
+	WorktreeBasePath           string                 `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
 	SourceCodeManagement       string                 `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
 	Repos                      []Repo                 `json:"repos"`
 	RunTargets                 []RunTarget            `json:"run_targets"`
@@ -73,9 +73,6 @@ type Config struct {
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
-
-	// BareReposPathOverride overrides GetBareReposPath for testing.
-	BareReposPathOverride string `json:"-"`
 }
 
 // TerminalSize represents terminal dimensions.
@@ -293,11 +290,11 @@ func (c *Config) GetWorkspacePath() string {
 	return c.WorkspacePath
 }
 
-// GetBaseReposPath returns the path for bare clones (worktree base repos).
+// GetWorktreeBasePath returns the path for bare clones (worktree base repos).
 // Defaults to ~/.schmux/repos if not set.
-func (c *Config) GetBaseReposPath() string {
-	if c.BaseReposPath != "" {
-		return c.BaseReposPath
+func (c *Config) GetWorktreeBasePath() string {
+	if c.WorktreeBasePath != "" {
+		return c.WorktreeBasePath
 	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -306,17 +303,14 @@ func (c *Config) GetBaseReposPath() string {
 	return filepath.Join(homeDir, ".schmux", "repos")
 }
 
-// GetBareReposPath returns the path for bare clones used for branch querying.
-// Always ~/.schmux/bare/ - separate from worktree base repos.
-func (c *Config) GetBareReposPath() string {
-	if c.BareReposPathOverride != "" {
-		return c.BareReposPathOverride
-	}
+// GetQueryRepoPath returns the path for query repos used for branch/commit querying.
+// Always ~/.schmux/query/ - separate from worktree base repos.
+func (c *Config) GetQueryRepoPath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(homeDir, ".schmux", "bare")
+	return filepath.Join(homeDir, ".schmux", "query")
 }
 
 // GetSourceCodeManagement returns the configured source code management mode.
@@ -477,8 +471,8 @@ func (c *Config) Reload() error {
 		newCfg.WorkspacePath = filepath.Join(homeDir, newCfg.WorkspacePath[1:])
 	}
 	// Expand base repos path (handle ~)
-	if newCfg.BaseReposPath != "" && newCfg.BaseReposPath[0] == '~' {
-		newCfg.BaseReposPath = filepath.Join(homeDir, newCfg.BaseReposPath[1:])
+	if newCfg.WorktreeBasePath != "" && newCfg.WorktreeBasePath[0] == '~' {
+		newCfg.WorktreeBasePath = filepath.Join(homeDir, newCfg.WorktreeBasePath[1:])
 	}
 	newCfg.expandNetworkPaths(homeDir)
 
@@ -567,9 +561,9 @@ func Load(configPath string) (*Config, error) {
 	if cfg.WorkspacePath != "" && cfg.WorkspacePath[0] == '~' {
 		cfg.WorkspacePath = filepath.Join(homeDir, cfg.WorkspacePath[1:])
 	}
-	// Expand base repos path (handle ~)
-	if cfg.BaseReposPath != "" && cfg.BaseReposPath[0] == '~' {
-		cfg.BaseReposPath = filepath.Join(homeDir, cfg.BaseReposPath[1:])
+	// Expand worktree base path (handle ~)
+	if cfg.WorktreeBasePath != "" && cfg.WorktreeBasePath[0] == '~' {
+		cfg.WorktreeBasePath = filepath.Join(homeDir, cfg.WorktreeBasePath[1:])
 	}
 	cfg.expandNetworkPaths(homeDir)
 

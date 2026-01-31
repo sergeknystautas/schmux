@@ -11,12 +11,12 @@ import (
 
 // State represents the application state.
 type State struct {
-	Workspaces   []Workspace `json:"workspaces"`
-	Sessions     []Session   `json:"sessions"`
-	BaseRepos    []BaseRepo  `json:"base_repos,omitempty"`    // bare clones that host worktrees
-	NeedsRestart bool        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	path         string      // path to the state file
-	mu           sync.RWMutex
+	Workspaces    []Workspace    `json:"workspaces"`
+	Sessions      []Session      `json:"sessions"`
+	WorktreeBases []WorktreeBase `json:"base_repos,omitempty"`    // bare clones that host worktrees
+	NeedsRestart  bool           `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	path          string         // path to the state file
+	mu            sync.RWMutex
 }
 
 // Workspace represents a workspace directory state.
@@ -34,8 +34,8 @@ type Workspace struct {
 	GitFilesChanged int    `json:"-"`
 }
 
-// BaseRepo tracks a bare clone that hosts worktrees.
-type BaseRepo struct {
+// WorktreeBase tracks a bare clone that hosts worktrees.
+type WorktreeBase struct {
 	RepoURL string `json:"repo_url"` // e.g., "git@github.com:user/repo.git"
 	Path    string `json:"path"`     // e.g., "~/.schmux/repos/myrepo.git"
 }
@@ -56,10 +56,10 @@ type Session struct {
 // New creates a new empty State instance.
 func New(path string) *State {
 	return &State{
-		Workspaces: []Workspace{},
-		Sessions:   []Session{},
-		BaseRepos:  []BaseRepo{},
-		path:       path,
+		Workspaces:    []Workspace{},
+		Sessions:      []Session{},
+		WorktreeBases: []WorktreeBase{},
+		path:          path,
 	}
 }
 
@@ -80,9 +80,9 @@ func Load(path string) (*State, error) {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
-	// Initialize BaseRepos if nil (existing state files)
-	if st.BaseRepos == nil {
-		st.BaseRepos = []BaseRepo{}
+	// Initialize WorktreeBases if nil (existing state files)
+	if st.WorktreeBases == nil {
+		st.WorktreeBases = []WorktreeBase{}
 	}
 
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
@@ -246,44 +246,44 @@ func (s *State) RemoveWorkspace(id string) error {
 	return nil
 }
 
-// GetBaseRepos returns all base repos.
-func (s *State) GetBaseRepos() []BaseRepo {
+// GetWorktreeBases returns all worktree bases.
+func (s *State) GetWorktreeBases() []WorktreeBase {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.BaseRepos == nil {
-		return []BaseRepo{}
+	if s.WorktreeBases == nil {
+		return []WorktreeBase{}
 	}
-	repos := make([]BaseRepo, len(s.BaseRepos))
-	copy(repos, s.BaseRepos)
-	return repos
+	bases := make([]WorktreeBase, len(s.WorktreeBases))
+	copy(bases, s.WorktreeBases)
+	return bases
 }
 
-// AddBaseRepo adds a base repo to the state.
-func (s *State) AddBaseRepo(br BaseRepo) error {
+// AddWorktreeBase adds a worktree base to the state.
+func (s *State) AddWorktreeBase(wb WorktreeBase) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Check for existing entry with same URL
-	for i, existing := range s.BaseRepos {
-		if existing.RepoURL == br.RepoURL {
+	for i, existing := range s.WorktreeBases {
+		if existing.RepoURL == wb.RepoURL {
 			// Update existing entry
-			s.BaseRepos[i] = br
+			s.WorktreeBases[i] = wb
 			return nil
 		}
 	}
-	s.BaseRepos = append(s.BaseRepos, br)
+	s.WorktreeBases = append(s.WorktreeBases, wb)
 	return nil
 }
 
-// GetBaseRepoByURL returns a base repo by its URL.
-func (s *State) GetBaseRepoByURL(repoURL string) (BaseRepo, bool) {
+// GetWorktreeBaseByURL returns a worktree base by its URL.
+func (s *State) GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, br := range s.BaseRepos {
-		if br.RepoURL == repoURL {
-			return br, true
+	for _, wb := range s.WorktreeBases {
+		if wb.RepoURL == repoURL {
+			return wb, true
 		}
 	}
-	return BaseRepo{}, false
+	return WorktreeBase{}, false
 }
 
 // SetNeedsRestart sets the needs_restart flag.

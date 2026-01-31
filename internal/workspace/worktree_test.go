@@ -159,16 +159,16 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.BaseReposPath = filepath.Join(tmpDir, "repos")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath)
 	m := New(cfg, st, statePath)
 
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
 
-	baseRepoPath, err := m.ensureBaseRepo(ctx, repoDir)
+	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
-		t.Fatalf("ensureBaseRepo() failed: %v", err)
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
 
 	worktreePath := filepath.Join(tmpDir, "wt-main")
@@ -198,7 +198,7 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.BaseReposPath = filepath.Join(tmpDir, "repos")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath)
 	m := New(cfg, st, statePath)
 
@@ -206,9 +206,9 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature")
 
-	baseRepoPath, err := m.ensureBaseRepo(ctx, repoDir)
+	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
-		t.Fatalf("ensureBaseRepo() failed: %v", err)
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
 	}
 
 	cmd := exec.Command("git", "rev-parse", "refs/heads/feature")

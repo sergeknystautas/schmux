@@ -42,15 +42,15 @@ Paths watched (within the git dir):
 - `refs/` (entire tree, recursively)
 - `logs/` (entire tree, recursively)
 
-For worktrees, also watches the shared base repo's `refs/` directory.
+For worktrees, also watches the shared worktree base's `refs/` directory.
 
 ### Worktree Handling
 
 A worktree's `.git` is a file pointing to `<base-repo>/worktrees/<name>/`. The watcher watches both:
 - The worktree-specific gitdir (HEAD, index)
-- The shared base repo's `refs/` directory
+- The shared worktree base's `refs/` directory
 
-Multiple workspaces can map to the same base repo path. The `watchedPaths` map is `map[string][]string` (path → list of workspace IDs) so one base repo event triggers debounce for all workspaces sharing it.
+Multiple workspaces can map to the same worktree base path. The `watchedPaths` map is `map[string][]string` (path → list of workspace IDs) so one worktree base event triggers debounce for all workspaces sharing it.
 
 ### New Directories
 
@@ -102,7 +102,7 @@ Unit tests (`git_watcher_test.go`):
 - `TestResolveGitDir_RegularClone` — `.git/` directory case
 - `TestResolveGitDir_Worktree` — `.git` file with gitdir pointer
 - `TestResolveGitDir_WorktreeRelativePath` — relative gitdir path
-- `TestResolveSharedBaseRefs` — shared base repo refs resolution
+- `TestResolveSharedBaseRefs` — shared worktree base refs resolution
 - `TestWatcherDisabledByConfig` — returns nil when disabled
 - `TestWatcherEnabledByDefault` — enabled by default
 - `TestDebounceCollapse` — multiple rapid events use debounce

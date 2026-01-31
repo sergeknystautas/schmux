@@ -5,7 +5,7 @@ Eliminate hardcoded `"main"` branch assumptions throughout the codebase. The sys
 
 **Key Behaviors**
 - Default branch is detected once per repository using `git symbolic-ref refs/remotes/origin/HEAD`
-- Detection happens in **origin query repos** (`~/.schmux/bare`) on daemon startup
+- Detection happens in **query repos** (`~/.schmux/query`) on daemon startup
 - Detected value is cached in-memory in the Manager (not persisted to state.json)
 - In-memory cache is refreshed when origin query repos are fetched
 - Exposed via API (`/api/config`) for frontend consumption
@@ -34,29 +34,29 @@ When a repository uses `master`, `develop`, or another name as its default branc
 
 ---
 
-## Two Types of Bare Repos
+## Two Types of Repos
 
-The codebase has TWO separate bare repo systems - this is a common source of confusion:
+The codebase has TWO separate repo systems - this is a common source of confusion:
 
-| Property | Base Repos | Origin Query Repos |
-|----------|------------|-------------------|
-| Path method | `GetBaseReposPath()` | `GetBareReposPath()` |
-| Default path | `~/.schmux/repos` | `~/.schmux/bare` |
-| Configurable | Yes (`base_repos_path`) | No (hardcoded) |
+| Property | Worktree Bases | Query Repos |
+|----------|---------------|-------------|
+| Path method | `GetWorktreeBasePath()` | `GetQueryRepoPath()` |
+| Default path | `~/.schmux/repos` | `~/.schmux/query` |
+| Configurable | Yes (`base_repos_path` in config) | No (hardcoded) |
 | Purpose | Host worktrees | Branch queries (recent branches, commit logs) |
-| Created by | `ensureBaseRepo()` | `EnsureOriginQueries()` |
-| Tracked in state | Yes (`BaseRepo` struct) | No |
+| Created by | `ensureWorktreeBase()` | `EnsureOriginQueries()` |
+| Tracked in state | Yes (`WorktreeBase` struct, `base_repos` field) | No |
 | Created when | First workspace spawn needed | Daemon startup |
 | Lifetime | Long-lived, deleted explicitly | Refreshed/updated periodically |
 
 **Why two systems?**
-- Base repos host worktrees and must be long-lived
-- Origin query repos are for fast branch lookups without affecting worktrees
+- Worktree bases host worktrees and must be long-lived
+- Query repos are for fast branch lookups without affecting worktrees
 - They're separate clones to avoid conflicts
 
 **For this spec:**
-- **Origin query repos** (`~/.schmux/bare`) own the default branch detection - they're for querying metadata
-- **Base repos** (`~/.schmux/repos`) use the cached value from the Manager for worktree operations
+- **Query repos** (`~/.schmux/query`) own the default branch detection - they're for querying metadata
+- **Worktree bases** (`~/.schmux/repos`) use the cached value from the Manager for worktree operations
 - No state.json storage - only in-memory cache (refreshed on daemon startup and periodic fetch)
 
 ---
@@ -93,9 +93,9 @@ Enhance existing `getDefaultBranch` to cache results and improve error handling:
 
 ```go
 // getDefaultBranch detects the default branch for a bare repo (origin query repo).
-func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) string {
+func (m *Manager) getDefaultBranch(ctx context.Context, queryRepoPath string) string {
     cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
-    cmd.Dir = bareRepoPath
+    cmd.Dir = queryRepoPath
     output, err := cmd.Output()
     if err == nil {
         // Output is like "refs/remotes/origin/main"
@@ -105,7 +105,7 @@ func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) str
 
     // Fallback: try common defaults (main, master, develop)
     for _, candidate := range []string{"main", "master", "develop"} {
-        if m.branchExists(ctx, bareRepoPath, candidate) {
+        if m.branchExists(ctx, queryRepoPath, candidate) {
             return candidate
         }
     }
@@ -114,10 +114,10 @@ func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) str
 }
 
 // branchExists checks if a branch exists in the bare repo.
-func (m *Manager) branchExists(ctx context.Context, bareRepoPath, branch string) bool {
+func (m *Manager) branchExists(ctx context.Context, queryRepoPath, branch string) bool {
     ref := "refs/remotes/origin/" + branch
     cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
-    cmd.Dir = bareRepoPath
+    cmd.Dir = queryRepoPath
     return cmd.Run() == nil
 }
 ```
@@ -143,21 +143,21 @@ func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string,
     m.defaultBranchCacheMu.RUnlock()
 
     // Not in cache - try to detect from origin query repo
-    bareReposPath := m.config.GetBareReposPath()
-    if bareReposPath == "" {
+    queryRepoDir := m.config.GetQueryRepoPath()
+    if queryRepoDir == "" {
         return "", fmt.Errorf("bare repos path not configured")
     }
 
     repoName := extractRepoName(repoURL)
-    bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+    queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
     // Check if origin query repo exists
-    if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+    if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
         return "", fmt.Errorf("origin query repo not found for %s (has daemon started?)", repoURL)
     }
 
     // Detect from git
-    branch := m.getDefaultBranch(ctx, bareRepoPath)
+    branch := m.getDefaultBranch(ctx, queryRepoPath)
     if branch == "" {
         return "", fmt.Errorf("failed to detect default branch for %s", repoURL)
     }
@@ -189,20 +189,20 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 
     for _, repo := range m.config.GetRepos() {
         repoName := extractRepoName(repo.URL)
-        bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+        queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
         // Skip if already exists
-        if _, err := os.Stat(bareRepoPath); err == nil {
+        if _, err := os.Stat(queryRepoPath); err == nil {
             continue
         }
 
         // Clone as bare repo for origin queries
-        if err := m.cloneOriginQueryRepo(ctx, repo.URL, bareRepoPath); err != nil {
+        if err := m.cloneOriginQueryRepo(ctx, repo.URL, queryRepoPath); err != nil {
             continue  // existing error handling
         }
 
         // NEW: Detect and cache default branch after cloning
-        defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+        defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
         if defaultBranch != "" {
             m.setDefaultBranch(repo.URL, defaultBranch)
         }
@@ -217,12 +217,12 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 
     for _, repo := range m.config.GetRepos() {
         repoName := extractRepoName(repo.URL)
-        bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+        queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
         // ... fetch existing repo ...
 
         // NEW: Refresh default branch cache after fetch
-        defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+        defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
         if defaultBranch != "" {
             m.setDefaultBranch(repo.URL, defaultBranch)
         }
@@ -326,7 +326,7 @@ Update to use cached default branch instead of calling `getDefaultBranch` again:
 
 ```go
 // getRecentBranchesFromBare queries a bare clone for recent branches.
-func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, repoName, repoURL string, limit int) ([]RecentBranch, error) {
+func (m *Manager) getRecentBranchesFromBare(ctx context.Context, queryRepoPath, repoName, repoURL string, limit int) ([]RecentBranch, error) {
     // Get default branch from cache (populated by EnsureOriginQueries)
     defaultBranch := "main" // fallback
     if db, err := m.GetDefaultBranch(ctx, repoURL); err == nil {
@@ -465,7 +465,7 @@ fs.StringVar(&branchFlag, "b", "main", "Git branch")
 - [ ] Add `defaultBranchCache` map and mutex to `Manager` struct
 - [ ] Implement `GetDefaultBranch(ctx, repoURL)` with in-memory cache lookup and on-demand detection
 - [ ] Implement `setDefaultBranch(repoURL, branch)` helper
-- [ ] Implement `branchExists(ctx, bareRepoPath, branch)` helper for fallback
+- [ ] Implement `branchExists(ctx, queryRepoPath, branch)` helper for fallback
 
 ### Origin Queries
 - [ ] Update `getDefaultBranch` in `origin_queries.go` to return empty string on failure (not "main")

@@ -88,13 +88,13 @@ func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string,
 	m.defaultBranchCacheMu.RUnlock()
 
 	// Detect from origin query repo (preferred - created on daemon startup)
-	bareRepoPath, err := m.ensureOriginQueryRepo(ctx, repoURL)
+	queryRepoPath, err := m.ensureOriginQueryRepo(ctx, repoURL)
 	if err != nil {
 		m.setDefaultBranch(repoURL, "unknown")
 		return "", err
 	}
 
-	branch := m.getDefaultBranch(ctx, bareRepoPath)
+	branch := m.getDefaultBranch(ctx, queryRepoPath)
 	if branch != "" {
 		// Cache the result
 		m.setDefaultBranch(repoURL, branch)
@@ -223,19 +223,19 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
 	// Ensure base repo exists (creates bare clone if needed)
-	baseRepoPath, err := m.ensureBaseRepo(ctx, repoURL)
+	worktreeBasePath, err := m.ensureWorktreeBase(ctx, repoURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ensure base repo: %w", err)
+		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
 	}
 
 	// Fetch latest before creating worktree
-	if fetchErr := m.gitFetch(ctx, baseRepoPath); fetchErr != nil {
+	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
 		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
 	}
 
 	createdUniqueBranch := false
 	if m.config.UseWorktrees() {
-		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, baseRepoPath, branch)
+		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, branch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
 		}
@@ -252,11 +252,11 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		if cleanupNeeded {
 			fmt.Printf("[workspace] cleaning up failed: %s\n", workspacePath)
 			// Try worktree remove first, fall back to rm -rf
-			if err := m.removeWorktree(ctx, baseRepoPath, workspacePath); err != nil {
+			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
 			if createdUniqueBranch {
-				if err := m.deleteBranch(ctx, baseRepoPath, branch); err != nil {
+				if err := m.deleteBranch(ctx, worktreeBasePath, branch); err != nil {
 					fmt.Printf("[workspace] warning: failed to delete branch %s: %v\n", branch, err)
 				}
 			}
@@ -266,7 +266,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Check source code management setting
 	if m.config.UseWorktrees() {
 		// Using worktrees - no fallback, branch conflicts are auto-resolved with suffixes
-		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch, repoURL); err != nil {
+		if err := m.addWorktree(ctx, worktreeBasePath, workspacePath, branch, repoURL); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
 	} else {
@@ -622,19 +622,19 @@ func (m *Manager) Dispose(workspaceID string) error {
 	}
 
 	// Find base repo for worktree cleanup (works even if directory is gone)
-	baseRepoPath, baseRepoErr := m.findBaseRepoForWorkspace(w)
+	worktreeBasePath, worktreeBaseErr := m.findWorktreeBaseForWorkspace(w)
 
 	// Delete workspace directory (worktree or legacy full clone)
 	if dirExists {
 		if isWorktree(w.Path) {
 			// Use git worktree remove for worktrees
-			if baseRepoErr != nil {
-				fmt.Printf("[workspace] warning: could not find base repo, falling back to rm: %v\n", baseRepoErr)
+			if worktreeBaseErr != nil {
+				fmt.Printf("[workspace] warning: could not find worktree base, falling back to rm: %v\n", worktreeBaseErr)
 				if err := os.RemoveAll(w.Path); err != nil {
 					return fmt.Errorf("failed to delete workspace directory: %w", err)
 				}
 			} else {
-				if err := m.removeWorktree(ctx, baseRepoPath, w.Path); err != nil {
+				if err := m.removeWorktree(ctx, worktreeBasePath, w.Path); err != nil {
 					return fmt.Errorf("failed to remove worktree: %w", err)
 				}
 			}
@@ -647,8 +647,8 @@ func (m *Manager) Dispose(workspaceID string) error {
 	}
 
 	// Prune stale worktree references (handles case where directory was already deleted)
-	if baseRepoErr == nil {
-		if err := m.pruneWorktrees(ctx, baseRepoPath); err != nil {
+	if worktreeBaseErr == nil {
+		if err := m.pruneWorktrees(ctx, worktreeBasePath); err != nil {
 			fmt.Printf("[workspace] warning: failed to prune worktrees: %v\n", err)
 		}
 	}

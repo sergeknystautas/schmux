@@ -37,8 +37,8 @@ func isWorktree(path string) bool {
 	return !info.IsDir() // File = worktree, Dir = full clone
 }
 
-// resolveBaseRepoFromWorktree reads the .git file to find the base repo path.
-func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
+// resolveWorktreeBaseFromWorktree reads the .git file to find the worktree base path.
+func resolveWorktreeBaseFromWorktree(worktreePath string) (string, error) {
 	gitFilePath := filepath.Join(worktreePath, ".git")
 	content, err := os.ReadFile(gitFilePath)
 	if err != nil {
@@ -53,21 +53,21 @@ func resolveBaseRepoFromWorktree(worktreePath string) (string, error) {
 
 	gitdir := strings.TrimPrefix(line, "gitdir: ")
 
-	// Strip "/worktrees/xxx" to get base repo path
+	// Strip "/worktrees/xxx" to get worktree base path
 	if idx := strings.Index(gitdir, "/worktrees/"); idx >= 0 {
 		return gitdir[:idx], nil
 	}
 
-	return "", fmt.Errorf("could not parse base repo from gitdir: %s", gitdir)
+	return "", fmt.Errorf("could not parse worktree base from gitdir: %s", gitdir)
 }
 
-// gitFetch runs git fetch. For worktrees, fetches from the base repo.
+// gitFetch runs git fetch. For worktrees, fetches from the worktree base.
 func (m *Manager) gitFetch(ctx context.Context, dir string) error {
-	// Resolve to base repo if this is a worktree
+	// Resolve to worktree base if this is a worktree
 	fetchDir := dir
 	if isWorktree(dir) {
-		if baseRepo, err := resolveBaseRepoFromWorktree(dir); err == nil {
-			fetchDir = baseRepo
+		if worktreeBase, err := resolveWorktreeBaseFromWorktree(dir); err == nil {
+			fetchDir = worktreeBase
 		}
 	}
 

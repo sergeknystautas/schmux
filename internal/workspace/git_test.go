@@ -142,7 +142,7 @@ func TestIsWorktree(t *testing.T) {
 	})
 }
 
-func TestResolveBaseRepoFromWorktree(t *testing.T) {
+func TestResolveWorktreeBaseFromWorktree(t *testing.T) {
 	t.Run("valid worktree .git file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		gitFile := filepath.Join(tmpDir, ".git")
@@ -151,13 +151,13 @@ func TestResolveBaseRepoFromWorktree(t *testing.T) {
 			t.Fatalf("failed to create .git file: %v", err)
 		}
 
-		got, err := resolveBaseRepoFromWorktree(tmpDir)
+		got, err := resolveWorktreeBaseFromWorktree(tmpDir)
 		if err != nil {
-			t.Fatalf("resolveBaseRepoFromWorktree() error = %v", err)
+			t.Fatalf("resolveWorktreeBaseFromWorktree() error = %v", err)
 		}
 		want := "/home/user/.schmux/repos/myrepo.git"
 		if got != want {
-			t.Errorf("resolveBaseRepoFromWorktree() = %q, want %q", got, want)
+			t.Errorf("resolveWorktreeBaseFromWorktree() = %q, want %q", got, want)
 		}
 	})
 
@@ -168,9 +168,9 @@ func TestResolveBaseRepoFromWorktree(t *testing.T) {
 			t.Fatalf("failed to create .git file: %v", err)
 		}
 
-		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		_, err := resolveWorktreeBaseFromWorktree(tmpDir)
 		if err == nil {
-			t.Error("resolveBaseRepoFromWorktree() should error on invalid format")
+			t.Error("resolveWorktreeBaseFromWorktree() should error on invalid format")
 		}
 	})
 
@@ -181,17 +181,17 @@ func TestResolveBaseRepoFromWorktree(t *testing.T) {
 			t.Fatalf("failed to create .git file: %v", err)
 		}
 
-		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		_, err := resolveWorktreeBaseFromWorktree(tmpDir)
 		if err == nil {
-			t.Error("resolveBaseRepoFromWorktree() should error when no /worktrees/ in path")
+			t.Error("resolveWorktreeBaseFromWorktree() should error when no /worktrees/ in path")
 		}
 	})
 
 	t.Run("missing .git file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		_, err := resolveBaseRepoFromWorktree(tmpDir)
+		_, err := resolveWorktreeBaseFromWorktree(tmpDir)
 		if err == nil {
-			t.Error("resolveBaseRepoFromWorktree() should error on missing .git file")
+			t.Error("resolveWorktreeBaseFromWorktree() should error on missing .git file")
 		}
 	})
 }

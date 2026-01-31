@@ -13,28 +13,28 @@ import (
 )
 
 // EnsureOriginQueries ensures origin query repos exist for all configured repos.
-// These are bare clones stored in ~/.schmux/bare/ used for branch/commit queries
+// These are bare clones stored in ~/.schmux/query/ used for branch/commit queries
 // without needing a workspace checked out.
 func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return fmt.Errorf("bare repos path not configured")
+	queryRepoPath := m.config.GetQueryRepoPath()
+	if queryRepoPath == "" {
+		return fmt.Errorf("query repo path not configured")
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(bareReposPath, 0755); err != nil {
-		return fmt.Errorf("failed to create bare repos directory: %w", err)
+	if err := os.MkdirAll(queryRepoPath, 0755); err != nil {
+		return fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
 	for _, repo := range m.config.GetRepos() {
-		bareRepoPath, err := m.ensureOriginQueryRepo(ctx, repo.URL)
+		queryRepoPath, err := m.ensureOriginQueryRepo(ctx, repo.URL)
 		if err != nil {
 			fmt.Printf("[workspace] warning: %v\n", err)
 			continue
 		}
 
 		// Detect and cache default branch after ensuring readiness
-		defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+		defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
 		if defaultBranch != "" {
 			m.setDefaultBranch(repo.URL, defaultBranch)
 		}
@@ -44,33 +44,33 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 }
 
 func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (string, error) {
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return "", fmt.Errorf("bare repos path not configured")
+	queryRepoDir := m.config.GetQueryRepoPath()
+	if queryRepoDir == "" {
+		return "", fmt.Errorf("query repo path not configured")
 	}
 
-	if err := os.MkdirAll(bareReposPath, 0755); err != nil {
-		return "", fmt.Errorf("failed to create bare repos directory: %w", err)
+	if err := os.MkdirAll(queryRepoDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
 	repoName := extractRepoName(repoURL)
-	bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+	queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
-	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 		fmt.Printf("[workspace] creating origin query repo: %s\n", repoName)
-		if err := m.cloneOriginQueryRepo(ctx, repoURL, bareRepoPath); err != nil {
-			return "", fmt.Errorf("failed to create bare clone for %s: %w", repoName, err)
+		if err := m.cloneOriginQueryRepo(ctx, repoURL, queryRepoPath); err != nil {
+			return "", fmt.Errorf("failed to create query repo clone for %s: %w", repoName, err)
 		}
-		if err := m.prepareOriginQueryRepo(ctx, bareRepoPath, repoName); err != nil {
+		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
 			return "", fmt.Errorf("failed to initialize origin query repo for %s: %w", repoName, err)
 		}
-	} else if m.originQueryRepoNeedsRepair(ctx, bareRepoPath) {
-		if err := m.prepareOriginQueryRepo(ctx, bareRepoPath, repoName); err != nil {
+	} else if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
+		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
 			return "", fmt.Errorf("failed to repair origin query repo for %s: %w", repoName, err)
 		}
 	}
 
-	return bareRepoPath, nil
+	return queryRepoPath, nil
 }
 
 // cloneOriginQueryRepo clones a repository as a bare clone for branch/commit querying.
@@ -92,64 +92,64 @@ func (m *Manager) cloneOriginQueryRepo(ctx context.Context, url, path string) er
 	return nil
 }
 
-// prepareOriginQueryRepo ensures the bare repo has remote tracking refs and origin/HEAD.
-func (m *Manager) prepareOriginQueryRepo(ctx context.Context, bareRepoPath, repoName string) error {
-	if err := m.ensureOriginFetchRefspec(ctx, bareRepoPath); err != nil {
+// prepareOriginQueryRepo ensures the query repo has remote tracking refs and origin/HEAD.
+func (m *Manager) prepareOriginQueryRepo(ctx context.Context, queryRepoPath, repoName string) error {
+	if err := m.ensureOriginFetchRefspec(ctx, queryRepoPath); err != nil {
 		return err
 	}
-	if err := m.fetchOriginQueryRepo(ctx, bareRepoPath, repoName); err != nil {
+	if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
 		return err
 	}
-	if !m.originHeadExists(ctx, bareRepoPath) {
-		if err := m.setOriginHead(ctx, bareRepoPath); err != nil {
+	if !m.originHeadExists(ctx, queryRepoPath) {
+		if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (m *Manager) ensureOriginFetchRefspec(ctx context.Context, bareRepoPath string) error {
+func (m *Manager) ensureOriginFetchRefspec(ctx context.Context, queryRepoPath string) error {
 	configCmd := exec.CommandContext(ctx, "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	configCmd.Dir = bareRepoPath
+	configCmd.Dir = queryRepoPath
 	if output, err := configCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
 	}
 	return nil
 }
 
-func (m *Manager) fetchOriginQueryRepo(ctx context.Context, bareRepoPath, repoName string) error {
+func (m *Manager) fetchOriginQueryRepo(ctx context.Context, queryRepoPath, repoName string) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(fetchCtx, "git", "fetch", "--prune", "origin")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch failed for origin query repo %s: %w: %s", repoName, err, string(output))
 	}
 	return nil
 }
 
-func (m *Manager) setOriginHead(ctx context.Context, bareRepoPath string) error {
+func (m *Manager) setOriginHead(ctx context.Context, queryRepoPath string) error {
 	cmd := exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "-a")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git remote set-head failed: %w: %s", err, string(output))
 	}
 	return nil
 }
 
-func (m *Manager) originHeadExists(ctx context.Context, bareRepoPath string) bool {
+func (m *Manager) originHeadExists(ctx context.Context, queryRepoPath string) bool {
 	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/HEAD")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	return cmd.Run() == nil
 }
 
-func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, bareRepoPath string) bool {
-	if m.originHeadExists(ctx, bareRepoPath) {
+func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath string) bool {
+	if m.originHeadExists(ctx, queryRepoPath) {
 		return false
 	}
 
 	cmd := exec.CommandContext(ctx, "git", "for-each-ref", "--count", "1", "refs/remotes/origin/")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	output, err := cmd.Output()
 	if err != nil {
 		return true
@@ -159,33 +159,33 @@ func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, bareRepoPath s
 
 // FetchOriginQueries fetches updates for all origin query repos.
 func (m *Manager) FetchOriginQueries(ctx context.Context) {
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
+	queryRepoDir := m.config.GetQueryRepoPath()
+	if queryRepoDir == "" {
 		return
 	}
 
 	for _, repo := range m.config.GetRepos() {
 		repoName := extractRepoName(repo.URL)
-		bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+		queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
 		// Skip if doesn't exist
-		if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+		if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 			continue
 		}
 
-		if err := m.fetchOriginQueryRepo(ctx, bareRepoPath, repo.Name); err != nil {
+		if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.Name); err != nil {
 			fmt.Printf("[workspace] warning: %v\n", err)
 			continue
 		}
 
-		if !m.originHeadExists(ctx, bareRepoPath) {
-			if err := m.setOriginHead(ctx, bareRepoPath); err != nil {
+		if !m.originHeadExists(ctx, queryRepoPath) {
+			if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
 				fmt.Printf("[workspace] warning: %v\n", err)
 			}
 		}
 
 		// Refresh default branch cache after fetch/set-head
-		defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+		defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
 		if defaultBranch != "" {
 			m.setDefaultBranch(repo.URL, defaultBranch)
 		}
@@ -198,23 +198,23 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 		limit = 10
 	}
 
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return nil, fmt.Errorf("bare repos path not configured")
+	queryRepoDir := m.config.GetQueryRepoPath()
+	if queryRepoDir == "" {
+		return nil, fmt.Errorf("query repo path not configured")
 	}
 
 	var allBranches []RecentBranch
 
 	for _, repo := range m.config.GetRepos() {
 		repoName := extractRepoName(repo.URL)
-		bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+		queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
 		// Skip if doesn't exist
-		if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+		if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 			continue
 		}
 
-		branches, err := m.getRecentBranchesFromBare(ctx, bareRepoPath, repo.Name, repo.URL, limit)
+		branches, err := m.getRecentBranchesFromBare(ctx, queryRepoPath, repo.Name, repo.URL, limit)
 		if err != nil {
 			fmt.Printf("[workspace] warning: failed to get branches from %s: %v\n", repo.Name, err)
 			continue
@@ -237,7 +237,7 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 }
 
 // getRecentBranchesFromBare queries a bare clone for recent branches.
-func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, repoName, repoURL string, limit int) ([]RecentBranch, error) {
+func (m *Manager) getRecentBranchesFromBare(ctx context.Context, queryRepoPath, repoName, repoURL string, limit int) ([]RecentBranch, error) {
 	// Get default branch from cache (populated by EnsureOriginQueries)
 	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 	if err != nil {
@@ -250,7 +250,7 @@ func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, r
 		"--format=%(refname:short)|%(committerdate:iso8601)|%(subject)",
 		"refs/remotes/origin/",
 	)
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -309,9 +309,9 @@ func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, r
 
 // getDefaultBranch detects the default branch for a bare repo.
 // Returns empty string if detection fails.
-func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) string {
+func (m *Manager) getDefaultBranch(ctx context.Context, queryRepoPath string) string {
 	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	output, err := cmd.Output()
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
@@ -320,7 +320,7 @@ func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) str
 	}
 
 	cmd = exec.CommandContext(ctx, "git", "symbolic-ref", "HEAD")
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 	output, err = cmd.Output()
 	if err == nil {
 		ref := strings.TrimSpace(string(output))
@@ -342,15 +342,15 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 		limit = 20
 	}
 
-	bareReposPath := m.config.GetBareReposPath()
-	if bareReposPath == "" {
-		return nil, fmt.Errorf("bare repos path not configured")
+	queryRepoDir := m.config.GetQueryRepoPath()
+	if queryRepoDir == "" {
+		return nil, fmt.Errorf("query repo path not configured")
 	}
 
 	repoName := extractRepoName(repoURL)
-	bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+	queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
 
-	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("bare clone not found for %s", repoName)
 	}
 
@@ -366,7 +366,7 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 		fmt.Sprintf("--max-count=%d", limit),
 		fmt.Sprintf("origin/%s..origin/%s", defaultBranch, branch),
 	)
-	cmd.Dir = bareRepoPath
+	cmd.Dir = queryRepoPath
 
 	output, err := cmd.Output()
 	if err != nil {
