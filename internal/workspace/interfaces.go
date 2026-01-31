@@ -94,13 +94,24 @@ type WorkspaceManager interface {
 	// CreateLocalRepo creates a new workspace with a fresh local git repository.
 	CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error)
 
+	// GetDefaultBranch returns the detected default branch for a repo URL.
+	GetDefaultBranch(ctx context.Context, repoURL string) (string, error)
+
 	// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
+	// Deprecated: Use LinearSyncFromDefault instead.
 	LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 
 	// LinearSyncToMain performs a fast-forward push to origin/main.
+	// Deprecated: Use LinearSyncToDefault instead.
 	LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 
-	// LinearSyncResolveConflict rebases exactly one commit from main, handling conflicts.
+	// LinearSyncFromDefault performs an iterative rebase from the default branch into the current branch.
+	LinearSyncFromDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+
+	// LinearSyncToDefault performs a fast-forward push to the default branch.
+	LinearSyncToDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+
+	// LinearSyncResolveConflict rebases exactly one commit from the default branch, handling conflicts.
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error)
 
 	// EnsureOriginQueries ensures origin query repos exist for all configured repos.

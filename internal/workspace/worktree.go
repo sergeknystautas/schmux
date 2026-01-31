@@ -90,7 +90,7 @@ func (m *Manager) ensureBaseRepo(ctx context.Context, repoURL string) (string, e
 }
 
 // addWorktree adds a worktree from a base repo.
-func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, branch string) error {
+func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, branch, repoURL string) error {
 	fmt.Printf("[workspace] adding worktree: base=%s path=%s branch=%s\n", baseRepoPath, workspacePath, branch)
 
 	// Check if local branch exists
@@ -112,8 +112,16 @@ func (m *Manager) addWorktree(ctx context.Context, baseRepoPath, workspacePath, 
 		// Track existing remote branch (create local branch)
 		args = []string{"worktree", "add", "--track", "-b", branch, workspacePath, remoteBranch}
 	} else {
-		// Create new local branch from origin/main (ensures we start from latest)
-		args = []string{"worktree", "add", "-b", branch, workspacePath, "origin/main"}
+		// Create new local branch from default branch (ensures we start from latest)
+		defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
+		if err != nil {
+			return fmt.Errorf("failed to get default branch: %w", err)
+		}
+		// If detection failed (empty string), fall back to "main" for worktree creation
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
+		args = []string{"worktree", "add", "-b", branch, workspacePath, "origin/" + defaultBranch}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)

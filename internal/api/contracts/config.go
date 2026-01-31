@@ -13,9 +13,10 @@ type RepoConfig struct {
 
 // RepoWithConfig represents a repository with its loaded configuration.
 type RepoWithConfig struct {
-	Name   string      `json:"name"`
-	URL    string      `json:"url"`
-	Config *RepoConfig `json:"config,omitempty"`
+	Name          string      `json:"name"`
+	URL           string      `json:"url"`
+	DefaultBranch string      `json:"default_branch,omitempty"` // Omitted if not detected
+	Config        *RepoConfig `json:"config,omitempty"`
 }
 
 // RunTarget represents a user-supplied run target.

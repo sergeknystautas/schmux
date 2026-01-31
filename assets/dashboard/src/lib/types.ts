@@ -38,6 +38,7 @@ export interface SessionWithWorkspace extends SessionResponse {
 export interface RepoResponse {
   name: string;
   url: string;
+  default_branch?: string;  // Detected default branch (main, master, etc.), omitted if not yet detected
 }
 
 export interface RunTargetResponse {

@@ -188,7 +188,7 @@ func (m *Manager) gitClean(ctx context.Context, dir string) error {
 
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int)
-func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int) {
+func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
@@ -199,15 +199,19 @@ func (m *Manager) gitStatus(ctx context.Context, dir string) (dirty bool, ahead 
 	dirty = err == nil && len(strings.TrimSpace(string(output))) > 0
 
 	// Check ahead/behind counts using rev-list
-	// Compare against origin/main to show GitHub-style status:
-	// - ahead = commits in this branch not in main
-	// - behind = commits in main not in this branch
-	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...origin/main")
+	// Compare against the detected default branch to show GitHub-style status:
+	// - ahead = commits in this branch not in default branch
+	// - behind = commits in default branch not in this branch
+	defaultBranch := "main" // fallback
+	if db, err := m.GetDefaultBranch(ctx, repoURL); err == nil {
+		defaultBranch = db
+	}
+	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...origin/"+defaultBranch)
 	revListCmd.Dir = dir
 	output, err = revListCmd.CombinedOutput()
 	if err != nil {
 		// No upstream or other error - log but continue to calculate line changes
-		fmt.Printf("[workspace] git rev-list HEAD...origin/main failed for %s: %s\n", dir, strings.TrimSpace(string(output)))
+		fmt.Printf("[workspace] git rev-list HEAD...origin/%s failed for %s: %s\n", defaultBranch, dir, strings.TrimSpace(string(output)))
 	} else {
 		// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
 		parts := strings.Split(strings.TrimSpace(string(output)), "\t")

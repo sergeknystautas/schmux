@@ -185,6 +185,20 @@ export default function SpawnPage() {
 
   const location = useLocation();
 
+  // Precompute URL -> default branch map for O(1) lookups
+  const defaultBranchMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const repo of repos) {
+      map.set(repo.url, repo.default_branch || 'main');
+    }
+    return map;
+  }, [repos]);
+
+  // Helper to get the default branch for a repo URL from precomputed map
+  const getDefaultBranch = (repoUrl: string): string => {
+    return defaultBranchMap.get(repoUrl) || 'main';
+  };
+
   // Spawn page mode: determined once on mount (see docs/sessions.md)
   const [mode] = useState<'workspace' | 'prefilled' | 'fresh'>(() => {
     const wsId = searchParams.get('workspace_id');
@@ -578,13 +592,15 @@ export default function SpawnPage() {
 
     // Fresh mode: suggest branch or default to 'main'
     if (spawnMode !== 'promptable' || !prompt.trim()) {
-      setBranch('main');
+      const defaultBranch = getDefaultBranch(repo);
+      setBranch(defaultBranch);
       setScreen('review');
       return;
     }
 
     if (!branchSuggestTarget) {
-      setBranch('main');
+      const defaultBranch = getDefaultBranch(repo);
+      setBranch(defaultBranch);
       setScreen('review');
       return;
     }
@@ -593,11 +609,12 @@ export default function SpawnPage() {
     generateBranchName(prompt).then((result) => {
       if (!isMounted.current) return;
       if (result) {
-        setBranch(result.branch || 'main');
+        setBranch(result.branch || getDefaultBranch(repo));
         setNickname(result.nickname || '');
       } else {
-        toastError('Branch suggestion failed. Using "main".');
-        setBranch('main');
+        const defaultBranch = getDefaultBranch(repo);
+        toastError(`Branch suggestion failed. Using "${defaultBranch}".`);
+        setBranch(defaultBranch);
         setNickname('');
       }
       setScreen('review');
@@ -621,7 +638,7 @@ export default function SpawnPage() {
     }
 
     const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
-    const actualBranch = inExistingWorkspace ? branch : (branch || 'main');
+    const actualBranch = inExistingWorkspace ? branch : (branch || getDefaultBranch(actualRepo));
 
     setSpawning(true);
 

@@ -929,10 +929,16 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	seedLines := s.config.GetTerminalSeedLines()
 	bootstrapLines := s.config.GetTerminalBootstrapLines()
 
-	// Build repo response
+	// Build repo response with default branch from cache
+	ctx := r.Context()
 	repoResp := make([]contracts.RepoWithConfig, len(repos))
 	for i, repo := range repos {
-		repoResp[i] = contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL}
+		resp := contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL}
+		// Try to get default branch from cache (omit if not detected)
+		if defaultBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
+			resp.DefaultBranch = defaultBranch
+		}
+		repoResp[i] = resp
 	}
 
 	runTargetResp := make([]contracts.RunTarget, 0, len(runTargets))

@@ -127,6 +127,7 @@ export interface RepoConfig {
 export interface RepoWithConfig {
   name: string;
   url: string;
+  default_branch?: string;
   config?: RepoConfig;
 }
 

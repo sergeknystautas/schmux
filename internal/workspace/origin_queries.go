@@ -41,6 +41,12 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 			fmt.Printf("[workspace] warning: failed to create bare clone for %s: %v\n", repo.Name, err)
 			continue
 		}
+
+		// Detect and cache default branch after cloning
+		defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+		if defaultBranch != "" {
+			m.setDefaultBranch(repo.URL, defaultBranch)
+		}
 	}
 
 	return nil
@@ -87,8 +93,16 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 		cmd.Dir = bareRepoPath
 		if output, err := cmd.CombinedOutput(); err != nil {
 			fmt.Printf("[workspace] warning: fetch failed for origin query repo %s: %v: %s\n", repo.Name, err, string(output))
+			cancel()
+			continue
 		}
 		cancel()
+
+		// Refresh default branch cache after fetch
+		defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+		if defaultBranch != "" {
+			m.setDefaultBranch(repo.URL, defaultBranch)
+		}
 	}
 }
 
@@ -138,8 +152,11 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 
 // getRecentBranchesFromBare queries a bare clone for recent branches.
 func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, repoName, repoURL string, limit int) ([]RecentBranch, error) {
-	// First, detect the default branch
-	defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+	// Get default branch from cache (populated by EnsureOriginQueries)
+	defaultBranch := "main" // fallback
+	if db, err := m.GetDefaultBranch(ctx, repoURL); err == nil {
+		defaultBranch = db
+	}
 
 	cmd := exec.CommandContext(ctx, "git", "for-each-ref",
 		"--sort=-committerdate",
@@ -205,17 +222,33 @@ func (m *Manager) getRecentBranchesFromBare(ctx context.Context, bareRepoPath, r
 }
 
 // getDefaultBranch detects the default branch for a bare repo.
+// Returns empty string if detection fails.
 func (m *Manager) getDefaultBranch(ctx context.Context, bareRepoPath string) string {
 	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = bareRepoPath
 	output, err := cmd.Output()
-	if err != nil {
-		// Fallback: assume main or master
-		return "main"
+	if err == nil {
+		// Output is like "refs/remotes/origin/main"
+		ref := strings.TrimSpace(string(output))
+		return strings.TrimPrefix(ref, "refs/remotes/origin/")
 	}
-	// Output is like "refs/remotes/origin/main"
-	ref := strings.TrimSpace(string(output))
-	return strings.TrimPrefix(ref, "refs/remotes/origin/")
+
+	// Fallback: try common defaults (main, master, develop)
+	for _, candidate := range []string{"main", "master", "develop"} {
+		if m.branchExists(ctx, bareRepoPath, candidate) {
+			return candidate
+		}
+	}
+
+	return "" // Signal failure
+}
+
+// branchExists checks if a branch exists in the bare repo.
+func (m *Manager) branchExists(ctx context.Context, bareRepoPath, branch string) bool {
+	ref := "refs/remotes/origin/" + branch
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
+	cmd.Dir = bareRepoPath
+	return cmd.Run() == nil
 }
 
 // GetBranchCommitLog returns the commit subjects for a branch relative to the default branch.
@@ -237,7 +270,11 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 		return nil, fmt.Errorf("bare clone not found for %s", repoName)
 	}
 
-	defaultBranch := m.getDefaultBranch(ctx, bareRepoPath)
+	// Get default branch from cache (populated by EnsureOriginQueries)
+	defaultBranch := "main" // fallback
+	if db, err := m.GetDefaultBranch(ctx, repoURL); err == nil {
+		defaultBranch = db
+	}
 
 	const commitDelimiter = "---COMMIT---"
 	cmd := exec.CommandContext(ctx, "git", "log",

@@ -23,16 +23,18 @@ const (
 
 // Manager manages workspace directories.
 type Manager struct {
-	config             *config.Config
-	state              state.StateStore
-	workspaceConfigs   map[string]*contracts.RepoConfig // workspace ID -> workspace config
-	workspaceConfigsMu sync.RWMutex
-	configStates       map[string]configState // workspace path -> last known config file state
-	configStatesMu     sync.RWMutex
-	gitWatcher         *GitWatcher
-	repoLocks          map[string]*sync.Mutex
-	repoLocksMu        sync.Mutex
-	randSuffix         func(length int) string
+	config               *config.Config
+	state                state.StateStore
+	workspaceConfigs     map[string]*contracts.RepoConfig // workspace ID -> workspace config
+	workspaceConfigsMu   sync.RWMutex
+	configStates         map[string]configState // workspace path -> last known config file state
+	configStatesMu       sync.RWMutex
+	gitWatcher           *GitWatcher
+	repoLocks            map[string]*sync.Mutex
+	repoLocksMu          sync.Mutex
+	randSuffix           func(length int) string
+	defaultBranchCache   map[string]string // repoURL -> defaultBranch or "unknown"
+	defaultBranchCacheMu sync.RWMutex
 }
 
 // New creates a new workspace manager.
@@ -67,6 +69,61 @@ func (m *Manager) repoLock(repoURL string) *sync.Mutex {
 		m.repoLocks[repoURL] = lock
 	}
 	return lock
+}
+
+// GetDefaultBranch returns the cached default branch for a repo URL.
+// Returns "unknown" if detection failed (negative caching to avoid repeated git commands).
+// Returns error only for truly fatal conditions (like unconfigured paths).
+func (m *Manager) GetDefaultBranch(ctx context.Context, repoURL string) (string, error) {
+	// Check in-memory cache first (includes "unknown" for failed detections)
+	m.defaultBranchCacheMu.RLock()
+	if branch, ok := m.defaultBranchCache[repoURL]; ok {
+		m.defaultBranchCacheMu.RUnlock()
+		if branch == "unknown" {
+			// Treat "unknown" as an empty result for caller compatibility
+			return "", nil
+		}
+		return branch, nil
+	}
+	m.defaultBranchCacheMu.RUnlock()
+
+	// Try to detect from origin query repo (preferred - created on daemon startup)
+	bareReposPath := m.config.GetBareReposPath()
+	if bareReposPath == "" {
+		return "", fmt.Errorf("bare repos path not configured")
+	}
+
+	repoName := extractRepoName(repoURL)
+	bareRepoPath := filepath.Join(bareReposPath, repoName+".git")
+
+	// Check if origin query repo exists
+	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+		// Not created yet - cache as "unknown" and return empty (will be retried on next call)
+		m.setDefaultBranch(repoURL, "unknown")
+		return "", nil
+	}
+
+	// Detect from git
+	branch := m.getDefaultBranch(ctx, bareRepoPath)
+	if branch == "" {
+		// Detection failed - cache as "unknown" and return empty (will be retried on next call)
+		m.setDefaultBranch(repoURL, "unknown")
+		return "", nil
+	}
+
+	// Cache the result
+	m.setDefaultBranch(repoURL, branch)
+	return branch, nil
+}
+
+// setDefaultBranch caches the default branch in memory.
+func (m *Manager) setDefaultBranch(repoURL, branch string) {
+	m.defaultBranchCacheMu.Lock()
+	defer m.defaultBranchCacheMu.Unlock()
+	if m.defaultBranchCache == nil {
+		m.defaultBranchCache = make(map[string]string)
+	}
+	m.defaultBranchCache[repoURL] = branch
 }
 
 // GetByID returns a workspace by its ID.
@@ -219,7 +276,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Check source code management setting
 	if m.config.UseWorktrees() {
 		// Using worktrees - no fallback, branch conflicts are auto-resolved with suffixes
-		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch); err != nil {
+		if err := m.addWorktree(ctx, baseRepoPath, workspacePath, branch, repoURL); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
 	} else {
@@ -481,7 +538,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	}
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, w.Path)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, w.Path, w.Repo)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
