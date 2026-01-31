@@ -27,6 +27,7 @@ func main() {
 	rootTypes := []reflect.Type{
 		reflect.TypeOf(contracts.ConfigResponse{}),
 		reflect.TypeOf(contracts.ConfigUpdateRequest{}),
+		reflect.TypeOf(contracts.GitGraphResponse{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

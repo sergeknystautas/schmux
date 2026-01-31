@@ -6,6 +6,7 @@ import type {
   DetectToolsResponse,
   DiffExternalResponse,
   DiffResponse,
+  GitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
   OpenVSCodeResponse,
@@ -351,5 +352,19 @@ export async function getRecentBranches(limit: number = 10): Promise<RecentBranc
   if (!response.ok) {
     throw new Error('Failed to fetch recent branches');
   }
+  return response.json();
+}
+
+export async function getGitGraph(
+  repoName: string,
+  opts?: { maxCommits?: number; branches?: string[] }
+): Promise<GitGraphResponse> {
+  const params = new URLSearchParams();
+  if (opts?.maxCommits) params.set('max_commits', String(opts.maxCommits));
+  if (opts?.branches?.length) params.set('branches', opts.branches.join(','));
+  const qs = params.toString();
+  const url = `/api/repos/${encodeURIComponent(repoName)}/git-graph${qs ? `?${qs}` : ''}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch git graph');
   return response.json();
 }

@@ -73,6 +73,9 @@ type Config struct {
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
+
+	// BareReposPathOverride overrides GetBareReposPath for testing.
+	BareReposPathOverride string `json:"-"`
 }
 
 // TerminalSize represents terminal dimensions.
@@ -306,6 +309,9 @@ func (c *Config) GetBaseReposPath() string {
 // GetBareReposPath returns the path for bare clones used for branch querying.
 // Always ~/.schmux/bare/ - separate from worktree base repos.
 func (c *Config) GetBareReposPath() string {
+	if c.BareReposPathOverride != "" {
+		return c.BareReposPathOverride
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""

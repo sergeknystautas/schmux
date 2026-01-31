@@ -204,6 +204,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
+	mux.HandleFunc("/api/repos/", s.withCORS(s.withAuth(s.handleRepoRoutes)))
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)
