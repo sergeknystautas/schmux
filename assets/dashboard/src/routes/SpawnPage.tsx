@@ -753,117 +753,53 @@ export default function SpawnPage() {
         </div>
       )}
 
-      {/* Agent selection - second */}
-      {spawnMode === 'promptable' && promptableList.length > 0 && (
-        <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
-          <div className="card__body">
-            <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
-              {/* Mode selector - left column */}
-              <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-                  <button
-                    type="button"
-                    className={`btn${modelSelectionMode === 'single' ? ' btn--primary' : ''}`}
-                    onClick={() => setModelSelectionMode('single')}
-                    style={{ justifyContent: 'flex-start' }}
-                  >
-                    Single
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn${modelSelectionMode === 'multiple' ? ' btn--primary' : ''}`}
-                    onClick={() => setModelSelectionMode('multiple')}
-                    style={{ justifyContent: 'flex-start' }}
-                  >
-                    Multiple
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn${modelSelectionMode === 'advanced' ? ' btn--primary' : ''}`}
-                    onClick={() => setModelSelectionMode('advanced')}
-                    style={{ justifyContent: 'flex-start' }}
-                  >
-                    Advanced
-                  </button>
-                </div>
-              </div>
+      {/* Agent + Repository grid — shared column widths */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'center' }}>
 
-              {/* Agent grid - right column */}
-              <div style={{ flex: 1 }}>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: modelSelectionMode === 'advanced'
-                    ? 'repeat(auto-fill, minmax(200px, 1fr))'
-                    : 'repeat(auto-fill, minmax(140px, 1fr))',
-                  gap: 'var(--spacing-sm)',
-                }}>
+      {/* Agent selection */}
+      {spawnMode === 'promptable' && promptableList.length > 0 && (<>
+            {/* Mode selector - dropdown */}
+            <select
+              className="select"
+              value={modelSelectionMode}
+              onChange={(e) => setModelSelectionMode(e.target.value as 'single' | 'multiple' | 'advanced')}
+              style={{ width: 'auto' }}
+            >
+              <option value="single">Single Agent</option>
+              <option value="multiple">Multiple Agents</option>
+              <option value="advanced">Advanced</option>
+            </select>
+
+            {modelSelectionMode === 'single' && (
+              <select
+                className="select"
+                value={promptableList.find(item => (targetCounts[item.name] || 0) > 0)?.name || ''}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  if (name) {
+                    toggleAgent(name);
+                  } else {
+                    // Deselect all when picking "Select agent..."
+                    const selected = promptableList.find(item => (targetCounts[item.name] || 0) > 0);
+                    if (selected) toggleAgent(selected.name);
+                  }
+                }}
+              >
+                <option value="">Select agent...</option>
+                {promptableList.map((item) => (
+                  <option key={item.name} value={item.name}>{item.label}</option>
+                ))}
+              </select>
+            )}
+
+            {modelSelectionMode === 'multiple' && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: 'var(--spacing-sm)',
+              }}>
                   {promptableList.map((item) => {
-                    const count = targetCounts[item.name] || 0;
-                    const isSelected = count > 0;
-
-                    // Advanced mode: show counter buttons
-                    if (modelSelectionMode === 'advanced') {
-                      return (
-                        <div
-                          key={item.name}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 'var(--spacing-xs)',
-                            border: '1px solid var(--color-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            padding: 'var(--spacing-xs)',
-                            backgroundColor: isSelected ? 'var(--color-accent)' : 'var(--color-surface-alt)',
-                          }}
-                        >
-                          <span style={{ fontSize: '0.875rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.label}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => updateTargetCount(item.name, -1)}
-                            disabled={count === 0}
-                            style={{
-                              padding: '2px 8px',
-                              fontSize: '0.75rem',
-                              minHeight: '24px',
-                              minWidth: '28px',
-                              lineHeight: '1',
-                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                              color: isSelected ? 'white' : 'var(--color-text)',
-                              border: 'none',
-                              borderRadius: 'var(--radius-sm)'
-                            }}
-                          >
-                            −
-                          </button>
-                          <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
-                            {count}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => updateTargetCount(item.name, 1)}
-                            style={{
-                              padding: '2px 8px',
-                              fontSize: '0.75rem',
-                              minHeight: '24px',
-                              minWidth: '28px',
-                              lineHeight: '1',
-                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                              color: isSelected ? 'white' : 'var(--color-text)',
-                              border: 'none',
-                              borderRadius: 'var(--radius-sm)'
-                            }}
-                          >
-                            +
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    // Single/Multiple mode: toggle button
+                    const isSelected = (targetCounts[item.name] || 0) > 0;
                     return (
                       <button
                         key={item.name}
@@ -884,19 +820,86 @@ export default function SpawnPage() {
                     );
                   })}
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
+              )}
+
+              {modelSelectionMode === 'advanced' && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                  gap: 'var(--spacing-sm)',
+                }}>
+                  {promptableList.map((item) => {
+                    const count = targetCounts[item.name] || 0;
+                    const isSelected = count > 0;
+                    return (
+                      <div
+                        key={item.name}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: 'var(--spacing-xs)',
+                          backgroundColor: isSelected ? 'var(--color-accent)' : 'var(--color-surface-alt)',
+                        }}
+                      >
+                        <span style={{ fontSize: '0.875rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.label}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => updateTargetCount(item.name, -1)}
+                          disabled={count === 0}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.75rem',
+                            minHeight: '24px',
+                            minWidth: '28px',
+                            lineHeight: '1',
+                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                            color: isSelected ? 'white' : 'var(--color-text)',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)'
+                          }}
+                        >
+                          −
+                        </button>
+                        <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
+                          {count}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => updateTargetCount(item.name, 1)}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.75rem',
+                            minHeight: '24px',
+                            minWidth: '28px',
+                            lineHeight: '1',
+                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                            color: isSelected ? 'white' : 'var(--color-text)',
+                            border: 'none',
+                            borderRadius: 'var(--radius-sm)'
+                          }}
+                        >
+                          +
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+          </>
       )}
 
-      {/* Repository - third (hidden when only one repo or not editable) */}
-      <div className="card" style={{ marginBottom: 'var(--spacing-md)', display: mode !== 'fresh' ? 'none' : undefined }}>
-        <div className="card__body" style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
-          <div style={{ flex: '0 0 auto' }}>
-            <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
-          </div>
-          <div style={{ flex: 1 }}>
+      {/* Repository (hidden when not editable) */}
+      {mode === 'fresh' && (
+        <>
+          <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
+          <div>
             <select
               id="repo"
               className="select"
@@ -908,7 +911,6 @@ export default function SpawnPage() {
                   setNewRepoName('');
                 }
               }}
-              disabled={mode !== 'fresh'}
             >
               <option value="">Select repository...</option>
               {repos.map((item) => (
@@ -927,12 +929,13 @@ export default function SpawnPage() {
                   onChange={(event) => setNewRepoName(event.target.value)}
                   placeholder="Repository name"
                   required
-                  disabled={mode !== 'fresh'}
                 />
               </div>
             )}
           </div>
-        </div>
+        </>
+      )}
+
       </div>
 
       <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
