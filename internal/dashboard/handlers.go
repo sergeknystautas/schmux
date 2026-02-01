@@ -661,7 +661,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	// Build the review prompt with commit history included
 	prompt := "Review the current state of this branch and prepare to resume work.\n\n" +
 		"1. Read any markdown or spec files in the repo root and docs/ to understand project context and goals\n" +
-		"2. Run `git diff --stat main` to understand the scope of changes\n" +
+		"2. Run `git diff --stat main...HEAD` to compare this branch against where it diverged from main\n" +
 		"3. Identify what's been completed, what's in progress, and what remains\n\n"
 
 	if len(subjects) > 0 {
