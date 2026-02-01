@@ -51,7 +51,9 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     setOpeningVSCode(true);
     try {
       const result = await openVSCode(workspace.id);
-      setVSCodeResult(result);
+      if (!result.success) {
+        setVSCodeResult(result);
+      }
     } catch (err) {
       setVSCodeResult({ success: false, message: getErrorMessage(err, 'Failed to open VS Code') });
     } finally {
