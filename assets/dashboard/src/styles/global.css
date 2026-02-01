@@ -2303,9 +2303,18 @@ a:hover {
 }
 
 .wizard-step-content__description {
+    font-size: 0.875rem;
     color: var(--color-text-muted);
     margin-bottom: var(--spacing-lg);
     line-height: 1.6;
+}
+
+.wizard-step-content h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text);
 }
 
 /* Item list (for repos and run targets) */

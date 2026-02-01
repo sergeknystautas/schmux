@@ -1223,7 +1223,7 @@ export default function ConfigPage() {
                 </p>
               </div>
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Repositories</h3>
+              <h3>Repositories</h3>
               <p className="wizard-step-content__description">
                 Add the Git repositories that run targets will work on.
               </p>
@@ -1287,7 +1287,7 @@ export default function ConfigPage() {
                 <button type="button" className="btn btn--sm btn--primary" onClick={addRepo}>Add</button>
               </div>
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Source Code Management</h3>
+              <h3>Source Code Management</h3>
               <p className="wizard-step-content__description">
                 How schmux creates workspace directories for each session.
               </p>
@@ -1328,7 +1328,7 @@ export default function ConfigPage() {
                 Configure user-supplied run targets. Detected tools appear automatically in the spawn wizard.
               </p>
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Detected Run Targets (Read-only)</h3>
+              <h3>Detected Run Targets (Read-only)</h3>
               <p className="section-hint">
                 Official tools we detected on this machine and confirmed working. These are read-only.
               </p>
@@ -1349,7 +1349,7 @@ export default function ConfigPage() {
                 </div>
               )}
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Models</h3>
+              <h3>Models</h3>
               <p className="section-hint">
                 Add secrets to enable third-party models for quick launch and spawning.
               </p>
@@ -1410,7 +1410,7 @@ export default function ConfigPage() {
                 </div>
               )}
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Promptable Targets</h3>
+              <h3>Promptable Targets</h3>
               <p className="section-hint">
                 Custom coding agents that accept prompts. We append the prompt to the command.
               </p>
@@ -1476,7 +1476,7 @@ export default function ConfigPage() {
                 <button type="button" className="btn btn--sm btn--primary" onClick={addPromptableTarget}>Add</button>
               </div>
 
-              <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Command Targets</h3>
+              <h3>Command Targets</h3>
               <p className="section-hint">
                 Shell commands you want to run quickly, like launching a terminal or starting the app.
               </p>
@@ -1792,7 +1792,7 @@ export default function ConfigPage() {
                     </div>
                   )}
 
-                  <h3 style={{ marginTop: 'var(--spacing-lg)' }}>Add Custom Diff Tool</h3>
+                  <h3>Add Custom Diff Tool</h3>
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-group__label">Name</label>
