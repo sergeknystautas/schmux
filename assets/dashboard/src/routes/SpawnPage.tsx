@@ -6,19 +6,9 @@ import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import PromptTextarea from '../components/PromptTextarea';
 import type { Model, RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
-
-const PROMPT_TEXTAREA_STYLE: React.CSSProperties = {
-  width: '100%',
-  height: '420px',
-  resize: 'vertical',
-  border: 'none',
-  outline: 'none',
-  boxShadow: 'none',
-  padding: 'var(--spacing-md)',
-  borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
-};
 
 
 // ============================================================================
@@ -577,6 +567,19 @@ export default function SpawnPage() {
     return true;
   };
 
+  // Handle slash command selection - switches to command mode
+  const handleSlashCommandSelect = (command: string) => {
+    setSelectedCommand(command);
+    setSpawnMode('command');
+    setNickname(''); // Clear nickname in command mode
+  };
+
+  // Handle "Prompt" button - return to promptable mode
+  const handlePromptMode = () => {
+    setSpawnMode('promptable');
+    setSelectedCommand('');
+  };
+
   const handleNext = () => {
     if (!validateForm()) return;
 
@@ -956,113 +959,47 @@ export default function SpawnPage() {
       {!currentWorkspace && (
         <div className="app-header">
           <div className="app-header__info">
-            <h1 className="app-header__meta">Spawn Sessions</h1>
+            <h1 className="app-header__meta">What do you want me to do?</h1>
           </div>
         </div>
       )}
 
       <div className="spawn-content">
 
-      {/* Mode + Repository on same line */}
-      <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
-        <div className="card__body" style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'flex-end' }}>
-          <div style={{ flex: '0 0 auto' }}>
-            <label className="form-group__label">Mode</label>
-            <div className="button-group">
-              <button
-                type="button"
-                className={`btn${spawnMode === 'promptable' ? ' btn--primary' : ''}`}
-                onClick={() => setSpawnMode('promptable')}
-              >
-                Promptable
-              </button>
-              <button
-                type="button"
-                className={`btn${spawnMode === 'command' ? ' btn--primary' : ''}`}
-                onClick={() => {
-                  setSpawnMode('command');
-                  setNickname('');
-                }}
-                disabled={commandTargets.length === 0}
-              >
-                Command
-              </button>
-            </div>
+      {/* Prompt/Command area - first */}
+      {spawnMode === 'promptable' ? (
+        <>
+          <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: '0', overflow: 'visible' }}>
+            <PromptTextarea
+              value={prompt}
+              onChange={setPrompt}
+              placeholder="Describe the task you want the targets to work on... (Type / for commands)"
+              commands={commandTargets.map(t => t.name)}
+              onSelectCommand={handleSlashCommandSelect}
+            />
           </div>
-
-          <div style={{ flex: 1 }}>
-            <label htmlFor="repo" className="form-group__label">Repository</label>
-            <select
-              id="repo"
-              className="select"
-              required
-              value={repo}
-              onChange={(event) => {
-                setRepo(event.target.value);
-                if (event.target.value !== '__new__') {
-                  setNewRepoName('');
-                }
-              }}
-              disabled={mode !== 'fresh'}
-            >
-              <option value="">Select repository...</option>
-              {repos.map((item) => (
-                <option key={item.url} value={item.url}>{item.name}</option>
-              ))}
-              <option value="__new__">+ Create New Repository</option>
-            </select>
-
-            {repo === '__new__' && (
-              <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                <input
-                  type="text"
-                  id="newRepoName"
-                  className="input"
-                  value={newRepoName}
-                  onChange={(event) => setNewRepoName(event.target.value)}
-                  placeholder="Repository name"
-                  required
-                  disabled={mode !== 'fresh'}
-                />
-              </div>
-            )}
-          </div>
+        </>
+      ) : (
+        <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
+          <label htmlFor="command" className="form-group__label">Command</label>
+          <select
+            id="command"
+            className="select"
+            required
+            value={selectedCommand}
+            onChange={(event) => setSelectedCommand(event.target.value)}
+          >
+            <option value="">Select command...</option>
+            {commandTargets.map((cmd) => (
+              <option key={cmd.name} value={cmd.name}>
+                {cmd.name}
+              </option>
+            ))}
+          </select>
         </div>
+      )}
 
-      </div>
-
-      {/* Prompt area - big and centered */}
-      <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: '0' }}>
-        {spawnMode === 'promptable' ? (
-          <textarea
-            className="textarea"
-            style={PROMPT_TEXTAREA_STYLE}
-            placeholder="Describe the task you want the targets to work on..."
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-        ) : (
-          <div style={{ padding: 'var(--spacing-md)' }}>
-            <label htmlFor="command" className="form-group__label">Command</label>
-            <select
-              id="command"
-              className="select"
-              required
-              value={selectedCommand}
-              onChange={(event) => setSelectedCommand(event.target.value)}
-            >
-              <option value="">Select command...</option>
-              {commandTargets.map((cmd) => (
-                <option key={cmd.name} value={cmd.name}>
-                  {cmd.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Agent selection - mode selector + grid layout */}
+      {/* Agent selection - second */}
       {spawnMode === 'promptable' && promptableList.length > 0 && (
         <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
           <div className="card__body">
@@ -1199,7 +1136,57 @@ export default function SpawnPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 'var(--spacing-lg)' }}>
+      {/* Repository - third (hidden when only one repo or not editable) */}
+      <div className="card" style={{ marginBottom: 'var(--spacing-md)', display: mode !== 'fresh' ? 'none' : undefined }}>
+        <div className="card__body" style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
+          <div style={{ flex: '0 0 auto' }}>
+            <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
+          </div>
+          <div style={{ flex: 1 }}>
+            <select
+              id="repo"
+              className="select"
+              required
+              value={repo}
+              onChange={(event) => {
+                setRepo(event.target.value);
+                if (event.target.value !== '__new__') {
+                  setNewRepoName('');
+                }
+              }}
+              disabled={mode !== 'fresh'}
+            >
+              <option value="">Select repository...</option>
+              {repos.map((item) => (
+                <option key={item.url} value={item.url}>{item.name}</option>
+              ))}
+              <option value="__new__">+ Create New Repository</option>
+            </select>
+
+            {repo === '__new__' && (
+              <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                <input
+                  type="text"
+                  id="newRepoName"
+                  className="input"
+                  value={newRepoName}
+                  onChange={(event) => setNewRepoName(event.target.value)}
+                  placeholder="Repository name"
+                  required
+                  disabled={mode !== 'fresh'}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
+        {spawnMode === 'command' && (
+          <button className="btn" onClick={handlePromptMode} disabled={reviewing}>
+            Prompt
+          </button>
+        )}
         <button
           className="btn btn--primary"
           onClick={handleNext}
