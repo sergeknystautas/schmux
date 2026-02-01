@@ -77,9 +77,10 @@ Dashboard also supports:
 The spawn wizard is a single-page interface that prioritizes your task description:
 
 - **Prompt first**: Large textarea at the top for your task description
+- **Slash commands**: Type `/command` in the textarea to switch to command mode via autocomplete
 - **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
-- **AI-powered branch suggestions**: Branch name suggestions based on your prompt (when creating new workspaces)
-- **Enter to submit**: Press Enter in the branch or nickname fields to trigger spawn (faster keyboard workflow)
+- **AI-powered branch suggestions**: Branch name and nickname are auto-generated from your prompt (when creating new workspaces)
+- **One-click engage**: The "Engage" button handles branch naming and spawning in sequence
 
 When spawning into an existing workspace, the page shows workspace context (header + tabs) and auto-navigates to the newly created session after successful spawn.
 
@@ -110,9 +111,8 @@ The spawn page uses a three-layer persistence model:
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
 - Auto-saved as user types
 - **Cleared on successful spawn**
-- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `stage`, `branch`, `nickname`
+- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`
 - Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
-- `stage` values: `'write'` (form screen) or `'review'` (confirm screen)
 - `modelSelectionMode` values: `'single'` (one agent), `'multiple'` (toggle multiple), `'advanced'` (0-10 per agent)
 
 **Layer 3: Local Storage (Long-term Memory)**
@@ -138,8 +138,7 @@ The spawn page uses a three-layer persistence model:
 | selectedCommand | Which command to run (only when spawnMode is `'command'`) |
 | targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
 | modelSelectionMode | `'single'`, `'multiple'`, or `'advanced'` - controls how agents are selected |
-| nickname | Friendly name for the session |
-| stage | Which screen user was on: `'write'` (form) or `'review'` (confirm) |
+| nickname | Friendly name for the session (auto-generated from prompt in fresh mode) |
 
 ### Model Selection Modes
 
@@ -199,9 +198,6 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | modelSelectionMode | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
 | selectedCommand | `selectedCommand` | - | `""` |
 | targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
-| branch | `branch` | - | `""` |
-| nickname | `nickname` | - | `""` |
-| stage (screen) | `stage` | - | `'write'` |
 
 ### Prepare Branch Spawn
 
@@ -223,14 +219,14 @@ When the user clicks a recent branch on the home page:
 4. Identify what's completed, in progress, and remaining
 5. Summarize findings, then ask what to work on next
 
-The user can edit both the prompt and nickname before spawning.
+The user can edit the prompt before engaging. Branch and nickname are auto-generated.
 
 ### On Successful Spawn
 
 When at least one session spawns successfully:
 
 **Cleared:**
-- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`, `stage`, `branch`, `nickname`)
+- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`)
 
 **Updated (write-back to localStorage):**
 - `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo)
@@ -242,13 +238,13 @@ When at least one session spawns successfully:
 
 ### Branch Suggestion
 
-Called in `handleNext` when ALL of these are true:
+Called during the "Engage" flow (inside `handleEngage`) when ALL of these are true:
 - Mode is `fresh`
 - `spawnMode` is `'promptable'`
 - `prompt` is not empty
 - `branchSuggestTarget` is configured
 
-On success, sets both `branch` and `nickname` from the API response. Otherwise, branch defaults to `'main'`.
+The Engage button shows "Naming branch..." during this phase. On success, both `branch` and `nickname` are set from the API response and passed directly to spawn. On failure, branch defaults to the repo's default branch (usually `'main'`).
 
 ### Inline Spawn Controls
 

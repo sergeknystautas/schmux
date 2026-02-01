@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getConfig, spawnSessions, getErrorMessage, suggestBranch, checkBranchConflict } from '../lib/api';
+import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -25,11 +25,6 @@ interface SpawnDraft {
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
-  // Remembers which screen user was on: 'write' or 'review'
-  stage?: 'write' | 'review';
-  // Branch and nickname from review screen
-  branch?: string;
-  nickname?: string;
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {
@@ -144,7 +139,6 @@ function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): v
 
 export default function SpawnPage() {
   useRequireConfig();
-  const [screen, setScreen] = useState<'write' | 'review'>('write');
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
@@ -156,22 +150,17 @@ export default function SpawnPage() {
   const [newRepoName, setNewRepoName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
-  const [reviewing, setReviewing] = useState(false);
+  const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning'>('idle');
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
-  const [branchConflict, setBranchConflict] = useState<{ conflict: boolean; workspace_id?: string } | null>(null);
-  const [checkingConflict, setCheckingConflict] = useState(false);
-  const [conflictCheckError, setConflictCheckError] = useState(false);
-  const [sourceCodeManagement, setSourceCodeManager] = useState('git-worktree');
   const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [results, setResults] = useState<SpawnResult[] | null>(null);
-  const [spawning, setSpawning] = useState(false);
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
   const { workspaces, loading: sessionsLoading, waitForSession } = useSessions();
-  const { config, getRepoName } = useConfig();
+  const { config } = useConfig();
 
   const location = useLocation();
 
@@ -233,8 +222,6 @@ export default function SpawnPage() {
         const cfg = await getConfig();
         if (!active) return;
         setRepos((cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name)));
-        setSourceCodeManager(cfg.source_code_management || 'git-worktree');
-
         const modelBaseTools = new Set((cfg.models || []).map((model) => model.base_tool));
         const promptableItems = (cfg.run_targets || []).filter(t => {
           if (t.type !== 'promptable') {
@@ -335,11 +322,6 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
-      // branch, nickname: restore from review screen
-      if (draft?.branch) setBranch(draft.branch);
-      if (draft?.nickname) setNickname(draft.nickname);
-      // stage: restore which screen user was on
-      if (draft?.stage) setScreen(draft.stage);
     }
 
     initialized.current = true;
@@ -419,9 +401,6 @@ export default function SpawnPage() {
       selectedCommand,
       targetCounts,
       modelSelectionMode,
-      stage: screen,
-      branch,
-      nickname,
     };
     // Only save repo/newRepoName for fresh spawns
     if (!urlWorkspaceId) {
@@ -429,7 +408,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
-  }, [prompt, spawnMode, selectedCommand, targetCounts, modelSelectionMode, repo, newRepoName, urlWorkspaceId, results, screen, branch, nickname]);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, modelSelectionMode, repo, newRepoName, urlWorkspaceId, results]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -485,49 +464,6 @@ export default function SpawnPage() {
     });
   };
 
-  // Check for branch conflicts when branch changes (worktree mode only, new workspace only)
-  useEffect(() => {
-    // Only check if:
-    // 1. Not spawning into existing workspace
-    // 2. Using worktrees
-    // 3. Have both repo and branch set
-    // 4. Not creating a new repo
-    if (inExistingWorkspace || sourceCodeManagement !== 'git-worktree' || !repo || !branch || repo === '__new__') {
-      setBranchConflict(null);
-      setConflictCheckError(false);
-      return;
-    }
-
-    let cancelled = false;
-    const check = async () => {
-      setCheckingConflict(true);
-      setConflictCheckError(false);
-      try {
-        const result = await checkBranchConflict(repo, branch);
-        if (!cancelled) {
-          setBranchConflict(result);
-        }
-      } catch (err) {
-        console.error('Failed to check branch conflict:', err);
-        if (!cancelled) {
-          setBranchConflict(null);
-          setConflictCheckError(true);
-        }
-      } finally {
-        if (!cancelled) {
-          setCheckingConflict(false);
-        }
-      }
-    };
-
-    // Debounce the check
-    const timeout = setTimeout(check, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [repo, branch, inExistingWorkspace, sourceCodeManagement]);
-
   const generateBranchName = useCallback(async (promptText: string) => {
     if (!promptText.trim()) {
       return null;
@@ -580,58 +516,10 @@ export default function SpawnPage() {
     setSelectedCommand('');
   };
 
-  const handleNext = () => {
+  const handleEngage = async () => {
     if (!validateForm()) return;
 
-    if (spawnMode === 'command') {
-      setNickname('');
-    }
-
-    // Workspace/prefilled: branch already set, skip suggestion
-    if (mode !== 'fresh') {
-      setScreen('review');
-      return;
-    }
-
-    // Fresh mode: suggest branch or default to 'main'
-    if (spawnMode !== 'promptable' || !prompt.trim()) {
-      const defaultBranch = getDefaultBranch(repo);
-      setBranch(defaultBranch);
-      setScreen('review');
-      return;
-    }
-
-    if (!branchSuggestTarget) {
-      const defaultBranch = getDefaultBranch(repo);
-      setBranch(defaultBranch);
-      setScreen('review');
-      return;
-    }
-
-    setReviewing(true);
-    generateBranchName(prompt).then((result) => {
-      if (!isMounted.current) return;
-      if (result) {
-        setBranch(result.branch || getDefaultBranch(repo));
-        setNickname(result.nickname || '');
-      } else {
-        const defaultBranch = getDefaultBranch(repo);
-        toastError(`Branch suggestion failed. Using "${defaultBranch}".`);
-        setBranch(defaultBranch);
-        setNickname('');
-      }
-      setScreen('review');
-      setReviewing(false);
-    });
-  };
-
-  const handleBack = () => {
-    setScreen('write');
-  };
-
-  const handleSpawn = async () => {
     const selectedTargets: Record<string, number> = {};
-
     if (spawnMode === 'command') {
       selectedTargets[selectedCommand] = 1;
     } else {
@@ -641,16 +529,43 @@ export default function SpawnPage() {
     }
 
     const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
-    const actualBranch = inExistingWorkspace ? branch : (branch || getDefaultBranch(actualRepo));
+    let actualBranch = branch;
+    let actualNickname = nickname;
 
-    setSpawning(true);
+    // Fresh mode: need to determine branch
+    if (mode === 'fresh') {
+      if (spawnMode === 'promptable' && prompt.trim() && branchSuggestTarget) {
+        // Call branch suggest API
+        setEngagePhase('naming');
+        const result = await generateBranchName(prompt);
+        if (!isMounted.current) return;
+        if (result) {
+          actualBranch = result.branch || getDefaultBranch(actualRepo);
+          actualNickname = result.nickname || '';
+        } else {
+          actualBranch = getDefaultBranch(actualRepo);
+          actualNickname = '';
+          toastError(`Branch suggestion failed. Using "${actualBranch}".`);
+        }
+      } else {
+        actualBranch = getDefaultBranch(actualRepo);
+        actualNickname = '';
+      }
+    }
+
+    if (spawnMode === 'command') {
+      actualNickname = '';
+    }
+
+    // Spawn
+    setEngagePhase('spawning');
 
     try {
       const response = await spawnSessions({
         repo: actualRepo,
         branch: actualBranch,
         prompt: spawnMode === 'promptable' ? prompt : '',
-        nickname: nickname.trim(),
+        nickname: actualNickname.trim(),
         targets: selectedTargets,
         workspace_id: prefillWorkspaceId || ''
       });
@@ -659,10 +574,12 @@ export default function SpawnPage() {
       const hasSuccess = response.some(r => !r.error);
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
-        // Write-back to localStorage (long-term memory)
         saveLastRepo(actualRepo);
-        saveLastTargetCounts(selectedTargets);
-        saveLastModelSelectionMode(modelSelectionMode);
+        // Only save promptable target counts — command targets would overwrite agent selection
+        if (spawnMode === 'promptable') {
+          saveLastTargetCounts(selectedTargets);
+          saveLastModelSelectionMode(modelSelectionMode);
+        }
       }
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
@@ -685,20 +602,9 @@ export default function SpawnPage() {
       }
     } catch (err) {
       const errorMsg = getErrorMessage(err, 'Unknown error');
-      // Check for server-side branch conflict error (race condition catch)
-      if (errorMsg.startsWith('branch_conflict:')) {
-        // Parse workspace ID from message: "branch_conflict: branch "x" is already in use by workspace "y""
-        const match = errorMsg.match(/workspace "([^"]+)"/);
-        setBranchConflict({
-          conflict: true,
-          workspace_id: match ? match[1] : undefined
-        });
-        toastError('Branch is already in use by another workspace');
-      } else {
-        toastError(`Failed to spawn: ${errorMsg}`);
-      }
+      toastError(`Failed to spawn: ${errorMsg}`);
     } finally {
-      setSpawning(false);
+      setEngagePhase('idle');
     }
   };
 
@@ -790,158 +696,6 @@ export default function SpawnPage() {
           <div style={{ marginTop: 'var(--spacing-lg)' }}>
             <Link to="/" className="btn btn--primary">Back to Home</Link>
           </div>
-        </div>
-      </>
-    );
-  }
-
-  // Review screen
-  if (screen === 'review') {
-    return (
-      <>
-        {currentWorkspace && (
-          <>
-            <WorkspaceHeader workspace={currentWorkspace} />
-            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} activeSpawnTab />
-          </>
-        )}
-        {!currentWorkspace && (
-          <div className="app-header">
-            <div className="app-header__info">
-              <h1 className="app-header__meta">Spawn Sessions</h1>
-            </div>
-          </div>
-        )}
-
-        <div className="spawn-content">
-        <div className="card">
-          <div className="card__body">
-            <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Repository</h3>
-            <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
-              <span className="metadata-field__value">
-                {repo === '__new__' ? `New repository: ${newRepoName}` : getRepoName(repo)}
-              </span>
-            </div>
-
-            {spawnMode === 'promptable' && (
-              <>
-                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Prompt</h3>
-                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
-                  <span
-                    className="metadata-field__value"
-                    style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                  >
-                    {prompt}
-                  </span>
-                </div>
-
-                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Targets</h3>
-                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
-                  <span className="metadata-field__value">
-                    {promptableList
-                      .filter((item) => (targetCounts[item.name] || 0) > 0)
-                      .map((item) => {
-                        const count = targetCounts[item.name] || 0;
-                        return `${item.label} ×${count}`;
-                      })
-                      .join(', ')}
-                  </span>
-                </div>
-              </>
-            )}
-
-            {spawnMode === 'command' && (
-              <>
-                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Command</h3>
-                <div className="metadata-field" style={{ marginBottom: 'var(--spacing-md)' }}>
-                  <span className="metadata-field__value">{selectedCommand}</span>
-                </div>
-              </>
-            )}
-
-            <div className="form-group">
-              <label className="form-group__label">Branch</label>
-              {mode !== 'fresh' ? (
-                <div className="metadata-field">
-                  <span className="metadata-field__value">{branch}</span>
-                </div>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    className={`input${branchConflict?.conflict ? ' input--error' : ''}`}
-                    value={branch}
-                    onChange={(event) => setBranch(event.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !branchConflict?.conflict) handleSpawn(); }}
-                    required
-                  />
-                  {checkingConflict && (
-                    <p className="form-group__hint" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-                      <span className="spinner spinner--small"></span>
-                      Checking branch availability...
-                    </p>
-                  )}
-                  {branchConflict?.conflict && (
-                    <p className="form-group__error">
-                      Branch "{branch}" is already in use by workspace "{branchConflict.workspace_id}".
-                      Use a different branch name or spawn into the existing workspace.
-                    </p>
-                  )}
-                  {conflictCheckError && (
-                    <p className="form-group__error">
-                      Failed to verify branch availability. Cannot spawn in worktree mode until check succeeds.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-group__label">Nickname</label>
-              {inExistingWorkspace ? (
-                <div className="metadata-field">
-                  <span className="metadata-field__value">{nickname || '—'}</span>
-                </div>
-              ) : (
-                <>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="e.g., 'Fix login bug', 'Refactor auth flow'"
-                    maxLength={100}
-                    value={nickname}
-                    onChange={(event) => setNickname(event.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSpawn(); }}
-                  />
-                  {!branchSuggestTarget && (
-                    <div className="banner banner--info" style={{ margin: 'var(--spacing-sm) 0', fontSize: '0.875rem' }}>
-                      Auto-suggested branch names are disabled. Enable in config to use suggestions.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn" onClick={handleBack} disabled={spawning}>
-            Back
-          </button>
-          <button
-            className="btn btn--primary"
-            onClick={handleSpawn}
-            disabled={spawning || checkingConflict || branchConflict?.conflict || conflictCheckError}
-            style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
-          >
-            {spawning ? (
-              <>
-                <span className="spinner spinner--small"></span>
-                Spawning...
-              </>
-            ) : 'Spawn'}
-          </button>
-        </div>
         </div>
       </>
     );
@@ -1183,22 +937,27 @@ export default function SpawnPage() {
 
       <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
         {spawnMode === 'command' && (
-          <button className="btn" onClick={handlePromptMode} disabled={reviewing}>
+          <button className="btn" onClick={handlePromptMode} disabled={engagePhase !== 'idle'}>
             Prompt
           </button>
         )}
         <button
           className="btn btn--primary"
-          onClick={handleNext}
-          disabled={reviewing}
+          onClick={handleEngage}
+          disabled={engagePhase !== 'idle'}
           style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
         >
-          {reviewing ? (
+          {engagePhase === 'naming' ? (
             <>
               <span className="spinner spinner--small"></span>
-              Reviewing...
+              Naming branch...
             </>
-          ) : 'Review'}
+          ) : engagePhase === 'spawning' ? (
+            <>
+              <span className="spinner spinner--small"></span>
+              Spawning...
+            </>
+          ) : 'Engage'}
         </button>
       </div>
       </div>
