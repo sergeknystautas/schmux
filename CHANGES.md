@@ -2,6 +2,27 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.1.1 (2026-01-31)
+
+**Major features:**
+- Git History DAG visualization for workspace branches - Interactive visualization showing commit topology following Sapling ISL patterns
+- Multi-line selection in terminal viewer with explicit Copy/Cancel actions
+
+**Improvements:**
+- Qwen3 Coder Plus model support - Added new AI model option for enhanced capabilities
+- Default branch detection now uses repository's actual default branch instead of hardcoding "main"
+- Terminology clarified: distinguished query repos from worktree bases
+
+**UI**
+- Reduced diff page font sizes for improved content density
+- ConfigPage heading styles consolidated into global CSS
+
+**Bug fixes:**
+- Branch review diff now compares against divergence point for more accurate comparisons
+- Fixed git rev-list ambiguous argument error in workspace status
+- E2E test cleanup improved with dangling Docker image removal after tests
+- Go updated to 1.24 with tar command fix in release workflow
+
 ## Version 1.1.0 (2026-01-30)
 
 **Major features:**

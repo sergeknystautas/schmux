@@ -128,7 +128,7 @@ When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn
 
 ## Status
 
-**v1.0.1** - Stable for daily use
+**v1.1.1** - Stable for daily use
 
 See [CHANGES.md](CHANGES.md) for what's new in each release.
 
