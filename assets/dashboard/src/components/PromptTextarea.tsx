@@ -219,6 +219,7 @@ export default function PromptTextarea({
         placeholder={placeholder}
         rows={expanded ? 20 : 5}
         className="textarea"
+        autoFocus
         style={{
           border: 'none',
           borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
