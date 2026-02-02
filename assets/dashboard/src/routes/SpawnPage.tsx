@@ -7,7 +7,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
-import type { Model, RepoResponse, RunTargetResponse, SpawnResult } from '../lib/types';
+import type { Model, RepoResponse, RunTargetResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 
@@ -151,6 +151,7 @@ export default function SpawnPage() {
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
   const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning'>('idle');
+  const [showBranchInput, setShowBranchInput] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const skipNextPersist = useRef(false);
@@ -204,6 +205,13 @@ export default function SpawnPage() {
 
   // Get branch suggest target from config
   const branchSuggestTarget = config?.branch_suggest?.target || '';
+
+  // Show branch input immediately when suggestion is disabled
+  useEffect(() => {
+    if (mode === 'fresh' && !branchSuggestTarget && config) {
+      setShowBranchInput(true);
+    }
+  }, [mode, branchSuggestTarget, config]);
 
   useEffect(() => {
     return () => {
@@ -464,16 +472,16 @@ export default function SpawnPage() {
     });
   };
 
-  const generateBranchName = useCallback(async (promptText: string) => {
+  const generateBranchName = useCallback(async (promptText: string): Promise<{ result: SuggestBranchResponse | null; error: string | null }> => {
     if (!promptText.trim()) {
-      return null;
+      return { result: null, error: 'Empty prompt' };
     }
     try {
       const result = await suggestBranch({ prompt: promptText });
-      return result;
+      return { result, error: null };
     } catch (err) {
       console.error('Failed to suggest branch:', err);
-      return null;
+      return { result: null, error: getErrorMessage(err, 'Unknown error') };
     }
   }, []);
 
@@ -484,6 +492,10 @@ export default function SpawnPage() {
     }
     if (repo === '__new__' && !newRepoName.trim()) {
       toastError('Please enter a repository name');
+      return false;
+    }
+    if (mode === 'fresh' && !branchSuggestTarget && !branch.trim()) {
+      toastError('Please enter a branch name');
       return false;
     }
     if (spawnMode === 'promptable') {
@@ -534,20 +546,28 @@ export default function SpawnPage() {
 
     // Fresh mode: need to determine branch
     if (mode === 'fresh') {
-      if (spawnMode === 'promptable' && prompt.trim() && branchSuggestTarget) {
+      if (branch.trim()) {
+        // User provided a branch name — use it directly, skip suggestion
+        actualBranch = branch.trim();
+        actualNickname = nickname;
+      } else if (spawnMode === 'promptable' && prompt.trim() && branchSuggestTarget) {
         // Call branch suggest API
         setEngagePhase('naming');
-        const result = await generateBranchName(prompt);
+        const { result, error } = await generateBranchName(prompt);
         if (!isMounted.current) return;
-        if (result) {
-          actualBranch = result.branch || getDefaultBranch(actualRepo);
+        if (result && result.branch.trim()) {
+          actualBranch = result.branch;
           actualNickname = result.nickname || '';
         } else {
-          actualBranch = getDefaultBranch(actualRepo);
-          actualNickname = '';
-          toastError(`Branch suggestion failed. Using "${actualBranch}".`);
+          // Abort — reveal branch input so user can provide one
+          setShowBranchInput(true);
+          setEngagePhase('idle');
+          toastError(`Branch suggestion failed: ${error}. Please enter a branch name.`);
+          return;
         }
       } else {
+        // No suggestion available and no branch provided — shouldn't reach here
+        // due to validateForm, but guard anyway
         actualBranch = getDefaultBranch(actualRepo);
         actualNickname = '';
       }
@@ -569,9 +589,15 @@ export default function SpawnPage() {
         targets: selectedTargets,
         workspace_id: prefillWorkspaceId || ''
       });
-      setResults(response);
-      // Clear draft and write-back to localStorage if at least one spawn succeeded
       const hasSuccess = response.some(r => !r.error);
+      if (!hasSuccess) {
+        // All spawns failed — stay on form, show errors as toasts
+        const errors = response.filter(r => r.error).map(r => r.error);
+        const unique = [...new Set(errors)];
+        toastError(`Spawn failed: ${unique.join('; ')}`);
+        return;
+      }
+      setResults(response);
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
         saveLastRepo(actualRepo);
@@ -933,6 +959,21 @@ export default function SpawnPage() {
               </div>
             )}
           </div>
+        </>
+      )}
+
+      {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
+      {mode === 'fresh' && showBranchInput && (
+        <>
+          <label htmlFor="branch" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Branch</label>
+          <input
+            type="text"
+            id="branch"
+            className="input"
+            value={branch}
+            onChange={(event) => setBranch(event.target.value)}
+            placeholder="e.g. feature/my-branch"
+          />
         </>
       )}
 

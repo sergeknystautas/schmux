@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 const (
@@ -56,7 +56,7 @@ Here is the user's prompt:
 >>>
 `
 
-	branchSuggestTimeout = 15 * time.Second
+	branchSuggestTimeout = 30 * time.Second
 )
 
 var (
@@ -66,8 +66,6 @@ var (
 	ErrInvalidResponse = errors.New("invalid branch suggestion response")
 	ErrInvalidBranch   = errors.New("invalid branch name")
 )
-
-var branchNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:[-/][a-z0-9]+)*$`)
 
 // IsEnabled returns true if branch suggestion is enabled (has a configured target).
 func IsEnabled(cfg *config.Config) bool {
@@ -153,7 +151,7 @@ func ParseResult(raw string) (Result, error) {
 	if branch == "" {
 		return Result{}, ErrInvalidResponse
 	}
-	if !branchNamePattern.MatchString(branch) {
+	if err := workspace.ValidateBranchName(branch); err != nil {
 		return Result{}, ErrInvalidBranch
 	}
 

@@ -139,6 +139,10 @@ func (m *Manager) hasActiveSessions(workspaceID string) bool {
 // Returns a workspace ready for use (fetch/pull/clean already done).
 // For local repositories (URL format "local:{name}"), always creates a fresh workspace.
 func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*state.Workspace, error) {
+	if err := ValidateBranchName(branch); err != nil {
+		return nil, fmt.Errorf("failed to get workspace: %w", err)
+	}
+
 	// Handle local repositories (format: "local:{name}")
 	if strings.HasPrefix(repoURL, "local:") {
 		repoName := strings.TrimPrefix(repoURL, "local:")

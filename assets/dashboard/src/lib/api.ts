@@ -80,8 +80,15 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Failed to suggest branch name');
+    const text = await response.text();
+    let message = 'Failed to suggest branch name';
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.error) message = parsed.error;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
   }
   return response.json();
 }
