@@ -496,7 +496,7 @@ export default class TerminalStream {
     if (!line) return;
 
     const lineText = line.translateToString().trim();
-    const cursorBufferLine = buffer.viewportY + buffer.cursorY;
+    const cursorBufferLine = buffer.baseY + buffer.cursorY;
     const markerOffset = bufferLine - cursorBufferLine;
 
     const marker = this.terminal.registerMarker(markerOffset);
