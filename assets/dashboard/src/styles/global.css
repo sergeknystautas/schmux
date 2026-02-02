@@ -2193,6 +2193,15 @@ a:hover {
     padding: 0 !important;
 }
 
+.diff-binary-notice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--color-text-secondary);
+    font-style: italic;
+}
+
 /* Badge status colors */
 .badge--success {
     background-color: var(--color-success-subtle);

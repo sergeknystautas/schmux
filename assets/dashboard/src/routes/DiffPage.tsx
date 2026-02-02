@@ -280,17 +280,23 @@ export default function DiffPage() {
                   </span>
                 </div>
                 <div className="diff-viewer-wrapper">
-                  <ReactDiffViewer
-                    oldValue={selectedFile.old_content || ''}
-                    newValue={selectedFile.new_content || ''}
-                    splitView={false}
-                    useDarkTheme={theme === 'dark'}
-                    hideLineNumbers={false}
-                    showDiffOnly={true}
-                    compareMethod={DiffMethod.DIFF_TRIMMED_LINES}
-                    disableWordDiff={true}
-                    extraLinesSurroundingDiff={3}
-                  />
+                  {selectedFile.is_binary ? (
+                    <div className="diff-binary-notice">
+                      Binary file not shown
+                    </div>
+                  ) : (
+                    <ReactDiffViewer
+                      oldValue={selectedFile.old_content || ''}
+                      newValue={selectedFile.new_content || ''}
+                      splitView={false}
+                      useDarkTheme={theme === 'dark'}
+                      hideLineNumbers={false}
+                      showDiffOnly={true}
+                      compareMethod={DiffMethod.DIFF_TRIMMED_LINES}
+                      disableWordDiff={true}
+                      extraLinesSurroundingDiff={3}
+                    />
+                  )}
                 </div>
               </>
             )}
