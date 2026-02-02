@@ -2,15 +2,35 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/difftool"
 )
+
+var branchNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:[-/][a-z0-9]+)*$`)
+
+// ErrInvalidBranchName is returned when a branch name fails validation.
+var ErrInvalidBranchName = errors.New("invalid branch name")
+
+// ValidateBranchName checks whether a branch name is acceptable for use.
+// Returns nil if valid, or an error describing the problem.
+func ValidateBranchName(branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return fmt.Errorf("%w: branch name cannot be empty", ErrInvalidBranchName)
+	}
+	if !branchNamePattern.MatchString(branch) {
+		return fmt.Errorf("%w: %q does not match required format (lowercase alphanumeric, hyphens, forward slashes)", ErrInvalidBranchName, branch)
+	}
+	return nil
+}
 
 // extractRepoName extracts the repository name from various URL formats.
 // Handles: git@github.com:user/myrepo.git, https://github.com/user/myrepo.git, etc.
