@@ -753,9 +753,10 @@ export default function SpawnPage() {
             <PromptTextarea
               value={prompt}
               onChange={setPrompt}
-              placeholder="Describe the task you want the targets to work on... (Type / for commands)"
+              placeholder="Describe the task you want the targets to work on... (Type / for commands, ⌘↩ to submit)"
               commands={commandTargets.map(t => t.name)}
               onSelectCommand={handleSlashCommandSelect}
+              onSubmit={handleEngage}
             />
           </div>
         </>

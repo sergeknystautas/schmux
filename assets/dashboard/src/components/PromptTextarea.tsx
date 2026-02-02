@@ -7,6 +7,7 @@ interface PromptTextareaProps {
   placeholder?: string;
   commands: string[];
   onSelectCommand: (command: string) => void;
+  onSubmit?: () => void;
 }
 
 // Measure caret pixel coordinates inside a textarea using a mirror div
@@ -84,6 +85,7 @@ export default function PromptTextarea({
   placeholder = 'Describe the task you want the targets to work on... (Type / for commands)',
   commands,
   onSelectCommand,
+  onSubmit,
 }: PromptTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -155,6 +157,13 @@ export default function PromptTextarea({
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Cmd+Enter (Mac) or Ctrl+Enter (other platforms) submits the form
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && onSubmit) {
+      e.preventDefault();
+      onSubmit();
+      return;
+    }
+
     if (!showMenu) return;
 
     if (e.key === 'ArrowDown') {
