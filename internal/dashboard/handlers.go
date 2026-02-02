@@ -1646,6 +1646,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		Status       string `json:"status,omitempty"` // added, modified, deleted, renamed
 		LinesAdded   int    `json:"lines_added"`
 		LinesRemoved int    `json:"lines_removed"`
+		IsBinary     bool   `json:"is_binary"`
 	}
 
 	type DiffResponse struct {
@@ -1685,6 +1686,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		filePath := parts[2]
 
 		// Parse line counts (may be "-" for binary files)
+		isBinary := addedStr == "-" && deletedStr == "-"
 		linesAdded := 0
 		linesRemoved := 0
 		if addedStr != "-" {
@@ -1692,6 +1694,22 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 		if deletedStr != "-" {
 			linesRemoved, _ = strconv.Atoi(deletedStr)
+		}
+
+		if isBinary {
+			status := "modified"
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
+			oldExists := s.getFileContent(ctx, ws.Path, filePath, "HEAD") != ""
+			cancel()
+			if !oldExists {
+				status = "added"
+			}
+			files = append(files, FileDiff{
+				NewPath:  filePath,
+				Status:   status,
+				IsBinary: true,
+			})
+			continue
 		}
 
 		// Skip if file was deleted (added is "-")
@@ -1741,6 +1759,16 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		untrackedLines := strings.Split(string(untrackedOutput), "\n")
 		for _, filePath := range untrackedLines {
 			if filePath == "" {
+				continue
+			}
+			// Check if file is binary by reading first 8KB and looking for null bytes
+			fullPath := filepath.Join(ws.Path, filePath)
+			if difftool.IsBinaryFile(fullPath) {
+				files = append(files, FileDiff{
+					NewPath:  filePath,
+					Status:   "untracked",
+					IsBinary: true,
+				})
 				continue
 			}
 			// Get content of untracked file from working directory

@@ -122,6 +122,7 @@ export interface FileDiff {
   status?: string;
   lines_added: number;
   lines_removed: number;
+  is_binary: boolean;
 }
 
 export interface DiffResponse {

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/difftool"
 )
 
 // extractRepoName extracts the repository name from various URL formats.
@@ -257,8 +259,12 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 			if filePath == "" {
 				continue
 			}
-			// Read the untracked file and count its lines
 			fullPath := filepath.Join(dir, filePath)
+			// Skip binary files — they don't have meaningful line counts
+			if difftool.IsBinaryFile(fullPath) {
+				filesChanged++
+				continue
+			}
 			content, err := os.ReadFile(fullPath)
 			if err != nil {
 				continue // Skip files we can't read
