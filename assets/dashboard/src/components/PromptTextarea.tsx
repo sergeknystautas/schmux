@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useDebouncedCallback from '../hooks/useDebouncedCallback';
 
 interface PromptTextareaProps {
   value: string;
@@ -46,14 +47,34 @@ function getCaretCoordinates(textarea: HTMLTextAreaElement, position: number): {
   return { top, left };
 }
 
-// Estimate rendered line count: explicit linefeeds + word-wrap lines
+// Estimate line count: split by newlines, divide each by actual column width
 function estimateLineCount(textarea: HTMLTextAreaElement): number {
-  const cols = textarea.cols || 80;
+  const computed = getComputedStyle(textarea);
+
+  // Measure average character width
+  const mirror = document.createElement('div');
+  const props = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing'];
+  for (const prop of props) {
+    mirror.style.setProperty(prop, computed.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase()));
+  }
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.textContent = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  document.body.appendChild(mirror);
+  const charWidth = mirror.offsetWidth / 46;
+  document.body.removeChild(mirror);
+
+  // Calculate actual cols from content width and char width
+  const cols = Math.floor(textarea.clientWidth / charWidth);
+
+  // Original algorithm: split by newlines, divide each line by cols
   const lines = textarea.value.split('\n');
   let count = 0;
   for (const line of lines) {
     count += Math.max(1, Math.ceil(line.length / cols));
   }
+
+  console.log(`[estimateLineCount] charW=${charWidth.toFixed(2)} cols=${cols} est=${count}`);
   return count;
 }
 
@@ -72,6 +93,13 @@ export default function PromptTextarea({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
+
+  // Debounced function to check if textarea should expand
+  const checkShouldExpand = useDebouncedCallback(() => {
+    if (textareaRef.current && !expanded && estimateLineCount(textareaRef.current) >= 3) {
+      setExpanded(true);
+    }
+  }, 150);
 
   // Check on mount if draft content triggers expansion
   useEffect(() => {
@@ -117,11 +145,9 @@ export default function PromptTextarea({
       }
     }
 
-    // One-way expansion: grow textarea when content reaches 3+ lines
-    if (!expanded && textareaRef.current) {
-      if (estimateLineCount(textareaRef.current) >= 3) {
-        setExpanded(true);
-      }
+    // Trigger debounced expansion check
+    if (!expanded) {
+      checkShouldExpand();
     }
 
     onChange(e.target.value);
