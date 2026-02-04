@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useEffect } from 'react';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
-import type { SessionWithWorkspace, WorkspaceResponse } from '../lib/types';
+import type { SessionWithWorkspace, WorkspaceResponse, LinearSyncResolveConflictStatePayload } from '../lib/types';
 
 type SessionsContextValue = {
   workspaces: WorkspaceResponse[];
@@ -9,12 +9,14 @@ type SessionsContextValue = {
   connected: boolean;
   waitForSession: (sessionId: string, opts?: { timeoutMs?: number; intervalMs?: number }) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
+  linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
+  clearLinearSyncResolveConflictState: (workspaceId: string) => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
 
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
-  const { workspaces, loading, connected } = useSessionsWebSocket();
+  const { workspaces, loading, connected, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessionsWebSocket();
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -58,11 +60,13 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     workspaces,
     loading,
-    error: '', // No error state with WebSocket - connected/disconnected handles it
+    error: '',
     connected,
     waitForSession,
     sessionsById,
-  }), [workspaces, loading, connected, waitForSession, sessionsById]);
+    linearSyncResolveConflictStates,
+    clearLinearSyncResolveConflictState,
+  }), [workspaces, loading, connected, waitForSession, sessionsById, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState]);
 
   return (
     <SessionsContext.Provider value={value}>

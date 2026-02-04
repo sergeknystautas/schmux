@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   quick_launch: [],
   nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
   branch_suggest: { target: '' },
-  conflict_resolve: { target: '' },
+  conflict_resolve: { target: '', timeout_ms: 120000 },
   terminal: {
     width: 120,
     height: 40,

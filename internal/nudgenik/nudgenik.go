@@ -51,10 +51,6 @@ Here is the agent’s last response:
 >>>
 `
 
-	// JSONSchema is the JSON schema for NudgeNik output.
-	// Using inline JSON format for Claude, file path format for Codex.
-	JSONSchema = `{"type":"object","properties":{"state":{"type":"string"},"confidence":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["state","confidence","summary"],"additionalProperties":false}`
-
 	nudgenikTimeout = 15 * time.Second
 )
 
@@ -124,7 +120,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, JSONSchema, nudgenikTimeout)
+	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, oneshot.SchemaNudgeNik, nudgenikTimeout, "")
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return Result{}, ErrTargetNotFound

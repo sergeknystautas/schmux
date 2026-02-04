@@ -32,7 +32,7 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSche
 	var newArgs []string
 	switch toolName {
 	case "claude":
-		newArgs = append(existingArgs, "-p", "--output-format", "json")
+		newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "json")
 		if jsonSchema != "" {
 			newArgs = append(newArgs, "--json-schema", jsonSchema)
 		}

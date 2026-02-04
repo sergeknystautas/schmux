@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,6 +240,9 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 	defer cancel()
 
 	if _, err := gw.mgr.UpdateGitStatus(ctx, workspaceID); err != nil {
+		if errors.Is(err, ErrWorkspaceLocked) {
+			return
+		}
 		fmt.Printf("[git-watcher] failed to update status for %s: %v\n", workspaceID, err)
 		return
 	}

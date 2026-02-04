@@ -20,6 +20,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const { confirm } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
+  const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessions();
   const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; navigateTo?: string } | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
@@ -28,11 +29,14 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [rebasing, setRebasing] = useState(false);
   const [merging, setMerging] = useState(false);
-  const [resolving, setResolving] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [placementAbove, setPlacementAbove] = useState(false);
   const gitStatusRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Check if resolve conflict is in progress for this workspace
+  const crState = linearSyncResolveConflictStates[workspace.id];
+  const resolveInProgress = crState?.status === 'in_progress';
 
   // Git branch icon SVG
   const branchIcon = (
@@ -161,25 +165,20 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
   const handleLinearSyncResolveConflict = async () => {
     setIsDropdownOpen(false);
-    setResolving(true);
+
+    // Navigate immediately — progress will appear via WebSocket
+    navigate(`/resolve-conflict/${workspace.id}`);
+    clearLinearSyncResolveConflictState(workspace.id);
 
     try {
-      const result = await linearSyncResolveConflict(workspace.id);
-      if (result.success) {
-        setSyncResult({
-          success: true,
-          message: result.message + (result.session_id ? ' - spawned session for conflict resolution' : ''),
-          navigateTo: result.session_id
-        });
-      } else {
-        setSyncResult({ success: false, message: result.message });
-      }
+      await linearSyncResolveConflict(workspace.id);
     } catch (err) {
-      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to resolve conflict') });
-    } finally {
-      setResolving(false);
+      toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
     }
   };
+
+  // Disable sync/dispose actions when conflict resolve is in progress
+  const actionsDisabled = resolveInProgress;
 
   return (
     <>
@@ -208,8 +207,8 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               <Tooltip content={`${behind} behind, ${ahead} ahead`}>
                 <span
                   className="app-header__git-status"
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  style={{ cursor: 'pointer' }}
+                  onClick={() => !actionsDisabled && setIsDropdownOpen(!isDropdownOpen)}
+                  style={{ cursor: actionsDisabled ? 'default' : 'pointer', opacity: actionsDisabled ? 0.5 : 1 }}
                 >
                   {behind} | {ahead}
                 </span>
@@ -239,6 +238,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"
               onClick={handleDisposeWorkspace}
+              disabled={actionsDisabled}
               aria-label={`Dispose ${workspace.id}`}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -267,7 +267,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         />
       )}
 
-      {isDropdownOpen && !rebasing && !merging && !resolving && createPortal(
+      {isDropdownOpen && !rebasing && !merging && !resolveInProgress && createPortal(
         <div
           ref={menuRef}
           className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}

@@ -105,6 +105,10 @@ type Server struct {
 	updateMu         sync.Mutex
 
 	authSessionKey []byte
+
+	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
+	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
+	linearSyncResolveConflictStatesMu sync.RWMutex
 }
 
 // versionInfo holds version information.
@@ -118,16 +122,23 @@ type versionInfo struct {
 // NewServer creates a new dashboard server.
 func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, shutdown func()) *Server {
 	s := &Server{
-		config:        cfg,
-		state:         st,
-		statePath:     statePath,
-		session:       sm,
-		workspace:     wm,
-		shutdown:      shutdown,
-		wsConns:       make(map[string][]*wsConn),
-		sessionsConns: make(map[*wsConn]bool),
-		rotationLocks: make(map[string]*sync.Mutex),
-		broadcastDone: make(chan struct{}),
+		config:                          cfg,
+		state:                           st,
+		statePath:                       statePath,
+		session:                         sm,
+		workspace:                       wm,
+		shutdown:                        shutdown,
+		wsConns:                         make(map[string][]*wsConn),
+		sessionsConns:                   make(map[*wsConn]bool),
+		rotationLocks:                   make(map[string]*sync.Mutex),
+		broadcastDone:                   make(chan struct{}),
+		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
+	}
+	if mgr, ok := wm.(*workspace.Manager); ok {
+		mgr.SetWorkspaceLockedFn(func(workspaceID string) bool {
+			state := s.getLinearSyncResolveConflictState(workspaceID)
+			return state != nil && state.Status == "in_progress"
+		})
 	}
 	go s.broadcastLoop()
 	return s
@@ -568,6 +579,17 @@ func (s *Server) doBroadcast() {
 		return
 	}
 
+	// Build linear sync resolve conflict state payloads
+	var crPayloads [][]byte
+	for _, crState := range s.getAllLinearSyncResolveConflictStates() {
+		crPayload, err := json.Marshal(crState)
+		if err != nil {
+			fmt.Printf("[ws/dashboard] failed to marshal linear sync resolve conflict state: %v\n", err)
+			continue
+		}
+		crPayloads = append(crPayloads, crPayload)
+	}
+
 	// Send to all connected clients
 	s.sessionsConnsMu.RLock()
 	conns := make([]*wsConn, 0, len(s.sessionsConns))
@@ -578,10 +600,17 @@ func (s *Server) doBroadcast() {
 
 	for _, conn := range conns {
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			// Connection error - unregister to avoid repeated failures
 			s.UnregisterDashboardConn(conn)
-			// Close the connection to clean up resources
 			conn.Close()
+			continue
+		}
+		// Send linear sync resolve conflict states as separate messages
+		for _, crPayload := range crPayloads {
+			if err := conn.WriteMessage(websocket.TextMessage, crPayload); err != nil {
+				s.UnregisterDashboardConn(conn)
+				conn.Close()
+				break
+			}
 		}
 	}
 }
@@ -633,6 +662,17 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 	}
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 		return
+	}
+
+	// Send any active linear sync resolve conflict states
+	for _, crState := range s.getAllLinearSyncResolveConflictStates() {
+		crPayload, err := json.Marshal(crState)
+		if err != nil {
+			continue
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, crPayload); err != nil {
+			return
+		}
 	}
 
 	// Keep connection alive - read messages (client doesn't send any, but we need to detect close)

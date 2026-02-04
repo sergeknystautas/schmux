@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,12 +18,23 @@ import (
 // ErrTargetNotFound is returned when a target name cannot be resolved.
 var ErrTargetNotFound = errors.New("target not found")
 
+const (
+	SchemaConflictResolve = "conflict-resolve"
+	SchemaNudgeNik        = "nudgenik"
+	SchemaBranchSuggest   = "branch-suggest"
+)
+
+var schemaRegistry = map[string]string{
+	SchemaConflictResolve: `{"type":"object","properties":{"all_resolved":{"type":"boolean"},"confidence":{"type":"string"},"summary":{"type":"string"},"files":{"type":"object","properties":{},"additionalProperties":{"type":"object","properties":{"action":{"type":"string"},"description":{"type":"string"}},"required":["action","description"],"additionalProperties":false}}},"required":["all_resolved","confidence","summary","files"],"additionalProperties":false}`,
+	SchemaNudgeNik:        `{"type":"object","properties":{"state":{"type":"string"},"confidence":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["state","confidence","evidence","summary"],"additionalProperties":false}`,
+	SchemaBranchSuggest:   `{"type":"object","properties":{"branch":{"type":"string"},"nickname":{"type":"string"}},"required":["branch","nickname"],"additionalProperties":false}`,
+}
+
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
-// The jsonSchema parameter is optional; if provided, it should be a JSON schema for structured output.
-// For Claude, this is inline JSON; for Codex, a file path.
+// The schemaLabel parameter is optional; if provided, it should be a known schema label from this package.
 // Returns the parsed response string from the agent.
-func Execute(ctx context.Context, agentName, agentCommand, prompt, jsonSchema string, env map[string]string) (string, error) {
+func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel string, env map[string]string, dir string) (string, error) {
 	// Validate inputs
 	if agentName == "" {
 		return "", fmt.Errorf("agent name cannot be empty")
@@ -34,8 +46,26 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, jsonSchema st
 		return "", fmt.Errorf("prompt cannot be empty")
 	}
 
+	// Resolve schema label to a file path, then read inline for Claude
+	schemaArg := ""
+	if schemaLabel != "" {
+		schemaPath, err := resolveSchema(schemaLabel)
+		if err != nil {
+			return "", err
+		}
+		if agentName == "claude" {
+			content, err := os.ReadFile(schemaPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+			}
+			schemaArg = string(content)
+		} else {
+			schemaArg = schemaPath
+		}
+	}
+
 	// Build command parts safely
-	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, jsonSchema)
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, schemaArg)
 	if err != nil {
 		return "", err
 	}
@@ -44,6 +74,9 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, jsonSchema st
 	execCmd := exec.CommandContext(ctx, cmdParts[0], append(cmdParts[1:], prompt)...)
 	if len(env) > 0 {
 		execCmd.Env = mergeEnv(env)
+	}
+	if dir != "" {
+		execCmd.Dir = dir
 	}
 
 	// Capture stdout and stderr
@@ -59,7 +92,7 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, jsonSchema st
 
 // ExecuteCommand runs an arbitrary promptable command in one-shot mode, appending the prompt as the final argument.
 // This is used for user-defined promptable run targets.
-func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]string) (string, error) {
+func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]string, dir string) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("command cannot be empty")
 	}
@@ -76,6 +109,9 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 	if len(env) > 0 {
 		execCmd.Env = mergeEnv(env)
 	}
+	if dir != "" {
+		execCmd.Dir = dir
+	}
 
 	rawOutput, err := execCmd.CombinedOutput()
 	if err != nil {
@@ -90,8 +126,8 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 // It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
 // The timeout parameter controls how long to wait for the one-shot execution to complete.
-// The jsonSchema parameter is optional; if provided, it should be a JSON schema for structured output.
-func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, jsonSchema string, timeout time.Duration) (string, error) {
+// The schemaLabel parameter is optional; if provided, it should be a known schema label.
+func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
 	}
@@ -109,9 +145,9 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 
 	if target.Kind == targetKindUser {
 		// User-defined targets don't support JSON schema
-		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env)
+		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
-	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, jsonSchema, target.Env)
+	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -224,6 +260,49 @@ func parseCodexJSONLOutput(output string) string {
 	}
 	// Fallback: return original output
 	return output
+}
+
+func resolveSchema(label string) (string, error) {
+	if _, ok := schemaRegistry[label]; !ok {
+		return "", fmt.Errorf("unknown schema label: %s", label)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home directory: %w", err)
+	}
+	path := filepath.Join(homeDir, ".schmux", "schemas", label+".json")
+
+	if _, err := os.Stat(path); err != nil {
+		// File missing — write it (shouldn't happen if daemon started correctly)
+		if err := WriteAllSchemas(); err != nil {
+			return "", err
+		}
+	}
+
+	return path, nil
+}
+
+// WriteAllSchemas writes all registered schemas to the schema directory,
+// unconditionally overwriting any existing files. This should be called
+// on daemon startup to ensure schemas are always up to date.
+func WriteAllSchemas() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to resolve home directory: %w", err)
+	}
+	dir := filepath.Join(homeDir, ".schmux", "schemas")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create schema directory: %w", err)
+	}
+
+	for label, schema := range schemaRegistry {
+		path := filepath.Join(dir, label+".json")
+		if err := os.WriteFile(path, []byte(schema), 0644); err != nil {
+			return fmt.Errorf("failed to write schema file %s: %w", label, err)
+		}
+	}
+	return nil
 }
 
 // resolvedTarget represents a fully resolved oneshot target with all env vars merged.

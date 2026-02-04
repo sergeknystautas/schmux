@@ -2,6 +2,8 @@ package oneshot
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -22,7 +24,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "claude",
 			jsonSchema:   "",
-			want:         []string{"claude", "-p", "--output-format", "json"},
+			want:         []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
 			wantErr:      false,
 		},
 		{
@@ -30,7 +32,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "/home/user/.local/bin/claude",
 			jsonSchema:   "",
-			want:         []string{"/home/user/.local/bin/claude", "-p", "--output-format", "json"},
+			want:         []string{"/home/user/.local/bin/claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
 			wantErr:      false,
 		},
 		{
@@ -38,7 +40,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "claude",
 			jsonSchema:   `{"type":"object"}`,
-			want:         []string{"claude", "-p", "--output-format", "json", "--json-schema", `{"type":"object"}`},
+			want:         []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json", "--json-schema", `{"type":"object"}`},
 			wantErr:      false,
 		},
 		{
@@ -145,7 +147,7 @@ func TestExecuteInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, "", nil)
+			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, "", nil, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Execute() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -236,6 +238,72 @@ func TestParseCodexJSONLOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSchemaRegistry(t *testing.T) {
+	for label, schema := range schemaRegistry {
+		if err := validateSchemaRequired(schema); err != nil {
+			t.Fatalf("schema %q invalid: %v", label, err)
+		}
+	}
+}
+
+func validateSchemaRequired(raw string) error {
+	var node map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &node); err != nil {
+		return err
+	}
+	return walkSchema(node)
+}
+
+func walkSchema(node map[string]interface{}) error {
+	// Validate that all required keys exist in properties (if properties exist).
+	// Note: Not all properties need to be required - some can be optional.
+	if propsRaw, ok := node["properties"]; ok {
+		props, ok := propsRaw.(map[string]interface{})
+		if ok {
+			requiredSet := map[string]struct{}{}
+			if reqRaw, ok := node["required"]; ok {
+				if reqList, ok := reqRaw.([]interface{}); ok {
+					for _, item := range reqList {
+						if s, ok := item.(string); ok {
+							requiredSet[s] = struct{}{}
+						}
+					}
+				}
+			}
+			// Validate that all required keys actually exist in properties
+			for key := range requiredSet {
+				if _, ok := props[key]; !ok {
+					return fmt.Errorf("required key %q not found in properties", key)
+				}
+			}
+			for _, child := range props {
+				if childMap, ok := child.(map[string]interface{}); ok {
+					if err := walkSchema(childMap); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	// Validate additionalProperties if it is a schema object.
+	// OpenAI requires that when additionalProperties is a schema, properties must be
+	// explicitly defined (even if empty). See: https://platform.openai.com/docs/guides/structured-outputs
+	if apRaw, ok := node["additionalProperties"]; ok {
+		if apMap, ok := apRaw.(map[string]interface{}); ok {
+			// Check that properties is defined (OpenAI requirement)
+			if _, hasProps := node["properties"]; !hasProps {
+				return fmt.Errorf("properties must be defined when additionalProperties is a schema (can be empty: {})")
+			}
+			if err := walkSchema(apMap); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func TestParseResponse(t *testing.T) {

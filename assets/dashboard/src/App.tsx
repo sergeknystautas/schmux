@@ -12,6 +12,7 @@ import ConfigPage from './routes/ConfigPage'
 import SessionDetailPage from './routes/SessionDetailPage'
 import DiffPage from './routes/DiffPage'
 import GitGraphPage from './routes/GitGraphPage'
+import LinearSyncResolveConflictPage from './routes/LinearSyncResolveConflictPage'
 import LegacyTerminalPage from './routes/LegacyTerminalPage'
 import NotFoundPage from './routes/NotFoundPage'
 
@@ -29,6 +30,7 @@ export default function App() {
                   <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                   <Route path="/diff/:workspaceId" element={<DiffPage />} />
                   <Route path="/git/:workspaceId" element={<GitGraphPage />} />
+                  <Route path="/resolve-conflict/:workspaceId" element={<LinearSyncResolveConflictPage />} />
                   <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                   <Route path="/tips" element={<TipsPage />} />
                   <Route path="/config" element={<ConfigPage />} />

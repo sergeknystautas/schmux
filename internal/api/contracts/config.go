@@ -76,7 +76,8 @@ type BranchSuggest struct {
 
 // ConflictResolve represents conflict resolution configuration.
 type ConflictResolve struct {
-	Target string `json:"target,omitempty"`
+	Target    string `json:"target,omitempty"`
+	TimeoutMs int    `json:"timeout_ms"`
 }
 
 // Sessions represents session and git-related timing configuration.
@@ -160,7 +161,8 @@ type BranchSuggestUpdate struct {
 
 // ConflictResolveUpdate represents partial conflict resolve updates.
 type ConflictResolveUpdate struct {
-	Target *string `json:"target,omitempty"`
+	Target    *string `json:"target,omitempty"`
+	TimeoutMs *int    `json:"timeout_ms,omitempty"`
 }
 
 // SessionsUpdate represents partial session timing updates.

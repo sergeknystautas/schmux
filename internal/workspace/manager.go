@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,8 @@ const (
 	workspaceNumberFormat = "%03d"
 )
 
+var ErrWorkspaceLocked = errors.New("workspace is locked")
+
 // Manager manages workspace directories.
 type Manager struct {
 	config               *config.Config
@@ -35,6 +38,7 @@ type Manager struct {
 	randSuffix           func(length int) string
 	defaultBranchCache   map[string]string // repoURL -> defaultBranch or "unknown"
 	defaultBranchCacheMu sync.RWMutex
+	workspaceLockedFn    func(workspaceID string) bool
 }
 
 // New creates a new workspace manager.
@@ -58,6 +62,11 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 // SetGitWatcher sets the git watcher for the manager.
 func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
+}
+
+// SetWorkspaceLockedFn sets a predicate to skip workspace updates when locked.
+func (m *Manager) SetWorkspaceLockedFn(fn func(workspaceID string) bool) {
+	m.workspaceLockedFn = fn
 }
 
 func (m *Manager) repoLock(repoURL string) *sync.Mutex {
@@ -530,6 +539,9 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
+	if m.workspaceLockedFn != nil && m.workspaceLockedFn(workspaceID) {
+		return nil, ErrWorkspaceLocked
+	}
 
 	// Calculate git status (safe to run even with active sessions)
 	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, w.Path, w.Repo)
@@ -568,6 +580,9 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 		m.RefreshWorkspaceConfig(w)
 
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
+			if errors.Is(err, ErrWorkspaceLocked) {
+				continue
+			}
 			fmt.Printf("[workspace] failed to update git status for %s: %v\n", w.ID, err)
 		}
 	}

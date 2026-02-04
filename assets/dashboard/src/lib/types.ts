@@ -172,13 +172,44 @@ export interface LinearSyncResponse {
   message: string;
 }
 
+export interface ConflictResolution {
+  local_commit: string;
+  local_commit_message: string;
+  all_resolved: boolean;
+  confidence: string;
+  summary: string;
+  files: string[];
+}
+
 export interface LinearSyncResolveConflictResponse {
-  success: boolean;
+  started: boolean;
+  workspace_id?: string;
+  message?: string;
+}
+
+export interface LinearSyncResolveConflictStep {
+  action: string;
+  status: string;
   message: string;
+  at: string;
+  local_commit?: string;
+  local_commit_message?: string;
+  files?: string[];
+  confidence?: string;
+  summary?: string;
+  created?: boolean;
+}
+
+export interface LinearSyncResolveConflictStatePayload {
+  type: 'linear_sync_resolve_conflict';
+  workspace_id: string;
+  status: 'in_progress' | 'done' | 'failed';
   hash?: string;
-  conflicted_files?: string[];
-  had_conflict: boolean;
-  session_id?: string;
+  started_at: string;
+  finished_at?: string;
+  message?: string;
+  steps: LinearSyncResolveConflictStep[];
+  resolutions?: ConflictResolution[];
 }
 
 export interface RecentBranch {

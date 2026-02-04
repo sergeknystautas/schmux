@@ -347,11 +347,21 @@ export async function linearSyncResolveConflict(workspaceId: string): Promise<Li
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 202) {
     const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to resolve conflict');
+    throw new Error(err.message || err.error || 'Failed to start conflict resolution');
   }
   return response.json();
+}
+
+export async function dismissLinearSyncResolveConflictState(workspaceId: string): Promise<void> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error((err as Record<string, string>).message || 'Failed to dismiss');
+  }
 }
 
 export async function getRecentBranches(limit: number = 10): Promise<RecentBranch[]> {

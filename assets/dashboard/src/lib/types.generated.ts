@@ -60,10 +60,12 @@ export interface ConfigUpdateRequest {
 
 export interface ConflictResolve {
   target?: string;
+  timeout_ms: number;
 }
 
 export interface ConflictResolveUpdate {
   target?: string;
+  timeout_ms?: number;
 }
 
 export interface ExternalDiffCommand {

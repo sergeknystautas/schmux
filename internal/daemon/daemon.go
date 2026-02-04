@@ -19,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -266,6 +267,11 @@ func Run(background bool) error {
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := os.WriteFile(startedFile, []byte(startedAt+"\n"), 0644); err != nil {
 		return fmt.Errorf("failed to write daemon start time: %w", err)
+	}
+
+	// Write all schemas on startup (ensures they're always up to date)
+	if err := oneshot.WriteAllSchemas(); err != nil {
+		return fmt.Errorf("failed to write schemas: %w", err)
 	}
 
 	// Load config

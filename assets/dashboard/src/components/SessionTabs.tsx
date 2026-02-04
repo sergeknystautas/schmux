@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { disposeSession, spawnSessions, getErrorMessage } from '../lib/api';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from './ToastProvider';
@@ -38,14 +38,16 @@ type SessionTabsProps = {
   activeDiffTab?: boolean;
   activeSpawnTab?: boolean;
   activeGitTab?: boolean;
+  activeLinearSyncResolveConflictTab?: boolean;
 };
 
-export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab, activeGitTab }: SessionTabsProps) {
+export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab, activeGitTab, activeLinearSyncResolveConflictTab }: SessionTabsProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
-  const { waitForSession } = useSessions();
+  const { waitForSession, linearSyncResolveConflictStates } = useSessions();
 
   // Spawn dropdown state
   const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
@@ -54,6 +56,8 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const [placementAbove, setPlacementAbove] = useState(false);
   const spawnButtonRef = useRef<HTMLButtonElement | null>(null);
   const spawnMenuRef = useRef<HTMLDivElement | null>(null);
+  const crState = workspace ? linearSyncResolveConflictStates[workspace.id] : undefined;
+  const resolveInProgress = crState?.status === 'in_progress';
 
   const quickLaunch = React.useMemo<string[]>(() => {
     const globalNames = (config?.quick_launch || []).map((item) => item.name);
@@ -115,6 +119,20 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     };
   }, [spawnMenuOpen]);
 
+  useEffect(() => {
+    if (resolveInProgress && spawnMenuOpen) {
+      setSpawnMenuOpen(false);
+    }
+  }, [resolveInProgress, spawnMenuOpen]);
+
+  useEffect(() => {
+    if (!workspace || !resolveInProgress) return;
+    const target = `/resolve-conflict/${workspace.id}`;
+    if (location.pathname !== target) {
+      navigate(target, { replace: true });
+    }
+  }, [workspace, resolveInProgress, location.pathname, navigate]);
+
   const handleDiffTabClick = () => {
     if (workspace) {
       navigate(`/diff/${workspace.id}`);
@@ -124,6 +142,12 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const handleGitTabClick = () => {
     if (workspace) {
       navigate(`/git/${workspace.id}`);
+    }
+  };
+
+  const handleResolveConflictTabClick = () => {
+    if (workspace) {
+      navigate(`/resolve-conflict/${workspace.id}`);
     }
   };
 
@@ -202,6 +226,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const renderSessionTab = (sess: SessionResponse) => {
     const isCurrent = sess.id === currentSessionId;
     const displayName = sess.nickname || sess.target;
+    const disabled = resolveInProgress;
 
     const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
     const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
@@ -233,15 +258,17 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     return (
       <div
         key={sess.id}
-        className={`session-tab${isCurrent ? ' session-tab--active' : ''}`}
-        onClick={() => handleTabClick(sess.id)}
+        className={`session-tab${isCurrent ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}`}
+        onClick={() => !disabled && handleTabClick(sess.id)}
         role="button"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         onKeyDown={(e) => {
+          if (disabled) return;
           if (e.key === 'Enter' || e.key === ' ') {
             handleTabClick(sess.id);
           }
         }}
+        style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         <div className="session-tab__row1">
           <span className="session-tab__name">
@@ -255,8 +282,9 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
           <Tooltip content="Dispose session" variant="warning">
             <button
               className="btn btn--sm btn--ghost btn--danger session-tab__dispose"
-              onClick={(e) => handleDispose(sess.id, e)}
+              onClick={(e) => !disabled && handleDispose(sess.id, e)}
               aria-label={`Dispose ${sess.id}`}
+              disabled={disabled}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -277,15 +305,17 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   // Helper to render the diff tab (always shown)
   const renderDiffTab = () => (
     <div
-      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}`}
-      onClick={handleDiffTabClick}
+      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}${resolveInProgress ? ' session-tab--disabled' : ''}`}
+      onClick={() => !resolveInProgress && handleDiffTabClick()}
       role="button"
-      tabIndex={0}
+      tabIndex={resolveInProgress ? -1 : 0}
       onKeyDown={(e) => {
+        if (resolveInProgress) return;
         if (e.key === 'Enter' || e.key === ' ') {
           handleDiffTabClick();
         }
       }}
+      style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">
@@ -304,21 +334,52 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   // Helper to render the git tab
   const renderGitTab = () => (
     <div
-      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}`}
-      onClick={handleGitTabClick}
+      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}${resolveInProgress ? ' session-tab--disabled' : ''}`}
+      onClick={() => !resolveInProgress && handleGitTabClick()}
       role="button"
-      tabIndex={0}
+      tabIndex={resolveInProgress ? -1 : 0}
       onKeyDown={(e) => {
+        if (resolveInProgress) return;
         if (e.key === 'Enter' || e.key === ' ') {
           handleGitTabClick();
         }
       }}
+      style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">git graph</span>
       </div>
     </div>
   );
+
+  // Helper to render the resolve conflict tab (only when state exists)
+  const renderResolveConflictTab = () => {
+    if (!crState && !activeLinearSyncResolveConflictTab) return null;
+    const hash = crState?.hash ? crState.hash.substring(0, 7) : '...';
+    const isActive = crState ? crState.status === 'in_progress' : true;
+    const isFailed = crState?.status === 'failed';
+    const label = isActive ? 'Resolving conflict on' : isFailed ? 'Resolve conflict failed on' : 'Resolve conflict on';
+    return (
+      <div
+        className={`session-tab session-tab--diff${activeLinearSyncResolveConflictTab ? ' session-tab--active' : ''}`}
+        onClick={handleResolveConflictTabClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            handleResolveConflictTabClick();
+          }
+        }}
+      >
+        <div className="session-tab__row1">
+          <span className="session-tab__name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isActive && <div className="spinner--small" style={{ width: 10, height: 10, borderWidth: 2 }} />}
+            {label} {hash}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   // Helper to render the add button
   const renderAddButton = () => (
@@ -327,13 +388,15 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
         ref={spawnButtonRef}
         className="session-tab--add"
         onClick={(e) => {
+          if (resolveInProgress) return;
           e.stopPropagation();
           setSpawnMenuOpen(!spawnMenuOpen);
         }}
-        disabled={spawning}
+        disabled={spawning || resolveInProgress}
         aria-expanded={spawnMenuOpen}
         aria-haspopup="menu"
         aria-label="Spawn new session"
+        style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         {spawning ? (
           <span className="spinner spinner--small"></span>
@@ -405,15 +468,19 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
       {/* Git tab — always shown */}
       {renderGitTab()}
 
+      {/* Resolve conflict tab — shown when state exists */}
+      {renderResolveConflictTab()}
+
       {/* Add button */}
       {showAddButton && renderAddButton()}
 
       {activeSpawnTab && (
         <div
-          className="session-tab session-tab--active"
-          onClick={handleSpawnTabClick}
+          className={`session-tab session-tab--active${resolveInProgress ? ' session-tab--disabled' : ''}`}
+          onClick={() => !resolveInProgress && handleSpawnTabClick()}
           role="button"
-          tabIndex={0}
+          tabIndex={resolveInProgress ? -1 : 0}
+          style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
         >
           <div className="session-tab__row1">
             <span className="session-tab__name">

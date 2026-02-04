@@ -39,6 +39,7 @@ const (
 	DefaultXtermQueryTimeoutMs        = 5000    // 5 seconds
 	DefaultXtermOperationTimeoutMs    = 10000   // 10 seconds
 	DefaultExternalDiffCleanupAfterMs = 3600000 // 1 hour
+	DefaultConflictResolveTimeoutMs   = 300000  // 5 minutes
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -97,7 +98,8 @@ type BranchSuggestConfig struct {
 
 // ConflictResolveConfig represents configuration for conflict resolution.
 type ConflictResolveConfig struct {
-	Target string `json:"target,omitempty"`
+	Target    string `json:"target,omitempty"`
+	TimeoutMs int    `json:"timeout_ms,omitempty"`
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -377,6 +379,15 @@ func (c *Config) GetConflictResolveTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.ConflictResolve.Target)
+}
+
+// GetConflictResolveTimeoutMs returns the per-call conflict resolution timeout in ms.
+// Defaults to 120000 (2 minutes).
+func (c *Config) GetConflictResolveTimeoutMs() int {
+	if c.ConflictResolve == nil || c.ConflictResolve.TimeoutMs <= 0 {
+		return DefaultConflictResolveTimeoutMs
+	}
+	return c.ConflictResolve.TimeoutMs
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

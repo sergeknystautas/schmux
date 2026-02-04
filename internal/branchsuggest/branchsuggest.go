@@ -48,10 +48,6 @@ Here is the user's prompt:
 >>>
 `
 
-	// JSONSchema is the JSON schema for branch suggestion output.
-	// Using inline JSON format for Claude, file path format for Codex.
-	JSONSchema = `{"type":"object","properties":{"branch":{"type":"string"},"nickname":{"type":"string"}},"required":["branch","nickname"],"additionalProperties":false}`
-
 	branchSuggestTimeout = 30 * time.Second
 )
 
@@ -95,7 +91,7 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, JSONSchema, branchSuggestTimeout)
+	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, oneshot.SchemaBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return Result{}, ErrTargetNotFound

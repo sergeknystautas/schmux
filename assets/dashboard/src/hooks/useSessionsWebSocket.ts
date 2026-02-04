@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { WorkspaceResponse } from '../lib/types';
+import type { WorkspaceResponse, LinearSyncResolveConflictStatePayload } from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -8,12 +8,15 @@ type SessionsWebSocketState = {
   workspaces: WorkspaceResponse[];
   connected: boolean;
   loading: boolean;
+  linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
+  clearLinearSyncResolveConflictState: (workspaceId: string) => void;
 };
 
 export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<Record<string, LinearSyncResolveConflictStatePayload>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -53,8 +56,12 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
         if (data.type === 'sessions' && data.workspaces) {
           setWorkspaces(data.workspaces);
           setLoading(false);
+        } else if (data.type === 'linear_sync_resolve_conflict' && data.workspace_id) {
+          setLinearSyncResolveConflictStates(prev => ({
+            ...prev,
+            [data.workspace_id]: data,
+          }));
         }
-        // Future: handle data.type === 'config' here
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
       }
@@ -96,5 +103,14 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     };
   }, [connect]);
 
-  return { workspaces, connected, loading };
+  const clearLinearSyncResolveConflictState = useCallback((workspaceId: string) => {
+    setLinearSyncResolveConflictStates(prev => {
+      if (!prev[workspaceId]) return prev;
+      const next = { ...prev };
+      delete next[workspaceId];
+      return next;
+    });
+  }, []);
+
+  return { workspaces, connected, loading, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState };
 }

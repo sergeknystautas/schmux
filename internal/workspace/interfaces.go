@@ -36,14 +36,40 @@ type LinearSyncResult struct {
 	Message string `json:"message"`
 }
 
+// ConflictResolution represents a single conflict that was resolved during rebase.
+type ConflictResolution struct {
+	LocalCommit        string   `json:"local_commit"`
+	LocalCommitMessage string   `json:"local_commit_message"`
+	AllResolved        bool     `json:"all_resolved"`
+	Confidence         string   `json:"confidence"`
+	Summary            string   `json:"summary"`
+	Files              []string `json:"files"`
+}
+
 // LinearSyncResolveConflictResult contains the result of a conflict resolution rebase.
 type LinearSyncResolveConflictResult struct {
-	Success         bool     `json:"success"`
-	Message         string   `json:"message"`
-	Hash            string   `json:"hash,omitempty"`
-	ConflictedFiles []string `json:"conflicted_files,omitempty"`
-	HadConflict     bool     `json:"had_conflict"`
+	Success     bool                 `json:"success"`
+	Message     string               `json:"message"`
+	Hash        string               `json:"hash,omitempty"`
+	Resolutions []ConflictResolution `json:"resolutions"`
 }
+
+// ResolveConflictStep represents a progress step emitted during conflict resolution.
+type ResolveConflictStep struct {
+	Action             string   `json:"action"`
+	Status             string   `json:"status"` // "in_progress", "done", "failed"
+	Message            string   `json:"message"`
+	Hash               string   `json:"hash,omitempty"`
+	LocalCommit        string   `json:"local_commit,omitempty"`
+	LocalCommitMessage string   `json:"local_commit_message,omitempty"`
+	Files              []string `json:"files,omitempty"`
+	Confidence         string   `json:"confidence,omitempty"`
+	Summary            string   `json:"summary,omitempty"`
+	Created            *bool    `json:"created,omitempty"`
+}
+
+// ResolveConflictStepFunc is a callback invoked at each step of the conflict resolution process.
+type ResolveConflictStepFunc func(step ResolveConflictStep)
 
 // GitSafetyStatus represents the git safety status of a workspace.
 type GitSafetyStatus struct {
@@ -112,7 +138,8 @@ type WorkspaceManager interface {
 	LinearSyncToDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 
 	// LinearSyncResolveConflict rebases exactly one commit from the default branch, handling conflicts.
-	LinearSyncResolveConflict(ctx context.Context, workspaceID string) (*LinearSyncResolveConflictResult, error)
+	// The optional onStep callback is called at each progress step (may be nil).
+	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
 
 	// EnsureOriginQueries ensures origin query repos exist for all configured repos.
 	EnsureOriginQueries(ctx context.Context) error
