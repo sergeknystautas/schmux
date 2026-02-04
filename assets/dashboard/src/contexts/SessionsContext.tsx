@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
-import type { SessionWithWorkspace, WorkspaceResponse, LinearSyncResolveConflictStatePayload } from '../lib/types';
+import type { SessionWithWorkspace, WorkspaceResponse, LinearSyncResolveConflictStatePayload, PendingNavigation } from '../lib/types';
 
 type SessionsContextValue = {
   workspaces: WorkspaceResponse[];
@@ -11,12 +12,17 @@ type SessionsContextValue = {
   sessionsById: Record<string, SessionWithWorkspace>;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
+  pendingNavigation: PendingNavigation | null;
+  setPendingNavigation: (nav: PendingNavigation | null) => void;
+  clearPendingNavigation: () => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
 
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
   const { workspaces, loading, connected, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessionsWebSocket();
+  const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -39,6 +45,42 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     sessionsByIdRef.current = sessionsById;
   }, [sessionsById]);
+
+  // Check for pending navigation matches whenever workspaces update
+  useEffect(() => {
+    if (!pendingNavigation) return;
+
+    if (pendingNavigation.type === 'session') {
+      const session = sessionsById[pendingNavigation.id];
+      if (session) {
+        navigate(`/sessions/${pendingNavigation.id}`);
+        setPendingNavigationState(null);
+      }
+    } else if (pendingNavigation.type === 'workspace') {
+      const workspace = workspaces.find(ws => ws.id === pendingNavigation.id);
+      if (workspace) {
+        if (workspace.sessions?.length) {
+          navigate(`/sessions/${workspace.sessions[0].id}`);
+        } else {
+          const hasChanges = workspace.git_lines_added > 0 || workspace.git_lines_removed > 0;
+          if (hasChanges) {
+            navigate(`/diff/${pendingNavigation.id}`);
+          } else {
+            navigate(`/spawn?workspace_id=${pendingNavigation.id}`);
+          }
+        }
+        setPendingNavigationState(null);
+      }
+    }
+  }, [workspaces, sessionsById, pendingNavigation, navigate]);
+
+  const setPendingNavigation = useCallback((nav: PendingNavigation | null) => {
+    setPendingNavigationState(nav);
+  }, []);
+
+  const clearPendingNavigation = useCallback(() => {
+    setPendingNavigationState(null);
+  }, []);
 
   const waitForSession = useCallback(async (sessionId: string, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
     if (!sessionId) return false;
@@ -66,7 +108,10 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     sessionsById,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
-  }), [workspaces, loading, connected, waitForSession, sessionsById, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState]);
+    pendingNavigation,
+    setPendingNavigation,
+    clearPendingNavigation,
+  }), [workspaces, loading, connected, waitForSession, sessionsById, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState, pendingNavigation, setPendingNavigation, clearPendingNavigation]);
 
   return (
     <SessionsContext.Provider value={value}>

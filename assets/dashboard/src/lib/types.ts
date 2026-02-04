@@ -167,6 +167,10 @@ export interface TerminalSize {
 
 export type ApiError = Error & { isConflict?: boolean };
 
+export type PendingNavigation =
+  | { type: 'session'; id: string }
+  | { type: 'workspace'; id: string };
+
 export interface LinearSyncResponse {
   success: boolean;
   message: string;

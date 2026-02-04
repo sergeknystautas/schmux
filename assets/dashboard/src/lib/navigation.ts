@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import type { WorkspaceResponse } from './types';
+import { useSessions } from '../contexts/SessionsContext';
+import type { WorkspaceResponse, PendingNavigation } from './types';
 
 /**
  * Navigate to the appropriate page for a workspace based on its state:
@@ -27,4 +28,22 @@ export function navigateToWorkspace(
       navigate(`/spawn?workspace_id=${workspaceId}`);
     }
   }
+}
+
+/**
+ * Hook to manage pending navigation - wait for a session or workspace to appear
+ * in dashboard data and automatically navigate to it.
+ *
+ * Example usage after spawning a session:
+ *   const { setPendingNavigation } = usePendingNavigation();
+ *   setPendingNavigation({ type: 'session', id: newSessionId });
+ *   // Dashboard will auto-navigate when session appears via WebSocket
+ */
+export function usePendingNavigation(): {
+  pendingNavigation: PendingNavigation | null;
+  setPendingNavigation: (nav: PendingNavigation | null) => void;
+  clearPendingNavigation: () => void;
+} {
+  const { pendingNavigation, setPendingNavigation, clearPendingNavigation } = useSessions();
+  return { pendingNavigation, setPendingNavigation, clearPendingNavigation };
 }

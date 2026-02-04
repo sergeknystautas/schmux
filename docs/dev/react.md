@@ -293,6 +293,83 @@ const [searchParams, setSearchParams] = useSearchParams();
 const status = searchParams.get('s') || '';
 ```
 
+### Pending Navigation
+
+**Use for:** Deferring navigation until a target resource appears in dashboard data
+
+The pending navigation system allows components to request navigation that will execute automatically when the target session or workspace appears in the WebSocket data stream. This provides deterministic navigation without polling.
+
+**Type Definition:**
+
+```typescript
+type PendingNavigation =
+  | { type: 'session'; id: string }
+  | { type: 'workspace'; id: string };
+```
+
+**Usage:**
+
+```jsx
+const { setPendingNavigation, clearPendingNavigation } = usePendingNavigation();
+
+// After spawning a session, set pending navigation
+// The dashboard will auto-navigate when that session appears
+setPendingNavigation({ type: 'session', id: newSessionId });
+
+// Cancel pending navigation if needed (e.g., user navigates elsewhere)
+clearPendingNavigation();
+```
+
+**How it works:**
+
+1. Component calls `setPendingNavigation()` with target criteria
+2. `SessionsContext` stores the pending navigation in state
+3. On each WebSocket update, the context checks if the target now exists
+4. If found, navigation executes and pending state is cleared
+5. If user navigates elsewhere first, pending navigation is automatically cleared
+
+**Implementation location:**
+- State and logic: `contexts/SessionsContext.tsx`
+- Hook export: `lib/navigation.ts` as `usePendingNavigation()`
+
+**Real-world example** (SpawnPage.tsx):
+
+When spawning a session in an existing workspace, instead of showing a loading page and polling:
+
+```jsx
+function SpawnPage() {
+  const [engagePhase, setEngagePhase] = useState<'idle' | 'spawning' | 'waiting'>('idle');
+  const { setPendingNavigation } = usePendingNavigation();
+
+  const handleSpawn = async () => {
+    setEngagePhase('spawning');
+
+    const response = await spawnSessions({ ... });
+
+    // For single session spawns, use pending navigation
+    if (response.length === 1 && response[0].session_id) {
+      setPendingNavigation({ type: 'session', id: response[0].session_id });
+      setEngagePhase('waiting');
+      // Button now shows "Downloading session..." spinner
+      // Auto-navigates when session appears via WebSocket
+      return;
+    }
+
+    // Multiple sessions: show results screen instead
+    setEngagePhase('idle');
+    showResults(response);
+  };
+
+  return (
+    <button disabled={engagePhase !== 'idle'}>
+      {engagePhase === 'spawning' ? 'Spawning...' :
+       engagePhase === 'waiting' ? 'Downloading session...' :
+       'Engage'}
+    </button>
+  );
+}
+```
+
 ### What NOT to Put in State
 
 - **Derived data** — Compute from props/state during render

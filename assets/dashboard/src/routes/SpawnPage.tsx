@@ -4,6 +4,7 @@ import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { usePendingNavigation } from '../lib/navigation';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
@@ -150,7 +151,7 @@ export default function SpawnPage() {
   const [newRepoName, setNewRepoName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [nickname, setNickname] = useState('');
-  const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning'>('idle');
+  const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning' | 'waiting'>('idle');
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
@@ -161,6 +162,7 @@ export default function SpawnPage() {
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
   const { workspaces, loading: sessionsLoading, waitForSession } = useSessions();
+  const { setPendingNavigation } = usePendingNavigation();
   const { config } = useConfig();
 
   const location = useLocation();
@@ -422,24 +424,6 @@ export default function SpawnPage() {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
   }, [targetCounts]);
 
-  // Auto-navigate to first successful session when spawning into existing workspace
-  useEffect(() => {
-    if (!results) return;
-    const successfulResults = results.filter((r) => !r.error);
-    const errorCount = results.filter((r) => r.error).length;
-
-    if (inExistingWorkspace && successfulResults.length > 0 && errorCount === 0) {
-      const sessionId = successfulResults[0].session_id;
-      if (sessionId) {
-        // Wait for session to appear in the list before navigating
-        const doNavigate = async () => {
-          await waitForSession(sessionId);
-          navigate(`/sessions/${sessionId}`);
-        };
-        doNavigate();
-      }
-    }
-  }, [results, inExistingWorkspace, navigate, waitForSession]);
 
   const updateTargetCount = (name: string, delta: number) => {
     setTargetCounts((current) => {
@@ -595,9 +579,9 @@ export default function SpawnPage() {
         const errors = response.filter(r => r.error).map(r => r.error);
         const unique = [...new Set(errors)];
         toastError(`Spawn failed: ${unique.join('; ')}`);
+        setEngagePhase('idle');
         return;
       }
-      setResults(response);
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
         saveLastRepo(actualRepo);
@@ -607,6 +591,22 @@ export default function SpawnPage() {
           saveLastModelSelectionMode(modelSelectionMode);
         }
       }
+
+      // For workspace spawns with single success, use pending navigation instead of results screen
+      const successfulResults = response.filter((r) => !r.error);
+      if (inExistingWorkspace && successfulResults.length === 1) {
+        const sessionId = successfulResults[0].session_id;
+        if (sessionId) {
+          setPendingNavigation({ type: 'session', id: sessionId });
+          // Transition to 'waiting' phase - button shows "Downloading session..."
+          // Pending navigation will auto-redirect when session appears
+          setEngagePhase('waiting');
+          return;
+        }
+      }
+
+      setResults(response);
+      setEngagePhase('idle');
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
       let expanded: Record<string, boolean> = {};
@@ -629,7 +629,6 @@ export default function SpawnPage() {
     } catch (err) {
       const errorMsg = getErrorMessage(err, 'Unknown error');
       toastError(`Failed to spawn: ${errorMsg}`);
-    } finally {
       setEngagePhase('idle');
     }
   };
@@ -658,15 +657,6 @@ export default function SpawnPage() {
     const errorCount = results.filter((r) => r.error).length;
     const successfulResults = results.filter((r) => !r.error);
 
-    // If we're auto-navigating, show loading
-    if (inExistingWorkspace && successfulResults.length > 0 && errorCount === 0) {
-      return (
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <span>Opening session...</span>
-        </div>
-      );
-    }
 
     return (
       <>
@@ -1001,6 +991,11 @@ export default function SpawnPage() {
             <>
               <span className="spinner spinner--small"></span>
               Spawning...
+            </>
+          ) : engagePhase === 'waiting' ? (
+            <>
+              <span className="spinner spinner--small"></span>
+              Downloading session...
             </>
           ) : 'Engage'}
         </button>
