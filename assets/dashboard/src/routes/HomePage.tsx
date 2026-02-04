@@ -3,9 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
-import { scanWorkspaces, getRecentBranches, prepareBranchSpawn, getErrorMessage } from '../lib/api';
-import { navigateToWorkspace } from '../lib/navigation';
-import type { WorkspaceResponse, RecentBranch } from '../lib/types';
+import { scanWorkspaces, getRecentBranches, prepareBranchSpawn, getPRs, refreshPRs, checkoutPR, getErrorMessage } from '../lib/api';
+import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
+import type { WorkspaceResponse, RecentBranch, PullRequest } from '../lib/types';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -82,17 +82,39 @@ const CloseIcon = () => (
   </svg>
 );
 
+const GitPullRequestIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="4" cy="4" r="2" />
+    <circle cx="4" cy="12" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <path d="M4 6v4M12 6v4" />
+    <path d="M12 4V4a2 2 0 0 0-2-2H8" />
+  </svg>
+);
+
+const RefreshIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 8a6 6 0 0 1 10.3-4.2L14 2v4h-4l1.7-1.7A4.5 4.5 0 0 0 3.5 8" />
+    <path d="M14 8a6 6 0 0 1-10.3 4.2L2 14v-4h4l-1.7 1.7A4.5 4.5 0 0 0 12.5 8" />
+  </svg>
+);
+
 export default function HomePage() {
   useRequireConfig();
   const { workspaces, loading: sessionsLoading, connected } = useSessions();
   const { config, loading: configLoading, getRepoName } = useConfig();
   const { success, error: toastError } = useToast();
+  const { setPendingNavigation } = usePendingNavigation();
   const navigate = useNavigate();
 
   const [scanning, setScanning] = useState(false);
   const [recentBranches, setRecentBranches] = useState<RecentBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
   const [preparingBranch, setPreparingBranch] = useState<string | null>(null);
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
+  const [prsLoading, setPrsLoading] = useState(true);
+  const [prsRefreshing, setPrsRefreshing] = useState(false);
+  const [checkingOutPR, setCheckingOutPR] = useState<string | null>(null);
   const [heroDismissed, setHeroDismissed] = useState(() => {
     return localStorage.getItem('home-hero-dismissed') === 'true';
   });
@@ -119,6 +141,59 @@ export default function HomePage() {
     fetchBranches();
   }, [fetchBranches]);
 
+  // Fetch PRs on mount
+  useEffect(() => {
+    (async () => {
+      setPrsLoading(true);
+      try {
+        const result = await getPRs();
+        setPullRequests(result.prs || []);
+      } catch (err) {
+        console.error('Failed to fetch PRs:', err);
+      } finally {
+        setPrsLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleRefreshPRs = async () => {
+    setPrsRefreshing(true);
+    try {
+      const result = await refreshPRs();
+      setPullRequests(result.prs || []);
+      if (result.error) {
+        toastError(result.error);
+      } else {
+        success(`Found ${result.fetched_count} pull request${result.fetched_count !== 1 ? 's' : ''}`);
+      }
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to refresh PRs'));
+    } finally {
+      setPrsRefreshing(false);
+    }
+  };
+
+  const hasPrReviewTarget = () => {
+    if (!config) return false;
+    return (config.pr_review?.target?.trim() ?? '') !== '';
+  };
+
+  const handlePRClick = async (pr: PullRequest) => {
+    if (!hasPrReviewTarget()) {
+      toastError('No PR review target configured. Set pr_review.target in config.');
+      return;
+    }
+    const checkoutKey = `${pr.repo_url}#${pr.number}`;
+    setCheckingOutPR(checkoutKey);
+    try {
+      const result = await checkoutPR(pr.repo_url, pr.number);
+      setPendingNavigation({ type: 'session', id: result.session_id });
+      setCheckingOutPR(null);
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to checkout PR'));
+      setCheckingOutPR(null);
+    }
+  };
 
   // Handle scan workspaces
   const handleScan = async () => {
@@ -250,6 +325,109 @@ export default function HomePage() {
                         <span className={styles.branchSubject}>{branch.subject}</span>
                       </div>
                     </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pull Requests Section */}
+        <div className={styles.sectionCard}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              <GitPullRequestIcon />
+              Pull Requests
+            </h2>
+            <button
+              className={styles.scanButton}
+              onClick={handleRefreshPRs}
+              disabled={prsRefreshing}
+              title="Refresh pull requests from GitHub"
+            >
+              <RefreshIcon />
+              {prsRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+          <div className={styles.sectionContent}>
+            {prsLoading ? (
+              <div className={styles.loadingState}>
+                <div className="spinner spinner--small" />
+                <span>Loading pull requests...</span>
+              </div>
+            ) : pullRequests.length === 0 ? (
+              <div className={styles.placeholderState}>
+                <p className={styles.placeholderText}>
+                  No open pull requests found.
+                </p>
+                <p className={styles.placeholderHint}>
+                  PRs from public GitHub repos will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className={styles.branchList}>
+                {pullRequests.map((pr) => {
+                  const checkoutKey = `${pr.repo_url}#${pr.number}`;
+                  const isCheckingOut = checkingOutPR === checkoutKey;
+                  const isBusy = checkingOutPR !== null;
+                  const canCheckout = hasPrReviewTarget();
+                  return (
+                    <div
+                      key={checkoutKey}
+                      className={styles.branchItem}
+                      onClick={() => {
+                        if (isBusy) return;
+                        if (!canCheckout) {
+                          toastError('No PR review target configured. Set pr_review.target in config.');
+                          return;
+                        }
+                        handlePRClick(pr);
+                      }}
+                      onKeyDown={(event) => {
+                        if (isBusy) return;
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          if (!canCheckout) {
+                            toastError('No PR review target configured. Set pr_review.target in config.');
+                            return;
+                          }
+                          handlePRClick(pr);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-disabled={isBusy || !canCheckout}
+                      data-disabled={!canCheckout}
+                      data-busy={isBusy}
+                      title={`Review PR #${pr.number}: ${pr.title}`}
+                    >
+                      <div className={styles.branchRow1}>
+                        <span className={styles.branchName}>
+                          <a
+                            href={pr.html_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ color: 'inherit', textDecoration: 'none' }}
+                          >
+                            #{pr.number}
+                          </a>
+                          {' '}{pr.title}
+                          {isCheckingOut && (
+                            <span className={styles.branchSpinner}>
+                              <div className="spinner spinner--small" />
+                            </span>
+                          )}
+                        </span>
+                        <span className={styles.branchRepo}>{pr.repo_name}</span>
+                        <span className={styles.branchDate}>{formatRelativeDate(pr.created_at)}</span>
+                      </div>
+                      <div className={styles.branchRow2}>
+                        <span className={styles.branchSubject}>
+                          {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
+                        </span>
+                      </div>
+                    </div>
                   );
                 })}
               </div>

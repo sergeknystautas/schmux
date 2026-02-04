@@ -1037,6 +1037,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Provider:          s.config.GetAuthProvider(),
 			SessionTTLMinutes: s.config.GetAuthSessionTTLMinutes(),
 		},
+		PrReview: contracts.PrReview{
+			Target: s.config.GetPrReviewTarget(),
+		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
 
@@ -1307,6 +1310,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AccessControl.SessionTTLMinutes != nil {
 			cfg.AccessControl.SessionTTLMinutes = *req.AccessControl.SessionTTLMinutes
+		}
+	}
+
+	if req.PrReview != nil {
+		if cfg.PrReview == nil {
+			cfg.PrReview = &config.PrReviewConfig{}
+		}
+		if req.PrReview.Target != nil {
+			cfg.PrReview.Target = *req.PrReview.Target
 		}
 	}
 

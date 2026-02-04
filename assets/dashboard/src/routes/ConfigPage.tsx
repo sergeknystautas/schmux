@@ -52,6 +52,7 @@ type ConfigSnapshot = {
   nudgenikTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
+  prReviewTarget: string;
   terminalWidth: string;
   terminalHeight: string;
   terminalSeedLines: string;
@@ -151,6 +152,7 @@ export default function ConfigPage() {
   const [nudgenikTarget, setNudgenikTarget] = useState('');
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
   const [conflictResolveTarget, setConflictResolveTarget] = useState('');
+  const [prReviewTarget, setPrReviewTarget] = useState('');
 
   // External diff new item state
   const [newDiffName, setNewDiffName] = useState('');
@@ -210,6 +212,7 @@ export default function ConfigPage() {
       nudgenikTarget,
       branchSuggestTarget,
       conflictResolveTarget,
+      prReviewTarget,
       terminalWidth,
       terminalHeight,
       terminalSeedLines,
@@ -251,6 +254,7 @@ export default function ConfigPage() {
       current.nudgenikTarget !== originalConfig.nudgenikTarget ||
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
+      current.prReviewTarget !== originalConfig.prReviewTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
       current.terminalHeight !== originalConfig.terminalHeight ||
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
@@ -349,6 +353,7 @@ export default function ConfigPage() {
         setNudgenikTarget(data.nudgenik?.target || '');
         setBranchSuggestTarget(data.branch_suggest?.target || '');
         setConflictResolveTarget(data.conflict_resolve?.target || '');
+        setPrReviewTarget(data.pr_review?.target || '');
 
         setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
@@ -386,6 +391,7 @@ export default function ConfigPage() {
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
+            prReviewTarget: data.pr_review?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
@@ -557,6 +563,9 @@ export default function ConfigPage() {
         conflict_resolve: {
           target: conflictResolveTarget || '',
         },
+        pr_review: {
+          target: prReviewTarget || '',
+        },
         sessions: {
           dashboard_poll_interval_ms: dashboardPollInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
@@ -609,6 +618,7 @@ export default function ConfigPage() {
           nudgenikTarget,
           branchSuggestTarget,
           conflictResolveTarget,
+          prReviewTarget,
           terminalWidth,
           terminalHeight,
           terminalSeedLines,
@@ -724,17 +734,19 @@ export default function ConfigPage() {
     const inNudgenik = nudgenikTarget && (nudgenikTarget === canonicalName || (modelAliases[nudgenikTarget] === canonicalName));
     const inBranchSuggest = branchSuggestTarget && (branchSuggestTarget === canonicalName || (modelAliases[branchSuggestTarget] === canonicalName));
     const inConflictResolve = conflictResolveTarget && (conflictResolveTarget === canonicalName || (modelAliases[conflictResolveTarget] === canonicalName));
-    return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve };
+    const inPrReview = prReviewTarget && (prReviewTarget === canonicalName || (modelAliases[prReviewTarget] === canonicalName));
+    return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve, inPrReview };
   };
 
   const removePromptableTarget = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve || usage.inPrReview) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
         usage.inBranchSuggest ? 'branch suggest target' : null,
-        usage.inConflictResolve ? 'conflict resolve target' : null
+        usage.inConflictResolve ? 'conflict resolve target' : null,
+        usage.inPrReview ? 'PR review target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -767,12 +779,13 @@ export default function ConfigPage() {
 
   const removeCommand = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve) {
+    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve || usage.inPrReview) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
         usage.inBranchSuggest ? 'branch suggest target' : null,
-        usage.inConflictResolve ? 'conflict resolve target' : null
+        usage.inConflictResolve ? 'conflict resolve target' : null,
+        usage.inPrReview ? 'PR review target' : null
       ].filter(Boolean).join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
@@ -1059,6 +1072,7 @@ export default function ConfigPage() {
   const nudgenikTargetMissing = nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
   const branchSuggestTargetMissing = branchSuggestTarget.trim() !== '' && !promptableTargetNames.has(branchSuggestTarget.trim());
   const conflictResolveTargetMissing = conflictResolveTarget.trim() !== '' && !promptableTargetNames.has(conflictResolveTarget.trim());
+  const prReviewTargetMissing = prReviewTarget.trim() !== '' && !promptableTargetNames.has(prReviewTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -1741,10 +1755,49 @@ export default function ConfigPage() {
 
           {currentTab === 4 && (
             <div className="wizard-step-content" data-step="4">
-              <h2 className="wizard-step-content__title">External Diff Tools</h2>
+              <h2 className="wizard-step-content__title">Code Review</h2>
               <p className="wizard-step-content__description">
-                Configure external diff tools to view git changes outside the browser.
+                Configure targets and tools used during code review workflows.
               </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">PR Review</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={prReviewTarget}
+                      onChange={(e) => setPrReviewTarget(e.target.value)}
+                    >
+                      <option value="">Disabled</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models.filter((model) => model.configured).map((model) => (
+                          <option key={model.id} value={model.id}>{model.display_name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>{target.name}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Select a promptable target for PR review sessions, or leave disabled.
+                    </p>
+                    {prReviewTargetMissing && (
+                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">

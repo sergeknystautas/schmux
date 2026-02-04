@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -396,8 +397,17 @@ func Run(background bool) error {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
+	// Create GitHub PR discovery service
+	prDiscovery := github.NewDiscovery()
+
+	// Seed discovery from persisted state (avoids API call on restart)
+	if prs := st.GetPullRequests(); len(prs) > 0 {
+		prDiscovery.Seed(prs, st.GetPublicRepos())
+		fmt.Printf("[daemon] loaded %d cached PRs from state\n", len(prs))
+	}
+
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, Shutdown)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown)
 
 	// Create and start git watcher for filesystem-based change detection.
 	// Started after server creation so broadcasts reach WebSocket clients.
@@ -455,6 +465,38 @@ func Run(background bool) error {
 
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
 	go startNudgeNikChecker(shutdownCtx, cfg, st, sm, server.BroadcastSessions)
+
+	// Start background goroutine for GitHub PR discovery (initial + hourly refresh)
+	go func() {
+		// Initial discovery at startup
+		prs, _, err := prDiscovery.Refresh(cfg.GetRepos())
+		if err != nil {
+			fmt.Printf("[daemon] initial PR discovery failed: %v\n", err)
+		} else {
+			st.SetPullRequests(prs)
+			st.SetPublicRepos(prDiscovery.GetPublicRepos())
+			st.Save()
+			fmt.Printf("[daemon] initial PR discovery complete: %d PRs\n", len(prs))
+		}
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				prs, _, err := prDiscovery.Refresh(cfg.GetRepos())
+				if err != nil {
+					fmt.Printf("[daemon] hourly PR discovery failed: %v\n", err)
+				} else {
+					st.SetPullRequests(prs)
+					st.SetPublicRepos(prDiscovery.GetPublicRepos())
+					st.Save()
+				}
+			case <-shutdownCtx.Done():
+				return
+			}
+		}
+	}()
 
 	// Log where dashboard assets are being served from
 	server.LogDashboardAssetPath()

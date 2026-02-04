@@ -37,6 +37,7 @@ export interface ConfigResponse {
   xterm: Xterm;
   network: Network;
   access_control: AccessControl;
+  pr_review: PrReview;
   needs_restart: boolean;
 }
 
@@ -56,6 +57,7 @@ export interface ConfigUpdateRequest {
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
   access_control?: AccessControlUpdate;
+  pr_review?: PrReviewUpdate;
 }
 
 export interface ConflictResolve {
@@ -139,6 +141,36 @@ export interface NudgenikUpdate {
   target?: string;
   viewed_buffer_ms?: number;
   seen_interval_ms?: number;
+}
+
+export interface PRsResponse {
+  prs: PullRequest[];
+  last_fetched_at?: string;
+  error?: string;
+}
+
+export interface PrReview {
+  target: string;
+}
+
+export interface PrReviewUpdate {
+  target?: string;
+}
+
+export interface PullRequest {
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  repo_name: string;
+  repo_url: string;
+  source_branch: string;
+  target_branch: string;
+  author: string;
+  created_at: string;
+  html_url: string;
+  fork_owner?: string;
+  is_fork: boolean;
 }
 
 export interface QuickLaunch {

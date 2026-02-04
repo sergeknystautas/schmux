@@ -60,6 +60,9 @@ const DEFAULT_CONFIG: ConfigResponse = {
     provider: 'github',
     session_ttl_minutes: 1440,
   },
+  pr_review: {
+    target: '',
+  },
   needs_restart: false,
 };
 

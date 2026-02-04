@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -482,6 +483,11 @@ func (m *mockStateStore) GetNeedsRestart() bool {
 func (m *mockStateStore) SetNeedsRestart(needsRestart bool) error {
 	return m.state.SetNeedsRestart(needsRestart)
 }
+
+func (m *mockStateStore) GetPullRequests() []contracts.PullRequest  { return nil }
+func (m *mockStateStore) SetPullRequests(_ []contracts.PullRequest) {}
+func (m *mockStateStore) GetPublicRepos() []string                  { return nil }
+func (m *mockStateStore) SetPublicRepos(_ []string)                 {}
 
 func (m *mockStateStore) Save() error {
 	if m.failSave {

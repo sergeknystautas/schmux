@@ -61,7 +61,20 @@ export interface BuiltinQuickLaunchCookbook {
   prompt: string;
 }
 
-export type { ConfigResponse, ConfigUpdateRequest, GitGraphResponse, GitGraphNode, GitGraphBranch, Model } from './types.generated';
+import type { PullRequest } from './types.generated';
+
+export type {
+  ConfigResponse,
+  ConfigUpdateRequest,
+  GitGraphResponse,
+  GitGraphNode,
+  GitGraphBranch,
+  Model,
+  PRsResponse,
+  PullRequest,
+  PrReview,
+  PrReviewUpdate
+} from './types.generated';
 
 export interface SpawnRequest {
   repo: string;
@@ -222,4 +235,16 @@ export interface RecentBranch {
   branch: string;
   commit_date: string;
   subject: string;
+}
+
+export interface PRRefreshResponse {
+  prs: PullRequest[];
+  fetched_count: number;
+  error?: string;
+  retry_after_sec?: number;
+}
+
+export interface PRCheckoutResponse {
+  workspace_id: string;
+  session_id: string;
 }

@@ -719,6 +719,86 @@ Notes:
 - Updates workspace git status after sync
 - Supports both on-main and feature-branch workflows
 
+### GET /api/prs
+Returns cached GitHub pull requests from the last discovery run.
+
+Response:
+```json
+{
+  "prs": [
+    {
+      "number": 42,
+      "title": "Add feature X",
+      "body": "...",
+      "state": "open",
+      "repo_name": "schmux",
+      "repo_url": "git@github.com:user/schmux.git",
+      "source_branch": "feature-x",
+      "target_branch": "main",
+      "author": "someone",
+      "created_at": "2025-01-15T10:00:00Z",
+      "html_url": "https://github.com/user/schmux/pull/42",
+      "is_fork": false
+    }
+  ],
+  "last_fetched_at": "2025-01-15T12:00:00Z",
+  "error": ""
+}
+```
+
+Notes:
+- PRs are discovered at daemon startup and refreshed hourly
+- Only public GitHub repos are queried (unauthenticated API, 60 req/hour limit)
+- Limited to 5 open PRs per repo
+
+### POST /api/prs/refresh
+Re-runs PR discovery against GitHub. Same response shape as GET /api/prs with additional fields:
+
+Response:
+```json
+{
+  "prs": [...],
+  "fetched_count": 3,
+  "error": "",
+  "retry_after_sec": null
+}
+```
+
+Notes:
+- `retry_after_sec` is set when rate limited by GitHub
+
+### POST /api/prs/checkout
+Creates a workspace from a PR ref and launches a review session.
+
+Request:
+```json
+{
+  "repo_url": "git@github.com:user/repo.git",
+  "pr_number": 42
+}
+```
+
+Response:
+```json
+{
+  "workspace_id": "repo-001",
+  "session_id": "abc123"
+}
+```
+
+Process:
+1. Looks up PR metadata from discovery cache
+2. Fetches `refs/pull/{number}/head` into the bare clone
+3. Creates workspace on branch `pr/{number}` (or `pr/{fork-owner}/{number}` for forks)
+4. Launches session using `pr_review.target` with PR context as prompt
+5. Returns workspace and session IDs for navigation
+
+Errors:
+- 400: "repo_url and pr_number are required"
+- 404: "PR #N not found for URL" (PR not in discovery cache)
+- 400: "No pr_review target configured and no promptable targets available"
+- 500: "Failed to checkout PR: ..." or "Workspace created but session launch failed: ..."
+
 ### GET /api/overlays
 Returns overlay information for all repos.
 

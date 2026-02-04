@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -33,7 +34,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
 	return server, cfg, st
 }
 
@@ -252,7 +253,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
 
 	ws := state.Workspace{
 		ID:     "ws-quick",

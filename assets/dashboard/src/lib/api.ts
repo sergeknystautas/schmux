@@ -11,6 +11,9 @@ import type {
   LinearSyncResolveConflictResponse,
   OpenVSCodeResponse,
   OverlaysResponse,
+  PRCheckoutResponse,
+  PRRefreshResponse,
+  PRsResponse,
   RecentBranch,
   ScanResult,
   SpawnRequest,
@@ -383,5 +386,30 @@ export async function getGitGraph(
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error('Failed to fetch git graph');
+  return response.json();
+}
+
+export async function getPRs(): Promise<PRsResponse> {
+  const response = await fetch('/api/prs');
+  if (!response.ok) throw new Error('Failed to fetch PRs');
+  return response.json();
+}
+
+export async function refreshPRs(): Promise<PRRefreshResponse> {
+  const response = await fetch('/api/prs/refresh', { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to refresh PRs');
+  return response.json();
+}
+
+export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRCheckoutResponse> {
+  const response = await fetch('/api/prs/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to checkout PR');
+  }
   return response.json();
 }

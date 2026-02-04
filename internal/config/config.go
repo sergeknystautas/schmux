@@ -70,10 +70,16 @@ type Config struct {
 	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
 	Network                    *NetworkConfig         `json:"network,omitempty"`
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
+	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
+}
+
+// PrReviewConfig holds configuration for GitHub PR review sessions.
+type PrReviewConfig struct {
+	Target string `json:"target,omitempty"` // run target to use for PR review sessions
 }
 
 // TerminalSize represents terminal dimensions.
@@ -388,6 +394,14 @@ func (c *Config) GetConflictResolveTimeoutMs() int {
 		return DefaultConflictResolveTimeoutMs
 	}
 	return c.ConflictResolve.TimeoutMs
+}
+
+// GetPrReviewTarget returns the configured target for PR review sessions.
+func (c *Config) GetPrReviewTarget() string {
+	if c == nil || c.PrReview == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.PrReview.Target)
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

@@ -16,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -106,6 +107,9 @@ type Server struct {
 
 	authSessionKey []byte
 
+	// GitHub PR discovery
+	prDiscovery *github.Discovery
+
 	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
@@ -120,13 +124,14 @@ type versionInfo struct {
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, shutdown func()) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func()) *Server {
 	s := &Server{
 		config:                          cfg,
 		state:                           st,
 		statePath:                       statePath,
 		session:                         sm,
 		workspace:                       wm,
+		prDiscovery:                     prd,
 		shutdown:                        shutdown,
 		wsConns:                         make(map[string][]*wsConn),
 		sessionsConns:                   make(map[*wsConn]bool),
@@ -215,6 +220,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
+	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
+	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
+	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)

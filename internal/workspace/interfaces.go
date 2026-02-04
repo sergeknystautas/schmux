@@ -153,6 +153,9 @@ type WorkspaceManager interface {
 	// GetBranchCommitLog returns commit subjects for a branch relative to the default branch.
 	GetBranchCommitLog(ctx context.Context, repoURL, branch string, limit int) ([]string, error)
 
+	// CheckoutPR creates a workspace from a GitHub pull request ref.
+	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
+
 	// GetGitGraph returns the commit graph for a workspace showing local branch vs origin/main.
 	GetGitGraph(ctx context.Context, workspaceID string, maxCommits int, contextSize int) (*contracts.GitGraphResponse, error)
 }

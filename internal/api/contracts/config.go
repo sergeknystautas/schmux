@@ -136,7 +136,13 @@ type ConfigResponse struct {
 	Xterm                      Xterm                 `json:"xterm"`
 	Network                    Network               `json:"network"`
 	AccessControl              AccessControl         `json:"access_control"`
+	PrReview                   PrReview              `json:"pr_review"`
 	NeedsRestart               bool                  `json:"needs_restart"`
+}
+
+// PrReview represents PR review configuration in the API response.
+type PrReview struct {
+	Target string `json:"target"`
 }
 
 // TerminalUpdate represents partial terminal updates.
@@ -220,4 +226,10 @@ type ConfigUpdateRequest struct {
 	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`
 	Network                    *NetworkUpdate         `json:"network,omitempty"`
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
+	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
+}
+
+// PrReviewUpdate represents partial PR review config updates.
+type PrReviewUpdate struct {
+	Target *string `json:"target,omitempty"`
 }

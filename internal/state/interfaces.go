@@ -1,6 +1,10 @@
 package state
 
-import "time"
+import (
+	"time"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
+)
 
 // StateStore defines the interface for state persistence.
 type StateStore interface {
@@ -23,6 +27,12 @@ type StateStore interface {
 	GetWorktreeBases() []WorktreeBase
 	GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool)
 	AddWorktreeBase(wb WorktreeBase) error
+
+	// PR discovery state
+	GetPullRequests() []contracts.PullRequest
+	SetPullRequests(prs []contracts.PullRequest)
+	GetPublicRepos() []string
+	SetPublicRepos(repos []string)
 
 	// Daemon state
 	GetNeedsRestart() bool

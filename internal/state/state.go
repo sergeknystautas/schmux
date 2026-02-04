@@ -7,15 +7,19 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
 // State represents the application state.
 type State struct {
-	Workspaces    []Workspace    `json:"workspaces"`
-	Sessions      []Session      `json:"sessions"`
-	WorktreeBases []WorktreeBase `json:"base_repos,omitempty"`    // bare clones that host worktrees
-	NeedsRestart  bool           `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	path          string         // path to the state file
+	Workspaces    []Workspace             `json:"workspaces"`
+	Sessions      []Session               `json:"sessions"`
+	WorktreeBases []WorktreeBase          `json:"base_repos,omitempty"`    // bare clones that host worktrees
+	PullRequests  []contracts.PullRequest `json:"pull_requests,omitempty"` // cached GitHub PRs
+	PublicRepos   []string                `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
+	NeedsRestart  bool                    `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	path          string                  // path to the state file
 	mu            sync.RWMutex
 }
 
@@ -299,4 +303,36 @@ func (s *State) GetNeedsRestart() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.NeedsRestart
+}
+
+// GetPullRequests returns a copy of the stored pull requests.
+func (s *State) GetPullRequests() []contracts.PullRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]contracts.PullRequest, len(s.PullRequests))
+	copy(result, s.PullRequests)
+	return result
+}
+
+// SetPullRequests replaces the stored pull requests.
+func (s *State) SetPullRequests(prs []contracts.PullRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PullRequests = prs
+}
+
+// GetPublicRepos returns a copy of the stored public repo URLs.
+func (s *State) GetPublicRepos() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]string, len(s.PublicRepos))
+	copy(result, s.PublicRepos)
+	return result
+}
+
+// SetPublicRepos replaces the stored public repo URLs.
+func (s *State) SetPublicRepos(repos []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PublicRepos = repos
 }
