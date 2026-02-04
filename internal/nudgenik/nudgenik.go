@@ -126,6 +126,9 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 
 	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, JSONSchema, nudgenikTimeout)
 	if err != nil {
+		if errors.Is(err, oneshot.ErrTargetNotFound) {
+			return Result{}, ErrTargetNotFound
+		}
 		return Result{}, fmt.Errorf("oneshot execute: %w", err)
 	}
 
