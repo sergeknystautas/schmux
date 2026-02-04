@@ -95,6 +95,17 @@ var builtinModels = []Model{
 		Category:        "third-party",
 	},
 	{
+		ID:              "glm-4.5-air",
+		DisplayName:     "glm 4.5 air",
+		BaseTool:        "claude",
+		Provider:        "zai",
+		Endpoint:        "https://api.z.ai/api/anthropic",
+		ModelValue:      "glm-4.5-air",
+		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+		UsageURL:        "https://z.ai/manage-apikey/subscription",
+		Category:        "third-party",
+	},
+	{
 		ID:              "minimax",
 		DisplayName:     "minimax m2.1",
 		BaseTool:        "claude",
