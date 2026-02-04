@@ -12,6 +12,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 		name         string
 		agentName    string
 		agentCommand string
+		jsonSchema   string
 		want         []string
 		wantErr      bool
 		errContains  string
@@ -20,41 +21,56 @@ func TestBuildOneShotCommand(t *testing.T) {
 			name:         "claude simple",
 			agentName:    "claude",
 			agentCommand: "claude",
-			want:         []string{"claude", "-p"},
+			jsonSchema:   "",
+			want:         []string{"claude", "-p", "--output-format", "json"},
 			wantErr:      false,
 		},
 		{
 			name:         "claude with path",
 			agentName:    "claude",
 			agentCommand: "/home/user/.local/bin/claude",
-			want:         []string{"/home/user/.local/bin/claude", "-p"},
+			jsonSchema:   "",
+			want:         []string{"/home/user/.local/bin/claude", "-p", "--output-format", "json"},
+			wantErr:      false,
+		},
+		{
+			name:         "claude with json schema",
+			agentName:    "claude",
+			agentCommand: "claude",
+			jsonSchema:   `{"type":"object"}`,
+			want:         []string{"claude", "-p", "--output-format", "json", "--json-schema", `{"type":"object"}`},
 			wantErr:      false,
 		},
 		{
 			name:         "codex simple",
 			agentName:    "codex",
 			agentCommand: "codex",
+			jsonSchema:   "",
 			want:         []string{"codex", "exec", "--json"},
 			wantErr:      false,
 		},
 		{
-			name:         "gemini interactive",
-			agentName:    "gemini",
-			agentCommand: "gemini -i",
-			want:         []string{"gemini"},
+			name:         "codex with json schema",
+			agentName:    "codex",
+			agentCommand: "codex",
+			jsonSchema:   "/tmp/schema.json",
+			want:         []string{"codex", "exec", "--json", "--output-schema", "/tmp/schema.json"},
 			wantErr:      false,
 		},
 		{
-			name:         "gemini simple",
+			name:         "gemini not supported",
 			agentName:    "gemini",
 			agentCommand: "gemini",
-			want:         []string{"gemini"},
-			wantErr:      false,
+			jsonSchema:   "",
+			want:         nil,
+			wantErr:      true,
+			errContains:  "not supported",
 		},
 		{
 			name:         "unknown agent",
 			agentName:    "unknown",
 			agentCommand: "unknown",
+			jsonSchema:   "",
 			want:         nil,
 			wantErr:      true,
 			errContains:  "unknown tool",
@@ -63,34 +79,28 @@ func TestBuildOneShotCommand(t *testing.T) {
 			name:         "empty command",
 			agentName:    "claude",
 			agentCommand: "",
+			jsonSchema:   "",
 			want:         nil,
 			wantErr:      true,
 			errContains:  "empty command",
-		},
-		{
-			name:         "gemini with other flags preserved",
-			agentName:    "gemini",
-			agentCommand: "gemini -i --verbose",
-			want:         []string{"gemini", "--verbose"},
-			wantErr:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := detect.BuildCommandParts(tt.agentName, tt.agentCommand, detect.ToolModeOneshot)
+			got, err := detect.BuildCommandParts(tt.agentName, tt.agentCommand, detect.ToolModeOneshot, tt.jsonSchema)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("buildOneShotCommand() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("BuildCommandParts() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if tt.wantErr && tt.errContains != "" {
 				if err == nil || !contains(err.Error(), tt.errContains) {
-					t.Errorf("buildOneShotCommand() error = %v, want error containing %q", err, tt.errContains)
+					t.Errorf("BuildCommandParts() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
 			}
 			if !equalSlices(got, tt.want) {
-				t.Errorf("buildOneShotCommand() = %v, want %v", got, tt.want)
+				t.Errorf("BuildCommandParts() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -135,7 +145,7 @@ func TestExecuteInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, nil)
+			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, "", nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Execute() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -149,31 +159,26 @@ func TestExecuteInputValidation(t *testing.T) {
 	}
 }
 
-func TestParseGeminiOneShot(t *testing.T) {
+func TestParseClaudeStructuredOutput(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		expected string
 	}{
 		{
-			name:     "strips credentials line",
-			input:    "Loaded cached credentials.\nHello, world!",
-			expected: "Hello, world!",
+			name:     "extracts structured_output",
+			input:    `{"structured_output":{"branch":"feature/test","nickname":"Test"},"duration_ms":1000}`,
+			expected: `{"branch":"feature/test","nickname":"Test"}`,
 		},
 		{
-			name:     "no credentials line",
-			input:    "Hello, world!",
-			expected: "Hello, world!",
+			name:     "returns as-is when not json",
+			input:    "plain text output",
+			expected: "plain text output",
 		},
 		{
-			name:     "credentials at end",
-			input:    "Hello, world!\nLoaded cached credentials.",
-			expected: "Hello, world!",
-		},
-		{
-			name:     "multiple credentials lines",
-			input:    "Loaded cached credentials.\nSome text\nLoaded cached credentials.\nMore text",
-			expected: "Some text\nMore text",
+			name:     "returns as-is when json without structured_output",
+			input:    `{"result":"something"}`,
+			expected: `{"result":"something"}`,
 		},
 		{
 			name:     "empty input",
@@ -184,9 +189,50 @@ func TestParseGeminiOneShot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseGeminiOneShot(tt.input)
+			got := parseClaudeStructuredOutput(tt.input)
 			if got != tt.expected {
-				t.Errorf("parseGeminiOneShot() = %q, want %q", got, tt.expected)
+				t.Errorf("parseClaudeStructuredOutput() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseCodexJSONLOutput(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "extracts agent_message from jsonl",
+			input: `{"type":"thread.started","thread_id":"abc"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"branch\":\"feature/test\",\"nickname\":\"Test\"}"}}`,
+			expected: `{"branch":"feature/test","nickname":"Test"}`,
+		},
+		{
+			name:     "returns as-is for plain text",
+			input:    "plain text output",
+			expected: "plain text output",
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			expected: "",
+		},
+		{
+			name: "malformed json lines ignored",
+			input: `not json
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"result\":\"value\"}"}}`,
+			expected: `{"result":"value"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseCodexJSONLOutput(tt.input)
+			if got != tt.expected {
+				t.Errorf("parseCodexJSONLOutput() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -200,13 +246,25 @@ func TestParseResponse(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "claude passes through",
+			name:      "claude extracts structured output",
 			agentName: "claude",
-			output:    "Hello, world!",
-			expected:  "Hello, world!",
+			output:    `{"structured_output":{"greeting":"hello"},"duration_ms":1000}`,
+			expected:  `{"greeting":"hello"}`,
 		},
 		{
-			name:      "codex passes through",
+			name:      "claude returns as-is when no structured output",
+			agentName: "claude",
+			output:    `{"result":"something"}`,
+			expected:  `{"result":"something"}`,
+		},
+		{
+			name:      "codex extracts agent message",
+			agentName: "codex",
+			output:    `{"type":"item.completed","item":{"type":"agent_message","text":"{\"greeting\":\"hello\"}"}}`,
+			expected:  `{"greeting":"hello"}`,
+		},
+		{
+			name:      "codex returns as-is for plain text",
 			agentName: "codex",
 			output:    "Some output",
 			expected:  "Some output",
@@ -216,12 +274,6 @@ func TestParseResponse(t *testing.T) {
 			agentName: "unknown",
 			output:    "Fallback output",
 			expected:  "Fallback output",
-		},
-		{
-			name:      "gemini strips credentials",
-			agentName: "gemini",
-			output:    "Loaded cached credentials.\nResponse here",
-			expected:  "Response here",
 		},
 	}
 

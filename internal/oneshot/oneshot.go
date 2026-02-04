@@ -19,8 +19,10 @@ var ErrTargetNotFound = errors.New("target not found")
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
+// The jsonSchema parameter is optional; if provided, it should be a JSON schema for structured output.
+// For Claude, this is inline JSON; for Codex, a file path.
 // Returns the parsed response string from the agent.
-func Execute(ctx context.Context, agentName, agentCommand, prompt string, env map[string]string) (string, error) {
+func Execute(ctx context.Context, agentName, agentCommand, prompt, jsonSchema string, env map[string]string) (string, error) {
 	// Validate inputs
 	if agentName == "" {
 		return "", fmt.Errorf("agent name cannot be empty")
@@ -33,7 +35,7 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt string, env ma
 	}
 
 	// Build command parts safely
-	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot)
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, jsonSchema)
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +90,8 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 // It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
 // The timeout parameter controls how long to wait for the one-shot execution to complete.
-func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt string, timeout time.Duration) (string, error) {
+// The jsonSchema parameter is optional; if provided, it should be a JSON schema for structured output.
+func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, jsonSchema string, timeout time.Duration) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
 	}
@@ -105,9 +108,10 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt s
 	defer cancel()
 
 	if target.Kind == targetKindUser {
+		// User-defined targets don't support JSON schema
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env)
 	}
-	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, target.Env)
+	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, jsonSchema, target.Env)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -129,55 +133,97 @@ func mergeEnv(extra map[string]string) []string {
 }
 
 // parseResponse parses the raw output from an agent into a clean response string.
+// When JSON schema is used, the output is in an envelope format:
+// - Claude: JSON with "structured_output" field containing the result
+// - Codex: JSONL stream; we extract the final agent_message text
 func parseResponse(agentName, output string) string {
 	switch agentName {
-	case "gemini":
-		return parseGeminiOneShot(output)
 	case "claude":
-		// Claude returns clean output, no parsing needed
-		return output
+		return parseClaudeStructuredOutput(output)
 	case "codex":
-		// TODO: Parse JSONL response from codex exec --json
-		// For now, return full output
-		return output
+		return parseCodexJSONLOutput(output)
 	default:
 		return output
 	}
 }
 
-// parseGeminiOneShot strips the "Loaded cached credentials." line from gemini output.
-func parseGeminiOneShot(output string) string {
+// parseClaudeStructuredOutput extracts the structured_output field from Claude's JSON response.
+// If the output is not JSON or lacks structured_output, returns the output as-is.
+func parseClaudeStructuredOutput(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return output
+	}
+
+	// Try to parse as JSON envelope
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		// Not JSON, return as-is
+		return output
+	}
+
+	// Look for structured_output field
+	if raw, ok := envelope["structured_output"]; ok && len(raw) > 0 {
+		return string(raw)
+	}
+
+	// No structured_output field, return as-is
+	return output
+}
+
+// parseCodexJSONLOutput extracts the final agent_message from Codex's JSONL output.
+// Codex outputs multiple JSON lines; we look for the last item.completed with agent_message type.
+//
+// Note: Errors from json.Unmarshal are intentionally ignored to ensure resilience.
+// Malformed JSONL lines should be skipped rather than causing the entire parse to fail,
+// as we only need to find the valid agent_message containing the result.
+func parseCodexJSONLOutput(output string) string {
 	lines := strings.Split(output, "\n")
-	// Filter out the credentials message
-	var filtered []string
+	var lastAgentMessage string
+
 	for _, line := range lines {
-		if line != "Loaded cached credentials." {
-			filtered = append(filtered, line)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		var event map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(trimmed), &event); err != nil {
+			// Not a JSON line, skip
+			continue
+		}
+
+		// Check if this is an item.completed event
+		if eventType, ok := event["type"]; ok {
+			var typeName string
+			_ = json.Unmarshal(eventType, &typeName) // Error intentionally ignored
+			if typeName == "item.completed" {
+				// Look for the item field
+				if rawItem, ok := event["item"]; ok {
+					var item map[string]json.RawMessage
+					if err := json.Unmarshal(rawItem, &item); err == nil {
+						// Check if it's an agent_message
+						if itemType, ok := item["type"]; ok {
+							var itemTypeName string
+							_ = json.Unmarshal(itemType, &itemTypeName) // Error intentionally ignored
+							if itemTypeName == "agent_message" {
+								// Extract the text field
+								if textRaw, ok := item["text"]; ok {
+									_ = json.Unmarshal(textRaw, &lastAgentMessage) // Error intentionally ignored
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	}
-	return strings.Join(filtered, "\n")
-}
 
-// CodexJSONL represents a single JSONL line from codex --json output.
-// TODO: Implement JSONL parsing for codex responses.
-type CodexJSONL struct {
-	// Fields will be added when we implement JSONL parsing
-}
-
-// ParseCodexJSONL parses JSONL output from codex exec --json.
-// TODO: Implement this function to handle streaming JSONL responses.
-func ParseCodexJSONL(output string) ([]CodexJSONL, error) {
-	// Placeholder for future implementation
-	var results []CodexJSONL
-	decoder := json.NewDecoder(strings.NewReader(output))
-	for decoder.More() {
-		var line CodexJSONL
-		if err := decoder.Decode(&line); err != nil {
-			return nil, fmt.Errorf("failed to parse codex JSONL: %w", err)
-		}
-		results = append(results, line)
+	if lastAgentMessage != "" {
+		return lastAgentMessage
 	}
-	return results, nil
+	// Fallback: return original output
+	return output
 }
 
 // resolvedTarget represents a fully resolved oneshot target with all env vars merged.
@@ -275,4 +321,23 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 
 func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
 	return config.EnsureModelSecrets(model, secrets)
+}
+
+// NormalizeJSONPayload normalizes common JSON encoding issues that can occur
+// with LLM outputs, such as fancy quotes, extra whitespace, and tabs.
+// Returns an empty string if the input is empty after trimming.
+func NormalizeJSONPayload(payload string) string {
+	fixed := strings.TrimSpace(payload)
+	if fixed == "" {
+		return ""
+	}
+	fixed = strings.ReplaceAll(fixed, "“", "\"")
+	fixed = strings.ReplaceAll(fixed, "”", "\"")
+	fixed = strings.ReplaceAll(fixed, "'", "'")
+	fixed = strings.ReplaceAll(fixed, "\t", " ")
+	for strings.Contains(fixed, "  ") {
+		fixed = strings.ReplaceAll(fixed, "  ", " ")
+	}
+	fixed = strings.TrimSpace(fixed)
+	return fixed
 }
