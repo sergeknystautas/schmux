@@ -42,19 +42,15 @@ Examples:
   Branch: "refactor/auth-jwt"
   Nickname: "JWT auth"
 
-Output format (strict JSON only):
-{
-  "branch": "<branch-name>",
-  "nickname": "<nickname>"
-}
-
-Output MUST be valid JSON only. No preamble or trailing text.
-
 Here is the user's prompt:
 <<<
 {{USER_PROMPT}}
 >>>
 `
+
+	// JSONSchema is the JSON schema for branch suggestion output.
+	// Using inline JSON format for Claude, file path format for Codex.
+	JSONSchema = `{"type":"object","properties":{"branch":{"type":"string"},"nickname":{"type":"string"}},"required":["branch","nickname"],"additionalProperties":false}`
 
 	branchSuggestTimeout = 30 * time.Second
 )
@@ -99,7 +95,7 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, branchSuggestTimeout)
+	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, JSONSchema, branchSuggestTimeout)
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return Result{}, ErrTargetNotFound
@@ -159,17 +155,5 @@ func ParseResult(raw string) (Result, error) {
 }
 
 func normalizeJSONPayload(payload string) string {
-	fixed := strings.TrimSpace(payload)
-	if fixed == "" {
-		return ""
-	}
-	fixed = strings.ReplaceAll(fixed, "\u201c", "\"")
-	fixed = strings.ReplaceAll(fixed, "\u201d", "\"")
-	fixed = strings.ReplaceAll(fixed, "\u2019", "'")
-	fixed = strings.ReplaceAll(fixed, "\t", " ")
-	for strings.Contains(fixed, "  ") {
-		fixed = strings.ReplaceAll(fixed, "  ", " ")
-	}
-	fixed = strings.TrimSpace(fixed)
-	return fixed
+	return oneshot.NormalizeJSONPayload(payload)
 }

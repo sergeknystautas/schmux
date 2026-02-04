@@ -14,7 +14,9 @@ const (
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
-func BuildCommandParts(toolName, detectedCommand string, mode ToolMode) ([]string, error) {
+// The jsonSchema parameter is optional; if provided, it should be a JSON schema
+// for structured output. For Claude, this is inline JSON; for Codex, a file path.
+func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSchema string) ([]string, error) {
 	parts := strings.Fields(detectedCommand)
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("tool %s: empty command", toolName)
@@ -30,19 +32,20 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode) ([]strin
 	var newArgs []string
 	switch toolName {
 	case "claude":
-		newArgs = append(existingArgs, "-p")
+		newArgs = append(existingArgs, "-p", "--output-format", "json")
+		if jsonSchema != "" {
+			newArgs = append(newArgs, "--json-schema", jsonSchema)
+		}
 	case "codex":
 		newArgs = append(existingArgs, "exec", "--json")
-	case "gemini":
-		var filtered []string
-		for _, arg := range existingArgs {
-			if arg != "-i" {
-				filtered = append(filtered, arg)
-			}
+		if jsonSchema != "" {
+			newArgs = append(newArgs, "--output-schema", jsonSchema)
 		}
-		newArgs = filtered
+	case "gemini":
+		// Gemini does not support structured output via JSON schema
+		return nil, fmt.Errorf("tool %s: oneshot mode with JSON schema is not supported (supported: claude, codex)", toolName)
 	default:
-		return nil, fmt.Errorf("unknown tool: %s (supported: claude, codex, gemini)", toolName)
+		return nil, fmt.Errorf("unknown tool: %s (supported: claude, codex)", toolName)
 	}
 
 	return append([]string{baseCmd}, newArgs...), nil

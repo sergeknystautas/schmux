@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -17,7 +16,6 @@ import (
 
 const (
 	// Prompt is the NudgeNik prompt prefix.
-	// Prompt = "Please tell me the status of this coding agent.  Does they need to test, need permission, need user feedback, need requirements clarified, or are they done?  (direct answer only, no meta commentary, no lists, concise):\n\n"
 	Prompt = `
 You are analyzing the last response from a coding agent.
 
@@ -42,16 +40,6 @@ When to choose "Needs Authorization" (must follow these):
 - Any response that includes a menu, numbered choices, or a confirmation prompt (e.g., "Do you want to proceed?", "Proceed?", "Choose an option", "What do you want to do?").
 - Any response that indicates a rate limit with options to wait/upgrade.
 
-Output format (strict):
-{
-  "state": "<one of the states above>",
-  "confidence": "<low|medium|high>",
-  "evidence": ["<direct quotes or behaviors from the response>"],
-  "summary": "<1 sentence explanation written WITHOUT referring to the agent, system, or model; start directly with the condition or state>"
-}
-
-Output MUST be valid JSON only. Use double quotes for all keys/strings. No preamble or trailing text.
-
 Stylistic rules for "summary":
 - Do NOT use the words "agent", "model", "system", or "it"
 - Do NOT anthropomorphize
@@ -62,6 +50,10 @@ Here is the agent’s last response:
 {{AGENT_LAST_RESPONSE}}
 >>>
 `
+
+	// JSONSchema is the JSON schema for NudgeNik output.
+	// Using inline JSON format for Claude, file path format for Codex.
+	JSONSchema = `{"type":"object","properties":{"state":{"type":"string"},"confidence":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["state","confidence","summary"],"additionalProperties":false}`
 
 	nudgenikTimeout = 15 * time.Second
 )
@@ -129,23 +121,10 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 
 	input := Prompt + extracted
 
-	resolved, err := resolveNudgenikTarget(cfg, targetName)
-	if err != nil {
-		return Result{}, err
-	}
-	if !resolved.Promptable {
-		return Result{}, fmt.Errorf("nudgenik target %s must be promptable", resolved.Name)
-	}
-
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	var response string
-	if resolved.Kind == targetKindUser {
-		response, err = oneshot.ExecuteCommand(timeoutCtx, resolved.Command, input, resolved.Env)
-	} else {
-		response, err = oneshot.Execute(timeoutCtx, resolved.ToolName, resolved.Command, input, resolved.Env)
-	}
+	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, JSONSchema, nudgenikTimeout)
 	if err != nil {
 		return Result{}, fmt.Errorf("oneshot execute: %w", err)
 	}
@@ -156,95 +135,6 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	}
 
 	return result, nil
-}
-
-type nudgenikTarget struct {
-	Name       string
-	Kind       string
-	ToolName   string
-	Command    string
-	Promptable bool
-	Env        map[string]string
-}
-
-const (
-	targetKindDetected = "detected"
-	targetKindModel    = "model"
-	targetKindUser     = "user"
-)
-
-func resolveNudgenikTarget(cfg *config.Config, targetName string) (nudgenikTarget, error) {
-	if cfg == nil {
-		return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-	}
-
-	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
-	model, ok := detect.FindModel(targetName)
-	if ok {
-		// Verify the base tool is detected
-		detectedTools := config.DetectedToolsFromConfig(cfg)
-		baseToolDetected := false
-		for _, tool := range detectedTools {
-			if tool.Name == model.BaseTool {
-				baseToolDetected = true
-				break
-			}
-		}
-		if !baseToolDetected {
-			return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-		}
-		baseTarget, found := cfg.GetDetectedRunTarget(model.BaseTool)
-		if !found {
-			return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-		}
-		secrets, err := config.GetEffectiveModelSecrets(model)
-		if err != nil {
-			return nudgenikTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
-		}
-		if err := config.EnsureModelSecrets(model, secrets); err != nil {
-			return nudgenikTarget{}, err
-		}
-		return nudgenikTarget{
-			Name:       model.ID,
-			Kind:       targetKindModel,
-			ToolName:   model.BaseTool,
-			Command:    baseTarget.Command,
-			Promptable: true,
-			Env:        mergeEnvMaps(model.BuildEnv(), secrets),
-		}, nil
-	}
-
-	if target, found := cfg.GetRunTarget(targetName); found {
-		kind := targetKindUser
-		toolName := ""
-		if target.Source == config.RunTargetSourceDetected {
-			kind = targetKindDetected
-			toolName = target.Name
-		}
-		return nudgenikTarget{
-			Name:       target.Name,
-			Kind:       kind,
-			ToolName:   toolName,
-			Command:    target.Command,
-			Promptable: target.Type == config.RunTargetTypePromptable,
-		}, nil
-	}
-
-	return nudgenikTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-}
-
-func mergeEnvMaps(base, overrides map[string]string) map[string]string {
-	if base == nil && overrides == nil {
-		return nil
-	}
-	out := make(map[string]string, len(base)+len(overrides))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overrides {
-		out[k] = v
-	}
-	return out
 }
 
 // ExtractLatestFromCapture extracts the latest agent response from a raw tmux capture.
@@ -293,17 +183,5 @@ func ParseResult(raw string) (Result, error) {
 }
 
 func normalizeJSONPayload(payload string) string {
-	fixed := strings.TrimSpace(payload)
-	if fixed == "" {
-		return ""
-	}
-	fixed = strings.ReplaceAll(fixed, "“", "\"")
-	fixed = strings.ReplaceAll(fixed, "”", "\"")
-	fixed = strings.ReplaceAll(fixed, "’", "'")
-	fixed = strings.ReplaceAll(fixed, "\t", " ")
-	for strings.Contains(fixed, "  ") {
-		fixed = strings.ReplaceAll(fixed, "  ", " ")
-	}
-	fixed = strings.TrimSpace(fixed)
-	return fixed
+	return oneshot.NormalizeJSONPayload(payload)
 }
