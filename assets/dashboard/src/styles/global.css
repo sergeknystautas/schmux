@@ -427,7 +427,15 @@ body {
     padding: var(--spacing-xl);
     min-width: 0;
     height: 100vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Headers and tabs should not shrink - session-detail fills remaining space */
+.app-shell__content > .workspace-header,
+.app-shell__content > .session-tabs {
+    flex-shrink: 0;
 }
 
 /* Collapsed nav state */
@@ -1460,7 +1468,7 @@ body {
     display: grid;
     grid-template-columns: 1fr 300px;
     min-height: 0;
-    height: calc(100vh - 180px);
+    flex: 1;
     transition: grid-template-columns 0.2s ease;
 }
 
