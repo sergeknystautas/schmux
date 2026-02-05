@@ -690,16 +690,16 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 
 		// Session is inactive and has no nudge, ask NudgeNik
 		targetName := cfg.GetNudgenikTarget()
-		fmt.Printf("[nudgenik] asking %s for session %s\n", targetName, sess.ID)
+		fmt.Printf("[nudgenik] %s - asking %s\n", sess.ID, targetName)
 		nudge := askNudgeNikForSession(ctx, cfg, sess)
 		if nudge != "" {
 			sess.Nudge = nudge
 			if err := st.UpdateSession(sess); err != nil {
-				fmt.Printf("[nudgenik] failed to save nudge for %s: %v\n", sess.ID, err)
+				fmt.Printf("[nudgenik] %s - failed to save nudge: %v\n", sess.ID, err)
 			} else if err := st.Save(); err != nil {
-				fmt.Printf("[nudgenik] failed to persist state for %s: %v\n", sess.ID, err)
+				fmt.Printf("[nudgenik] %s - failed to persist state: %v\n", sess.ID, err)
 			} else {
-				fmt.Printf("[nudgenik] saved nudge for %s\n", sess.ID)
+				fmt.Printf("[nudgenik] %s - saved nudge\n", sess.ID)
 				if onUpdate != nil {
 					onUpdate()
 				}
@@ -716,20 +716,20 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 		case errors.Is(err, nudgenik.ErrDisabled):
 			// Silently skip - nudgenik is disabled
 		case errors.Is(err, nudgenik.ErrNoResponse):
-			fmt.Printf("[nudgenik] no response extracted from session %s\n", sess.ID)
+			fmt.Printf("[nudgenik] %s - no response extracted\n", sess.ID)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
 			fmt.Printf("[nudgenik] target not found in config\n")
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
 			fmt.Printf("[nudgenik] target missing required secrets\n")
 		default:
-			fmt.Printf("[nudgenik] failed to ask for session %s: %v\n", sess.ID, err)
+			fmt.Printf("[nudgenik] %s - failed to ask: %v\n", sess.ID, err)
 		}
 		return ""
 	}
 
 	payload, err := json.Marshal(result)
 	if err != nil {
-		fmt.Printf("[nudgenik] failed to serialize result for session %s: %v\n", sess.ID, err)
+		fmt.Printf("[nudgenik] %s - failed to serialize result: %v\n", sess.ID, err)
 		return ""
 	}
 
