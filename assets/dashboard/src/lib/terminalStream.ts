@@ -37,6 +37,7 @@ export default class TerminalStream {
   tmuxRows: number | null;
   baseFontSize: number;
   initialized: Promise<Terminal | null>;
+  resizeDebounceTimer: ReturnType<typeof setTimeout> | null;
 
   // Multi-line selection state
   selectionMode: boolean;
@@ -65,6 +66,7 @@ export default class TerminalStream {
     this.tmuxCols = null;
     this.tmuxRows = null;
     this.baseFontSize = 14;
+    this.resizeDebounceTimer = null;
 
     // Multi-line selection state
     this.selectionMode = false;
@@ -157,7 +159,7 @@ export default class TerminalStream {
   setupResizeHandler() {
     if (typeof ResizeObserver !== 'undefined') {
       const resizeObserver = new ResizeObserver(() => {
-        this.scaleTerminal();
+        this.handleResize();
       });
       resizeObserver.observe(this.containerElement);
 
@@ -170,42 +172,75 @@ export default class TerminalStream {
     }
 
     window.addEventListener('resize', () => {
-      this.scaleTerminal();
+      this.handleResize();
     });
 
-    setTimeout(() => this.scaleTerminal(), 100);
-    setTimeout(() => this.scaleTerminal(), 300);
-    setTimeout(() => this.scaleTerminal(), 1000);
+    setTimeout(() => this.handleResize(), 100);
+    setTimeout(() => this.handleResize(), 300);
+    setTimeout(() => this.handleResize(), 1000);
   }
 
-  scaleTerminal() {
+  handleResize() {
+    // Debounce resize events to avoid excessive backend calls
+    if (this.resizeDebounceTimer) {
+      clearTimeout(this.resizeDebounceTimer);
+    }
+    this.resizeDebounceTimer = setTimeout(() => {
+      this.fitTerminal();
+    }, 150);
+  }
+
+  fitTerminal() {
     if (!this.terminal) return;
 
     const containerRect = this.containerElement.getBoundingClientRect();
-    const containerWidth = containerRect.width || 800;
-    const containerHeight = containerRect.height || 600;
+    const containerWidth = containerRect.width;
+    const containerHeight = containerRect.height;
 
-    // Character dimensions at base fontSize (14px)
-    const charWidthAt14 = 9;
-    const charHeightAt14 = 17;
+    if (containerWidth <= 0 || containerHeight <= 0) return;
 
-    // Terminal's natural size at base fontSize
-    const terminalWidthAt14 = this.tmuxCols * charWidthAt14;
-    const terminalHeightAt14 = this.tmuxRows * charHeightAt14;
+    // Measure actual cell dimensions from the terminal
+    // xterm.js creates a hidden element to measure character size
+    const core = (this.terminal as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
+    let cellWidth = 9;
+    let cellHeight = 17;
 
-    // Calculate scale factor needed to fit container
-    const scaleX = containerWidth / terminalWidthAt14;
-    const scaleY = containerHeight / terminalHeightAt14;
-    const scale = Math.min(scaleX, scaleY, 1);
+    if (core?._renderService?.dimensions?.css?.cell) {
+      cellWidth = core._renderService.dimensions.css.cell.width;
+      cellHeight = core._renderService.dimensions.css.cell.height;
+    }
 
-    // Set fontSize to scale the terminal (no CSS transform = coordinates work)
-    const newFontSize = Math.max(1, Math.round(this.baseFontSize * scale));
-    this.terminal.options.fontSize = newFontSize;
-    this.terminal.refresh(0, this.terminal.rows - 1);
+    // Calculate new dimensions (subtract 1 to prevent overflow)
+    const newCols = Math.max(20, Math.floor(containerWidth / cellWidth) - 1);
+    const newRows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
+
+    // Only resize if dimensions actually changed
+    if (newCols === this.tmuxCols && newRows === this.tmuxRows) {
+      return;
+    }
+
+    // Update stored dimensions
+    this.tmuxCols = newCols;
+    this.tmuxRows = newRows;
+
+    // Resize xterm.js terminal
+    this.terminal.resize(newCols, newRows);
+
+    // Send resize message to backend to resize tmux
+    this.sendResize(newCols, newRows);
+  }
+
+  sendResize(cols: number, rows: number) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'resize',
+        data: JSON.stringify({ cols, rows })
+      }));
+    }
   }
 
   resizeTerminal() {
-    this.scaleTerminal();
+    this.fitTerminal();
   }
 
   connect() {
