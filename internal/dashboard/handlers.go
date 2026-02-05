@@ -1066,9 +1066,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config
 	oldNetwork := cloneNetwork(cfg.Network)
 	oldAccessControl := cloneAccessControl(cfg.AccessControl)
-
-	// Track if repos were updated for overlay dir creation
-	reposUpdated := req.Repos != nil
+	oldRepos := cfg.GetRepos()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
@@ -1341,9 +1339,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure overlay directories exist for all repos if repos were updated
-	if reposUpdated {
-		if err := s.workspace.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
+	// Ensure overlay directories exist for all repos if repos were actually updated
+	newRepos := cfg.GetRepos()
+	if !reposEqual(oldRepos, newRepos) {
+		if err := s.workspace.EnsureOverlayDirs(newRepos); err != nil {
 			fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
 			// Don't fail the request for this - overlay dirs can be created manually
 		}
@@ -1496,6 +1495,19 @@ func cloneAccessControl(src *config.AccessControlConfig) *config.AccessControlCo
 	}
 	cpy := *src
 	return &cpy
+}
+
+// reposEqual compares two slices of repos for equality.
+func reposEqual(a, b []config.Repo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].URL != b[i].URL {
+			return false
+		}
+	}
+	return true
 }
 
 // handleModel handles model secret/configured requests.

@@ -466,17 +466,13 @@ func Run(background bool) error {
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
 	go startNudgeNikChecker(shutdownCtx, cfg, st, sm, server.BroadcastSessions)
 
-	// Start background goroutine for GitHub PR discovery (initial + hourly refresh)
+	// Start background goroutine for GitHub PR discovery (runs hourly if pr_review.target is configured)
 	go func() {
-		// Initial discovery at startup
-		prs, _, err := prDiscovery.Refresh(cfg.GetRepos())
-		if err != nil {
-			fmt.Printf("[daemon] initial PR discovery failed: %v\n", err)
-		} else {
-			st.SetPullRequests(prs)
-			st.SetPublicRepos(prDiscovery.GetPublicRepos())
-			st.Save()
-			fmt.Printf("[daemon] initial PR discovery complete: %d PRs\n", len(prs))
+		var lastPollTime time.Time
+		targetWasConfigured := cfg.GetPrReviewTarget() != ""
+
+		if !targetWasConfigured {
+			fmt.Printf("[daemon] PR discovery disabled (no pr_review.target configured)\n")
 		}
 
 		ticker := time.NewTicker(1 * time.Hour)
@@ -484,13 +480,28 @@ func Run(background bool) error {
 		for {
 			select {
 			case <-ticker.C:
+				targetConfigured := cfg.GetPrReviewTarget() != ""
+				if targetConfigured && !targetWasConfigured {
+					fmt.Printf("[daemon] pr_review.target configured, enabling PR discovery\n")
+					targetWasConfigured = true
+				} else if !targetConfigured && targetWasConfigured {
+					fmt.Printf("[daemon] pr_review.target removed, disabling PR discovery\n")
+					targetWasConfigured = false
+				}
+
+				if !targetConfigured {
+					continue
+				}
+
 				prs, _, err := prDiscovery.Refresh(cfg.GetRepos())
+				lastPollTime = time.Now()
 				if err != nil {
-					fmt.Printf("[daemon] hourly PR discovery failed: %v\n", err)
+					fmt.Printf("[daemon] PR discovery failed (last poll: %s): %v\n", lastPollTime.Format(time.RFC3339), err)
 				} else {
 					st.SetPullRequests(prs)
 					st.SetPublicRepos(prDiscovery.GetPublicRepos())
 					st.Save()
+					fmt.Printf("[daemon] PR discovery complete: %d PRs (last poll: %s)\n", len(prs), lastPollTime.Format(time.RFC3339))
 				}
 			case <-shutdownCtx.Done():
 				return
