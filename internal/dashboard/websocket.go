@@ -637,6 +637,29 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 					fmt.Printf("[nudgenik] error sending keys to tmux: %v\n", err)
 				}
 				cancel()
+			case "resize":
+				sess, err := s.session.GetSession(sessionID)
+				if err != nil {
+					break
+				}
+				// Parse resize data: {"cols": 120, "rows": 40}
+				var resizeData struct {
+					Cols int `json:"cols"`
+					Rows int `json:"rows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err != nil {
+					fmt.Printf("[terminal] error parsing resize data: %v\n", err)
+					break
+				}
+				if resizeData.Cols <= 0 || resizeData.Rows <= 0 {
+					break
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+				if err := tmux.ResizeWindow(ctx, sess.TmuxSession, resizeData.Cols, resizeData.Rows); err != nil {
+					cancel()
+					fmt.Printf("[terminal] error resizing tmux window: %v\n", err)
+				}
+				cancel()
 			}
 		}
 	}
