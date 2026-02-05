@@ -2,8 +2,16 @@ package contracts
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name   string        `json:"name"`
+	URL    string        `json:"url"`
+	Mode   string        `json:"mode,omitempty"` // "local" (default) or "remote"
+	Remote *RemoteConfig `json:"remote,omitempty"`
+}
+
+// RemoteConfig contains per-repo remote settings.
+type RemoteConfig struct {
+	Flavor        string `json:"flavor"`         // e.g., "gpu-large"
+	WorkspacePath string `json:"workspace_path"` // e.g., "~/projects/myrepo"
 }
 
 // RepoConfig represents repository-specific configuration from .schmux/config.json.
@@ -13,10 +21,12 @@ type RepoConfig struct {
 
 // RepoWithConfig represents a repository with its loaded configuration.
 type RepoWithConfig struct {
-	Name          string      `json:"name"`
-	URL           string      `json:"url"`
-	DefaultBranch string      `json:"default_branch,omitempty"` // Omitted if not detected
-	Config        *RepoConfig `json:"config,omitempty"`
+	Name          string        `json:"name"`
+	URL           string        `json:"url"`
+	Mode          string        `json:"mode,omitempty"`           // "local" (default) or "remote"
+	Remote        *RemoteConfig `json:"remote,omitempty"`         // Remote settings (only if mode=remote)
+	DefaultBranch string        `json:"default_branch,omitempty"` // Omitted if not detected
+	Config        *RepoConfig   `json:"config,omitempty"`
 }
 
 // RunTarget represents a user-supplied run target.
@@ -132,6 +142,7 @@ type ConfigResponse struct {
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
+	Ollama                     Ollama                `json:"ollama"`
 	Sessions                   Sessions              `json:"sessions"`
 	Xterm                      Xterm                 `json:"xterm"`
 	Network                    Network               `json:"network"`
@@ -169,6 +180,18 @@ type BranchSuggestUpdate struct {
 type ConflictResolveUpdate struct {
 	Target    *string `json:"target,omitempty"`
 	TimeoutMs *int    `json:"timeout_ms,omitempty"`
+}
+
+// Ollama represents Ollama configuration.
+type Ollama struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+}
+
+// OllamaUpdate represents partial Ollama updates.
+type OllamaUpdate struct {
+	Enabled  *bool   `json:"enabled,omitempty"`
+	Endpoint *string `json:"endpoint,omitempty"`
 }
 
 // SessionsUpdate represents partial session timing updates.
@@ -209,6 +232,33 @@ type AccessControlUpdate struct {
 	SessionTTLMinutes *int    `json:"session_ttl_minutes,omitempty"`
 }
 
+// SessionRunner represents session runner configuration.
+// Deprecated: Use RemoteRunner for new configs.
+type SessionRunner struct {
+	Type            string `json:"type"`                       // "local_tmux" (default) or "external"
+	ProvisionPrefix string `json:"provision_prefix,omitempty"` // Prefix for provisioning+command (e.g., "ssh {{.Flavor}} --")
+	HostnameRegex   string `json:"hostname_regex,omitempty"`   // Regex to extract hostname from provisioning log output
+	OpenVSCode      string `json:"open_vscode,omitempty"`      // Command to open VSCode on remote (e.g., "code --remote ssh-remote+{{.Hostname}} {{.Path}}")
+}
+
+// SessionRunnerUpdate represents partial session runner updates.
+type SessionRunnerUpdate struct {
+	Type            *string `json:"type,omitempty"`
+	ProvisionPrefix *string `json:"provision_prefix,omitempty"`
+	HostnameRegex   *string `json:"hostname_regex,omitempty"`
+	OpenVSCode      *string `json:"open_vscode,omitempty"`
+}
+
+// VersionControl represents version control configuration.
+type VersionControl struct {
+	Type string `json:"type"` // "git" (default) or "external"
+}
+
+// VersionControlUpdate represents partial version control updates.
+type VersionControlUpdate struct {
+	Type *string `json:"type,omitempty"`
+}
+
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
 type ConfigUpdateRequest struct {
 	WorkspacePath              *string                `json:"workspace_path,omitempty"`
@@ -221,6 +271,7 @@ type ConfigUpdateRequest struct {
 	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`
+	Ollama                     *OllamaUpdate          `json:"ollama,omitempty"`
 	Terminal                   *TerminalUpdate        `json:"terminal,omitempty"`
 	Sessions                   *SessionsUpdate        `json:"sessions,omitempty"`
 	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`

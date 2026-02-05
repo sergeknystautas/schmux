@@ -13,6 +13,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/ollama"
 )
 
 // ErrTargetNotFound is returned when a target name cannot be resolved.
@@ -122,6 +123,39 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 	return string(rawOutput), nil
 }
 
+// ExecuteOllama runs a prompt against an Ollama model.
+// If schemaLabel is provided, the prompt is augmented with JSON formatting instructions.
+func ExecuteOllama(ctx context.Context, endpoint, model, prompt, schemaLabel string) (string, error) {
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if model == "" {
+		return "", fmt.Errorf("ollama model cannot be empty")
+	}
+
+	// If a schema is expected, augment the prompt with JSON instructions
+	finalPrompt := prompt
+	if schemaLabel != "" {
+		if schema, ok := schemaRegistry[schemaLabel]; ok {
+			finalPrompt = prompt + "\n\nIMPORTANT: You MUST respond with valid JSON matching this schema:\n" + schema + "\n\nRespond ONLY with the JSON object, no other text."
+		}
+	}
+
+	client := ollama.NewClient(endpoint)
+
+	// Use the chat API with a single user message for better results
+	messages := []ollama.ChatMessage{
+		{Role: "user", Content: finalPrompt},
+	}
+
+	response, err := client.Chat(ctx, model, messages)
+	if err != nil {
+		return "", fmt.Errorf("ollama execution failed (model: %s): %w", model, err)
+	}
+
+	return response, nil
+}
+
 // ExecuteTarget runs a one-shot execution for a named target from config.
 // It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
@@ -143,11 +177,15 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if target.Kind == targetKindUser {
+	switch target.Kind {
+	case targetKindOllama:
+		return ExecuteOllama(timeoutCtx, target.OllamaEndpoint, target.OllamaModel, prompt, schemaLabel)
+	case targetKindUser:
 		// User-defined targets don't support JSON schema
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
+	default:
+		return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir)
 	}
-	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -307,24 +345,42 @@ func WriteAllSchemas() error {
 
 // resolvedTarget represents a fully resolved oneshot target with all env vars merged.
 type resolvedTarget struct {
-	Name       string
-	Kind       string
-	ToolName   string
-	Command    string
-	Promptable bool
-	Env        map[string]string
+	Name           string
+	Kind           string
+	ToolName       string
+	Command        string
+	Promptable     bool
+	Env            map[string]string
+	OllamaModel    string // For Ollama targets: the model name (e.g., "llama3.3")
+	OllamaEndpoint string // For Ollama targets: the API endpoint
 }
 
 const (
 	targetKindDetected = "detected"
 	targetKindModel    = "model"
 	targetKindUser     = "user"
+	targetKindOllama   = "ollama"
 )
 
 // resolveTarget resolves a target name to its full configuration including models and secrets.
 func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error) {
 	if cfg == nil {
 		return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
+	}
+
+	// Check if it's an Ollama model first (if Ollama is enabled)
+	if cfg.GetOllamaEnabled() && detect.IsOllamaModel(targetName) {
+		model, ok := detect.FindModelWithOllama(targetName, true)
+		if ok && model.Provider == detect.ProviderOllama {
+			return resolvedTarget{
+				Name:           model.ID,
+				Kind:           targetKindOllama,
+				ToolName:       "ollama",
+				Promptable:     true,
+				OllamaModel:    model.ModelValue,
+				OllamaEndpoint: cfg.GetOllamaEndpoint(),
+			}, nil
+		}
 	}
 
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")

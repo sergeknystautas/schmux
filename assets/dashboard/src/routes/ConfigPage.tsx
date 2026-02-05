@@ -53,6 +53,8 @@ type ConfigSnapshot = {
   branchSuggestTarget: string;
   conflictResolveTarget: string;
   prReviewTarget: string;
+  ollamaEnabled: boolean;
+  ollamaEndpoint: string;
   terminalWidth: string;
   terminalHeight: string;
   terminalSeedLines: string;
@@ -153,6 +155,8 @@ export default function ConfigPage() {
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
   const [conflictResolveTarget, setConflictResolveTarget] = useState('');
   const [prReviewTarget, setPrReviewTarget] = useState('');
+  const [ollamaEnabled, setOllamaEnabled] = useState(false);
+  const [ollamaEndpoint, setOllamaEndpoint] = useState('http://localhost:11434');
 
   // External diff new item state
   const [newDiffName, setNewDiffName] = useState('');
@@ -213,6 +217,8 @@ export default function ConfigPage() {
       branchSuggestTarget,
       conflictResolveTarget,
       prReviewTarget,
+      ollamaEnabled,
+      ollamaEndpoint,
       terminalWidth,
       terminalHeight,
       terminalSeedLines,
@@ -255,6 +261,8 @@ export default function ConfigPage() {
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
       current.prReviewTarget !== originalConfig.prReviewTarget ||
+      current.ollamaEnabled !== originalConfig.ollamaEnabled ||
+      current.ollamaEndpoint !== originalConfig.ollamaEndpoint ||
       current.terminalWidth !== originalConfig.terminalWidth ||
       current.terminalHeight !== originalConfig.terminalHeight ||
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
@@ -354,6 +362,8 @@ export default function ConfigPage() {
         setBranchSuggestTarget(data.branch_suggest?.target || '');
         setConflictResolveTarget(data.conflict_resolve?.target || '');
         setPrReviewTarget(data.pr_review?.target || '');
+        setOllamaEnabled(data.ollama?.enabled || false);
+        setOllamaEndpoint(data.ollama?.endpoint || 'http://localhost:11434');
 
         setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
@@ -392,6 +402,8 @@ export default function ConfigPage() {
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
             prReviewTarget: data.pr_review?.target || '',
+            ollamaEnabled: data.ollama?.enabled || false,
+            ollamaEndpoint: data.ollama?.endpoint || 'http://localhost:11434',
             terminalWidth: String(data.terminal?.width || 120),
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
@@ -592,6 +604,10 @@ export default function ConfigPage() {
           provider: authProvider,
           session_ttl_minutes: authSessionTTLMinutes,
         },
+        ollama: {
+          enabled: ollamaEnabled,
+          endpoint: ollamaEndpoint,
+        },
       };
 
       const result = await updateConfig(updateRequest);
@@ -619,6 +635,8 @@ export default function ConfigPage() {
           branchSuggestTarget,
           conflictResolveTarget,
           prReviewTarget,
+          ollamaEnabled,
+          ollamaEndpoint,
           terminalWidth,
           terminalHeight,
           terminalSeedLines,
@@ -1925,6 +1943,42 @@ export default function ConfigPage() {
 
               <div className="settings-section">
                 <div className="settings-section__header">
+                  <h3 className="settings-section__title">Ollama</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">
+                      <input
+                        type="checkbox"
+                        checked={ollamaEnabled}
+                        onChange={(e) => setOllamaEnabled(e.target.checked)}
+                      />
+                      {' '}Enable Ollama Integration
+                    </label>
+                    <p className="form-group__hint">
+                      Enable to use locally-running Ollama models for NudgeNik, branch suggestions, and conflict resolution.
+                    </p>
+                  </div>
+                  {ollamaEnabled && (
+                    <div className="form-group">
+                      <label className="form-group__label">Endpoint</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={ollamaEndpoint}
+                        onChange={(e) => setOllamaEndpoint(e.target.value)}
+                        placeholder="http://localhost:11434"
+                      />
+                      <p className="form-group__hint">
+                        The Ollama API endpoint. Default is http://localhost:11434
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
                   <h3 className="settings-section__title">NudgeNik</h3>
                 </div>
                 <div className="settings-section__body">
@@ -1946,6 +2000,13 @@ export default function ConfigPage() {
                           <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
+                      {ollamaEnabled && (
+                        <optgroup label="Ollama">
+                          {models.filter((model) => model.category === 'ollama').map((model) => (
+                            <option key={model.id} value={model.id}>{model.display_name}</option>
+                          ))}
+                        </optgroup>
+                      )}
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
                           <option key={target.name} value={target.name}>{target.name}</option>
@@ -2011,6 +2072,13 @@ export default function ConfigPage() {
                           <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
+                      {ollamaEnabled && (
+                        <optgroup label="Ollama">
+                          {models.filter((model) => model.category === 'ollama').map((model) => (
+                            <option key={model.id} value={model.id}>{model.display_name}</option>
+                          ))}
+                        </optgroup>
+                      )}
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
                           <option key={target.name} value={target.name}>{target.name}</option>
@@ -2050,6 +2118,13 @@ export default function ConfigPage() {
                           <option key={model.id} value={model.id}>{model.display_name}</option>
                         ))}
                       </optgroup>
+                      {ollamaEnabled && (
+                        <optgroup label="Ollama">
+                          {models.filter((model) => model.category === 'ollama').map((model) => (
+                            <option key={model.id} value={model.id}>{model.display_name}</option>
+                          ))}
+                        </optgroup>
+                      )}
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
                           <option key={target.name} value={target.name}>{target.name}</option>

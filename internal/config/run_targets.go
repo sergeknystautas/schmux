@@ -81,7 +81,7 @@ func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, b
 	return false, false
 }
 
-func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget) error {
+func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget, ollamaEnabled bool) error {
 	seen := make(map[string]struct{})
 
 	for _, preset := range presets {
@@ -97,7 +97,7 @@ func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget) error {
 			return fmt.Errorf("%w: quick launch target is required for %s", ErrInvalidConfig, name)
 		}
 
-		promptable, ok := quickLaunchTargetPromptable(targetName, targets)
+		promptable, ok := quickLaunchTargetPromptable(targetName, targets, ollamaEnabled)
 		if !ok {
 			return fmt.Errorf("%w: quick launch target not found: %s", ErrInvalidConfig, targetName)
 		}
@@ -119,7 +119,7 @@ func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget) error {
 	return nil
 }
 
-func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget) error {
+func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget, ollamaEnabled bool) error {
 	if nudgenik == nil {
 		return nil
 	}
@@ -128,7 +128,7 @@ func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget) error
 		return nil
 	}
 
-	promptable, ok := quickLaunchTargetPromptable(targetName, targets)
+	promptable, ok := quickLaunchTargetPromptable(targetName, targets, ollamaEnabled)
 	if !ok {
 		return fmt.Errorf("%w: nudgenik target not found: %s", ErrInvalidConfig, targetName)
 	}
@@ -138,32 +138,32 @@ func validateNudgenikConfig(nudgenik *NudgenikConfig, targets []RunTarget) error
 	return nil
 }
 
-func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget) error {
+func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget, ollamaEnabled bool) error {
 	for _, preset := range presets {
 		name := strings.TrimSpace(preset.Name)
 		targetName := strings.TrimSpace(preset.Target)
 		if name == "" || targetName == "" {
 			continue
 		}
-		if _, ok := quickLaunchTargetPromptable(targetName, targets); !ok {
+		if _, ok := quickLaunchTargetPromptable(targetName, targets, ollamaEnabled); !ok {
 			return fmt.Errorf("%w: quick launch target not found: %s", ErrInvalidConfig, targetName)
 		}
 	}
 	return nil
 }
 
-func validateRunTargetDependencies(targets []RunTarget, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig) error {
-	if err := validateQuickLaunchTargets(quickLaunch, targets); err != nil {
+func validateRunTargetDependencies(targets []RunTarget, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig, ollamaEnabled bool) error {
+	if err := validateQuickLaunchTargets(quickLaunch, targets, ollamaEnabled); err != nil {
 		return err
 	}
-	if err := validateNudgenikConfig(nudgenik, targets); err != nil {
+	if err := validateNudgenikConfig(nudgenik, targets, ollamaEnabled); err != nil {
 		return err
 	}
 	return nil
 }
 
-func quickLaunchTargetPromptable(targetName string, targets []RunTarget) (bool, bool) {
-	if detect.IsModelID(targetName) {
+func quickLaunchTargetPromptable(targetName string, targets []RunTarget, ollamaEnabled bool) (bool, bool) {
+	if detect.IsModelIDWithOllama(targetName, ollamaEnabled) {
 		return true, true
 	}
 	if detect.IsBuiltinToolName(targetName) {

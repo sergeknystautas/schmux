@@ -71,6 +71,7 @@ type Config struct {
 	Network                    *NetworkConfig         `json:"network,omitempty"`
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
+	Ollama                     *OllamaConfig          `json:"ollama,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -80,6 +81,12 @@ type Config struct {
 // PrReviewConfig holds configuration for GitHub PR review sessions.
 type PrReviewConfig struct {
 	Target string `json:"target,omitempty"` // run target to use for PR review sessions
+}
+
+// OllamaConfig holds configuration for Ollama integration.
+type OllamaConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint,omitempty"` // API endpoint (default: http://localhost:11434)
 }
 
 // TerminalSize represents terminal dimensions.
@@ -268,10 +275,10 @@ func (c *Config) validate(strict bool) ([]string, error) {
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
-	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets); err != nil {
+	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets, c.GetOllamaEnabled()); err != nil {
 		return nil, err
 	}
-	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik); err != nil {
+	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik, c.GetOllamaEnabled()); err != nil {
 		return nil, err
 	}
 	warnings, err := c.validateAccessControl(strict)
@@ -402,6 +409,23 @@ func (c *Config) GetPrReviewTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.PrReview.Target)
+}
+
+// GetOllamaEnabled returns whether Ollama integration is enabled.
+func (c *Config) GetOllamaEnabled() bool {
+	if c == nil || c.Ollama == nil {
+		return false
+	}
+	return c.Ollama.Enabled
+}
+
+// GetOllamaEndpoint returns the Ollama API endpoint.
+// Defaults to http://localhost:11434 if not set.
+func (c *Config) GetOllamaEndpoint() string {
+	if c == nil || c.Ollama == nil || c.Ollama.Endpoint == "" {
+		return "http://localhost:11434"
+	}
+	return c.Ollama.Endpoint
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

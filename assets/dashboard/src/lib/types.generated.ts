@@ -33,6 +33,7 @@ export interface ConfigResponse {
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
+  ollama: Ollama;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -52,6 +53,7 @@ export interface ConfigUpdateRequest {
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
+  ollama?: OllamaUpdate;
   terminal?: TerminalUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
@@ -143,6 +145,16 @@ export interface NudgenikUpdate {
   seen_interval_ms?: number;
 }
 
+export interface Ollama {
+  enabled: boolean;
+  endpoint: string;
+}
+
+export interface OllamaUpdate {
+  enabled?: boolean;
+  endpoint?: string;
+}
+
 export interface PRsResponse {
   prs: PullRequest[];
   last_fetched_at?: string;
@@ -180,9 +192,16 @@ export interface QuickLaunch {
   prompt?: string;
 }
 
+export interface RemoteConfig {
+  flavor: string;
+  workspace_path: string;
+}
+
 export interface Repo {
   name: string;
   url: string;
+  mode?: string;
+  remote?: RemoteConfig;
 }
 
 export interface RepoConfig {
@@ -192,6 +211,8 @@ export interface RepoConfig {
 export interface RepoWithConfig {
   name: string;
   url: string;
+  mode?: string;
+  remote?: RemoteConfig;
   default_branch?: string;
   config?: RepoConfig;
 }

@@ -1013,6 +1013,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target:    s.config.GetConflictResolveTarget(),
 			TimeoutMs: s.config.GetConflictResolveTimeoutMs(),
 		},
+		Ollama: contracts.Ollama{
+			Enabled:  s.config.GetOllamaEnabled(),
+			Endpoint: s.config.GetOllamaEndpoint(),
+		},
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
@@ -1210,6 +1214,22 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.ConflictResolve.Target == "" && cfg.ConflictResolve.TimeoutMs <= 0 {
 			cfg.ConflictResolve = nil
+		}
+	}
+
+	if req.Ollama != nil {
+		if cfg.Ollama == nil {
+			cfg.Ollama = &config.OllamaConfig{}
+		}
+		if req.Ollama.Enabled != nil {
+			cfg.Ollama.Enabled = *req.Ollama.Enabled
+		}
+		if req.Ollama.Endpoint != nil {
+			cfg.Ollama.Endpoint = strings.TrimSpace(*req.Ollama.Endpoint)
+		}
+		// Clean up if Ollama is disabled and endpoint is default
+		if !cfg.Ollama.Enabled && cfg.Ollama.Endpoint == "" {
+			cfg.Ollama = nil
 		}
 	}
 
@@ -1462,6 +1482,24 @@ func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
 			Configured:      configured,
 		})
 	}
+
+	// Include Ollama models if Ollama is enabled
+	if cfg.GetOllamaEnabled() {
+		ollamaModels := detect.GetOllamaModels()
+		for _, model := range ollamaModels {
+			resp = append(resp, contracts.Model{
+				ID:              model.ID,
+				DisplayName:     model.DisplayName,
+				BaseTool:        model.BaseTool,
+				Provider:        model.Provider,
+				Category:        model.Category,
+				RequiredSecrets: model.RequiredSecrets,
+				UsageURL:        model.UsageURL,
+				Configured:      true, // Ollama models don't need secrets
+			})
+		}
+	}
+
 	return resp, nil
 }
 
