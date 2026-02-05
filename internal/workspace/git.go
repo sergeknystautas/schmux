@@ -279,20 +279,16 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 			if filePath == "" {
 				continue
 			}
+			// Check if file is binary using git's detection (with fast heuristic fallback)
 			fullPath := filepath.Join(dir, filePath)
-			// Skip binary files — they don't have meaningful line counts
-			if difftool.IsBinaryFile(fullPath) {
+			if difftool.IsBinaryFile(ctx, dir, filePath) {
 				filesChanged++
 				continue
 			}
-			content, err := os.ReadFile(fullPath)
+			// Count lines with a size cap to avoid loading large files
+			lineCount, err := countLinesCapped(fullPath, 1024*1024) // 1MB cap
 			if err != nil {
 				continue // Skip files we can't read
-			}
-			// Count lines (all lines in untracked files are additions)
-			lineCount := strings.Count(string(content), "\n")
-			if !strings.HasSuffix(string(content), "\n") {
-				lineCount++ // Count last line if no trailing newline
 			}
 			linesAdded += lineCount
 			filesChanged++
@@ -300,6 +296,49 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	}
 
 	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged
+}
+
+// countLinesCapped counts newlines in a file up to maxBytes.
+// If the file exceeds maxBytes, it only counts lines in the first maxBytes.
+// This prevents loading multi-gigabyte files into memory just to count lines.
+func countLinesCapped(path string, maxBytes int) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	buf := make([]byte, 8192)
+	lineCount := 0
+	bytesRead := 0
+	prevCharWasNewline := false
+
+	for bytesRead < maxBytes {
+		toRead := len(buf)
+		if bytesRead+toRead > maxBytes {
+			toRead = maxBytes - bytesRead
+		}
+		n, err := f.Read(buf[:toRead])
+		if n > 0 {
+			bytesRead += n
+			for i := 0; i < n; i++ {
+				if buf[i] == '\n' {
+					lineCount++
+				}
+				prevCharWasNewline = buf[i] == '\n'
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	// If we didn't end with a newline and read at least one byte, count the last line
+	if bytesRead > 0 && !prevCharWasNewline {
+		lineCount++
+	}
+
+	return lineCount, nil
 }
 
 // checkGitSafety checks if a workspace is safe to dispose based on git state.

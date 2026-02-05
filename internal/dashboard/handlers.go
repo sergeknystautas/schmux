@@ -1781,9 +1781,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			if filePath == "" {
 				continue
 			}
-			// Check if file is binary by reading first 8KB and looking for null bytes
-			fullPath := filepath.Join(ws.Path, filePath)
-			if difftool.IsBinaryFile(fullPath) {
+			// Check if file is binary using git's detection (with fast heuristic fallback)
+			if difftool.IsBinaryFile(ctx, ws.Path, filePath) {
 				files = append(files, FileDiff{
 					NewPath:  filePath,
 					Status:   "untracked",
@@ -1792,7 +1791,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			// Get content of untracked file from working directory
-			newContent := s.getFileContent(context.Background(), ws.Path, filePath, "worktree")
+			newContent := s.getFileContent(ctx, ws.Path, filePath, "worktree")
 			// Count lines for untracked files (all lines are additions)
 			lineCount := 0
 			if newContent != "" {
@@ -1899,12 +1898,22 @@ func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, tr
 		if err != nil {
 			return ""
 		}
+		// Cap file content to prevent loading massive files into memory
+		const maxContentSize = 1024 * 1024 // 1MB
+		if len(content) > maxContentSize {
+			content = content[:maxContentSize]
+		}
 		return string(content)
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "show", fmt.Sprintf("%s:%s", treeish, filePath))
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
+	}
+	// Cap git show output too
+	const maxContentSize = 1024 * 1024 // 1MB
+	if len(output) > maxContentSize {
+		output = output[:maxContentSize]
 	}
 	return string(output)
 }
