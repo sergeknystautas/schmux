@@ -7,6 +7,7 @@ import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 import { mergeQuickLaunchNames } from '../lib/quicklaunch';
@@ -48,6 +49,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const { confirm } = useModal();
   const { config } = useConfig();
   const { waitForSession, linearSyncResolveConflictStates } = useSessions();
+  const { setContext, clearContext } = useKeyboardMode();
 
   // Spawn dropdown state
   const [spawnMenuOpen, setSpawnMenuOpen] = useState(false);
@@ -132,6 +134,19 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
       navigate(target, { replace: true });
     }
   }, [workspace, resolveInProgress, location.pathname, navigate]);
+
+  // Set keyboard context for the active workspace/session
+  useEffect(() => {
+    if (!workspace) return;
+    setContext({
+      workspaceId: workspace.id,
+      sessionId: currentSessionId || null,
+    });
+
+    return () => {
+      clearContext();
+    };
+  }, [workspace?.id, currentSessionId, setContext, clearContext]);
 
   const handleDiffTabClick = () => {
     if (workspace) {

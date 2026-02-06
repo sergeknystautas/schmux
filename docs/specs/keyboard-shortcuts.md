@@ -7,72 +7,54 @@ Add a keyboard shortcut system to the web dashboard for rapid navigation and ses
 ## Constraints
 
 1. **Terminal-primary**: Users spend most time in xterm/tmux sessions. Shortcuts should work when the web UI has focus, not when typing in terminal.
-2. **Mac-first**: Use `Cmd`/`Option` conventions, not Windows-centric `Ctrl` patterns.
+2. **Mac-first**: Use `Cmd` conventions, not Windows-centric `Ctrl` patterns.
 3. **Browser-compatible**: Avoid conflicts with browser/system shortcuts (`Cmd+N`, `Cmd+T`, `Cmd+W`, `Cmd+L`, `Cmd+R`, `Cmd+[1-9]`, `Cmd+/-`, `Cmd+F`, `Cmd+S`, `Cmd+P`, clipboard/undo).
 4. **No `Ctrl` combos**: Terminal users have muscle memory for `Ctrl+C`, `Ctrl+Z`, `Ctrl+D`, etc.
 
-## Pattern: Three-Tier System
+## Pattern: Prefix Key Mode
 
-### Tier 1: Command Palette (Primary)
+Emacs/tmux-style prefix key system. `Cmd+K` enters a keyboard mode where the next keystroke triggers an action.
 
-`Cmd+K` — Opens a searchable command palette
+### Entering Keyboard Mode
 
-This is the primary entry point for all actions. Users type what they want: "spawn", "sessions", "dispose", "focus session 3", "go to tips".
+`Cmd+K` — Enters keyboard mode
 
-**Why:**
-- One shortcut to remember
-- Discoverable (type to see available commands)
-- Extensible without teaching new shortcuts
-- `Cmd+K` is unused in browsers
-- Modern standard (Linear, Slack, VS Code, GitHub, Notion)
+**Behavior:**
+- Saves current focus element
+- Shows visual indicator (toast or corner pill)
+- Waits for next keystroke
+- If unrecognized key pressed: exit mode, restore focus
+- If browser loses focus: exit mode, restore focus
 
-**Implementation notes:**
-- Modal overlay with text input
-- Fuzzy search over available commands
-- Keyboard navigation within results
-- `Esc` to close, `Enter` to execute
+### Keyboard Mode Actions
 
-### Tier 2: Single-Key Navigation (Context-Aware)
+| Key | Action | Context |
+|-----|--------|---------|
+| `N` | Spawn new session (context-aware) | If in workspace: local spawn. Otherwise: general spawn. |
+| `Shift+N` | Spawn new session (general) | Always goes to general `/spawn` page, regardless of context. |
+| `0-9` | Jump to session | Within a workspace, goes to session N by index. |
+| `W` | Dispose session | On session detail page only. Shows confirmation modal. |
+| `D` | Go to diff page | Within a workspace only. |
+| `G` | Go to git graph | Within a workspace only. |
+| `H` | Go to home | Always goes to `/`. |
+| `?` | Show help modal | Displays all available shortcuts with descriptions. |
 
-Letters that **only work when no input/terminal has focus**:
+### Exiting Keyboard Mode
 
-| Key | Pattern | Use |
-|-----|---------|-----|
-| `?` | Help overlay | Show all available shortcuts |
-| `0-9` | Jump | Go to session N, or page 0 (spawn) |
-| `n` / `p` | Navigate | Next / previous session |
-| `s` / `w` | Focus list | Focus sessions list / workspaces list |
-| `/` | Quick search | Jump to search/filter input |
+Keyboard mode exits (and restores original focus) when:
+- Recognized action is executed
+- Unrecognized key is pressed
+- Browser window loses focus
+- `Esc` is pressed
 
-**Why:**
-- Fast for frequent actions
-- Vim-like single-key efficiency
-- Won't trigger when typing in terminal (different focus context)
-- Gmail/Twitter use this pattern successfully
+## Visual Indicator
 
-**Focus gate implementation:**
-Shortcuts only trigger when:
-- No `<input>` element has focus
-- No `<textarea>` element has focus
-- Terminal websocket component doesn't have focus
+When keyboard mode is active, show a visual indicator. Options:
 
-This is how GitHub/Gmail work—try pressing `k` on GitHub, then click in a comment box and press `k` again.
+1. **Center toast**: "Keyboard mode active - press a key or Esc to cancel" (auto-dismiss after 2-3s)
+2. **Corner pill/badge**: Small indicator in top-right or bottom-right (like connection status)
 
-### Tier 3: Option-Modified (Intentional Actions)
-
-`Option+Key` for destructive or less common actions:
-
-| Combo | Pattern |
-|-------|---------|
-| `Option+D` | Destructive actions (dispose session) |
-| `Option+R` | Restart/reload actions |
-| `Option+X` | Kill/force-stop |
-| `Option+Shift+S` | Spawn new session (two-handed combo = intentionality) |
-
-**Why:**
-- `Option` is rarely used in browsers
-- Two-handed combos signal intentionality (good for destructive actions)
-- Easy to press on Mac (thumb on Option, finger on letter)
+To be determined.
 
 ## Patterns to Avoid
 
@@ -84,34 +66,12 @@ This is how GitHub/Gmail work—try pressing `k` on GitHub, then click in a comm
 | `F-keys` | Some browsers block, different keyboard layouts |
 | `Alt+Tab` style | OS-level window switching |
 
-## Implementation Phases
-
-1. **Phase 1**: Command palette (`Cmd+K`)
-   - Build command registry system
-   - Implement modal overlay
-   - Add fuzzy search
-   - Migrate existing actions to command registry
-
-2. **Phase 2**: Help overlay (`?`)
-   - Static display of all shortcuts
-   - Grouped by category
-   - Shows as modal/overlay
-
-3. **Phase 3**: Single-key nav
-   - Add focus gate logic
-   - Implement number-based session jumps
-   - Add `n`/`p` for next/prev session
-
-4. **Phase 4**: Option-modified
-   - Only for destructive actions
-   - Consistent with Phase 1-3 patterns
-
 ## Success Criteria
 
-- [ ] `Cmd+K` opens command palette on all pages
-- [ ] `?` opens help overlay showing all shortcuts
-- [ ] Single-key shortcuts only work when inputs/terminal lack focus
-- [ ] `Option+Key` shortcuts work regardless of focus (intentional)
+- [ ] `Cmd+K` enters keyboard mode on all pages
+- [ ] Visual indicator shows when in keyboard mode
+- [ ] Keyboard mode actions execute as specified
+- [ ] Unrecognized keys exit mode and restore focus
+- [ ] Browser blur exits mode and restores focus
 - [ ] No conflicts with browser, OS, or terminal shortcuts
-- [ ] Shortcuts documented in help overlay
-- [ ] Command palette is extensible (add new commands without code changes)
+- [ ] Help modal (`?`) documents all shortcuts

@@ -3035,3 +3035,83 @@ a:hover {
   width: 60px;
   text-align: right;
 }
+
+/* ============================================================================
+ * KEYBOARD MODE INDICATORS
+ * Three options: border around viewport, pill next to title, pill in nav bottom
+ * ============================================================================ */
+
+/* Option 1: Blue border around viewport (like xterm focus) */
+body.keyboard-mode-active::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  border: 1px solid var(--color-accent);
+  pointer-events: none;
+  z-index: 9999;
+  box-sizing: border-box;
+}
+
+/* Option 2 & 3: KB pills */
+.keyboard-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background-color: var(--color-accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  margin-left: var(--spacing-sm);
+}
+
+.keyboard-mode-pill--title {
+  /* Pill next to schmux title */
+}
+
+.keyboard-mode-pill--bottom {
+  /* Pill next to connection status in nav bottom */
+}
+
+/* ============================================================================
+ * KEYBOARD SHORTCUTS TABLE
+ * For the help modal
+ * ============================================================================ */
+
+.keyboard-shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--spacing-md);
+}
+
+.keyboard-shortcuts-table th {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 2px solid var(--color-border);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.keyboard-shortcuts-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.keyboard-shortcuts-table tr:last-child td {
+  border-bottom: none;
+}
+
+.keyboard-shortcuts-table kbd {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}

@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import useTheme from '../hooks/useTheme'
 import useVersionInfo from '../hooks/useVersionInfo'
 import useLocalStorage from '../hooks/useLocalStorage'
 import Tooltip from './Tooltip'
+import KeyboardModeIndicator from './KeyboardModeIndicator'
 import { useConfig } from '../contexts/ConfigContext'
 import { useSessions } from '../contexts/SessionsContext'
+import { useKeyboardMode } from '../contexts/KeyboardContext'
+import { useHelpModal } from './KeyboardHelpModal'
 import { formatRelativeTime } from '../lib/utils'
 import { navigateToWorkspace } from '../lib/navigation'
 
@@ -40,10 +43,30 @@ export default function AppShell() {
   const location = useLocation();
   const { sessionId } = useParams();
   const [navCollapsed, setNavCollapsed] = useLocalStorage(NAV_COLLAPSED_KEY, false);
+  const { mode, registerAction, unregisterAction, context } = useKeyboardMode();
+  const { show: showHelp } = useHelpModal();
+
+  // Helper to get sessionsById from workspaces
+  function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
+    if (!workspaces) return {};
+    const result: Record<string, any> = {};
+    for (const ws of workspaces) {
+      for (const sess of ws.sessions || []) {
+        result[sess.id] = sess;
+      }
+    }
+    return result;
+  }
 
   // Check if we're on a diff page for a specific workspace
   const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
   const activeWorkspaceId = diffMatch ? diffMatch[1] : null;
+
+  // Check if we're on a session detail page and get workspace info
+  const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
+  const currentSession = sessionMatch && sessionId ? sessionsById(workspaces)[sessionId] : null;
+  const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId;
+  const currentWorkspace = currentWorkspaceId ? workspaces?.find(ws => ws.id === currentWorkspaceId) : null;
 
   const showUpdateBadge = versionInfo?.update_available;
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
@@ -56,8 +79,110 @@ export default function AppShell() {
     navigate(`/sessions/${sessId}`);
   };
 
+  // Register global keyboard actions (always available)
+  useEffect(() => {
+    // N - context-aware spawn (workspace-specific when available)
+    registerAction({
+      key: 'n',
+      description: 'Spawn new session (context-aware)',
+      handler: () => {
+        if (context.workspaceId) {
+          navigate(`/spawn?workspace_id=${context.workspaceId}`);
+        } else {
+          navigate('/spawn');
+        }
+      },
+      scope: { type: 'global' },
+    });
+
+    // Shift+N - always general spawn
+    registerAction({
+      key: 'n',
+      shiftKey: true,
+      description: 'Spawn new session (always general)',
+      handler: () => navigate('/spawn'),
+      scope: { type: 'global' },
+    });
+
+    // ? - show help modal
+    registerAction({
+      key: '?',
+      description: 'Show keyboard shortcuts help',
+      handler: () => showHelp(),
+      scope: { type: 'global' },
+    });
+
+    // H - go home
+    registerAction({
+      key: 'h',
+      description: 'Go to home',
+      handler: () => navigate('/'),
+      scope: { type: 'global' },
+    });
+
+    return () => {
+      unregisterAction('n');
+      unregisterAction('n', true);
+      unregisterAction('?');
+      unregisterAction('h');
+    };
+  }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
+
+  // Register workspace-specific keyboard actions based on active context
+  useEffect(() => {
+    if (!context.workspaceId) return;
+    const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+    if (!workspace) return;
+
+    const scope = { type: 'workspace', id: context.workspaceId } as const;
+
+    // 0-9 - jump to session by index (0-indexed: 0=first, 1=second, etc.)
+    for (let i = 0; i <= 9; i++) {
+      registerAction({
+        key: i.toString(),
+        description: `Jump to session ${i}`,
+        handler: () => {
+          if (!workspace.sessions) return;
+          if (workspace.sessions[i]) {
+            navigate(`/sessions/${workspace.sessions[i].id}`);
+          }
+        },
+        scope,
+      });
+    }
+
+    // D - go to diff page
+    registerAction({
+      key: 'd',
+      description: 'Go to diff page',
+      handler: () => {
+        navigate(`/diff/${workspace.id}`);
+      },
+      scope,
+    });
+
+    // G - go to git graph
+    registerAction({
+      key: 'g',
+      description: 'Go to git graph',
+      handler: () => {
+        navigate(`/git/${workspace.id}`);
+      },
+      scope,
+    });
+
+    return () => {
+      unregisterAction('d');
+      unregisterAction('g');
+      for (let i = 0; i <= 9; i++) {
+        unregisterAction(i.toString());
+      }
+    };
+  }, [context.workspaceId, workspaces, registerAction, unregisterAction, navigate]);
+
   return (
     <div className={`app-shell${navCollapsed ? ' app-shell--collapsed' : ''}`}>
+      <KeyboardModeIndicator />
       <nav className="app-shell__nav">
         <div className="nav-top">
           <div className="nav-header">
@@ -226,6 +351,7 @@ export default function AppShell() {
                 </svg>
               </a>
             </Tooltip>
+            {mode === 'active' && <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>}
           </div>
         </div>
       </nav>
