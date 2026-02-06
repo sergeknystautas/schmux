@@ -17,6 +17,11 @@ type Discovery struct {
 	publicRepos   []string // repo URLs that are confirmed public
 	lastFetchedAt *time.Time
 	lastError     string
+
+	// Lifecycle management
+	ticker   *time.Ticker
+	stopChan chan struct{}
+	getRepos func() []config.Repo
 }
 
 // NewDiscovery creates a new Discovery instance.
@@ -138,4 +143,66 @@ func (d *Discovery) FindPR(repoURL string, prNumber int) (contracts.PullRequest,
 		}
 	}
 	return contracts.PullRequest{}, false
+}
+
+// SetTarget enables or disables PR discovery polling based on target configuration.
+// Call with non-empty target and a function that returns current repos to start polling.
+// Call with empty target to stop.
+func (d *Discovery) SetTarget(target string, getRepos func() []config.Repo) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	enabled := target != ""
+	wasEnabled := d.ticker != nil
+
+	if enabled && !wasEnabled {
+		// Start polling
+		d.getRepos = getRepos
+		d.stopChan = make(chan struct{})
+		d.ticker = time.NewTicker(1 * time.Hour)
+		go d.poll()
+		// Trigger immediate refresh
+		go d.Refresh(getRepos())
+	} else if !enabled && wasEnabled {
+		// Stop polling
+		d.stop()
+	}
+}
+
+// Stop halts the polling goroutine and cleans up resources.
+// Safe to call multiple times.
+func (d *Discovery) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stop()
+}
+
+// stop is the internal version that assumes the lock is held.
+func (d *Discovery) stop() {
+	if d.ticker != nil {
+		d.ticker.Stop()
+		d.ticker = nil
+	}
+	if d.stopChan != nil {
+		close(d.stopChan)
+		d.stopChan = nil
+	}
+	d.getRepos = nil
+}
+
+// poll runs the hourly refresh loop until stopped.
+func (d *Discovery) poll() {
+	for {
+		select {
+		case <-d.ticker.C:
+			d.mu.RLock()
+			getRepos := d.getRepos
+			d.mu.RUnlock()
+			if getRepos != nil {
+				d.Refresh(getRepos())
+			}
+		case <-d.stopChan:
+			return
+		}
+	}
 }

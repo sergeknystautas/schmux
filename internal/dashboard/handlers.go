@@ -1339,6 +1339,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update PR discovery polling based on new config
+	// Pass a function so poll always uses current repos list
+	s.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()
 	if !reposEqual(oldRepos, newRepos) {
