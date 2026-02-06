@@ -127,8 +127,8 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build review prompt
-	prompt := gh.BuildReviewPrompt(pr)
+	// Build review prompt with workspace context
+	prompt := gh.BuildReviewPrompt(pr, ws.Path, gh.PRBranchName(pr))
 
 	// Launch session
 	nickname := fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title)
