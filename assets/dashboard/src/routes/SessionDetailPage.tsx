@@ -9,6 +9,7 @@ import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useViewedSessions } from '../contexts/ViewedSessionsContext';
+import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from '../components/Tooltip';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -31,6 +32,7 @@ export default function SessionDetailPage() {
   const { success, error: toastError } = useToast();
   const { prompt, confirm } = useModal();
   const { markAsViewed } = useViewedSessions();
+  const { registerAction, unregisterAction } = useKeyboardMode();
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
@@ -156,6 +158,21 @@ export default function SessionDetailPage() {
       toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
   };
+
+  // Register keyboard shortcut for dispose (W key)
+  useEffect(() => {
+    if (!sessionId) return;
+    const action = {
+      key: 'w',
+      description: 'Dispose session',
+      handler: handleDispose,
+      scope: { type: 'session', id: sessionId } as const,
+    };
+
+    registerAction(action);
+
+    return () => unregisterAction('w');
+  }, [registerAction, unregisterAction, handleDispose, sessionId]);
 
   const handleEditNickname = async () => {
     if (!sessionId || !sessionData) return;
