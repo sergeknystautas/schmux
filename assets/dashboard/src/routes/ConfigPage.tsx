@@ -4,7 +4,6 @@ import { getConfig, updateConfig, configureModelSecrets, removeModelSecrets, get
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
-import SetupCompleteModal from '../components/SetupCompleteModal';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
@@ -77,13 +76,6 @@ type ConfigSnapshot = {
   authTlsKeyPath: string;
 };
 
-type ModelModalState = {
-  model: Model;
-  mode: 'add' | 'remove' | 'update';
-  values: Record<string, string>;
-  error: string;
-} | null;
-
 type RunTargetEditModalState = {
   target: RunTargetResponse;
   command: string;
@@ -101,8 +93,7 @@ export default function ConfigPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isNotConfigured, isFirstRun, completeFirstRun, reloadConfig } = useConfig();
-  const { confirm } = useModal();
-  const [showSetupComplete, setShowSetupComplete] = useState(false);
+  const { show, confirm, prompt } = useModal();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -835,31 +826,24 @@ export default function ConfigPage() {
     }
   };
 
-  const [modelModal, setModelModal] = useState<ModelModalState>(null);
-  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
-  const [workspaceModalPath, setWorkspaceModalPath] = useState('');
   const [runTargetEditModal, setRunTargetEditModal] = useState<RunTargetEditModalState>(null);
   const [quickLaunchEditModal, setQuickLaunchEditModal] = useState<QuickLaunchEditModalState>(null);
 
-  const openWorkspaceModal = () => {
-    setWorkspaceModalPath(workspacePath);
-    setShowWorkspaceModal(true);
-  };
-
-  const closeWorkspaceModal = () => {
-    setShowWorkspaceModal(false);
-    setWorkspaceModalPath('');
-  };
-
-  const saveWorkspaceModal = () => {
-    setWorkspacePath(workspaceModalPath);
-    setShowWorkspaceModal(false);
-    if (workspaceModalPath.trim()) {
-      setStepErrors(prev => ({ ...prev, 1: null }));
+  const handleEditWorkspacePath = async () => {
+    const newPath = await prompt('Edit Workspace Directory', {
+      defaultValue: workspacePath,
+      placeholder: '~/schmux-workspaces',
+      confirmText: 'Save'
+    });
+    if (newPath !== null) {
+      setWorkspacePath(newPath);
+      if (newPath.trim()) {
+        setStepErrors(prev => ({ ...prev, 1: null }));
+      }
     }
   };
 
-  const openModelModal = (model: Model, mode: 'add' | 'remove' | 'update') => {
+  const handleModelAction = async (model: Model, mode: 'add' | 'remove' | 'update') => {
     if (mode === 'remove') {
       const usage = checkTargetUsage(model.id);
       if (usage.inQuickLaunch || usage.inNudgenik) {
@@ -870,75 +854,44 @@ export default function ConfigPage() {
         toastError(`Cannot remove model "${model.display_name}" while used by ${reasons}.`);
         return;
       }
-    }
-    const values: Record<string, string> = {};
-    for (const key of model.required_secrets || []) {
-      values[key] = '';
-    }
-    setModelModal({ model, mode, values, error: '' });
-  };
-
-  const closeModelModal = () => {
-    setModelModal(null);
-  };
-
-  const updateModelValue = (key: string, value: string) => {
-    setModelModal((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        values: { ...current.values, [key]: value }
-      };
-    });
-  };
-
-  const saveModelModal = async () => {
-    if (!modelModal) return;
-    const { model, mode, values } = modelModal;
-
-    if (mode === 'remove') {
+      const confirmed = await confirm(`Remove ${model.display_name}?`, {
+        confirmText: 'Remove',
+        danger: true,
+        detailedMessage: 'Remove stored secrets for this model?'
+      });
+      if (!confirmed) return;
       try {
         await removeModelSecrets(model.id);
         await reloadModels();
         success(`Removed secrets for ${model.display_name}`);
-        closeModelModal();
       } catch (err) {
-        setModelModal((current) => {
-          if (!current) return current;
-          return {
-            ...current,
-            error: getErrorMessage(err, 'Failed to remove model secrets')
-          };
-        });
+        toastError(getErrorMessage(err, 'Failed to remove model secrets'));
       }
       return;
     }
 
-    const missingKey = (model.required_secrets || []).find((key) => !values[key]?.trim());
-    if (missingKey) {
-      setModelModal((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          error: `Missing required secret ${missingKey}`
-        };
-      });
+    // add or update mode
+    const secretKey = (model.required_secrets || [])[0];
+    if (!secretKey) return;
+
+    const title = mode === 'add' ? `Add ${model.display_name}` : `Update ${model.display_name}`;
+    const value = await prompt(title, {
+      placeholder: secretKey,
+      confirmText: mode === 'add' ? 'Add' : 'Update',
+      password: true
+    });
+    if (value === null) return;
+    if (!value.trim()) {
+      toastError(`Missing required secret ${secretKey}`);
       return;
     }
 
     try {
-      await configureModelSecrets(model.id, values);
+      await configureModelSecrets(model.id, { [secretKey]: value });
       await reloadModels();
       success(`Saved secrets for ${model.display_name}`);
-      closeModelModal();
     } catch (err) {
-      setModelModal((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          error: getErrorMessage(err, 'Failed to save model secrets')
-        };
-      });
+      toastError(getErrorMessage(err, 'Failed to save model secrets'));
     }
   };
 
@@ -1227,7 +1180,7 @@ export default function ConfigPage() {
                   <button
                     type="button"
                     className="btn"
-                    onClick={openWorkspaceModal}
+                    onClick={handleEditWorkspacePath}
                   >
                     Edit
                   </button>
@@ -1397,13 +1350,13 @@ export default function ConfigPage() {
                           <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
                             <button
                               className="btn btn--primary"
-                              onClick={() => openModelModal(model, 'update')}
+                              onClick={() => handleModelAction(model, 'update')}
                             >
                               Update
                             </button>
                             <button
                               className="btn btn--danger"
-                              onClick={() => openModelModal(model, 'remove')}
+                              onClick={() => handleModelAction(model, 'remove')}
                             >
                               Remove
                             </button>
@@ -1411,7 +1364,7 @@ export default function ConfigPage() {
                         ) : (
                           <button
                             className="btn btn--primary"
-                            onClick={() => openModelModal(model, 'add')}
+                            onClick={() => handleModelAction(model, 'add')}
                           >
                             Add Secrets
                           </button>
@@ -2464,7 +2417,8 @@ export default function ConfigPage() {
                     const saved = await saveCurrentStep();
                     if (saved) {
                       completeFirstRun();
-                      setShowSetupComplete(true);
+                      await show('Setup Complete! 🎉', 'schmux is ready to go. Spawn your first session to start working with run targets.', { confirmText: 'Go to Spawn', cancelText: null });
+                      navigate('/spawn');
                     }
                   }
                 }}
@@ -2476,118 +2430,6 @@ export default function ConfigPage() {
           </div>
         )}
       </div>
-
-      {showSetupComplete && (
-        <SetupCompleteModal
-          onClose={() => navigate('/spawn')}
-        />
-      )}
-
-      {showWorkspaceModal && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="workspace-modal-title"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') closeWorkspaceModal();
-          }}
-        >
-          <div className="modal">
-            <div className="modal__header">
-              <h2 className="modal__title" id="workspace-modal-title">
-                Edit Workspace Directory
-              </h2>
-            </div>
-            <div className="modal__body">
-              <div className="form-group">
-                <label className="form-group__label">Workspace Path</label>
-                <input
-                  type="text"
-                  className="input"
-                  value={workspaceModalPath}
-                  onChange={(e) => setWorkspaceModalPath(e.target.value)}
-                  placeholder="~/schmux-workspaces"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveWorkspaceModal();
-                  }}
-                />
-                <p className="form-group__hint">
-                  Directory where cloned repositories will be stored. Can use ~ for home directory.
-                </p>
-              </div>
-            </div>
-            <div className="modal__footer">
-              <button className="btn" onClick={closeWorkspaceModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={saveWorkspaceModal}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modelModal && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="model-modal-title"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') closeModelModal();
-          }}
-        >
-          <div className="modal">
-            <div className="modal__header">
-              <h2 className="modal__title" id="model-modal-title">
-                {modelModal.mode === 'remove'
-                  ? `Remove ${modelModal.model.display_name}`
-                  : `${modelModal.mode === 'add' ? 'Add' : 'Update'} ${modelModal.model.display_name}`}
-              </h2>
-            </div>
-            <div className="modal__body">
-              {modelModal.mode === 'remove' ? (
-                <p>Remove stored secrets for this model?</p>
-              ) : (
-                <>
-                  {(modelModal.model.required_secrets || []).map((key, index) => (
-                    <div className="form-group" key={key}>
-                      <label className="form-group__label">{key}</label>
-                      <input
-                        type="password"
-                        className="input"
-                        autoFocus={index === 0}
-                        value={modelModal.values[key] || ''}
-                        onChange={(e) => updateModelValue(key, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveModelModal();
-                        }}
-                      />
-                    </div>
-                  ))}
-                </>
-              )}
-              {modelModal.error && (
-                <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)' }}>
-                  {modelModal.error}
-                </p>
-              )}
-            </div>
-            <div className="modal__footer">
-              <button className="btn" onClick={closeModelModal}>Cancel</button>
-              <button
-                className={`btn ${modelModal.mode === 'remove' ? 'btn--danger' : 'btn--primary'}`}
-                onClick={saveModelModal}
-              >
-                {modelModal.mode === 'remove'
-                  ? 'Remove'
-                  : modelModal.mode === 'add'
-                    ? 'Add'
-                    : 'Update'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {authSecretsModal && (
         <div

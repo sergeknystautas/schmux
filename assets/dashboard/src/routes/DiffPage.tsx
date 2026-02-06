@@ -5,6 +5,7 @@ import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useModal } from '../components/ModalProvider';
 import useLocalStorage from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
@@ -31,12 +32,12 @@ export default function DiffPage() {
   const { theme } = useTheme();
   const { config } = useConfig();
   const { workspaces } = useSessions();
+  const { alert } = useModal();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [executingDiff, setExecutingDiff] = useState<string | null>(null);
-  const [diffResult, setDiffResult] = useState<{ success: boolean; message: string } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(DIFF_SIDEBAR_WIDTH_KEY, DEFAULT_SIDEBAR_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,9 +90,10 @@ export default function DiffPage() {
     setExecutingDiff(cmd.name);
     try {
       const response = await diffExternal(workspaceId, cmd.command);
-      setDiffResult({ success: response.success, message: response.message });
+      const title = response.success ? 'Diff tool opened' : 'Failed to open diff tool';
+      await alert(title, response.message);
     } catch (err) {
-      setDiffResult({ success: false, message: getErrorMessage(err, 'Failed to open diff tool') });
+      await alert('Failed to open diff tool', getErrorMessage(err, 'Failed to open diff tool'));
     } finally {
       setExecutingDiff(null);
     }
@@ -303,26 +305,6 @@ export default function DiffPage() {
           </div>
         </div>
       </div>
-
-      {diffResult && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="diff-modal-title">
-          <div className="modal">
-            <div className="modal__header">
-              <h2 className="modal__title" id="diff-modal-title">
-                {diffResult.success ? 'Diff tool opened' : 'Failed to open diff tool'}
-              </h2>
-            </div>
-            <div className="modal__body">
-              <p>{diffResult.message}</p>
-            </div>
-            <div className="modal__footer">
-              <button className="btn btn--primary" onClick={() => setDiffResult(null)}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

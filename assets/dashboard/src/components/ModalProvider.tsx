@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 type ModalBase = {
   title: string;
@@ -19,6 +19,7 @@ type PromptModal = ModalBase & {
   defaultValue: string;
   placeholder: string;
   errorMessage: string;
+  password: boolean;
 };
 
 type ModalState = AlertModal | PromptModal;
@@ -31,6 +32,7 @@ type ModalOptions = {
   defaultValue?: string;
   placeholder?: string;
   errorMessage?: string;
+  password?: boolean;
 };
 
 type ModalOptionsInput = ModalOptions | string;
@@ -84,6 +86,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
       errorMessage: normalizedOptions.errorMessage || '',
       danger: normalizedOptions.danger || false,
       detailedMessage: normalizedOptions.detailedMessage || '',
+      password: normalizedOptions.password || false,
       resolve: resolveModal
     });
   });
@@ -106,6 +109,29 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
     close(value);
   };
 
+  // Keyboard handling for non-prompt modals
+  useEffect(() => {
+    if (!modal || modal.isPrompt) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        close(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        // If no cancel button, Escape confirms; otherwise Escape cancels
+        if (modal.cancelText === null) {
+          close(true);
+        } else {
+          close(null);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [modal]);
+
   return (
     <ModalContext.Provider value={api}>
       {children}
@@ -120,7 +146,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
                 <>
                   <input
                     id="modal-prompt-input"
-                    type="text"
+                    type={modal.password ? 'password' : 'text'}
                     className="input"
                     defaultValue={modal.defaultValue}
                     placeholder={modal.placeholder}
@@ -150,6 +176,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
               <button
                 className={`btn ${modal.danger ? 'btn--danger' : 'btn--primary'}`}
                 onClick={() => modal.isPrompt ? handlePromptConfirm() : close(true)}
+                autoFocus={!modal.isPrompt}
               >
                 {modal.confirmText}
               </button>

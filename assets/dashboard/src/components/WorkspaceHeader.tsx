@@ -7,9 +7,7 @@ import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import Tooltip from './Tooltip';
-import VSCodeResultModal from './VSCodeResultModal';
-import SyncResultModal from './SyncResultModal';
-import type { WorkspaceResponse, OpenVSCodeResponse } from '../lib/types';
+import type { WorkspaceResponse } from '../lib/types';
 
 type WorkspaceHeaderProps = {
   workspace: WorkspaceResponse;
@@ -17,12 +15,10 @@ type WorkspaceHeaderProps = {
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
-  const { confirm } = useModal();
+  const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
   const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessions();
-  const [vsCodeResult, setVSCodeResult] = useState<OpenVSCodeResponse | null>(null);
-  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; navigateTo?: string } | null>(null);
   const [openingVSCode, setOpeningVSCode] = useState(false);
 
   // Git status dropdown state
@@ -56,10 +52,10 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await openVSCode(workspace.id);
       if (!result.success) {
-        setVSCodeResult(result);
+        await alert('Unable to open VS Code', result.message);
       }
     } catch (err) {
-      setVSCodeResult({ success: false, message: getErrorMessage(err, 'Failed to open VS Code') });
+      await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
     } finally {
       setOpeningVSCode(false);
     }
@@ -130,9 +126,10 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
     try {
       const result = await linearSyncFromMain(workspace.id);
-      setSyncResult({ success: result.success, message: result.message });
+      const title = result.success ? 'Success' : 'Error';
+      await alert(title, result.message);
     } catch (err) {
-      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync from main') });
+      await alert('Error', getErrorMessage(err, 'Failed to sync from main'));
     } finally {
       setRebasing(false);
     }
@@ -150,14 +147,14 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         });
         if (disposeConfirmed) {
           await disposeWorkspaceAll(workspace.id);
-          setSyncResult({ success: true, message: 'Workspace and sessions disposed' });
+          await alert('Success', 'Workspace and sessions disposed');
           navigate('/');
         }
       } else {
-        setSyncResult({ success: false, message: result.message });
+        await alert('Error', result.message);
       }
     } catch (err) {
-      setSyncResult({ success: false, message: getErrorMessage(err, 'Failed to sync or dispose') });
+      await alert('Error', getErrorMessage(err, 'Failed to sync or dispose'));
     } finally {
       setMerging(false);
     }
@@ -249,23 +246,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           </Tooltip>
         </div>
       </div>
-
-      {vsCodeResult && (
-        <VSCodeResultModal
-          success={vsCodeResult.success}
-          message={vsCodeResult.message}
-          onClose={() => setVSCodeResult(null)}
-        />
-      )}
-
-      {syncResult && (
-        <SyncResultModal
-          success={syncResult.success}
-          message={syncResult.message}
-          navigateTo={syncResult.navigateTo}
-          onClose={() => setSyncResult(null)}
-        />
-      )}
 
       {isDropdownOpen && !rebasing && !merging && !resolveInProgress && createPortal(
         <div

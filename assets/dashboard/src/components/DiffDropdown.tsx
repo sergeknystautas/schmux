@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { diffExternal, getErrorMessage } from '../lib/api'
-import { useToast } from './ToastProvider'
+import { useModal } from './ModalProvider';
 import type { WorkspaceResponse } from '../lib/types';
 
 type ExternalDiffCommand = {
@@ -21,11 +21,10 @@ const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
 ];
 
 export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDropdownProps) {
-  const { success, error: toastError } = useToast();
   const navigate = useNavigate();
+  const { alert } = useModal();
   const [isOpen, setIsOpen] = useState(false);
   const [executing, setExecuting] = useState<string | null>(null);
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [placementAbove, setPlacementAbove] = useState(false);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
@@ -93,9 +92,10 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
 
     try {
       const response = await diffExternal(workspace.id, cmd.command);
-      setResult({ success: response.success, message: response.message });
+      const title = response.success ? 'Diff tool opened' : 'Failed to open diff tool';
+      await alert(title, response.message);
     } catch (err) {
-      setResult({ success: false, message: getErrorMessage(err, 'Failed to open diff tool') });
+      await alert('Failed to open diff tool', getErrorMessage(err, 'Failed to open diff tool'));
     } finally {
       setExecuting(null);
     }
@@ -154,8 +154,6 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
     </div>
   );
 
-  const closeModal = () => setResult(null);
-
   return (
     <>
       <button
@@ -180,26 +178,6 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
         )}
       </button>
       {menu && createPortal(menu, document.body)}
-
-      {result && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="diff-modal-title">
-          <div className="modal">
-            <div className="modal__header">
-              <h2 className="modal__title" id="diff-modal-title">
-                {result.success ? 'Diff tool opened' : 'Failed to open diff tool'}
-              </h2>
-            </div>
-            <div className="modal__body">
-              <p>{result.message}</p>
-            </div>
-            <div className="modal__footer">
-              <button className="btn btn--primary" onClick={closeModal}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
