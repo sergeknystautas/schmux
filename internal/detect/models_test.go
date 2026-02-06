@@ -28,6 +28,12 @@ func TestFindModel(t *testing.T) {
 		{"minimax", "minimax", true},
 		{"qwen3-coder-plus", "qwen3-coder-plus", true},
 
+		// Codex models
+		{"gpt-5.2-codex", "gpt-5.2-codex", true},
+		{"gpt-5.3-codex", "gpt-5.3-codex", true},
+		{"gpt-5.1-codex-max", "gpt-5.1-codex-max", true},
+		{"gpt-5.1-codex-mini", "gpt-5.1-codex-mini", true},
+
 		// Backward compat alias
 		{"minimax-m2.1", "minimax", true},
 
@@ -66,6 +72,10 @@ func TestIsModelID(t *testing.T) {
 		{"minimax", true},
 		{"qwen3-coder-plus", true},
 		{"qwen3-coder-plus", true},
+		{"gpt-5.2-codex", true},
+		{"gpt-5.3-codex", true},
+		{"gpt-5.1-codex-max", true},
+		{"gpt-5.1-codex-mini", true},
 
 		// Aliases
 		{"opus", true},
@@ -95,12 +105,14 @@ func TestBuildEnv(t *testing.T) {
 		name        string
 		endpoint    string
 		modelValue  string
+		modelFlag   string
 		expectedEnv map[string]string
 	}{
 		{
 			name:       "native model - no endpoint",
 			endpoint:   "",
 			modelValue: "claude-sonnet-4-5-20250929",
+			modelFlag:  "",
 			expectedEnv: map[string]string{
 				"ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
 			},
@@ -109,6 +121,7 @@ func TestBuildEnv(t *testing.T) {
 			name:       "third-party model with endpoint",
 			endpoint:   "https://api.example.com",
 			modelValue: "kimi-thinking",
+			modelFlag:  "",
 			expectedEnv: map[string]string{
 				"ANTHROPIC_MODEL":                "kimi-thinking",
 				"ANTHROPIC_BASE_URL":             "https://api.example.com",
@@ -122,6 +135,7 @@ func TestBuildEnv(t *testing.T) {
 			name:       "third-party model minimax",
 			endpoint:   "https://api.minimax.io/anthropic",
 			modelValue: "minimax-m2.1",
+			modelFlag:  "",
 			expectedEnv: map[string]string{
 				"ANTHROPIC_MODEL":                "minimax-m2.1",
 				"ANTHROPIC_BASE_URL":             "https://api.minimax.io/anthropic",
@@ -129,6 +143,15 @@ func TestBuildEnv(t *testing.T) {
 				"ANTHROPIC_DEFAULT_SONNET_MODEL": "minimax-m2.1",
 				"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "minimax-m2.1",
 				"CLAUDE_CODE_SUBAGENT_MODEL":     "minimax-m2.1",
+			},
+		},
+		{
+			name:        "codex model with CLI flag - no ANTHROPIC_MODEL env var",
+			endpoint:    "",
+			modelValue:  "gpt-5.2-codex",
+			modelFlag:   "-m",
+			expectedEnv: map[string]string{
+				// No ANTHROPIC_MODEL when ModelFlag is set
 			},
 		},
 	}
@@ -141,6 +164,7 @@ func TestBuildEnv(t *testing.T) {
 				BaseTool:    "claude",
 				Endpoint:    tt.endpoint,
 				ModelValue:  tt.modelValue,
+				ModelFlag:   tt.modelFlag,
 			}
 			env := model.BuildEnv()
 
@@ -188,8 +212,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 9,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "minimax", "qwen3-coder-plus"},
+			expectedCount: 13,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "minimax", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
 		},
 		{
 			name: "all detected tools",
@@ -197,8 +221,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 9,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "minimax", "qwen3-coder-plus"},
+			expectedCount: 13,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "minimax", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
 		},
 	}
 
@@ -245,9 +269,9 @@ func TestGetAvailableModels(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 9 models total
-	if len(models) != 9 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 9", len(models))
+	// Should have 13 models total (9 Claude-based + 4 Codex)
+	if len(models) != 13 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 13", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -264,6 +288,7 @@ func TestGetBuiltinModels(t *testing.T) {
 	expectedModels := []string{
 		"claude-opus", "claude-sonnet", "claude-haiku",
 		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "minimax", "qwen3-coder-plus",
+		"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
 	}
 	for _, id := range expectedModels {
 		if !modelIDs[id] {

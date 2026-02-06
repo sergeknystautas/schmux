@@ -43,6 +43,7 @@ type ResolvedTarget struct {
 	Command    string
 	Promptable bool
 	Env        map[string]string
+	Model      *detect.Model
 }
 
 const (
@@ -88,7 +89,15 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		}
 	}
 
-	command, err := buildCommand(resolved, prompt)
+	// Resolve model if target is a model kind
+	var model *detect.Model
+	if resolved.Kind == TargetKindModel {
+		if m, ok := detect.FindModel(resolved.Name); ok {
+			model = &m
+		}
+	}
+
+	command, err := buildCommand(resolved, prompt, model)
 	if err != nil {
 		return nil, err
 	}
@@ -281,6 +290,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 			Command:    baseTarget.Command,
 			Promptable: true,
 			Env:        env,
+			Model:      &model,
 		}, nil
 	}
 
@@ -307,13 +317,21 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func buildCommand(target ResolvedTarget, prompt string) (string, error) {
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model) (string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
+
+	// Build the base command with optional model flag injection
+	baseCommand := target.Command
+	if model != nil && model.ModelFlag != "" {
+		// Inject model flag for tools like Codex that use CLI flags instead of env vars
+		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, model.ModelFlag, shellQuote(model.ModelValue))
+	}
+
 	if target.Promptable {
 		if trimmedPrompt == "" {
 			return "", fmt.Errorf("prompt is required for target %s", target.Name)
 		}
-		command := fmt.Sprintf("%s %s", target.Command, shellQuote(prompt))
+		command := fmt.Sprintf("%s %s", baseCommand, shellQuote(prompt))
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil
 		}
@@ -324,9 +342,9 @@ func buildCommand(target ResolvedTarget, prompt string) (string, error) {
 		return "", fmt.Errorf("prompt is not allowed for command target %s", target.Name)
 	}
 	if len(target.Env) > 0 {
-		return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), target.Command), nil
+		return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), baseCommand), nil
 	}
-	return target.Command, nil
+	return baseCommand, nil
 }
 
 func buildEnvPrefix(env map[string]string) string {

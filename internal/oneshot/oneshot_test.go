@@ -15,6 +15,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 		agentName    string
 		agentCommand string
 		jsonSchema   string
+		model        *detect.Model
 		want         []string
 		wantErr      bool
 		errContains  string
@@ -24,6 +25,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "claude",
 			jsonSchema:   "",
+			model:        nil,
 			want:         []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
 			wantErr:      false,
 		},
@@ -32,6 +34,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "/home/user/.local/bin/claude",
 			jsonSchema:   "",
+			model:        nil,
 			want:         []string{"/home/user/.local/bin/claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
 			wantErr:      false,
 		},
@@ -40,6 +43,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "claude",
 			jsonSchema:   `{"type":"object"}`,
+			model:        nil,
 			want:         []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json", "--json-schema", `{"type":"object"}`},
 			wantErr:      false,
 		},
@@ -48,6 +52,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "codex",
 			agentCommand: "codex",
 			jsonSchema:   "",
+			model:        nil,
 			want:         []string{"codex", "exec", "--json"},
 			wantErr:      false,
 		},
@@ -56,14 +61,55 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "codex",
 			agentCommand: "codex",
 			jsonSchema:   "/tmp/schema.json",
+			model:        nil,
 			want:         []string{"codex", "exec", "--json", "--output-schema", "/tmp/schema.json"},
 			wantErr:      false,
+		},
+		{
+			name:         "codex with model flag",
+			agentName:    "codex",
+			agentCommand: "codex",
+			jsonSchema:   "",
+			model: &detect.Model{
+				ID:         "gpt-5.2-codex",
+				ModelValue: "gpt-5.2-codex",
+				ModelFlag:  "-m",
+			},
+			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.2-codex"},
+			wantErr: false,
+		},
+		{
+			name:         "codex with model flag and json schema",
+			agentName:    "codex",
+			agentCommand: "codex",
+			jsonSchema:   "/tmp/schema.json",
+			model: &detect.Model{
+				ID:         "gpt-5.3-codex",
+				ModelValue: "gpt-5.3-codex",
+				ModelFlag:  "-m",
+			},
+			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.3-codex", "--output-schema", "/tmp/schema.json"},
+			wantErr: false,
+		},
+		{
+			name:         "claude with model flag is ignored (no flag)",
+			agentName:    "claude",
+			agentCommand: "claude",
+			jsonSchema:   "",
+			model: &detect.Model{
+				ID:         "claude-sonnet",
+				ModelValue: "claude-sonnet-4-5-20250929",
+				ModelFlag:  "", // No flag - uses env vars
+			},
+			want:    []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
+			wantErr: false,
 		},
 		{
 			name:         "gemini not supported",
 			agentName:    "gemini",
 			agentCommand: "gemini",
 			jsonSchema:   "",
+			model:        nil,
 			want:         nil,
 			wantErr:      true,
 			errContains:  "not supported",
@@ -73,6 +119,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "unknown",
 			agentCommand: "unknown",
 			jsonSchema:   "",
+			model:        nil,
 			want:         nil,
 			wantErr:      true,
 			errContains:  "unknown tool",
@@ -82,6 +129,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentName:    "claude",
 			agentCommand: "",
 			jsonSchema:   "",
+			model:        nil,
 			want:         nil,
 			wantErr:      true,
 			errContains:  "empty command",
@@ -90,7 +138,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := detect.BuildCommandParts(tt.agentName, tt.agentCommand, detect.ToolModeOneshot, tt.jsonSchema)
+			got, err := detect.BuildCommandParts(tt.agentName, tt.agentCommand, detect.ToolModeOneshot, tt.jsonSchema, tt.model)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BuildCommandParts() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -147,7 +195,7 @@ func TestExecuteInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, "", nil, "")
+			_, err := Execute(ctx, tt.agentName, tt.agentCmd, tt.prompt, "", nil, "", nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Execute() error = %v, wantErr %v", err, tt.wantErr)
 				return

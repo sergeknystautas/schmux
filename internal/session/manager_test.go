@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -517,4 +518,172 @@ func containsMiddle(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestBuildCommand(t *testing.T) {
+	tests := []struct {
+		name             string
+		target           ResolvedTarget
+		prompt           string
+		model            *detect.Model
+		wantErr          bool
+		errContains      string
+		shouldContain    []string
+		shouldNotContain []string
+	}{
+		{
+			name: "claude model with prompt",
+			target: ResolvedTarget{
+				Name:       "claude-sonnet",
+				Kind:       TargetKindModel,
+				Command:    "claude",
+				Promptable: true,
+				Env: map[string]string{
+					"ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
+				},
+			},
+			prompt:  "hello world",
+			model:   nil,
+			wantErr: false,
+			shouldContain: []string{
+				"ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'",
+				"claude",
+				"'hello world'",
+			},
+		},
+		{
+			name: "codex model with CLI flag",
+			target: ResolvedTarget{
+				Name:       "gpt-5.2-codex",
+				Kind:       TargetKindModel,
+				Command:    "codex",
+				Promptable: true,
+				Env:        map[string]string{}, // No ANTHROPIC_MODEL for Codex
+			},
+			prompt: "write a function",
+			model: &detect.Model{
+				ID:         "gpt-5.2-codex",
+				ModelValue: "gpt-5.2-codex",
+				ModelFlag:  "-m",
+			},
+			wantErr: false,
+			shouldContain: []string{
+				"codex",
+				"-m",
+				"'gpt-5.2-codex'",
+				"'write a function'",
+			},
+			shouldNotContain: []string{
+				"ANTHROPIC_MODEL",
+			},
+		},
+		{
+			name: "codex model with CLI flag and env vars",
+			target: ResolvedTarget{
+				Name:       "gpt-5.3-codex",
+				Kind:       TargetKindModel,
+				Command:    "codex",
+				Promptable: true,
+				Env: map[string]string{
+					"SOME_VAR": "value",
+				},
+			},
+			prompt: "test prompt",
+			model: &detect.Model{
+				ID:         "gpt-5.3-codex",
+				ModelValue: "gpt-5.3-codex",
+				ModelFlag:  "-m",
+			},
+			wantErr: false,
+			shouldContain: []string{
+				"SOME_VAR='value'",
+				"codex",
+				"-m",
+				"'gpt-5.3-codex'",
+				"'test prompt'",
+			},
+			shouldNotContain: []string{
+				"ANTHROPIC_MODEL",
+			},
+		},
+		{
+			name: "non-promptable target without prompt",
+			target: ResolvedTarget{
+				Name:       "test-cmd",
+				Kind:       TargetKindUser,
+				Command:    "ls -la",
+				Promptable: false,
+				Env:        map[string]string{},
+			},
+			prompt:  "",
+			model:   nil,
+			wantErr: false,
+			shouldContain: []string{
+				"ls",
+				"-la",
+			},
+		},
+		{
+			name: "promptable target without prompt returns error",
+			target: ResolvedTarget{
+				Name:       "claude",
+				Kind:       TargetKindDetected,
+				Command:    "claude",
+				Promptable: true,
+				Env:        map[string]string{},
+			},
+			prompt:      "",
+			model:       nil,
+			wantErr:     true,
+			errContains: "prompt is required",
+		},
+		{
+			name: "non-promptable target with prompt returns error",
+			target: ResolvedTarget{
+				Name:       "test-cmd",
+				Kind:       TargetKindUser,
+				Command:    "ls",
+				Promptable: false,
+				Env:        map[string]string{},
+			},
+			prompt:      "unexpected prompt",
+			model:       nil,
+			wantErr:     true,
+			errContains: "prompt is not allowed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildCommand(tt.target, tt.prompt, tt.model)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("buildCommand() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContains != "" {
+				if err == nil || !contains(err.Error(), tt.errContains) {
+					t.Errorf("buildCommand() error = %v, want error containing %q", err, tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("buildCommand() unexpected error: %v", err)
+				return
+			}
+
+			// Check shouldContain
+			for _, substr := range tt.shouldContain {
+				if !contains(got, substr) {
+					t.Errorf("buildCommand() = %q, should contain %q", got, substr)
+				}
+			}
+
+			// Check shouldNotContain
+			for _, substr := range tt.shouldNotContain {
+				if contains(got, substr) {
+					t.Errorf("buildCommand() = %q, should not contain %q", got, substr)
+				}
+			}
+		})
+	}
 }

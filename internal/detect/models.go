@@ -12,6 +12,7 @@ type Model struct {
 	Provider        string   // e.g., "anthropic", "moonshot", "zai", "minimax"
 	Endpoint        string   // API endpoint (empty = default Anthropic)
 	ModelValue      string   // Value for ANTHROPIC_MODEL env var
+	ModelFlag       string   // CLI flag for model selection (e.g., "--model" for Codex)
 	RequiredSecrets []string // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
 	UsageURL        string   // Signup/pricing page
 	Category        string   // "native" or "third-party" (for UI grouping)
@@ -19,8 +20,10 @@ type Model struct {
 
 // BuildEnv builds the environment variables map for this model.
 func (m Model) BuildEnv() map[string]string {
-	env := map[string]string{
-		"ANTHROPIC_MODEL": m.ModelValue,
+	env := map[string]string{}
+	// Skip ANTHROPIC_MODEL for tools that use CLI flags (e.g., Codex with --model)
+	if m.ModelFlag == "" {
+		env["ANTHROPIC_MODEL"] = m.ModelValue
 	}
 	if m.Endpoint != "" {
 		env["ANTHROPIC_BASE_URL"] = m.Endpoint
@@ -126,6 +129,43 @@ var builtinModels = []Model{
 		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
 		UsageURL:        "https://dashscope-intl.aliyuncs.com",
 		Category:        "third-party",
+	},
+	// Codex models
+	{
+		ID:          "gpt-5.2-codex",
+		DisplayName: "gpt 5.2 codex",
+		BaseTool:    "codex",
+		Provider:    "openai",
+		ModelValue:  "gpt-5.2-codex",
+		ModelFlag:   "-m",
+		Category:    "native",
+	},
+	{
+		ID:          "gpt-5.3-codex",
+		DisplayName: "gpt 5.3 codex",
+		BaseTool:    "codex",
+		Provider:    "openai",
+		ModelValue:  "gpt-5.3-codex",
+		ModelFlag:   "-m",
+		Category:    "native",
+	},
+	{
+		ID:          "gpt-5.1-codex-max",
+		DisplayName: "gpt 5.1 codex max",
+		BaseTool:    "codex",
+		Provider:    "openai",
+		ModelValue:  "gpt-5.1-codex-max",
+		ModelFlag:   "-m",
+		Category:    "native",
+	},
+	{
+		ID:          "gpt-5.1-codex-mini",
+		DisplayName: "gpt 5.1 codex mini",
+		BaseTool:    "codex",
+		Provider:    "openai",
+		ModelValue:  "gpt-5.1-codex-mini",
+		ModelFlag:   "-m",
+		Category:    "native",
 	},
 }
 

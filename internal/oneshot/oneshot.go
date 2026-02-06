@@ -33,8 +33,9 @@ var schemaRegistry = map[string]string{
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
 // The schemaLabel parameter is optional; if provided, it should be a known schema label from this package.
+// The model parameter is optional; if provided, it will be used to inject model-specific flags.
 // Returns the parsed response string from the agent.
-func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel string, env map[string]string, dir string) (string, error) {
+func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel string, env map[string]string, dir string, model *detect.Model) (string, error) {
 	// Validate inputs
 	if agentName == "" {
 		return "", fmt.Errorf("agent name cannot be empty")
@@ -65,7 +66,7 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 	}
 
 	// Build command parts safely
-	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, schemaArg)
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, schemaArg, model)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +148,7 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 		// User-defined targets don't support JSON schema
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
-	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir)
+	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
 }
 
 func mergeEnv(extra map[string]string) []string {
@@ -313,6 +314,7 @@ type resolvedTarget struct {
 	Command    string
 	Promptable bool
 	Env        map[string]string
+	Model      *detect.Model
 }
 
 const (
@@ -360,6 +362,7 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 			Command:    baseTarget.Command,
 			Promptable: true,
 			Env:        mergeEnvMaps(model.BuildEnv(), secrets),
+			Model:      &model,
 		}, nil
 	}
 
@@ -378,6 +381,7 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 			Command:    target.Command,
 			Promptable: target.Type == config.RunTargetTypePromptable,
 			Env:        nil,
+			Model:      nil,
 		}, nil
 	}
 
