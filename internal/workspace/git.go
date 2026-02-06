@@ -14,7 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 )
 
-var branchNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:[-/][a-z0-9]+)*$`)
+var branchNamePattern = regexp.MustCompile(`^[a-z0-9_]+(?:[._/-][a-z0-9_]+)*$`)
 
 // ErrInvalidBranchName is returned when a branch name fails validation.
 var ErrInvalidBranchName = errors.New("invalid branch name")
@@ -27,7 +27,13 @@ func ValidateBranchName(branch string) error {
 		return fmt.Errorf("%w: branch name cannot be empty", ErrInvalidBranchName)
 	}
 	if !branchNamePattern.MatchString(branch) {
-		return fmt.Errorf("%w: %q does not match required format (lowercase alphanumeric, hyphens, forward slashes)", ErrInvalidBranchName, branch)
+		return fmt.Errorf("%w: %q does not match required format (lowercase alphanumeric, underscores, hyphens, forward slashes, or periods)", ErrInvalidBranchName, branch)
+	}
+	// Check for consecutive separators (-, ., /, _)
+	for i := 0; i < len(branch)-1; i++ {
+		if branch[i] == branch[i+1] && (branch[i] == '-' || branch[i] == '.' || branch[i] == '/' || branch[i] == '_') {
+			return fmt.Errorf("%w: %q has consecutive characters", ErrInvalidBranchName, branch)
+		}
 	}
 	return nil
 }

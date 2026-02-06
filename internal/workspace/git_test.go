@@ -73,6 +73,55 @@ func currentBranch(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(output))
 }
 
+func TestValidateBranchName(t *testing.T) {
+	tests := []struct {
+		name    string
+		branch  string
+		wantErr bool
+	}{
+		// Valid branch names
+		{"simple lowercase", "main", false},
+		{"with numbers", "feature123", false},
+		{"with underscore", "feature_test", false},
+		{"consecutive underscores", "feature__test", true},
+		{"with hyphen", "feature-branch", false},
+		{"consecutive hyphens", "feature--test", true},
+		{"with slash", "feature/test", false},
+		{"consecutive slashes invalid", "feature//test", true},
+		{"with period", "feature.test", false},
+		{"consecutive periods invalid", "feature..test", true},
+		{"mixed separators", "feature/test.branch_name-123", false},
+
+		// Invalid: starts/ends with separator
+		{"starts with slash", "/feature", true},
+		{"ends with slash", "feature/", true},
+		{"starts with period", ".feature", true},
+		{"ends with period", "feature.", true},
+
+		// Invalid: empty or whitespace
+		{"empty", "", true},
+		{"whitespace only", " ", true},
+
+		// Invalid: uppercase
+		{"uppercase", "Feature", true},
+		{"uppercase mixed", "featureTest", true},
+
+		// Invalid: special characters
+		{"at sign", "feature@branch", true},
+		{"hash", "feature#branch", true},
+		{"space", "feature branch", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateBranchName(tt.branch)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateBranchName(%q) error = %v, wantErr %v", tt.branch, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestExtractRepoName(t *testing.T) {
 	tests := []struct {
 		url  string
