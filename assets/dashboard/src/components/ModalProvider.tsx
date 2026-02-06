@@ -62,7 +62,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
       title,
       message,
       confirmText: normalizedOptions.confirmText || 'Confirm',
-      cancelText: normalizedOptions.cancelText || 'Cancel',
+      cancelText: normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
       danger: normalizedOptions.danger || false,
       detailedMessage: normalizedOptions.detailedMessage || '',
       resolve: resolveModal
@@ -82,7 +82,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
       defaultValue: normalizedOptions.defaultValue || '',
       placeholder: normalizedOptions.placeholder || '',
       confirmText: normalizedOptions.confirmText || 'Save',
-      cancelText: normalizedOptions.cancelText || 'Cancel',
+      cancelText: normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
       errorMessage: normalizedOptions.errorMessage || '',
       danger: normalizedOptions.danger || false,
       detailedMessage: normalizedOptions.detailedMessage || '',
