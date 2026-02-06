@@ -147,8 +147,11 @@ export default function AppShell() {
 
                       // Determine what to show in row2
                       let nudgePreviewElement: React.ReactNode = null;
-                      if (nudgenikEnabled && nudgeEmoji && nudgeSummary) {
-                        nudgePreviewElement = `${nudgeEmoji} ${nudgeSummary}`;
+                      if (nudgenikEnabled && nudgeEmoji) {
+                        // Show state with summary if available, or just state emoji and name if not
+                        nudgePreviewElement = nudgeSummary
+                          ? `${nudgeEmoji} ${nudgeSummary}`
+                          : `${nudgeEmoji} ${sess.nudge_state}`;
                       } else if (nudgenikEnabled && isPromptable && sess.running) {
                         nudgePreviewElement = (
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

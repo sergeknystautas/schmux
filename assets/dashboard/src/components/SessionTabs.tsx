@@ -234,7 +234,9 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
     const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
-    let nudgePreview = nudgenikEnabled && nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+    let nudgePreview = nudgenikEnabled && nudgeEmoji
+      ? (nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : `${nudgeEmoji} ${sess.nudge_state}`)
+      : null;
     let nudgePreviewElement: React.ReactNode = null;
 
     if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
