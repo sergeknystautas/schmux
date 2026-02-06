@@ -77,7 +77,9 @@ Dashboard also supports:
 The spawn wizard is a single-page interface that prioritizes your task description:
 
 - **Prompt first**: Large textarea at the top for your task description
-- **Slash commands**: Type `/command` in the textarea to switch to command mode via autocomplete
+- **Slash commands**: Type `/command` or `/resume` in the textarea to switch modes via autocomplete
+  - `/command`: Run a raw shell command instead of a promptable target
+  - `/resume`: Resume the agent's last conversation in an existing workspace (requires workspace selection)
 - **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
 - **AI-powered branch suggestions**: Branch name and nickname are auto-generated from your prompt (when creating new workspaces)
 - **One-click engage**: The "Engage" button handles branch naming and spawning in sequence
@@ -134,7 +136,7 @@ The spawn page uses a three-layer persistence model:
 | branch | Git branch name |
 | newRepoName | Name for new local repo (only when repo is `'__new__'`) |
 | prompt | Task description for AI agents |
-| spawnMode | `'promptable'` or `'command'` |
+| spawnMode | `'promptable'`, `'command'`, or `'resume'` |
 | selectedCommand | Which command to run (only when spawnMode is `'command'`) |
 | targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
 | modelSelectionMode | `'single'`, `'multiple'`, or `'advanced'` - controls how agents are selected |
@@ -199,6 +201,27 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | selectedCommand | `selectedCommand` | - | `""` |
 | targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
 
+### Resume Mode
+
+When `spawnMode` is `'resume'`, the form simplifies to target + repo selection:
+
+**In `workspace` or `prefilled` mode:**
+- Only the Target dropdown is shown (workspace is already determined by URL/state)
+- Spawns into the existing workspace with `resume: true`
+
+**In `fresh` mode:**
+- Target dropdown + Repo dropdown are shown
+- Creates a new workspace using the repo's default branch
+- Spawns with `resume: true` (agent runs its resume command, e.g., `claude --continue`)
+
+**Validation requirements:**
+- A target must be selected (`targetCounts` has at least one non-zero entry)
+- In fresh mode: a repo must be selected
+
+**On successful resume spawn:**
+- `spawn-last-repo` is updated in localStorage
+- Draft is cleared as usual
+
 ### Prepare Branch Spawn
 
 When the user clicks a recent branch on the home page:
@@ -229,9 +252,9 @@ When at least one session spawns successfully:
 - sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`)
 
 **Updated (write-back to localStorage):**
-- `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo)
-- `spawn-last-target-counts` ← actual target counts used (only non-zero entries)
-- `spawn-last-model-selection-mode` ← actual model selection mode used
+- `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo) — for promptable, command, and resume modes
+- `spawn-last-target-counts` ← actual target counts used (only non-zero entries) — only for promptable mode
+- `spawn-last-model-selection-mode` ← actual model selection mode used — only for promptable mode
 
 **Never Cleared:**
 - localStorage values persist indefinitely

@@ -11,6 +11,7 @@ type ToolMode string
 const (
 	ToolModeInteractive ToolMode = "interactive"
 	ToolModeOneshot     ToolMode = "oneshot"
+	ToolModeResume      ToolMode = "resume"
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
@@ -29,6 +30,20 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSche
 			parts = append(parts, model.ModelFlag, model.ModelValue)
 		}
 		return parts, nil
+	}
+
+	if mode == ToolModeResume {
+		// Return resume command for each tool
+		switch toolName {
+		case "claude":
+			return []string{"claude", "--continue"}, nil
+		case "codex":
+			return []string{"codex", "resume", "--last"}, nil
+		case "gemini":
+			return []string{"gemini", "-r", "latest"}, nil
+		default:
+			return nil, fmt.Errorf("tool %s: resume mode not supported", toolName)
+		}
 	}
 
 	baseCmd := parts[0]

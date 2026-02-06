@@ -526,6 +526,7 @@ func TestBuildCommand(t *testing.T) {
 		target           ResolvedTarget
 		prompt           string
 		model            *detect.Model
+		resume           bool
 		wantErr          bool
 		errContains      string
 		shouldContain    []string
@@ -544,6 +545,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 			prompt:  "hello world",
 			model:   nil,
+			resume:  false,
 			wantErr: false,
 			shouldContain: []string{
 				"ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'",
@@ -566,6 +568,7 @@ func TestBuildCommand(t *testing.T) {
 				ModelValue: "gpt-5.2-codex",
 				ModelFlag:  "-m",
 			},
+			resume:  false,
 			wantErr: false,
 			shouldContain: []string{
 				"codex",
@@ -594,6 +597,7 @@ func TestBuildCommand(t *testing.T) {
 				ModelValue: "gpt-5.3-codex",
 				ModelFlag:  "-m",
 			},
+			resume:  false,
 			wantErr: false,
 			shouldContain: []string{
 				"SOME_VAR='value'",
@@ -617,6 +621,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 			prompt:  "",
 			model:   nil,
+			resume:  false,
 			wantErr: false,
 			shouldContain: []string{
 				"ls",
@@ -634,6 +639,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 			prompt:      "",
 			model:       nil,
+			resume:      false,
 			wantErr:     true,
 			errContains: "prompt is required",
 		},
@@ -648,14 +654,77 @@ func TestBuildCommand(t *testing.T) {
 			},
 			prompt:      "unexpected prompt",
 			model:       nil,
+			resume:      false,
 			wantErr:     true,
 			errContains: "prompt is not allowed",
+		},
+		{
+			name: "resume mode with claude",
+			target: ResolvedTarget{
+				Name:       "claude",
+				Kind:       TargetKindDetected,
+				Command:    "claude",
+				Promptable: true,
+				Env:        map[string]string{},
+			},
+			prompt:  "",
+			model:   nil,
+			resume:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"claude",
+				"--continue",
+			},
+		},
+		{
+			name: "resume mode with claude and model env vars",
+			target: ResolvedTarget{
+				Name:       "claude-opus",
+				Kind:       TargetKindModel,
+				Command:    "claude",
+				Promptable: true,
+				Env: map[string]string{
+					"ANTHROPIC_MODEL": "claude-opus-4-5-20251101",
+				},
+			},
+			prompt: "",
+			model: &detect.Model{
+				ID:         "claude-opus",
+				BaseTool:   "claude",
+				ModelValue: "claude-opus-4-5-20251101",
+			},
+			resume:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"ANTHROPIC_MODEL='claude-opus-4-5-20251101'",
+				"claude",
+				"--continue",
+			},
+		},
+		{
+			name: "resume mode with codex",
+			target: ResolvedTarget{
+				Name:       "codex",
+				Kind:       TargetKindDetected,
+				Command:    "codex",
+				Promptable: true,
+				Env:        map[string]string{},
+			},
+			prompt:  "",
+			model:   nil,
+			resume:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"codex",
+				"resume",
+				"--last",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model)
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildCommand() error = %v, wantErr %v", err, tt.wantErr)
 				return

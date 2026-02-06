@@ -332,6 +332,7 @@ type SpawnRequest struct {
 	WorkspaceID     string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
+	Resume          bool           `json:"resume,omitempty"` // resume mode: use agent's resume command
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -392,6 +393,18 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if req.Command != "" && len(req.Targets) > 0 {
 		http.Error(w, "cannot specify both command and targets", http.StatusBadRequest)
 		return
+	}
+
+	// Validate resume mode
+	if req.Resume {
+		if req.Command != "" {
+			http.Error(w, "cannot use command mode with resume", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.Prompt) != "" {
+			http.Error(w, "cannot use prompt with resume mode", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Server-side branch conflict check for worktree mode
@@ -486,7 +499,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		if promptable && strings.TrimSpace(req.Prompt) == "" {
+		if promptable && strings.TrimSpace(req.Prompt) == "" && !req.Resume {
 			results = append(results, SessionResult{
 				Target: targetName,
 				Error:  "prompt is required for promptable targets",
@@ -516,7 +529,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			}
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
-			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID)
+			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume)
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{

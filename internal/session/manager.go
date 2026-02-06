@@ -66,7 +66,8 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // Otherwise, find or create a workspace by repoURL/branch.
 // nickname is an optional human-friendly name for the session.
 // prompt is only used if the target is promptable.
-func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string) (*state.Session, error) {
+// resume enables resume mode, which uses the agent's resume command instead of a prompt.
+func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool) (*state.Session, error) {
 	resolved, err := m.ResolveTarget(ctx, targetName)
 	if err != nil {
 		return nil, err
@@ -97,7 +98,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		}
 	}
 
-	command, err := buildCommand(resolved, prompt, model)
+	command, err := buildCommand(resolved, prompt, model, resume)
 	if err != nil {
 		return nil, err
 	}
@@ -317,8 +318,27 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model) (string, error) {
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool) (string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
+
+	// Handle resume mode
+	if resume {
+		// For models, use the base tool name instead of model ID
+		toolName := target.Name
+		if model != nil {
+			toolName = model.BaseTool
+		}
+		parts, err := detect.BuildCommandParts(toolName, target.Command, detect.ToolModeResume, "", model)
+		if err != nil {
+			return "", err
+		}
+		cmd := strings.Join(parts, " ")
+		// Resume mode still needs model env vars for third-party models
+		if len(target.Env) > 0 {
+			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), cmd), nil
+		}
+		return cmd, nil
+	}
 
 	// Build the base command with optional model flag injection
 	baseCommand := target.Command

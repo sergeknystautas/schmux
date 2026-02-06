@@ -186,7 +186,8 @@ Request:
   "prompt":"optional",
   "nickname":"optional",
   "targets":{"target-name":1},
-  "workspace_id":"optional"
+  "workspace_id":"optional",
+  "resume":false
 }
 ```
 
@@ -199,6 +200,11 @@ Contract (pre-2093ccf):
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
+
+Resume mode (`resume: true`):
+- Either `workspace_id` (existing workspace) or `repo`+`branch` (create new workspace) must be provided.
+- `prompt` must be empty (resume uses agent's resume command, not a prompt).
+- The agent's resume command is used instead of a prompt (e.g., `claude --continue`, `codex resume --last`).
 
 Response (array of results):
 ```json

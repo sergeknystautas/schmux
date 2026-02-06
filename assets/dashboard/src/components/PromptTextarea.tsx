@@ -127,7 +127,11 @@ export default function PromptTextarea({
   }
 
   const filteredCommands = commands
-    .filter(cmd => `command ${cmd}`.toLowerCase().startsWith(slashQuery.toLowerCase()))
+    .filter(cmd => {
+      const searchKey = cmd.startsWith('/') ? cmd : `/command ${cmd}`;
+      const fullQuery = slashMatch ? `/${slashQuery}` : '';
+      return searchKey.startsWith(fullQuery);
+    })
     .slice(0, 8);
 
   const showMenu = slashActive && filteredCommands.length > 0;
@@ -261,7 +265,7 @@ export default function PromptTextarea({
                 borderRadius: 0,
               }}
             >
-              /command {cmd}
+              {cmd.startsWith('/') ? cmd : `/command ${cmd}`}
             </button>
           ))}
         </div>

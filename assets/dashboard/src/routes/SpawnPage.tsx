@@ -19,7 +19,7 @@ import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 interface SpawnDraft {
   prompt: string;
-  spawnMode: 'promptable' | 'command';
+  spawnMode: 'promptable' | 'command' | 'resume';
   selectedCommand: string;
   targetCounts: Record<string, number>;
   modelSelectionMode: 'single' | 'multiple' | 'advanced';
@@ -138,6 +138,7 @@ function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): v
   }
 }
 
+
 export default function SpawnPage() {
   useRequireConfig();
   const [repos, setRepos] = useState<RepoResponse[]>([]);
@@ -145,7 +146,7 @@ export default function SpawnPage() {
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [selectedCommand, setSelectedCommand] = useState('');
-  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command'>('promptable');
+  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command' | 'resume'>('promptable');
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
@@ -181,13 +182,13 @@ export default function SpawnPage() {
     return defaultBranchMap.get(repoUrl) || 'main';
   };
 
-  // Spawn page mode: determined once on mount (see docs/sessions.md)
-  const [mode] = useState<'workspace' | 'prefilled' | 'fresh'>(() => {
-    const wsId = searchParams.get('workspace_id');
-    if (wsId) return 'workspace';
+  // Spawn page mode: derived from current URL/state
+  const urlWorkspaceId = searchParams.get('workspace_id');
+  const mode: 'workspace' | 'prefilled' | 'fresh' = (() => {
+    if (urlWorkspaceId) return 'workspace';
     if (location.state?.repo && location.state?.branch) return 'prefilled';
     return 'fresh';
-  });
+  })();
   const initialized = useRef(false);
 
   const isMounted = useRef(true);
@@ -259,9 +260,13 @@ export default function SpawnPage() {
     return () => { active = false; };
   }, []);
 
-  // Initialize form fields based on mode (runs once; see docs/sessions.md)
+  // Re-run initialization when navigation context changes.
+  useEffect(() => {
+    initialized.current = false;
+  }, [mode, urlWorkspaceId, location.key]);
+
+  // Initialize form fields based on mode (re-runs on context change; see docs/sessions.md)
   // Three-layer waterfall: Mode Logic → sessionStorage → localStorage → Default
-  const urlWorkspaceId = searchParams.get('workspace_id');
   useEffect(() => {
     if (initialized.current) return;
 
@@ -470,6 +475,18 @@ export default function SpawnPage() {
   }, []);
 
   const validateForm = () => {
+    if (spawnMode === 'resume') {
+      if (totalPromptableCount === 0) {
+        toastError('Please select at least one target');
+        return false;
+      }
+      if (mode === 'fresh' && !repo) {
+        toastError('Please select a repository');
+        return false;
+      }
+      return true;
+    }
+
     if (!repo) {
       toastError('Please select a repository');
       return false;
@@ -501,9 +518,16 @@ export default function SpawnPage() {
 
   // Handle slash command selection - switches to command mode
   const handleSlashCommandSelect = (command: string) => {
-    setSelectedCommand(command);
-    setSpawnMode('command');
-    setNickname(''); // Clear nickname in command mode
+    if (command === '/resume') {
+      setSpawnMode('resume');
+      setPrompt('');
+      setNickname('');
+    } else {
+      // It's a command target - switch to command mode and pre-select it
+      setSelectedCommand(command);
+      setSpawnMode('command');
+      setNickname('');
+    }
   };
 
   // Handle "Prompt" button - return to promptable mode
@@ -534,6 +558,10 @@ export default function SpawnPage() {
         // User provided a branch name — use it directly, skip suggestion
         actualBranch = branch.trim();
         actualNickname = nickname;
+      } else if (spawnMode === 'resume') {
+        // Resume mode: use default branch (no prompt to suggest from)
+        actualBranch = getDefaultBranch(actualRepo);
+        actualNickname = '';
       } else if (spawnMode === 'promptable' && prompt.trim() && branchSuggestTarget) {
         // Call branch suggest API
         setEngagePhase('naming');
@@ -571,7 +599,8 @@ export default function SpawnPage() {
         prompt: spawnMode === 'promptable' ? prompt : '',
         nickname: actualNickname.trim(),
         targets: selectedTargets,
-        workspace_id: prefillWorkspaceId || ''
+        workspace_id: prefillWorkspaceId || '',
+        resume: spawnMode === 'resume'
       });
       const hasSuccess = response.some(r => !r.error);
       if (!hasSuccess) {
@@ -744,13 +773,13 @@ export default function SpawnPage() {
               value={prompt}
               onChange={setPrompt}
               placeholder="Describe the task you want the targets to work on... (Type / for commands, ⌘↩ to submit)"
-              commands={commandTargets.map(t => t.name)}
+              commands={[...commandTargets.map(t => t.name), '/resume']}
               onSelectCommand={handleSlashCommandSelect}
               onSubmit={handleEngage}
             />
           </div>
         </>
-      ) : (
+      ) : spawnMode === 'command' ? (
         <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
           <label htmlFor="command" className="form-group__label">Command</label>
           <select
@@ -768,210 +797,263 @@ export default function SpawnPage() {
             ))}
           </select>
         </div>
-      )}
+      ) : null}
 
-      {/* Agent + Repository grid — shared column widths */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'center' }}>
+      {spawnMode === 'resume' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'center' }}>
+          <label htmlFor="resume-target" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Target</label>
+          <select
+            id="resume-target"
+            className="select"
+            value={promptableList.find(item => (targetCounts[item.name] || 0) > 0)?.name || ''}
+            onChange={(e) => {
+              const name = e.target.value;
+              const next: Record<string, number> = {};
+              promptableList.forEach((item) => {
+                next[item.name] = item.name === name ? 1 : 0;
+              });
+              setTargetCounts(next);
+            }}
+          >
+            <option value="">Select agent...</option>
+            {promptableList.map((item) => (
+              <option key={item.name} value={item.name}>{item.label}</option>
+            ))}
+          </select>
 
-      {/* Agent selection */}
-      {spawnMode === 'promptable' && promptableList.length > 0 && (<>
-            {/* Mode selector - dropdown */}
-            <select
-              className="select"
-              value={modelSelectionMode}
-              onChange={(e) => setModelSelectionMode(e.target.value as 'single' | 'multiple' | 'advanced')}
-              style={{ width: 'auto' }}
-            >
-              <option value="single">Single Agent</option>
-              <option value="multiple">Multiple Agents</option>
-              <option value="advanced">Advanced</option>
-            </select>
+          {mode === 'fresh' && (
+            <>
+              <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
+              <select
+                id="repo"
+                className="select"
+                required
+                value={repo}
+                onChange={(event) => {
+                  setRepo(event.target.value);
+                }}
+              >
+                <option value="">Select repository...</option>
+                {repos.map((item) => (
+                  <option key={item.url} value={item.url}>{item.name}</option>
+                ))}
+              </select>
 
-            {modelSelectionMode === 'single' && (
+              <label htmlFor="branch" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Branch</label>
+              <input
+                type="text"
+                id="branch"
+                className="input"
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+                placeholder="Leave blank for default branch"
+              />
+            </>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'center' }}>
+
+        {/* Agent selection */}
+        {spawnMode === 'promptable' && promptableList.length > 0 && (<>
+              {/* Mode selector - dropdown */}
               <select
                 className="select"
-                value={promptableList.find(item => (targetCounts[item.name] || 0) > 0)?.name || ''}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  if (name) {
-                    toggleAgent(name);
-                  } else {
-                    // Deselect all when picking "Select agent..."
-                    const selected = promptableList.find(item => (targetCounts[item.name] || 0) > 0);
-                    if (selected) toggleAgent(selected.name);
+                value={modelSelectionMode}
+                onChange={(e) => setModelSelectionMode(e.target.value as 'single' | 'multiple' | 'advanced')}
+                style={{ width: 'auto' }}
+              >
+                <option value="single">Single Agent</option>
+                <option value="multiple">Multiple Agents</option>
+                <option value="advanced">Advanced</option>
+              </select>
+
+              {modelSelectionMode === 'single' && (
+                <select
+                  className="select"
+                  value={promptableList.find(item => (targetCounts[item.name] || 0) > 0)?.name || ''}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    if (name) {
+                      toggleAgent(name);
+                    } else {
+                      // Deselect all when picking "Select agent..."
+                      const selected = promptableList.find(item => (targetCounts[item.name] || 0) > 0);
+                      if (selected) toggleAgent(selected.name);
+                    }
+                  }}
+                >
+                  <option value="">Select agent...</option>
+                  {promptableList.map((item) => (
+                    <option key={item.name} value={item.name}>{item.label}</option>
+                  ))}
+                </select>
+              )}
+
+              {modelSelectionMode === 'multiple' && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: 'var(--spacing-sm)',
+                }}>
+                    {promptableList.map((item) => {
+                      const isSelected = (targetCounts[item.name] || 0) > 0;
+                      return (
+                        <button
+                          key={item.name}
+                          type="button"
+                          className={`btn${isSelected ? ' btn--primary' : ''}`}
+                          onClick={() => toggleAgent(item.name)}
+                          style={{
+                            height: 'auto',
+                            padding: 'var(--spacing-sm)',
+                            textAlign: 'left',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {modelSelectionMode === 'advanced' && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                    gap: 'var(--spacing-sm)',
+                  }}>
+                    {promptableList.map((item) => {
+                      const count = targetCounts[item.name] || 0;
+                      const isSelected = count > 0;
+                      return (
+                        <div
+                          key={item.name}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'var(--spacing-xs)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: 'var(--spacing-xs)',
+                            backgroundColor: isSelected ? 'var(--color-accent)' : 'var(--color-surface-alt)',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.875rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.label}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => updateTargetCount(item.name, -1)}
+                            disabled={count === 0}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              minHeight: '24px',
+                              minWidth: '28px',
+                              lineHeight: '1',
+                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                              color: isSelected ? 'white' : 'var(--color-text)',
+                              border: 'none',
+                              borderRadius: 'var(--radius-sm)'
+                            }}
+                          >
+                            −
+                          </button>
+                          <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
+                            {count}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => updateTargetCount(item.name, 1)}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              minHeight: '24px',
+                              minWidth: '28px',
+                              lineHeight: '1',
+                              backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
+                              color: isSelected ? 'white' : 'var(--color-text)',
+                              border: 'none',
+                              borderRadius: 'var(--radius-sm)'
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+            </>
+        )}
+
+        {/* Repository (hidden when not editable) */}
+        {mode === 'fresh' && (
+          <>
+            <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
+            <div>
+              <select
+                id="repo"
+                className="select"
+                required
+                value={repo}
+                onChange={(event) => {
+                  setRepo(event.target.value);
+                  if (event.target.value !== '__new__') {
+                    setNewRepoName('');
                   }
                 }}
               >
-                <option value="">Select agent...</option>
-                {promptableList.map((item) => (
-                  <option key={item.name} value={item.name}>{item.label}</option>
+                <option value="">Select repository...</option>
+                {repos.map((item) => (
+                  <option key={item.url} value={item.url}>{item.name}</option>
                 ))}
+                <option value="__new__">+ Create New Repository</option>
               </select>
-            )}
 
-            {modelSelectionMode === 'multiple' && (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                gap: 'var(--spacing-sm)',
-              }}>
-                  {promptableList.map((item) => {
-                    const isSelected = (targetCounts[item.name] || 0) > 0;
-                    return (
-                      <button
-                        key={item.name}
-                        type="button"
-                        className={`btn${isSelected ? ' btn--primary' : ''}`}
-                        onClick={() => toggleAgent(item.name)}
-                        style={{
-                          height: 'auto',
-                          padding: 'var(--spacing-sm)',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
+              {repo === '__new__' && (
+                <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                  <input
+                    type="text"
+                    id="newRepoName"
+                    className="input"
+                    value={newRepoName}
+                    onChange={(event) => setNewRepoName(event.target.value)}
+                    placeholder="Repository name"
+                    required
+                  />
                 </div>
               )}
-
-              {modelSelectionMode === 'advanced' && (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: 'var(--spacing-sm)',
-                }}>
-                  {promptableList.map((item) => {
-                    const count = targetCounts[item.name] || 0;
-                    const isSelected = count > 0;
-                    return (
-                      <div
-                        key={item.name}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--spacing-xs)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-sm)',
-                          padding: 'var(--spacing-xs)',
-                          backgroundColor: isSelected ? 'var(--color-accent)' : 'var(--color-surface-alt)',
-                        }}
-                      >
-                        <span style={{ fontSize: '0.875rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.label}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => updateTargetCount(item.name, -1)}
-                          disabled={count === 0}
-                          style={{
-                            padding: '2px 8px',
-                            fontSize: '0.75rem',
-                            minHeight: '24px',
-                            minWidth: '28px',
-                            lineHeight: '1',
-                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                            color: isSelected ? 'white' : 'var(--color-text)',
-                            border: 'none',
-                            borderRadius: 'var(--radius-sm)'
-                          }}
-                        >
-                          −
-                        </button>
-                        <span style={{ fontSize: '0.875rem', minWidth: '16px', textAlign: 'center' }}>
-                          {count}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => updateTargetCount(item.name, 1)}
-                          style={{
-                            padding: '2px 8px',
-                            fontSize: '0.75rem',
-                            minHeight: '24px',
-                            minWidth: '28px',
-                            lineHeight: '1',
-                            backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--color-surface)',
-                            color: isSelected ? 'white' : 'var(--color-text)',
-                            border: 'none',
-                            borderRadius: 'var(--radius-sm)'
-                          }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            </div>
           </>
+        )}
+
+        {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
+        {mode === 'fresh' && showBranchInput && (
+          <>
+            <label htmlFor="branch" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Branch</label>
+            <input
+              type="text"
+              id="branch"
+              className="input"
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              placeholder="e.g. feature/my-branch"
+            />
+          </>
+        )}
+
+        </div>
       )}
-
-      {/* Repository (hidden when not editable) */}
-      {mode === 'fresh' && (
-        <>
-          <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
-          <div>
-            <select
-              id="repo"
-              className="select"
-              required
-              value={repo}
-              onChange={(event) => {
-                setRepo(event.target.value);
-                if (event.target.value !== '__new__') {
-                  setNewRepoName('');
-                }
-              }}
-            >
-              <option value="">Select repository...</option>
-              {repos.map((item) => (
-                <option key={item.url} value={item.url}>{item.name}</option>
-              ))}
-              <option value="__new__">+ Create New Repository</option>
-            </select>
-
-            {repo === '__new__' && (
-              <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                <input
-                  type="text"
-                  id="newRepoName"
-                  className="input"
-                  value={newRepoName}
-                  onChange={(event) => setNewRepoName(event.target.value)}
-                  placeholder="Repository name"
-                  required
-                />
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
-      {mode === 'fresh' && showBranchInput && (
-        <>
-          <label htmlFor="branch" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Branch</label>
-          <input
-            type="text"
-            id="branch"
-            className="input"
-            value={branch}
-            onChange={(event) => setBranch(event.target.value)}
-            placeholder="e.g. feature/my-branch"
-          />
-        </>
-      )}
-
-      </div>
 
       <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
-        {spawnMode === 'command' && (
+        {(spawnMode === 'command' || spawnMode === 'resume') && (
           <button className="btn" onClick={handlePromptMode} disabled={engagePhase !== 'idle'}>
             Prompt
           </button>

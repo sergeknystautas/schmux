@@ -85,6 +85,7 @@ export interface SpawnRequest {
   command?: string;                   // command-based spawn (alternative to targets)
   workspace_id?: string;
   quick_launch_name?: string;
+  resume?: boolean;                   // resume mode: use agent's resume command
 }
 
 export interface SpawnResult {
