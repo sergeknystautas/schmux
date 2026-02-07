@@ -28,6 +28,7 @@ function scopesEqual(a?: KeyboardScope, b?: KeyboardScope) {
 
 type KeyboardAction = {
   key: string;
+  prefixKey?: string;
   shiftKey?: boolean;
   description: string;
   handler: () => void;
@@ -39,7 +40,7 @@ type KeyboardContextValue = {
   enterMode: () => void;
   exitMode: () => void;
   registerAction: (action: KeyboardAction) => void;
-  unregisterAction: (key: string, shiftKey?: boolean, scope?: KeyboardScope) => void;
+  unregisterAction: (key: string, shiftKey?: boolean, scope?: KeyboardScope, prefixKey?: string) => void;
   actions: KeyboardAction[];
   context: KeyboardContextState;
   setContext: (context: KeyboardContextState) => void;
@@ -63,6 +64,7 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
     sessionId: null,
   });
   const modifierKeys = useMemo(() => new Set(['Shift', 'Control', 'Alt', 'Meta']), []);
+  const pendingPrefixRef = useRef<string | null>(null);
 
   const setContext = useCallback((next: KeyboardContextState) => {
     setContextState((current) => {
@@ -86,7 +88,11 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   const registerAction = useCallback((action: KeyboardAction) => {
     setActions((current) => {
       const existingIndex = current.findIndex(
-        (a) => a.key === action.key && a.shiftKey === action.shiftKey && scopesEqual(a.scope, action.scope)
+        (a) =>
+          a.key === action.key &&
+          a.shiftKey === action.shiftKey &&
+          a.prefixKey === action.prefixKey &&
+          scopesEqual(a.scope, action.scope)
       );
 
       if (existingIndex === -1) {
@@ -105,11 +111,12 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   }, []);
 
   // Unregister an action
-  const unregisterAction = useCallback((key: string, shiftKey = false, scope?: KeyboardScope) => {
+  const unregisterAction = useCallback((key: string, shiftKey = false, scope?: KeyboardScope, prefixKey?: string) => {
     setActions((current) => {
       const next = current.filter((a) => {
         if (a.key !== key) return true;
         if (a.shiftKey !== shiftKey) return true;
+        if (a.prefixKey !== prefixKey) return true;
         if (scope && !scopesEqual(a.scope, scope)) return true;
         return false;
       });
@@ -134,6 +141,7 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   // Exit keyboard mode and restore focus
   const exitMode = useCallback(() => {
     setMode('inactive');
+    pendingPrefixRef.current = null;
     if (previousFocusRef.current && previousFocusRef.current.focus) {
       previousFocusRef.current.focus();
     }
@@ -164,16 +172,33 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
       // For letters (a-z), we need to check if Shift was used to produce uppercase
       const isLetter = pressedKey >= 'a' && pressedKey <= 'z';
 
-      // A letter requires shift matching if it's an uppercase letter (Shift+N -> "N" -> "n")
-      // Non-letter keys like "?" are matched by their character value alone
-      const action = actions.find((a) => {
-        if (a.key.toLowerCase() !== pressedKey) return false;
-        // For letters, check shift state. For non-letters, ignore shift state.
+      const matchesAction = (action: KeyboardAction) => {
+        if (action.key.toLowerCase() !== pressedKey) return false;
         if (isLetter) {
-          return !!a.shiftKey === e.shiftKey;
+          return !!action.shiftKey === e.shiftKey;
         }
         return true;
-      });
+      };
+
+      if (pendingPrefixRef.current) {
+        const prefixedAction = actions.find((a) => a.prefixKey === pendingPrefixRef.current && matchesAction(a));
+        pendingPrefixRef.current = null;
+        if (prefixedAction) {
+          e.preventDefault();
+          prefixedAction.handler();
+          exitMode();
+          return;
+        }
+      }
+
+      const hasPrefix = actions.some((a) => a.prefixKey === pressedKey);
+      if (hasPrefix) {
+        e.preventDefault();
+        pendingPrefixRef.current = pressedKey;
+        return;
+      }
+
+      const action = actions.find((a) => !a.prefixKey && matchesAction(a));
 
       if (action) {
         e.preventDefault();

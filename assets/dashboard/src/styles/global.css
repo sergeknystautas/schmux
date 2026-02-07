@@ -1862,6 +1862,10 @@ body {
     width: 100%;
 }
 
+.modal--wide {
+    max-width: 640px;
+}
+
 .modal__header {
     padding: var(--spacing-lg);
     border-bottom: 1px solid var(--color-border);
@@ -3104,7 +3108,12 @@ body.keyboard-mode-active::after {
 .keyboard-shortcuts-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: var(--spacing-md);
+  table-layout: fixed;
+}
+
+.keyboard-shortcuts-table--two-col th:nth-child(1),
+.keyboard-shortcuts-table--two-col th:nth-child(3) {
+  width: 90px;
 }
 
 .keyboard-shortcuts-table th {
@@ -3133,4 +3142,11 @@ body.keyboard-mode-active::after {
   padding: 2px 6px;
   font-family: var(--font-mono);
   font-size: 0.875rem;
+}
+
+@media (max-width: 720px) {
+  .keyboard-shortcuts-table--two-col {
+    display: block;
+    overflow-x: auto;
+  }
 }

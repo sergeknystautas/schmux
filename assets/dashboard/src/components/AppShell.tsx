@@ -12,6 +12,9 @@ import { useHelpModal } from './KeyboardHelpModal'
 import { formatRelativeTime } from '../lib/utils'
 import { navigateToWorkspace } from '../lib/navigation'
 import useOverheatIndicator from '../hooks/useOverheatIndicator'
+import { useModal } from './ModalProvider'
+import { useToast } from './ToastProvider'
+import { disposeWorkspace, getErrorMessage, openVSCode } from '../lib/api'
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -39,7 +42,7 @@ export default function AppShell() {
   const { toggleTheme } = useTheme();
   const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
-  const { workspaces, connected } = useSessions();
+  const { workspaces, connected, linearSyncResolveConflictStates } = useSessions();
   const overheating = useOverheatIndicator();
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,6 +50,8 @@ export default function AppShell() {
   const [navCollapsed, setNavCollapsed] = useLocalStorage(NAV_COLLAPSED_KEY, false);
   const { mode, registerAction, unregisterAction, context } = useKeyboardMode();
   const { show: showHelp } = useHelpModal();
+  const { alert, confirm } = useModal();
+  const { success, error: toastError } = useToast();
 
   // Helper to get sessionsById from workspaces
   function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
@@ -130,6 +135,28 @@ export default function AppShell() {
     };
   }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
 
+  // Register global workspace jump prefix actions (K then 1-9)
+  useEffect(() => {
+    for (let i = 1; i <= 9; i++) {
+      registerAction({
+        key: i.toString(),
+        prefixKey: 'k',
+        description: `Jump to workspace ${i}`,
+        handler: () => {
+          if (!workspaces || !workspaces[i - 1]) return;
+          navigateToWorkspace(navigate, workspaces, workspaces[i - 1].id);
+        },
+        scope: { type: 'global' },
+      });
+    }
+
+    return () => {
+      for (let i = 1; i <= 9; i++) {
+        unregisterAction(i.toString(), false, undefined, 'k');
+      }
+    };
+  }, [registerAction, unregisterAction, navigate, workspaces]);
+
   // Register workspace-specific keyboard actions based on active context
   useEffect(() => {
     if (!context.workspaceId) return;
@@ -138,15 +165,15 @@ export default function AppShell() {
 
     const scope = { type: 'workspace', id: context.workspaceId } as const;
 
-    // 0-9 - jump to session by index (0-indexed: 0=first, 1=second, etc.)
-    for (let i = 0; i <= 9; i++) {
+    // 1-9 - jump to session by index (1-indexed: 1=first, 2=second, etc.)
+    for (let i = 1; i <= 9; i++) {
       registerAction({
         key: i.toString(),
         description: `Jump to session ${i}`,
         handler: () => {
           if (!workspace.sessions) return;
-          if (workspace.sessions[i]) {
-            navigate(`/sessions/${workspace.sessions[i].id}`);
+          if (workspace.sessions[i - 1]) {
+            navigate(`/sessions/${workspace.sessions[i - 1].id}`);
           }
         },
         scope,
@@ -173,14 +200,55 @@ export default function AppShell() {
       scope,
     });
 
+    // V - open workspace in VS Code
+    registerAction({
+      key: 'v',
+      description: 'Open workspace in VS Code',
+      handler: async () => {
+        try {
+          const result = await openVSCode(workspace.id);
+          if (!result.success) {
+            await alert('Unable to open VS Code', result.message);
+          }
+        } catch (err) {
+          await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
+        }
+      },
+      scope,
+    });
+
+    // Shift+W - dispose workspace (same restrictions as dispose button)
+    registerAction({
+      key: 'w',
+      shiftKey: true,
+      description: 'Dispose workspace',
+      handler: async () => {
+        const resolveInProgress = linearSyncResolveConflictStates[workspace.id]?.status === 'in_progress';
+        if (resolveInProgress) return;
+        const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
+        if (!accepted) return;
+
+        try {
+          await disposeWorkspace(workspace.id);
+          success('Workspace disposed');
+          navigate('/');
+        } catch (err) {
+          toastError(getErrorMessage(err, 'Failed to dispose workspace'));
+        }
+      },
+      scope,
+    });
+
     return () => {
       unregisterAction('d');
       unregisterAction('g');
-      for (let i = 0; i <= 9; i++) {
+      unregisterAction('v');
+      unregisterAction('w', true);
+      for (let i = 1; i <= 9; i++) {
         unregisterAction(i.toString());
       }
     };
-  }, [context.workspaceId, workspaces, registerAction, unregisterAction, navigate]);
+  }, [context.workspaceId, workspaces, registerAction, unregisterAction, navigate, alert, confirm, linearSyncResolveConflictStates, success, toastError]);
 
   return (
     <div className={`app-shell${navCollapsed ? ' app-shell--collapsed' : ''}`}>

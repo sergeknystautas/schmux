@@ -19,13 +19,15 @@ export function useHelpModal() {
 const shortcuts = [
   { key: 'N', description: 'Spawn new session (context-aware)' },
   { key: 'Shift+N', description: 'Spawn new session (always general)' },
-  { key: '0-9', description: 'Jump to session by index' },
-  { key: 'W', description: 'Dispose session (session detail only)' },
-  { key: 'D', description: 'Go to diff page (workspace only)' },
-  { key: 'G', description: 'Go to git graph (workspace only)' },
+  { key: '1-9', description: 'Jump to session by index (1=first)' },
+  { key: 'K, 1-9', description: 'Jump to workspace by index' },
+  { key: 'W', description: 'Dispose session' },
+  { key: 'Shift+W', description: 'Dispose workspace' },
+  { key: 'V', description: 'Open workspace in VS Code' },
+  { key: 'D', description: 'Go to diff page' },
+  { key: 'G', description: 'Go to git graph' },
   { key: 'H', description: 'Go to home' },
   { key: '?', description: 'Show this help modal' },
-  { key: 'Esc', description: 'Cancel keyboard mode' },
 ];
 
 export default function HelpModalProvider({ children }: { children: React.ReactNode }) {
@@ -51,13 +53,17 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
   }, [isOpen]);
 
   const value = useMemo(() => ({ show }), []);
+  const splitIndex = Math.ceil(shortcuts.length / 2);
+  const leftShortcuts = shortcuts.slice(0, splitIndex);
+  const rightShortcuts = shortcuts.slice(splitIndex);
+  const maxRows = Math.max(leftShortcuts.length, rightShortcuts.length);
 
   return (
     <HelpModalContext.Provider value={value}>
       {children}
       {isOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
-          <div className="modal">
+          <div className="modal modal--wide">
             <div className="modal__header">
               <h2 className="modal__title" id="help-modal-title">Keyboard Shortcuts</h2>
             </div>
@@ -65,20 +71,28 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
               <p style={{ marginBottom: 'var(--spacing-md)' }}>
                 Press <kbd>Cmd</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to execute an action.
               </p>
-              <table className="keyboard-shortcuts-table">
+              <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">
                 <thead>
                   <tr>
+                    <th>Key</th>
+                    <th>Action</th>
                     <th>Key</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {shortcuts.map((shortcut) => (
-                    <tr key={shortcut.key}>
-                      <td><kbd>{shortcut.key}</kbd></td>
-                      <td>{shortcut.description}</td>
-                    </tr>
-                  ))}
+                  {Array.from({ length: maxRows }).map((_, index) => {
+                    const left = leftShortcuts[index];
+                    const right = rightShortcuts[index];
+                    return (
+                      <tr key={`${left?.key || 'empty-left'}-${right?.key || 'empty-right'}-${index}`}>
+                        <td>{left ? <kbd>{left.key}</kbd> : null}</td>
+                        <td>{left?.description || ''}</td>
+                        <td>{right ? <kbd>{right.key}</kbd> : null}</td>
+                        <td>{right?.description || ''}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -88,6 +88,21 @@ Watch terminal output and manage a session.
 - Dispose session
 - Open diff, open workspace in VS Code
 
+**Keyboard shortcuts (dashboard):**
+- `Cmd+K` (or `Ctrl+K`) to enter keyboard mode
+- `1-9` jump to session by index (1 = first)
+- `K` then `1-9` jump to workspace by index (left nav order)
+- `W` dispose session (session detail only)
+- `Shift+W` dispose workspace (workspace only)
+- `V` open workspace in VS Code (workspace only)
+- `D` go to diff page (workspace only)
+- `G` go to git graph (workspace only)
+- `N` spawn new session (context-aware)
+- `Shift+N` spawn new session (always general)
+- `H` go to home
+- `?` show keyboard shortcuts help
+- `Esc` cancel keyboard mode
+
 ### Spawn (`/spawn`)
 Single-page wizard to start new sessions. Prompt-first design for faster workflow.
 
