@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,49 @@ import (
 )
 
 const bootstrapCaptureLines = 200
+
+// Terminal query response prefixes to filter from input.
+// These are responses from xterm.js to queries from tmux - we don't send them back.
+var inputFilterPrefixes = []string{
+	"\x1b[?",   // DA1 response (e.g., \x1b[?1;2c)
+	"\x1b[>",   // DA2 response (e.g., \x1b[>0;276;0c)
+	"\x1b]10;", // OSC 10 foreground color response
+	"\x1b]11;", // OSC 11 background color response
+}
+
+// isTerminalResponse checks if input is a terminal query response that shouldn't be sent.
+func isTerminalResponse(data string) bool {
+	for _, prefix := range inputFilterPrefixes {
+		if strings.HasPrefix(data, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Sequences to filter out so xterm.js handles scrolling locally.
+var filterSequences = [][]byte{
+	// Mouse mode sequences
+	[]byte("\x1b[?1000h"), // X11 mouse tracking
+	[]byte("\x1b[?1002h"), // Button event tracking
+	[]byte("\x1b[?1003h"), // Any event tracking
+	[]byte("\x1b[?1006h"), // SGR extended mouse mode
+	[]byte("\x1b[?1015h"), // urxvt mouse mode
+	// Alternate screen mode - disables scrollback in xterm.js
+	[]byte("\x1b[?1049h"), // Enable alternate screen
+}
+
+// filterTerminalModes removes sequences that interfere with xterm.js scrollback.
+func filterMouseMode(data []byte) []byte {
+	original := len(data)
+	for _, seq := range filterSequences {
+		data = bytes.ReplaceAll(data, seq, nil)
+	}
+	if len(data) != original {
+		fmt.Printf("[filter] removed %d bytes of terminal mode sequences\n", original-len(data))
+	}
+	return data
+}
 
 // WSMessage represents a WebSocket message from the client.
 type WSMessage struct {
@@ -104,9 +148,18 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		fmt.Printf("[ws %s] bootstrap capture failed: %v\n", sessionID[:8], err)
 		bootstrap = ""
 	}
-	if err := sendOutput("full", bootstrap); err != nil {
+	filteredBootstrap := string(filterMouseMode([]byte(bootstrap)))
+	if err := sendOutput("full", filteredBootstrap); err != nil {
 		return
 	}
+
+	// Configure status bar on connect (for existing sessions or future config changes)
+	statusCtx, statusCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-left", "#{pane_current_command} ")
+	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-format", "")
+	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-current-format", "")
+	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-right", " %H:%M:%S")
+	statusCancel()
 
 	attachCtx, attachCancel := context.WithCancel(context.Background())
 	defer attachCancel()
@@ -174,8 +227,11 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			if !ok {
 				return
 			}
-			if err := sendOutput("append", string(chunk)); err != nil {
-				return
+			filtered := filterMouseMode(chunk)
+			if len(filtered) > 0 {
+				if err := sendOutput("append", string(filtered)); err != nil {
+					return
+				}
 			}
 		case err := <-ptyErr:
 			if err != nil && err != io.EOF {
@@ -197,6 +253,10 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 
 			switch msg.Type {
 			case "input":
+				// Skip terminal query responses - these are xterm.js responding to tmux queries
+				if isTerminalResponse(msg.Data) {
+					continue
+				}
 				// Preserve existing nudge-clearing behavior.
 				if sess.Nudge != "" && (strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z")) {
 					sess.Nudge = ""
@@ -208,10 +268,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 						go s.BroadcastSessions()
 					}
 				}
-				if _, err := ptmx.Write([]byte(msg.Data)); err != nil {
-					fmt.Printf("[terminal] error writing input to tmux client: %v\n", err)
-					return
+				inputCtx, inputCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+				if err := tmux.SendKeys(inputCtx, sess.TmuxSession, msg.Data); err != nil {
+					inputCancel()
+					fmt.Printf("[terminal] error sending keys to tmux: %v\n", err)
+					// Don't return - input failure shouldn't kill connection
 				}
+				inputCancel()
 			case "resize":
 				var resizeData struct {
 					Cols int `json:"cols"`
@@ -224,8 +287,15 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if resizeData.Cols <= 0 || resizeData.Rows <= 0 {
 					continue
 				}
+				// Resize the tmux window (what gets rendered to the session)
+				resizeCtx, resizeCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+				if err := tmux.ResizeWindow(resizeCtx, sess.TmuxSession, resizeData.Cols, resizeData.Rows); err != nil {
+					fmt.Printf("[terminal] error resizing tmux window: %v\n", err)
+				}
+				resizeCancel()
+				// Also resize the attached PTY so it receives correctly-sized output
 				if err := pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(resizeData.Cols), Rows: uint16(resizeData.Rows)}); err != nil {
-					fmt.Printf("[terminal] error resizing tmux client PTY: %v\n", err)
+					fmt.Printf("[terminal] error resizing PTY: %v\n", err)
 				}
 			}
 		}

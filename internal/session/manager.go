@@ -123,23 +123,32 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Set up log file for pipe-pane streaming
-	logPath, err := m.ensureLogFile(sessionID)
-	if err != nil {
+	// Set up log file (for debugging/export, not for streaming)
+	if _, err := m.ensureLogFile(sessionID); err != nil {
 		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
-	} else {
-		// Force fixed window size for deterministic TUI output
-		width, height := m.config.GetTerminalSize()
-		if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
-			fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
-		}
-		if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
-			fmt.Printf("[session] warning: failed to resize window: %v\n", err)
-		}
-		// Start pipe-pane to log file
-		if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
-			return nil, fmt.Errorf("failed to start pipe-pane (session created): %w", err)
-		}
+	}
+
+	// Force fixed window size for deterministic TUI output
+	width, height := m.config.GetTerminalSize()
+	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
+		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
+	}
+	if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
+		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
+	}
+
+	// Configure status bar: process on left, time on right, clear center
+	if err := tmux.SetOption(ctx, tmuxSession, "status-left", "#{pane_current_command} "); err != nil {
+		fmt.Printf("[session] warning: failed to set status-left: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "window-status-format", ""); err != nil {
+		fmt.Printf("[session] warning: failed to set window-status-format: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
+		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "status-right", " %H:%M:%S"); err != nil {
+		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
 	}
 
 	// Get the PID of the agent process from tmux pane
@@ -210,23 +219,32 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Set up log file for pipe-pane streaming
-	logPath, err := m.ensureLogFile(sessionID)
-	if err != nil {
+	// Set up log file (for debugging/export, not for streaming)
+	if _, err := m.ensureLogFile(sessionID); err != nil {
 		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
-	} else {
-		// Force fixed window size for deterministic TUI output
-		width, height := m.config.GetTerminalSize()
-		if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
-			fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
-		}
-		if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
-			fmt.Printf("[session] warning: failed to resize window: %v\n", err)
-		}
-		// Start pipe-pane to log file
-		if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
-			return nil, fmt.Errorf("failed to start pipe-pane (session created): %w", err)
-		}
+	}
+
+	// Force fixed window size for deterministic TUI output
+	width, height := m.config.GetTerminalSize()
+	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
+		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
+	}
+	if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
+		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
+	}
+
+	// Configure status bar: process on left, time on right, clear center
+	if err := tmux.SetOption(ctx, tmuxSession, "status-left", "#{pane_current_command} "); err != nil {
+		fmt.Printf("[session] warning: failed to set status-left: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "window-status-format", ""); err != nil {
+		fmt.Printf("[session] warning: failed to set window-status-format: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
+		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
+	}
+	if err := tmux.SetOption(ctx, tmuxSession, "status-right", " %H:%M:%S"); err != nil {
+		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
 	}
 
 	// Get the PID of the process from tmux pane
