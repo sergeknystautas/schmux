@@ -11,6 +11,7 @@ import { useKeyboardMode } from '../contexts/KeyboardContext'
 import { useHelpModal } from './KeyboardHelpModal'
 import { formatRelativeTime } from '../lib/utils'
 import { navigateToWorkspace } from '../lib/navigation'
+import useOverheatIndicator from '../hooks/useOverheatIndicator'
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -39,6 +40,7 @@ export default function AppShell() {
   const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
   const { workspaces, connected } = useSessions();
+  const overheating = useOverheatIndicator();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();
@@ -352,6 +354,12 @@ export default function AppShell() {
               </a>
             </Tooltip>
             {mode === 'active' && <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>}
+            {overheating && (
+              <div className="connection-pill connection-pill--sm connection-pill--overheating">
+                <span className="connection-pill__dot"></span>
+                <span>Hot</span>
+              </div>
+            )}
           </div>
         </div>
       </nav>

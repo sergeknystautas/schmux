@@ -614,6 +614,25 @@ body {
     background-color: var(--color-danger);
 }
 
+.connection-pill--overheating {
+    color: #9a3412;
+    background-color: #ffedd5;
+    border: 1px solid #fdba74;
+    gap: 4px;
+    padding: 1px 6px;
+    font-size: 0.65rem;
+    line-height: 1.1;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.connection-pill--overheating .connection-pill__dot {
+    width: 6px;
+    height: 6px;
+    background-color: #ea580c;
+    animation: pulse 0.8s infinite;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
