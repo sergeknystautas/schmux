@@ -2,7 +2,7 @@
 
 Design notes for adding agent-level resume support when spawning sessions.
 
-**Status**: Exploratory / Not yet implemented
+**Status**: Implemented (v1.1.2)
 
 ## Current State
 

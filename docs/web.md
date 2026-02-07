@@ -61,8 +61,10 @@ Default landing page. tmux keyboard shortcuts and quick reference.
 Watch terminal output and manage a session.
 
 **Layout:**
-- Left: Live terminal via xterm.js (auto-focused on entry)
+- Left: Live terminal via xterm.js (auto-focused on entry), resizes dynamically to fill available space
 - Right: Metadata and actions, plus tabbed interface
+
+**Terminal resizing:** The terminal viewport automatically adjusts its dimensions when the browser window is resized, maintaining proper aspect ratio and content layout.
 
 **Workspace header:**
 - Workspace info, branch (clickable when remote exists), ahead/behind counts

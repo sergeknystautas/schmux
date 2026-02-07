@@ -753,7 +753,9 @@ Response:
 ```
 
 Notes:
-- PRs are discovered at daemon startup and refreshed hourly
+- PR discovery only runs when `pr_review.target` is configured in your config
+- Automatic polling is enabled only when PR discovery is needed (e.g., after config change or manual refresh)
+- On daemon startup, PRs are discovered if the target is configured
 - Only public GitHub repos are queried (unauthenticated API, 60 req/hour limit)
 - Limited to 5 open PRs per repo
 

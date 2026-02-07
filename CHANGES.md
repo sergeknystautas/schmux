@@ -2,6 +2,23 @@
 
 This file tracks high-level changes between releases of schmux.
 
+## Version 1.1.2 (2026-02-06)
+
+**Major features:**
+- Compact spawn page controls - Streamlined controls with dropdown menus for faster configuration
+- Dynamic terminal resizing - Terminal viewport now adjusts dimensions when browser window is resized
+- Keyboard shortcut system for rapid dashboard navigation (press `?` to view shortcuts)
+- GitHub PR discovery for workspace creation - Browse and checkout PRs directly from the dashboard
+
+**Improvements:**
+- Select-to-click marker positioning for scrolled terminal content
+- Session resume (`/resume`) - Continue agent conversations instead of starting fresh
+
+**Bug fixes:**
+- Unified modal provider consolidates all dashboard modals (Codex models and more)
+- Branch suggestion UX - Failures now prompt for explicit user input instead of silently defaulting
+- Binary file detection with memory safety improvements
+
 ## Version 1.1.1 (2026-01-31)
 
 **Major features:**

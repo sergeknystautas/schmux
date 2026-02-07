@@ -137,6 +137,24 @@ schmux prevents accidental data loss:
 
 ## Git Behavior
 
+### Branch Names
+
+schmux supports standard git branch naming conventions:
+
+**Valid characters:**
+- Alphanumeric characters (a-z, A-Z, 0-9)
+- Hyphens (-), underscores (_), periods (.), and forward slashes (/) for hierarchical names
+- Examples: `feature-branch`, `feature/subfeature`, `bugfix_123`, `release.v1.0`
+
+**Constraints:**
+- Cannot begin or end with a separator (/ - . _)
+- Cannot contain consecutive separators (//, --, __, .., etc.)
+- Maximum length follows git conventions (typically 256 characters)
+
+**Automatic handling:**
+- If you request a branch name that's already in use, schmux appends a unique suffix (e.g., `feature-x7k`)
+- Branch names with invalid characters are rejected with a helpful error message
+
 ### Source Code Management
 
 schmux supports two modes for creating workspace directories, configurable in **Settings > Workspace > Source Code Management**:

@@ -267,7 +267,9 @@ Called during the "Engage" flow (inside `handleEngage`) when ALL of these are tr
 - `prompt` is not empty
 - `branchSuggestTarget` is configured
 
-The Engage button shows "Naming branch..." during this phase. On success, both `branch` and `nickname` are set from the API response and passed directly to spawn. On failure, branch defaults to the repo's default branch (usually `'main'`).
+The Engage button shows "Naming branch..." during this phase. On success, both `branch` and `nickname` are set from the API response and passed directly to spawn.
+
+**Failure handling:** If branch suggestion fails, the UI prompts you to enter a branch name manually instead of silently defaulting to the repository's default branch. This ensures you're always in control of the branch naming.
 
 ### Inline Spawn Controls
 
