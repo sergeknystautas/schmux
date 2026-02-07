@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
@@ -141,7 +141,7 @@ export default function SessionDetailPage() {
     }
   };
 
-  const handleDispose = async () => {
+  const handleDispose = useCallback(async () => {
     if (!sessionId) return;
 
     const sessionDisplay = sessionData?.nickname
@@ -157,21 +157,22 @@ export default function SessionDetailPage() {
     } catch (err) {
       toastError(`Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
     }
-  };
+  }, [sessionId, sessionData?.nickname, confirm, success, toastError]);
 
   // Register keyboard shortcut for dispose (W key)
   useEffect(() => {
     if (!sessionId) return;
+    const scope = { type: 'session', id: sessionId } as const;
     const action = {
       key: 'w',
       description: 'Dispose session',
       handler: handleDispose,
-      scope: { type: 'session', id: sessionId } as const,
+      scope,
     };
 
     registerAction(action);
 
-    return () => unregisterAction('w');
+    return () => unregisterAction('w', false, scope);
   }, [registerAction, unregisterAction, handleDispose, sessionId]);
 
   const handleEditNickname = async () => {

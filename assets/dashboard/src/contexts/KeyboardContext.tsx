@@ -65,34 +65,56 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   const modifierKeys = useMemo(() => new Set(['Shift', 'Control', 'Alt', 'Meta']), []);
 
   const setContext = useCallback((next: KeyboardContextState) => {
-    setContextState(next);
+    setContextState((current) => {
+      if (current.workspaceId === next.workspaceId && current.sessionId === next.sessionId) {
+        return current;
+      }
+      return next;
+    });
   }, []);
 
   const clearContext = useCallback(() => {
-    setContextState({ workspaceId: null, sessionId: null });
+    setContextState((current) => {
+      if (current.workspaceId === null && current.sessionId === null) {
+        return current;
+      }
+      return { workspaceId: null, sessionId: null };
+    });
   }, []);
 
   // Register an action
   const registerAction = useCallback((action: KeyboardAction) => {
     setActions((current) => {
-      // Remove existing action with same key/shift/scope combination
-      const filtered = current.filter(
-        (a) => !(a.key === action.key && a.shiftKey === action.shiftKey && scopesEqual(a.scope, action.scope))
+      const existingIndex = current.findIndex(
+        (a) => a.key === action.key && a.shiftKey === action.shiftKey && scopesEqual(a.scope, action.scope)
       );
-      return [...filtered, action];
+
+      if (existingIndex === -1) {
+        return [...current, action];
+      }
+
+      const existing = current[existingIndex];
+      if (existing.description === action.description && existing.handler === action.handler) {
+        return current;
+      }
+
+      const next = current.slice();
+      next[existingIndex] = action;
+      return next;
     });
   }, []);
 
   // Unregister an action
   const unregisterAction = useCallback((key: string, shiftKey = false, scope?: KeyboardScope) => {
-    setActions((current) =>
-      current.filter((a) => {
+    setActions((current) => {
+      const next = current.filter((a) => {
         if (a.key !== key) return true;
         if (a.shiftKey !== shiftKey) return true;
         if (scope && !scopesEqual(a.scope, scope)) return true;
         return false;
-      })
-    );
+      });
+      return next.length === current.length ? current : next;
+    });
   }, []);
 
   // Enter keyboard mode
@@ -181,7 +203,8 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   // Prune actions that no longer match the active context
   useEffect(() => {
     setActions((current) =>
-      current.filter((action) => {
+      {
+        const next = current.filter((action) => {
         const scope = action.scope;
         if (!scope || scope.type === 'global') {
           return true;
@@ -193,7 +216,9 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
           return context.sessionId === scope.id;
         }
         return false;
-      })
+        });
+        return next.length === current.length ? current : next;
+      }
     );
   }, [context.workspaceId, context.sessionId]);
 
