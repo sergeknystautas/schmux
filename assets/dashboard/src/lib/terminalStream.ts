@@ -193,7 +193,9 @@ export default class TerminalStream {
   fitTerminal() {
     if (!this.terminal) return;
 
-    const containerRect = this.containerElement.getBoundingClientRect();
+    const containerRect = this.terminal.element?.getBoundingClientRect();
+    if (!containerRect) return;
+
     const containerWidth = containerRect.width;
     const containerHeight = containerRect.height;
 

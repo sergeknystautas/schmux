@@ -226,6 +226,16 @@ func SetWindowSizeManual(ctx context.Context, sessionName string) error {
 	return nil
 }
 
+// SetOption sets a tmux option on a session.
+func SetOption(ctx context.Context, sessionName, option, value string) error {
+	args := []string{"set-option", "-t", sessionName, option, value}
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set %s: %w: %s", option, err, string(output))
+	}
+	return nil
+}
+
 // ResizeWindow resizes the window to fixed dimensions (80x24 for deterministic TUI).
 func ResizeWindow(ctx context.Context, sessionName string, width, height int) error {
 	args := []string{
