@@ -26,6 +26,14 @@ const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = 150;
 const MAX_SIDEBAR_WIDTH = 600;
 
+// Helper to get localStorage key for selected file (stores file path, not index)
+const getSelectedFileKey = (workspaceId: string | undefined) =>
+  `schmux-diff-selected-file-${workspaceId || ''}`;
+
+// Helper to get localStorage key for scroll position
+const getScrollPositionKey = (workspaceId: string | undefined) =>
+  `schmux-diff-scroll-position-${workspaceId || ''}`;
+
 export default function DiffPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
@@ -41,6 +49,8 @@ export default function DiffPage() {
   const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(DIFF_SIDEBAR_WIDTH_KEY, DEFAULT_SIDEBAR_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
 
   const workspace = workspaces?.find(ws => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some(ws => ws.id === workspaceId);
@@ -106,7 +116,21 @@ export default function DiffPage() {
       try {
         const data = await getDiff(workspaceId || '');
         setDiffData(data);
-        if (data.files?.length > 0) {
+
+        // Restore selected file from localStorage by file path (not index)
+        const savedFilePath = localStorage.getItem(getSelectedFileKey(workspaceId));
+
+        if (savedFilePath && data.files?.length > 0) {
+          // Find the file by path (check new_path first, then old_path for deleted files)
+          const foundIndex = data.files.findIndex(f =>
+            (f.new_path || f.old_path) === savedFilePath
+          );
+          if (foundIndex >= 0) {
+            setSelectedFileIndex(foundIndex);
+          } else {
+            setSelectedFileIndex(0);
+          }
+        } else if (data.files?.length > 0) {
           setSelectedFileIndex(0);
         }
       } catch (err) {
@@ -118,7 +142,93 @@ export default function DiffPage() {
     loadDiff();
   }, [workspaceId]);
 
+  // Reload diff data when workspace git stats change (file system changes)
+  useEffect(() => {
+    if (!workspace) return;
+
+    const currentStats = {
+      files: workspace.git_files_changed,
+      added: workspace.git_lines_added,
+      removed: workspace.git_lines_removed
+    };
+
+    const prevStats = prevGitStatsRef.current;
+
+    // Check if any git stat has changed
+    const statsChanged = !prevStats ||
+      prevStats.files !== currentStats.files ||
+      prevStats.added !== currentStats.added ||
+      prevStats.removed !== currentStats.removed;
+
+    if (statsChanged && prevStats !== null) {
+      // Git stats changed, reload diff data
+      const reloadDiff = async () => {
+        setLoading(true);
+        setError('');
+        try {
+          const data = await getDiff(workspaceId || '');
+          setDiffData(data);
+
+          // Try to restore the same file by path if it still exists
+          const currentFilePath = diffData?.files?.[selectedFileIndex]?.new_path || diffData?.files?.[selectedFileIndex]?.old_path;
+
+          if (currentFilePath && data.files?.length > 0) {
+            const foundIndex = data.files.findIndex(f =>
+              (f.new_path || f.old_path) === currentFilePath
+            );
+            if (foundIndex >= 0) {
+              setSelectedFileIndex(foundIndex);
+            } else {
+              setSelectedFileIndex(0);
+            }
+          } else {
+            setSelectedFileIndex(0);
+          }
+        } catch (err) {
+          setError(getErrorMessage(err, 'Failed to load diff'));
+        } finally {
+          setLoading(false);
+        }
+      };
+      reloadDiff();
+    }
+
+    prevGitStatsRef.current = currentStats;
+  }, [workspace, workspaceId, selectedFileIndex, diffData]);
+
   const selectedFile = diffData?.files?.[selectedFileIndex];
+
+  // Save/restore scroll position - attach to diff-viewer-wrapper directly
+  useEffect(() => {
+    if (!contentRef.current || !selectedFile) return;
+
+    const scrollEl = contentRef.current;
+
+    // Save on scroll
+    const handleScroll = () => {
+      localStorage.setItem(getScrollPositionKey(workspaceId), scrollEl.scrollTop.toString());
+    };
+    scrollEl.addEventListener('scroll', handleScroll);
+
+    // Restore saved position
+    const saved = localStorage.getItem(getScrollPositionKey(workspaceId));
+    if (saved) {
+      requestAnimationFrame(() => {
+        scrollEl.scrollTop = parseInt(saved, 10);
+      });
+    }
+
+    return () => scrollEl.removeEventListener('scroll', handleScroll);
+  }, [selectedFile, workspaceId]);
+
+  // Save selected file path to localStorage when it changes
+  useEffect(() => {
+    const filePath = diffData?.files?.[selectedFileIndex]?.new_path || diffData?.files?.[selectedFileIndex]?.old_path;
+    if (filePath) {
+      console.log('[DiffPage] Saving selected file to localStorage:', filePath, 'at index:', selectedFileIndex);
+      localStorage.setItem(getSelectedFileKey(workspaceId), filePath);
+    }
+  }, [selectedFileIndex, workspaceId, diffData]);
 
   // Only show loading spinner if we don't have workspace data yet
   // This prevents flash when navigating from session page (which has cached data)
@@ -281,7 +391,7 @@ export default function DiffPage() {
                     {selectedFile.status}
                   </span>
                 </div>
-                <div className="diff-viewer-wrapper">
+                <div className="diff-viewer-wrapper" ref={contentRef}>
                   {selectedFile.is_binary ? (
                     <div className="diff-binary-notice">
                       Binary file not shown
