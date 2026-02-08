@@ -137,12 +137,18 @@ type ConfigResponse struct {
 	Network                    Network               `json:"network"`
 	AccessControl              AccessControl         `json:"access_control"`
 	PrReview                   PrReview              `json:"pr_review"`
+	Notifications              Notifications         `json:"notifications"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
 // PrReview represents PR review configuration in the API response.
 type PrReview struct {
 	Target string `json:"target"`
+}
+
+// Notifications represents dashboard notification settings.
+type Notifications struct {
+	SoundDisabled bool `json:"sound_disabled"`
 }
 
 // TerminalUpdate represents partial terminal updates.
@@ -227,9 +233,15 @@ type ConfigUpdateRequest struct {
 	Network                    *NetworkUpdate         `json:"network,omitempty"`
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
+	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 }
 
 // PrReviewUpdate represents partial PR review config updates.
 type PrReviewUpdate struct {
 	Target *string `json:"target,omitempty"`
+}
+
+// NotificationsUpdate represents partial notifications config updates.
+type NotificationsUpdate struct {
+	SoundDisabled *bool `json:"sound_disabled,omitempty"`
 }

@@ -63,6 +63,9 @@ const DEFAULT_CONFIG: ConfigResponse = {
   pr_review: {
     target: '',
   },
+  notifications: {
+    sound_disabled: false,
+  },
   needs_restart: false,
 };
 

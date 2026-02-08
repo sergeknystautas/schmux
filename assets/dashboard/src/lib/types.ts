@@ -73,7 +73,9 @@ export type {
   PRsResponse,
   PullRequest,
   PrReview,
-  PrReviewUpdate
+  PrReviewUpdate,
+  Notifications,
+  NotificationsUpdate
 } from './types.generated';
 
 export interface SpawnRequest {

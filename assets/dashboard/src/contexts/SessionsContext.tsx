@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
+import { useConfig } from './ConfigContext';
+import { playAttentionSound, isAttentionState } from '../lib/notificationSound';
 import type { SessionWithWorkspace, WorkspaceResponse, LinearSyncResolveConflictStatePayload, PendingNavigation } from '../lib/types';
 
 type SessionsContextValue = {
@@ -21,6 +23,7 @@ const SessionsContext = createContext<SessionsContextValue | null>(null);
 
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
+  const { config } = useConfig();
   const { workspaces, loading, connected, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
 
@@ -39,6 +42,37 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     });
     return map;
   }, [workspaces]);
+
+  // Track previous nudge states to detect changes
+  const prevNudgeStatesRef = useRef<Record<string, string | undefined>>({});
+
+  // Detect nudge state changes and play notification sound
+  useEffect(() => {
+    const prevStates = prevNudgeStatesRef.current;
+    let shouldPlaySound = false;
+
+    Object.entries(sessionsById).forEach(([sessionId, session]) => {
+      const prevState = prevStates[sessionId];
+      const newState = session.nudge_state;
+
+      // Only notify if state changed TO an attention state (not if it was already that state)
+      if (newState !== prevState && isAttentionState(newState)) {
+        shouldPlaySound = true;
+      }
+    });
+
+    // Update ref with current states
+    const newStates: Record<string, string | undefined> = {};
+    Object.entries(sessionsById).forEach(([sessionId, session]) => {
+      newStates[sessionId] = session.nudge_state;
+    });
+    prevNudgeStatesRef.current = newStates;
+
+    // Play sound if any session transitioned to attention state (and sound is not disabled)
+    if (shouldPlaySound && !config?.notifications?.sound_disabled) {
+      playAttentionSound();
+    }
+  }, [sessionsById, config?.notifications?.sound_disabled]);
 
   // Keep a ref updated so waitForSession can always read current value
   const sessionsByIdRef = useRef(sessionsById);

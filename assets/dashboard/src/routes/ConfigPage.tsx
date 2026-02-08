@@ -74,6 +74,7 @@ type ConfigSnapshot = {
   authSessionTTLMinutes: number;
   authTlsCertPath: string;
   authTlsKeyPath: string;
+  soundDisabled: boolean;
 };
 
 type RunTargetEditModalState = {
@@ -178,6 +179,7 @@ export default function ConfigPage() {
   const [authClientSecretSet, setAuthClientSecretSet] = useState(false);
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
+  const [soundDisabled, setSoundDisabled] = useState(false);
 
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
@@ -226,6 +228,7 @@ export default function ConfigPage() {
       authSessionTTLMinutes,
       authTlsCertPath,
       authTlsKeyPath,
+      soundDisabled,
     };
 
     // Deep comparison for arrays
@@ -267,7 +270,8 @@ export default function ConfigPage() {
       current.authPublicBaseURL !== originalConfig.authPublicBaseURL ||
       current.authSessionTTLMinutes !== originalConfig.authSessionTTLMinutes ||
       current.authTlsCertPath !== originalConfig.authTlsCertPath ||
-      current.authTlsKeyPath !== originalConfig.authTlsKeyPath
+      current.authTlsKeyPath !== originalConfig.authTlsKeyPath ||
+      current.soundDisabled !== originalConfig.soundDisabled
     );
   };
 
@@ -367,6 +371,7 @@ export default function ConfigPage() {
         setAuthTlsKeyPath(data.network?.tls?.key_path || '');
         setAuthWarnings([]);
         setApiNeedsRestart(data.needs_restart || false);
+        setSoundDisabled(data.notifications?.sound_disabled || false);
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -405,6 +410,7 @@ export default function ConfigPage() {
             authSessionTTLMinutes: data.access_control?.session_ttl_minutes || 1440,
             authTlsCertPath: data.network?.tls?.cert_path || '',
             authTlsKeyPath: data.network?.tls?.key_path || '',
+            soundDisabled: data.notifications?.sound_disabled || false,
           });
         }
 
@@ -583,6 +589,9 @@ export default function ConfigPage() {
           provider: authProvider,
           session_ttl_minutes: authSessionTTLMinutes,
         },
+        notifications: {
+          sound_disabled: soundDisabled,
+        },
       };
 
       const result = await updateConfig(updateRequest);
@@ -632,6 +641,7 @@ export default function ConfigPage() {
           authSessionTTLMinutes,
           authTlsCertPath,
           authTlsKeyPath,
+          soundDisabled,
         });
       }
 
@@ -2193,6 +2203,27 @@ export default function ConfigPage() {
                       )}
                     </>
                   )}
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Notifications</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={!soundDisabled}
+                        onChange={(e) => setSoundDisabled(!e.target.checked)}
+                      />
+                      <span>Play sound when agents need attention</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Plays an audio notification when an agent signals it needs input or encounters an error.
+                    </p>
+                  </div>
                 </div>
               </div>
 
