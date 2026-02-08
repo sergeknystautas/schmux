@@ -211,6 +211,9 @@ export default function SpawnPage() {
   // Get branch suggest target from config
   const branchSuggestTarget = config?.branch_suggest?.target || '';
 
+  // Remote flavors without a provisioning command don't need repo/branch selection
+  const isRemoteWithoutProvisioning = environment.type === 'remote' && !environment.flavor.provision_command;
+
   // Show branch input immediately when suggestion is disabled
   useEffect(() => {
     if (mode === 'fresh' && !branchSuggestTarget && config) {
@@ -482,7 +485,7 @@ export default function SpawnPage() {
         toastError('Please select at least one target');
         return false;
       }
-      if (mode === 'fresh' && !repo) {
+      if (mode === 'fresh' && !isRemoteWithoutProvisioning && !repo) {
         toastError('Please select a repository');
         return false;
       }
@@ -785,7 +788,7 @@ export default function SpawnPage() {
             ))}
           </select>
 
-          {mode === 'fresh' && (
+          {mode === 'fresh' && !isRemoteWithoutProvisioning && (
             <>
               <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
               <select
@@ -957,8 +960,8 @@ export default function SpawnPage() {
             </>
         )}
 
-        {/* Repository (hidden when not editable) */}
-        {mode === 'fresh' && (
+        {/* Repository (hidden when not editable or remote without provisioning) */}
+        {mode === 'fresh' && !isRemoteWithoutProvisioning && (
           <>
             <label htmlFor="repo" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Repository</label>
             <div>
@@ -999,7 +1002,7 @@ export default function SpawnPage() {
         )}
 
         {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
-        {mode === 'fresh' && showBranchInput && (
+        {mode === 'fresh' && !isRemoteWithoutProvisioning && showBranchInput && (
           <>
             <label htmlFor="branch" className="form-group__label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>Branch</label>
             <input
