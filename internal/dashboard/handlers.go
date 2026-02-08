@@ -2106,6 +2106,18 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// If hostname is missing from state, try the live connection
+		if host.Hostname == "" && s.remoteManager != nil {
+			if conn := s.remoteManager.GetConnection(ws.RemoteHostID); conn != nil {
+				if liveHostname := conn.Hostname(); liveHostname != "" {
+					host.Hostname = liveHostname
+					// Persist back to state so future lookups have it
+					s.state.UpdateRemoteHost(conn.Host())
+					s.state.Save()
+				}
+			}
+		}
+
 		if host.Hostname == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
