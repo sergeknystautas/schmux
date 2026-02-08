@@ -66,7 +66,13 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     if (!accepted) return;
 
     try {
-      await disposeWorkspace(workspace.id);
+      // For disconnected remote workspaces, dispose all sessions too
+      const isRemoteDisconnected = workspace.remote_host_id && workspace.remote_host_status !== 'connected';
+      if (isRemoteDisconnected) {
+        await disposeWorkspaceAll(workspace.id);
+      } else {
+        await disposeWorkspace(workspace.id);
+      }
       success('Workspace disposed');
       navigate('/');
     } catch (err) {

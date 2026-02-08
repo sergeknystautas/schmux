@@ -200,7 +200,7 @@ export default function RemoteHostSelector({
                   <HostStatusIndicator status="provisioning" />
                 ) : flavorStatus.connected ? (
                   <HostStatusIndicator status={flavorStatus.status || 'connected'} hostname={flavorStatus.hostname} />
-                ) : flavorStatus.status === 'provisioning' || flavorStatus.status === 'authenticating' ? (
+                ) : flavorStatus.status === 'provisioning' || flavorStatus.status === 'connecting' ? (
                   <HostStatusIndicator status={flavorStatus.status} hostname={flavorStatus.hostname} />
                 ) : (
                   <span style={{

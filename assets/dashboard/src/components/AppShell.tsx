@@ -15,8 +15,7 @@ import { navigateToWorkspace } from '../lib/navigation'
 import useOverheatIndicator from '../hooks/useOverheatIndicator'
 import { useModal } from './ModalProvider'
 import { useToast } from './ToastProvider'
-import { disposeWorkspace, getErrorMessage, openVSCode, getRemoteHosts, reconnectRemoteHost } from '../lib/api'
-import type { RemoteHost } from '../lib/types'
+import { disposeWorkspace, getErrorMessage, openVSCode, reconnectRemoteHost } from '../lib/api'
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -55,44 +54,13 @@ export default function AppShell() {
   const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
 
-  // State for reconnecting remote hosts banner
-  const [reconnectingHosts, setReconnectingHosts] = useState<RemoteHost[]>([]);
+  // State for reconnect modal (used by sidebar Reconnect button)
   const [reconnectModal, setReconnectModal] = useState<{
     hostId: string;
     flavorId: string;
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
-
-  // Poll for reconnecting remote hosts
-  useEffect(() => {
-    let active = true;
-    let intervalId: number | null = null;
-
-    const checkReconnecting = async () => {
-      try {
-        const hosts = await getRemoteHosts();
-        if (!active) return;
-        const reconnecting = hosts.filter(h => h.status === 'reconnecting' || h.status === 'authenticating');
-        setReconnectingHosts(reconnecting);
-        // Stop polling when no more reconnecting hosts
-        if (reconnecting.length === 0 && intervalId) {
-          clearInterval(intervalId);
-          intervalId = null;
-        }
-      } catch {
-        // Ignore polling errors
-      }
-    };
-
-    checkReconnecting();
-    intervalId = window.setInterval(checkReconnecting, 2000);
-
-    return () => {
-      active = false;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, []);
 
   // Helper to get sessionsById from workspaces
   function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
@@ -630,44 +598,6 @@ export default function AppShell() {
       </nav>
 
       <main className="app-shell__content">
-        {reconnectingHosts.length > 0 && (
-          <div style={{
-            padding: 'var(--spacing-sm) var(--spacing-md)',
-            backgroundColor: 'var(--color-warning-bg, rgba(255, 193, 7, 0.1))',
-            borderBottom: '1px solid var(--color-warning)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--spacing-sm)',
-            flexWrap: 'wrap',
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" style={{ flexShrink: 0 }}>
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-            <span style={{ fontSize: '0.875rem', color: 'var(--color-warning)' }}>
-              {reconnectingHosts.length} remote host{reconnectingHosts.length > 1 ? 's' : ''} need{reconnectingHosts.length === 1 ? 's' : ''} re-authentication
-            </span>
-            {reconnectingHosts.map(host => (
-              <button
-                key={host.id}
-                className="btn btn--sm"
-                style={{
-                  borderColor: 'var(--color-warning)',
-                  color: 'var(--color-warning)',
-                }}
-                onClick={() => setReconnectModal({
-                  hostId: host.id,
-                  flavorId: host.flavor_id,
-                  displayName: host.hostname || 'Remote Host',
-                  provisioningSessionId: host.provisioning_session_id || null,
-                })}
-              >
-                Authenticate {host.hostname}
-              </button>
-            ))}
-          </div>
-        )}
-
         {reconnectModal && (
           <ConnectionProgressModal
             flavorId={reconnectModal.flavorId}
@@ -676,7 +606,6 @@ export default function AppShell() {
             onClose={() => setReconnectModal(null)}
             onConnected={() => {
               setReconnectModal(null);
-              setReconnectingHosts(prev => prev.filter(h => h.id !== reconnectModal.hostId));
             }}
           />
         )}

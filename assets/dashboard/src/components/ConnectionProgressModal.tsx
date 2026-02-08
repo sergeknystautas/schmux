@@ -20,7 +20,7 @@ export default function ConnectionProgressModal({
   onClose,
   onConnected,
 }: ConnectionProgressModalProps) {
-  const [status, setStatus] = useState<'provisioning' | 'authenticating' | 'connected' | 'error' | 'reconnecting'>('provisioning');
+  const [status, setStatus] = useState<'provisioning' | 'connecting' | 'connected' | 'error' | 'reconnecting'>('provisioning');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -117,10 +117,11 @@ export default function ConnectionProgressModal({
 
       try {
         const hosts = await getRemoteHosts();
-        // Match by provisioning_session_id to find the exact connection we started,
-        // not a stale/disconnected host from a previous attempt for the same flavor.
+        // Match by provisioning_session_id to find the exact connection we started.
+        // Fallback: any active host for this flavor, then any host at all (to catch failures).
         const host = hosts.find(h => h.provisioning_session_id === provisioningSessionId)
-          || hosts.find(h => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired');
+          || hosts.find(h => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired')
+          || hosts.find(h => h.flavor_id === flavorId);
 
         if (host) {
           if (host.status === 'connected') {
@@ -135,8 +136,8 @@ export default function ConnectionProgressModal({
                 onConnectedRef.current(host);
               }
             }, 1000);
-          } else if (host.status === 'authenticating') {
-            setStatus('authenticating');
+          } else if (host.status === 'connecting') {
+            setStatus('connecting');
           } else if (host.status === 'reconnecting') {
             setStatus('reconnecting');
           } else if (host.status === 'disconnected' || host.status === 'expired') {
@@ -192,10 +193,10 @@ export default function ConnectionProgressModal({
     switch (status) {
       case 'provisioning':
         return 'Provisioning remote host...';
-      case 'authenticating':
-        return 'Authentication required';
+      case 'connecting':
+        return 'Connecting to host...';
       case 'reconnecting':
-        return 'Reconnecting — authentication required';
+        return 'Reconnecting to host...';
       case 'connected':
         return 'Connected!';
       case 'error':
@@ -208,26 +209,29 @@ export default function ConnectionProgressModal({
     switch (status) {
       case 'provisioning':
         return (
-          <div className="spinner" style={{ width: `${size}px`, height: `${size}px` }} />
+          <div className="spinner" style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }} />
         );
-      case 'authenticating':
+      case 'connecting':
+        return (
+          <div className="spinner" style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }} />
+        );
       case 'reconnecting':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2">
+          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
             <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
         );
       case 'connected':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2">
+          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
         );
       case 'error':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="2">
+          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
             <circle cx="12" cy="12" r="10"/>
             <line x1="15" y1="9" x2="9" y2="15"/>
             <line x1="9" y1="9" x2="15" y2="15"/>
@@ -332,20 +336,6 @@ export default function ConnectionProgressModal({
         </div>
 
         <div className="modal__body" style={{ padding: 'var(--spacing-md)' }}>
-          {(status === 'authenticating' || status === 'reconnecting') && (
-            <div style={{
-              padding: 'var(--spacing-sm)',
-              marginBottom: 'var(--spacing-sm)',
-              backgroundColor: 'var(--color-warning-bg, rgba(255, 193, 7, 0.1))',
-              border: '1px solid var(--color-warning)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-warning)',
-              fontSize: '0.875rem',
-            }}>
-              ⚠️ Please provide authentication in the terminal below (e.g., Yubikey token)
-            </div>
-          )}
-
           <div
             ref={terminalRef}
             style={{

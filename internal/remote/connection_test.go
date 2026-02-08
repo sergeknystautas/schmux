@@ -187,9 +187,9 @@ func TestConnection_HostnameExtraction(t *testing.T) {
 		t.Errorf("expected hostname %q, got %q", expectedHostname, actualHostname)
 	}
 
-	// Verify status changed to authenticating
-	if conn.host.Status != "authenticating" {
-		t.Errorf("expected status 'authenticating', got %q", conn.host.Status)
+	// Verify status changed to connecting
+	if conn.host.Status != "connecting" {
+		t.Errorf("expected status 'connecting', got %q", conn.host.Status)
 	}
 }
 

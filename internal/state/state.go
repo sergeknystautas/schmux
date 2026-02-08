@@ -38,14 +38,14 @@ type RemoteHost struct {
 	UUID        string    `json:"uuid"`      // Remote session UUID
 	ConnectedAt time.Time `json:"connected_at"`
 	ExpiresAt   time.Time `json:"expires_at"`  // +12h from connected_at
-	Status      string    `json:"status"`      // "provisioning", "authenticating", "connected", "disconnected"
+	Status      string    `json:"status"`      // "provisioning", "connecting", "connected", "disconnected"
 	Provisioned bool      `json:"provisioned"` // Has the workspace been provisioned?
 }
 
 // Remote host status constants
 const (
 	RemoteHostStatusProvisioning   = "provisioning"
-	RemoteHostStatusAuthenticating = "authenticating"
+	RemoteHostStatusConnecting = "connecting"
 	RemoteHostStatusConnected      = "connected"
 	RemoteHostStatusDisconnected   = "disconnected"
 	RemoteHostStatusExpired        = "expired"
