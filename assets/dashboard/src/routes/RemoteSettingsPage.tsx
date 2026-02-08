@@ -192,8 +192,8 @@ export default function RemoteSettingsPage() {
                     <h3 style={{ margin: 0, marginBottom: 'var(--spacing-xs)' }}>{flavor.display_name}</h3>
                     <div style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
                       <div><strong>Flavor:</strong> <code>{flavor.flavor}</code></div>
-                      <div><strong>Workspace:</strong> {flavor.workspace_path}</div>
-                      <div><strong>VCS:</strong> {flavor.vcs}</div>
+                      <div><strong>Workspace:</strong> <code>{flavor.workspace_path}</code></div>
+                      <div><strong>VCS:</strong> <code>{flavor.vcs}</code></div>
                       {flavor.connect_command && (
                         <div><strong>Connect:</strong> <code>{flavor.connect_command}</code></div>
                       )}

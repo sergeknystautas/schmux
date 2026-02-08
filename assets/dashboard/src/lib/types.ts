@@ -31,6 +31,8 @@ export interface WorkspaceResponse {
   git_lines_added: number;
   git_lines_removed: number;
   git_files_changed: number;
+  remote_host_id?: string;
+  remote_host_status?: string;
 }
 
 export interface SessionWithWorkspace extends SessionResponse {
@@ -277,7 +279,7 @@ export interface RemoteFlavor {
 export interface RemoteFlavorStatus {
   flavor: RemoteFlavor;
   connected: boolean;
-  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired';
+  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
   hostname: string;
   host_id: string;
 }
@@ -289,7 +291,7 @@ export interface RemoteHost {
   uuid: string;
   connected_at: string;
   expires_at: string;
-  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired';
+  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
   provisioned: boolean;
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }

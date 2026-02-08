@@ -15,15 +15,16 @@ import (
 
 // RemoteFlavorResponse represents a remote flavor in API responses.
 type RemoteFlavorResponse struct {
-	ID               string `json:"id"`
-	Flavor           string `json:"flavor"`
-	DisplayName      string `json:"display_name"`
-	VCS              string `json:"vcs"`
-	WorkspacePath    string `json:"workspace_path"`
-	ConnectCommand   string `json:"connect_command,omitempty"`
-	ReconnectCommand string `json:"reconnect_command,omitempty"`
-	ProvisionCommand string `json:"provision_command,omitempty"`
-	HostnameRegex    string `json:"hostname_regex,omitempty"`
+	ID                    string `json:"id"`
+	Flavor                string `json:"flavor"`
+	DisplayName           string `json:"display_name"`
+	VCS                   string `json:"vcs"`
+	WorkspacePath         string `json:"workspace_path"`
+	ConnectCommand        string `json:"connect_command,omitempty"`
+	ReconnectCommand      string `json:"reconnect_command,omitempty"`
+	ProvisionCommand      string `json:"provision_command,omitempty"`
+	HostnameRegex         string `json:"hostname_regex,omitempty"`
+	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
 }
 
 // RemoteHostResponse represents a remote host in API responses.
@@ -59,15 +60,16 @@ func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) 
 	response := make([]RemoteFlavorResponse, len(flavors))
 	for i, f := range flavors {
 		response[i] = RemoteFlavorResponse{
-			ID:               f.ID,
-			Flavor:           f.Flavor,
-			DisplayName:      f.DisplayName,
-			VCS:              f.VCS,
-			WorkspacePath:    f.WorkspacePath,
-			ConnectCommand:   f.ConnectCommand,
-			ReconnectCommand: f.ReconnectCommand,
-			ProvisionCommand: f.ProvisionCommand,
-			HostnameRegex:    f.HostnameRegex,
+			ID:                    f.ID,
+			Flavor:                f.Flavor,
+			DisplayName:           f.DisplayName,
+			VCS:                   f.VCS,
+			WorkspacePath:         f.WorkspacePath,
+			ConnectCommand:        f.ConnectCommand,
+			ReconnectCommand:      f.ReconnectCommand,
+			ProvisionCommand:      f.ProvisionCommand,
+			HostnameRegex:         f.HostnameRegex,
+			VSCodeCommandTemplate: f.VSCodeCommandTemplate,
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -77,14 +79,15 @@ func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) 
 // handleCreateRemoteFlavor creates a new remote flavor.
 func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Flavor           string `json:"flavor"`
-		DisplayName      string `json:"display_name"`
-		VCS              string `json:"vcs"`
-		WorkspacePath    string `json:"workspace_path"`
-		ConnectCommand   string `json:"connect_command"`
-		ReconnectCommand string `json:"reconnect_command"`
-		ProvisionCommand string `json:"provision_command"`
-		HostnameRegex    string `json:"hostname_regex"`
+		Flavor                string `json:"flavor"`
+		DisplayName           string `json:"display_name"`
+		VCS                   string `json:"vcs"`
+		WorkspacePath         string `json:"workspace_path"`
+		ConnectCommand        string `json:"connect_command"`
+		ReconnectCommand      string `json:"reconnect_command"`
+		ProvisionCommand      string `json:"provision_command"`
+		HostnameRegex         string `json:"hostname_regex"`
+		VSCodeCommandTemplate string `json:"vscode_command_template"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -93,14 +96,15 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 	}
 
 	rf := config.RemoteFlavor{
-		Flavor:           req.Flavor,
-		DisplayName:      req.DisplayName,
-		VCS:              req.VCS,
-		WorkspacePath:    req.WorkspacePath,
-		ConnectCommand:   req.ConnectCommand,
-		ReconnectCommand: req.ReconnectCommand,
-		ProvisionCommand: req.ProvisionCommand,
-		HostnameRegex:    req.HostnameRegex,
+		Flavor:                req.Flavor,
+		DisplayName:           req.DisplayName,
+		VCS:                   req.VCS,
+		WorkspacePath:         req.WorkspacePath,
+		ConnectCommand:        req.ConnectCommand,
+		ReconnectCommand:      req.ReconnectCommand,
+		ProvisionCommand:      req.ProvisionCommand,
+		HostnameRegex:         req.HostnameRegex,
+		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 	}
 
 	if err := s.config.AddRemoteFlavor(rf); err != nil {
@@ -118,15 +122,16 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RemoteFlavorResponse{
-		ID:               added.ID,
-		Flavor:           added.Flavor,
-		DisplayName:      added.DisplayName,
-		VCS:              added.VCS,
-		WorkspacePath:    added.WorkspacePath,
-		ConnectCommand:   added.ConnectCommand,
-		ReconnectCommand: added.ReconnectCommand,
-		ProvisionCommand: added.ProvisionCommand,
-		HostnameRegex:    added.HostnameRegex,
+		ID:                    added.ID,
+		Flavor:                added.Flavor,
+		DisplayName:           added.DisplayName,
+		VCS:                   added.VCS,
+		WorkspacePath:         added.WorkspacePath,
+		ConnectCommand:        added.ConnectCommand,
+		ReconnectCommand:      added.ReconnectCommand,
+		ProvisionCommand:      added.ProvisionCommand,
+		HostnameRegex:         added.HostnameRegex,
+		VSCodeCommandTemplate: added.VSCodeCommandTemplate,
 	})
 }
 
@@ -147,15 +152,16 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(RemoteFlavorResponse{
-			ID:               flavor.ID,
-			Flavor:           flavor.Flavor,
-			DisplayName:      flavor.DisplayName,
-			VCS:              flavor.VCS,
-			WorkspacePath:    flavor.WorkspacePath,
-			ConnectCommand:   flavor.ConnectCommand,
-			ReconnectCommand: flavor.ReconnectCommand,
-			ProvisionCommand: flavor.ProvisionCommand,
-			HostnameRegex:    flavor.HostnameRegex,
+			ID:                    flavor.ID,
+			Flavor:                flavor.Flavor,
+			DisplayName:           flavor.DisplayName,
+			VCS:                   flavor.VCS,
+			WorkspacePath:         flavor.WorkspacePath,
+			ConnectCommand:        flavor.ConnectCommand,
+			ReconnectCommand:      flavor.ReconnectCommand,
+			ProvisionCommand:      flavor.ProvisionCommand,
+			HostnameRegex:         flavor.HostnameRegex,
+			VSCodeCommandTemplate: flavor.VSCodeCommandTemplate,
 		})
 
 	case http.MethodPut:
@@ -167,13 +173,14 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var req struct {
-			DisplayName      string `json:"display_name"`
-			VCS              string `json:"vcs"`
-			WorkspacePath    string `json:"workspace_path"`
-			ConnectCommand   string `json:"connect_command"`
-			ReconnectCommand string `json:"reconnect_command"`
-			ProvisionCommand string `json:"provision_command"`
-			HostnameRegex    string `json:"hostname_regex"`
+			DisplayName           string `json:"display_name"`
+			VCS                   string `json:"vcs"`
+			WorkspacePath         string `json:"workspace_path"`
+			ConnectCommand        string `json:"connect_command"`
+			ReconnectCommand      string `json:"reconnect_command"`
+			ProvisionCommand      string `json:"provision_command"`
+			HostnameRegex         string `json:"hostname_regex"`
+			VSCodeCommandTemplate string `json:"vscode_command_template"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -181,15 +188,16 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rf := config.RemoteFlavor{
-			ID:               id,
-			Flavor:           existing.Flavor, // Keep existing (immutable)
-			DisplayName:      req.DisplayName,
-			VCS:              req.VCS,
-			WorkspacePath:    req.WorkspacePath,
-			ConnectCommand:   req.ConnectCommand,
-			ReconnectCommand: req.ReconnectCommand,
-			ProvisionCommand: req.ProvisionCommand,
-			HostnameRegex:    req.HostnameRegex,
+			ID:                    id,
+			Flavor:                existing.Flavor, // Keep existing (immutable)
+			DisplayName:           req.DisplayName,
+			VCS:                   req.VCS,
+			WorkspacePath:         req.WorkspacePath,
+			ConnectCommand:        req.ConnectCommand,
+			ReconnectCommand:      req.ReconnectCommand,
+			ProvisionCommand:      req.ProvisionCommand,
+			HostnameRegex:         req.HostnameRegex,
+			VSCodeCommandTemplate: req.VSCodeCommandTemplate,
 		}
 
 		if err := s.config.UpdateRemoteFlavor(rf); err != nil {
@@ -204,15 +212,16 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(RemoteFlavorResponse{
-			ID:               rf.ID,
-			Flavor:           rf.Flavor,
-			DisplayName:      rf.DisplayName,
-			VCS:              rf.VCS,
-			WorkspacePath:    rf.WorkspacePath,
-			ConnectCommand:   rf.ConnectCommand,
-			ReconnectCommand: rf.ReconnectCommand,
-			ProvisionCommand: rf.ProvisionCommand,
-			HostnameRegex:    rf.HostnameRegex,
+			ID:                    rf.ID,
+			Flavor:                rf.Flavor,
+			DisplayName:           rf.DisplayName,
+			VCS:                   rf.VCS,
+			WorkspacePath:         rf.WorkspacePath,
+			ConnectCommand:        rf.ConnectCommand,
+			ReconnectCommand:      rf.ReconnectCommand,
+			ProvisionCommand:      rf.ProvisionCommand,
+			HostnameRegex:         rf.HostnameRegex,
+			VSCodeCommandTemplate: rf.VSCodeCommandTemplate,
 		})
 
 	case http.MethodDelete:
@@ -365,6 +374,8 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 }
 
 // handleRemoteHostReconnect handles POST /api/remote/hosts/{id}/reconnect
+// This starts reconnection asynchronously and returns immediately with a provisioning session ID.
+// The client should open a WebSocket to /ws/provision/{provisioningSessionId} for interactive auth.
 func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -385,31 +396,50 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	_, found := s.state.GetRemoteHost(hostID)
+	host, found := s.state.GetRemoteHost(hostID)
 	if !found {
 		http.Error(w, "Host not found", http.StatusNotFound)
 		return
 	}
 
-	// Reconnect using the remote manager
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	displayName := ""
+	vcs := ""
+	if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+		displayName = flavor.DisplayName
+		vcs = flavor.VCS
+	}
 
-	conn, err := s.remoteManager.Reconnect(ctx, hostID)
+	// Start reconnection asynchronously (returns provisioning session ID for WebSocket terminal)
+	provisioningSessionID, err := s.remoteManager.StartReconnect(hostID, func(failedHostID string) {
+		// Cleanup on failure
+		fmt.Printf("[remote] cleaning up failed reconnection for host %s\n", failedHostID)
+		for _, sess := range s.state.GetSessionsByRemoteHostID(failedHostID) {
+			s.state.RemoveSession(sess.ID)
+		}
+		for _, ws := range s.state.GetWorkspacesByRemoteHostID(failedHostID) {
+			s.state.RemoveWorkspace(ws.ID)
+		}
+		s.state.RemoveRemoteHost(failedHostID)
+		if err := s.state.Save(); err != nil {
+			fmt.Printf("[remote] failed to save state after cleanup: %v\n", err)
+		}
+		s.BroadcastSessions()
+	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to reconnect: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to start reconnection: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	updatedHost := conn.Host()
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(RemoteHostResponse{
-		ID:          updatedHost.ID,
-		FlavorID:    updatedHost.FlavorID,
-		Hostname:    updatedHost.Hostname,
-		Status:      updatedHost.Status,
-		ConnectedAt: updatedHost.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
-		ExpiresAt:   updatedHost.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:                    hostID,
+		FlavorID:              host.FlavorID,
+		DisplayName:           displayName,
+		Hostname:              host.Hostname,
+		Status:                state.RemoteHostStatusReconnecting,
+		VCS:                   vcs,
+		ProvisioningSessionID: provisioningSessionID,
 	})
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
@@ -161,7 +161,7 @@ export default function SpawnPage() {
   const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
-  const [results, setResults] = useState<SpawnResult[] | null>(null);
+
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
   const { workspaces, loading: sessionsLoading, waitForSession } = useSessions();
@@ -409,8 +409,8 @@ export default function SpawnPage() {
       skipNextPersist.current = false;
       return;
     }
-    // Don't save if we're on results screen (spawn succeeded)
-    if (results) return;
+    // Don't save if spawn succeeded (navigating away)
+    if (engagePhase === 'waiting') return;
 
     const draft: SpawnDraft = {
       prompt,
@@ -425,7 +425,7 @@ export default function SpawnPage() {
       draft.newRepoName = newRepoName;
     }
     saveSpawnDraft(urlWorkspaceId, draft);
-  }, [prompt, spawnMode, selectedCommand, targetCounts, modelSelectionMode, repo, newRepoName, urlWorkspaceId, results]);
+  }, [prompt, spawnMode, selectedCommand, targetCounts, modelSelectionMode, repo, newRepoName, urlWorkspaceId, engagePhase]);
 
   const totalPromptableCount = useMemo(() => {
     return Object.values(targetCounts).reduce((sum, count) => sum + count, 0);
@@ -629,21 +629,19 @@ export default function SpawnPage() {
         }
       }
 
-      // For workspace spawns with single success, use pending navigation instead of results screen
+      // Navigate directly to the spawned session(s) instead of showing results interstitial
       const successfulResults = response.filter((r) => !r.error);
-      if (inExistingWorkspace && successfulResults.length === 1) {
-        const sessionId = successfulResults[0].session_id;
-        if (sessionId) {
-          setPendingNavigation({ type: 'session', id: sessionId });
-          // Transition to 'waiting' phase - button shows "Downloading session..."
-          // Pending navigation will auto-redirect when session appears
-          setEngagePhase('waiting');
-          return;
+      if (successfulResults.length === 1 && successfulResults[0].session_id) {
+        // Single session: navigate directly to it
+        setPendingNavigation({ type: 'session', id: successfulResults[0].session_id });
+      } else if (successfulResults.length > 0) {
+        // Multiple sessions: navigate to the workspace (shows first session)
+        const workspaceId = successfulResults[0].workspace_id;
+        if (workspaceId) {
+          setPendingNavigation({ type: 'workspace', id: workspaceId });
         }
       }
-
-      setResults(response);
-      setEngagePhase('idle');
+      setEngagePhase('waiting');
 
       const workspaceIds = [...new Set(response.filter(r => !r.error).map(r => r.workspace_id).filter(Boolean))] as string[];
       let expanded: Record<string, boolean> = {};
@@ -700,71 +698,6 @@ export default function SpawnPage() {
         <h3 className="empty-state__title">Failed to load config</h3>
         <p className="empty-state__description">{configError}</p>
       </div>
-    );
-  }
-
-  if (results) {
-    const successCount = results.filter((r) => !r.error).length;
-    const errorCount = results.filter((r) => r.error).length;
-    const successfulResults = results.filter((r) => !r.error);
-
-
-    return (
-      <>
-        {currentWorkspace && (
-          <>
-            <WorkspaceHeader workspace={currentWorkspace} />
-            <SessionTabs sessions={currentWorkspace.sessions || []} workspace={currentWorkspace} activeSpawnTab />
-          </>
-        )}
-        {!currentWorkspace && (
-          <div className="app-header">
-            <div className="app-header__info">
-              <h1 className="app-header__meta">Spawn Sessions</h1>
-            </div>
-          </div>
-        )}
-        <div className="spawn-content">
-          <h2 style={{ marginBottom: 'var(--spacing-lg)' }}>Results</h2>
-          {successCount > 0 ? (
-            <div className="results-panel" style={{ marginBottom: 'var(--spacing-lg)' }}>
-              <div className="results-panel__title">Successfully spawned {successCount} session(s)</div>
-              {successfulResults.map((r, index) => (
-                <div className="results-panel__item results-panel__item--success" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} key={r.session_id}>
-                  <div>
-                    <span className="badge badge--primary" style={{ marginRight: 'var(--spacing-sm)' }}>{index + 1}</span>
-                    <span className="mono">{r.workspace_id}</span>
-                    <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>
-                    <span>{r.target}</span>
-                    {r.nickname && <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--spacing-sm)' }}>·</span>}
-                    {r.nickname && <span style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>{r.nickname}</span>}
-                  </div>
-                  <Link to={`/sessions/${r.session_id}`} className="btn btn--sm">View</Link>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {errorCount > 0 ? (
-            <div className="results-panel">
-              <div className="results-panel__title text-error">{errorCount} error(s)</div>
-              {results.filter((r) => r.error).map((r) => (
-                <div className="results-panel__item results-panel__item--error" key={`${r.target}-${r.error}`}>
-                  <div><strong>{r.target}:</strong> {r.error}</div>
-                  {r.prompt && (
-                    <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-xs)' }}>Prompt:</div>
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.875rem' }}>{r.prompt}</div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <div style={{ marginTop: 'var(--spacing-lg)' }}>
-            <Link to="/" className="btn btn--primary">Back to Home</Link>
-          </div>
-        </div>
-      </>
     );
   }
 
