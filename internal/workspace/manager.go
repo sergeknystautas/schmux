@@ -621,6 +621,24 @@ func (m *Manager) Dispose(workspaceID string) error {
 
 	fmt.Printf("[workspace] disposing: id=%s path=%s\n", workspaceID, w.Path)
 
+	// Remote workspaces don't have local directories - just clean up state
+	if w.RemoteHostID != "" {
+		// Remove any remaining sessions for this workspace
+		for _, s := range m.state.GetSessions() {
+			if s.WorkspaceID == workspaceID {
+				m.state.RemoveSession(s.ID)
+			}
+		}
+		if err := m.state.RemoveWorkspace(workspaceID); err != nil {
+			return fmt.Errorf("failed to remove workspace from state: %w", err)
+		}
+		if err := m.state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+		fmt.Printf("[workspace] disposed (remote): id=%s\n", workspaceID)
+		return nil
+	}
+
 	// Check if workspace has active sessions
 	if m.hasActiveSessions(workspaceID) {
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)

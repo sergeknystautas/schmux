@@ -500,7 +500,7 @@ func (s *Server) handleRemoteHostRoute(w http.ResponseWriter, r *http.Request) {
 type RemoteFlavorStatusResponse struct {
 	Flavor    RemoteFlavorResponse `json:"flavor"`
 	Connected bool                 `json:"connected"`
-	Status    string               `json:"status"` // "provisioning", "authenticating", "connected", "disconnected"
+	Status    string               `json:"status"` // "provisioning", "connecting", "connected", "disconnected"
 	Hostname  string               `json:"hostname,omitempty"`
 	HostID    string               `json:"host_id,omitempty"`
 }

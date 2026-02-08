@@ -58,7 +58,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	for _, conn := range m.connections {
 		if conn.flavor.ID == flavorID {
 			status := conn.Status()
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusAuthenticating {
+			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
 				sid := conn.ProvisioningSessionID()
 				m.mu.RUnlock()
 				return sid, nil
@@ -76,7 +76,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	for _, conn := range m.connections {
 		if conn.flavor.ID == flavorID {
 			status := conn.Status()
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusAuthenticating {
+			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
 				sid := conn.ProvisioningSessionID()
 				m.mu.RUnlock()
 				return sid, nil
@@ -99,8 +99,17 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		OnStatusChange:   m.handleStatusChange,
 	})
 
-	// Register in map immediately so WebSocket handler can find it
+	// Register in map immediately so WebSocket handler can find it.
+	// Clean up old failed/expired connections for this flavor first.
 	m.mu.Lock()
+	for id, c := range m.connections {
+		if c.flavor.ID == flavorID {
+			s := c.Status()
+			if s == state.RemoteHostStatusDisconnected || s == state.RemoteHostStatusExpired {
+				delete(m.connections, id)
+			}
+		}
+	}
 	m.connections[conn.host.ID] = conn
 	m.mu.Unlock()
 
@@ -125,9 +134,11 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 		if err := conn.Connect(ctx); err != nil {
 			fmt.Printf("[remote] connection to %s failed: %v\n", flavorID, err)
-			m.mu.Lock()
-			delete(m.connections, conn.host.ID)
-			m.mu.Unlock()
+			// Keep connection in map so provisioning_session_id remains available
+			// for the frontend ConnectionProgressModal polling to detect failure.
+			conn.mu.Lock()
+			conn.host.Status = state.RemoteHostStatusDisconnected
+			conn.mu.Unlock()
 			m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusDisconnected)
 			m.state.SaveBatched()
 			m.notifyStateChange()
@@ -188,7 +199,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		if conn.flavor.ID == flavorID {
 			status := conn.Status()
 			// Return existing if connected or in progress
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusAuthenticating {
+			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
 				m.mu.RUnlock()
 				if onProgress != nil {
 					if conn.IsConnected() {
@@ -213,7 +224,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		if conn.flavor.ID == flavorID {
 			status := conn.Status()
 			// Return existing if connected or in progress
-			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusAuthenticating {
+			if conn.IsConnected() || status == state.RemoteHostStatusProvisioning || status == state.RemoteHostStatusConnecting {
 				m.mu.RUnlock()
 				if onProgress != nil {
 					if conn.IsConnected() {
@@ -360,6 +371,20 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 	host, found := m.state.GetRemoteHost(hostID)
 	if !found {
 		return nil, fmt.Errorf("remote host not found: %s", hostID)
+	}
+
+	// If hostname is missing from state, try the live connection
+	if host.Hostname == "" {
+		m.mu.RLock()
+		conn, exists := m.connections[hostID]
+		m.mu.RUnlock()
+		if exists {
+			if liveHostname := conn.Hostname(); liveHostname != "" {
+				host.Hostname = liveHostname
+				m.state.UpdateRemoteHost(conn.Host())
+				m.state.Save()
+			}
+		}
 	}
 
 	if host.Hostname == "" {
@@ -521,7 +546,18 @@ func (m *Manager) GetActiveConnections() []*Connection {
 
 // handleStatusChange is called when a connection's status changes.
 func (m *Manager) handleStatusChange(hostID, status string) {
-	m.state.UpdateRemoteHostStatus(hostID, status)
+	// Try to persist the full host state (including hostname) from the live
+	// connection, not just the status. This ensures that fields set on the
+	// connection object (e.g., hostname extracted during provisioning) are
+	// persisted to state as soon as a status change occurs.
+	m.mu.RLock()
+	conn, exists := m.connections[hostID]
+	m.mu.RUnlock()
+	if exists {
+		m.state.UpdateRemoteHost(conn.Host())
+	} else {
+		m.state.UpdateRemoteHostStatus(hostID, status)
+	}
 	m.state.Save()
 	m.notifyStateChange()
 }
@@ -584,6 +620,20 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 		return "", fmt.Errorf("remote host not found: %s", hostID)
 	}
 
+	// If hostname is missing from state, try the live connection
+	if host.Hostname == "" {
+		m.mu.RLock()
+		conn, exists := m.connections[hostID]
+		m.mu.RUnlock()
+		if exists {
+			if liveHostname := conn.Hostname(); liveHostname != "" {
+				host.Hostname = liveHostname
+				m.state.UpdateRemoteHost(conn.Host())
+				m.state.Save()
+			}
+		}
+	}
+
 	if host.Hostname == "" {
 		return "", fmt.Errorf("remote host has no hostname: %s", hostID)
 	}
@@ -598,7 +648,7 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	m.mu.RLock()
 	if conn, exists := m.connections[hostID]; exists {
 		status := conn.Status()
-		if conn.IsConnected() || status == state.RemoteHostStatusReconnecting || status == state.RemoteHostStatusAuthenticating {
+		if conn.IsConnected() || status == state.RemoteHostStatusReconnecting || status == state.RemoteHostStatusConnecting {
 			sid := conn.ProvisioningSessionID()
 			m.mu.RUnlock()
 			return sid, nil
@@ -653,9 +703,11 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 
 		if err := conn.Reconnect(ctx, host.Hostname); err != nil {
 			fmt.Printf("[remote] reconnection to %s (%s) failed: %v\n", hostID, host.Hostname, err)
-			m.mu.Lock()
-			delete(m.connections, hostID)
-			m.mu.Unlock()
+			// Keep connection in map so provisioning_session_id remains available
+			// for the frontend ConnectionProgressModal polling to detect failure.
+			conn.mu.Lock()
+			conn.host.Status = state.RemoteHostStatusDisconnected
+			conn.mu.Unlock()
 			m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected)
 			m.state.SaveBatched()
 			m.notifyStateChange()
@@ -722,7 +774,7 @@ func (m *Manager) StartReconnectAll(onFail func(hostID string)) map[string]strin
 type FlavorStatus struct {
 	Flavor    config.RemoteFlavor
 	Connected bool
-	Status    string // "provisioning", "authenticating", "connected", "disconnected"
+	Status    string // "provisioning", "connecting", "connected", "disconnected"
 	Hostname  string
 	HostID    string
 }

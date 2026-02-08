@@ -279,7 +279,7 @@ export interface RemoteFlavor {
 export interface RemoteFlavorStatus {
   flavor: RemoteFlavor;
   connected: boolean;
-  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
+  status: 'provisioning' | 'connecting' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
   hostname: string;
   host_id: string;
 }
@@ -291,7 +291,7 @@ export interface RemoteHost {
   uuid: string;
   connected_at: string;
   expires_at: string;
-  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
+  status: 'provisioning' | 'connecting' | 'connected' | 'disconnected' | 'expired' | 'reconnecting';
   provisioned: boolean;
   provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
 }

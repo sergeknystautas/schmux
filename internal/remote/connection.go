@@ -302,7 +302,7 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	c.mu.Lock()
 	c.hostname = hostname
 	c.host.Hostname = hostname
-	c.host.Status = state.RemoteHostStatusAuthenticating
+	c.host.Status = state.RemoteHostStatusConnecting
 
 	// Get reconnection command template and execute it
 	templateStr := c.flavor.GetReconnectCommandTemplate()
@@ -452,7 +452,7 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 						c.mu.Lock()
 						c.hostname = matches[1]
 						c.host.Hostname = matches[1]
-						c.host.Status = state.RemoteHostStatusAuthenticating
+						c.host.Status = state.RemoteHostStatusConnecting
 						c.mu.Unlock()
 						c.notifyStatusChange()
 					}
@@ -484,7 +484,7 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 			c.mu.Lock()
 			c.hostname = matches[1]
 			c.host.Hostname = matches[1]
-			c.host.Status = state.RemoteHostStatusAuthenticating
+			c.host.Status = state.RemoteHostStatusConnecting
 			c.mu.Unlock()
 			c.notifyStatusChange()
 		}
