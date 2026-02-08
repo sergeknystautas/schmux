@@ -72,7 +72,7 @@ Schmux uses a remote connection command with tmux control mode to:
 
 The connection command varies by infrastructure but typically follows this pattern:
 ```bash
-<remote-connect-cmd> <flavor-or-host> -- tmux -CC new-session -A -s schmux
+<remote-connect-cmd> <flavor-or-host> tmux -CC new-session -A -s schmux
 ```
 
 ### Command/Response Protocol
@@ -189,14 +189,17 @@ tmux uses prefixes to distinguish entity types:
       "vcs": "git",
       "workspace_path": "~/workspace",
       "connect_command": "cloud-ssh connect {{.Flavor}}",
-      "reconnect_command": "cloud-ssh reconnect {{.Hostname}}"
+      "reconnect_command": "cloud-ssh reconnect {{.Hostname}}",
+      "provision_command": "git clone {{.Repo}} {{.WorkspacePath}} && cd {{.WorkspacePath}} && git checkout {{.Branch}}",
+      "hostname_regex": "Connected to host: (\\S+)"
     },
     {
       "id": "ssh_remote",
       "flavor": "dev.example.com",
       "display_name": "SSH Remote Server",
       "vcs": "git",
-      "workspace_path": "~/workspace"
+      "workspace_path": "~/workspace",
+      "vscode_command_template": "{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}"
     }
   ],
   "remote_workspace": {
@@ -213,20 +216,37 @@ tmux uses prefixes to distinguish entity types:
 - `vcs`: "git" or "sapling" (affects UI status display)
 - `connect_command` (optional): Go template for connecting to the remote host
   - Template variables: `{{.Flavor}}` - the flavor identifier
-  - Default: `ssh {{.Flavor}}`
-  - **Important**: You only specify HOW to reach the host. Schmux automatically appends `-- tmux -CC new-session -A -s schmux` internally.
+  - Default: `ssh -tt {{.Flavor}} --`
+  - Schmux appends `tmux -CC new-session -A -s schmux` automatically. Include any separator your transport needs (e.g., `--` for SSH) in your command.
   - Examples:
-    - SSH: `ssh {{.Flavor}}`
+    - SSH: `ssh -tt {{.Flavor}} --`
     - Cloud provider: `cloud-ssh connect {{.Flavor}}`
+    - Docker: `docker exec -it {{.Flavor}}`
     - AWS SSM: `aws ssm start-session --target {{.Flavor}}`
 - `reconnect_command` (optional): Go template for reconnecting to an existing remote host
   - Template variables: `{{.Hostname}}` - remote hostname, `{{.Flavor}}` - flavor identifier
-  - Default: `ssh {{.Hostname}}`
-  - **Important**: You only specify HOW to reach the host. Schmux automatically appends `-- tmux -CC new-session -A -s schmux` internally.
+  - Default: `ssh -tt {{.Hostname}} --`
+  - Schmux appends `tmux -CC new-session -A -s schmux` automatically. Include any separator your transport needs (e.g., `--` for SSH) in your command.
   - Falls back to `connect_command` if not specified
+- `provision_command` (optional): Go template for one-time workspace provisioning on first connection
+  - Template variables: `{{.WorkspacePath}}`, `{{.Repo}}`, `{{.Branch}}`, `{{.VCS}}`
+  - Runs once after initial connection, before creating any sessions. Reconnecting skips this step.
+  - If empty, assumes workspace is pre-provisioned (e.g., cloud development environments)
+  - Example: `git clone {{.Repo}} {{.WorkspacePath}} && cd {{.WorkspacePath}} && git checkout {{.Branch}}`
+- `vscode_command_template` (optional): Per-flavor Go template for launching VS Code on remote workspaces
+  - Template variables: `{{.VSCodePath}}` - local VSCode path, `{{.Hostname}}` - remote hostname, `{{.Path}}` - remote workspace path
+  - Overrides the global `remote_workspace.vscode_command_template` for this flavor
+  - If empty, falls back to the global setting, then to the default
+  - Example: `{{.VSCodePath}} --remote ssh-remote+jump-{{.Hostname}} {{.Path}}`
+- `hostname_regex` (optional): Regular expression for extracting the hostname from provisioning output
+  - The first capture group is used as the hostname
+  - Default: `Establish ControlMaster connection to (\\S+)`
+  - Examples:
+    - Custom banner: `Connected to host: (\\S+)`
+    - IP address: `allocated (\\d+\\.\\d+\\.\\d+\\.\\d+)`
 
-**Remote Workspace Configuration:**
-- `vscode_command_template` (optional): Go template for opening VS Code on remote workspaces
+**Remote Workspace Configuration (global):**
+- `vscode_command_template` (optional): Global fallback Go template for opening VS Code on remote workspaces. Per-flavor `vscode_command_template` overrides this.
   - Template variables: `{{.VSCodePath}}` - local VSCode path, `{{.Hostname}}` - remote hostname, `{{.Path}}` - remote workspace path
   - Default: `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`
   - Example custom: `{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}`
@@ -243,7 +263,7 @@ tmux uses prefixes to distinguish entity types:
      "workspace_path": "~/workspace"
    }
    ```
-   Internally executes: `ssh dev.example.com -- tmux -CC new-session -A -s schmux`
+   Internally executes: `ssh -tt dev.example.com -- tmux -CC new-session -A -s schmux`
 
 2. **Custom Connection Tool** (e.g., cloud provider CLI):
    ```json
@@ -258,8 +278,8 @@ tmux uses prefixes to distinguish entity types:
    }
    ```
    Internally executes:
-   - Connect: `cloud-ssh connect gpu-large -- tmux -CC new-session -A -s schmux`
-   - Reconnect: `cloud-ssh reconnect host123.example.com -- tmux -CC new-session -A -s schmux`
+   - Connect: `cloud-ssh connect gpu-large tmux -CC new-session -A -s schmux`
+   - Reconnect: `cloud-ssh reconnect host123.example.com tmux -CC new-session -A -s schmux`
 
 3. **SSH with Custom Options**:
    ```json
@@ -269,31 +289,14 @@ tmux uses prefixes to distinguish entity types:
      "display_name": "Via Jump Host",
      "vcs": "git",
      "workspace_path": "~/code",
-     "connect_command": "ssh -J bastion.example.com {{.Flavor}}"
+     "connect_command": "ssh -J bastion.example.com {{.Flavor}} --"
    }
    ```
    Internally executes: `ssh -J bastion.example.com jumphost.example.com -- tmux -CC new-session -A -s schmux`
 
 **Key Design Principle:**
 
-User configuration focuses on **host connectivity only**. You never need to know about tmux, control mode, or schmux's internal protocols. The system automatically handles:
-- tmux control mode invocation (`-CC`)
-- Session creation/attachment (`new-session -A`)
-- Session naming (`-s schmux`)
-
-This separation of concerns makes configuration simpler and more robust.
-
-3. **SSH with Custom Options**:
-   ```json
-   {
-     "id": "ssh_custom",
-     "flavor": "jumphost.example.com",
-     "display_name": "Via Jump Host",
-     "vcs": "git",
-     "workspace_path": "~/code",
-     "connect_command_template": "ssh -J bastion.example.com {{.Flavor}} -- tmux -CC new-session -A -s schmux"
-   }
-   ```
+User configuration focuses on **host connectivity**. Schmux automatically appends `tmux -CC new-session -A -s schmux` to your command. You include any transport-specific separators (like `--` for SSH) in your command template.
 
 **User Management**: Flavors are managed via Settings page in web UI (`/settings/remote`) with full CRUD operations.
 
@@ -311,7 +314,8 @@ This separation of concerns makes configuration simpler and more robust.
       "uuid": "def456",
       "connected_at": "2026-02-06T10:30:00Z",
       "expires_at": "2026-02-06T22:30:00Z",
-      "status": "connected"
+      "status": "connected",
+      "provisioned": true
     }
   ]
 }
@@ -324,7 +328,8 @@ This separation of concerns makes configuration simpler and more robust.
 - `uuid`: Remote session UUID (parsed from stderr)
 - `connected_at`: When connection was established
 - `expires_at`: connected_at + 12 hours (host lifetime)
-- `status`: "provisioning" | "authenticating" | "connected" | "disconnected"
+- `status`: "provisioning" | "authenticating" | "connected" | "disconnected" | "expired" | "reconnecting"
+- `provisioned`: Whether the workspace has been provisioned (via `provision_command`)
 
 **Session Extensions**:
 
@@ -335,6 +340,8 @@ This separation of concerns makes configuration simpler and more robust.
       "id": "claude-xyz789",
       "remote_host_id": "remote-abc123",
       "remote_pane_id": "%5",
+      "remote_window": "@3",
+      "status": "running",
       // ... other fields
     }
   ]
@@ -343,6 +350,8 @@ This separation of concerns makes configuration simpler and more robust.
 
 - `remote_host_id`: Empty for local sessions, host ID for remote
 - `remote_pane_id`: tmux pane ID on remote (e.g., "%5")
+- `remote_window`: tmux window ID on remote (e.g., "@3")
+- `status`: Remote session status: "provisioning" | "running" | "failed"
 
 **Workspace Extensions**:
 
@@ -372,11 +381,11 @@ This separation of concerns makes configuration simpler and more robust.
 
 1. **Spawn process**:
    ```bash
-   remote-connect gpu:ml-large -- tmux -CC new-session -A -s schmux
+   remote-connect gpu:ml-large tmux -CC new-session -A -s schmux
    ```
 
-2. **Parse stderr** for provisioning info:
-   - Match connection establishment patterns to extract hostname
+2. **Parse PTY output** for provisioning info:
+   - Match connection establishment patterns to extract hostname (configurable via `hostname_regex`)
    - Match session UUID patterns to extract identifier
 
 3. **Update state**:
@@ -406,7 +415,7 @@ This separation of concerns makes configuration simpler and more robust.
 
 1. **Spawn with hostname**:
    ```bash
-   remote-connect remote-host-456.example.com -- tmux -CC new-session -A -s schmux
+   remote-connect remote-host-456.example.com tmux -CC new-session -A -s schmux
    ```
 
 2. **Skip provisioning parsing** (hostname already known).
@@ -475,14 +484,14 @@ SpawnRemote(flavorID, target, prompt, nickname) →
   1. Get/create remote host connection
   2. If provisioning: queue session, return pending
   3. If connected: CreateWindow(name, workdir, command)
-  4. Store session with remote_host_id + remote_pane_id
+  4. Store session with remote_host_id + remote_pane_id + remote_window
 ```
 
 **CreateWindow flow**:
 1. Build command: `new-window -n name -c workdir -P -F '#{window_id} #{pane_id}' command`
 2. Send to tmux stdin
 3. Parse response: `@3 %5`
-4. Store windowID and paneID
+4. Store windowID (`remote_window`) and paneID (`remote_pane_id`)
 5. Subscribe to `%output %5` for streaming
 
 ### Session Queuing
@@ -729,14 +738,14 @@ Response 200:
 
 ```
 GET /api/config/remote-flavors
-Response: [{ id, flavor, display_name, vcs, workspace_path }, ...]
+Response: [{ id, flavor, display_name, vcs, workspace_path, connect_command, reconnect_command, provision_command, hostname_regex, vscode_command_template }, ...]
 
 POST /api/config/remote-flavors
-Body: { flavor, display_name, workspace_path, vcs }
+Body: { flavor, display_name, workspace_path, vcs, connect_command, reconnect_command, provision_command, hostname_regex, vscode_command_template }
 Response: { id, ... } // ID auto-generated
 
 PUT /api/config/remote-flavors/{id}
-Body: { display_name, workspace_path, vcs } // flavor immutable
+Body: { display_name, workspace_path, vcs, connect_command, reconnect_command, provision_command, hostname_regex, vscode_command_template } // flavor immutable
 
 DELETE /api/config/remote-flavors/{id}
 Response: 204
@@ -745,7 +754,7 @@ Response: 204
 ### Remote Host Status
 
 ```
-GET /api/remote/flavors/status
+GET /api/remote/flavor-statuses
 Response: [
   {
     "flavor": { id, flavor, display_name, vcs, workspace_path },
@@ -761,15 +770,46 @@ Response: [
 ### Connect/Disconnect
 
 ```
+GET /api/remote/hosts
+Response: [
+  {
+    "id": "remote-abc123",
+    "flavor_id": "gpu_ml_large",
+    "display_name": "GPU ML Large",
+    "hostname": "remote-host-456.example.com",
+    "status": "connected",
+    "connected_at": "2026-02-06T10:30:00Z",
+    "expires_at": "2026-02-06T22:30:00Z",
+    "provisioned": true,
+    "provisioning_session_id": "provision-remote-abc123"
+  },
+  ...
+]
+
 POST /api/remote/hosts/connect
 Body: { "flavor_id": "gpu_ml_large" }
-Response: { "host_id": "remote-abc123", "status": "provisioning" }
+Response 202: { "flavor_id": "gpu_ml_large", "status": "provisioning", "provisioning_session_id": "provision-remote-abc123" }
 
 POST /api/remote/hosts/{id}/reconnect
-Response: { "status": "authenticating" }
+Response 202: { "status": "reconnecting", "provisioning_session_id": "provision-remote-abc123" }
 
 DELETE /api/remote/hosts/{id}
 Response: 204
+```
+
+### Connection Progress Streaming
+
+```
+GET /api/remote/hosts/connect/stream?flavor_id=gpu_ml_large
+Content-Type: text/event-stream
+
+Server-Sent Events stream for provisioning progress.
+Sends real-time status updates during connection setup.
+125-second timeout with graceful degradation.
+
+WebSocket /ws/provision/{provisioning_session_id}
+WebSocket endpoint for raw PTY output during provisioning.
+Shows authentication prompts, connection progress, etc.
 ```
 
 ## Implementation Components
@@ -782,8 +822,9 @@ Response: 204
 - `Responses()`: `%begin`/`%end`/`%error` blocks
 - `Output()`: `%output` notifications
 - `Events()`: `%window-add`, `%session-changed`, etc.
+- `ControlModeReady()`: Closed when first `%` protocol line is detected
 
-**Key function**: `unescapeOutput(s string)` - converts octal to bytes.
+**Key function**: `UnescapeOutput(s string)` - converts octal to bytes.
 
 ### Control Mode Client (`internal/remote/controlmode/client.go`)
 
@@ -797,7 +838,7 @@ Response: 204
 - `UnsubscribeOutput(paneID, chan)`
 - `CapturePaneLines(ctx, paneID, lines) (string, error)`
 
-**Concurrency safety**: `stdinMu sync.Mutex` protects stdin writes.
+**Concurrency safety**: `stdinMu sync.Mutex` protects stdin writes. FIFO queue correlates responses to requests.
 
 ### Connection Manager (`internal/remote/connection.go`)
 
@@ -805,17 +846,27 @@ Response: 204
 
 **Lifecycle**:
 1. `NewConnection(cfg)` - Create struct
-2. `Connect(ctx)` - Spawn remote connection command, parse output, initialize client
+2. `Connect(ctx)` - Spawn remote connection command via PTY, parse output, initialize client
 3. `Reconnect(ctx, hostname)` - Reuse existing hostname
 4. `Close()` - Kill process, close pipes, unsubscribe all
 
 **Key fields**:
 - `cmd *exec.Cmd` - The remote connection process
+- `pty *os.File` - PTY for interactive authentication
 - `client *controlmode.Client` - Control mode interface
 - `parser *controlmode.Parser` - Protocol parser
 - `host *state.RemoteHost` - Current state
+- `pendingSessions []PendingSession` - Queued sessions during provisioning
 
-**Status tracking**: `onStatusChange` callback notifies manager of state transitions.
+**Status tracking**: `onStatusChange` and `onProgress` callbacks notify manager of state transitions.
+
+**Session queuing methods**:
+- `QueueSession(ctx, sessionID, name, workdir, command) <-chan PendingSessionResult` - Queue a session for creation when connected
+- `drainPendingQueue(ctx)` - Process all pending sessions after connection is ready
+
+**PTY streaming methods**:
+- `SubscribePTYOutput() chan []byte` - Subscribe to raw PTY output (for provisioning WebSocket)
+- `UnsubscribePTYOutput(ch)` - Remove subscriber
 
 ### Remote Manager (`internal/remote/manager.go`)
 
@@ -824,8 +875,11 @@ Response: 204
 **Key methods**:
 - `Connect(ctx, flavorID) (*Connection, error)` - Get/create connection
 - `Reconnect(ctx, hostID) (*Connection, error)` - Reconnect by ID
+- `StartConnect(flavorID) (provisioningSessionID, error)` - Non-blocking background connection
+- `StartReconnect(hostID, onFail) (provisioningSessionID, error)` - Non-blocking background reconnection
+- `StartReconnectAll(onFail) map[string]string` - Reconnect all stale hosts on daemon startup
 - `GetConnection(hostID) *Connection` - Lookup connection
-- `FlavorStatus() []FlavorStatus` - Get status of all flavors
+- `GetFlavorStatuses() []FlavorStatus` - Get status of all flavors
 
 **State persistence**: Saves/loads RemoteHost state via StateStore.
 
@@ -841,27 +895,39 @@ Response: 204
 5. Create session state with `remote_host_id` + `remote_pane_id`
 6. Save state
 
-**Modified method**: `IsRunning(sessionID)` - checks via remote connection if remote.
+**Modified method**: `IsRunning(sessionID)` - checks via remote connection if remote. Returns true only if `RemotePaneID` is set (i.e., session has been created on the remote host, not just queued).
 
-### Dashboard API Updates (`internal/dashboard/handlers.go`)
+**New method**: `disposeRemoteSession(ctx, session)` - Kills remote window via control mode, removes session from state. Does not remove the workspace (shared across all sessions on the same host).
 
-**Modified**: `handleSpawnPost()` - Route to `SpawnRemote()` if `req.RemoteFlavorID != ""`.
+### Dashboard API Updates (`internal/dashboard/handlers.go`, `internal/dashboard/handlers_remote.go`)
+
+**Modified**: `handleSpawnPost()` - Route to `SpawnRemote()` if `req.RemoteFlavorID != ""`. Auto-detects remote flavor when spawning into a remote workspace.
 
 **Modified**: `handleSessionsGet()` - Include remote metadata in response.
 
 **Validation**: Skip repo/branch requirement when `RemoteFlavorID != ""`.
 
+**Remote-specific handlers** (in `handlers_remote.go`):
+- Remote flavor CRUD (GET/POST/PUT/DELETE)
+- Remote host listing, connect, reconnect, disconnect
+- Flavor status endpoint
+- SSE connection progress streaming
+
 ### WebSocket Updates (`internal/dashboard/websocket.go`)
 
-**Modified**: `handleTerminalWebSocket()` - Detect remote session, route to remote streaming.
+**Modified**: `handleTerminalWebSocket()` - Detect remote session, route to `handleRemoteTerminalWebSocket()`.
 
-**Remote streaming**:
-1. Subscribe to `conn.SubscribeOutput(paneID)`
-2. Capture initial scrollback
-3. Send "full" message
-4. Stream "append" from output channel
-5. Handle "input" → `conn.SendKeys()`
-6. Cleanup: `defer conn.UnsubscribeOutput()`
+**New**: `handleProvisionWebSocket()` - Streams raw PTY output during provisioning for live terminal display.
+
+**Remote streaming** (`handleRemoteTerminalWebSocket`):
+1. Validate session has `RemotePaneID` (return 503 if still provisioning)
+2. Subscribe to `conn.SubscribeOutput(paneID)`
+3. Capture initial scrollback
+4. Send "full" message
+5. Stream "append" from output channel
+6. Handle "input" → `conn.SendKeys()`
+7. Periodic health check of remote connection
+8. Cleanup: `defer conn.UnsubscribeOutput()`
 
 ### Workspace Manager Updates (`internal/workspace/manager.go`)
 
