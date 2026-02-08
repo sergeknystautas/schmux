@@ -204,6 +204,13 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   // Disable sync/dispose actions when conflict resolve is in progress
   const actionsDisabled = resolveInProgress;
 
+  // For remote workspaces, use hostname from sessions if branch matches repo (fallback case)
+  const isRemote = workspace.sessions?.some(s => s.remote_host_id);
+  const remoteHostname = workspace.sessions?.find(s => s.remote_hostname)?.remote_hostname;
+  const displayBranch = (isRemote && remoteHostname && workspace.branch === workspace.repo)
+    ? remoteHostname
+    : workspace.branch;
+
   return (
     <>
       <div className="app-header">
@@ -218,13 +225,13 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
                   className="app-header__branch-link"
                 >
                   {branchIcon}
-                  {workspace.branch}
+                  {displayBranch}
                 </a>
               </Tooltip>
             ) : (
               <span className="app-header__branch">
                 {branchIcon}
-                {workspace.branch}
+                {displayBranch}
               </span>
             )}
             <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>

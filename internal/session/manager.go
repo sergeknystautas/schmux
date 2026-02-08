@@ -128,11 +128,16 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	workspaceID := fmt.Sprintf("remote-%s", host.ID)
 	ws, found := m.state.GetWorkspace(workspaceID)
 	if !found {
+		// Use hostname as the branch name (shown in sidebar/header)
+		branch := host.Hostname
+		if branch == "" {
+			branch = flavor.DisplayName
+		}
 		// Create new workspace for this remote host
 		ws = state.Workspace{
 			ID:           workspaceID,
 			Repo:         flavor.DisplayName,
-			Branch:       "remote",
+			Branch:       branch,
 			Path:         flavor.WorkspacePath,
 			RemoteHostID: host.ID,
 			RemotePath:   flavor.WorkspacePath,
@@ -140,6 +145,10 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		if err := m.state.AddWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("failed to add workspace to state: %w", err)
 		}
+	} else if ws.Branch == "remote" && host.Hostname != "" {
+		// Update existing workspace that still has the old "remote" branch name
+		ws.Branch = host.Hostname
+		m.state.UpdateWorkspace(ws)
 	}
 
 	// Check if connection is ready

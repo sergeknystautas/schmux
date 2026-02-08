@@ -105,19 +105,21 @@ type SessionResponseItem struct {
 
 // WorkspaceResponseItem represents a workspace in the API response.
 type WorkspaceResponseItem struct {
-	ID              string                `json:"id"`
-	Repo            string                `json:"repo"`
-	Branch          string                `json:"branch"`
-	BranchURL       string                `json:"branch_url,omitempty"`
-	Path            string                `json:"path"`
-	SessionCount    int                   `json:"session_count"`
-	Sessions        []SessionResponseItem `json:"sessions"`
-	QuickLaunch     []string              `json:"quick_launch,omitempty"`
-	GitAhead        int                   `json:"git_ahead"`
-	GitBehind       int                   `json:"git_behind"`
-	GitLinesAdded   int                   `json:"git_lines_added"`
-	GitLinesRemoved int                   `json:"git_lines_removed"`
-	GitFilesChanged int                   `json:"git_files_changed"`
+	ID               string                `json:"id"`
+	Repo             string                `json:"repo"`
+	Branch           string                `json:"branch"`
+	BranchURL        string                `json:"branch_url,omitempty"`
+	Path             string                `json:"path"`
+	SessionCount     int                   `json:"session_count"`
+	Sessions         []SessionResponseItem `json:"sessions"`
+	QuickLaunch      []string              `json:"quick_launch,omitempty"`
+	GitAhead         int                   `json:"git_ahead"`
+	GitBehind        int                   `json:"git_behind"`
+	GitLinesAdded    int                   `json:"git_lines_added"`
+	GitLinesRemoved  int                   `json:"git_lines_removed"`
+	GitFilesChanged  int                   `json:"git_files_changed"`
+	RemoteHostID     string                `json:"remote_host_id,omitempty"`
+	RemoteHostStatus string                `json:"remote_host_status,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -137,6 +139,22 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			}
 		}
 
+		// Look up remote host status for remote workspaces
+		branch := ws.Branch
+		remoteHostID := ""
+		remoteHostStatus := ""
+		if ws.RemoteHostID != "" {
+			remoteHostID = ws.RemoteHostID
+			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
+				remoteHostStatus = host.Status
+				if host.Hostname != "" {
+					branch = host.Hostname
+				}
+			} else {
+				remoteHostStatus = state.RemoteHostStatusDisconnected
+			}
+		}
+
 		var quickLaunchNames []string
 		if cfg := s.workspace.GetWorkspaceConfig(ws.ID); cfg != nil && len(cfg.QuickLaunch) > 0 {
 			quickLaunchNames = make([]string, 0, len(cfg.QuickLaunch))
@@ -148,19 +166,21 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
-			ID:              ws.ID,
-			Repo:            ws.Repo,
-			Branch:          ws.Branch,
-			BranchURL:       branchURL,
-			Path:            ws.Path,
-			SessionCount:    0,
-			Sessions:        []SessionResponseItem{},
-			QuickLaunch:     quickLaunchNames,
-			GitAhead:        ws.GitAhead,
-			GitBehind:       ws.GitBehind,
-			GitLinesAdded:   ws.GitLinesAdded,
-			GitLinesRemoved: ws.GitLinesRemoved,
-			GitFilesChanged: ws.GitFilesChanged,
+			ID:               ws.ID,
+			Repo:             ws.Repo,
+			Branch:           branch,
+			BranchURL:        branchURL,
+			Path:             ws.Path,
+			SessionCount:     0,
+			Sessions:         []SessionResponseItem{},
+			QuickLaunch:      quickLaunchNames,
+			GitAhead:         ws.GitAhead,
+			GitBehind:        ws.GitBehind,
+			GitLinesAdded:    ws.GitLinesAdded,
+			GitLinesRemoved:  ws.GitLinesRemoved,
+			GitFilesChanged:  ws.GitFilesChanged,
+			RemoteHostID:     remoteHostID,
+			RemoteHostStatus: remoteHostStatus,
 		}
 	}
 
@@ -357,7 +377,7 @@ type SpawnRequest struct {
 	WorkspaceID     string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
 	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
-	Resume          bool           `json:"resume,omitempty"` // resume mode: use agent's resume command
+	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
 	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
 }
 
@@ -396,6 +416,15 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		} else {
 			req.Targets = map[string]int{resolved.Target: 1}
 			req.Prompt = resolved.Prompt
+		}
+	}
+
+	// Auto-detect remote flavor when spawning into a remote workspace
+	if req.WorkspaceID != "" && req.RemoteFlavorID == "" {
+		if ws, found := s.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
+			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
+				req.RemoteFlavorID = host.FlavorID
+			}
 		}
 	}
 

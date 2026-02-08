@@ -429,7 +429,7 @@ body {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: auto;
 }
 
 /* Headers and tabs should not shrink - session-detail fills remaining space */
@@ -768,9 +768,11 @@ body {
 /* Config Sticky Header - matches app-header style exactly */
 .config-sticky-header {
     position: sticky;
-    top: 0;
+    top: calc(-1 * var(--spacing-xl));
     z-index: 100;
     background-color: var(--color-surface-alt);
+    margin: calc(-1 * var(--spacing-xl)) calc(-1 * var(--spacing-xl)) 0;
+    padding: var(--spacing-xl) var(--spacing-xl) 0;
 }
 
 .config-sticky-header__title-row {
@@ -837,7 +839,11 @@ body {
 
 /* Form Inputs */
 .form-group {
-    margin-bottom: var(--spacing-lg);
+    padding-bottom: 0;
+}
+
+.form-group:not(:last-child):not(.form-row > *) {
+    padding-bottom: var(--spacing-lg);
 }
 
 .form-group__label {
@@ -880,6 +886,16 @@ body {
     outline: none;
     border-color: var(--color-accent);
     box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.select {
+    padding-right: calc(var(--spacing-md) + 16px);
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--spacing-sm) center;
+    cursor: pointer;
 }
 
 .textarea {
@@ -1007,7 +1023,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--spacing-sm) 0;
+    padding: 0 0 var(--spacing-sm) 0;
     background: var(--color-surface-alt);
     border-radius: var(--radius-md);
     margin-bottom: var(--spacing-sm);
@@ -1082,6 +1098,7 @@ body {
     flex-wrap: wrap;
     gap: var(--spacing-xs);
     margin-bottom: 0;
+    align-items: flex-end;
 }
 
 .session-tabs__nowrap {
@@ -1103,7 +1120,6 @@ body {
     transition: all var(--duration-fast) var(--easing);
     min-width: 140px;
     max-width: 220px;
-    min-height: 44px;
     font-size: 0.75rem;
 }
 
@@ -1158,13 +1174,17 @@ body {
 }
 
 .session-tab__dispose {
-    opacity: 0;
+    opacity: 0.3;
     transition: opacity var(--duration-fast) var(--easing);
     padding: 2px;
 }
 
 .session-tab:hover .session-tab__dispose {
-    opacity: 1;
+    opacity: 0.6;
+}
+
+.session-tab__dispose:hover {
+    opacity: 1 !important;
 }
 
 .session-tab__row2 {
@@ -1883,6 +1903,19 @@ body {
 
 .modal__close {
     flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+
+.modal__close:hover {
+    color: var(--color-text);
+    background-color: var(--color-surface-alt);
 }
 
 .modal__body {
@@ -2366,6 +2399,10 @@ a:hover {
     color: var(--color-text);
 }
 
+.wizard-step-content h3.settings-section__title {
+    margin: 0;
+}
+
 /* Item list (for repos and run targets) */
 .item-list {
     display: flex;
@@ -2664,6 +2701,7 @@ a:hover {
     color: var(--color-text);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    margin: 0;
 }
 
 .settings-section__body {

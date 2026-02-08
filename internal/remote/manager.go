@@ -574,6 +574,150 @@ func (m *Manager) GetHostForSession(sess state.Session) *Connection {
 	return m.GetConnection(sess.RemoteHostID)
 }
 
+// StartReconnect begins reconnecting to a remote host and returns immediately.
+// Returns the provisioning session ID for WebSocket terminal streaming.
+// The onFail callback is called if reconnection fails (for cleanup).
+func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (provisioningSessionID string, err error) {
+	// Get host from state
+	host, found := m.state.GetRemoteHost(hostID)
+	if !found {
+		return "", fmt.Errorf("remote host not found: %s", hostID)
+	}
+
+	if host.Hostname == "" {
+		return "", fmt.Errorf("remote host has no hostname: %s", hostID)
+	}
+
+	// Get flavor configuration
+	flavor, found := m.config.GetRemoteFlavor(host.FlavorID)
+	if !found {
+		return "", fmt.Errorf("remote flavor not found: %s", host.FlavorID)
+	}
+
+	// Check if already reconnecting or connected
+	m.mu.RLock()
+	if conn, exists := m.connections[hostID]; exists {
+		status := conn.Status()
+		if conn.IsConnected() || status == state.RemoteHostStatusReconnecting || status == state.RemoteHostStatusAuthenticating {
+			sid := conn.ProvisioningSessionID()
+			m.mu.RUnlock()
+			return sid, nil
+		}
+	}
+	m.mu.RUnlock()
+
+	// Create new connection for reconnection
+	conn := NewConnection(ConnectionConfig{
+		FlavorID:         flavor.ID,
+		Flavor:           flavor.Flavor,
+		DisplayName:      flavor.DisplayName,
+		WorkspacePath:    flavor.WorkspacePath,
+		VCS:              flavor.VCS,
+		ConnectCommand:   flavor.ConnectCommand,
+		ReconnectCommand: flavor.ReconnectCommand,
+		ProvisionCommand: flavor.ProvisionCommand,
+		HostnameRegex:    flavor.HostnameRegex,
+		OnStatusChange:   m.handleStatusChange,
+	})
+
+	// Use existing host ID and provisioning session ID pattern
+	conn.host.ID = host.ID
+	conn.host.Hostname = host.Hostname
+	conn.host.UUID = host.UUID
+	conn.provisioningSessionID = fmt.Sprintf("provision-%s", host.ID)
+
+	// Register in map immediately so WebSocket handler can find it
+	m.mu.Lock()
+	// Close any existing connection
+	if existing, exists := m.connections[hostID]; exists {
+		existing.Close()
+	}
+	m.connections[hostID] = conn
+	m.mu.Unlock()
+
+	// Update state to reconnecting
+	m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusReconnecting)
+	if err := m.state.Save(); err != nil {
+		fmt.Printf("[remote] failed to persist reconnecting state: %v\n", err)
+	}
+	m.notifyStateChange()
+
+	sessionID := conn.ProvisioningSessionID()
+
+	fmt.Printf("[remote] StartReconnect: host=%s hostname=%s sessionID=%s\n", hostID, host.Hostname, sessionID)
+
+	// Reconnect in background
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		if err := conn.Reconnect(ctx, host.Hostname); err != nil {
+			fmt.Printf("[remote] reconnection to %s (%s) failed: %v\n", hostID, host.Hostname, err)
+			m.mu.Lock()
+			delete(m.connections, hostID)
+			m.mu.Unlock()
+			m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected)
+			m.state.SaveBatched()
+			m.notifyStateChange()
+
+			// Call failure callback for cleanup
+			if onFail != nil {
+				onFail(hostID)
+			}
+			return
+		}
+
+		// Reconcile sessions with discovered windows
+		if err := m.reconcileSessions(ctx, conn); err != nil {
+			fmt.Printf("[remote] warning: failed to reconcile sessions after reconnect: %v\n", err)
+		}
+
+		// Update state with final host info
+		m.state.UpdateRemoteHost(conn.Host())
+		if err := m.state.Save(); err != nil {
+			fmt.Printf("[remote] failed to persist final state: %v\n", err)
+		}
+		m.notifyStateChange()
+	}()
+
+	return sessionID, nil
+}
+
+// StartReconnectAll attempts to reconnect all stale "connected" remote hosts at daemon startup.
+// Returns a map of hostID -> provisioningSessionID for hosts being reconnected.
+func (m *Manager) StartReconnectAll(onFail func(hostID string)) map[string]string {
+	hosts := m.state.GetRemoteHosts()
+	result := make(map[string]string)
+
+	for _, host := range hosts {
+		// Only reconnect hosts that were "connected" with a hostname (these are stale)
+		if host.Status != state.RemoteHostStatusConnected || host.Hostname == "" {
+			continue
+		}
+
+		// Skip expired hosts
+		if host.ExpiresAt.Before(time.Now()) {
+			fmt.Printf("[remote] skipping expired host %s (%s)\n", host.ID, host.Hostname)
+			continue
+		}
+
+		sessionID, err := m.StartReconnect(host.ID, onFail)
+		if err != nil {
+			fmt.Printf("[remote] failed to start reconnection for %s (%s): %v\n", host.ID, host.Hostname, err)
+			continue
+		}
+
+		result[host.ID] = sessionID
+		fmt.Printf("[remote] started reconnection for host %s (%s)\n", host.ID, host.Hostname)
+	}
+
+	if len(result) > 0 {
+		fmt.Printf("[remote] StartReconnectAll: %d host(s) reconnecting\n", len(result))
+	}
+
+	return result
+}
+
 // GetFlavors returns all configured remote flavors with their connection status.
 type FlavorStatus struct {
 	Flavor    config.RemoteFlavor

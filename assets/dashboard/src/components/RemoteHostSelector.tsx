@@ -3,6 +3,7 @@ import HostStatusIndicator, { getHostStatus, type HostStatus } from './HostStatu
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { getRemoteFlavorStatuses, getErrorMessage, getRemoteHosts, connectRemoteHost } from '../lib/api';
 import { useToast } from './ToastProvider';
+import { useSessions } from '../contexts/SessionsContext';
 import type { RemoteFlavor, RemoteFlavorStatus, RemoteHost } from '../lib/types';
 
 export type EnvironmentSelection =
@@ -28,8 +29,11 @@ export default function RemoteHostSelector({
   const [connectingFlavor, setConnectingFlavor] = useState<RemoteFlavor | null>(null);
   const [provisioningSessionId, setProvisioningSessionId] = useState<string | null>(null);
   const { error: toastError, success: toastSuccess } = useToast();
+  const { workspaces } = useSessions();
   const activeRef = useRef(true);
 
+  // Re-fetch flavor statuses on mount and whenever WebSocket broadcasts
+  // (BroadcastSessions fires on remote host status changes)
   useEffect(() => {
     activeRef.current = true;
     const load = async () => {
@@ -44,7 +48,7 @@ export default function RemoteHostSelector({
     };
     load();
     return () => { activeRef.current = false; };
-  }, []);
+  }, [workspaces]);
 
   const handleSelectLocal = () => {
     onChange({ type: 'local' });
@@ -106,6 +110,11 @@ export default function RemoteHostSelector({
     transition: 'border-color 0.15s, background-color 0.15s',
     minWidth: '160px',
   });
+
+  // Don't show the selector if no remote flavors are configured
+  if (!loading && flavors.length === 0) {
+    return null;
+  }
 
   return (
     <div style={{ marginBottom: 'var(--spacing-lg)' }}>

@@ -354,13 +354,46 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	c.notifyStatusChange()
 
-	// Wait for control mode (no parseProvisioningOutput during reconnect,
-	// so the control mode parser reads from PTY directly)
+	fmt.Printf("[remote %s] PTY started for reconnection (pid=%d), provisioning session=%s\n",
+		c.host.ID, c.cmd.Process.Pid, c.provisioningSessionID)
+
+	// Monitor context cancellation during setup - kill process if context is canceled.
+	// Once Reconnect() returns, the monitoring stops so the caller's defer cancel()
+	// doesn't kill the long-lived SSH process after reconnection succeeds.
+	connectDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			fmt.Printf("[remote %s] context canceled during reconnection, killing process\n", c.host.ID)
+			c.Close()
+		case <-connectDone:
+			// Reconnect completed, stop monitoring this context
+		}
+	}()
+
+	// Create pipe so parseProvisioningOutput (sole PTY reader) can forward
+	// data to the control mode parser without two goroutines competing on the PTY fd.
+	controlPR, controlPW := io.Pipe()
+	c.controlPipeWriter = controlPW
+
+	// Parse PTY output during reconnection.
+	// This is the ONLY goroutine that reads from the PTY.
+	// It broadcasts raw bytes to WebSocket subscribers and tees to the control mode pipe.
+	go c.parseProvisioningOutput(c.pty)
+
+	// Wait for control mode (reads from pipe, not PTY directly)
 	fmt.Printf("[remote %s] reconnecting, waiting for control mode...\n", c.host.ID)
-	if err := c.waitForControlMode(ctx, c.stdout); err != nil {
+	if err := c.waitForControlMode(ctx, controlPR); err != nil {
+		close(connectDone)
 		c.Close()
 		return err
 	}
+
+	fmt.Printf("[remote %s] control mode ready after reconnection to %s\n", c.host.ID, c.hostname)
+
+	// Stop the context monitoring goroutine - the connection is established
+	// and should live independently of the setup context.
+	close(connectDone)
 
 	// Rediscover sessions after reconnection
 	if err := c.rediscoverSessions(ctx); err != nil {

@@ -508,6 +508,12 @@ func (m *mockStateStore) AddRemoteHost(rh state.RemoteHost) error        { retur
 func (m *mockStateStore) UpdateRemoteHost(rh state.RemoteHost) error     { return nil }
 func (m *mockStateStore) UpdateRemoteHostStatus(id, status string) error { return nil }
 func (m *mockStateStore) RemoveRemoteHost(id string) error               { return nil }
+func (m *mockStateStore) GetSessionsByRemoteHostID(hostID string) []state.Session {
+	return m.state.GetSessionsByRemoteHostID(hostID)
+}
+func (m *mockStateStore) GetWorkspacesByRemoteHostID(hostID string) []state.Workspace {
+	return m.state.GetWorkspacesByRemoteHostID(hostID)
+}
 
 func (m *mockStateStore) Save() error {
 	if m.failSave {
