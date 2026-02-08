@@ -172,65 +172,41 @@ func TestGetRotationLock(t *testing.T) {
 }
 
 func TestRegisterUnregisterWebSocket(t *testing.T) {
-	t.Run("register adds connection to list", func(t *testing.T) {
+	t.Run("register adds connection", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*wsConn),
+			wsConns: make(map[string]*wsConn),
 		}
 		conn := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn)
 
-		conns := s.wsConns[sessionID]
-		if len(conns) != 1 {
-			t.Errorf("expected 1 connection, got %d", len(conns))
-		}
-		if conns[0] != conn {
+		stored := s.wsConns[sessionID]
+		if stored != conn {
 			t.Errorf("stored connection is not the same as the one registered")
 		}
 	})
 
-	t.Run("register multiple connections for same session", func(t *testing.T) {
+	t.Run("register displaces existing connection", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*wsConn),
+			wsConns: make(map[string]*wsConn),
 		}
-		conn1 := &wsConn{conn: &websocket.Conn{}}
-		conn2 := &wsConn{conn: &websocket.Conn{}}
+		conn1 := &wsConn{closed: true} // Mark as closed so WriteMessage won't panic
+		conn2 := &wsConn{closed: true}
 		sessionID := "session-123"
 
 		s.RegisterWebSocket(sessionID, conn1)
 		s.RegisterWebSocket(sessionID, conn2)
 
-		conns := s.wsConns[sessionID]
-		if len(conns) != 2 {
-			t.Errorf("expected 2 connections, got %d", len(conns))
+		stored := s.wsConns[sessionID]
+		if stored != conn2 {
+			t.Errorf("second connection should replace first")
 		}
 	})
 
-	t.Run("unregister removes specific connection", func(t *testing.T) {
+	t.Run("unregister removes connection", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*wsConn),
-		}
-		conn1 := &wsConn{conn: &websocket.Conn{}}
-		conn2 := &wsConn{conn: &websocket.Conn{}}
-		sessionID := "session-123"
-
-		s.RegisterWebSocket(sessionID, conn1)
-		s.RegisterWebSocket(sessionID, conn2)
-		s.UnregisterWebSocket(sessionID, conn1)
-
-		conns := s.wsConns[sessionID]
-		if len(conns) != 1 {
-			t.Errorf("expected 1 connection after unregister, got %d", len(conns))
-		}
-		if conns[0] != conn2 {
-			t.Errorf("remaining connection is not the expected one")
-		}
-	})
-
-	t.Run("unregister last connection deletes entry", func(t *testing.T) {
-		s := &Server{
-			wsConns: make(map[string][]*wsConn),
+			wsConns: make(map[string]*wsConn),
 		}
 		conn := &wsConn{conn: &websocket.Conn{}}
 		sessionID := "session-123"
@@ -239,7 +215,23 @@ func TestRegisterUnregisterWebSocket(t *testing.T) {
 		s.UnregisterWebSocket(sessionID, conn)
 
 		if _, exists := s.wsConns[sessionID]; exists {
-			t.Errorf("entry should be deleted when last connection is unregistered")
+			t.Errorf("entry should be deleted when connection is unregistered")
+		}
+	})
+
+	t.Run("unregister wrong connection is no-op", func(t *testing.T) {
+		s := &Server{
+			wsConns: make(map[string]*wsConn),
+		}
+		conn1 := &wsConn{conn: &websocket.Conn{}}
+		conn2 := &wsConn{conn: &websocket.Conn{}}
+		sessionID := "session-123"
+
+		s.RegisterWebSocket(sessionID, conn1)
+		s.UnregisterWebSocket(sessionID, conn2) // Different connection
+
+		if s.wsConns[sessionID] != conn1 {
+			t.Errorf("original connection should remain when unregistering different connection")
 		}
 	})
 }
@@ -248,13 +240,13 @@ func TestBroadcastToSession(t *testing.T) {
 	// Note: BroadcastToSession tries to write to WebSocket connections,
 	// which requires complex mocking. These tests verify registry behavior only.
 
-	t.Run("clears entry even when connections exist", func(t *testing.T) {
+	t.Run("clears entry even when connection exists", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*wsConn),
+			wsConns: make(map[string]*wsConn),
 		}
 		// Can't use a real websocket.Conn as it has internal state
 		// Just verify the registry is cleared
-		s.wsConns["session-123"] = []*wsConn{{conn: &websocket.Conn{}}}
+		s.wsConns["session-123"] = &wsConn{conn: &websocket.Conn{}}
 
 		// This will panic on WriteMessage, but entry should be cleared first
 		func() {
@@ -273,7 +265,7 @@ func TestBroadcastToSession(t *testing.T) {
 
 	t.Run("returns 0 for session with no connections", func(t *testing.T) {
 		s := &Server{
-			wsConns: make(map[string][]*wsConn),
+			wsConns: make(map[string]*wsConn),
 		}
 
 		count := s.BroadcastToSession("nonexistent", "test", "message")

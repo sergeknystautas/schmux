@@ -5,13 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -51,12 +48,8 @@ var filterSequences = [][]byte{
 
 // filterTerminalModes removes sequences that interfere with xterm.js scrollback.
 func filterMouseMode(data []byte) []byte {
-	original := len(data)
 	for _, seq := range filterSequences {
 		data = bytes.ReplaceAll(data, seq, nil)
-	}
-	if len(data) != original {
-		fmt.Printf("[filter] removed %d bytes of terminal mode sequences\n", original-len(data))
 	}
 	return data
 }
@@ -73,9 +66,9 @@ type WSOutputMessage struct {
 	Content string `json:"content"`
 }
 
-// handleTerminalWebSocket streams tmux output to websocket clients by attaching
-// a dedicated tmux client over a PTY. It first sends a bootstrap snapshot from
-// capture-pane, then forwards live terminal bytes.
+// handleTerminalWebSocket streams tmux output to websocket clients.
+// It sends a bootstrap snapshot from capture-pane and then forwards live bytes
+// from the per-session tracker PTY.
 func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
 	if sessionID == "" {
@@ -101,6 +94,11 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	sess, err := s.session.GetSession(sessionID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	tracker, err := s.session.GetTracker(sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get tracker: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -140,9 +138,21 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return conn.WriteMessage(websocket.TextMessage, data)
 	}
 
+	// Attach output stream immediately after websocket upgrade to avoid
+	// dropping output generated during bootstrap capture/status setup.
+	outputCh := tracker.AttachWebSocket()
+	defer tracker.DetachWebSocket(outputCh)
+
+	// A websocket can connect before the tracker finishes its first attach retry.
+	// Give it a short window to come up so early pane output is not missed.
+	attachDeadline := time.Now().Add(time.Duration(s.config.GetXtermOperationTimeoutMs()) * time.Millisecond)
+	for !tracker.IsAttached() && time.Now().Before(attachDeadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+
 	// Bootstrap with recent scrollback to avoid a blank terminal on connect.
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	bootstrap, err := tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines)
+	bootstrap, err := tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
 	capCancel()
 	if err != nil {
 		fmt.Printf("[ws %s] bootstrap capture failed: %v\n", sessionID[:8], err)
@@ -158,29 +168,27 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-left", "#{pane_current_command} ")
 	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-format", "")
 	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-current-format", "")
-	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-right", " %H:%M:%S")
+	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-right", "")
 	statusCancel()
 
-	attachCtx, attachCancel := context.WithCancel(context.Background())
-	defer attachCancel()
-
-	attachCmd := exec.CommandContext(attachCtx, "tmux", "attach-session", "-t", "="+sess.TmuxSession)
-	ptmx, err := pty.Start(attachCmd)
-	if err != nil {
-		sendOutput("append", "\n[Failed to attach tmux client]")
-		return
-	}
-	defer func() {
-		_ = ptmx.Close()
-		if attachCmd.Process != nil {
-			_ = attachCmd.Process.Kill()
+	// Flush any output that arrived while bootstrap/status setup was running.
+	for {
+		select {
+		case chunk, ok := <-outputCh:
+			if !ok {
+				return
+			}
+			filtered := filterMouseMode(chunk)
+			if len(filtered) > 0 {
+				if err := sendOutput("append", string(filtered)); err != nil {
+					return
+				}
+			}
+		default:
+			goto drained
 		}
-		_ = attachCmd.Wait()
-	}()
-
-	if cols, rows := s.config.GetTerminalSize(); cols > 0 && rows > 0 {
-		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	}
+drained:
 
 	controlChan := make(chan WSMessage, 10)
 	go func() {
@@ -199,31 +207,12 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 	}()
 
-	ptyOut := make(chan []byte, 16)
-	ptyErr := make(chan error, 1)
-	go func() {
-		defer close(ptyOut)
-		buf := make([]byte, 8192)
-		for {
-			n, err := ptmx.Read(buf)
-			if n > 0 {
-				chunk := make([]byte, n)
-				copy(chunk, buf[:n])
-				ptyOut <- chunk
-			}
-			if err != nil {
-				ptyErr <- err
-				return
-			}
-		}
-	}()
-
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case chunk, ok := <-ptyOut:
+		case chunk, ok := <-outputCh:
 			if !ok {
 				return
 			}
@@ -233,11 +222,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 					return
 				}
 			}
-		case err := <-ptyErr:
-			if err != nil && err != io.EOF {
-				fmt.Printf("[ws %s] tmux attach stream ended: %v\n", sessionID[:8], err)
-			}
-			return
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 			running := s.session.IsRunning(ctx, sessionID)
@@ -268,13 +252,10 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 						go s.BroadcastSessions()
 					}
 				}
-				inputCtx, inputCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-				if err := tmux.SendKeys(inputCtx, sess.TmuxSession, msg.Data); err != nil {
-					inputCancel()
+				if err := tracker.SendInput(msg.Data); err != nil {
 					fmt.Printf("[terminal] error sending keys to tmux: %v\n", err)
 					// Don't return - input failure shouldn't kill connection
 				}
-				inputCancel()
 			case "resize":
 				var resizeData struct {
 					Cols int `json:"cols"`
@@ -287,14 +268,23 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if resizeData.Cols <= 0 || resizeData.Rows <= 0 {
 					continue
 				}
-				// Resize the tmux window (what gets rendered to the session)
+				// Query tmux as source of truth and skip duplicate resize requests.
+				queryCtx, queryCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
+				currentCols, currentRows, err := tmux.GetWindowSize(queryCtx, sess.TmuxSession)
+				queryCancel()
+				if err != nil {
+					fmt.Printf("[terminal] error querying tmux window size: %v\n", err)
+				} else if currentCols == resizeData.Cols && currentRows == resizeData.Rows {
+					continue
+				}
+
+				// Resize tmux and attached tracker PTY.
 				resizeCtx, resizeCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 				if err := tmux.ResizeWindow(resizeCtx, sess.TmuxSession, resizeData.Cols, resizeData.Rows); err != nil {
 					fmt.Printf("[terminal] error resizing tmux window: %v\n", err)
 				}
 				resizeCancel()
-				// Also resize the attached PTY so it receives correctly-sized output
-				if err := pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(resizeData.Cols), Rows: uint16(resizeData.Rows)}); err != nil {
+				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
 					fmt.Printf("[terminal] error resizing PTY: %v\n", err)
 				}
 			}

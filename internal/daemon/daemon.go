@@ -332,65 +332,18 @@ func Run(background bool) error {
 		}
 	}
 
-	// Initialize LastOutputAt from log file mtimes for existing sessions
+	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
-		logPath, err := sm.GetLogPath(sess.ID)
-		if err != nil {
+		timeoutCtx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
+		exists := tmux.SessionExists(timeoutCtx, sess.TmuxSession)
+		cancel()
+		if !exists {
 			continue
 		}
-		if info, err := os.Stat(logPath); err == nil {
-			sess.LastOutputAt = info.ModTime()
-			if err := st.UpdateSession(sess); err != nil {
-				fmt.Printf("[session] warning: failed to update session %s: %v\n", sess.ID, err)
-			}
+		if err := sm.EnsureTracker(sess.ID); err != nil {
+			fmt.Printf("[session] warning: failed to start tracker for %s: %v\n", sess.ID, err)
 		}
 	}
-
-	// Start background goroutine to monitor log file mtimes for all sessions
-	go func() {
-		pollInterval := time.Duration(cfg.GetXtermMtimePollIntervalMs()) * time.Millisecond
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
-				for _, sess := range st.GetSessions() {
-					if !sm.IsRunning(ctx, sess.ID) {
-						continue
-					}
-					logPath, err := sm.GetLogPath(sess.ID)
-					if err != nil {
-						continue
-					}
-					if info, err := os.Stat(logPath); err == nil {
-						if info.ModTime().After(sess.LastOutputAt) {
-							st.UpdateSessionLastOutput(sess.ID, info.ModTime())
-						}
-					}
-				}
-				cancel()
-			case <-shutdownCtx.Done():
-				return
-			}
-		}
-	}()
-
-	// Bootstrap log streams for active sessions with missing pipe-pane.
-	seedLines := cfg.GetTerminalSeedLines()
-	if seedLines <= 0 {
-		return fmt.Errorf("terminal.seed_lines must be configured")
-	}
-	for _, sess := range st.GetSessions() {
-		if err := bootstrapSession(shutdownCtx, sess, sm, cfg, seedLines); err != nil {
-			return err
-		}
-	}
-
-	// Start log pruner (every 60 minutes)
-	pruneInterval := 60 * time.Minute
-	stopLogPruner := sm.StartLogPruner(pruneInterval)
-	defer stopLogPruner()
 
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {
@@ -525,73 +478,6 @@ func Shutdown() {
 	if cancelFunc != nil {
 		cancelFunc()
 	}
-}
-
-// bootstrapSession bootstraps a session's log streaming if needed.
-func bootstrapSession(ctx context.Context, sess state.Session, sm *session.Manager, cfg *config.Config, seedLines int) error {
-	// Check if session exists
-	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.XtermQueryTimeout())
-	if !tmux.SessionExists(timeoutCtx, sess.TmuxSession) {
-		cancel()
-		return nil
-	}
-	cancel()
-
-	// Check if pipe-pane is active
-	timeoutCtx, cancel = context.WithTimeout(ctx, cfg.XtermQueryTimeout())
-	pipePaneActive := tmux.IsPipePaneActive(timeoutCtx, sess.TmuxSession)
-	cancel()
-
-	// Get log path
-	logPath, err := sm.GetLogPath(sess.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get log path for %s: %w", sess.ID, err)
-	}
-
-	// Check if log file exists
-	_, err = os.Stat(logPath)
-	logFileExists := !os.IsNotExist(err)
-
-	// Skip if pipe-pane is active AND log file exists (everything is good)
-	if pipePaneActive && logFileExists {
-		return nil
-	}
-
-	// If pipe-pane is active but log is missing, stop the old pipe-pane
-	if pipePaneActive && !logFileExists {
-		fmt.Printf("[session] %s: pipe-pane active but log missing, stopping pipe-pane\n", sess.ID)
-		timeoutCtx, cancel = context.WithTimeout(ctx, cfg.XtermOperationTimeout())
-		if err := tmux.StopPipePane(timeoutCtx, sess.TmuxSession); err != nil {
-			cancel()
-			return fmt.Errorf("failed to stop pipe-pane for %s: %w", sess.ID, err)
-		}
-		cancel()
-	}
-
-	if !pipePaneActive {
-		fmt.Printf("[session] %s: pipe-pane not active, bootstrapping\n", sess.ID)
-	}
-
-	// Bootstrap: capture screen content and write to log, start pipe-pane
-	timeoutCtx, cancel = context.WithTimeout(ctx, cfg.XtermOperationTimeout())
-	snapshot, err := tmux.CaptureLastLines(timeoutCtx, sess.TmuxSession, seedLines)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("failed to capture %d lines for %s: %w", seedLines, sess.ID, err)
-	}
-
-	if err := os.WriteFile(logPath, []byte(snapshot), 0644); err != nil {
-		return fmt.Errorf("failed to seed log file for %s: %w", sess.ID, err)
-	}
-
-	timeoutCtx, cancel = context.WithTimeout(ctx, cfg.XtermOperationTimeout())
-	if err := tmux.StartPipePane(timeoutCtx, sess.TmuxSession, logPath); err != nil {
-		cancel()
-		return fmt.Errorf("failed to attach pipe-pane for %s: %w", sess.ID, err)
-	}
-	cancel()
-	fmt.Printf("[session] %s: pipe-pane started\n", sess.ID)
-	return nil
 }
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions

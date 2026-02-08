@@ -149,6 +149,10 @@ Response:
 ]
 ```
 
+Notes:
+- `last_output_at` is an in-memory runtime signal and resets after daemon restart.
+- `last_output_at` may be omitted when no activity has been observed since daemon start.
+
 ### POST /api/workspaces/scan
 Scans workspace directory and reconciles state.
 

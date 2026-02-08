@@ -143,7 +143,7 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := CaptureLastLines(ctx, "test-session", tt.lines)
+			_, err := CaptureLastLines(ctx, "test-session", tt.lines, true)
 
 			if tt.wantErr {
 				if err == nil {
@@ -157,7 +157,7 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 
 	// Positive line counts should pass validation (tmux may not be installed, so exec may fail)
 	t.Run("positive line count passes validation", func(t *testing.T) {
-		_, err := CaptureLastLines(ctx, "test-session", 10)
+		_, err := CaptureLastLines(ctx, "test-session", 10, true)
 		if err != nil && strings.Contains(err.Error(), "invalid line count") {
 			t.Errorf("unexpected validation error: %v", err)
 		}
@@ -246,34 +246,13 @@ func TestContextCancellation(t *testing.T) {
 		}
 	})
 
-	t.Run("StartPipePane respects cancelled context", func(t *testing.T) {
+	t.Run("GetWindowSize respects cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := StartPipePane(ctx, "test", "/tmp/test.log")
+		_, _, err := GetWindowSize(ctx, "test")
 		if err == nil {
 			t.Log("may succeed if context wasn't cancelled fast enough")
-		}
-	})
-
-	t.Run("StopPipePane respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := StopPipePane(ctx, "test")
-		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
-		}
-	})
-
-	t.Run("IsPipePaneActive respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		active := IsPipePaneActive(ctx, "test")
-		// Should return false on error
-		if active {
-			t.Log("unexpected true for cancelled context")
 		}
 	})
 

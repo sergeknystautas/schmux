@@ -334,15 +334,12 @@ Sessions persist after the agent process exits for review:
 
 ---
 
-## Log Rotation
+## Terminal Activity
 
-Terminal logs are stored in `~/.schmux/logs/<session-id>.log`. When a log file exceeds the configured size threshold (`xterm.max_log_size_mb`, default 50MB), it's automatically rotated when a new WebSocket connection is established:
+Session activity (`last_output_at`) is tracked in-memory while the daemon is running.
 
-- Rotation keeps the last ~1MB of log data (configurable via `xterm.rotated_log_size_mb`)
-- Existing WebSocket connections receive a "reconnect" message and must reconnect
-- Rotation happens via: stop pipe-pane → truncate to target size → restart pipe-pane
-
-Configure these settings in the web dashboard under **Advanced → Advanced Settings**.
+- Values reset on daemon restart
+- Activity updates only when new meaningful terminal output arrives
 
 ---
 

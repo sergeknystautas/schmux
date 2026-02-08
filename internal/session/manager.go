@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,8 @@ type Manager struct {
 	config    *config.Config
 	state     state.StateStore
 	workspace workspace.WorkspaceManager
+	trackers  map[string]*SessionTracker
+	mu        sync.RWMutex
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -58,6 +61,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		config:    cfg,
 		state:     st,
 		workspace: wm,
+		trackers:  make(map[string]*SessionTracker),
 	}
 }
 
@@ -123,11 +127,6 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Set up log file (for debugging/export, not for streaming)
-	if _, err := m.ensureLogFile(sessionID); err != nil {
-		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
-	}
-
 	// Force fixed window size for deterministic TUI output
 	width, height := m.config.GetTerminalSize()
 	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
@@ -147,7 +146,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
 		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
 	}
-	if err := tmux.SetOption(ctx, tmuxSession, "status-right", " %H:%M:%S"); err != nil {
+	if err := tmux.SetOption(ctx, tmuxSession, "status-right", ""); err != nil {
 		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
 	}
 
@@ -174,6 +173,8 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
+
+	m.ensureTrackerFromSession(sess)
 
 	return &sess, nil
 }
@@ -219,11 +220,6 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Set up log file (for debugging/export, not for streaming)
-	if _, err := m.ensureLogFile(sessionID); err != nil {
-		fmt.Printf("[session] warning: failed to create log file: %v\n", err)
-	}
-
 	// Force fixed window size for deterministic TUI output
 	width, height := m.config.GetTerminalSize()
 	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
@@ -243,7 +239,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
 		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
 	}
-	if err := tmux.SetOption(ctx, tmuxSession, "status-right", " %H:%M:%S"); err != nil {
+	if err := tmux.SetOption(ctx, tmuxSession, "status-right", ""); err != nil {
 		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
 	}
 
@@ -270,6 +266,8 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
+
+	m.ensureTrackerFromSession(sess)
 
 	return &sess, nil
 }
@@ -586,10 +584,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		tmuxKilled = true
 	}
 
-	// Delete log file for this session
-	if err := m.deleteLogFile(sessionID); err != nil {
-		warnings = append(warnings, fmt.Sprintf("failed to delete log file: %v", err))
-	}
+	m.stopTracker(sessionID)
 
 	// Note: workspace is NOT cleaned up on session disposal.
 	// Workspaces persist and are only reset when reused for a new spawn.
@@ -689,145 +684,9 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
+	m.updateTrackerSessionName(sessionID, newTmuxName)
+
 	return nil
-}
-
-// getLogDir returns the log directory path, creating it if needed.
-func (m *Manager) getLogDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	logDir := filepath.Join(homeDir, ".schmux", "logs")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create log directory: %w", err)
-	}
-	return logDir, nil
-}
-
-// getLogPath returns the log file path for a session.
-func (m *Manager) getLogPath(sessionID string) (string, error) {
-	logDir, err := m.getLogDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(logDir, fmt.Sprintf("%s.log", sessionID)), nil
-}
-
-// ensureLogFile ensures the log file exists for a session.
-func (m *Manager) ensureLogFile(sessionID string) (string, error) {
-	logPath, err := m.getLogPath(sessionID)
-	if err != nil {
-		return "", err
-	}
-	fd, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to create log file: %w", err)
-	}
-	fd.Close()
-	return logPath, nil
-}
-
-// deleteLogFile removes the log file for a session.
-func (m *Manager) deleteLogFile(sessionID string) error {
-	logPath, err := m.getLogPath(sessionID)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete log file: %w", err)
-	}
-	return nil
-}
-
-// pruneLogFiles removes log files for sessions not in the active list.
-func (m *Manager) pruneLogFiles(activeSessions []state.Session) error {
-	logDir, err := m.getLogDir()
-	if err != nil {
-		return err
-	}
-	activeIDs := make(map[string]bool)
-	for _, sess := range activeSessions {
-		activeIDs[sess.ID] = true
-	}
-	entries, err := os.ReadDir(logDir)
-	if err != nil {
-		return fmt.Errorf("failed to read log directory: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-			continue
-		}
-		sessionID := strings.TrimSuffix(entry.Name(), ".log")
-		if !activeIDs[sessionID] {
-			logPath := filepath.Join(logDir, entry.Name())
-			if err := os.Remove(logPath); err != nil {
-				fmt.Printf("[session] warning: failed to delete orphaned log %s: %v\n", entry.Name(), err)
-			}
-		}
-	}
-	return nil
-}
-
-// GetLogPath returns the log file path for a session (public for WebSocket).
-func (m *Manager) GetLogPath(sessionID string) (string, error) {
-	return m.getLogPath(sessionID)
-}
-
-// EnsurePipePane ensures pipe-pane is active for a session (auto-migrate old sessions).
-func (m *Manager) EnsurePipePane(ctx context.Context, sessionID string) error {
-	sess, found := m.state.GetSession(sessionID)
-	if !found {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-	// Check if pipe-pane is already active
-	if tmux.IsPipePaneActive(ctx, sess.TmuxSession) {
-		return nil
-	}
-	// Ensure log file exists
-	logPath, err := m.ensureLogFile(sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to ensure log file: %w", err)
-	}
-	// Set window size and start pipe-pane
-	width, height := m.config.GetTerminalSize()
-	if err := tmux.SetWindowSizeManual(ctx, sess.TmuxSession); err != nil {
-		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
-	}
-	if err := tmux.ResizeWindow(ctx, sess.TmuxSession, width, height); err != nil {
-		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
-	}
-	if err := tmux.StartPipePane(ctx, sess.TmuxSession, logPath); err != nil {
-		return fmt.Errorf("failed to start pipe-pane: %w", err)
-	}
-	return nil
-}
-
-// StartLogPruner starts periodic log pruning. Returns cancel function.
-func (m *Manager) StartLogPruner(interval time.Duration) func() {
-	stopChan := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		m.pruneLogs() // Run once on startup
-		for {
-			select {
-			case <-ticker.C:
-				m.pruneLogs()
-			case <-stopChan:
-				return
-			}
-		}
-	}()
-	return func() { close(stopChan) }
-}
-
-// pruneLogs runs pruneLogFiles with current sessions.
-func (m *Manager) pruneLogs() {
-	activeSessions := m.state.GetSessions()
-	if err := m.pruneLogFiles(activeSessions); err != nil {
-		fmt.Printf("[session] warning: log prune failed: %v\n", err)
-	}
 }
 
 // sanitizeNickname sanitizes a nickname for use as a tmux session name.
@@ -879,4 +738,57 @@ func (m *Manager) generateUniqueNickname(baseNickname string) string {
 	}
 	// Fallback: use base nickname with a UUID suffix (should never happen in practice)
 	return fmt.Sprintf("%s-%s", baseNickname, uuid.New().String()[:8])
+}
+
+// EnsureTracker makes sure a running tracker exists for the session.
+func (m *Manager) EnsureTracker(sessionID string) error {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	m.ensureTrackerFromSession(sess)
+	return nil
+}
+
+// GetTracker returns the tracker for a session, creating one if needed.
+func (m *Manager) GetTracker(sessionID string) (*SessionTracker, error) {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	return m.ensureTrackerFromSession(sess), nil
+}
+
+func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
+	m.mu.Lock()
+	if existing := m.trackers[sess.ID]; existing != nil {
+		existing.SetTmuxSession(sess.TmuxSession)
+		m.mu.Unlock()
+		return existing
+	}
+
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state)
+	m.trackers[sess.ID] = tracker
+	m.mu.Unlock()
+	tracker.Start()
+	return tracker
+}
+
+func (m *Manager) stopTracker(sessionID string) {
+	m.mu.Lock()
+	tracker := m.trackers[sessionID]
+	delete(m.trackers, sessionID)
+	m.mu.Unlock()
+	if tracker != nil {
+		tracker.Stop()
+	}
+}
+
+func (m *Manager) updateTrackerSessionName(sessionID, tmuxSession string) {
+	m.mu.RLock()
+	tracker := m.trackers[sessionID]
+	m.mu.RUnlock()
+	if tracker != nil {
+		tracker.SetTmuxSession(tmuxSession)
+	}
 }

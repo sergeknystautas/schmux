@@ -82,8 +82,9 @@ type Server struct {
 	httpServer *http.Server
 	shutdown   func() // Callback to trigger daemon shutdown
 
-	// WebSocket connection registry: sessionID -> list of active connections (for terminal)
-	wsConns   map[string][]*wsConn
+	// WebSocket connection registry: sessionID -> active connection (for terminal)
+	// Only one connection per session; new connections displace old ones.
+	wsConns   map[string]*wsConn
 	wsConnsMu sync.RWMutex
 
 	// Sessions WebSocket connections (for /ws/sessions real-time updates)
@@ -133,7 +134,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:                       wm,
 		prDiscovery:                     prd,
 		shutdown:                        shutdown,
-		wsConns:                         make(map[string][]*wsConn),
+		wsConns:                         make(map[string]*wsConn),
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
 		broadcastDone:                   make(chan struct{}),
@@ -410,50 +411,56 @@ func (s *Server) getDashboardDistPath() string {
 }
 
 // RegisterWebSocket registers a WebSocket connection for a session.
+// If a connection already exists for this session, it is closed and replaced.
 func (s *Server) RegisterWebSocket(sessionID string, conn *wsConn) {
 	s.wsConnsMu.Lock()
 	defer s.wsConnsMu.Unlock()
-	s.wsConns[sessionID] = append(s.wsConns[sessionID], conn)
+
+	// Close existing connection if present
+	if existingConn := s.wsConns[sessionID]; existingConn != nil && !existingConn.IsClosed() {
+		// Send displacement message
+		msg := WSOutputMessage{Type: "displaced", Content: "Session opened in another window"}
+		data, _ := json.Marshal(msg)
+		_ = existingConn.WriteMessage(websocket.TextMessage, data)
+		_ = existingConn.Close()
+	}
+
+	s.wsConns[sessionID] = conn
 }
 
 // UnregisterWebSocket removes a WebSocket connection for a session.
 func (s *Server) UnregisterWebSocket(sessionID string, conn *wsConn) {
 	s.wsConnsMu.Lock()
 	defer s.wsConnsMu.Unlock()
-	conns := s.wsConns[sessionID]
-	for i, c := range conns {
-		if c == conn {
-			s.wsConns[sessionID] = append(conns[:i], conns[i+1:]...)
-			if len(s.wsConns[sessionID]) == 0 {
-				delete(s.wsConns, sessionID)
-			}
-			return
-		}
+	if s.wsConns[sessionID] == conn {
+		delete(s.wsConns, sessionID)
 	}
 }
 
-// BroadcastToSession sends a message to all WebSocket connections for a session
-// and closes them. Returns the number of connections notified.
+// BroadcastToSession sends a message to the WebSocket connection for a session
+// and closes it. Returns 1 if a connection was notified, 0 otherwise.
 func (s *Server) BroadcastToSession(sessionID string, msgType string, content string) int {
 	s.wsConnsMu.Lock()
-	conns := s.wsConns[sessionID]
-	// Clear the entry so we don't re-notify the same connections
+	conn := s.wsConns[sessionID]
+	// Clear the entry so we don't re-notify the same connection
 	delete(s.wsConns, sessionID)
 	s.wsConnsMu.Unlock()
 
-	count := 0
-	for _, conn := range conns {
-		msg := WSOutputMessage{Type: msgType, Content: content}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			continue
-		}
-		if err := conn.WriteMessage(websocket.TextMessage, data); err == nil {
-			count++
-		}
-		conn.Close()
+	if conn == nil || conn.IsClosed() {
+		return 0
 	}
-	return count
+
+	msg := WSOutputMessage{Type: msgType, Content: content}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return 0
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, data); err == nil {
+		conn.Close()
+		return 1
+	}
+	conn.Close()
+	return 0
 }
 
 // getRotationLock returns the rotation mutex for a session, creating it if needed.

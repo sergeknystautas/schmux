@@ -364,11 +364,13 @@ func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeo
 	var buffer strings.Builder
 
 	for time.Now().Before(deadline) {
-		conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		if err := conn.SetReadDeadline(deadline); err != nil {
+			return buffer.String(), err
+		}
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				continue
+				return buffer.String(), fmt.Errorf("timed out waiting for websocket output: %q", substr)
 			}
 			return buffer.String(), err
 		}

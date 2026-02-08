@@ -2,8 +2,6 @@ package session
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -217,24 +215,6 @@ func TestGetOutput(t *testing.T) {
 	})
 }
 
-func TestGetLogPath(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-
-	m := New(cfg, st, statePath, wm)
-
-	logPath, err := m.GetLogPath("test-session")
-	if err != nil {
-		t.Errorf("GetLogPath() error = %v", err)
-	}
-	// Should contain session ID
-	if !contains(logPath, "test-session") {
-		t.Errorf("log path should contain session ID: %s", logPath)
-	}
-}
-
 func TestShellQuote(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -413,111 +393,6 @@ func TestDispose(t *testing.T) {
 			t.Log("session still in state (tmux may have failed)")
 		}
 	})
-}
-
-func TestEnsurePipePane(t *testing.T) {
-	cfg := &config.Config{
-		WorkspacePath: "/tmp/workspaces",
-		Terminal:      &config.TerminalSize{Width: 80, Height: 24, SeedLines: 100},
-	}
-	st := state.New("")
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-
-	m := New(cfg, st, statePath, wm)
-
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-008",
-		WorkspaceID: "test-008",
-		Target:      "test",
-		TmuxSession: "schmux-test-008-vwx234",
-	}
-
-	st.AddSession(sess)
-
-	t.Run("returns error for nonexistent session", func(t *testing.T) {
-		err := m.EnsurePipePane(context.Background(), "nonexistent")
-		if err == nil {
-			t.Error("expected error for nonexistent session")
-		}
-	})
-
-	// Skip the actual pipe-pane test to avoid creating log files in ~/.schmux/logs
-	t.Run("requires tmux - skipped", func(t *testing.T) {
-		t.Skip("requires tmux to be installed")
-	})
-}
-
-func TestPruneLogFiles(t *testing.T) {
-	t.Run("prune with no active sessions", func(t *testing.T) {
-		// Use temp directory for logs, not ~/.schmux/logs
-		tmpDir := t.TempDir()
-
-		// Create test log files in temp directory
-		testLogPath := filepath.Join(tmpDir, "orphaned-session.log")
-		if err := os.WriteFile(testLogPath, []byte("test"), 0644); err != nil {
-			t.Fatalf("failed to create test log: %v", err)
-		}
-
-		// Manually call prune logic with temp directory
-		activeIDs := make(map[string]bool) // empty = no active sessions
-		entries, err := os.ReadDir(tmpDir)
-		if err != nil {
-			t.Fatalf("failed to read temp log dir: %v", err)
-		}
-
-		// Count files before prune
-		beforeCount := 0
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
-				beforeCount++
-			}
-		}
-
-		// Simulate prune - delete files not in activeIDs
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-				continue
-			}
-			sessionID := strings.TrimSuffix(entry.Name(), ".log")
-			if !activeIDs[sessionID] {
-				logPath := filepath.Join(tmpDir, entry.Name())
-				os.Remove(logPath)
-			}
-		}
-
-		// File should be removed
-		if _, err := os.Stat(testLogPath); err == nil {
-			t.Error("orphaned log file still exists (expected to be removed)")
-		}
-
-		// Count files after prune
-		entries, _ = os.ReadDir(tmpDir)
-		afterCount := 0
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
-				afterCount++
-			}
-		}
-
-		if beforeCount != 1 || afterCount != 0 {
-			t.Errorf("expected 1 file before, 0 after; got %d before, %d after", beforeCount, afterCount)
-		}
-	})
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (len(substr) == 0 || s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestBuildCommand(t *testing.T) {
@@ -730,7 +605,7 @@ func TestBuildCommand(t *testing.T) {
 				return
 			}
 			if tt.wantErr && tt.errContains != "" {
-				if err == nil || !contains(err.Error(), tt.errContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("buildCommand() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
@@ -742,17 +617,67 @@ func TestBuildCommand(t *testing.T) {
 
 			// Check shouldContain
 			for _, substr := range tt.shouldContain {
-				if !contains(got, substr) {
+				if !strings.Contains(got, substr) {
 					t.Errorf("buildCommand() = %q, should contain %q", got, substr)
 				}
 			}
 
 			// Check shouldNotContain
 			for _, substr := range tt.shouldNotContain {
-				if contains(got, substr) {
+				if strings.Contains(got, substr) {
 					t.Errorf("buildCommand() = %q, should not contain %q", got, substr)
 				}
 			}
 		})
 	}
+}
+
+func TestGetTrackerAndEnsureTracker(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("")
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
+
+	m := New(cfg, st, statePath, wm)
+
+	t.Run("GetTracker returns error for missing session", func(t *testing.T) {
+		_, err := m.GetTracker("missing")
+		if err == nil {
+			t.Fatal("expected error for missing session")
+		}
+	})
+
+	t.Run("EnsureTracker returns error for missing session", func(t *testing.T) {
+		err := m.EnsureTracker("missing")
+		if err == nil {
+			t.Fatal("expected error for missing session")
+		}
+	})
+
+	t.Run("GetTracker creates and reuses tracker", func(t *testing.T) {
+		sess := state.Session{
+			ID:          "session-tracker-1",
+			WorkspaceID: "workspace-1",
+			Target:      "test",
+			TmuxSession: "tmux-tracker-1",
+		}
+		if err := st.AddSession(sess); err != nil {
+			t.Fatalf("add session: %v", err)
+		}
+
+		tracker1, err := m.GetTracker(sess.ID)
+		if err != nil {
+			t.Fatalf("GetTracker first call: %v", err)
+		}
+		tracker2, err := m.GetTracker(sess.ID)
+		if err != nil {
+			t.Fatalf("GetTracker second call: %v", err)
+		}
+		if tracker1 != tracker2 {
+			t.Fatalf("expected tracker reuse")
+		}
+
+		// Explicit cleanup so background goroutine does not leak in tests.
+		m.stopTracker(sess.ID)
+	})
 }

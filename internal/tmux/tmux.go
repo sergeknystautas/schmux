@@ -120,18 +120,20 @@ func CaptureOutput(ctx context.Context, name string) (string, error) {
 	return stdout.String(), nil
 }
 
-// CaptureLastLines captures the last N lines of the pane, including escape sequences.
-func CaptureLastLines(ctx context.Context, name string, lines int) (string, error) {
+// CaptureLastLines captures the last N lines of the pane.
+func CaptureLastLines(ctx context.Context, name string, lines int, includeEscapes bool) (string, error) {
 	if lines <= 0 {
 		return "", fmt.Errorf("invalid line count: %d", lines)
 	}
-	args := []string{
-		"capture-pane",
-		"-e", // include escape sequences
+	args := []string{"capture-pane"}
+	if includeEscapes {
+		args = append(args, "-e") // include escape sequences
+	}
+	args = append(args,
 		"-p", // output to stdout
 		"-S", fmt.Sprintf("-%d", lines),
 		"-t", name, // target session/pane
-	}
+	)
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	var stdout bytes.Buffer
@@ -236,6 +238,36 @@ func SetOption(ctx context.Context, sessionName, option, value string) error {
 	return nil
 }
 
+// GetWindowSize returns the current tmux window size for the session.
+func GetWindowSize(ctx context.Context, sessionName string) (width, height int, err error) {
+	args := []string{
+		"display-message",
+		"-p",
+		"-t", fmt.Sprintf("=%s:0.0", sessionName),
+		"#{window_width} #{window_height}",
+	}
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if runErr := cmd.Run(); runErr != nil {
+		return 0, 0, fmt.Errorf("failed to get window size: %w", runErr)
+	}
+
+	fields := strings.Fields(strings.TrimSpace(stdout.String()))
+	if len(fields) < 2 {
+		return 0, 0, fmt.Errorf("failed to parse window size output: %q", stdout.String())
+	}
+	w, convErr := strconv.Atoi(fields[0])
+	if convErr != nil {
+		return 0, 0, fmt.Errorf("failed to parse window width %q: %w", fields[0], convErr)
+	}
+	h, convErr := strconv.Atoi(fields[1])
+	if convErr != nil {
+		return 0, 0, fmt.Errorf("failed to parse window height %q: %w", fields[1], convErr)
+	}
+	return w, h, nil
+}
+
 // ResizeWindow resizes the window to fixed dimensions (80x24 for deterministic TUI).
 func ResizeWindow(ctx context.Context, sessionName string, width, height int) error {
 	args := []string{
@@ -249,50 +281,6 @@ func ResizeWindow(ctx context.Context, sessionName string, width, height int) er
 		return fmt.Errorf("failed to resize window: %w: %s", err, string(output))
 	}
 	return nil
-}
-
-// StartPipePane begins streaming pane output to a log file.
-func StartPipePane(ctx context.Context, sessionName, logPath string) error {
-	// Escape single quotes in logPath for shell safety: replace ' with '"'"'
-	escapedPath := strings.ReplaceAll(logPath, "'", "'\"'\"'")
-	args := []string{
-		"pipe-pane",
-		"-o", // only output, not input
-		"-t", fmt.Sprintf("=%s:0.0", sessionName),
-		fmt.Sprintf("cat >> '%s'", escapedPath),
-	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start pipe-pane: %w: %s", err, string(output))
-	}
-	return nil
-}
-
-// StopPipePane stops streaming pane output.
-func StopPipePane(ctx context.Context, sessionName string) error {
-	args := []string{"pipe-pane", "-t", fmt.Sprintf("=%s:0.0", sessionName), ""}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to stop pipe-pane: %w: %s", err, string(output))
-	}
-	return nil
-}
-
-// IsPipePaneActive checks if pipe-pane is running for a session.
-func IsPipePaneActive(ctx context.Context, sessionName string) bool {
-	args := []string{
-		"display-message", "-p", "-t",
-		fmt.Sprintf("%s:0.0", sessionName),
-		"#{pane_pipe}",
-	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-	output := strings.TrimSpace(stdout.String())
-	return output != "" && output != "0"
 }
 
 // RenameSession renames an existing tmux session.

@@ -81,7 +81,7 @@ type Result struct {
 // AskForSession captures the latest session output and asks NudgeNik for feedback.
 func AskForSession(ctx context.Context, cfg *config.Config, sess state.Session) (Result, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, cfg.XtermOperationTimeout())
-	content, err := tmux.CaptureLastLines(timeoutCtx, sess.TmuxSession, 100)
+	content, err := tmux.CaptureLastLines(timeoutCtx, sess.TmuxSession, 100, false)
 	cancel()
 	if err != nil {
 		return Result{}, fmt.Errorf("capture tmux session %s: %w", sess.ID, err)
@@ -138,8 +138,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 
 // ExtractLatestFromCapture extracts the latest agent response from a raw tmux capture.
 func ExtractLatestFromCapture(capture string) (string, error) {
-	content := tmux.StripAnsi(capture)
-	lines := strings.Split(content, "\n")
+	lines := strings.Split(capture, "\n")
 	extracted := tmux.ExtractLatestResponse(lines)
 	if strings.TrimSpace(extracted) == "" {
 		return "", ErrNoResponse
