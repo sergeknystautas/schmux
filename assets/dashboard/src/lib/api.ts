@@ -15,6 +15,11 @@ import type {
   PRRefreshResponse,
   PRsResponse,
   RecentBranch,
+  RemoteFlavor,
+  RemoteFlavorCreateRequest,
+  RemoteFlavorStatus,
+  RemoteHost,
+  RemoteHostConnectRequest,
   ScanResult,
   SpawnRequest,
   SpawnResult,
@@ -412,4 +417,100 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
     throw new Error(text || 'Failed to checkout PR');
   }
   return response.json();
+}
+
+// ============================================================================
+// Remote Flavor API
+// ============================================================================
+
+export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
+  const response = await fetch('/api/config/remote-flavors');
+  if (!response.ok) throw new Error('Failed to fetch remote flavors');
+  return response.json();
+}
+
+export async function createRemoteFlavor(request: RemoteFlavorCreateRequest): Promise<RemoteFlavor> {
+  const response = await fetch('/api/config/remote-flavors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to create remote flavor');
+  }
+  return response.json();
+}
+
+export async function updateRemoteFlavor(id: string, request: RemoteFlavorCreateRequest): Promise<RemoteFlavor> {
+  const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to update remote flavor');
+  }
+  return response.json();
+}
+
+export async function deleteRemoteFlavor(id: string): Promise<void> {
+  const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to delete remote flavor');
+  }
+}
+
+// ============================================================================
+// Remote Host API
+// ============================================================================
+
+export async function getRemoteHosts(): Promise<RemoteHost[]> {
+  const response = await fetch('/api/remote/hosts');
+  if (!response.ok) throw new Error('Failed to fetch remote hosts');
+  return response.json();
+}
+
+export async function getRemoteFlavorStatuses(): Promise<RemoteFlavorStatus[]> {
+  const response = await fetch('/api/remote/flavor-statuses');
+  if (!response.ok) throw new Error('Failed to fetch remote flavor statuses');
+  return response.json();
+}
+
+export async function connectRemoteHost(request: RemoteHostConnectRequest): Promise<RemoteHost> {
+  const response = await fetch('/api/remote/hosts/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to connect to remote host');
+  }
+  return response.json();
+}
+
+export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
+  const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
+    method: 'POST'
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to reconnect to remote host');
+  }
+  return response.json();
+}
+
+export async function disconnectRemoteHost(hostId: string): Promise<void> {
+  const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to disconnect remote host');
+  }
 }

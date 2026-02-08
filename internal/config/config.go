@@ -2,13 +2,16 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -72,10 +75,100 @@ type Config struct {
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
+	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
+	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
+}
+
+// RemoteFlavor represents a remote host flavor configuration.
+// Each flavor defines a type of remote environment that can be connected to.
+type RemoteFlavor struct {
+	ID            string `json:"id"`             // e.g., "gpu_ml_large" (auto-generated if not provided)
+	Flavor        string `json:"flavor"`         // e.g., "gpu:ml-large" (the flavor/environment identifier)
+	DisplayName   string `json:"display_name"`   // e.g., "GPU ML Large" (shown in UI)
+	VCS           string `json:"vcs"`            // "git" or "sapling"
+	WorkspacePath string `json:"workspace_path"` // e.g., "~/workspace" (path on remote host)
+
+	// ConnectCommand is a Go template for the command to connect to a remote host.
+	// Schmux will automatically append "-- tmux -CC new-session -A -s schmux" to this command.
+	//
+	// Available template variables:
+	//   {{.Flavor}} - Remote flavor identifier (from the Flavor field above)
+	//
+	// Examples:
+	//   SSH: "ssh {{.Flavor}}"
+	//   Custom: "cloud-ssh connect {{.Flavor}}"
+	//   AWS SSM: "aws ssm start-session --target {{.Flavor}}"
+	//
+	// If empty, defaults to "ssh {{.Flavor}}".
+	//
+	// Note: You only specify how to reach the host. Schmux handles tmux control mode internally.
+	ConnectCommand string `json:"connect_command,omitempty"`
+
+	// ReconnectCommand is a Go template for reconnecting to an existing remote host.
+	// Schmux will automatically append "-- tmux -CC new-session -A -s schmux" to this command.
+	//
+	// Available template variables:
+	//   {{.Hostname}} - Remote host hostname (discovered after initial connection)
+	//   {{.Flavor}} - Remote flavor identifier
+	//
+	// Examples:
+	//   SSH: "ssh {{.Hostname}}"
+	//   Custom: "cloud-ssh reconnect {{.Hostname}}"
+	//
+	// If empty, uses ConnectCommand with Hostname instead of Flavor.
+	//
+	// Note: You only specify how to reach the host. Schmux handles tmux control mode internally.
+	ReconnectCommand string `json:"reconnect_command,omitempty"`
+
+	// ProvisionCommand is a Go template for provisioning the workspace on first connection.
+	// This runs ONCE after the initial connection, before creating any sessions.
+	//
+	// Available template variables:
+	//   {{.WorkspacePath}} - The configured workspace_path
+	//   {{.Repo}} - Repository URL (from spawn request)
+	//   {{.Branch}} - Branch name (from spawn request)
+	//   {{.VCS}} - "git" or "sapling"
+	//
+	// Examples:
+	//   Git: "git clone {{.Repo}} {{.WorkspacePath}} && cd {{.WorkspacePath}} && git checkout {{.Branch}}"
+	//   Docker: "git clone {{.Repo}} {{.WorkspacePath}} && cd {{.WorkspacePath}} && npm install"
+	//
+	// If empty, assumes workspace is pre-provisioned (e.g., cloud development environments).
+	//
+	// Note: Provisioning happens once per host. Reconnecting skips this step.
+	ProvisionCommand string `json:"provision_command,omitempty"`
+
+	// VSCodeCommandTemplate is a Go template for launching VS Code on remote workspaces.
+	// This allows per-flavor VSCode configuration (e.g., different SSH configs per remote).
+	//
+	// Available template variables:
+	//   {{.VSCodePath}} - Path to the local VS Code executable
+	//   {{.Hostname}} - Remote host hostname
+	//   {{.Path}} - Workspace path on remote host
+	//
+	// Examples:
+	//   Standard Remote-SSH: "{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}"
+	//   Custom remote: "{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}"
+	//   Jump host: "{{.VSCodePath}} --remote ssh-remote+jump-{{.Hostname}} {{.Path}}"
+	//
+	// If empty, uses the global remote_workspace.vscode_command_template setting.
+	// If that's also empty, defaults to: "{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}"
+	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
+
+	// HostnameRegex is a regular expression for extracting the hostname from provisioning
+	// command STDOUT output. The first capture group is used as the hostname.
+	//
+	// Examples:
+	//   SSH ControlMaster: "Establish ControlMaster connection to (\\S+)"
+	//   Custom banner: "Connected to host: (\\S+)"
+	//   IP address: "allocated (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+	//
+	// If empty, defaults to: "Establish ControlMaster connection to (\\S+)"
+	HostnameRegex string `json:"hostname_regex,omitempty"`
 }
 
 // PrReviewConfig holds configuration for GitHub PR review sessions.
@@ -86,6 +179,22 @@ type PrReviewConfig struct {
 // NotificationsConfig holds configuration for dashboard notifications.
 type NotificationsConfig struct {
 	SoundDisabled bool `json:"sound_disabled,omitempty"` // disable attention sounds (default: false = sounds enabled)
+}
+
+// RemoteWorkspaceConfig holds configuration for remote workspace operations.
+type RemoteWorkspaceConfig struct {
+	// VSCodeCommandTemplate is a Go template for launching VS Code on remote workspaces.
+	// Available template variables:
+	//   {{.Hostname}} - Remote host hostname
+	//   {{.Path}} - Remote workspace path
+	//   {{.VSCodePath}} - Path to the local VSCode executable
+	//
+	// Examples:
+	//   Standard Remote-SSH: "{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}"
+	//   Custom remote: "{{.VSCodePath}} --folder-uri vscode-remote://custom+{{.Hostname}}{{.Path}}"
+	//
+	// If empty, defaults to standard VS Code Remote-SSH format.
+	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
 }
 
 // TerminalSize represents terminal dimensions.
@@ -1059,4 +1168,235 @@ func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// GetRemoteFlavors returns the list of remote flavors.
+func (c *Config) GetRemoteFlavors() []RemoteFlavor {
+	if c.RemoteFlavors == nil {
+		return []RemoteFlavor{}
+	}
+	return c.RemoteFlavors
+}
+
+// GetRemoteFlavor returns a remote flavor by ID.
+func (c *Config) GetRemoteFlavor(id string) (RemoteFlavor, bool) {
+	for _, rf := range c.RemoteFlavors {
+		if rf.ID == id {
+			return rf, true
+		}
+	}
+	return RemoteFlavor{}, false
+}
+
+// GetRemoteVSCodeCommandTemplate returns the VSCode command template for remote workspaces.
+// Returns a default template if not configured.
+func (c *Config) GetRemoteVSCodeCommandTemplate() string {
+	if c.RemoteWorkspace != nil && c.RemoteWorkspace.VSCodeCommandTemplate != "" {
+		return c.RemoteWorkspace.VSCodeCommandTemplate
+	}
+	// Default to standard VS Code Remote-SSH format
+	return `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`
+}
+
+// GetConnectCommandTemplate returns the full connection command template for this flavor.
+// This includes both the user's connection command and the tmux control mode invocation.
+// Users only configure the connection part; schmux appends the tmux parts automatically.
+func (rf *RemoteFlavor) GetConnectCommandTemplate() string {
+	var baseCmd string
+	if rf.ConnectCommand != "" {
+		baseCmd = rf.ConnectCommand
+	} else {
+		// Default to standard SSH connection
+		baseCmd = `ssh {{.Flavor}}`
+	}
+	// Append tmux control mode invocation
+	return baseCmd + ` -- tmux -CC new-session -A -s schmux`
+}
+
+// GetReconnectCommandTemplate returns the full reconnection command template for this flavor.
+// This includes both the user's reconnection command and the tmux control mode invocation.
+// Users only configure the connection part; schmux appends the tmux parts automatically.
+func (rf *RemoteFlavor) GetReconnectCommandTemplate() string {
+	var baseCmd string
+	if rf.ReconnectCommand != "" {
+		baseCmd = rf.ReconnectCommand
+	} else if rf.ConnectCommand != "" {
+		// Use ConnectCommand as base (user should use {{.Hostname}} in it for reconnect)
+		baseCmd = rf.ConnectCommand
+	} else {
+		// Default to standard SSH reconnection
+		baseCmd = `ssh {{.Hostname}}`
+	}
+	// Append tmux control mode invocation
+	return baseCmd + ` -- tmux -CC new-session -A -s schmux`
+}
+
+// AddRemoteFlavor adds a new remote flavor to the config.
+// If no ID is provided, one is generated from the flavor string.
+func (c *Config) AddRemoteFlavor(rf RemoteFlavor) error {
+	if err := validateRemoteFlavor(rf); err != nil {
+		return err
+	}
+	if rf.VCS == "" {
+		rf.VCS = "git"
+	}
+
+	// Generate ID if not provided
+	if rf.ID == "" {
+		rf.ID = generateRemoteFlavorID(rf.Flavor)
+	}
+
+	// Check for duplicate ID
+	for _, existing := range c.RemoteFlavors {
+		if existing.ID == rf.ID {
+			return fmt.Errorf("%w: remote flavor with ID %q already exists", ErrInvalidConfig, rf.ID)
+		}
+	}
+
+	c.RemoteFlavors = append(c.RemoteFlavors, rf)
+	return nil
+}
+
+// validateRemoteFlavor validates a remote flavor configuration.
+func validateRemoteFlavor(rf RemoteFlavor) error {
+	if rf.Flavor == "" {
+		return fmt.Errorf("%w: flavor string is required", ErrInvalidConfig)
+	}
+	if rf.DisplayName == "" {
+		return fmt.Errorf("%w: display_name is required", ErrInvalidConfig)
+	}
+	if rf.WorkspacePath == "" {
+		return fmt.Errorf("%w: workspace_path is required", ErrInvalidConfig)
+	}
+	if rf.VCS != "" && rf.VCS != "git" && rf.VCS != "sapling" {
+		return fmt.Errorf("%w: vcs must be 'git' or 'sapling'", ErrInvalidConfig)
+	}
+
+	// Length validation
+	if len(rf.DisplayName) > 100 {
+		return fmt.Errorf("%w: display_name too long (max 100 characters)", ErrInvalidConfig)
+	}
+	if len(rf.Flavor) > 200 {
+		return fmt.Errorf("%w: flavor too long (max 200 characters)", ErrInvalidConfig)
+	}
+	if len(rf.WorkspacePath) > 500 {
+		return fmt.Errorf("%w: workspace_path too long (max 500 characters)", ErrInvalidConfig)
+	}
+
+	// Shell injection validation for flavor - strengthen against metacharacters
+	dangerousChars := ";|&$`\\\n\r\t<>(){}[]"
+	if strings.ContainsAny(rf.Flavor, dangerousChars) {
+		return fmt.Errorf("%w: flavor contains shell metacharacters", ErrInvalidConfig)
+	}
+
+	// Workspace path validation - check for dangerous characters
+	if strings.ContainsAny(rf.WorkspacePath, "$`\\;|&\n\r") {
+		return fmt.Errorf("%w: workspace_path contains dangerous characters", ErrInvalidConfig)
+	}
+
+	// Workspace path validation
+	if !strings.HasPrefix(rf.WorkspacePath, "~") && !strings.HasPrefix(rf.WorkspacePath, "/") {
+		return fmt.Errorf("%w: workspace_path must be absolute or start with ~", ErrInvalidConfig)
+	}
+
+	// Template validation for command templates
+	if rf.ConnectCommand != "" {
+		testData := map[string]string{"Flavor": "test-flavor"}
+		if err := validateCommandTemplate(rf.ConnectCommand, "connect_command", testData); err != nil {
+			return err
+		}
+	}
+
+	if rf.ReconnectCommand != "" {
+		testData := map[string]string{"Hostname": "test.example.com", "Flavor": "test-flavor"}
+		if err := validateCommandTemplate(rf.ReconnectCommand, "reconnect_command", testData); err != nil {
+			return err
+		}
+	}
+
+	if rf.ProvisionCommand != "" {
+		testData := map[string]string{"WorkspacePath": "/workspace", "Repo": "https://github.com/test/repo"}
+		if err := validateCommandTemplate(rf.ProvisionCommand, "provision_command", testData); err != nil {
+			return err
+		}
+	}
+
+	if rf.HostnameRegex != "" {
+		re, err := regexp.Compile(rf.HostnameRegex)
+		if err != nil {
+			return fmt.Errorf("%w: hostname_regex is not valid regex: %v", ErrInvalidConfig, err)
+		}
+		if re.NumSubexp() < 1 {
+			return fmt.Errorf("%w: hostname_regex must contain at least one capture group", ErrInvalidConfig)
+		}
+	}
+
+	return nil
+}
+
+// validateCommandTemplate validates that a template string is valid Go template syntax
+// and can be executed with the provided test data.
+func validateCommandTemplate(tmplStr, fieldName string, testData map[string]string) error {
+	// Parse the template with strict error mode for undefined variables
+	tmpl, err := template.New(fieldName).Option("missingkey=error").Parse(tmplStr)
+	if err != nil {
+		return fmt.Errorf("%w: %s has invalid template syntax: %v", ErrInvalidConfig, fieldName, err)
+	}
+
+	// Try to execute with test data to catch undefined variable errors
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, testData); err != nil {
+		return fmt.Errorf("%w: %s template execution failed: %v", ErrInvalidConfig, fieldName, err)
+	}
+
+	return nil
+}
+
+// UpdateRemoteFlavor updates an existing remote flavor.
+func (c *Config) UpdateRemoteFlavor(rf RemoteFlavor) error {
+	if rf.ID == "" {
+		return fmt.Errorf("%w: flavor ID is required", ErrInvalidConfig)
+	}
+	if err := validateRemoteFlavor(rf); err != nil {
+		return err
+	}
+
+	for i, existing := range c.RemoteFlavors {
+		if existing.ID == rf.ID {
+			c.RemoteFlavors[i] = rf
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: remote flavor not found: %s", ErrInvalidConfig, rf.ID)
+}
+
+// RemoveRemoteFlavor removes a remote flavor by ID.
+func (c *Config) RemoveRemoteFlavor(id string) error {
+	for i, rf := range c.RemoteFlavors {
+		if rf.ID == id {
+			c.RemoteFlavors = append(c.RemoteFlavors[:i], c.RemoteFlavors[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: remote flavor not found: %s", ErrInvalidConfig, id)
+}
+
+// generateRemoteFlavorID generates a sanitized ID from a flavor string.
+// e.g., "gpu:ml-large" -> "gpu_ml_large"
+func generateRemoteFlavorID(flavor string) string {
+	// Replace non-alphanumeric characters with underscore
+	result := strings.Builder{}
+	for _, c := range flavor {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			result.WriteRune(c)
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	return strings.ToLower(result.String())
+}
+
+// GenerateRemoteFlavorID is the exported version of generateRemoteFlavorID.
+func GenerateRemoteFlavorID(flavor string) string {
+	return generateRemoteFlavorID(flavor)
 }

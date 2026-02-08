@@ -15,7 +15,7 @@
 
 ## Build, Test, and Development Commands
 
-Prereqs: Go (see `go.mod`), `tmux`, and `git`.
+Prereqs: Go (see `go.mod`), `tmux`, `git`, and Docker (for E2E tests).
 
 ## ⚠️ E2E Tests — Use Docker Hook, NOT direct `go test`
 
@@ -27,11 +27,15 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 ✅ **RIGHT**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
 
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
-- `go run ./cmd/gen-types` -generate TypeScript types from Go contracts.
+- `go run ./cmd/gen-types` — generate TypeScript types from Go contracts.
 - `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
-- `go test ./...` — run all unit tests.
-- `go test -v ./...` — verbose test output.
-- `go test -cover ./...` — quick coverage signal.
+- `./test.sh --all` — run all tests (unit + E2E) - **recommended before commits**.
+- `./test.sh` — run unit tests only (default).
+- `./test.sh --race` — run unit tests with race detector.
+- `./test.sh --coverage` — run unit tests with coverage report.
+- `./test.sh --e2e` — run E2E tests only (requires Docker).
+- `./test.sh --help` — see all options.
+- `go test ./...` — run unit tests directly (alternative to test.sh).
 - `./schmux start` / `./schmux stop` / `./schmux status` — manage the daemon locally.
 
 ## Coding Style & Naming Conventions
@@ -51,11 +55,14 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 
 Before committing changes, you MUST run:
 
-1. **Run unit tests**: `go test ./...`
-2. **Run E2E tests via Docker hook only**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
-3. **Format code**: `go fmt ./...`
+1. **Run all tests**: `./test.sh --all`
+2. **Format code**: `go fmt ./...`
 
-This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
+The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
+
+For faster iteration during development:
+- Run unit tests only: `./test.sh` (or `go test ./...`)
+- Skip E2E tests and let CI handle them on PRs
 
 ## Commit & Pull Request Guidelines
 

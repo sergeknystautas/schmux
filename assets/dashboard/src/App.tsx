@@ -11,6 +11,7 @@ import HomePage from './routes/HomePage'
 import SpawnPage from './routes/SpawnPage'
 import TipsPage from './routes/TipsPage'
 import ConfigPage from './routes/ConfigPage'
+import RemoteSettingsPage from './routes/RemoteSettingsPage'
 import SessionDetailPage from './routes/SessionDetailPage'
 import DiffPage from './routes/DiffPage'
 import GitGraphPage from './routes/GitGraphPage'
@@ -38,6 +39,7 @@ export default function App() {
                       <Route path="/spawn" element={<SpawnPage key={location.key} />} />
                       <Route path="/tips" element={<TipsPage />} />
                       <Route path="/config" element={<ConfigPage />} />
+                      <Route path="/settings/remote" element={<RemoteSettingsPage />} />
                       <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>

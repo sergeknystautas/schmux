@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/provision"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -33,11 +34,12 @@ const (
 
 // Manager manages sessions.
 type Manager struct {
-	config    *config.Config
-	state     state.StateStore
-	workspace workspace.WorkspaceManager
-	trackers  map[string]*SessionTracker
-	mu        sync.RWMutex
+	config        *config.Config
+	state         state.StateStore
+	workspace     workspace.WorkspaceManager
+	remoteManager *remote.Manager // Optional, for remote sessions
+	trackers      map[string]*SessionTracker
+	mu            sync.RWMutex
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -59,11 +61,168 @@ const (
 // New creates a new session manager.
 func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager) *Manager {
 	return &Manager{
-		config:    cfg,
-		state:     st,
-		workspace: wm,
-		trackers:  make(map[string]*SessionTracker),
+		config:        cfg,
+		state:         st,
+		workspace:     wm,
+		trackers:      make(map[string]*SessionTracker),
+		remoteManager: nil,
 	}
+}
+
+// SetRemoteManager sets the remote manager for remote session support.
+func (m *Manager) SetRemoteManager(rm *remote.Manager) {
+	m.remoteManager = rm
+}
+
+// GetRemoteManager returns the remote manager (may be nil).
+func (m *Manager) GetRemoteManager() *remote.Manager {
+	return m.remoteManager
+}
+
+// SpawnRemote creates a new session on a remote host.
+// flavorID identifies the remote flavor to connect to.
+// targetName is the agent to run (e.g., "claude").
+// prompt is only used if the target is promptable.
+// nickname is an optional human-friendly name for the session.
+func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt, nickname string) (*state.Session, error) {
+	if m.remoteManager == nil {
+		return nil, fmt.Errorf("remote manager not configured")
+	}
+
+	resolved, err := m.ResolveTarget(ctx, targetName)
+	if err != nil {
+		return nil, err
+	}
+
+	command, err := buildCommand(resolved, prompt, nil, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Connect to or get existing connection for this flavor
+	conn, err := m.remoteManager.Connect(ctx, flavorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to remote host: %w", err)
+	}
+
+	host := conn.Host()
+	flavor := conn.Flavor()
+
+	// Create session ID
+	sessionID := fmt.Sprintf("remote-%s-%s", flavorID, uuid.New().String()[:8])
+
+	// Generate unique nickname if provided
+	uniqueNickname := nickname
+	if nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(nickname)
+	}
+
+	// Use nickname as window name if provided, otherwise use sessionID
+	windowName := sessionID
+	if uniqueNickname != "" {
+		windowName = sanitizeNickname(uniqueNickname)
+	}
+
+	// Get or create a workspace for this remote host+flavor
+	// Use deterministic ID so all sessions on same host+flavor share a workspace
+	workspaceID := fmt.Sprintf("remote-%s", host.ID)
+	ws, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		// Create new workspace for this remote host
+		ws = state.Workspace{
+			ID:           workspaceID,
+			Repo:         flavor.DisplayName,
+			Branch:       "remote",
+			Path:         flavor.WorkspacePath,
+			RemoteHostID: host.ID,
+			RemotePath:   flavor.WorkspacePath,
+		}
+		if err := m.state.AddWorkspace(ws); err != nil {
+			return nil, fmt.Errorf("failed to add workspace to state: %w", err)
+		}
+	}
+
+	// Check if connection is ready
+	if !conn.IsConnected() {
+		// Queue the session creation
+		resultCh := conn.QueueSession(ctx, sessionID, windowName, flavor.WorkspacePath, command)
+
+		// Create session with status="provisioning"
+		sess := state.Session{
+			ID:           sessionID,
+			WorkspaceID:  ws.ID,
+			Target:       targetName,
+			Nickname:     uniqueNickname,
+			TmuxSession:  windowName,
+			CreatedAt:    time.Now(),
+			Pid:          0, // No local PID for remote sessions
+			RemoteHostID: host.ID,
+			RemotePaneID: "", // Will be set when queue is drained
+			RemoteWindow: "", // Will be set when queue is drained
+			Status:       "provisioning",
+		}
+
+		// Save immediately with provisioning status
+		if err := m.state.AddSession(sess); err != nil {
+			return nil, fmt.Errorf("failed to add session to state: %w", err)
+		}
+		if err := m.state.Save(); err != nil {
+			return nil, fmt.Errorf("failed to save state: %w", err)
+		}
+
+		// Wait for queue to process (async)
+		go func() {
+			select {
+			case result := <-resultCh:
+				if result.Error != nil {
+					fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
+					sess.Status = "failed"
+				} else {
+					fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
+						sessionID, result.WindowID, result.PaneID)
+					sess.Status = "running"
+					sess.RemoteWindow = result.WindowID
+					sess.RemotePaneID = result.PaneID
+				}
+				m.state.UpdateSession(sess)
+				m.state.Save()
+			case <-ctx.Done():
+				return
+			}
+		}()
+
+		return &sess, nil
+	}
+
+	// Connected - create immediately (existing code path)
+	windowID, paneID, err := conn.CreateSession(ctx, windowName, flavor.WorkspacePath, command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create remote session: %w", err)
+	}
+
+	// Create session state
+	sess := state.Session{
+		ID:           sessionID,
+		WorkspaceID:  ws.ID,
+		Target:       targetName,
+		Nickname:     uniqueNickname,
+		TmuxSession:  windowName,
+		CreatedAt:    time.Now(),
+		Pid:          0, // No local PID for remote sessions
+		RemoteHostID: host.ID,
+		RemotePaneID: paneID,
+		RemoteWindow: windowID,
+		Status:       "running",
+	}
+
+	if err := m.state.AddSession(sess); err != nil {
+		return nil, fmt.Errorf("failed to add session to state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save state: %w", err)
+	}
+
+	return &sess, nil
 }
 
 // Spawn creates a new session.
@@ -439,12 +598,29 @@ func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
 
 // IsRunning checks if the agent process is still running.
 // Uses the cached PID from tmux pane, which is more reliable than searching by process name.
+// For remote sessions, checks if the remote connection is active.
 func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return false
 	}
 
+	// Handle remote sessions
+	if sess.IsRemoteSession() {
+		if m.remoteManager == nil {
+			return false
+		}
+		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+		if conn == nil || !conn.IsConnected() {
+			return false
+		}
+		// Connection is active - check if session has been created
+		// Session is only running if it has a RemotePaneID (created on the remote host)
+		// If pane ID is empty, the session is still provisioning
+		return sess.RemotePaneID != ""
+	}
+
+	// Local session handling
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
 		return tmux.SessionExists(ctx, sess.TmuxSession)
@@ -560,6 +736,11 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	// Handle remote sessions
+	if sess.IsRemoteSession() {
+		return m.disposeRemoteSession(ctx, sess)
+	}
+
 	// Track what we've done for the summary
 	var warnings []string
 	processesKilled := 0
@@ -626,6 +807,50 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	}
 	if tmuxKilled {
 		summary += " + tmux session"
+	}
+	fmt.Printf("[session] %s\n", summary)
+
+	// Print warnings if any
+	for _, w := range warnings {
+		fmt.Printf("[session]   warning: %s\n", w)
+	}
+
+	return nil
+}
+
+// disposeRemoteSession disposes of a remote session via control mode.
+func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) error {
+	var warnings []string
+	windowKilled := false
+
+	// Kill the remote window via control mode if connected
+	if m.remoteManager != nil {
+		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+		if conn != nil && conn.IsConnected() && sess.RemoteWindow != "" {
+			if err := conn.KillSession(ctx, sess.RemoteWindow); err != nil {
+				warnings = append(warnings, fmt.Sprintf("failed to kill remote window: %v", err))
+			} else {
+				windowKilled = true
+			}
+		}
+	}
+
+	// DO NOT remove the workspace for remote sessions - it's shared across all
+	// sessions on the same remote host. The workspace persists until the host
+	// is disconnected or expired.
+
+	// Remove session from state
+	if err := m.state.RemoveSession(sess.ID); err != nil {
+		return fmt.Errorf("failed to remove session from state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Print summary
+	summary := fmt.Sprintf("Disposed remote session %s", sess.ID)
+	if windowKilled {
+		summary += " (killed remote window)"
 	}
 	fmt.Printf("[session] %s\n", summary)
 

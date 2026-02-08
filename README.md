@@ -113,7 +113,7 @@ When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn
 │  - Spawn/dispose tmux sessions                          │
 │  - Track PIDs, status, terminal output                  │
 │                                                         │
-│  Workspace Manager (internal/workspace/manager.go)       │
+│  Workspace Manager (internal/workspace/manager.go)      │
 │  - Clone/checkout git repos                             │
 │  - Track workspace directories                          │
 │                                                         │

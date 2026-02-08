@@ -111,13 +111,26 @@ func (e *Env) DaemonStart() {
 	e.T.Helper()
 	e.T.Log("Starting daemon...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	cmd := exec.CommandContext(ctx, e.SchmuxBin, "start")
-	out, err := cmd.CombinedOutput()
-	cancel()
+	// Start daemon in foreground mode in a goroutine to capture stderr
+	cmd := exec.Command(e.SchmuxBin, "daemon-run")
+
+	// Capture stderr to a log file for debugging
+	homeDir, _ := os.UserHomeDir()
+	logFile := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
+	os.MkdirAll(filepath.Dir(logFile), 0755)
+	stderr, err := os.Create(logFile)
 	if err != nil {
-		e.T.Fatalf("Failed to start daemon: %v\nOutput: %s", err, out)
+		e.T.Fatalf("Failed to create daemon log file: %v", err)
 	}
+	cmd.Stderr = stderr
+	cmd.Stdout = stderr // Capture stdout too
+
+	if err := cmd.Start(); err != nil {
+		stderr.Close()
+		e.T.Fatalf("Failed to start daemon: %v", err)
+	}
+
+	// Don't close stderr - let it stay open for the daemon to write to
 
 	// Wait for daemon to be ready
 	e.T.Log("Waiting for daemon to be ready...")
@@ -683,6 +696,14 @@ func (e *Env) CaptureArtifacts() {
 		if data, err := os.ReadFile(statePath); err == nil {
 			os.WriteFile(filepath.Join(failureDir, "state.json"), data, 0644)
 		}
+
+		// Capture daemon log if it exists
+		daemonLogPath := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
+		if data, err := os.ReadFile(daemonLogPath); err == nil {
+			os.WriteFile(filepath.Join(failureDir, "daemon.log"), data, 0644)
+			// Also print to test output for immediate visibility
+			e.T.Logf("=== DAEMON LOG ===\n%s", string(data))
+		}
 	}
 
 	// Capture tmux ls output
@@ -785,4 +806,202 @@ func RunCmd(t *testing.T, dir string, name string, args ...string) {
 	if err != nil {
 		t.Fatalf("Command failed: %s %v\nStdout: %s\nStderr: %s", name, args, stdout.String(), stderr.String())
 	}
+}
+
+// RemoteHostResponse represents a remote host from the API.
+type RemoteHostResponse struct {
+	ID          string `json:"id"`
+	FlavorID    string `json:"flavor_id"`
+	DisplayName string `json:"display_name,omitempty"`
+	Hostname    string `json:"hostname"`
+	Status      string `json:"status"`
+	VCS         string `json:"vcs,omitempty"`
+	ConnectedAt string `json:"connected_at,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
+// RemoteFlavorResponse represents a remote flavor from the API.
+type RemoteFlavorResponse struct {
+	ID            string `json:"id"`
+	Flavor        string `json:"flavor"`
+	DisplayName   string `json:"display_name"`
+	VCS           string `json:"vcs"`
+	WorkspacePath string `json:"workspace_path"`
+}
+
+// AddRemoteFlavorToConfig adds a remote flavor to the config file.
+func (e *Env) AddRemoteFlavorToConfig(flavor, displayName, workspacePath, connectCommand string) string {
+	e.T.Helper()
+	e.T.Logf("Adding remote flavor to config: %s", displayName)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	schmuxDir := filepath.Join(homeDir, ".schmux")
+	configPath := filepath.Join(schmuxDir, "config.json")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	rf := config.RemoteFlavor{
+		Flavor:         flavor,
+		DisplayName:    displayName,
+		VCS:            "git",
+		WorkspacePath:  workspacePath,
+		ConnectCommand: connectCommand,
+	}
+
+	if err := cfg.AddRemoteFlavor(rf); err != nil {
+		e.T.Fatalf("Failed to add remote flavor: %v", err)
+	}
+
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Return the generated ID (config generates ID from flavor string)
+	flavorID := config.GenerateRemoteFlavorID(flavor)
+	e.T.Logf("Remote flavor added with ID: %s", flavorID)
+	return flavorID
+}
+
+// GetRemoteHosts returns the list of remote hosts from the API.
+func (e *Env) GetRemoteHosts() []RemoteHostResponse {
+	e.T.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/remote/hosts", nil)
+	resp, err := http.DefaultClient.Do(req)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to get remote hosts from API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("API returned non-200 status: %d\nBody: %s", resp.StatusCode, body)
+	}
+
+	var hosts []RemoteHostResponse
+	if err := json.NewDecoder(resp.Body).Decode(&hosts); err != nil {
+		e.T.Fatalf("Failed to decode API response: %v", err)
+	}
+
+	return hosts
+}
+
+// SpawnRemoteSession spawns a session on a remote host via the daemon API.
+// Returns the session ID from the API response.
+func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) string {
+	e.T.Helper()
+	e.T.Logf("Spawning remote session via API: flavor=%s target=%s nickname=%s", flavorID, target, nickname)
+
+	type SpawnRequest struct {
+		RemoteFlavorID string         `json:"remote_flavor_id"`
+		Prompt         string         `json:"prompt"`
+		Nickname       string         `json:"nickname,omitempty"`
+		Targets        map[string]int `json:"targets"`
+	}
+
+	spawnReqBody := SpawnRequest{
+		RemoteFlavorID: flavorID,
+		Prompt:         prompt,
+		Nickname:       nickname,
+		Targets:        map[string]int{target: 1},
+	}
+
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+	spawnResp, err := http.DefaultClient.Do(spawnReq)
+	cancel()
+	if err != nil {
+		// Print daemon log for debugging before failing
+		homeDir, _ := os.UserHomeDir()
+		daemonLogPath := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
+		if data, err2 := os.ReadFile(daemonLogPath); err2 == nil {
+			e.T.Logf("=== DAEMON LOG (spawn failed) ===\n%s", string(data))
+		}
+		e.T.Fatalf("Failed to spawn remote session: %v", err)
+	}
+	defer spawnResp.Body.Close()
+
+	if spawnResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(spawnResp.Body)
+		e.T.Fatalf("Remote spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, body)
+	}
+
+	// Parse response to get session ID
+	type SpawnResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Target      string `json:"target"`
+		Status      string `json:"status"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	var results []SpawnResult
+	if err := json.NewDecoder(spawnResp.Body).Decode(&results); err != nil {
+		e.T.Logf("Failed to decode spawn response: %v", err)
+		return ""
+	}
+
+	if len(results) > 0 && results[0].Error != "" {
+		e.T.Fatalf("Remote spawn failed: %s", results[0].Error)
+	}
+
+	if len(results) > 0 {
+		e.T.Logf("Remote session spawned: %s (status: %s)", results[0].SessionID, results[0].Status)
+		return results[0].SessionID
+	}
+
+	return ""
+}
+
+// WaitForRemoteHostStatus waits for a remote host to reach a specific status.
+func (e *Env) WaitForRemoteHostStatus(flavorID, expectedStatus string, timeout time.Duration) *RemoteHostResponse {
+	e.T.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		hosts := e.GetRemoteHosts()
+		for _, host := range hosts {
+			if host.FlavorID == flavorID && host.Status == expectedStatus {
+				return &host
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	e.T.Fatalf("Timed out waiting for remote host %s to reach status %s", flavorID, expectedStatus)
+	return nil
+}
+
+// WaitForSessionRunning waits for a session to reach running status via API.
+func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *APISession {
+	e.T.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		sessions := e.GetAPISessions()
+		for _, sess := range sessions {
+			if sess.ID == sessionID && sess.Running {
+				return &sess
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	e.T.Fatalf("Timed out waiting for session %s to be running", sessionID)
+	return nil
 }

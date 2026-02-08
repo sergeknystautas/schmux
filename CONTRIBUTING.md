@@ -30,9 +30,22 @@ See [React Architecture](docs/dev/react.md) for more details.
 
 Before committing changes, you MUST run:
 
-1. **Run unit tests**: `go test ./...`
-2. **Run E2E tests**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
-3. **Format code**: `go fmt ./...`
+1. **Run all tests**: `./test.sh --all`
+   - Or run individually:
+     - Unit tests only: `./test.sh` (or `go test ./...`)
+     - E2E tests only: `./test.sh --e2e`
+2. **Format code**: `go fmt ./...`
+
+The `test.sh` script provides a convenient way to run tests with various options:
+```bash
+./test.sh              # Run unit tests (default)
+./test.sh --all        # Run both unit and E2E tests
+./test.sh --race       # Run with race detector
+./test.sh --coverage   # Run with coverage report
+./test.sh --help       # See all options
+```
+
+**Note:** E2E tests require Docker and take longer to run. You can skip them during development and let CI run them on PRs.
 
 ## Documentation
 

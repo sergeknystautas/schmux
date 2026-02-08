@@ -30,16 +30,23 @@ go run ./cmd/gen-types
 # Build the React dashboard (see warning above)
 go run ./cmd/build-dashboard
 
-# Run all tests
-go test ./...
+# Run all tests (unit + E2E) - RECOMMENDED
+./test.sh --all
 
-# Run tests with coverage
-go test -cover ./...
+# Run tests with various options
+./test.sh              # Unit tests only (default)
+./test.sh --race       # Unit tests with race detector
+./test.sh --coverage   # Unit tests with coverage report
+./test.sh --e2e        # E2E tests only (requires Docker)
+./test.sh --help       # See all options
 
-# Build E2E Docker image
+# Or run tests directly with go
+go test ./...          # Unit tests only
+go test -race ./...    # Unit tests with race detector
+go test -cover ./...   # Unit tests with coverage
+
+# Build and run E2E tests manually
 docker build -f Dockerfile.e2e -t schmux-e2e .
-
-# Run E2E tests
 docker run --rm schmux-e2e
 
 # Daemon management (requires config at ~/.schmux/config.json)
@@ -53,11 +60,14 @@ docker run --rm schmux-e2e
 
 Before committing changes, you MUST run:
 
-1. **Run unit tests**: `go test ./...`
-2. **Run E2E tests**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
-3. **Format code**: `go fmt ./...`
+1. **Run all tests**: `./test.sh --all`
+2. **Format code**: `go fmt ./...`
 
-This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
+The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
+
+For faster iteration during development:
+- Run unit tests only: `./test.sh` (or `go test ./...`)
+- Skip E2E tests and let CI handle them on PRs
 
 ## Code Architecture
 
@@ -74,7 +84,7 @@ This catches issues like Dockerfile/go.mod version mismatches before they reach 
 │  - Spawn/dispose tmux sessions                          │
 │  - Track PIDs, status, terminal output                  │
 │                                                         │
-│  Workspace Manager (internal/workspace/manager.go)       │
+│  Workspace Manager (internal/workspace/manager.go)      │
 │  - Clone/checkout git repos                             │
 │  - Track workspace directories                          │
 │                                                         │

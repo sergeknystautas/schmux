@@ -25,8 +25,14 @@ func TestDefaultChecker_Success(t *testing.T) {
 }
 
 // TestChecker_MissingTmux tests that checker fails when tmux is missing.
+// NOTE: This test uses global variable mutation (TmuxChecker) which is an anti-pattern.
+// It's acceptable here because:
+// 1. We properly save/restore the original value
+// 2. Tests run sequentially in the same package
+// 3. The alternative (dependency injection) requires larger refactoring of daemon.go
+// TODO: Refactor to use dependency injection when daemon structure allows it.
 func TestChecker_MissingTmux(t *testing.T) {
-	// Save original checker and restore after test
+	// Save original checker and restore after test (ensures test isolation)
 	original := TmuxChecker
 	defer func() { TmuxChecker = original }()
 
@@ -44,8 +50,9 @@ func TestChecker_MissingTmux(t *testing.T) {
 }
 
 // TestChecker_TmuxNoOutput tests that checker fails when tmux returns no output.
+// NOTE: Uses global variable mutation - see TestChecker_MissingTmux for rationale.
 func TestChecker_TmuxNoOutput(t *testing.T) {
-	// Save original checker and restore after test
+	// Save original checker and restore after test (ensures test isolation)
 	original := TmuxChecker
 	defer func() { TmuxChecker = original }()
 
