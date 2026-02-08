@@ -84,14 +84,12 @@ func TestGetAttachCommandNotFound(t *testing.T) {
 
 func TestGetAllSessions(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	// Create fresh state for test isolation
 	st := state.New("")
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 
 	m := New(cfg, st, statePath, wm)
-
-	// Clear existing sessions
-	st.Sessions = []state.Session{}
 
 	// Add test sessions
 	sessions := []state.Session{
@@ -150,20 +148,6 @@ func TestIsRunning(t *testing.T) {
 
 	m := New(cfg, st, statePath, wm)
 
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-003",
-		WorkspaceID: "test-003",
-		Target:      "test",
-		TmuxSession: "schmux-test-003-ghi789",
-	}
-
-	st.AddSession(sess)
-
-	// This will fail if tmux is not installed or session doesn't exist
-	// which is expected in a test environment
-	_ = m.IsRunning(context.Background(), "session-003")
-
 	t.Run("returns false for nonexistent session", func(t *testing.T) {
 		running := m.IsRunning(context.Background(), "nonexistent")
 		if running {
@@ -195,19 +179,6 @@ func TestGetOutput(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath)
 
 	m := New(cfg, st, statePath, wm)
-
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-004",
-		WorkspaceID: "test-004",
-		Target:      "test",
-		TmuxSession: "schmux-test-004-jkl012",
-	}
-
-	st.AddSession(sess)
-
-	// This will fail if tmux is not installed
-	_, _ = m.GetOutput(context.Background(), "session-004")
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		_, err := m.GetOutput(context.Background(), "nonexistent")
@@ -344,28 +315,11 @@ func TestRenameSession(t *testing.T) {
 
 	m := New(cfg, st, statePath, wm)
 
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-005",
-		WorkspaceID: "test-005",
-		Target:      "test",
-		TmuxSession: "schmux-test-005-mno345",
-		Nickname:    "old-name",
-	}
-
-	st.AddSession(sess)
-
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.RenameSession(context.Background(), "nonexistent", "new-name")
 		if err == nil {
 			t.Error("expected error for nonexistent session")
 		}
-	})
-
-	// Actual rename test requires tmux
-	t.Run("rename attempts tmux operation", func(t *testing.T) {
-		// This will fail if tmux is not installed
-		_ = m.RenameSession(context.Background(), "session-005", "new-name")
 	})
 }
 
@@ -377,40 +331,10 @@ func TestDispose(t *testing.T) {
 
 	m := New(cfg, st, statePath, wm)
 
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-006",
-		WorkspaceID: "test-006",
-		Target:      "test",
-		TmuxSession: "schmux-test-006-pqr678",
-	}
-
-	st.AddSession(sess)
-
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.Dispose(context.Background(), "nonexistent")
 		if err == nil {
 			t.Error("expected error for nonexistent session")
-		}
-	})
-
-	// Actual dispose test requires tmux
-	t.Run("dispose removes session from state", func(t *testing.T) {
-		// Create a new session for this test
-		sess2 := state.Session{
-			ID:          "session-007",
-			WorkspaceID: "test-007",
-			Target:      "test",
-			TmuxSession: "schmux-test-007-stu901",
-		}
-		st.AddSession(sess2)
-
-		// This will fail on tmux kill, but should still remove from state
-		_ = m.Dispose(context.Background(), "session-007")
-
-		_, found := st.GetSession("session-007")
-		if found {
-			t.Log("session still in state (tmux may have failed)")
 		}
 	})
 }
@@ -426,26 +350,11 @@ func TestEnsurePipePane(t *testing.T) {
 
 	m := New(cfg, st, statePath, wm)
 
-	// Add a test session
-	sess := state.Session{
-		ID:          "session-008",
-		WorkspaceID: "test-008",
-		Target:      "test",
-		TmuxSession: "schmux-test-008-vwx234",
-	}
-
-	st.AddSession(sess)
-
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.EnsurePipePane(context.Background(), "nonexistent")
 		if err == nil {
 			t.Error("expected error for nonexistent session")
 		}
-	})
-
-	// Skip the actual pipe-pane test to avoid creating log files in ~/.schmux/logs
-	t.Run("requires tmux - skipped", func(t *testing.T) {
-		t.Skip("requires tmux to be installed")
 	})
 }
 

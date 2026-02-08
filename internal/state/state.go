@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -19,9 +20,36 @@ type State struct {
 	PullRequests  []contracts.PullRequest `json:"pull_requests,omitempty"` // cached GitHub PRs
 	PublicRepos   []string                `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
 	NeedsRestart  bool                    `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	RemoteHosts   []RemoteHost            `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
 	path          string                  // path to the state file
 	mu            sync.RWMutex
+
+	// Batched save support (Issue 6 fix)
+	savePending atomic.Bool // True if a save is scheduled
+	saveMu      sync.Mutex  // Protects save timer
+	saveTimer   *time.Timer // Timer for batched saves
 }
+
+// RemoteHost represents a connected or cached remote host.
+type RemoteHost struct {
+	ID          string    `json:"id"`
+	FlavorID    string    `json:"flavor_id"` // References config RemoteFlavor.ID
+	Hostname    string    `json:"hostname"`  // e.g., "remote-host-456.example.com"
+	UUID        string    `json:"uuid"`      // Remote session UUID
+	ConnectedAt time.Time `json:"connected_at"`
+	ExpiresAt   time.Time `json:"expires_at"`  // +12h from connected_at
+	Status      string    `json:"status"`      // "provisioning", "authenticating", "connected", "disconnected"
+	Provisioned bool      `json:"provisioned"` // Has the workspace been provisioned?
+}
+
+// Remote host status constants
+const (
+	RemoteHostStatusProvisioning   = "provisioning"
+	RemoteHostStatusAuthenticating = "authenticating"
+	RemoteHostStatusConnected      = "connected"
+	RemoteHostStatusDisconnected   = "disconnected"
+	RemoteHostStatusExpired        = "expired"
+)
 
 // Workspace represents a workspace directory state.
 // Multiple sessions can share the same workspace (multi-agent per directory).
@@ -36,6 +64,8 @@ type Workspace struct {
 	GitLinesAdded   int    `json:"-"`
 	GitLinesRemoved int    `json:"-"`
 	GitFilesChanged int    `json:"-"`
+	RemoteHostID    string `json:"remote_host_id,omitempty"` // Empty for local workspaces
+	RemotePath      string `json:"remote_path,omitempty"`    // Path on remote host
 }
 
 // WorktreeBase tracks a bare clone that hosts worktrees.
@@ -52,9 +82,13 @@ type Session struct {
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession  string    `json:"tmux_session"`
 	CreatedAt    time.Time `json:"created_at"`
-	Pid          int       `json:"pid"`             // PID of the target process from tmux pane
-	LastOutputAt time.Time `json:"-"`               // Last time terminal had new output (in-memory only, not persisted)
-	Nudge        string    `json:"nudge,omitempty"` // NudgeNik consultation result
+	Pid          int       `json:"pid"`                      // PID of the target process from tmux pane
+	LastOutputAt time.Time `json:"-"`                        // Last time terminal had new output (in-memory only, not persisted)
+	Nudge        string    `json:"nudge,omitempty"`          // NudgeNik consultation result
+	RemoteHostID string    `json:"remote_host_id,omitempty"` // Empty for local sessions
+	RemotePaneID string    `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
+	RemoteWindow string    `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
+	Status       string    `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
 }
 
 // New creates a new empty State instance.
@@ -63,6 +97,7 @@ func New(path string) *State {
 		Workspaces:    []Workspace{},
 		Sessions:      []Session{},
 		WorktreeBases: []WorktreeBase{},
+		RemoteHosts:   []RemoteHost{},
 		path:          path,
 	}
 }
@@ -89,6 +124,11 @@ func Load(path string) (*State, error) {
 		st.WorktreeBases = []WorktreeBase{}
 	}
 
+	// Initialize RemoteHosts if nil (existing state files)
+	if st.RemoteHosts == nil {
+		st.RemoteHosts = []RemoteHost{}
+	}
+
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
 	// sessions as "recently active" on startup, which would block git status updates.
 	for i := range st.Sessions {
@@ -98,8 +138,46 @@ func Load(path string) (*State, error) {
 	return &st, nil
 }
 
-// Save saves the state to its configured path.
+// Save saves the state to its configured path immediately.
+// Uses atomic write pattern (temp file + rename) to prevent corruption.
+// For critical operations that need immediate persistence. For rapid updates,
+// consider using SaveBatched() instead to avoid I/O saturation.
 func (s *State) Save() error {
+	return s.saveNow()
+}
+
+// SaveBatched schedules a batched save with 500ms debounce.
+// Multiple rapid calls will be coalesced into a single save operation.
+// Use this for non-critical state updates during rapid operations (e.g.,
+// status transitions during connection) to avoid I/O saturation.
+func (s *State) SaveBatched() {
+	const batchWindow = 500 * time.Millisecond
+
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	// If save already pending, reset the timer
+	if s.savePending.Load() {
+		if s.saveTimer != nil {
+			s.saveTimer.Reset(batchWindow)
+		}
+		return
+	}
+
+	// Mark save as pending
+	s.savePending.Store(true)
+
+	// Create timer to save after debounce window
+	s.saveTimer = time.AfterFunc(batchWindow, func() {
+		s.savePending.Store(false)
+		if err := s.saveNow(); err != nil {
+			fmt.Printf("[state] batched save failed: %v\n", err)
+		}
+	})
+}
+
+// saveNow performs the actual save operation (internal implementation).
+func (s *State) saveNow() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -116,8 +194,16 @@ func (s *State) Save() error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(s.path, data, 0644); err != nil {
+	// Use atomic write pattern (temp file + rename)
+	tmpPath := s.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write state: %w", err)
+	}
+
+	// Atomic rename on POSIX systems
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		os.Remove(tmpPath) // Clean up temp file
+		return fmt.Errorf("failed to save state: %w", err)
 	}
 
 	return nil
@@ -335,4 +421,130 @@ func (s *State) SetPublicRepos(repos []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PublicRepos = repos
+}
+
+// GetRemoteHosts returns a copy of all remote hosts.
+func (s *State) GetRemoteHosts() []RemoteHost {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.RemoteHosts == nil {
+		return []RemoteHost{}
+	}
+	result := make([]RemoteHost, len(s.RemoteHosts))
+	copy(result, s.RemoteHosts)
+	return result
+}
+
+// GetRemoteHost returns a remote host by ID.
+func (s *State) GetRemoteHost(id string) (RemoteHost, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rh := range s.RemoteHosts {
+		if rh.ID == id {
+			return rh, true
+		}
+	}
+	return RemoteHost{}, false
+}
+
+// GetRemoteHostByFlavorID returns a remote host by flavor ID.
+func (s *State) GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rh := range s.RemoteHosts {
+		if rh.FlavorID == flavorID {
+			return rh, true
+		}
+	}
+	return RemoteHost{}, false
+}
+
+// GetRemoteHostByHostname returns a remote host by hostname.
+func (s *State) GetRemoteHostByHostname(hostname string) (RemoteHost, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rh := range s.RemoteHosts {
+		if rh.Hostname == hostname {
+			return rh, true
+		}
+	}
+	return RemoteHost{}, false
+}
+
+// AddRemoteHost adds a remote host to state.
+func (s *State) AddRemoteHost(rh RemoteHost) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Check for existing entry with same ID
+	for i, existing := range s.RemoteHosts {
+		if existing.ID == rh.ID {
+			// Update existing entry
+			s.RemoteHosts[i] = rh
+			return nil
+		}
+	}
+	s.RemoteHosts = append(s.RemoteHosts, rh)
+	return nil
+}
+
+// UpdateRemoteHost updates an existing remote host.
+func (s *State) UpdateRemoteHost(rh RemoteHost) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.RemoteHosts {
+		if existing.ID == rh.ID {
+			s.RemoteHosts[i] = rh
+			return nil
+		}
+	}
+	return fmt.Errorf("remote host not found: %s", rh.ID)
+}
+
+// UpdateRemoteHostStatus atomically updates just the status of a remote host.
+func (s *State) UpdateRemoteHostStatus(id, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.RemoteHosts {
+		if existing.ID == id {
+			s.RemoteHosts[i].Status = status
+			return nil
+		}
+	}
+	return fmt.Errorf("remote host not found: %s", id)
+}
+
+// UpdateRemoteHostProvisioned atomically updates the provisioned status of a remote host.
+func (s *State) UpdateRemoteHostProvisioned(id string, provisioned bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.RemoteHosts {
+		if existing.ID == id {
+			s.RemoteHosts[i].Provisioned = provisioned
+			return nil
+		}
+	}
+	return fmt.Errorf("remote host not found: %s", id)
+}
+
+// RemoveRemoteHost removes a remote host by ID.
+func (s *State) RemoveRemoteHost(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, rh := range s.RemoteHosts {
+		if rh.ID == id {
+			s.RemoteHosts = append(s.RemoteHosts[:i], s.RemoteHosts[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+// IsRemoteSession returns true if the session is on a remote host.
+func (sess *Session) IsRemoteSession() bool {
+	return sess.RemoteHostID != ""
+}
+
+// IsRemoteWorkspace returns true if the workspace is on a remote host.
+func (ws *Workspace) IsRemoteWorkspace() bool {
+	return ws.RemoteHostID != ""
 }

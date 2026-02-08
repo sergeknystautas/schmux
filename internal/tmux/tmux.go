@@ -15,9 +15,16 @@ type Checker interface {
 	Check() error
 }
 
-// TmuxChecker is the default checker used at runtime.
-// Tests can override this with a mock implementation.
+// TmuxChecker is the package-level checker instance.
+// NOTE: This global is a known anti-pattern. Tests override it for mocking.
+// TODO: Refactor to use dependency injection once daemon structure allows it.
 var TmuxChecker Checker = &defaultChecker{}
+
+// NewDefaultChecker returns a new default checker instance.
+// Use this in production code that can accept a Checker via dependency injection.
+func NewDefaultChecker() Checker {
+	return &defaultChecker{}
+}
 
 // defaultChecker implements Checker by running tmux -V.
 type defaultChecker struct{}

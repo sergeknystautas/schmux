@@ -80,6 +80,11 @@ func (m *Manager) Scan() (ScanResult, error) {
 	// Step 2: Validate existing workspaces and check for updates
 	existingWorkspaces := m.state.GetWorkspaces()
 	for _, ws := range existingWorkspaces {
+		// Skip remote workspaces - they exist on remote hosts, not locally
+		if ws.IsRemoteWorkspace() {
+			continue
+		}
+
 		// Check if workspace has active sessions - skip these
 		hasActiveSessions := false
 		for _, s := range m.state.GetSessions() {

@@ -10,6 +10,11 @@ export interface SessionResponse {
   attach_cmd: string;
   nudge_state?: string;
   nudge_summary?: string;
+  // Remote session fields
+  remote_host_id?: string;
+  remote_pane_id?: string;
+  remote_hostname?: string;
+  remote_flavor_name?: string;
 }
 
 export interface WorkspaceResponse {
@@ -86,6 +91,7 @@ export interface SpawnRequest {
   workspace_id?: string;
   quick_launch_name?: string;
   resume?: boolean;                   // resume mode: use agent's resume command
+  remote_flavor_id?: string;          // optional: spawn on remote host
 }
 
 export interface SpawnResult {
@@ -248,4 +254,61 @@ export interface PRRefreshResponse {
 export interface PRCheckoutResponse {
   workspace_id: string;
   session_id: string;
+}
+
+// Remote workspace types
+export interface RemoteFlavor {
+  id: string;
+  flavor: string;
+  display_name: string;
+  vcs: string;
+  workspace_path: string;
+  connect_command?: string;
+  reconnect_command?: string;
+  provision_command?: string;
+  hostname_regex?: string;
+  vscode_command_template?: string;
+}
+
+export interface RemoteFlavorStatus {
+  flavor: RemoteFlavor;
+  connected: boolean;
+  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired';
+  hostname: string;
+  host_id: string;
+}
+
+export interface RemoteHost {
+  id: string;
+  flavor_id: string;
+  hostname: string;
+  uuid: string;
+  connected_at: string;
+  expires_at: string;
+  status: 'provisioning' | 'authenticating' | 'connected' | 'disconnected' | 'expired';
+  provisioned: boolean;
+  provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
+}
+
+export interface RemoteFlavorCreateRequest {
+  display_name: string;
+  flavor: string;
+  workspace_path: string;
+  vcs: string;
+  connect_command?: string;
+  reconnect_command?: string;
+  provision_command?: string;
+  hostname_regex?: string;
+  vscode_command_template?: string;
+}
+
+export interface RemoteHostConnectRequest {
+  flavor_id: string;
+}
+
+export interface RemoteSpawnRequest {
+  flavor_id: string;
+  target: string;
+  prompt: string;
+  nickname: string;
 }

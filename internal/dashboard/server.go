@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -110,6 +111,12 @@ type Server struct {
 	// GitHub PR discovery
 	prDiscovery *github.Discovery
 
+	// Remote host manager
+	remoteManager *remote.Manager
+
+	// Rate limiter for connection endpoint
+	connectLimiter *RateLimiter
+
 	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
@@ -138,6 +145,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		rotationLocks:                   make(map[string]*sync.Mutex),
 		broadcastDone:                   make(chan struct{}),
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
+		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
 	}
 	if mgr, ok := wm.(*workspace.Manager); ok {
 		mgr.SetWorkspaceLockedFn(func(workspaceID string) bool {
@@ -146,7 +154,16 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		})
 	}
 	go s.broadcastLoop()
+	// Start rate limiter cleanup goroutine
+	go s.connectLimiter.startCleanup(10 * time.Minute)
 	return s
+}
+
+// SetRemoteManager sets the remote manager for remote workspace support.
+func (s *Server) SetRemoteManager(rm *remote.Manager) {
+	s.remoteManager = rm
+	// Also set it on the session manager
+	s.session.SetRemoteManager(rm)
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
@@ -224,8 +241,20 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))
 
+	// Remote workspace routes
+	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuth(s.handleRemoteFlavors)))
+	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuth(s.handleRemoteFlavor)))
+	mux.HandleFunc("/api/remote/hosts", s.withCORS(s.withAuth(s.handleRemoteHosts)))
+	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuth(s.handleRemoteHostConnect)))
+	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
+	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
+	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
+
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)
+
+	// WebSocket for provisioning terminal (remote host setup)
+	mux.HandleFunc("/ws/provision/", s.handleProvisionWebSocket)
 
 	// WebSocket for real-time dashboard state updates
 	mux.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
@@ -691,4 +720,103 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 			break
 		}
 	}
+}
+
+// RateLimiter implements a simple token bucket rate limiter.
+type RateLimiter struct {
+	buckets   map[string]*bucket
+	mu        sync.RWMutex
+	rate      int           // requests per window
+	window    time.Duration // time window
+	cleanupCh chan struct{} // signal cleanup goroutine to stop
+}
+
+type bucket struct {
+	tokens    int
+	lastReset time.Time
+}
+
+// NewRateLimiter creates a new rate limiter.
+func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		buckets:   make(map[string]*bucket),
+		rate:      rate,
+		window:    window,
+		cleanupCh: make(chan struct{}),
+	}
+}
+
+// Allow checks if a request should be allowed for the given key.
+func (rl *RateLimiter) Allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	b, exists := rl.buckets[key]
+	now := time.Now()
+
+	if !exists || now.Sub(b.lastReset) > rl.window {
+		// Reset bucket
+		rl.buckets[key] = &bucket{
+			tokens:    rl.rate - 1,
+			lastReset: now,
+		}
+		return true
+	}
+
+	if b.tokens > 0 {
+		b.tokens--
+		return true
+	}
+
+	return false
+}
+
+// cleanup removes stale buckets that haven't been used in 2x the window duration.
+func (rl *RateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	staleThreshold := rl.window * 2
+
+	for key, b := range rl.buckets {
+		if now.Sub(b.lastReset) > staleThreshold {
+			delete(rl.buckets, key)
+		}
+	}
+}
+
+// startCleanup starts a goroutine that periodically cleans up stale buckets.
+func (rl *RateLimiter) startCleanup(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			rl.cleanup()
+		case <-rl.cleanupCh:
+			return
+		}
+	}
+}
+
+// Stop stops the cleanup goroutine.
+func (rl *RateLimiter) Stop() {
+	close(rl.cleanupCh)
+}
+
+// normalizeIPForRateLimit extracts the IP address from a RemoteAddr string,
+// stripping the port to prevent rate limit bypass via different ports.
+func (s *Server) normalizeIPForRateLimit(remoteAddr string) string {
+	// RemoteAddr format is typically "IP:port" or "[IPv6]:port"
+	// We want to extract just the IP portion
+	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
+		ip := remoteAddr[:idx]
+		// Remove IPv6 brackets if present
+		ip = strings.Trim(ip, "[]")
+		return ip
+	}
+	// No port found, return as-is
+	return remoteAddr
 }

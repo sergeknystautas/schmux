@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -408,6 +409,26 @@ func Run(background bool) error {
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown)
+
+	// Create remote manager for remote workspace support
+	remoteManager := remote.NewManager(cfg, st)
+	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
+	server.SetRemoteManager(remoteManager)
+	sm.SetRemoteManager(remoteManager)
+
+	// Start background goroutine to prune expired remote hosts
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				remoteManager.PruneExpiredHosts()
+			case <-shutdownCtx.Done():
+				return
+			}
+		}
+	}()
 
 	// Create and start git watcher for filesystem-based change detection.
 	// Started after server creation so broadcasts reach WebSocket clients.

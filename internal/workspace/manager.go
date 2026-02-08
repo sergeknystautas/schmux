@@ -314,8 +314,8 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// State is persisted, workspace is valid
 	cleanupNeeded = false
 
-	// Add filesystem watches for git metadata
-	if m.gitWatcher != nil {
+	// Add filesystem watches for git metadata (skip remote workspaces)
+	if m.gitWatcher != nil && w.RemoteHostID == "" {
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}
 
@@ -539,6 +539,12 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
+
+	// Skip git operations for remote workspaces
+	if w.RemoteHostID != "" {
+		return &w, nil
+	}
+
 	if m.workspaceLockedFn != nil && m.workspaceLockedFn(workspaceID) {
 		return nil, ErrWorkspaceLocked
 	}
@@ -576,6 +582,11 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 
 	for _, w := range workspaces {
+		// Skip remote workspaces - they don't have local git repos
+		if w.RemoteHostID != "" {
+			continue
+		}
+
 		// Refresh workspace config for this workspace
 		m.RefreshWorkspaceConfig(w)
 

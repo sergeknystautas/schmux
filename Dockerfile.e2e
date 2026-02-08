@@ -31,13 +31,19 @@ RUN cd assets/dashboard && npm run build
 # Final E2E test image
 FROM golang:1.24-bookworm
 
-# Install runtime dependencies
+# Install runtime dependencies including SSH server for remote workspace tests
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     git \
     curl \
     bash \
+    openssh-server \
     && rm -rf /var/lib/apt/lists/*
+
+# Set up SSH server for localhost testing
+RUN mkdir -p /run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
 # Set up a non-root user for running tests
 RUN useradd -m -u 1000 e2e
@@ -53,6 +59,15 @@ USER e2e
 WORKDIR /home/e2e
 RUN cp -r /tmp/src src && rm -rf /tmp/src
 
+# Make test scripts executable
+RUN chmod +x src/test/mock-remote.sh
+
+# Set up SSH keys for e2e user (passwordless localhost SSH)
+RUN mkdir -p ~/.ssh && \
+    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" && \
+    cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && \
+    chmod 600 ~/.ssh/authorized_keys
+
 # Add schmux to PATH
 ENV PATH="/usr/local/bin:${PATH}"
 # Disable Go build cache to avoid permission issues in container
@@ -61,6 +76,20 @@ ENV GOCACHE=/tmp/go-cache
 # Verify installation
 RUN tmux -V
 
+# Start SSH server as root, then switch to e2e user for tests
+USER root
+# Create startup script that starts SSH and runs tests
+RUN echo '#!/bin/bash\n\
+set -e\n\
+# Start SSH server\n\
+/usr/sbin/sshd\n\
+# Wait for SSH to be ready\n\
+sleep 1\n\
+# Run tests as e2e user\n\
+cd /home/e2e/src\n\
+su -c "go test -tags=e2e -v ./internal/e2e" e2e\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
+
 # Default command runs E2E tests
 WORKDIR /home/e2e/src
-CMD ["go", "test", "-tags=e2e", "-v", "./internal/e2e"]
+ENTRYPOINT ["/entrypoint.sh"]

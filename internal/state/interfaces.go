@@ -28,6 +28,16 @@ type StateStore interface {
 	GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool)
 	AddWorktreeBase(wb WorktreeBase) error
 
+	// Remote host operations
+	GetRemoteHosts() []RemoteHost
+	GetRemoteHost(id string) (RemoteHost, bool)
+	GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool)
+	GetRemoteHostByHostname(hostname string) (RemoteHost, bool)
+	AddRemoteHost(rh RemoteHost) error
+	UpdateRemoteHost(rh RemoteHost) error
+	UpdateRemoteHostStatus(id, status string) error
+	RemoveRemoteHost(id string) error
+
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest
 	SetPullRequests(prs []contracts.PullRequest)

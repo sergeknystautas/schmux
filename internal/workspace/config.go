@@ -46,6 +46,11 @@ func LoadRepoConfig(workspacePath string) (*contracts.RepoConfig, error) {
 // RefreshWorkspaceConfig refreshes the cached workspace config for a single workspace.
 // Only logs when the config file changes (by mtime).
 func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
+	// Skip remote workspaces - their config is on the remote host
+	if w.IsRemoteWorkspace() {
+		return
+	}
+
 	configPath := filepath.Join(w.Path, ".schmux", "config.json")
 
 	// Check if file has changed since last read

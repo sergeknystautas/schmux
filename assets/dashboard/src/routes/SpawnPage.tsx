@@ -8,7 +8,8 @@ import { usePendingNavigation } from '../lib/navigation';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
-import type { Model, RepoResponse, RunTargetResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
+import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
+import type { Model, RepoResponse, RunTargetResponse, SpawnResult, SuggestBranchResponse, RemoteFlavor } from '../lib/types';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 
@@ -156,6 +157,7 @@ export default function SpawnPage() {
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
+  const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
   const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
@@ -487,17 +489,22 @@ export default function SpawnPage() {
       return true;
     }
 
-    if (!repo) {
-      toastError('Please select a repository');
-      return false;
-    }
-    if (repo === '__new__' && !newRepoName.trim()) {
-      toastError('Please enter a repository name');
-      return false;
-    }
-    if (mode === 'fresh' && !branchSuggestTarget && !branch.trim()) {
-      toastError('Please enter a branch name');
-      return false;
+    // Remote spawns don't require repo/branch - they use the remote host's workspace
+    const isRemote = environment.type === 'remote';
+
+    if (!isRemote) {
+      if (!repo) {
+        toastError('Please select a repository');
+        return false;
+      }
+      if (repo === '__new__' && !newRepoName.trim()) {
+        toastError('Please enter a repository name');
+        return false;
+      }
+      if (mode === 'fresh' && !branchSuggestTarget && !branch.trim()) {
+        toastError('Please enter a branch name');
+        return false;
+      }
     }
     if (spawnMode === 'promptable') {
       if (totalPromptableCount === 0) {
@@ -600,7 +607,8 @@ export default function SpawnPage() {
         nickname: actualNickname.trim(),
         targets: selectedTargets,
         workspace_id: prefillWorkspaceId || '',
-        resume: spawnMode === 'resume'
+        resume: spawnMode === 'resume',
+        remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
       });
       const hasSuccess = response.some(r => !r.error);
       if (!hasSuccess) {
@@ -764,6 +772,15 @@ export default function SpawnPage() {
       )}
 
       <div className="spawn-content">
+
+      {/* Environment selection for fresh spawns */}
+      {mode === 'fresh' && (
+        <RemoteHostSelector
+          value={environment}
+          onChange={setEnvironment}
+          disabled={engagePhase !== 'idle'}
+        />
+      )}
 
       {/* Prompt/Command area - first */}
       {spawnMode === 'promptable' ? (

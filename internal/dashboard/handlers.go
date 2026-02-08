@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -24,6 +25,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -90,9 +92,15 @@ type SessionResponseItem struct {
 	CreatedAt    string `json:"created_at"`
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
+	Status       string `json:"status,omitempty"` // "provisioning", "running", "failed" for remote sessions
 	AttachCmd    string `json:"attach_cmd"`
 	NudgeState   string `json:"nudge_state,omitempty"`
 	NudgeSummary string `json:"nudge_summary,omitempty"`
+	// Remote session fields
+	RemoteHostID     string `json:"remote_host_id,omitempty"`
+	RemotePaneID     string `json:"remote_pane_id,omitempty"`
+	RemoteHostname   string `json:"remote_hostname,omitempty"`
+	RemoteFlavorName string `json:"remote_flavor_name,omitempty"`
 }
 
 // WorkspaceResponseItem represents a workspace in the API response.
@@ -172,18 +180,35 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		running := s.session.IsRunning(timeoutCtx, sess.ID)
 		cancel()
 		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
+
+		// Get remote host info if this is a remote session
+		var remoteHostname, remoteFlavorName string
+		if sess.RemoteHostID != "" {
+			if host, found := s.state.GetRemoteHost(sess.RemoteHostID); found {
+				remoteHostname = host.Hostname
+				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+					remoteFlavorName = flavor.DisplayName
+				}
+			}
+		}
+
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponseItem{
-			ID:           sess.ID,
-			Target:       sess.Target,
-			Branch:       wsResp.Branch,
-			BranchURL:    wsResp.BranchURL,
-			Nickname:     sess.Nickname,
-			CreatedAt:    sess.CreatedAt.Format("2006-01-02T15:04:05"),
-			LastOutputAt: lastOutputAt,
-			Running:      running,
-			AttachCmd:    attachCmd,
-			NudgeState:   nudgeState,
-			NudgeSummary: nudgeSummary,
+			ID:               sess.ID,
+			Target:           sess.Target,
+			Branch:           wsResp.Branch,
+			BranchURL:        wsResp.BranchURL,
+			Nickname:         sess.Nickname,
+			CreatedAt:        sess.CreatedAt.Format("2006-01-02T15:04:05"),
+			LastOutputAt:     lastOutputAt,
+			Running:          running,
+			Status:           sess.Status, // Expose session status for remote sessions
+			AttachCmd:        attachCmd,
+			NudgeState:       nudgeState,
+			NudgeSummary:     nudgeSummary,
+			RemoteHostID:     sess.RemoteHostID,
+			RemotePaneID:     sess.RemotePaneID,
+			RemoteHostname:   remoteHostname,
+			RemoteFlavorName: remoteFlavorName,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}
@@ -333,6 +358,7 @@ type SpawnRequest struct {
 	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 	Resume          bool           `json:"resume,omitempty"` // resume mode: use agent's resume command
+	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -374,14 +400,15 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate request
-	if req.WorkspaceID == "" {
-		// When not spawning into existing workspace, repo and branch are required
+	// Remote spawns don't need repo/branch (they use the remote flavor's workspace)
+	if req.WorkspaceID == "" && req.RemoteFlavorID == "" {
+		// When not spawning into existing workspace and not remote, repo and branch are required
 		if req.Repo == "" {
-			http.Error(w, "repo is required (when not using --workspace)", http.StatusBadRequest)
+			http.Error(w, "repo is required (when not using --workspace or remote)", http.StatusBadRequest)
 			return
 		}
 		if req.Branch == "" {
-			http.Error(w, "branch is required (when not using --workspace)", http.StatusBadRequest)
+			http.Error(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
 			return
 		}
 	}
@@ -433,6 +460,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Handle command-based spawn (quick launch with shell command)
 	if req.Command != "" {
+		// Remote command spawns are not currently supported
+		if req.RemoteFlavorID != "" {
+			http.Error(w, "remote command spawns are not supported (only target-based spawns work on remote hosts)", http.StatusBadRequest)
+			return
+		}
+
 		fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s command=%q nickname=%q\n",
 			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
 
@@ -469,8 +502,13 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
 	}
-	fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
-		req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
+	if req.RemoteFlavorID != "" {
+		fmt.Printf("[session] spawn request (remote): flavor_id=%s targets=%v prompt=%q\n",
+			req.RemoteFlavorID, req.Targets, promptPreview)
+	} else {
+		fmt.Printf("[session] spawn request (local): repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
+			req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
+	}
 
 	// Calculate total sessions to spawn for global nickname numbering
 	totalToSpawn := 0
@@ -527,9 +565,22 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			} else {
 				nickname = req.Nickname
 			}
+
 			// Session spawn needs a longer timeout for git operations
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
-			sess, err := s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume)
+
+			var sess *state.Session
+			var err error
+
+			// Route to remote or local spawn based on request
+			if req.RemoteFlavorID != "" {
+				// Remote spawn - use SpawnRemote()
+				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
+			} else {
+				// Local spawn - use existing Spawn()
+				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume)
+			}
+
 			cancel()
 			if err != nil {
 				results = append(results, SessionResult{
@@ -1978,19 +2029,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if workspace directory exists
-	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(OpenVSCodeResponse{
-			Success: false,
-			Message: "workspace directory does not exist",
-		})
-		return
-	}
-
 	// Use ResolveVSCodePath to find VS Code command
-	// This handles PATH, shell aliases, and well-known installation locations
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -2015,9 +2054,129 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("[session] open-vscode: found via %s: %s\n", vscodePath.Source, vscodePath.Path)
 
-	// Execute code command
+	var cmd *exec.Cmd
+
+	// Check if this is a remote workspace
+	if ws.IsRemoteWorkspace() {
+		// Handle remote workspace - use configured template
+		host, found := s.state.GetRemoteHost(ws.RemoteHostID)
+		if !found {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: fmt.Sprintf("remote host %s not found", ws.RemoteHostID),
+			})
+			return
+		}
+
+		if host.Hostname == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: "remote host has no hostname",
+			})
+			return
+		}
+
+		// Get VSCode command template - prefer flavor-specific template over global
+		templateStr := ""
+		if host.FlavorID != "" {
+			if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VSCodeCommandTemplate != "" {
+				templateStr = flavor.VSCodeCommandTemplate
+				fmt.Printf("[session] open-vscode: using flavor-specific template for %s\n", flavor.DisplayName)
+			}
+		}
+		// Fall back to global template if no flavor-specific template
+		if templateStr == "" {
+			templateStr = s.config.GetRemoteVSCodeCommandTemplate()
+			fmt.Printf("[session] open-vscode: using global template\n")
+		}
+
+		// Parse template
+		tmpl, err := template.New("vscode").Parse(templateStr)
+		if err != nil {
+			fmt.Printf("[session] open-vscode: template parse error: %v\n", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: fmt.Sprintf("invalid VSCode command template: %v", err),
+			})
+			return
+		}
+
+		// Execute template with data
+		type VSCodeTemplateData struct {
+			Hostname   string
+			Path       string
+			VSCodePath string
+		}
+
+		data := VSCodeTemplateData{
+			Hostname:   host.Hostname,
+			Path:       ws.RemotePath,
+			VSCodePath: vscodePath.Path,
+		}
+
+		var cmdStr strings.Builder
+		if err := tmpl.Execute(&cmdStr, data); err != nil {
+			fmt.Printf("[session] open-vscode: template execution error: %v\n", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: fmt.Sprintf("failed to execute VSCode command template: %v", err),
+			})
+			return
+		}
+
+		// Parse the command string into args using shell word parsing
+		// This respects quotes and handles spaces in paths correctly
+		cmdLine := cmdStr.String()
+		args, err := shellSplit(cmdLine)
+		if err != nil {
+			fmt.Printf("[session] open-vscode: failed to parse command: %v\n", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: fmt.Sprintf("failed to parse VSCode command: %v", err),
+			})
+			return
+		}
+		if len(args) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: "VSCode command template produced empty command",
+			})
+			return
+		}
+
+		fmt.Printf("[session] open-vscode (remote): executing: %s\n", cmdLine)
+		cmd = exec.Command(args[0], args[1:]...)
+
+	} else {
+		// Local workspace - check if directory exists
+		if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+				Success: false,
+				Message: "workspace directory does not exist",
+			})
+			return
+		}
+
+		fmt.Printf("[session] open-vscode (local): %s\n", ws.Path)
+		cmd = exec.Command(vscodePath.Path, "-n", ws.Path)
+	}
+
+	// Execute command
 	// Note: We don't wait for the command to complete since VS Code opens as a separate process
-	cmd := exec.Command(vscodePath.Path, "-n", ws.Path)
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("[session] open-vscode: failed to launch: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -3073,4 +3232,81 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// shellSplit splits a command line string into arguments, respecting quotes.
+// Handles single quotes, double quotes, and backslash escaping.
+// This prevents breakage when workspace paths contain spaces.
+func shellSplit(input string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	var inSingleQuote, inDoubleQuote bool
+	var escaped bool
+
+	for i := 0; i < len(input); i++ {
+		c := input[i]
+
+		if escaped {
+			// Previous char was backslash, add this char literally
+			current.WriteByte(c)
+			escaped = false
+			continue
+		}
+
+		switch c {
+		case '\\':
+			if inSingleQuote {
+				// Backslash is literal in single quotes
+				current.WriteByte(c)
+			} else {
+				// Set escaped flag for next character
+				escaped = true
+			}
+
+		case '\'':
+			if inDoubleQuote {
+				// Single quote is literal inside double quotes
+				current.WriteByte(c)
+			} else {
+				// Toggle single quote mode
+				inSingleQuote = !inSingleQuote
+			}
+
+		case '"':
+			if inSingleQuote {
+				// Double quote is literal inside single quotes
+				current.WriteByte(c)
+			} else {
+				// Toggle double quote mode
+				inDoubleQuote = !inDoubleQuote
+			}
+
+		case ' ', '\t', '\n', '\r':
+			if inSingleQuote || inDoubleQuote {
+				// Whitespace is literal inside quotes
+				current.WriteByte(c)
+			} else {
+				// Whitespace outside quotes separates arguments
+				if current.Len() > 0 {
+					args = append(args, current.String())
+					current.Reset()
+				}
+			}
+
+		default:
+			current.WriteByte(c)
+		}
+	}
+
+	// Handle unterminated quotes
+	if inSingleQuote || inDoubleQuote {
+		return nil, fmt.Errorf("unterminated quote in command")
+	}
+
+	// Add final argument if any
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+
+	return args, nil
 }
