@@ -758,6 +758,20 @@ func (m *Manager) GetFlavorStatuses() []FlavorStatus {
 	return result
 }
 
+// GetHostConnectionStatus returns the live connection status for a remote host.
+// Returns the status string and whether the host has a live connection object.
+// This should be used instead of reading state directly, since state can be stale after restarts.
+func (m *Manager) GetHostConnectionStatus(hostID string) (status string, hasConnection bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	conn, exists := m.connections[hostID]
+	if !exists {
+		return state.RemoteHostStatusDisconnected, false
+	}
+	return conn.Status(), true
+}
+
 // reconcileSessions reconciles state sessions with windows discovered on the remote host.
 // This is called after reconnection to restore session window/pane IDs.
 func (m *Manager) reconcileSessions(ctx context.Context, conn *Connection) error {

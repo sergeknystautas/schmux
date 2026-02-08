@@ -35,12 +35,13 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 
 	var flavorID string
 	t.Run("AddSSHRemoteFlavor", func(t *testing.T) {
-		// SSH to localhost with strict host key checking disabled for testing
+		// SSH to localhost with strict host key checking disabled for testing.
+		// -tt forces remote PTY allocation, which tmux needs even in control mode.
 		flavorID = env.AddRemoteFlavorToConfig(
 			"localhost",
 			"Localhost via SSH (E2E Test)",
 			"/tmp/ssh-test-workspace",
-			"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost",
+			"ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost",
 		)
 		if flavorID == "" {
 			t.Fatal("Expected flavor ID, got empty")

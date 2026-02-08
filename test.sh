@@ -95,7 +95,7 @@ done
 
 # Print header
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║${NC}  🧪 Schmux Test Suite                           ${BLUE}║${NC}"
+echo -e "${BLUE}║${NC}  🧪 Schmux Test Suite                          ${BLUE}║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -105,7 +105,6 @@ EXIT_CODE=0
 # Run unit tests
 if [ "$RUN_UNIT" = true ]; then
     echo -e "${YELLOW}▶️  Running unit tests...${NC}"
-    echo ""
 
     # Build test command
     TEST_CMD="go test ./..."

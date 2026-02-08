@@ -440,18 +440,18 @@ export default function AppShell() {
                   >
                     <span className="nav-workspace__name">
                       {isRemote && (
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={remoteDisconnected ? 'var(--color-error)' : 'currentColor'}
-                          strokeWidth="2"
-                          style={{ marginRight: '4px', verticalAlign: 'text-bottom', opacity: 0.7, flexShrink: 0 }}
-                        >
-                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                          <line x1="1" y1="10" x2="23" y2="10" />
-                        </svg>
+                        <span
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: remoteDisconnected ? 'var(--color-error)' : 'var(--color-success)',
+                            display: 'inline-block',
+                            marginRight: '6px',
+                            flexShrink: 0,
+                          }}
+                          title={remoteDisconnected ? 'Disconnected' : 'Connected'}
+                        />
                       )}
                       {displayBranch}
                     </span>

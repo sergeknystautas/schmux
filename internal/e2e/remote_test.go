@@ -314,30 +314,10 @@ func TestE2ERemoteWebSocketOutput(t *testing.T) {
 		}
 		defer conn.Close()
 
-		// Get tmux session name for the remote session
-		sessions := env.GetAPISessions()
-		var tmuxSessionName string
-		for _, sess := range sessions {
-			if sess.ID == sessionID {
-				// Extract tmux session name from attach command
-				// Format is "tmux attach -t <name>"
-				parts := strings.Split(sess.AttachCmd, " ")
-				if len(parts) >= 4 {
-					tmuxSessionName = parts[3]
-				}
-				break
-			}
-		}
-
-		if tmuxSessionName == "" {
-			t.Fatal("Could not extract tmux session name")
-		}
-
-		t.Logf("Using tmux session: %s", tmuxSessionName)
-
-		// Send input via tmux
+		// Send input via WebSocket (remote sessions don't have local tmux sessions,
+		// so we must use the WebSocket "input" message type instead of tmux send-keys)
 		payload := "remote-ws-e2e-test"
-		env.SendKeysToTmux(tmuxSessionName, payload)
+		env.SendWebSocketInput(conn, payload+"\r")
 
 		// Wait for output on websocket
 		if _, err := env.WaitForWebSocketContent(conn, payload, 5*time.Second); err != nil {

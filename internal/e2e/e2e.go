@@ -231,6 +231,10 @@ func (e *Env) CreateConfig(workspacePath string) {
 		e.T.Fatalf("Failed to create .schmux dir: %v", err)
 	}
 
+	// Clear state file to prevent stale remote hosts from leaking between tests
+	statePath := filepath.Join(schmuxDir, "state.json")
+	os.Remove(statePath) // Ignore error if file doesn't exist
+
 	configPath := filepath.Join(schmuxDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = workspacePath
@@ -406,6 +410,26 @@ func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeo
 	}
 
 	return buffer.String(), fmt.Errorf("timed out waiting for websocket output: %q", substr)
+}
+
+// SendWebSocketInput sends input to a session via the WebSocket "input" message type.
+// This is used for remote sessions which don't have local tmux sessions.
+func (e *Env) SendWebSocketInput(conn *websocket.Conn, data string) {
+	e.T.Helper()
+	msg := struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}{
+		Type: "input",
+		Data: data,
+	}
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal WebSocket input message: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+		e.T.Fatalf("Failed to send WebSocket input: %v", err)
+	}
 }
 
 // SendKeysToTmux sends literal keys plus Enter to a tmux session.

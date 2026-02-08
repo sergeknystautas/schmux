@@ -146,9 +146,16 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		if ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
 			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
-				remoteHostStatus = host.Status
 				if host.Hostname != "" {
 					branch = host.Hostname
+				}
+				// Use live connection status from remote manager if available,
+				// since persisted state can be stale after daemon restarts.
+				if s.remoteManager != nil {
+					liveStatus, _ := s.remoteManager.GetHostConnectionStatus(ws.RemoteHostID)
+					remoteHostStatus = liveStatus
+				} else {
+					remoteHostStatus = host.Status
 				}
 			} else {
 				remoteHostStatus = state.RemoteHostStatusDisconnected

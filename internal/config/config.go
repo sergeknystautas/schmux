@@ -93,35 +93,38 @@ type RemoteFlavor struct {
 	WorkspacePath string `json:"workspace_path"` // e.g., "~/workspace" (path on remote host)
 
 	// ConnectCommand is a Go template for the command to connect to a remote host.
-	// Schmux will automatically append "-- tmux -CC new-session -A -s schmux" to this command.
+	// Schmux will automatically append "tmux -CC new-session -A -s schmux" to this command.
+	// If your transport requires a separator (e.g., "--" for SSH), include it in your command.
 	//
 	// Available template variables:
 	//   {{.Flavor}} - Remote flavor identifier (from the Flavor field above)
 	//
 	// Examples:
-	//   SSH: "ssh {{.Flavor}}"
+	//   SSH: "ssh -tt {{.Flavor}} --"
 	//   Custom: "cloud-ssh connect {{.Flavor}}"
+	//   Docker: "docker exec -it {{.Flavor}}"
 	//   AWS SSM: "aws ssm start-session --target {{.Flavor}}"
 	//
-	// If empty, defaults to "ssh {{.Flavor}}".
+	// If empty, defaults to "ssh -tt {{.Flavor}} --".
 	//
-	// Note: You only specify how to reach the host. Schmux handles tmux control mode internally.
+	// Note: Schmux appends the tmux control mode command automatically.
 	ConnectCommand string `json:"connect_command,omitempty"`
 
 	// ReconnectCommand is a Go template for reconnecting to an existing remote host.
-	// Schmux will automatically append "-- tmux -CC new-session -A -s schmux" to this command.
+	// Schmux will automatically append "tmux -CC new-session -A -s schmux" to this command.
+	// If your transport requires a separator (e.g., "--" for SSH), include it in your command.
 	//
 	// Available template variables:
 	//   {{.Hostname}} - Remote host hostname (discovered after initial connection)
 	//   {{.Flavor}} - Remote flavor identifier
 	//
 	// Examples:
-	//   SSH: "ssh {{.Hostname}}"
+	//   SSH: "ssh -tt {{.Hostname}} --"
 	//   Custom: "cloud-ssh reconnect {{.Hostname}}"
 	//
 	// If empty, uses ConnectCommand with Hostname instead of Flavor.
 	//
-	// Note: You only specify how to reach the host. Schmux handles tmux control mode internally.
+	// Note: Schmux appends the tmux control mode command automatically.
 	ReconnectCommand string `json:"reconnect_command,omitempty"`
 
 	// ProvisionCommand is a Go template for provisioning the workspace on first connection.
@@ -1199,23 +1202,26 @@ func (c *Config) GetRemoteVSCodeCommandTemplate() string {
 }
 
 // GetConnectCommandTemplate returns the full connection command template for this flavor.
-// This includes both the user's connection command and the tmux control mode invocation.
-// Users only configure the connection part; schmux appends the tmux parts automatically.
+// This includes both the user's connection command and the tmux control mode suffix.
+// Users configure the connection part (including any separators like "--" for SSH);
+// schmux appends `tmux -CC new-session -A -s schmux` automatically.
 func (rf *RemoteFlavor) GetConnectCommandTemplate() string {
 	var baseCmd string
 	if rf.ConnectCommand != "" {
 		baseCmd = rf.ConnectCommand
 	} else {
-		// Default to standard SSH connection
-		baseCmd = `ssh {{.Flavor}}`
+		// Default to standard SSH connection (-tt forces remote PTY allocation,
+		// which tmux needs even in control mode; -- separates ssh options from remote command)
+		baseCmd = `ssh -tt {{.Flavor}} --`
 	}
 	// Append tmux control mode invocation
-	return baseCmd + ` -- tmux -CC new-session -A -s schmux`
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
 }
 
 // GetReconnectCommandTemplate returns the full reconnection command template for this flavor.
-// This includes both the user's reconnection command and the tmux control mode invocation.
-// Users only configure the connection part; schmux appends the tmux parts automatically.
+// This includes both the user's reconnection command and the tmux control mode suffix.
+// Users configure the connection part (including any separators like "--" for SSH);
+// schmux appends `tmux -CC new-session -A -s schmux` automatically.
 func (rf *RemoteFlavor) GetReconnectCommandTemplate() string {
 	var baseCmd string
 	if rf.ReconnectCommand != "" {
@@ -1224,11 +1230,12 @@ func (rf *RemoteFlavor) GetReconnectCommandTemplate() string {
 		// Use ConnectCommand as base (user should use {{.Hostname}} in it for reconnect)
 		baseCmd = rf.ConnectCommand
 	} else {
-		// Default to standard SSH reconnection
-		baseCmd = `ssh {{.Hostname}}`
+		// Default to standard SSH reconnection (-tt forces remote PTY allocation,
+		// which tmux needs even in control mode; -- separates ssh options from remote command)
+		baseCmd = `ssh -tt {{.Hostname}} --`
 	}
 	// Append tmux control mode invocation
-	return baseCmd + ` -- tmux -CC new-session -A -s schmux`
+	return baseCmd + ` tmux -CC new-session -A -s schmux`
 }
 
 // AddRemoteFlavor adds a new remote flavor to the config.

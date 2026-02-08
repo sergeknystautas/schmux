@@ -18,12 +18,5 @@ echo "OD uuid: mock-uuid-$(date +%s)" >&2
 # Signal ready
 echo "** tmux mode started **" >&2
 
-# Skip the "--" separator if present (first arg)
-# The command template passes: <script> -- tmux -CC new-session...
-# (No flavor arg is passed to the script - flavor is only in template variables)
-if [ "$1" = "--" ]; then
-    shift  # Skip --
-fi
-
 # Execute the tmux command passed (which will be tmux -CC new-session...)
 exec "$@"
