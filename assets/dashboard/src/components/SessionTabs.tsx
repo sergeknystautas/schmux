@@ -17,6 +17,7 @@ const nudgeStateEmoji: Record<string, string> = {
   'Needs Feature Clarification': '\uD83D\uDD0D',
   'Needs User Testing': '\uD83D\uDC40',
   'Completed': '\u2705',
+  'Error': '\u274C',
 };
 
 function formatNudgeSummary(summary?: string) {

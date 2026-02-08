@@ -1053,6 +1053,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		PrReview: contracts.PrReview{
 			Target: s.config.GetPrReviewTarget(),
 		},
+		Notifications: contracts.Notifications{
+			SoundDisabled: !s.config.GetNotificationSoundEnabled(),
+		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
 
@@ -1330,6 +1333,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.PrReview.Target != nil {
 			cfg.PrReview.Target = *req.PrReview.Target
+		}
+	}
+
+	if req.Notifications != nil {
+		if cfg.Notifications == nil {
+			cfg.Notifications = &config.NotificationsConfig{}
+		}
+		if req.Notifications.SoundDisabled != nil {
+			cfg.Notifications.SoundDisabled = *req.Notifications.SoundDisabled
 		}
 	}
 

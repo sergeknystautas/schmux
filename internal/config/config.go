@@ -71,6 +71,7 @@ type Config struct {
 	Network                    *NetworkConfig         `json:"network,omitempty"`
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
+	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -80,6 +81,11 @@ type Config struct {
 // PrReviewConfig holds configuration for GitHub PR review sessions.
 type PrReviewConfig struct {
 	Target string `json:"target,omitempty"` // run target to use for PR review sessions
+}
+
+// NotificationsConfig holds configuration for dashboard notifications.
+type NotificationsConfig struct {
+	SoundDisabled bool `json:"sound_disabled,omitempty"` // disable attention sounds (default: false = sounds enabled)
 }
 
 // TerminalSize represents terminal dimensions.
@@ -402,6 +408,15 @@ func (c *Config) GetPrReviewTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.PrReview.Target)
+}
+
+// GetNotificationSoundEnabled returns whether notification sounds are enabled.
+// Defaults to true (sounds enabled) unless explicitly disabled.
+func (c *Config) GetNotificationSoundEnabled() bool {
+	if c == nil || c.Notifications == nil {
+		return true
+	}
+	return !c.Notifications.SoundDisabled
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

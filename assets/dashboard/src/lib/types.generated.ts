@@ -38,6 +38,7 @@ export interface ConfigResponse {
   network: Network;
   access_control: AccessControl;
   pr_review: PrReview;
+  notifications: Notifications;
   needs_restart: boolean;
 }
 
@@ -58,6 +59,7 @@ export interface ConfigUpdateRequest {
   network?: NetworkUpdate;
   access_control?: AccessControlUpdate;
   pr_review?: PrReviewUpdate;
+  notifications?: NotificationsUpdate;
 }
 
 export interface ConflictResolve {
@@ -129,6 +131,14 @@ export interface NetworkUpdate {
   port?: number;
   public_base_url?: string;
   tls?: TLSUpdate;
+}
+
+export interface Notifications {
+  sound_disabled: boolean;
+}
+
+export interface NotificationsUpdate {
+  sound_disabled?: boolean;
 }
 
 export interface Nudgenik {
