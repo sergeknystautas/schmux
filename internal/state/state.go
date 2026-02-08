@@ -54,6 +54,7 @@ type Session struct {
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"`             // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`               // Last time terminal had new output (in-memory only, not persisted)
+	LastSignalAt time.Time `json:"-"`               // Last time agent sent a direct signal (in-memory only)
 	Nudge        string    `json:"nudge,omitempty"` // NudgeNik consultation result
 }
 
@@ -219,6 +220,19 @@ func (s *State) UpdateSessionLastOutput(sessionID string, t time.Time) {
 	for i := range s.Sessions {
 		if s.Sessions[i].ID == sessionID {
 			s.Sessions[i].LastOutputAt = t
+			return
+		}
+	}
+}
+
+// UpdateSessionLastSignal atomically updates just the LastSignalAt field.
+// This is safe to call from concurrent goroutines (e.g., WebSocket handlers).
+func (s *State) UpdateSessionLastSignal(sessionID string, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].LastSignalAt = t
 			return
 		}
 	}

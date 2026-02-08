@@ -523,6 +523,12 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 			continue
 		}
 
+		// Skip nudgenik if session has recent direct signal (< 5 minutes).
+		// Direct signaling is more reliable and cheaper when available.
+		if !sess.LastSignalAt.IsZero() && now.Sub(sess.LastSignalAt) < 5*time.Minute {
+			continue
+		}
+
 		// Skip if session is not running
 		timeoutCtx, cancel := context.WithTimeout(ctx, cfg.XtermQueryTimeout())
 		running := sm.IsRunning(timeoutCtx, sess.ID)

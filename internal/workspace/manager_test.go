@@ -476,6 +476,10 @@ func (m *mockStateStore) UpdateSessionLastOutput(sessionID string, t time.Time) 
 	m.state.UpdateSessionLastOutput(sessionID, t)
 }
 
+func (m *mockStateStore) UpdateSessionLastSignal(sessionID string, t time.Time) {
+	m.state.UpdateSessionLastSignal(sessionID, t)
+}
+
 func (m *mockStateStore) GetNeedsRestart() bool {
 	return m.state.GetNeedsRestart()
 }
