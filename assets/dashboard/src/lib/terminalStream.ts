@@ -86,9 +86,19 @@ export default class TerminalStream {
       return null;
     }
 
-    const cols = this.terminalSize?.width;
-    const rows = this.terminalSize?.height;
-    if (typeof cols !== 'number' || typeof rows !== 'number') {
+    // Calculate initial dimensions from container, falling back to config
+    const containerRect = this.containerElement.getBoundingClientRect();
+    let cols = this.terminalSize?.width ?? 80;
+    let rows = this.terminalSize?.height ?? 24;
+
+    // If container has valid dimensions, calculate from it
+    // Use reasonable cell size estimates for initial render
+    if (containerRect.width > 0 && containerRect.height > 0) {
+      const estimatedCellWidth = 9;
+      const estimatedCellHeight = 17;
+      cols = Math.max(20, Math.floor(containerRect.width / estimatedCellWidth) - 1);
+      rows = Math.max(5, Math.floor(containerRect.height / estimatedCellHeight) - 1);
+    } else if (typeof this.terminalSize?.width !== 'number' || typeof this.terminalSize?.height !== 'number') {
       const message = 'Terminal size is unavailable in config';
       this.containerElement.textContent = `Error: ${message}`;
       console.error(message);
@@ -139,6 +149,10 @@ export default class TerminalStream {
     this.terminal.writeln('\x1b[90mConnecting to session...\x1b[0m');
     this.setupResizeHandler();
 
+    // Immediately calculate accurate dimensions now that terminal is rendered
+    // This ensures we have correct dimensions before WebSocket connects
+    this.fitTerminalSync();
+
     return this.terminal;
   }
 
@@ -174,10 +188,6 @@ export default class TerminalStream {
     window.addEventListener('resize', () => {
       this.handleResize();
     });
-
-    setTimeout(() => this.handleResize(), 100);
-    setTimeout(() => this.handleResize(), 300);
-    setTimeout(() => this.handleResize(), 1000);
   }
 
   handleResize() {
@@ -188,6 +198,42 @@ export default class TerminalStream {
     this.resizeDebounceTimer = setTimeout(() => {
       this.fitTerminal();
     }, 150);
+  }
+
+  // Synchronous resize - calculates and applies dimensions immediately
+  // Used during initialization to ensure terminal is sized before WebSocket connects
+  fitTerminalSync() {
+    if (!this.terminal) return;
+
+    const containerRect = this.containerElement.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const containerHeight = containerRect.height;
+
+    if (containerWidth <= 0 || containerHeight <= 0) return;
+
+    // Measure actual cell dimensions from the terminal
+    const core = (this.terminal as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
+    let cellWidth = 9;
+    let cellHeight = 17;
+
+    if (core?._renderService?.dimensions?.css?.cell) {
+      cellWidth = core._renderService.dimensions.css.cell.width;
+      cellHeight = core._renderService.dimensions.css.cell.height;
+    }
+
+    // Calculate new dimensions
+    const newCols = Math.max(20, Math.floor(containerWidth / cellWidth) - 1);
+    const newRows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
+
+    // Update stored dimensions
+    this.tmuxCols = newCols;
+    this.tmuxRows = newRows;
+
+    // Resize xterm.js terminal
+    this.terminal.resize(newCols, newRows);
+
+    // Note: Don't send resize to backend here - WebSocket isn't connected yet
+    // The connect() method will send resize on open
   }
 
   fitTerminal() {
@@ -254,6 +300,12 @@ export default class TerminalStream {
       this.connected = true;
       this.terminal.clear();
       this.onStatusChange('connected');
+
+      // Send resize immediately on connect so backend knows correct dimensions
+      // before streaming content
+      if (this.tmuxCols && this.tmuxRows) {
+        this.sendResize(this.tmuxCols, this.tmuxRows);
+      }
     };
 
     this.ws.onmessage = (event) => {
