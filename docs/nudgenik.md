@@ -28,6 +28,27 @@ NudgeNik uses an LLM to read the English output of coding agents and classify th
 
 ---
 
+## Direct Agent Signaling
+
+NudgeNik can be augmented with direct agent signaling for cheaper and more reliable status updates. See [Agent Signaling](agent-signaling.md) for full details.
+
+### How They Work Together
+
+| Scenario | What Happens |
+|----------|--------------|
+| Agent supports signaling | Direct signals used; NudgeNik skipped (saves compute) |
+| Agent doesn't signal | NudgeNik analyzes output as before |
+| No signals for 5+ min | NudgeNik kicks in as fallback |
+
+### API Distinction
+
+Both mechanisms update the same nudge fields for frontend compatibility:
+
+- Direct signals: `source: "agent"` in the API response
+- NudgeNik classification: `source: "llm"` in the API response
+
+---
+
 ## Where This Is Going
 
 Using an LLM to read the English output of coding agents opens the door for more human-centric agent organization.

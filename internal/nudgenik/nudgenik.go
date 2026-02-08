@@ -73,9 +73,10 @@ func IsEnabled(cfg *config.Config) bool {
 // Result is the parsed NudgeNik response.
 type Result struct {
 	State      string   `json:"state"`
-	Confidence string   `json:"confidence"`
+	Confidence string   `json:"confidence,omitempty"`
 	Evidence   []string `json:"evidence,omitempty"`
 	Summary    string   `json:"summary"`
+	Source     string   `json:"source,omitempty"` // "agent" for direct signal, "llm" for nudgenik
 }
 
 // AskForSession captures the latest session output and asks NudgeNik for feedback.

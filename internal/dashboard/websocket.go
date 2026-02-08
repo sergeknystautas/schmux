@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -216,9 +218,15 @@ drained:
 			if !ok {
 				return
 			}
+			// Filter terminal mode sequences that interfere with xterm.js scrollback
 			filtered := filterMouseMode(chunk)
-			if len(filtered) > 0 {
-				if err := sendOutput("append", string(filtered)); err != nil {
+			// Check for schmux OSC signals and strip them from output
+			signals, cleanData := signal.ExtractAndStripSignals(filtered)
+			for _, sig := range signals {
+				s.handleAgentSignal(sessionID, sig)
+			}
+			if len(cleanData) > 0 {
+				if err := sendOutput("append", string(cleanData)); err != nil {
 					return
 				}
 			}
@@ -290,4 +298,48 @@ drained:
 			}
 		}
 	}
+}
+
+// handleAgentSignal processes an OSC 777 signal from an agent and updates the session nudge state.
+func (s *Server) handleAgentSignal(sessionID string, sig signal.Signal) {
+	sess, err := s.session.GetSession(sessionID)
+	if err != nil {
+		return
+	}
+
+	// Map signal state to nudge format for frontend compatibility
+	nudgeResult := nudgenik.Result{
+		State:   signal.MapStateToNudge(sig.State),
+		Summary: sig.Message,
+		Source:  "agent",
+	}
+
+	// "working" clears the nudge
+	if sig.State == "working" {
+		sess.Nudge = ""
+	} else {
+		payload, err := json.Marshal(nudgeResult)
+		if err != nil {
+			fmt.Printf("[signal] %s - failed to serialize nudge: %v\n", sessionID, err)
+			return
+		}
+		sess.Nudge = string(payload)
+	}
+
+	// Update last signal time (in-memory only)
+	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
+
+	if err := s.state.UpdateSession(*sess); err != nil {
+		fmt.Printf("[signal] %s - failed to update session: %v\n", sessionID, err)
+		return
+	}
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[signal] %s - failed to save state: %v\n", sessionID, err)
+		return
+	}
+
+	fmt.Printf("[signal] %s - received %s signal: %s\n", sessionID[:8], sig.State, sig.Message)
+
+	// Broadcast the update to all clients
+	go s.BroadcastSessions()
 }

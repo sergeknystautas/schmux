@@ -15,6 +15,7 @@ type StateStore interface {
 	UpdateSession(sess Session) error
 	RemoveSession(id string) error
 	UpdateSessionLastOutput(sessionID string, t time.Time)
+	UpdateSessionLastSignal(sessionID string, t time.Time)
 
 	// Workspace operations
 	GetWorkspaces() []Workspace
