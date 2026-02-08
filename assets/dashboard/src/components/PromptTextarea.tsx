@@ -161,12 +161,7 @@ export default function PromptTextarea({
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Cmd+Enter (Mac) or Ctrl+Enter (other platforms) submits the form
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && onSubmit) {
-      e.preventDefault();
-      onSubmit();
-      return;
-    }
+    // Note: Cmd+Enter submission is handled globally by SpawnPage to work from any input
 
     if (!showMenu) return;
 

@@ -662,6 +662,20 @@ export default function SpawnPage() {
     }
   };
 
+  // Global Cmd+Enter handler to submit form from any input on the spawn page
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Enter (Mac) or Ctrl+Enter (other platforms) submits the form
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        void handleEngage();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleEngage]);
+
   if (loading) {
     return (
       <div className="loading-state">
