@@ -474,21 +474,56 @@ export default function SessionDetailPage() {
             </div>
           </div>
 
+          {sessionData.remote_host_id && (
+            <>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-md) 0' }} />
+              <div className="metadata-field">
+                <span className="metadata-field__label">Environment</span>
+                <span className="metadata-field__value" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                    <line x1="1" y1="10" x2="23" y2="10" />
+                  </svg>
+                  {sessionData.remote_flavor_name || 'Remote'}
+                </span>
+              </div>
+              {sessionData.remote_hostname && (
+                <div className="metadata-field">
+                  <span className="metadata-field__label">Hostname</span>
+                  <span className="metadata-field__value metadata-field__value--mono" style={{ fontSize: '0.75rem' }}>
+                    {sessionData.remote_hostname}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+
           <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-md) 0' }} />
 
           <div className="form-group">
             <label className="form-group__label">Attach Command</label>
-            <div className="copy-field">
-              <span className="copy-field__value">{sessionData.attach_cmd}</span>
-              <Tooltip content="Copy attach command">
-                <button className="copy-field__btn" onClick={handleCopyAttach}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
-              </Tooltip>
-            </div>
+            {sessionData.remote_host_id ? (
+              <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                Remote session on {sessionData.remote_hostname || 'remote host'}
+                {sessionData.remote_pane_id && (
+                  <div style={{ marginTop: 'var(--spacing-xs)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                    Pane: {sessionData.remote_pane_id}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="copy-field">
+                <span className="copy-field__value">{sessionData.attach_cmd}</span>
+                <Tooltip content="Copy attach command">
+                  <button className="copy-field__btn" onClick={handleCopyAttach}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 'auto' }}>

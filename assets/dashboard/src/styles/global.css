@@ -1867,6 +1867,10 @@ body {
 }
 
 .modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
     padding: var(--spacing-lg);
     border-bottom: 1px solid var(--color-border);
 }
@@ -1874,6 +1878,11 @@ body {
 .modal__title {
     font-size: 1.125rem;
     font-weight: 600;
+    margin: 0;
+}
+
+.modal__close {
+    flex-shrink: 0;
 }
 
 .modal__body {

@@ -989,3 +989,364 @@ func TestGetSourceCodeManagement(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteFlavorCRUD(t *testing.T) {
+	t.Run("AddRemoteFlavor generates ID from flavor string", func(t *testing.T) {
+		cfg := &Config{}
+		err := cfg.AddRemoteFlavor(RemoteFlavor{
+			Flavor:        "gpu:ml-large",
+			DisplayName:   "GPU ML Large",
+			WorkspacePath: "~/workspace",
+		})
+		if err != nil {
+			t.Fatalf("AddRemoteFlavor failed: %v", err)
+		}
+
+		if len(cfg.RemoteFlavors) != 1 {
+			t.Fatalf("expected 1 flavor, got %d", len(cfg.RemoteFlavors))
+		}
+
+		// ID should be generated from flavor string
+		if cfg.RemoteFlavors[0].ID != "gpu_ml_large" {
+			t.Errorf("ID = %q, want %q", cfg.RemoteFlavors[0].ID, "gpu_ml_large")
+		}
+
+		// VCS should default to git
+		if cfg.RemoteFlavors[0].VCS != "git" {
+			t.Errorf("VCS = %q, want %q", cfg.RemoteFlavors[0].VCS, "git")
+		}
+	})
+
+	t.Run("AddRemoteFlavor validates required fields", func(t *testing.T) {
+		cfg := &Config{}
+
+		// Missing flavor
+		err := cfg.AddRemoteFlavor(RemoteFlavor{
+			DisplayName:   "Test",
+			WorkspacePath: "~/test",
+		})
+		if err == nil {
+			t.Error("expected error for missing flavor")
+		}
+
+		// Missing display name
+		err = cfg.AddRemoteFlavor(RemoteFlavor{
+			Flavor:        "test:flavor",
+			WorkspacePath: "~/test",
+		})
+		if err == nil {
+			t.Error("expected error for missing display_name")
+		}
+
+		// Missing workspace path
+		err = cfg.AddRemoteFlavor(RemoteFlavor{
+			Flavor:      "test:flavor",
+			DisplayName: "Test",
+		})
+		if err == nil {
+			t.Error("expected error for missing workspace_path")
+		}
+	})
+
+	t.Run("AddRemoteFlavor rejects invalid VCS", func(t *testing.T) {
+		cfg := &Config{}
+		err := cfg.AddRemoteFlavor(RemoteFlavor{
+			Flavor:        "test:flavor",
+			DisplayName:   "Test",
+			WorkspacePath: "~/test",
+			VCS:           "mercurial",
+		})
+		if err == nil {
+			t.Error("expected error for invalid VCS")
+		}
+	})
+
+	t.Run("AddRemoteFlavor rejects duplicate ID", func(t *testing.T) {
+		cfg := &Config{}
+		rf := RemoteFlavor{
+			Flavor:        "test:flavor",
+			DisplayName:   "Test",
+			WorkspacePath: "~/test",
+		}
+
+		if err := cfg.AddRemoteFlavor(rf); err != nil {
+			t.Fatalf("first add failed: %v", err)
+		}
+
+		err := cfg.AddRemoteFlavor(rf)
+		if err == nil {
+			t.Error("expected error for duplicate ID")
+		}
+	})
+
+	t.Run("GetRemoteFlavor returns flavor by ID", func(t *testing.T) {
+		cfg := &Config{
+			RemoteFlavors: []RemoteFlavor{
+				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1"},
+				{ID: "flavor2", Flavor: "test:2", DisplayName: "Test 2", WorkspacePath: "~/2"},
+			},
+		}
+
+		rf, found := cfg.GetRemoteFlavor("flavor2")
+		if !found {
+			t.Fatal("flavor2 not found")
+		}
+		if rf.DisplayName != "Test 2" {
+			t.Errorf("DisplayName = %q, want %q", rf.DisplayName, "Test 2")
+		}
+
+		_, found = cfg.GetRemoteFlavor("nonexistent")
+		if found {
+			t.Error("expected nonexistent to not be found")
+		}
+	})
+
+	t.Run("UpdateRemoteFlavor modifies existing flavor", func(t *testing.T) {
+		cfg := &Config{
+			RemoteFlavors: []RemoteFlavor{
+				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1", VCS: "git"},
+			},
+		}
+
+		err := cfg.UpdateRemoteFlavor(RemoteFlavor{
+			ID:            "flavor1",
+			Flavor:        "test:1-updated",
+			DisplayName:   "Test 1 Updated",
+			WorkspacePath: "~/1-updated",
+			VCS:           "sapling",
+		})
+		if err != nil {
+			t.Fatalf("UpdateRemoteFlavor failed: %v", err)
+		}
+
+		rf, _ := cfg.GetRemoteFlavor("flavor1")
+		if rf.DisplayName != "Test 1 Updated" {
+			t.Errorf("DisplayName = %q, want %q", rf.DisplayName, "Test 1 Updated")
+		}
+		if rf.VCS != "sapling" {
+			t.Errorf("VCS = %q, want %q", rf.VCS, "sapling")
+		}
+	})
+
+	t.Run("UpdateRemoteFlavor fails for nonexistent ID", func(t *testing.T) {
+		cfg := &Config{}
+		err := cfg.UpdateRemoteFlavor(RemoteFlavor{
+			ID:            "nonexistent",
+			Flavor:        "test",
+			DisplayName:   "Test",
+			WorkspacePath: "~/test",
+		})
+		if err == nil {
+			t.Error("expected error for nonexistent ID")
+		}
+	})
+
+	t.Run("RemoveRemoteFlavor removes flavor", func(t *testing.T) {
+		cfg := &Config{
+			RemoteFlavors: []RemoteFlavor{
+				{ID: "flavor1", Flavor: "test:1", DisplayName: "Test 1", WorkspacePath: "~/1"},
+				{ID: "flavor2", Flavor: "test:2", DisplayName: "Test 2", WorkspacePath: "~/2"},
+			},
+		}
+
+		if err := cfg.RemoveRemoteFlavor("flavor1"); err != nil {
+			t.Fatalf("RemoveRemoteFlavor failed: %v", err)
+		}
+
+		if len(cfg.RemoteFlavors) != 1 {
+			t.Fatalf("expected 1 flavor, got %d", len(cfg.RemoteFlavors))
+		}
+		if cfg.RemoteFlavors[0].ID != "flavor2" {
+			t.Errorf("remaining flavor ID = %q, want %q", cfg.RemoteFlavors[0].ID, "flavor2")
+		}
+	})
+
+	t.Run("RemoveRemoteFlavor fails for nonexistent ID", func(t *testing.T) {
+		cfg := &Config{}
+		err := cfg.RemoveRemoteFlavor("nonexistent")
+		if err == nil {
+			t.Error("expected error for nonexistent ID")
+		}
+	})
+}
+
+func TestGenerateRemoteFlavorID(t *testing.T) {
+	tests := []struct {
+		flavor string
+		want   string
+	}{
+		{"simple", "simple"},
+		{"docker:devenv", "docker_devenv"},
+		{"gpu:ml-large", "gpu_ml_large"},
+		{"Test:With:Multiple:Colons", "test_with_multiple_colons"},
+		{"spaces are replaced", "spaces_are_replaced"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.flavor, func(t *testing.T) {
+			got := GenerateRemoteFlavorID(tt.flavor)
+			if got != tt.want {
+				t.Errorf("GenerateRemoteFlavorID(%q) = %q, want %q", tt.flavor, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRemoteFlavorTemplateValidation tests that invalid template syntax is caught
+// at config load time (Issue 5 fix).
+func TestRemoteFlavorTemplateValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		flavor    RemoteFlavor
+		wantError bool
+		errorMsg  string
+	}{
+		{
+			name: "valid connect template",
+			flavor: RemoteFlavor{
+				Flavor:         "test",
+				DisplayName:    "Test",
+				WorkspacePath:  "/workspace",
+				ConnectCommand: "ssh {{.Flavor}}",
+			},
+			wantError: false,
+		},
+		{
+			name: "valid reconnect template",
+			flavor: RemoteFlavor{
+				Flavor:           "test",
+				DisplayName:      "Test",
+				WorkspacePath:    "/workspace",
+				ReconnectCommand: "ssh {{.Hostname}}",
+			},
+			wantError: false,
+		},
+		{
+			name: "valid provision template",
+			flavor: RemoteFlavor{
+				Flavor:           "test",
+				DisplayName:      "Test",
+				WorkspacePath:    "/workspace",
+				ProvisionCommand: "cd {{.WorkspacePath}} && git clone {{.Repo}}",
+			},
+			wantError: false,
+		},
+		{
+			name: "invalid connect template syntax",
+			flavor: RemoteFlavor{
+				Flavor:         "test",
+				DisplayName:    "Test",
+				WorkspacePath:  "/workspace",
+				ConnectCommand: "ssh {{.Flavor",
+			},
+			wantError: true,
+			errorMsg:  "connect_command has invalid template syntax",
+		},
+		{
+			name: "invalid reconnect template - undefined variable",
+			flavor: RemoteFlavor{
+				Flavor:           "test",
+				DisplayName:      "Test",
+				WorkspacePath:    "/workspace",
+				ReconnectCommand: "ssh {{.UndefinedVar}}",
+			},
+			wantError: true,
+			errorMsg:  "reconnect_command template execution failed",
+		},
+		{
+			name: "invalid provision template - unclosed action",
+			flavor: RemoteFlavor{
+				Flavor:           "test",
+				DisplayName:      "Test",
+				WorkspacePath:    "/workspace",
+				ProvisionCommand: "git clone {{.Repo",
+			},
+			wantError: true,
+			errorMsg:  "provision_command has invalid template syntax",
+		},
+		{
+			name: "empty templates are valid",
+			flavor: RemoteFlavor{
+				Flavor:        "test",
+				DisplayName:   "Test",
+				WorkspacePath: "/workspace",
+			},
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRemoteFlavor(tt.flavor)
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errorMsg)
+				} else if !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateCommandTemplate tests the template validation helper
+func TestValidateCommandTemplate(t *testing.T) {
+	tests := []struct {
+		name      string
+		tmplStr   string
+		fieldName string
+		testData  map[string]string
+		wantError bool
+	}{
+		{
+			name:      "valid simple template",
+			tmplStr:   "echo {{.Value}}",
+			fieldName: "test_field",
+			testData:  map[string]string{"Value": "hello"},
+			wantError: false,
+		},
+		{
+			name:      "valid complex template",
+			tmplStr:   "ssh {{.User}}@{{.Host}} -p {{.Port}}",
+			fieldName: "connect",
+			testData:  map[string]string{"User": "root", "Host": "example.com", "Port": "22"},
+			wantError: false,
+		},
+		{
+			name:      "invalid syntax - unclosed action",
+			tmplStr:   "echo {{.Value",
+			fieldName: "test_field",
+			testData:  map[string]string{"Value": "hello"},
+			wantError: true,
+		},
+		{
+			name:      "undefined variable",
+			tmplStr:   "echo {{.Missing}}",
+			fieldName: "test_field",
+			testData:  map[string]string{"Value": "hello"},
+			wantError: true,
+		},
+		{
+			name:      "empty template is valid",
+			tmplStr:   "",
+			fieldName: "test_field",
+			testData:  map[string]string{},
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCommandTemplate(tt.tmplStr, tt.fieldName, tt.testData)
+			if tt.wantError && err == nil {
+				t.Errorf("expected error, got nil")
+			} else if !tt.wantError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

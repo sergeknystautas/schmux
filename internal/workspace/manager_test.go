@@ -493,6 +493,22 @@ func (m *mockStateStore) SetPullRequests(_ []contracts.PullRequest) {}
 func (m *mockStateStore) GetPublicRepos() []string                  { return nil }
 func (m *mockStateStore) SetPublicRepos(_ []string)                 {}
 
+// Remote host methods
+func (m *mockStateStore) GetRemoteHosts() []state.RemoteHost { return nil }
+func (m *mockStateStore) GetRemoteHost(id string) (state.RemoteHost, bool) {
+	return state.RemoteHost{}, false
+}
+func (m *mockStateStore) GetRemoteHostByFlavorID(flavorID string) (state.RemoteHost, bool) {
+	return state.RemoteHost{}, false
+}
+func (m *mockStateStore) GetRemoteHostByHostname(hostname string) (state.RemoteHost, bool) {
+	return state.RemoteHost{}, false
+}
+func (m *mockStateStore) AddRemoteHost(rh state.RemoteHost) error        { return nil }
+func (m *mockStateStore) UpdateRemoteHost(rh state.RemoteHost) error     { return nil }
+func (m *mockStateStore) UpdateRemoteHostStatus(id, status string) error { return nil }
+func (m *mockStateStore) RemoveRemoteHost(id string) error               { return nil }
+
 func (m *mockStateStore) Save() error {
 	if m.failSave {
 		return fmt.Errorf("mock state save failure")

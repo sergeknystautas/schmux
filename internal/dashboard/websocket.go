@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/signal"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
@@ -93,9 +94,14 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	cancel()
 
+	// Get session and check if this is a remote session
 	sess, err := s.session.GetSession(sessionID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get session: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
+		return
+	}
+	if sess.IsRemoteSession() {
+		s.handleRemoteTerminalWebSocket(w, r, sess)
 		return
 	}
 	tracker, err := s.session.GetTracker(sessionID)
@@ -342,4 +348,321 @@ func (s *Server) handleAgentSignal(sessionID string, sig signal.Signal) {
 
 	// Broadcast the update to all clients
 	go s.BroadcastSessions()
+}
+
+// handleRemoteTerminalWebSocket streams terminal output from a remote session via control mode.
+func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Request, sess *state.Session) {
+	sessionID := sess.ID
+
+	// Check if session has been created on remote host yet
+	// Sessions are queued during provisioning and RemotePaneID is set when created
+	if sess.RemotePaneID == "" {
+		// Session is still provisioning
+		http.Error(w, "Session is still provisioning. Please wait and try again in a moment.", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get the remote manager from session manager
+	rm := s.session.GetRemoteManager()
+	if rm == nil {
+		http.Error(w, "remote manager not configured", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the connection for this session's remote host
+	conn := rm.GetConnection(sess.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		http.Error(w, "remote host not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if s.config.GetAuthEnabled() {
+				return s.isAllowedOrigin(origin)
+			}
+			if origin == "" {
+				return true
+			}
+			return s.isAllowedOrigin(origin)
+		},
+	}
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+
+	// Wrap the connection for concurrent write safety
+	wsConn := &wsConn{conn: rawConn}
+
+	// Register this connection
+	s.RegisterWebSocket(sessionID, wsConn)
+	defer func() {
+		s.UnregisterWebSocket(sessionID, wsConn)
+		wsConn.Close()
+	}()
+
+	// Subscribe to output from the remote pane
+	outputChan := conn.SubscribeOutput(sess.RemotePaneID)
+	defer conn.UnsubscribeOutput(sess.RemotePaneID, outputChan)
+
+	// Handle client messages (input, pause, resume)
+	controlChan := make(chan WSMessage, 10)
+	go func() {
+		defer close(controlChan)
+		for {
+			msgType, msg, err := rawConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.TextMessage {
+				var wsMsg WSMessage
+				if err := json.Unmarshal(msg, &wsMsg); err == nil {
+					controlChan <- wsMsg
+				}
+			}
+		}
+	}()
+
+	sendOutput := func(msgType, content string) error {
+		msg := WSOutputMessage{Type: msgType, Content: content}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		return wsConn.WriteMessage(websocket.TextMessage, data)
+	}
+
+	// Send initial pane history (for scrollback)
+	initialLines := s.config.GetTerminalBootstrapLines()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	history, err := conn.CapturePaneLines(ctx, sess.RemotePaneID, initialLines)
+	cancel()
+	if err != nil {
+		fmt.Printf("[ws remote %s] failed to capture initial pane content: %v\n", sessionID[:8], err)
+		// Send empty full message as fallback
+		if err := sendOutput("full", ""); err != nil {
+			return
+		}
+	} else {
+		// Send captured history as initial full content
+		if err := sendOutput("full", history); err != nil {
+			return
+		}
+	}
+
+	paused := false
+	checkTicker := time.NewTicker(5 * time.Second) // Periodic health check
+	defer checkTicker.Stop()
+
+	for {
+		select {
+		case outputEvent, ok := <-outputChan:
+			if !ok {
+				// Channel closed, connection lost
+				sendOutput("append", "\n[Remote connection lost]")
+				return
+			}
+			if !paused && outputEvent.Data != "" {
+				// Update last output time for session activity tracking
+				s.state.UpdateSessionLastOutput(sessionID, time.Now())
+				if err := sendOutput("append", outputEvent.Data); err != nil {
+					return
+				}
+			}
+
+		case <-checkTicker.C:
+			// Check if remote connection is still active
+			if conn == nil || !conn.IsConnected() {
+				sendOutput("append", "\n[Remote host disconnected]")
+				return
+			}
+
+		case msg, ok := <-controlChan:
+			if !ok {
+				return
+			}
+			switch msg.Type {
+			case "pause":
+				paused = true
+			case "resume":
+				paused = false
+			case "input":
+				// Send keys to remote pane
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+				if err := conn.SendKeys(ctx, sess.RemotePaneID, msg.Data); err != nil {
+					cancel()
+					fmt.Printf("[ws remote %s] error sending keys: %v\n", sessionID[:8], err)
+				}
+				cancel()
+
+				// Clear nudge on enter, tab, or shift-tab
+				if sess.Nudge != "" && (strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z")) {
+					sess.Nudge = ""
+					if err := s.state.UpdateSession(*sess); err != nil {
+						fmt.Printf("[nudgenik] error clearing nudge: %v\n", err)
+					} else if err := s.state.Save(); err != nil {
+						fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+					} else {
+						go s.BroadcastSessions()
+					}
+				}
+			}
+		}
+	}
+}
+
+// handleProvisionWebSocket streams PTY I/O for remote host provisioning.
+func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request) {
+	provisionID := strings.TrimPrefix(r.URL.Path, "/ws/provision/")
+	if provisionID == "" {
+		http.Error(w, "provision ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if s.config.GetAuthEnabled() {
+		if _, err := s.authenticateRequest(r); err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	if s.remoteManager == nil {
+		http.Error(w, "remote workspace support not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse provision ID to get host ID: "provision-remote-XXXXXXXX" -> "remote-XXXXXXXX"
+	hostID := strings.TrimPrefix(provisionID, "provision-")
+	if hostID == provisionID {
+		http.Error(w, "invalid provision ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Get the connection
+	conn := s.remoteManager.GetConnection(hostID)
+	if conn == nil {
+		fmt.Printf("[ws provision] connection not found for host %s (provisionID=%s)\n", hostID, provisionID)
+		http.Error(w, "remote host connection not found", http.StatusNotFound)
+		return
+	}
+
+	fmt.Printf("[ws provision %s] connection found, waiting for PTY...\n", hostID[:8])
+
+	// Get PTY (may need to wait briefly while connection initializes)
+	ptmx := conn.PTY()
+	if ptmx == nil {
+		// Wait up to 5 seconds for PTY to become available
+		for i := 0; i < 50; i++ {
+			time.Sleep(100 * time.Millisecond)
+			ptmx = conn.PTY()
+			if ptmx != nil {
+				break
+			}
+		}
+		if ptmx == nil {
+			fmt.Printf("[ws provision %s] PTY not available after 5s timeout\n", hostID[:8])
+			http.Error(w, "provisioning terminal not available", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	fmt.Printf("[ws provision %s] PTY available, upgrading to WebSocket\n", hostID[:8])
+
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if s.config.GetAuthEnabled() {
+				return s.isAllowedOrigin(origin)
+			}
+			if origin == "" {
+				return true
+			}
+			return s.isAllowedOrigin(origin)
+		},
+	}
+
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+
+	// Wrap the connection for concurrent write safety
+	wsConn := &wsConn{conn: rawConn}
+	defer wsConn.Close()
+
+	// Handle client messages (input and resize from browser)
+	inputChan := make(chan []byte, 10)
+	go func() {
+		defer close(inputChan)
+		for {
+			msgType, msg, err := rawConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.TextMessage {
+				var wsMsg WSMessage
+				if err := json.Unmarshal(msg, &wsMsg); err == nil {
+					switch wsMsg.Type {
+					case "input":
+						inputChan <- []byte(wsMsg.Data)
+					case "resize":
+						var resizeData struct {
+							Cols int `json:"cols"`
+							Rows int `json:"rows"`
+						}
+						if err := json.Unmarshal([]byte(wsMsg.Data), &resizeData); err == nil {
+							if resizeData.Cols > 0 && resizeData.Rows > 0 {
+								if err := conn.ResizePTY(uint16(resizeData.Cols), uint16(resizeData.Rows)); err != nil {
+									fmt.Printf("[ws provision %s] PTY resize error: %v\n", hostID[:8], err)
+								}
+							}
+						}
+					}
+				}
+			} else if msgType == websocket.BinaryMessage {
+				// Direct binary input (from xterm.js)
+				inputChan <- msg
+			}
+		}
+	}()
+
+	// Subscribe to PTY output (from parseProvisioningOutput fan-out)
+	outputChan := conn.SubscribePTYOutput()
+	defer conn.UnsubscribePTYOutput(outputChan)
+
+	// Forward data between WebSocket and PTY
+	for {
+		select {
+		case data, ok := <-outputChan:
+			if !ok {
+				// PTY closed
+				return
+			}
+			// Send as binary message (works better with xterm.js)
+			if err := wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+				return
+			}
+
+		case input, ok := <-inputChan:
+			if !ok {
+				// WebSocket closed
+				return
+			}
+			// Write to PTY
+			if _, err := ptmx.Write(input); err != nil {
+				fmt.Printf("[ws provision %s] PTY write error: %v\n", hostID[:8], err)
+				return
+			}
+
+		case <-r.Context().Done():
+			// Client disconnected
+			return
+		}
+	}
 }
