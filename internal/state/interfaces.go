@@ -37,6 +37,8 @@ type StateStore interface {
 	UpdateRemoteHost(rh RemoteHost) error
 	UpdateRemoteHostStatus(id, status string) error
 	RemoveRemoteHost(id string) error
+	GetSessionsByRemoteHostID(hostID string) []Session
+	GetWorkspacesByRemoteHostID(hostID string) []Workspace
 
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest

@@ -49,6 +49,7 @@ const (
 	RemoteHostStatusConnected      = "connected"
 	RemoteHostStatusDisconnected   = "disconnected"
 	RemoteHostStatusExpired        = "expired"
+	RemoteHostStatusReconnecting   = "reconnecting"
 )
 
 // Workspace represents a workspace directory state.
@@ -547,4 +548,30 @@ func (sess *Session) IsRemoteSession() bool {
 // IsRemoteWorkspace returns true if the workspace is on a remote host.
 func (ws *Workspace) IsRemoteWorkspace() bool {
 	return ws.RemoteHostID != ""
+}
+
+// GetSessionsByRemoteHostID returns all sessions for a given remote host ID.
+func (s *State) GetSessionsByRemoteHostID(hostID string) []Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []Session
+	for _, sess := range s.Sessions {
+		if sess.RemoteHostID == hostID {
+			result = append(result, sess)
+		}
+	}
+	return result
+}
+
+// GetWorkspacesByRemoteHostID returns all workspaces for a given remote host ID.
+func (s *State) GetWorkspacesByRemoteHostID(hostID string) []Workspace {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []Workspace
+	for _, w := range s.Workspaces {
+		if w.RemoteHostID == hostID {
+			result = append(result, w)
+		}
+	}
+	return result
 }

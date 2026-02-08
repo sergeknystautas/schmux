@@ -301,9 +301,9 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
               aria-label={`Dispose ${sess.id}`}
               disabled={disabled}
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                <line x1="4" y1="4" x2="20" y2="20"></line>
+                <line x1="20" y1="4" x2="4" y2="20"></line>
               </svg>
             </button>
           </Tooltip>
@@ -362,7 +362,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
       style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
     >
       <div className="session-tab__row1">
-        <span className="session-tab__name">git graph</span>
+        <span className="session-tab__name">commit graph</span>
       </div>
     </div>
   );
@@ -475,16 +475,8 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
 
   return (
     <div className="session-tabs">
+      {/* Left: session tabs + add button */}
       {sessions.map((sess) => renderSessionTab(sess))}
-
-      {/* Diff tab — always shown */}
-      {renderDiffTab()}
-
-      {/* Git tab — always shown */}
-      {renderGitTab()}
-
-      {/* Resolve conflict tab — shown when state exists */}
-      {renderResolveConflictTab()}
 
       {/* Add button */}
       {showAddButton && renderAddButton()}
@@ -504,6 +496,19 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
           </div>
         </div>
       )}
+
+      {/* Spacer pushes accessory tabs to the right */}
+      <div style={{ flex: 1 }} />
+
+      {/* Right: accessory tabs */}
+      {/* Resolve conflict tab — shown when state exists */}
+      {renderResolveConflictTab()}
+
+      {/* Diff tab — always shown */}
+      {renderDiffTab()}
+
+      {/* Git tab — always shown */}
+      {renderGitTab()}
     </div>
   );
 }

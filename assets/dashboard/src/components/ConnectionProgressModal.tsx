@@ -20,7 +20,7 @@ export default function ConnectionProgressModal({
   onClose,
   onConnected,
 }: ConnectionProgressModalProps) {
-  const [status, setStatus] = useState<'provisioning' | 'authenticating' | 'connected' | 'error'>('provisioning');
+  const [status, setStatus] = useState<'provisioning' | 'authenticating' | 'connected' | 'error' | 'reconnecting'>('provisioning');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -137,6 +137,8 @@ export default function ConnectionProgressModal({
             }, 1000);
           } else if (host.status === 'authenticating') {
             setStatus('authenticating');
+          } else if (host.status === 'reconnecting') {
+            setStatus('reconnecting');
           } else if (host.status === 'disconnected' || host.status === 'expired') {
             setStatus('error');
             setErrorMessage(`Connection failed: host ${host.status}`);
@@ -192,6 +194,8 @@ export default function ConnectionProgressModal({
         return 'Provisioning remote host...';
       case 'authenticating':
         return 'Authentication required';
+      case 'reconnecting':
+        return 'Reconnecting — authentication required';
       case 'connected':
         return 'Connected!';
       case 'error':
@@ -207,6 +211,7 @@ export default function ConnectionProgressModal({
           <div className="spinner" style={{ width: `${size}px`, height: `${size}px` }} />
         );
       case 'authenticating':
+      case 'reconnecting':
         return (
           <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
@@ -327,7 +332,7 @@ export default function ConnectionProgressModal({
         </div>
 
         <div className="modal__body" style={{ padding: 'var(--spacing-md)' }}>
-          {status === 'authenticating' && (
+          {(status === 'authenticating' || status === 'reconnecting') && (
             <div style={{
               padding: 'var(--spacing-sm)',
               marginBottom: 'var(--spacing-sm)',

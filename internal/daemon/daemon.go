@@ -416,6 +416,31 @@ func Run(background bool) error {
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
 
+	// Reconnect stale remote hosts at startup.
+	// Hosts that were "connected" in state are stale (SSH processes are gone).
+	// This marks them as "reconnecting" and starts interactive reconnection
+	// with full PTY+WebSocket so users can provide Yubikey auth via dashboard.
+	reconnecting := remoteManager.StartReconnectAll(func(hostID string) {
+		// Cleanup callback: remove sessions, workspaces, and host entry on failure
+		fmt.Printf("[remote] cleaning up failed reconnection for host %s\n", hostID)
+
+		for _, sess := range st.GetSessionsByRemoteHostID(hostID) {
+			st.RemoveSession(sess.ID)
+		}
+		for _, ws := range st.GetWorkspacesByRemoteHostID(hostID) {
+			st.RemoveWorkspace(ws.ID)
+		}
+		st.RemoveRemoteHost(hostID)
+
+		if err := st.Save(); err != nil {
+			fmt.Printf("[remote] failed to save state after cleanup: %v\n", err)
+		}
+		server.BroadcastSessions()
+	})
+	if len(reconnecting) > 0 {
+		fmt.Printf("[daemon] %d remote host(s) need re-authentication\n", len(reconnecting))
+	}
+
 	// Start background goroutine to prune expired remote hosts
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
@@ -435,9 +460,11 @@ func Run(background bool) error {
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions)
 	if gitWatcher != nil {
 		wm.SetGitWatcher(gitWatcher)
-		// Add watches for all existing workspaces
+		// Add watches for all existing local workspaces (skip remote ones)
 		for _, w := range st.GetWorkspaces() {
-			gitWatcher.AddWorkspace(w.ID, w.Path)
+			if w.RemoteHostID == "" {
+				gitWatcher.AddWorkspace(w.ID, w.Path)
+			}
 		}
 		gitWatcher.Start()
 	}

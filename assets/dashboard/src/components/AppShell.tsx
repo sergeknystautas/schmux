@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import useTheme from '../hooks/useTheme'
 import useVersionInfo from '../hooks/useVersionInfo'
 import useLocalStorage from '../hooks/useLocalStorage'
 import Tooltip from './Tooltip'
 import KeyboardModeIndicator from './KeyboardModeIndicator'
+import ConnectionProgressModal from './ConnectionProgressModal'
 import { useConfig } from '../contexts/ConfigContext'
 import { useSessions } from '../contexts/SessionsContext'
 import { useKeyboardMode } from '../contexts/KeyboardContext'
@@ -14,7 +15,8 @@ import { navigateToWorkspace } from '../lib/navigation'
 import useOverheatIndicator from '../hooks/useOverheatIndicator'
 import { useModal } from './ModalProvider'
 import { useToast } from './ToastProvider'
-import { disposeWorkspace, getErrorMessage, openVSCode } from '../lib/api'
+import { disposeWorkspace, getErrorMessage, openVSCode, getRemoteHosts, reconnectRemoteHost } from '../lib/api'
+import type { RemoteHost } from '../lib/types'
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -52,6 +54,45 @@ export default function AppShell() {
   const { show: showHelp } = useHelpModal();
   const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
+
+  // State for reconnecting remote hosts banner
+  const [reconnectingHosts, setReconnectingHosts] = useState<RemoteHost[]>([]);
+  const [reconnectModal, setReconnectModal] = useState<{
+    hostId: string;
+    flavorId: string;
+    displayName: string;
+    provisioningSessionId: string | null;
+  } | null>(null);
+
+  // Poll for reconnecting remote hosts
+  useEffect(() => {
+    let active = true;
+    let intervalId: number | null = null;
+
+    const checkReconnecting = async () => {
+      try {
+        const hosts = await getRemoteHosts();
+        if (!active) return;
+        const reconnecting = hosts.filter(h => h.status === 'reconnecting' || h.status === 'authenticating');
+        setReconnectingHosts(reconnecting);
+        // Stop polling when no more reconnecting hosts
+        if (reconnecting.length === 0 && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    };
+
+    checkReconnecting();
+    intervalId = window.setInterval(checkReconnecting, 2000);
+
+    return () => {
+      active = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
 
   // Helper to get sessionsById from workspaces
   function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
@@ -307,6 +348,14 @@ export default function AppShell() {
               const hasChanges = linesAdded > 0 || linesRemoved > 0;
               const isWorkspaceActive = workspace.id === activeWorkspaceId;
 
+              // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
+              const isRemote = !!workspace.remote_host_id;
+              const remoteHostname = workspace.sessions?.find(s => s.remote_hostname)?.remote_hostname;
+              const displayBranch = (isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo))
+                ? remoteHostname
+                : workspace.branch;
+              const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
+
               return (
                 <div key={workspace.id} className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}`}>
                   <div
@@ -314,7 +363,21 @@ export default function AppShell() {
                     onClick={() => handleWorkspaceClick(workspace.id)}
                   >
                     <span className="nav-workspace__name">
-                      {workspace.branch}
+                      {isRemote && (
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={remoteDisconnected ? 'var(--color-error)' : 'currentColor'}
+                          strokeWidth="2"
+                          style={{ marginRight: '4px', verticalAlign: 'text-bottom', opacity: 0.7, flexShrink: 0 }}
+                        >
+                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                          <line x1="1" y1="10" x2="23" y2="10" />
+                        </svg>
+                      )}
+                      {displayBranch}
                     </span>
                     {hasChanges && (
                       <span className="nav-workspace__changes">
@@ -324,6 +387,34 @@ export default function AppShell() {
                     )}
                   </div>
                   <div className="nav-workspace__repo">{getRepoName(workspace.repo)}</div>
+                  {remoteDisconnected && (
+                    <button
+                      className="btn btn--sm"
+                      style={{
+                        fontSize: '0.7rem',
+                        padding: '2px 8px',
+                        margin: '4px 0 2px',
+                        color: 'var(--color-warning)',
+                        borderColor: 'var(--color-warning)',
+                      }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          const result = await reconnectRemoteHost(workspace.remote_host_id!);
+                          setReconnectModal({
+                            hostId: workspace.remote_host_id!,
+                            flavorId: result.flavor_id,
+                            displayName: result.hostname || workspace.branch,
+                            provisioningSessionId: result.provisioning_session_id || null,
+                          });
+                        } catch (err) {
+                          toastError(getErrorMessage(err, 'Failed to reconnect'));
+                        }
+                      }}
+                    >
+                      Reconnect
+                    </button>
+                  )}
                   <div className="nav-workspace__sessions">
                     {workspace.sessions?.map((sess) => {
                       const isActive = sess.id === sessionId;
@@ -461,6 +552,57 @@ export default function AppShell() {
       </nav>
 
       <main className="app-shell__content">
+        {reconnectingHosts.length > 0 && (
+          <div style={{
+            padding: 'var(--spacing-sm) var(--spacing-md)',
+            backgroundColor: 'var(--color-warning-bg, rgba(255, 193, 7, 0.1))',
+            borderBottom: '1px solid var(--color-warning)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--spacing-sm)',
+            flexWrap: 'wrap',
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-warning)' }}>
+              {reconnectingHosts.length} remote host{reconnectingHosts.length > 1 ? 's' : ''} need{reconnectingHosts.length === 1 ? 's' : ''} re-authentication
+            </span>
+            {reconnectingHosts.map(host => (
+              <button
+                key={host.id}
+                className="btn btn--sm"
+                style={{
+                  borderColor: 'var(--color-warning)',
+                  color: 'var(--color-warning)',
+                }}
+                onClick={() => setReconnectModal({
+                  hostId: host.id,
+                  flavorId: host.flavor_id,
+                  displayName: host.hostname || 'Remote Host',
+                  provisioningSessionId: host.provisioning_session_id || null,
+                })}
+              >
+                Authenticate {host.hostname}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {reconnectModal && (
+          <ConnectionProgressModal
+            flavorId={reconnectModal.flavorId}
+            flavorName={reconnectModal.displayName}
+            provisioningSessionId={reconnectModal.provisioningSessionId}
+            onClose={() => setReconnectModal(null)}
+            onConnected={() => {
+              setReconnectModal(null);
+              setReconnectingHosts(prev => prev.filter(h => h.id !== reconnectModal.hostId));
+            }}
+          />
+        )}
+
         <Outlet />
       </main>
     </div>
