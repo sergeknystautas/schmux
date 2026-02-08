@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/provision"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -90,6 +91,12 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		}
 	}
 
+	// Provision agent instruction files with signaling instructions
+	if err := provision.EnsureAgentInstructions(w.Path, targetName); err != nil {
+		// Log warning but don't fail spawn - signaling is optional
+		fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
+	}
+
 	// Resolve model if target is a model kind
 	var model *detect.Model
 	if resolved.Kind == TargetKindModel {
@@ -98,13 +105,20 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		}
 	}
 
+	// Create session ID
+	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
+
+	// Inject schmux signaling environment variables
+	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
+		"SCHMUX_ENABLED":      "1",
+		"SCHMUX_SESSION_ID":   sessionID,
+		"SCHMUX_WORKSPACE_ID": w.ID,
+	})
+
 	command, err := buildCommand(resolved, prompt, model, resume)
 	if err != nil {
 		return nil, err
 	}
-
-	// Create session ID
-	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := nickname
@@ -193,6 +207,14 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
+	// Inject schmux signaling environment variables into the command
+	schmuxEnv := map[string]string{
+		"SCHMUX_ENABLED":      "1",
+		"SCHMUX_SESSION_ID":   sessionID,
+		"SCHMUX_WORKSPACE_ID": w.ID,
+	}
+	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), command)
+
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := nickname
 	if nickname != "" {
@@ -206,7 +228,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	}
 
 	// Create tmux session with the raw command
-	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, command); err != nil {
+	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv); err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
