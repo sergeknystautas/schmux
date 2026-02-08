@@ -30,6 +30,17 @@ const shortcuts = [
   { key: '?', description: 'Show this help modal' },
 ];
 
+// Detect if user is on Mac (use Cmd) or Windows/Linux (use Ctrl)
+const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const modKey = isMac ? 'Cmd' : 'Ctrl';
+
+const directShortcuts = [
+  { key: `${modKey}+←`, description: 'Previous session in workspace' },
+  { key: `${modKey}+→`, description: 'Next session in workspace' },
+  { key: `${modKey}+↑`, description: 'Previous workspace' },
+  { key: `${modKey}+↓`, description: 'Next workspace' },
+];
+
 export default function HelpModalProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -69,7 +80,7 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
             </div>
             <div className="modal__body">
               <p style={{ marginBottom: 'var(--spacing-md)' }}>
-                Press <kbd>Cmd</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to execute an action.
+                Press <kbd>{modKey}</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to execute an action.
               </p>
               <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">
                 <thead>
@@ -93,6 +104,33 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+              <p style={{ marginTop: 'var(--spacing-lg)', marginBottom: 'var(--spacing-md)' }}>
+                These shortcuts work directly without entering keyboard mode:
+              </p>
+              <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Action</th>
+                    <th>Key</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><kbd>{directShortcuts[0].key}</kbd></td>
+                    <td>{directShortcuts[0].description}</td>
+                    <td><kbd>{directShortcuts[1].key}</kbd></td>
+                    <td>{directShortcuts[1].description}</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>{directShortcuts[2].key}</kbd></td>
+                    <td>{directShortcuts[2].description}</td>
+                    <td><kbd>{directShortcuts[3].key}</kbd></td>
+                    <td>{directShortcuts[3].description}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>

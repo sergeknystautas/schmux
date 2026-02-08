@@ -157,6 +157,82 @@ export default function AppShell() {
     };
   }, [registerAction, unregisterAction, navigate, workspaces]);
 
+  // Direct Cmd+Arrow shortcuts for navigation (no keyboard mode required)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle when Cmd/Ctrl is pressed with arrow keys
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+
+      // Cmd+Left: Previous session in workspace
+      if (e.key === 'ArrowLeft') {
+        if (!context.workspaceId || !context.sessionId) return;
+        const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+        if (!workspace?.sessions?.length) return;
+
+        const currentIndex = workspace.sessions.findIndex(s => s.id === context.sessionId);
+        if (currentIndex <= 0) return; // Already at first or not found
+
+        e.preventDefault();
+        navigate(`/sessions/${workspace.sessions[currentIndex - 1].id}`);
+        return;
+      }
+
+      // Cmd+Right: Next session in workspace
+      if (e.key === 'ArrowRight') {
+        if (!context.workspaceId || !context.sessionId) return;
+        const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+        if (!workspace?.sessions?.length) return;
+
+        const currentIndex = workspace.sessions.findIndex(s => s.id === context.sessionId);
+        if (currentIndex === -1 || currentIndex >= workspace.sessions.length - 1) return;
+
+        e.preventDefault();
+        navigate(`/sessions/${workspace.sessions[currentIndex + 1].id}`);
+        return;
+      }
+
+      // Cmd+Up: Previous workspace
+      if (e.key === 'ArrowUp') {
+        if (!workspaces?.length) return;
+
+        const currentIndex = context.workspaceId
+          ? workspaces.findIndex(ws => ws.id === context.workspaceId)
+          : -1;
+        if (currentIndex <= 0) return; // Already at first or not in a workspace
+
+        e.preventDefault();
+        navigateToWorkspace(navigate, workspaces, workspaces[currentIndex - 1].id);
+        return;
+      }
+
+      // Cmd+Down: Next workspace
+      if (e.key === 'ArrowDown') {
+        if (!workspaces?.length) return;
+
+        const currentIndex = context.workspaceId
+          ? workspaces.findIndex(ws => ws.id === context.workspaceId)
+          : -1;
+
+        // If not in any workspace, go to first workspace
+        if (currentIndex === -1) {
+          e.preventDefault();
+          navigateToWorkspace(navigate, workspaces, workspaces[0].id);
+          return;
+        }
+
+        if (currentIndex >= workspaces.length - 1) return; // Already at last
+
+        e.preventDefault();
+        navigateToWorkspace(navigate, workspaces, workspaces[currentIndex + 1].id);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [workspaces, context.workspaceId, context.sessionId, navigate]);
+
   // Register workspace-specific keyboard actions based on active context
   useEffect(() => {
     if (!context.workspaceId) return;
