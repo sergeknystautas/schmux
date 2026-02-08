@@ -17,6 +17,15 @@
 
 Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 
+## ⚠️ E2E Tests — Use Docker Hook, NOT direct `go test`
+
+**NEVER run E2E tests via direct `go test` invocation.**
+
+E2E tests in this repo are Docker-gated and must be executed through the Docker runner so CI/local behavior stays aligned.
+
+❌ **WRONG**: `go test ./internal/e2e/...`, `go test -tags=e2e ./...`
+✅ **RIGHT**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
+
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `go run ./cmd/gen-types` -generate TypeScript types from Go contracts.
 - `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
@@ -43,7 +52,7 @@ Prereqs: Go (see `go.mod`), `tmux`, and `git`.
 Before committing changes, you MUST run:
 
 1. **Run unit tests**: `go test ./...`
-2. **Run E2E tests**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
+2. **Run E2E tests via Docker hook only**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
 3. **Format code**: `go fmt ./...`
 
 This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
