@@ -224,8 +224,8 @@ func (e *Env) CreateConfig(workspacePath string) {
 	cfg.RunTargets = []config.RunTarget{
 		// Keep the session alive long enough for pipe-pane and tmux assertions.
 		{Name: "echo", Type: "command", Command: "sh -c 'echo hello; sleep 600'", Source: "user"},
-		// Echoes input back for websocket output tests.
-		{Name: "cat", Type: "command", Command: "cat", Source: "user"},
+		// Echoes input back for websocket output tests (emits START first for reliable bootstrap).
+		{Name: "cat", Type: "command", Command: "sh -c 'echo START; exec cat'", Source: "user"},
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -362,6 +362,7 @@ func (e *Env) WaitForDashboardSessionGone(conn *websocket.Conn, sessionID string
 func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	var buffer strings.Builder
+	msgCount := 0
 
 	for time.Now().Before(deadline) {
 		if err := conn.SetReadDeadline(deadline); err != nil {
@@ -370,15 +371,19 @@ func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeo
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				e.T.Logf("WaitForWebSocketContent timeout waiting for %q, received %d messages, buffer: %q", substr, msgCount, buffer.String())
 				return buffer.String(), fmt.Errorf("timed out waiting for websocket output: %q", substr)
 			}
 			return buffer.String(), err
 		}
+		msgCount++
 
 		var msg WSOutputMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
+			e.T.Logf("WaitForWebSocketContent received non-JSON message %d: %s", msgCount, string(data))
 			continue
 		}
+		e.T.Logf("WaitForWebSocketContent received message %d: type=%q content=%q", msgCount, msg.Type, msg.Content)
 		if msg.Content != "" {
 			buffer.WriteString(msg.Content)
 			if strings.Contains(buffer.String(), substr) {
