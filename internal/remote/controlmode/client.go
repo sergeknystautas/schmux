@@ -518,7 +518,7 @@ func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, 
 }
 
 // tmuxQuote quotes a string for safe use in tmux commands using double quotes.
-// Unlike shellQuote (which uses the '\'' trick that tmux doesn't support),
+// Unlike shellQuote (which uses the '\” trick that tmux doesn't support),
 // tmux double quotes handle embedded single quotes naturally.
 // In tmux double quotes: \ " and $ need to be escaped.
 func tmuxQuote(s string) string {

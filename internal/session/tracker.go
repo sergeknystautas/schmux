@@ -183,8 +183,15 @@ func (t *SessionTracker) attachAndRead() error {
 		return fmt.Errorf("tmux session does not exist: %s", target)
 	}
 
+	// Query tmux window size to initialize PTY with correct dimensions
+	width, height, err := tmux.GetWindowSize(ctx, target)
+	if err != nil {
+		fmt.Printf("[tracker] warning: failed to get tmux window size, using defaults: %v\n", err)
+		width, height = 80, 24
+	}
+
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
-	ptmx, err := pty.Start(attachCmd)
+	ptmx, err := pty.StartWithSize(attachCmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 	if err != nil {
 		return err
 	}
