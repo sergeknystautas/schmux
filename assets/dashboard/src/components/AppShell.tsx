@@ -341,10 +341,12 @@ export default function AppShell() {
                       const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
                       // Determine what to show in row2
+                      // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
                       let nudgePreviewElement: React.ReactNode = null;
-                      if (nudgenikEnabled && nudgeEmoji && nudgeSummary) {
+                      if (nudgeEmoji && nudgeSummary) {
                         nudgePreviewElement = `${nudgeEmoji} ${nudgeSummary}`;
                       } else if (nudgenikEnabled && isPromptable && sess.running) {
+                        // Only show "Working..." spinner if nudgenik LLM is configured
                         nudgePreviewElement = (
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <WorkingSpinner />

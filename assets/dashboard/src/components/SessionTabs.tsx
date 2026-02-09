@@ -250,9 +250,11 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
     const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
-    let nudgePreview = nudgenikEnabled && nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+    // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+    let nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
     let nudgePreviewElement: React.ReactNode = null;
 
+    // Only show "Working..." spinner if nudgenik LLM is configured
     if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
       nudgePreviewElement = (
         <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>

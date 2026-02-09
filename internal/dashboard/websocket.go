@@ -564,29 +564,39 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 
 		data := buf[:n] // Actual bytes read
+		bytesRead := int64(n) // Track original bytes for offset advancement
 
 		// Check for schmux OSC signals and strip them from output
+		// Only process signals on incremental reads (not initial load) to avoid
+		// re-triggering old signals every time a client connects
 		signals, cleanData := signal.ExtractAndStripSignals(data)
-		for _, sig := range signals {
-			s.handleAgentSignal(sessionID, sig)
+		if len(signals) > 0 {
+			fmt.Printf("[ws %s] stripped %d signals, data len %d -> %d\n", sessionID[:8], len(signals), len(data), len(cleanData))
+		}
+		if !sendFull {
+			for _, sig := range signals {
+				s.handleAgentSignal(sessionID, sig)
+			}
 		}
 		data = cleanData
 
-		// Send content
+		// Send content (skip if nothing to send after stripping)
 		if sendFull {
 			// Prepend ANSI sequences for terminal state priming (only on first full send)
 			content := string(ansiSequences) + string(data)
 			if err := sendOutput("full", content); err != nil {
 				return err
 			}
-			offset += int64(len(data))
+			offset += bytesRead // Use original bytes read, not stripped length
 			// Clear ansiSequences after first use so we don't send it again
 			ansiSequences = []byte{}
 		} else {
-			if err := sendOutput("append", string(data)); err != nil {
-				return err
+			if len(data) > 0 {
+				if err := sendOutput("append", string(data)); err != nil {
+					return err
+				}
 			}
-			offset += int64(len(data))
+			offset += bytesRead // Use original bytes read, not stripped length
 		}
 
 		return nil
