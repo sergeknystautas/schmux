@@ -32,8 +32,10 @@ type RecentBranch struct {
 
 // LinearSyncResult represents the result of a linear sync operation (from or to main).
 type LinearSyncResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success         bool   `json:"success"`
+	SuccessCount    int    `json:"success_count,omitempty"`    // Number of commits successfully applied
+	ConflictingHash string `json:"conflicting_hash,omitempty"` // The commit hash that caused the conflict, if any
+	Branch          string `json:"branch,omitempty"`           // The branch name synced with
 }
 
 // ConflictResolution represents a single conflict that was resolved during rebase.

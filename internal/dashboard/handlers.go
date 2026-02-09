@@ -2619,7 +2619,13 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		fmt.Printf("[workspace] linear-sync-from-main warning: failed to update git status: %v\n", err)
 	}
 
-	fmt.Printf("[workspace] linear-sync-from-main success: workspace_id=%s message=%s\n", workspaceID, result.Message)
+	successMsg := "success"
+	if result.Success {
+		successMsg = fmt.Sprintf("success: synced %d commits from %s", result.SuccessCount, result.Branch)
+	} else if result.ConflictingHash != "" {
+		successMsg = fmt.Sprintf("conflict at %s after %d commits", result.ConflictingHash, result.SuccessCount)
+	}
+	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s %s\n", workspaceID, successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -2681,7 +2687,13 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		fmt.Printf("[workspace] linear-sync-to-main warning: failed to update git status: %v\n", err)
 	}
 
-	fmt.Printf("[workspace] linear-sync-to-main success: workspace_id=%s message=%s\n", workspaceID, result.Message)
+	successMsg := "success"
+	if result.Success {
+		successMsg = fmt.Sprintf("success: pushed %d commits to %s", result.SuccessCount, result.Branch)
+	} else {
+		successMsg = "failed"
+	}
+	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s %s\n", workspaceID, successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

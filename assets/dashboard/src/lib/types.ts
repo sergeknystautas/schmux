@@ -187,7 +187,9 @@ export type PendingNavigation =
 
 export interface LinearSyncResponse {
   success: boolean;
-  message: string;
+  success_count?: number;
+  conflicting_hash?: string;
+  branch?: string;
 }
 
 export interface ConflictResolution {

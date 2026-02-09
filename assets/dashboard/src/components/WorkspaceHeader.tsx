@@ -15,7 +15,7 @@ type WorkspaceHeaderProps = {
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
-  const { alert, confirm } = useModal();
+  const { alert, confirm, show } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
   const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessions();
@@ -126,8 +126,33 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
 
     try {
       const result = await linearSyncFromMain(workspace.id);
-      const title = result.success ? 'Success' : 'Error';
-      await alert(title, result.message);
+      if (result.success) {
+        const branch = result.branch || 'main';
+        const count = result.success_count ?? 0;
+        await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
+      } else if (result.conflicting_hash) {
+        const commitCount = result.success_count ?? 0;
+        const resolveConfirmed = await show(
+          'Unable to fully sync',
+          `We were able to fast forward ${commitCount} commits cleanly. You can have an agent resolve the conflict at ${result.conflicting_hash}.`,
+          {
+            confirmText: 'Resolve',
+            cancelText: 'Close',
+            danger: true
+          }
+        );
+        if (resolveConfirmed) {
+          navigate(`/resolve-conflict/${workspace.id}`);
+          clearLinearSyncResolveConflictState(workspace.id);
+          try {
+            await linearSyncResolveConflict(workspace.id);
+          } catch (err) {
+            toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
+          }
+        }
+      } else {
+        await alert('Error', 'Sync failed.');
+      }
     } catch (err) {
       await alert('Error', getErrorMessage(err, 'Failed to sync from main'));
     } finally {
@@ -142,16 +167,18 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     try {
       const result = await linearSyncToMain(workspace.id);
       if (result.success) {
-        const disposeConfirmed = await confirm('Are you done? Shall I dispose this workspace and sessions?', {
-          detailedMessage: result.message
-        });
+        const branch = result.branch || 'main';
+        const count = result.success_count ?? 0;
+        const disposeConfirmed = await confirm(
+          `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`,
+        );
         if (disposeConfirmed) {
           await disposeWorkspaceAll(workspace.id);
           await alert('Success', 'Workspace and sessions disposed');
           navigate('/');
         }
       } else {
-        await alert('Error', result.message);
+        await alert('Error', 'Sync failed.');
       }
     } catch (err) {
       await alert('Error', getErrorMessage(err, 'Failed to sync or dispose'));
