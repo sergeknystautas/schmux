@@ -24,10 +24,12 @@ This workspace is managed by schmux. Signal your status to help the user monitor
 
 ### How to Signal
 
-Output this escape sequence to signal your status (uses standard OSC 777 format):
-` + "```bash" + `
-printf '\x1b]777;notify;<state>;<message>\x07'
+Output this marker **on its own line** in your response:
 ` + "```" + `
+--<[schmux:state:message]>--
+` + "```" + `
+
+**Important:** The signal must be on a separate line by itself. Do not embed it within other text.
 
 ### Available States
 
@@ -41,30 +43,32 @@ printf '\x1b]777;notify;<state>;<message>\x07'
 
 ### Examples
 
-` + "```bash" + `
+` + "```" + `
 # After finishing a task
-printf '\x1b]777;notify;completed;Implemented the login feature\x07'
+--<[schmux:completed:Implemented the login feature]>--
 
 # When you need user approval
-printf '\x1b]777;notify;needs_input;Should I delete these 5 files?\x07'
+--<[schmux:needs_input:Should I delete these 5 files?]>--
 
 # When ready for testing
-printf '\x1b]777;notify;needs_testing;Please try the new search functionality\x07'
+--<[schmux:needs_testing:Please try the new search functionality]>--
 
 # When encountering an error
-printf '\x1b]777;notify;error;Build failed - missing dependency\x07'
+--<[schmux:error:Build failed - missing dependency]>--
 
 # When starting new work
-printf '\x1b]777;notify;working;\x07'
+--<[schmux:working:]>--
 ` + "```" + `
 
 ### Best Practices
 
-1. **Signal completion** when you finish the user's request
-2. **Signal needs_input** when waiting for user decisions (don't just ask in text)
-3. **Signal error** for failures that block progress
-4. **Signal working** when starting a new task to clear old status
-5. Keep messages concise (under 100 characters)
+1. **Signal on its own line** - signals embedded in text are ignored
+2. **Signal completion** when you finish the user's request
+3. **Signal needs_input** when waiting for user decisions (don't just ask in text)
+4. **Signal error** for failures that block progress
+5. **Signal working** when starting a new task to clear old status
+6. Keep messages concise (under 100 characters)
+7. The signal marker is stripped from terminal output, so users won't see it
 `
 
 // EnsureAgentInstructions ensures the signaling instructions are present
