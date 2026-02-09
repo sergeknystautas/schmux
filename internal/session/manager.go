@@ -19,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/provision"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/streamjson"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -38,6 +39,7 @@ type Manager struct {
 	state         state.StateStore
 	workspace     workspace.WorkspaceManager
 	remoteManager *remote.Manager // Optional, for remote sessions
+	StreamJSON    *streamjson.Manager
 	trackers      map[string]*SessionTracker
 	mu            sync.RWMutex
 }
@@ -66,6 +68,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		workspace:     wm,
 		trackers:      make(map[string]*SessionTracker),
 		remoteManager: nil,
+		StreamJSON:    streamjson.NewManager(),
 	}
 }
 
@@ -240,7 +243,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 // nickname is an optional human-friendly name for the session.
 // prompt is only used if the target is promptable.
 // resume enables resume mode, which uses the agent's resume command instead of a prompt.
-func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool) (*state.Session, error) {
+// renderMode is "text" (default) or "html" (stream-json mode).
+func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool, renderMode string) (*state.Session, error) {
 	resolved, err := m.ResolveTarget(ctx, targetName)
 	if err != nil {
 		return nil, err
@@ -307,6 +311,11 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		uniqueNickname = m.generateUniqueNickname(nickname)
 	}
 
+	// Branch based on render mode
+	if renderMode == "html" {
+		return m.spawnStreamJSON(ctx, w, sessionID, targetName, uniqueNickname, prompt, resolved, model)
+	}
+
 	// Use sanitized unique nickname for tmux session name if provided, otherwise use sessionID
 	tmuxSession := sessionID
 	if uniqueNickname != "" {
@@ -368,6 +377,72 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	m.ensureTrackerFromSession(sess)
 
 	return &sess, nil
+}
+
+// spawnStreamJSON spawns a Claude Code session in stream-json mode (HTML render).
+func (m *Manager) spawnStreamJSON(ctx context.Context, w *state.Workspace, sessionID, targetName, nickname, prompt string, resolved ResolvedTarget, model *detect.Model) (*state.Session, error) {
+	// Build the stream-json command
+	cmdPath, args := buildStreamJsonCommand(resolved, model)
+
+	// Build environment variables
+	env := os.Environ()
+	for k, v := range resolved.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Start the stream-json subprocess
+	pid, err := m.StreamJSON.Start(sessionID, w.Path, cmdPath, args, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start stream-json process: %w", err)
+	}
+
+	// Create session state
+	sess := state.Session{
+		ID:          sessionID,
+		WorkspaceID: w.ID,
+		Target:      targetName,
+		Nickname:    nickname,
+		TmuxSession: "", // No tmux session for stream-json mode
+		RenderMode:  "html",
+		CreatedAt:   time.Now(),
+		Pid:         pid,
+	}
+
+	if err := m.state.AddSession(sess); err != nil {
+		return nil, fmt.Errorf("failed to add session to state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Send initial user message with the prompt
+	if prompt != "" {
+		if err := m.StreamJSON.SendUserMessage(sessionID, prompt); err != nil {
+			fmt.Printf("[session] warning: failed to send initial prompt to stream-json: %v\n", err)
+		}
+	}
+
+	return &sess, nil
+}
+
+// buildStreamJsonCommand builds the command and args for a stream-json Claude Code process.
+func buildStreamJsonCommand(resolved ResolvedTarget, model *detect.Model) (string, []string) {
+	// The base command is the Claude CLI path
+	cmdPath := resolved.Command
+
+	args := []string{
+		"-p",
+		"--input-format", "stream-json",
+		"--output-format", "stream-json",
+		"--verbose",
+	}
+
+	// Add model flag if using a specific model
+	if model != nil && model.ModelFlag != "" {
+		args = append(args, model.ModelFlag, model.ModelValue)
+	}
+
+	return cmdPath, args
 }
 
 // SpawnCommand spawns a session running a raw shell command.
@@ -676,6 +751,11 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 		return sess.RemotePaneID != ""
 	}
 
+	// For stream-json (HTML) sessions, check the streamjson manager
+	if sess.RenderMode == "html" {
+		return m.StreamJSON.IsRunning(sessionID)
+	}
+
 	// Local session handling
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
@@ -795,6 +875,11 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	// Handle remote sessions
 	if sess.IsRemoteSession() {
 		return m.disposeRemoteSession(ctx, sess)
+	}
+
+	// For stream-json (HTML) sessions, use the streamjson manager
+	if sess.RenderMode == "html" {
+		return m.disposeStreamJSON(ctx, sessionID, sess)
 	}
 
 	// Track what we've done for the summary
@@ -918,11 +1003,52 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 	return nil
 }
 
+// disposeStreamJSON disposes of a stream-json (HTML) session.
+func (m *Manager) disposeStreamJSON(ctx context.Context, sessionID string, sess state.Session) error {
+	// Stop the stream-json subprocess
+	if err := m.StreamJSON.Stop(sessionID); err != nil {
+		fmt.Printf("[session] warning: failed to stop stream-json process: %v\n", err)
+	}
+
+	// Also kill any orphaned processes in the workspace directory
+	ws, found := m.workspace.GetByID(sess.WorkspaceID)
+	if found && ctx.Err() == nil {
+		orphanPIDs, _ := findProcessesInWorkspace(ws.Path)
+		for _, pid := range orphanPIDs {
+			if ctx.Err() != nil {
+				break
+			}
+			if sess.Pid > 0 && pid == sess.Pid {
+				continue
+			}
+			if err := killProcessGroup(pid); err != nil {
+				fmt.Printf("[session]   warning: failed to kill orphaned process %d: %v\n", pid, err)
+			}
+		}
+	}
+
+	// Remove session from state
+	if err := m.state.RemoveSession(sessionID); err != nil {
+		return fmt.Errorf("failed to remove session from state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	fmt.Printf("[session] Disposed stream-json session %s\n", sessionID)
+	return nil
+}
+
 // GetAttachCommand returns the tmux attach command for a session.
 func (m *Manager) GetAttachCommand(sessionID string) (string, error) {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// HTML sessions don't have tmux sessions
+	if sess.RenderMode == "html" {
+		return "", nil
 	}
 
 	return tmux.GetAttachCommand(sess.TmuxSession), nil
@@ -964,6 +1090,18 @@ func (m *Manager) RenameSession(ctx context.Context, sessionID, newNickname stri
 	// Check if new nickname conflicts with an existing session
 	if conflictingID := m.nicknameExists(newNickname, sessionID); conflictingID != "" {
 		return fmt.Errorf("nickname %q already in use by session %s", newNickname, conflictingID)
+	}
+
+	// For HTML sessions, only update the nickname in state (no tmux to rename)
+	if sess.RenderMode == "html" {
+		sess.Nickname = newNickname
+		if err := m.state.UpdateSession(sess); err != nil {
+			return fmt.Errorf("failed to update session in state: %w", err)
+		}
+		if err := m.state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+		return nil
 	}
 
 	oldTmuxName := sess.TmuxSession

@@ -161,6 +161,7 @@ export default function SpawnPage() {
   const [engagePhase, setEngagePhase] = useState<'idle' | 'naming' | 'spawning' | 'waiting'>(
     'idle'
   );
+  const [renderMode, setRenderMode] = useState<'text' | 'html'>('text');
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
@@ -384,6 +385,25 @@ export default function SpawnPage() {
   const [modelSelectionMode, setModelSelectionMode] = useState<'single' | 'multiple' | 'advanced'>(
     'single'
   );
+
+  // Determine if all selected targets are Claude-based (for render mode toggle)
+  const allSelectedAreClaude = useMemo(() => {
+    const selectedNames = Object.entries(targetCounts)
+      .filter(([, count]) => count > 0)
+      .map(([name]) => name);
+    if (selectedNames.length === 0) return false;
+    const claudeBaseTools = new Set(
+      models.filter(m => m.base_tool === 'claude').map(m => m.id)
+    );
+    return selectedNames.every(name => name === 'claude' || claudeBaseTools.has(name));
+  }, [targetCounts, models]);
+
+  // Reset render mode when switching away from Claude targets
+  useEffect(() => {
+    if (!allSelectedAreClaude) {
+      setRenderMode('text');
+    }
+  }, [allSelectedAreClaude]);
 
   // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)
   useEffect(() => {
@@ -647,6 +667,7 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || '',
         resume: spawnMode === 'resume',
         remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+        render_mode: renderMode !== 'text' ? renderMode : undefined,
       });
       const hasSuccess = response.some((r) => !r.error);
       if (!hasSuccess) {
@@ -1078,6 +1099,27 @@ export default function SpawnPage() {
                     })}
                   </div>
                 )}
+              </>
+            )}
+
+            {/* Render mode toggle (only for Claude targets in promptable mode) */}
+            {spawnMode === 'promptable' && allSelectedAreClaude && (
+              <>
+                <label
+                  className="form-group__label"
+                  style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
+                >
+                  Render
+                </label>
+                <select
+                  className="select"
+                  value={renderMode}
+                  onChange={(e) => setRenderMode(e.target.value as 'text' | 'html')}
+                  style={{ width: 'auto' }}
+                >
+                  <option value="text">Terminal (xterm)</option>
+                  <option value="html">Interactive (HTML)</option>
+                </select>
               </>
             )}
 

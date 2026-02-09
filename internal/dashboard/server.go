@@ -277,6 +277,9 @@ func (s *Server) Start() error {
 	// WebSocket for provisioning terminal (remote host setup)
 	mux.HandleFunc("/ws/provision/", s.handleProvisionWebSocket)
 
+	// WebSocket for stream-json (HTML mode) sessions
+	mux.HandleFunc("/ws/streamjson/", s.handleStreamJsonWebSocket)
+
 	// WebSocket for real-time dashboard state updates
 	mux.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 

@@ -83,6 +83,7 @@ type Session struct {
 	Target       string    `json:"target"`
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession  string    `json:"tmux_session"`
+	RenderMode   string    `json:"render_mode,omitempty"` // "text" (default/empty) or "html" (stream-json)
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"`                      // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`                        // Last time terminal had new output (in-memory only, not persisted)

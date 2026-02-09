@@ -93,6 +93,7 @@ type SessionResponseItem struct {
 	Branch       string `json:"branch"`
 	BranchURL    string `json:"branch_url,omitempty"`
 	Nickname     string `json:"nickname,omitempty"`
+	RenderMode   string `json:"render_mode,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
@@ -264,6 +265,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Branch:           wsResp.Branch,
 			BranchURL:        wsResp.BranchURL,
 			Nickname:         sess.Nickname,
+			RenderMode:       sess.RenderMode,
 			CreatedAt:        sess.CreatedAt.Format("2006-01-02T15:04:05"),
 			LastOutputAt:     lastOutputAt,
 			Running:          running,
@@ -422,6 +424,7 @@ type SpawnRequest struct {
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
 	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
+	RenderMode      string         `json:"render_mode,omitempty"`      // "text" (default) or "html" (stream-json)
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -650,7 +653,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
 			} else {
 				// Local spawn - use existing Spawn()
-				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume)
+				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume, req.RenderMode)
 			}
 
 			cancel()
