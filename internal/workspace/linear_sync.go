@@ -43,8 +43,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	if err := ancestorCmd.Run(); err == nil {
 		// default branch IS an ancestor of HEAD - nothing new to pull
 		return &LinearSyncResult{
-			Success: true,
-			Message: fmt.Sprintf("Already caught up to %s", defaultBranch),
+			Success:      true,
+			SuccessCount: 0,
+			Branch:       defaultBranch,
 		}, nil
 	}
 	// Otherwise proceed - there are commits to pull (whether we're behind or diverged)
@@ -62,8 +63,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	// 4. If zero lines (no commits): return "Caught up to <default branch>"
 	if len(lines) == 1 && lines[0] == "" {
 		return &LinearSyncResult{
-			Success: true,
-			Message: fmt.Sprintf("Caught up to %s", defaultBranch),
+			Success:      true,
+			SuccessCount: 0,
+			Branch:       defaultBranch,
 		}, nil
 	}
 
@@ -81,8 +83,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 
 	if len(commitHashes) == 0 {
 		return &LinearSyncResult{
-			Success: true,
-			Message: fmt.Sprintf("Caught up to %s", defaultBranch),
+			Success:      true,
+			SuccessCount: 0,
+			Branch:       defaultBranch,
 		}, nil
 	}
 
@@ -130,8 +133,10 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			}
 
 			return &LinearSyncResult{
-				Success: false,
-				Message: fmt.Sprintf("FF'd %d commits before conflict", successCount),
+				Success:         false,
+				SuccessCount:    successCount,
+				ConflictingHash: hash,
+				Branch:          defaultBranch,
 			}, nil
 		}
 		successCount++
@@ -150,8 +155,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	}
 
 	return &LinearSyncResult{
-		Success: true,
-		Message: fmt.Sprintf("FF'd %d commits successfully. Caught up to %s", successCount, defaultBranch),
+		Success:      true,
+		SuccessCount: successCount,
+		Branch:       defaultBranch,
 	}, nil
 }
 
@@ -192,13 +198,13 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 			// Branches have diverged, FF not possible
 			return &LinearSyncResult{
 				Success: false,
-				Message: fmt.Sprintf("Branch is not an ancestor of %s", defaultBranch),
+				Branch:  defaultBranch,
 			}, nil
 		}
 		// HEAD IS an ancestor of default branch - we're behind
 		return &LinearSyncResult{
 			Success: false,
-			Message: fmt.Sprintf("Branch is behind %s, pull first", defaultBranch),
+			Branch:  defaultBranch,
 		}, nil
 	}
 
@@ -207,31 +213,31 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	if dirty {
 		return &LinearSyncResult{
 			Success: false,
-			Message: "Workspace has uncommitted changes",
+			Branch:  defaultBranch,
 		}, nil
 	}
 	if linesAdded != 0 || linesRemoved != 0 {
 		return &LinearSyncResult{
 			Success: false,
-			Message: "Workspace has uncommitted line changes",
+			Branch:  defaultBranch,
 		}, nil
 	}
 	if filesChanged != 0 {
 		return &LinearSyncResult{
 			Success: false,
-			Message: "Workspace has changed files",
+			Branch:  defaultBranch,
 		}, nil
 	}
 	if behind != 0 {
 		return &LinearSyncResult{
 			Success: false,
-			Message: fmt.Sprintf("Branch is behind %s", defaultBranch),
+			Branch:  defaultBranch,
 		}, nil
 	}
 	if ahead < 1 {
 		return &LinearSyncResult{
 			Success: false,
-			Message: "No commits to push",
+			Branch:  defaultBranch,
 		}, nil
 	}
 
@@ -279,8 +285,9 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 
 	fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s success\n", workspaceID)
 	return &LinearSyncResult{
-		Success: true,
-		Message: fmt.Sprintf("Pushed %d commit(s) to %s", ahead, defaultBranch),
+		Success:      true,
+		SuccessCount: ahead,
+		Branch:       defaultBranch,
 	}, nil
 }
 
