@@ -1,5 +1,5 @@
-import React from 'react';
-import { dismissLinearSyncResolveConflictState } from '../lib/api';
+import React, { useState } from 'react';
+import { dismissLinearSyncResolveConflictState, linearSyncFromMain } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import type { LinearSyncResolveConflictStatePayload, LinearSyncResolveConflictStep } from '../lib/types';
 
@@ -82,8 +82,9 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 }
 
 export default function LinearSyncResolveConflictProgress({ workspaceId }: LinearSyncResolveConflictProgressProps) {
-  const { linearSyncResolveConflictStates } = useSessions();
+  const { linearSyncResolveConflictStates, workspaces } = useSessions();
   const state: LinearSyncResolveConflictStatePayload | undefined = linearSyncResolveConflictStates[workspaceId];
+  const [continuing, setContinuing] = useState(false);
 
   if (!state) return null;
 
@@ -91,11 +92,25 @@ export default function LinearSyncResolveConflictProgress({ workspaceId }: Linea
   const isDone = state.status === 'done';
   const isFailed = state.status === 'failed';
 
+  const workspace = workspaces?.find(ws => ws.id === workspaceId);
+  const hasMoreCommits = (workspace?.git_behind ?? 0) > 0;
+
   const handleDismiss = async () => {
     try {
       await dismissLinearSyncResolveConflictState(workspaceId);
     } catch {
       // State will be cleared via next WS broadcast
+    }
+  };
+
+  const handleContinue = async () => {
+    setContinuing(true);
+    try {
+      await linearSyncFromMain(workspaceId);
+    } catch {
+      // Error will be shown via toast/other mechanism
+    } finally {
+      setContinuing(false);
     }
   };
 
@@ -116,7 +131,7 @@ export default function LinearSyncResolveConflictProgress({ workspaceId }: Linea
             </span>
           )}
         </div>
-        {!isActive && (
+        {!isActive && !(isDone && hasMoreCommits) && (
           <button
             className="btn btn--sm btn--ghost"
             onClick={handleDismiss}
@@ -147,19 +162,21 @@ export default function LinearSyncResolveConflictProgress({ workspaceId }: Linea
         ))}
       </div>
 
-      {/* Resolutions summary */}
-      {state.resolutions && state.resolutions.length > 0 && (
+      {/* Next steps */}
+      {!isActive && isDone && hasMoreCommits && (
         <div style={{ marginTop: 8, borderTop: '1px solid var(--color-border)', paddingTop: 6 }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 4 }}>
-            Resolutions:
+          <strong style={{ marginBottom: 4, display: 'block' }}>Next steps</strong>
+          <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>
+            There are {workspace?.git_behind} commits left to sync.
           </div>
-          {state.resolutions.map((res, i) => (
-            <div key={i} style={{ fontSize: '0.8rem', padding: '2px 0' }}>
-              <span style={{ fontFamily: 'monospace' }}>{res.local_commit.substring(0, 7)}</span>
-              {' '}<span style={{ color: 'var(--color-text-muted)' }}>{res.local_commit_message}</span>
-              {res.summary && <> — {res.summary}</>}
-            </div>
-          ))}
+          <button
+            className="btn btn--primary"
+            onClick={handleContinue}
+            disabled={continuing}
+          >
+            {continuing && <div className="spinner--small" style={{ width: 12, height: 12, borderWidth: 2, display: 'inline-block', marginRight: 6 }} />}
+            {continuing ? 'Starting...' : 'Continue syncing'}
+          </button>
         </div>
       )}
     </div>
