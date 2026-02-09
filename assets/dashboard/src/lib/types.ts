@@ -33,6 +33,9 @@ export interface WorkspaceResponse {
   git_files_changed: number;
   remote_host_id?: string;
   remote_host_status?: string;
+  remote_flavor_name?: string;
+  remote_flavor?: string;
+  vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
 }
 
 export interface SessionWithWorkspace extends SessionResponse {

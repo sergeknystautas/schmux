@@ -27,6 +27,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
+	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -120,6 +121,9 @@ type WorkspaceResponseItem struct {
 	GitFilesChanged  int                   `json:"git_files_changed"`
 	RemoteHostID     string                `json:"remote_host_id,omitempty"`
 	RemoteHostStatus string                `json:"remote_host_status,omitempty"`
+	RemoteFlavorName string                `json:"remote_flavor_name,omitempty"`
+	RemoteFlavor     string                `json:"remote_flavor,omitempty"`
+	VCS              string                `json:"vcs,omitempty"` // "git", "sapling", etc. Omitted defaults to "git".
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -143,6 +147,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		branch := ws.Branch
 		remoteHostID := ""
 		remoteHostStatus := ""
+		remoteFlavorName := ""
+		remoteFlavor := ""
+		vcs := ""
 		if ws.RemoteHostID != "" {
 			remoteHostID = ws.RemoteHostID
 			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
@@ -156,6 +163,11 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 					remoteHostStatus = liveStatus
 				} else {
 					remoteHostStatus = host.Status
+				}
+				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+					remoteFlavorName = flavor.DisplayName
+					remoteFlavor = flavor.Flavor
+					vcs = flavor.VCS
 				}
 			} else {
 				remoteHostStatus = state.RemoteHostStatusDisconnected
@@ -188,6 +200,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			GitFilesChanged:  ws.GitFilesChanged,
 			RemoteHostID:     remoteHostID,
 			RemoteHostStatus: remoteHostStatus,
+			RemoteFlavorName: remoteFlavorName,
+			RemoteFlavor:     remoteFlavor,
+			VCS:              vcs,
 		}
 	}
 
@@ -215,6 +230,20 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 				remoteHostname = host.Hostname
 				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
 					remoteFlavorName = flavor.DisplayName
+					// Build remote attach command from reconnect template + hostname
+					if host.Hostname != "" {
+						templateStr := flavor.GetReconnectCommandTemplate()
+						if tmpl, err := template.New("attach").Parse(templateStr); err == nil {
+							var cmdStr strings.Builder
+							tmplData := struct {
+								Hostname string
+								Flavor   string
+							}{Hostname: host.Hostname, Flavor: flavor.Flavor}
+							if err := tmpl.Execute(&cmdStr, tmplData); err == nil {
+								attachCmd = cmdStr.String()
+							}
+						}
+					}
 				}
 			}
 		}
@@ -1762,6 +1791,12 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Delegate to remote handler if this is a remote workspace
+	if ws.RemoteHostID != "" {
+		s.handleRemoteDiff(w, r, ws)
+		return
+	}
+
 	// Refresh git status so the client gets updated stats
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
 	if _, err := s.workspace.UpdateGitStatus(refreshCtx, workspaceID); err != nil {
@@ -2032,6 +2067,305 @@ func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, tr
 		output = output[:maxContentSize]
 	}
 	return string(output)
+}
+
+// handleRemoteDiff handles diff requests for remote workspaces by executing VCS
+// commands on the remote host via tmux control mode.
+func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
+	type FileDiff struct {
+		OldPath      string `json:"old_path,omitempty"`
+		NewPath      string `json:"new_path,omitempty"`
+		OldContent   string `json:"old_content,omitempty"`
+		NewContent   string `json:"new_content,omitempty"`
+		Status       string `json:"status,omitempty"`
+		LinesAdded   int    `json:"lines_added"`
+		LinesRemoved int    `json:"lines_removed"`
+		IsBinary     bool   `json:"is_binary"`
+	}
+	type DiffResponse struct {
+		WorkspaceID string     `json:"workspace_id"`
+		Repo        string     `json:"repo"`
+		Branch      string     `json:"branch"`
+		Files       []FileDiff `json:"files"`
+	}
+
+	if s.remoteManager == nil {
+		http.Error(w, "remote manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		http.Error(w, "remote host not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get VCS type from flavor config
+	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
+	vcsType := ""
+	if host.FlavorID != "" {
+		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+			vcsType = flavor.VCS
+		}
+	}
+	cb := vcs.NewCommandBuilder(vcsType)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	workdir := ws.RemotePath
+
+	// Run diff numstat
+	numstatOutput, err := conn.RunCommand(ctx, workdir, cb.DiffNumstat())
+	if err != nil {
+		numstatOutput = "" // No changes is ok
+	}
+
+	files := make([]FileDiff, 0)
+	for _, line := range strings.Split(numstatOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+
+		addedStr := parts[0]
+		deletedStr := parts[1]
+		filePath := parts[2]
+
+		isBinary := addedStr == "-" && deletedStr == "-"
+		linesAdded := 0
+		linesRemoved := 0
+		if addedStr != "-" {
+			linesAdded, _ = strconv.Atoi(addedStr)
+		}
+		if deletedStr != "-" {
+			linesRemoved, _ = strconv.Atoi(deletedStr)
+		}
+
+		if isBinary {
+			status := "modified"
+			oldContent, _ := conn.RunCommand(ctx, workdir, cb.ShowFile(filePath, "HEAD"))
+			if oldContent == "" {
+				status = "added"
+			}
+			files = append(files, FileDiff{
+				NewPath:  filePath,
+				Status:   status,
+				IsBinary: true,
+			})
+			continue
+		}
+
+		// Get file contents
+		oldContent, _ := conn.RunCommand(ctx, workdir, cb.ShowFile(filePath, "HEAD"))
+		newContent, _ := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
+
+		status := "modified"
+		if oldContent == "" {
+			status = "added"
+		}
+
+		files = append(files, FileDiff{
+			NewPath:      filePath,
+			OldContent:   oldContent,
+			NewContent:   newContent,
+			Status:       status,
+			LinesAdded:   linesAdded,
+			LinesRemoved: linesRemoved,
+		})
+	}
+
+	// Get untracked files
+	untrackedOutput, err := conn.RunCommand(ctx, workdir, cb.UntrackedFiles())
+	if err == nil {
+		for _, filePath := range strings.Split(untrackedOutput, "\n") {
+			filePath = strings.TrimSpace(filePath)
+			if filePath == "" {
+				continue
+			}
+			newContent, _ := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
+			lineCount := 0
+			if newContent != "" {
+				lineCount = strings.Count(newContent, "\n")
+				if !strings.HasSuffix(newContent, "\n") {
+					lineCount++
+				}
+			}
+			files = append(files, FileDiff{
+				NewPath:    filePath,
+				NewContent: newContent,
+				Status:     "untracked",
+				LinesAdded: lineCount,
+			})
+		}
+	}
+
+	response := DiffResponse{
+		WorkspaceID: ws.ID,
+		Repo:        ws.Repo,
+		Branch:      ws.Branch,
+		Files:       files,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleRemoteGitGraph handles git graph requests for remote workspaces.
+func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxCommits, contextSize int) {
+	if s.remoteManager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "remote manager not available"})
+		return
+	}
+
+	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "remote host not connected"})
+		return
+	}
+
+	// Get VCS type from flavor config
+	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
+	vcsType := ""
+	if host.FlavorID != "" {
+		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+			vcsType = flavor.VCS
+		}
+	}
+	cb := vcs.NewCommandBuilder(vcsType)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	workdir := ws.RemotePath
+	localBranch := ws.Branch
+
+	// Detect default branch using VCS-appropriate command
+	defaultBranch := "main"
+	if out, err := conn.RunCommand(ctx, workdir, cb.DetectDefaultBranch()); err == nil {
+		if branch := strings.TrimSpace(out); branch != "" {
+			defaultBranch = branch
+		}
+	}
+
+	defaultBranchRef := cb.DefaultBranchRef(defaultBranch)
+
+	// Resolve HEAD and default branch ref
+	localHeadOutput, err := conn.RunCommand(ctx, workdir, cb.ResolveRef("HEAD"))
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "cannot resolve HEAD"})
+		return
+	}
+	localHead := strings.TrimSpace(localHeadOutput)
+	if !isValidVCSHash(localHead) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("HEAD resolved to invalid hash: %q", localHead)})
+		return
+	}
+
+	originMainHead := ""
+	if out, err := conn.RunCommand(ctx, workdir, cb.ResolveRef(defaultBranchRef)); err == nil {
+		trimmed := strings.TrimSpace(out)
+		if isValidVCSHash(trimmed) {
+			originMainHead = trimmed
+		} else {
+			fmt.Printf("[remote git-graph] ignoring invalid default branch ref output: %q\n", trimmed)
+		}
+	}
+
+	// Find fork point
+	var forkPoint string
+	if originMainHead != "" && localHead != originMainHead {
+		if out, err := conn.RunCommand(ctx, workdir, cb.MergeBase("HEAD", defaultBranchRef)); err == nil {
+			trimmed := strings.TrimSpace(out)
+			if isValidVCSHash(trimmed) {
+				forkPoint = trimmed
+			}
+		}
+	}
+
+	// Build workspace ID mapping for annotations
+	branchWorkspaces := make(map[string][]string)
+	for _, w := range s.state.GetWorkspaces() {
+		if w.Repo == ws.Repo {
+			branchWorkspaces[w.Branch] = append(branchWorkspaces[w.Branch], w.ID)
+		}
+	}
+
+	// Get log output
+	var logOutput string
+	if originMainHead == "" || localHead == originMainHead {
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, contextSize+1))
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			return
+		}
+		logOutput = out
+	} else if forkPoint == "" {
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxCommits))
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			return
+		}
+		logOutput = out
+	} else {
+		// Divergence region
+		out, err := conn.RunCommand(ctx, workdir, cb.LogRange([]string{"HEAD", defaultBranchRef}, forkPoint))
+		if err != nil {
+			// Fallback to simple log
+			out, err = conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxCommits))
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+				return
+			}
+		}
+		logOutput = out
+
+		// Add context commits below fork point
+		if contextSize > 0 {
+			ctxOut, ctxErr := conn.RunCommand(ctx, workdir, cb.Log([]string{forkPoint}, contextSize))
+			if ctxErr == nil {
+				logOutput = logOutput + "\n" + ctxOut
+			}
+		}
+	}
+
+	rawNodes := workspace.ParseGitLogOutput(logOutput)
+
+	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxCommits)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// isValidVCSHash checks if a string looks like a valid VCS hash (40+ hex characters).
+func isValidVCSHash(s string) bool {
+	if len(s) < 40 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // handleOpenVSCode opens VS Code in a new window for the specified workspace.
@@ -2339,6 +2673,12 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Delegate to remote handler if this is a remote workspace
+	if ws.RemoteHostID != "" {
+		s.handleRemoteDiffExternal(w, r, ws, selectedCommand)
+		return
+	}
+
 	// Check if workspace directory exists
 	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
@@ -2554,6 +2894,221 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Success response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(DiffExternalResponse{
+		Success: true,
+		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
+	})
+}
+
+// handleRemoteDiffExternal handles external diff tool requests for remote workspaces.
+// It fetches file contents from the remote host, writes them to local temp files,
+// and launches the diff tool with those temp files.
+func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request, ws state.Workspace, selectedCommand string) {
+	type DiffExternalResponse struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if s.remoteManager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "remote manager not available",
+		})
+		return
+	}
+
+	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "remote host not connected",
+		})
+		return
+	}
+
+	// Get VCS type from flavor config
+	host, _ := s.state.GetRemoteHost(ws.RemoteHostID)
+	vcsType := ""
+	if host.FlavorID != "" {
+		if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found {
+			vcsType = flavor.VCS
+		}
+	}
+	cb := vcs.NewCommandBuilder(vcsType)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	workdir := ws.RemotePath
+
+	// Get changed files using VCS diff numstat
+	numstatOutput, err := conn.RunCommand(ctx, workdir, cb.DiffNumstat())
+	if err != nil {
+		numstatOutput = ""
+	}
+
+	type changedFile struct {
+		path   string
+		status string
+	}
+
+	files := make([]changedFile, 0)
+	for _, line := range strings.Split(numstatOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		addedStr := parts[0]
+		deletedStr := parts[1]
+		filePath := parts[2]
+
+		if addedStr == "-" && deletedStr == "-" {
+			continue // Skip binary files
+		}
+
+		status := "modified"
+		if addedStr != "0" && deletedStr == "0" {
+			status = "added"
+		} else if addedStr == "0" && deletedStr != "0" {
+			status = "deleted"
+		}
+
+		files = append(files, changedFile{path: filePath, status: status})
+	}
+
+	if len(files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "No changes to diff",
+		})
+		return
+	}
+
+	fmt.Printf("[session] diff-external (remote): launching %q for %d files in workspace %s\n", selectedCommand, len(files), ws.ID)
+
+	replacePlaceholders := func(cmd, oldPath, newPath, filePath string) string {
+		cmd = strings.ReplaceAll(cmd, "{old_file}", oldPath)
+		cmd = strings.ReplaceAll(cmd, "{new_file}", newPath)
+		cmd = strings.ReplaceAll(cmd, "{file}", filePath)
+		return cmd
+	}
+
+	tempRoot, err := difftool.TempDirForWorkspace(ws.ID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "Failed to create temp dir for diff",
+		})
+		return
+	}
+
+	opened := 0
+	for _, file := range files {
+		switch file.status {
+		case "modified":
+			// Fetch both old and new content from remote
+			oldContent, err := conn.RunCommand(ctx, workdir, cb.ShowFile(file.path, "HEAD"))
+			if err != nil {
+				fmt.Printf("[session] diff-external (remote): failed to get old file %s: %v\n", file.path, err)
+				continue
+			}
+			newContent, err := conn.RunCommand(ctx, workdir, cb.FileContent(file.path))
+			if err != nil {
+				fmt.Printf("[session] diff-external (remote): failed to get new file %s: %v\n", file.path, err)
+				continue
+			}
+
+			oldPath := filepath.Join(tempRoot, "old", file.path)
+			newPath := filepath.Join(tempRoot, "new", file.path)
+
+			if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+				continue
+			}
+			if err := os.WriteFile(oldPath, []byte(oldContent), 0o644); err != nil {
+				continue
+			}
+			if err := os.WriteFile(newPath, []byte(newContent), 0o644); err != nil {
+				continue
+			}
+
+			cmdString := replacePlaceholders(selectedCommand, oldPath, newPath, newPath)
+			execCmd := exec.Command("sh", "-c", cmdString)
+			execCmd.Env = append(os.Environ(),
+				fmt.Sprintf("LOCAL=%s", oldPath),
+				fmt.Sprintf("REMOTE=%s", newPath),
+				fmt.Sprintf("MERGED=%s", newPath),
+				fmt.Sprintf("BASE=%s", newPath),
+			)
+			if err := execCmd.Start(); err != nil {
+				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
+			} else {
+				opened++
+			}
+
+		case "deleted":
+			oldContent, err := conn.RunCommand(ctx, workdir, cb.ShowFile(file.path, "HEAD"))
+			if err != nil {
+				continue
+			}
+
+			oldPath := filepath.Join(tempRoot, "old", file.path)
+			if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+				continue
+			}
+			if err := os.WriteFile(oldPath, []byte(oldContent), 0o644); err != nil {
+				continue
+			}
+
+			cmdString := replacePlaceholders(selectedCommand, oldPath, "", filepath.Join(workdir, file.path))
+			execCmd := exec.Command("sh", "-c", cmdString)
+			execCmd.Env = append(os.Environ(),
+				fmt.Sprintf("LOCAL=%s", oldPath),
+				"REMOTE=",
+				fmt.Sprintf("MERGED=%s", filepath.Join(workdir, file.path)),
+				fmt.Sprintf("BASE=%s", filepath.Join(workdir, file.path)),
+			)
+			if err := execCmd.Start(); err != nil {
+				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
+			} else {
+				opened++
+			}
+
+		case "added":
+			continue
+		}
+	}
+
+	if opened == 0 {
+		os.RemoveAll(tempRoot)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiffExternalResponse{
+			Success: false,
+			Message: "No modified or deleted files to diff",
+		})
+		return
+	}
+
+	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
+	time.AfterFunc(cleanupDelay, func() {
+		if err := os.RemoveAll(tempRoot); err != nil {
+			fmt.Printf("[session] diff-external (remote): failed to remove temp dir: %v\n", err)
+		}
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(DiffExternalResponse{
 		Success: true,
@@ -3236,7 +3791,8 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Verify workspace exists
-	if _, ok := s.state.GetWorkspace(workspaceID); !ok {
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found: " + workspaceID})
@@ -3258,6 +3814,12 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Delegate to remote handler if this is a remote workspace
+	if ws.RemoteHostID != "" {
+		s.handleRemoteGitGraph(w, r, ws, maxCommits, contextSize)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -3270,7 +3832,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Populate dirty state from workspace git stats
-	if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.GitFilesChanged > 0 {
+	if ws.GitFilesChanged > 0 {
 		resp.DirtyState = &contracts.GitGraphDirtyState{
 			FilesChanged: ws.GitFilesChanged,
 			LinesAdded:   ws.GitLinesAdded,

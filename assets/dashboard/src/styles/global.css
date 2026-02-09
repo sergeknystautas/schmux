@@ -255,6 +255,40 @@ body {
     padding: var(--spacing-sm) 0;
 }
 
+.nav-spawn-btn-container {
+    padding: 0 var(--spacing-md) var(--spacing-sm);
+}
+
+.nav-spawn-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    padding: var(--spacing-xs) var(--spacing-md);
+    background-color: var(--color-surface-alt);
+    color: var(--color-text-secondary);
+    border-color: transparent;
+}
+
+.nav-spawn-btn:hover {
+    background-color: var(--color-accent-subtle);
+    color: var(--color-accent);
+    border-color: transparent;
+}
+
+.nav-spawn-btn__kbd {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text-faint);
+    margin-left: 2px;
+    border: none;
+}
+
 .nav-section-header {
     display: flex;
     align-items: center;

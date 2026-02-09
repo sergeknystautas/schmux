@@ -190,6 +190,16 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     ? remoteHostname
     : workspace.branch;
 
+  // Build the workspace name line: include flavor for remote workspaces
+  const remoteFlavorName = workspace.remote_flavor_name;
+  const remoteFlavor = workspace.remote_flavor;
+  const displayName = (isRemote && (remoteFlavorName || remoteFlavor))
+    ? remoteFlavorName || remoteFlavor
+    : workspace.id;
+
+  // Git-specific UI should only appear for git-managed workspaces
+  const isGit = !workspace.vcs || workspace.vcs === 'git';
+
   return (
     <>
       <div className="app-header">
@@ -203,29 +213,31 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
                   rel="noopener noreferrer"
                   className="app-header__branch-link"
                 >
-                  {branchIcon}
+                  {isGit && branchIcon}
                   {displayBranch}
                 </a>
               </Tooltip>
             ) : (
               <span className="app-header__branch">
-                {branchIcon}
+                {isGit && branchIcon}
                 {displayBranch}
               </span>
             )}
-            <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>
-              <Tooltip content={`${behind} behind, ${ahead} ahead`}>
-                <span
-                  className="app-header__git-status"
-                  onClick={() => !actionsDisabled && setIsDropdownOpen(!isDropdownOpen)}
-                  style={{ cursor: actionsDisabled ? 'default' : 'pointer', opacity: actionsDisabled ? 0.5 : 1 }}
-                >
-                  {behind} | {ahead}
-                </span>
-              </Tooltip>
-            </div>
+            {isGit && (
+              <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>
+                <Tooltip content={`${behind} behind, ${ahead} ahead`}>
+                  <span
+                    className="app-header__git-status"
+                    onClick={() => !actionsDisabled && setIsDropdownOpen(!isDropdownOpen)}
+                    style={{ cursor: actionsDisabled ? 'default' : 'pointer', opacity: actionsDisabled ? 0.5 : 1 }}
+                  >
+                    {behind} | {ahead}
+                  </span>
+                </Tooltip>
+              </div>
+            )}
           </span>
-          <span className="app-header__name">{workspace.id}</span>
+          <span className="app-header__name">{displayName}</span>
         </div>
         <div className="app-header__actions">
           <Tooltip content="Open in VS Code">
@@ -260,7 +272,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         </div>
       </div>
 
-      {isDropdownOpen && !rebasing && !merging && !resolveInProgress && createPortal(
+      {isGit && isDropdownOpen && !rebasing && !merging && !resolveInProgress && createPortal(
         <div
           ref={menuRef}
           className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}

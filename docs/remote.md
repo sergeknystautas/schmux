@@ -164,6 +164,12 @@ Returns last 2000 lines of pane history.
 list-windows -F '#{window_id} #{window_name} #{pane_id}'
 ```
 
+**Create hidden window for command execution:**
+```
+new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}' sh -c 'cd /path && command; echo __SCHMUX_DONE_uuid__'
+```
+The `-d` flag prevents the window from stealing focus. Used by `RunCommand` to execute VCS commands.
+
 ### ID Prefixes
 
 tmux uses prefixes to distinguish entity types:
@@ -409,54 +415,70 @@ User configuration focuses on **host connectivity**. Schmux automatically append
 
 ### 2. Reconnection (Existing Host)
 
-**Trigger**: User clicks "Reconnect" on disconnected host, or selects flavor with existing hostname.
+**Trigger**: User clicks "Reconnect" on a disconnected host in the dashboard.
+
+Reconnection is **never automatic**. When the daemon restarts, stale hosts (those with status "connected" in persisted state but no live SSH/ET process) are marked as "disconnected" immediately. This preserves the workspaces and sessions in the sidebar so the user can reconnect when ready. Automatic reconnection is not viable because it typically requires interactive authentication (e.g., Yubikey touch, 2FA) that can only happen through the dashboard's provisioning terminal.
 
 **Steps**:
 
-1. **Spawn with hostname**:
+1. **User clicks "Reconnect"**:
+   - Dashboard POSTs to `/api/remote/hosts/{id}/reconnect`
+   - `StartReconnect` creates a new `Connection` with the stored hostname
+   - Returns a provisioning session ID for WebSocket terminal streaming
+
+2. **Spawn with hostname**:
    ```bash
-   remote-connect remote-host-456.example.com tmux -CC new-session -A -s schmux
+   dev connect -n host-456.example.com -- tmux -CC new-session -A -s schmux
    ```
+   Uses the `reconnect_command` template with `{{.Hostname}}` resolved.
 
-2. **Skip provisioning parsing** (hostname already known).
+3. **Authentication** (interactive, user-driven):
+   The provisioning terminal is streamed to the dashboard via WebSocket. The user
+   interacts directly (e.g., touches Yubikey, enters 2FA code). There is no timeout
+   pressure — the connection waits for the user to complete authentication.
 
-3. **Authentication** (still required for new connection).
+4. **Attach to existing tmux session**:
+   - `new-session -A -s schmux` attaches to the existing session if it exists
+   - All previous windows (agent sessions) are still running on the remote host
+   - tmux sessions persist independently of SSH/ET connections
 
-   **Important**: Interactive authentication (e.g., 2FA prompts, Yubikey touch, SSH password prompts) requires stdin/stdout to be connected to a terminal. This has implications for daemon mode:
-
-   - **Foreground mode** (`./schmux daemon-run`): Authentication prompts appear in the terminal and work correctly. Use this during development or when interactive auth is needed.
-   - **Background mode** (`./schmux start`): The daemon runs detached with stdin/stdout redirected to log files. Interactive authentication prompts will hang or fail invisibly. For production use with background mode:
-     - Configure non-interactive authentication (SSH keys, certificates)
-     - Use authentication methods that don't require terminal interaction (OAuth flow via browser, pre-configured credentials)
-     - Or accept running the daemon in foreground mode when remote workspaces are needed
-
-4. **Attach to existing session**:
-   - `new-session -A -s schmux` attaches if exists
-   - All previous windows (sessions) still running
-
-5. **Rediscover state**:
+5. **Rediscover and reconcile sessions**:
    - Run `list-windows -F '#{window_id} #{window_name} #{pane_id}'`
-   - Match window names to session IDs in state
-   - Update session status to "running" if found
+   - Match discovered windows to sessions in state by window ID or pane ID
+   - Update matched sessions to status "running"
+   - Mark unmatched sessions as "disconnected"
 
 6. **Resume output streaming**:
    - Resubscribe to `%output` for rediscovered panes
    - Capture scrollback for history
+
+7. **Process monitoring**:
+   - A `monitorProcess` goroutine watches the SSH/ET process
+   - If the process exits unexpectedly, the connection status is immediately
+     updated to "disconnected" and the dashboard reflects this in real time
 
 ### 3. Disconnection
 
 **Triggers**:
 - User closes laptop (network interruption)
 - User clicks "Disconnect" in UI
-- Process crashes
-- SSH connection drops
+- SSH/ET process crashes or exits
+- Daemon restart (all connections are lost)
 
 **Behavior**:
 - Local: Update state to status="disconnected"
-- Remote: Sessions keep running (tmux persists)
-- UI: Show "Disconnected" badge, disable input
+- Remote: Sessions keep running (tmux persists independently)
+- UI: Show "Disconnected" badge with "Reconnect" button
+- A `monitorProcess` goroutine detects unexpected process exits and updates
+  the status immediately, so the dashboard always reflects reality
 
-**Recovery**: Reconnection flow restores state.
+**Daemon restart**: When the daemon starts, all hosts that were "connected"
+in persisted state are immediately marked as "disconnected" (the SSH/ET
+processes from the previous daemon are gone). Workspaces and sessions are
+preserved in the sidebar. The user clicks "Reconnect" to re-establish the
+connection with interactive authentication.
+
+**Recovery**: User-initiated reconnection flow restores state (see above).
 
 ### 4. Expiry
 
@@ -734,6 +756,45 @@ Response 200:
 }
 ```
 
+### Remote Diff and Commit Graph
+
+These existing endpoints transparently support remote workspaces. When the workspace has a `remote_host_id`, the backend delegates to remote handlers that execute VCS commands via `RunCommand`.
+
+```
+GET /api/diff/{workspace-id}
+
+Response 200 (same format for local and remote):
+{
+  "workspace_id": "workspace-123",
+  "repo": "my-app",
+  "branch": "feature-x",
+  "files": [
+    {
+      "new_path": "src/main.go",
+      "old_content": "...",
+      "new_content": "...",
+      "status": "modified",
+      "lines_added": 10,
+      "lines_removed": 3,
+      "is_binary": false
+    }
+  ]
+}
+```
+
+```
+GET /api/workspaces/{id}/git-graph?max_commits=200&context=5
+
+Response 200 (same format for local and remote):
+{
+  "repo": "my-app",
+  "nodes": [...],
+  "branches": {...}
+}
+```
+
+The VCS type is determined from the remote flavor's `vcs` field. Git and sapling workspaces produce identical response formats.
+
 ### Remote Flavor Management
 
 ```
@@ -837,8 +898,62 @@ Shows authentication prompts, connection progress, etc.
 - `SubscribeOutput(paneID) <-chan OutputEvent`
 - `UnsubscribeOutput(paneID, chan)`
 - `CapturePaneLines(ctx, paneID, lines) (string, error)`
+- `RunCommand(ctx, workdir, command) (string, error)` - Execute a command in a hidden window and return output
 
 **Concurrency safety**: `stdinMu sync.Mutex` protects stdin writes. FIFO queue correlates responses to requests.
+
+**RunCommand flow**:
+
+`RunCommand` executes arbitrary commands on the remote host by creating a hidden tmux window with a shell, typing the command via `send-keys`, and capturing the output:
+
+1. Generate unique begin/end sentinels: `__SCHMUX_BEGIN_<uuid>__` / `__SCHMUX_END_<uuid>__`
+2. Create a hidden window (`new-window -d`) with the default shell (no command embedded — avoids tmux quoting issues)
+3. Wait briefly for the shell to initialize
+4. Type the command via `send-keys -l` using `tmuxQuote` (double-quote escaping for tmux protocol): `echo <begin>; cd <workdir> && <command>; echo <end>`
+5. Press Enter via `send-keys Enter`
+6. Poll `capture-pane -p -S -50000` every 200ms until the end sentinel appears on its own line
+7. Extract output between begin and end sentinels (skipping the shell's command echo)
+8. Kill the window (via `defer` to guarantee cleanup)
+
+**Why send-keys instead of embedding the command in new-window**: tmux's command parser uses single-quote semantics that differ from shell quoting. The `'\''` trick for embedded single quotes works in bash but not in tmux. VCS commands (especially sapling's `-T '{node}|...'` templates) contain single quotes, causing the tmux parser to misinterpret the command. The send-keys approach bypasses tmux's command parser entirely — keystrokes go directly to the shell.
+
+**Quoting layers**: `tmuxQuote` (double quotes, escaping `\`, `"`, `$`) handles the tmux protocol layer. `shellQuote` (single quotes with `'\''`) handles the shell layer for arguments like `workdir`. The VCS command string is sent as-is since it's already properly formatted by the `CommandBuilder`.
+
+The `-d` flag ensures the window doesn't steal focus from the user's active session. This mechanism is used by the remote diff and git graph handlers to run VCS commands on the remote host.
+
+### VCS Command Builder (`internal/vcs/`)
+
+**Responsibility**: Abstract VCS command syntax differences between git and sapling.
+
+The `CommandBuilder` interface generates shell command strings for VCS operations. Each method returns a complete command string ready to be executed via `RunCommand`.
+
+**Interface methods**:
+- `DiffNumstat() string` - Numstat diff against HEAD
+- `ShowFile(path, revision) string` - Show file at a revision
+- `FileContent(path) string` - Read file from working directory
+- `UntrackedFiles() string` - List untracked files
+- `Log(refs, maxCount) string` - Commit log in parseable format (`hash|short_hash|message|author|timestamp|parents`)
+- `LogRange(refs, forkPoint) string` - Log between fork point and refs
+- `ResolveRef(ref) string` - Resolve ref to commit hash
+- `MergeBase(ref1, ref2) string` - Find merge base
+- `DefaultBranchRef(branch) string` - Upstream branch ref (e.g., `origin/main`)
+
+**Implementations**:
+- `GitCommandBuilder` - Generates git commands (e.g., `git diff HEAD --numstat`, `git show HEAD:path`)
+- `SaplingCommandBuilder` - Generates sapling commands (e.g., `sl diff --numstat`, `sl cat -r .^ path`)
+
+**Factory**: `NewCommandBuilder(vcsType string) CommandBuilder` - Returns `GitCommandBuilder` for "git"/empty, `SaplingCommandBuilder` for "sapling".
+
+**Key sapling equivalences**:
+
+| Operation | Git | Sapling |
+|-----------|-----|---------|
+| Diff numstat | `git diff HEAD --numstat` | `sl diff --numstat` |
+| Show file at HEAD | `git show HEAD:file` | `sl cat -r .^ file` |
+| Untracked files | `git ls-files --others --exclude-standard` | `sl status --unknown --no-status` |
+| Resolve ref | `git rev-parse --verify HEAD` | `sl log -T '{node}' -r '.' --limit 1` |
+| Merge base | `git merge-base ref1 ref2` | `sl log -T '{node}' -r 'ancestor(ref1, ref2)'` |
+| Default branch ref | `origin/main` | `remote/main` |
 
 ### Connection Manager (`internal/remote/connection.go`)
 
@@ -846,9 +961,14 @@ Shows authentication prompts, connection progress, etc.
 
 **Lifecycle**:
 1. `NewConnection(cfg)` - Create struct
-2. `Connect(ctx)` - Spawn remote connection command via PTY, parse output, initialize client
-3. `Reconnect(ctx, hostname)` - Reuse existing hostname
-4. `Close()` - Kill process, close pipes, unsubscribe all
+2. `Connect(ctx)` - Spawn remote connection command via PTY, parse output, initialize client, start process monitor
+3. `Reconnect(ctx, hostname)` - Reuse existing hostname, same flow as Connect
+4. `Close()` - Kill process, close pipes, update status to disconnected, unsubscribe all
+
+**Process monitoring**: A `monitorProcess` goroutine (started in both `Connect` and `Reconnect`) calls `cmd.Wait()` to detect when the SSH/ET process exits. On unexpected exit, it calls `Close()` to update the status to "disconnected" and notify the dashboard. This is the sole caller of `cmd.Wait()` to avoid double-wait races.
+
+**Key methods**:
+- `RunCommand(ctx, workdir, command) (string, error)` - Execute a command on the remote host via hidden tmux window
 
 **Key fields**:
 - `cmd *exec.Cmd` - The remote connection process
@@ -877,9 +997,10 @@ Shows authentication prompts, connection progress, etc.
 - `Reconnect(ctx, hostID) (*Connection, error)` - Reconnect by ID
 - `StartConnect(flavorID) (provisioningSessionID, error)` - Non-blocking background connection
 - `StartReconnect(hostID, onFail) (provisioningSessionID, error)` - Non-blocking background reconnection
-- `StartReconnectAll(onFail) map[string]string` - Reconnect all stale hosts on daemon startup
+- `MarkStaleHostsDisconnected() int` - Mark stale hosts as disconnected at daemon startup
 - `GetConnection(hostID) *Connection` - Lookup connection
 - `GetFlavorStatuses() []FlavorStatus` - Get status of all flavors
+- `RunCommand(ctx, hostID, workdir, command) (string, error)` - Execute a command on a remote host
 
 **State persistence**: Saves/loads RemoteHost state via StateStore.
 
@@ -905,6 +1026,27 @@ Shows authentication prompts, connection progress, etc.
 
 **Modified**: `handleSessionsGet()` - Include remote metadata in response.
 
+**Modified**: `handleDiff()` - Detects remote workspaces (`ws.RemoteHostID != ""`) and delegates to `handleRemoteDiff()`.
+
+**Modified**: `handleWorkspaceGitGraph()` - Detects remote workspaces and delegates to `handleRemoteGitGraph()`.
+
+**New**: `handleRemoteDiff(w, r, ws)` - Executes VCS diff commands on the remote host via `RunCommand`:
+1. Gets connection and VCS command builder from flavor config
+2. Runs `DiffNumstat()` to get changed files with line counts
+3. For each file: runs `ShowFile(path, "HEAD")` and `FileContent(path)` for old/new content
+4. Runs `UntrackedFiles()` and fetches content for each
+5. Returns same `DiffResponse` JSON format as local handler
+
+**New**: `handleRemoteGitGraph(w, r, ws, maxCommits, contextSize)` - Builds commit graph from remote VCS:
+1. Gets connection and VCS command builder
+2. Detects default branch via `git symbolic-ref` on remote
+3. Resolves HEAD and default branch ref via `ResolveRef()`
+4. Finds fork point via `MergeBase()`
+5. Runs `Log()` or `LogRange()` to get commits
+6. Parses output with `workspace.ParseGitLogOutput()` (shared with local handler)
+7. Builds graph with `workspace.BuildGraphResponse()` (shared with local handler)
+8. Returns same `GitGraphResponse` JSON format
+
 **Validation**: Skip repo/branch requirement when `RemoteFlavorID != ""`.
 
 **Remote-specific handlers** (in `handlers_remote.go`):
@@ -929,7 +1071,7 @@ Shows authentication prompts, connection progress, etc.
 7. Periodic health check of remote connection
 8. Cleanup: `defer conn.UnsubscribeOutput()`
 
-### Workspace Manager Updates (`internal/workspace/manager.go`)
+### Workspace Manager Updates (`internal/workspace/manager.go`, `internal/workspace/git_graph.go`)
 
 **Modified**: `UpdateGitStatus()` - Early return if `w.RemoteHostID != ""`.
 
@@ -937,7 +1079,27 @@ Shows authentication prompts, connection progress, etc.
 
 **Modified**: `Create()` - Don't add remote workspaces to git watcher.
 
-**Rationale**: Remote workspaces have no local git repo. Attempting git operations causes errors.
+**Exported graph functions** (`git_graph.go`): The following functions are exported for reuse by the remote git graph handler:
+- `ParseGitLogOutput(output string) []RawNode` - Parses pipe-delimited log output into structured nodes
+- `BuildGraphResponse(nodes, localBranch, defaultBranch, ...) *GitGraphResponse` - Builds the full graph response from raw nodes (topological sort, branch annotation, etc.)
+- `RawNode` - Exported struct for parsed commit data
+- `WalkBranchMembership(...)` - Marks nodes reachable from a head as belonging to a branch
+- `NonNilSlice(s []string) []string` - Utility for JSON serialization
+
+**Rationale**: Remote workspaces have no local git repo. Attempting git operations causes errors. The exported graph functions allow the remote handler to reuse the same graph building logic with data fetched via `RunCommand`.
+
+### Dashboard Frontend Updates (`assets/dashboard/src/components/SessionTabs.tsx`)
+
+**Modified**: Diff and commit graph tabs visibility logic.
+
+Previously, the diff tab and commit graph tab were gated on `isGit` (`!workspace?.vcs || workspace.vcs === 'git'`), hiding them for non-git workspaces including remote workspaces with sapling.
+
+Now uses `isVCS` which is `true` when:
+- The workspace is remote (`remote_host_id` is set) — backend handles VCS abstraction
+- VCS is "git" (or omitted, which defaults to git)
+- VCS is "sapling"
+
+This ensures diff and commit graph tabs appear for all remote workspaces regardless of VCS type. The tab labels remain "Diff" and "commit graph" for all VCS types since the backend normalizes the output format.
 
 ## Key Technical Decisions
 
@@ -1015,6 +1177,40 @@ Shows authentication prompts, connection progress, etc.
 
 **Trade-off**: Small latency increase (negligible for spawn operations).
 
+### 9. Hidden Window Command Execution (`RunCommand`)
+
+**Rationale**:
+- Remote diff/graph features require running VCS commands on the remote host
+- No SSH or separate transport available — only tmux control mode
+- Hidden windows (`new-window -d`) don't steal focus from user sessions
+- Begin/end sentinel-based extraction cleanly separates command output from shell echo
+
+**Approach**: Create hidden window with default shell → type command via `send-keys -l` → poll `capture-pane` for end sentinel → extract output between begin/end sentinels → kill window via `defer`.
+
+**Why send-keys instead of embedding commands in new-window**: tmux's single-quote parser has no escape mechanism (unlike shell's `'\''` trick). VCS commands containing single quotes (especially sapling's `-T '{node}|...'` templates) caused tmux to misparse the command, the shell process exited immediately, and the window was destroyed before `capture-pane` could run. The send-keys approach bypasses tmux's command parser entirely.
+
+**Trade-off**: Polling every 200ms adds latency vs event-driven approach. A brief 200ms delay for shell initialization is needed. Both are acceptable for diff/graph operations which are user-initiated and not latency-critical.
+
+### 10. VCS Command Builder Abstraction
+
+**Rationale**:
+- Remote workspaces may use git or sapling
+- Same diff/graph UI should work for both VCS types
+- Command syntax differs significantly (e.g., `git show HEAD:file` vs `sl cat -r .^ file`)
+- Interface pattern allows adding new VCS types without modifying handlers
+
+**Trade-off**: Extra abstraction layer, but keeps handler code VCS-agnostic.
+
+### 11. Shared Graph Building Logic
+
+**Rationale**:
+- Local and remote git graph handlers produce identical response formats
+- Topological sort, branch annotation, and ISL-style ordering are complex algorithms
+- Exporting `ParseGitLogOutput` and `BuildGraphResponse` prevents duplication
+- Both handlers use the same pipe-delimited log format (`hash|short_hash|message|author|timestamp|parents`)
+
+**Trade-off**: Exported functions increase the public API surface of the workspace package.
+
 ## Conclusion
 
-This architecture enables Schmux to orchestrate agents on remote hosts with minimal complexity. By leveraging tmux Control Mode as the transport, the system gains session persistence, output streaming, and input handling without deploying custom agents. The developer experience mirrors local sessions while transparently handling authentication, provisioning, and reconnection.
+This architecture enables Schmux to orchestrate agents on remote hosts with minimal complexity. By leveraging tmux Control Mode as the transport, the system gains session persistence, output streaming, and input handling without deploying custom agents. The `RunCommand` mechanism extends this to support VCS operations (diff, commit graph) on remote workspaces, with a command builder abstraction supporting both git and sapling. Reconnection is user-initiated (never automatic) to support interactive authentication flows like Yubikey/2FA, with process monitoring to detect and surface disconnections in real time. The developer experience mirrors local sessions while transparently handling authentication, provisioning, and reconnection.

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -64,6 +65,12 @@ type Connection struct {
 
 	// Custom hostname regex (if set, overrides the default hostnameRegex)
 	customHostnameRegex *regexp.Regexp
+
+	// Set to true once control mode is established; parseProvisioningOutput
+	// must stop updating hostname/status after this point to avoid
+	// overwriting the "connected" status with "connecting" from stale
+	// %output matches.
+	controlModeEstablished atomic.Bool
 
 	// Provisioning session ID (local tmux session for interactive terminal)
 	provisioningSessionID string
@@ -239,6 +246,8 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	c.cmd = exec.Command(args[0], args[1:]...)
 
+	fmt.Printf("[remote %s] executing connect command: %s\n", c.host.ID, cmdLine)
+
 	// Start command with PTY for interactive terminal (auth prompts work)
 	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -255,6 +264,11 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	fmt.Printf("[remote %s] PTY started (pid=%d), provisioning session=%s\n",
 		c.host.ID, c.cmd.Process.Pid, c.provisioningSessionID)
+
+	// Monitor SSH process lifecycle. This goroutine waits for the process to exit
+	// and updates the connection status to "disconnected" when it dies.
+	// It is also the sole caller of cmd.Wait() to reap the process.
+	go c.monitorProcess()
 
 	// Monitor context cancellation during setup - kill process if context is canceled.
 	// Once Connect() returns, the monitoring stops so the caller's defer cancel()
@@ -341,6 +355,8 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	c.cmd = exec.Command(args[0], args[1:]...)
 
+	fmt.Printf("[remote %s] executing reconnect command: %s\n", c.host.ID, cmdLine)
+
 	// Start command with PTY for interactive terminal
 	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -356,6 +372,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	fmt.Printf("[remote %s] PTY started for reconnection (pid=%d), provisioning session=%s\n",
 		c.host.ID, c.cmd.Process.Pid, c.provisioningSessionID)
+
+	// Monitor SSH process lifecycle (same as Connect).
+	go c.monitorProcess()
 
 	// Monitor context cancellation during setup - kill process if context is canceled.
 	// Once Reconnect() returns, the monitoring stops so the caller's defer cancel()
@@ -447,22 +466,28 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 						c.onProgress(line)
 					}
 
-					// Check for hostname
-					if matches := hnRegex.FindStringSubmatch(line); matches != nil {
-						c.mu.Lock()
-						c.hostname = matches[1]
-						c.host.Hostname = matches[1]
-						c.host.Status = state.RemoteHostStatusConnecting
-						c.mu.Unlock()
-						c.notifyStatusChange()
-					}
+					// Check for hostname/UUID only during provisioning.
+					// After control mode is established, PTY output is tmux protocol
+					// data and any regex matches would be false positives from
+					// %output events (e.g., shell prompts containing hostnames).
+					if !c.controlModeEstablished.Load() {
+						// Check for hostname
+						if matches := hnRegex.FindStringSubmatch(line); matches != nil {
+							c.mu.Lock()
+							c.hostname = matches[1]
+							c.host.Hostname = matches[1]
+							c.host.Status = state.RemoteHostStatusConnecting
+							c.mu.Unlock()
+							c.notifyStatusChange()
+						}
 
-					// Check for session UUID
-					if matches := uuidRegex.FindStringSubmatch(line); matches != nil {
-						c.mu.Lock()
-						c.uuid = matches[1]
-						c.host.UUID = matches[1]
-						c.mu.Unlock()
+						// Check for session UUID
+						if matches := uuidRegex.FindStringSubmatch(line); matches != nil {
+							c.mu.Lock()
+							c.uuid = matches[1]
+							c.host.UUID = matches[1]
+							c.mu.Unlock()
+						}
 					}
 				} else {
 					lineBuf.WriteByte(b)
@@ -480,19 +505,21 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 		if c.onProgress != nil {
 			c.onProgress(line)
 		}
-		if matches := hnRegex.FindStringSubmatch(line); matches != nil {
-			c.mu.Lock()
-			c.hostname = matches[1]
-			c.host.Hostname = matches[1]
-			c.host.Status = state.RemoteHostStatusConnecting
-			c.mu.Unlock()
-			c.notifyStatusChange()
-		}
-		if matches := uuidRegex.FindStringSubmatch(line); matches != nil {
-			c.mu.Lock()
-			c.uuid = matches[1]
-			c.host.UUID = matches[1]
-			c.mu.Unlock()
+		if !c.controlModeEstablished.Load() {
+			if matches := hnRegex.FindStringSubmatch(line); matches != nil {
+				c.mu.Lock()
+				c.hostname = matches[1]
+				c.host.Hostname = matches[1]
+				c.host.Status = state.RemoteHostStatusConnecting
+				c.mu.Unlock()
+				c.notifyStatusChange()
+			}
+			if matches := uuidRegex.FindStringSubmatch(line); matches != nil {
+				c.mu.Lock()
+				c.uuid = matches[1]
+				c.host.UUID = matches[1]
+				c.mu.Unlock()
+			}
 		}
 	}
 
@@ -538,6 +565,7 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	}
 
 	// Update status to connected
+	c.controlModeEstablished.Store(true)
 	c.mu.Lock()
 	c.host.Status = state.RemoteHostStatusConnected
 	c.host.ConnectedAt = time.Now()
@@ -591,14 +619,47 @@ func (c *Connection) Close() error {
 		c.ptySubscribers = nil
 		c.ptySubscribersMu.Unlock()
 
-		// Kill the process
+		// Kill the process. Don't call cmd.Wait() here — the monitorProcess
+		// goroutine is the sole caller of Wait() to avoid double-wait races.
+		// monitorProcess will detect the kill and handle cleanup.
 		if c.cmd != nil && c.cmd.Process != nil {
 			c.cmd.Process.Kill()
-			c.cmd.Wait()
 		}
 	})
 
 	return closeErr
+}
+
+// monitorProcess waits for the SSH process to exit and triggers connection cleanup.
+// This is the sole goroutine that calls cmd.Wait() to reap the process and avoid
+// zombie processes. When the SSH process dies (network failure, remote close, kill),
+// this updates the connection status to "disconnected" so the dashboard reflects reality.
+func (c *Connection) monitorProcess() {
+	if c.cmd == nil {
+		return
+	}
+
+	// Wait for the process to exit. This blocks until the process terminates.
+	// It is the ONLY place cmd.Wait() is called to avoid double-wait races.
+	err := c.cmd.Wait()
+
+	c.mu.RLock()
+	hostID := c.host.ID
+	hostname := c.hostname
+	status := c.host.Status
+	c.mu.RUnlock()
+
+	if status == state.RemoteHostStatusDisconnected {
+		// Already disconnected (Close() was called first), just log
+		fmt.Printf("[remote %s] SSH process exited (host=%s, already disconnected): %v\n", hostID, hostname, err)
+		return
+	}
+
+	fmt.Printf("[remote %s] SSH process exited unexpectedly (host=%s): %v\n", hostID, hostname, err)
+
+	// Trigger connection cleanup (sets status to disconnected, notifies callbacks).
+	// closeOnce ensures this is safe even if Close() was already called.
+	c.Close()
 }
 
 // notifyStatusChange calls the status change callback if set.
@@ -747,6 +808,15 @@ func (c *Connection) CapturePaneLines(ctx context.Context, paneID string, lines 
 		return "", fmt.Errorf("not connected")
 	}
 	return c.client.CapturePaneLines(ctx, paneID, lines)
+}
+
+// RunCommand executes a command on the remote host and returns its output.
+// It uses a hidden tmux window to run the command without stealing focus.
+func (c *Connection) RunCommand(ctx context.Context, workdir, command string) (string, error) {
+	if !c.IsConnected() {
+		return "", fmt.Errorf("not connected")
+	}
+	return c.client.RunCommand(ctx, workdir, command)
 }
 
 // ListSessions lists all sessions (windows) on the remote host.

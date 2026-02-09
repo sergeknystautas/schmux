@@ -287,33 +287,32 @@ export default function AppShell() {
           </div>
 
           <div className="nav-workspaces">
+            <div className="nav-spawn-btn-container">
+              <button
+                className="btn nav-spawn-btn"
+                onClick={() => navigate('/spawn')}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add Workspace
+                <kbd className="nav-spawn-btn__kbd">{navigator.platform?.includes('Mac') ? '⌘K N' : 'Ctrl+K N'}</kbd>
+              </button>
+            </div>
             <div className="nav-section-header">
               <span className="nav-section-title">Workspaces</span>
-              <Tooltip content="New workspace">
-                <button
-                  className="nav-section-add"
-                  onClick={() => navigate('/spawn')}
-                  aria-label="New workspace"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                  </svg>
-                </button>
-              </Tooltip>
             </div>
             {(!workspaces || workspaces.length === 0) && (
               <div className="nav-empty-state">
                 <p>No workspaces yet</p>
-                <button className="btn btn--sm btn--primary" onClick={() => navigate('/spawn')}>
-                  Create workspace
-                </button>
               </div>
             )}
             {workspaces?.map((workspace) => {
               const linesAdded = workspace.git_lines_added ?? 0;
               const linesRemoved = workspace.git_lines_removed ?? 0;
-              const hasChanges = linesAdded > 0 || linesRemoved > 0;
+              const isGit = !workspace.vcs || workspace.vcs === 'git';
+              const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
               const isWorkspaceActive = workspace.id === activeWorkspaceId;
 
               // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
@@ -354,35 +353,43 @@ export default function AppShell() {
                       </span>
                     )}
                   </div>
-                  <div className="nav-workspace__repo">{getRepoName(workspace.repo)}</div>
-                  {remoteDisconnected && (
-                    <button
-                      className="btn btn--sm"
-                      style={{
-                        fontSize: '0.7rem',
-                        padding: '2px 8px',
-                        margin: '4px 0 2px',
-                        color: 'var(--color-warning)',
-                        borderColor: 'var(--color-warning)',
-                      }}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          const result = await reconnectRemoteHost(workspace.remote_host_id!);
-                          setReconnectModal({
-                            hostId: workspace.remote_host_id!,
-                            flavorId: result.flavor_id,
-                            displayName: result.hostname || workspace.branch,
-                            provisioningSessionId: result.provisioning_session_id || null,
-                          });
-                        } catch (err) {
-                          toastError(getErrorMessage(err, 'Failed to reconnect'));
-                        }
-                      }}
-                    >
-                      Reconnect
-                    </button>
-                  )}
+                  <div className="nav-workspace__repo" style={remoteDisconnected ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' } : undefined}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {isRemote && workspace.remote_flavor_name
+                        ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
+                        : getRepoName(workspace.repo)}
+                    </span>
+                    {remoteDisconnected && (
+                      <button
+                        className="btn btn--sm"
+                        style={{
+                          fontSize: '0.65rem',
+                          padding: '1px 6px',
+                          margin: 0,
+                          color: 'var(--color-warning)',
+                          borderColor: 'var(--color-warning)',
+                          flexShrink: 0,
+                          lineHeight: 1.2,
+                        }}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const result = await reconnectRemoteHost(workspace.remote_host_id!);
+                            setReconnectModal({
+                              hostId: workspace.remote_host_id!,
+                              flavorId: result.flavor_id,
+                              displayName: result.hostname || workspace.branch,
+                              provisioningSessionId: result.provisioning_session_id || null,
+                            });
+                          } catch (err) {
+                            toastError(getErrorMessage(err, 'Failed to reconnect'));
+                          }
+                        }}
+                      >
+                        Reconnect
+                      </button>
+                    )}
+                  </div>
                   <div className="nav-workspace__sessions">
                     {workspace.sessions?.map((sess) => {
                       const isActive = sess.id === sessionId;

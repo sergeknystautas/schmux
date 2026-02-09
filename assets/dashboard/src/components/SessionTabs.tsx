@@ -66,6 +66,12 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     return mergeQuickLaunchNames(globalNames, workspace?.quick_launch || []);
   }, [config?.quick_launch, workspace?.quick_launch]);
 
+  // VCS-specific UI should appear for workspaces with VCS support.
+  // Local workspaces: show for git (default when vcs is omitted).
+  // Remote workspaces: always show (backend handles VCS abstraction).
+  const isRemote = Boolean(workspace?.remote_host_id);
+  const isVCS = isRemote || !workspace?.vcs || workspace.vcs === 'git' || workspace.vcs === 'sapling';
+
   // Calculate if we should show diff tab
   const linesAdded = workspace?.git_lines_added ?? 0;
   const linesRemoved = workspace?.git_lines_removed ?? 0;
@@ -502,13 +508,13 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
 
       {/* Right: accessory tabs */}
       {/* Resolve conflict tab — shown when state exists */}
-      {renderResolveConflictTab()}
+      {isVCS && renderResolveConflictTab()}
 
-      {/* Diff tab — always shown */}
-      {renderDiffTab()}
+      {/* Diff tab — shown for VCS workspaces */}
+      {isVCS && renderDiffTab()}
 
-      {/* Git tab — always shown */}
-      {renderGitTab()}
+      {/* Commit graph tab — shown for VCS workspaces */}
+      {isVCS && renderGitTab()}
     </div>
   );
 }
