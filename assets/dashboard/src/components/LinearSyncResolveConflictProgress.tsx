@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { dismissLinearSyncResolveConflictState, linearSyncFromMain } from '../lib/api';
+import { dismissLinearSyncResolveConflictState } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
+import { useModal } from './ModalProvider';
+import { useSync } from '../hooks/useSync';
 import type { LinearSyncResolveConflictStatePayload, LinearSyncResolveConflictStep } from '../lib/types';
 
 type LinearSyncResolveConflictProgressProps = {
@@ -82,9 +84,10 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 }
 
 export default function LinearSyncResolveConflictProgress({ workspaceId }: LinearSyncResolveConflictProgressProps) {
-  const { linearSyncResolveConflictStates, workspaces } = useSessions();
+  const { linearSyncResolveConflictStates, workspaces, clearLinearSyncResolveConflictState } = useSessions();
   const state: LinearSyncResolveConflictStatePayload | undefined = linearSyncResolveConflictStates[workspaceId];
   const [continuing, setContinuing] = useState(false);
+  const { handleLinearSyncFromMain } = useSync();
 
   if (!state) return null;
 
@@ -105,13 +108,8 @@ export default function LinearSyncResolveConflictProgress({ workspaceId }: Linea
 
   const handleContinue = async () => {
     setContinuing(true);
-    try {
-      await linearSyncFromMain(workspaceId);
-    } catch {
-      // Error will be shown via toast/other mechanism
-    } finally {
-      setContinuing(false);
-    }
+    await handleLinearSyncFromMain(workspaceId);
+    setContinuing(false);
   };
 
   const borderColor = isActive ? 'var(--color-border)' : isDone ? 'var(--color-success)' : 'var(--color-error)';

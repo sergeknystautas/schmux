@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { openVSCode, disposeWorkspaceAll, disposeWorkspace, getErrorMessage, linearSyncFromMain, linearSyncToMain, linearSyncResolveConflict } from '../lib/api';
+import { openVSCode, disposeWorkspace, disposeWorkspaceAll, getErrorMessage } from '../lib/api';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
+import { useSync } from '../hooks/useSync';
 import Tooltip from './Tooltip';
 import type { WorkspaceResponse } from '../lib/types';
 
@@ -18,7 +19,8 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const { alert, confirm, show } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
-  const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessions();
+  const { linearSyncResolveConflictStates } = useSessions();
+  const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
 
   // Git status dropdown state
@@ -126,85 +128,23 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     };
   }, [isDropdownOpen]);
 
-  const handleLinearSyncFromMain = async () => {
+  const handleLinearSyncFromMainClick = async () => {
     setIsDropdownOpen(false);
     setRebasing(true);
-
-    try {
-      const result = await linearSyncFromMain(workspace.id);
-      if (result.success) {
-        const branch = result.branch || 'main';
-        const count = result.success_count ?? 0;
-        await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
-      } else if (result.conflicting_hash) {
-        const commitCount = result.success_count ?? 0;
-        const resolveConfirmed = await show(
-          'Unable to fully sync',
-          `We were able to fast forward ${commitCount} commits cleanly. You can have an agent resolve the conflict at ${result.conflicting_hash}.`,
-          {
-            confirmText: 'Resolve',
-            cancelText: 'Close',
-            danger: true
-          }
-        );
-        if (resolveConfirmed) {
-          navigate(`/resolve-conflict/${workspace.id}`);
-          clearLinearSyncResolveConflictState(workspace.id);
-          try {
-            await linearSyncResolveConflict(workspace.id);
-          } catch (err) {
-            toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
-          }
-        }
-      } else {
-        await alert('Error', 'Sync failed.');
-      }
-    } catch (err) {
-      await alert('Error', getErrorMessage(err, 'Failed to sync from main'));
-    } finally {
-      setRebasing(false);
-    }
+    await handleLinearSyncFromMain(workspace.id);
+    setRebasing(false);
   };
 
-  const handleLinearSyncToMain = async () => {
+  const handleLinearSyncToMainClick = async () => {
     setIsDropdownOpen(false);
     setMerging(true);
-
-    try {
-      const result = await linearSyncToMain(workspace.id);
-      if (result.success) {
-        const branch = result.branch || 'main';
-        const count = result.success_count ?? 0;
-        const disposeConfirmed = await confirm(
-          `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`,
-        );
-        if (disposeConfirmed) {
-          await disposeWorkspaceAll(workspace.id);
-          await alert('Success', 'Workspace and sessions disposed');
-          navigate('/');
-        }
-      } else {
-        await alert('Error', 'Sync failed.');
-      }
-    } catch (err) {
-      await alert('Error', getErrorMessage(err, 'Failed to sync or dispose'));
-    } finally {
-      setMerging(false);
-    }
+    await handleLinearSyncToMain(workspace.id);
+    setMerging(false);
   };
 
-  const handleLinearSyncResolveConflict = async () => {
+  const handleLinearSyncResolveConflictClick = async () => {
     setIsDropdownOpen(false);
-
-    // Navigate immediately — progress will appear via WebSocket
-    navigate(`/resolve-conflict/${workspace.id}`);
-    clearLinearSyncResolveConflictState(workspace.id);
-
-    try {
-      await linearSyncResolveConflict(workspace.id);
-    } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to start conflict resolution'));
-    }
+    await startConflictResolution(workspace.id);
   };
 
   // Disable sync/dispose actions when conflict resolve is in progress
@@ -313,7 +253,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
         >
           <button
             className="spawn-dropdown__item"
-            onClick={handleLinearSyncFromMain}
+            onClick={handleLinearSyncFromMainClick}
             role="menuitem"
             disabled={behind === 0}
             aria-disabled={behind === 0}
@@ -322,7 +262,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           </button>
           <button
             className="spawn-dropdown__item"
-            onClick={handleLinearSyncResolveConflict}
+            onClick={handleLinearSyncResolveConflictClick}
             role="menuitem"
             disabled={behind === 0 || !config.conflict_resolve?.target}
             aria-disabled={behind === 0 || !config.conflict_resolve?.target}
@@ -331,7 +271,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           </button>
           <button
             className="spawn-dropdown__item"
-            onClick={handleLinearSyncToMain}
+            onClick={handleLinearSyncToMainClick}
             role="menuitem"
             disabled={workspace.git_lines_added !== 0 || workspace.git_lines_removed !== 0 || workspace.git_files_changed !== 0 || behind !== 0 || ahead < 1}
             aria-disabled={workspace.git_lines_added !== 0 || workspace.git_lines_removed !== 0 || workspace.git_files_changed !== 0 || behind !== 0 || ahead < 1}
