@@ -200,16 +200,18 @@ export default class TerminalStream {
     }, 150);
   }
 
-  // Synchronous resize - calculates and applies dimensions immediately
-  // Used during initialization to ensure terminal is sized before WebSocket connects
-  fitTerminalSync() {
-    if (!this.terminal) return;
+  // Central measurement function - calculates terminal dimensions from the rendered terminal
+  // Returns { cols, rows, cellWidth, cellHeight, containerWidth, containerHeight } or null if measurement fails
+  measureTerminal(): { cols: number; rows: number; cellWidth: number; cellHeight: number; containerWidth: number; containerHeight: number } | null {
+    if (!this.terminal) return null;
 
     const containerRect = this.containerElement.getBoundingClientRect();
+    if (!containerRect) return null;
+
     const containerWidth = containerRect.width;
     const containerHeight = containerRect.height;
 
-    if (containerWidth <= 0 || containerHeight <= 0) return;
+    if (containerWidth <= 0 || containerHeight <= 0) return null;
 
     // Measure actual cell dimensions from the terminal
     const core = (this.terminal as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
@@ -221,61 +223,48 @@ export default class TerminalStream {
       cellHeight = core._renderService.dimensions.css.cell.height;
     }
 
-    // Calculate new dimensions
-    const newCols = Math.max(20, Math.floor(containerWidth / cellWidth) - 1);
-    const newRows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
+    // Calculate dimensions (subtract 3 from cols for padding, 1 from rows for overflow)
+    const cols = Math.max(20, Math.floor(containerWidth / cellWidth) - 3);
+    const rows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
+
+    return { cols, rows, cellWidth, cellHeight, containerWidth, containerHeight };
+  }
+
+
+  // Synchronous resize - calculates and applies dimensions immediately
+  // Used during initialization to ensure terminal is sized before WebSocket connects
+  fitTerminalSync() {
+    const measured = this.measureTerminal();
+    if (!measured) return;
+
+    const { cols, rows } = measured;
 
     // Update stored dimensions
-    this.tmuxCols = newCols;
-    this.tmuxRows = newRows;
+    this.tmuxCols = cols;
+    this.tmuxRows = rows;
 
     // Resize xterm.js terminal
-    this.terminal.resize(newCols, newRows);
+    this.terminal!.resize(cols, rows);
 
     // Note: Don't send resize to backend here - WebSocket isn't connected yet
     // The connect() method will send resize on open
   }
 
   fitTerminal() {
-    if (!this.terminal) return;
+    const measured = this.measureTerminal();
+    if (!measured) return;
 
-    const containerRect = this.terminal.element?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const containerWidth = containerRect.width;
-    const containerHeight = containerRect.height;
-
-    if (containerWidth <= 0 || containerHeight <= 0) return;
-
-    // Measure actual cell dimensions from the terminal
-    // xterm.js creates a hidden element to measure character size
-    const core = (this.terminal as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
-    let cellWidth = 9;
-    let cellHeight = 17;
-
-    if (core?._renderService?.dimensions?.css?.cell) {
-      cellWidth = core._renderService.dimensions.css.cell.width;
-      cellHeight = core._renderService.dimensions.css.cell.height;
-    }
-
-    // Calculate new dimensions (subtract 1 to prevent overflow)
-    const newCols = Math.max(20, Math.floor(containerWidth / cellWidth) - 1);
-    const newRows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
-
-    // Only resize if dimensions actually changed
-    if (newCols === this.tmuxCols && newRows === this.tmuxRows) {
-      return;
-    }
+    const { cols, rows } = measured;
 
     // Update stored dimensions
-    this.tmuxCols = newCols;
-    this.tmuxRows = newRows;
+    this.tmuxCols = cols;
+    this.tmuxRows = rows;
 
     // Resize xterm.js terminal
-    this.terminal.resize(newCols, newRows);
+    this.terminal!.resize(cols, rows);
 
     // Send resize message to backend to resize tmux
-    this.sendResize(newCols, newRows);
+    this.sendResize(cols, rows);
   }
 
   sendResize(cols: number, rows: number) {
