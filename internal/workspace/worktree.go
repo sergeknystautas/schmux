@@ -47,8 +47,12 @@ func (m *Manager) cloneBareRepo(ctx context.Context, url, path string) error {
 //
 // In practice, this race is rare since workspace creation is typically sequential
 // through the API. The state.AddWorktreeBase() call is also idempotent (updates if exists).
+//
+// Backward compatibility: State already tracks worktree bases by URL. Existing repos
+// with old flat paths (repo.git) continue to work via state lookup or legacy detection.
+// New repos use namespaced paths (owner/repo.git) to avoid fork collisions.
 func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (string, error) {
-	// Check if worktree base already exists in state
+	// Check if worktree base already exists in state (handles legacy paths)
 	if wb, found := m.state.GetWorktreeBaseByURL(repoURL); found {
 		// Verify it still exists on disk (handles external deletion)
 		if _, err := os.Stat(wb.Path); err == nil {
@@ -58,13 +62,26 @@ func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (strin
 		fmt.Printf("[workspace] worktree base missing on disk, will recreate: url=%s\n", repoURL)
 	}
 
-	// Derive worktree base path from repo name
-	repoName := extractRepoName(repoURL)
-	worktreeBasePath := filepath.Join(m.config.GetWorktreeBasePath(), repoName+".git")
+	// Check for legacy flat path (not in state but exists on disk)
+	if legacyPath := legacyBareRepoPath(m.config.GetWorktreeBasePath(), repoURL); legacyPath != "" {
+		fmt.Printf("[workspace] using legacy worktree base: url=%s path=%s\n", repoURL, legacyPath)
+		// Track in state for future lookups
+		if err := m.state.AddWorktreeBase(state.WorktreeBase{RepoURL: repoURL, Path: legacyPath}); err != nil {
+			return "", fmt.Errorf("failed to add worktree base to state: %w", err)
+		}
+		if err := m.state.Save(); err != nil {
+			return "", fmt.Errorf("failed to save state: %w", err)
+		}
+		return legacyPath, nil
+	}
 
-	// Ensure worktree base directory exists
-	if err := os.MkdirAll(m.config.GetWorktreeBasePath(), 0755); err != nil {
-		return "", fmt.Errorf("failed to create worktree base directory: %w", err)
+	// Use namespaced path for new repos (owner/repo.git for GitHub, repo.git for others)
+	repoPath := extractRepoPath(repoURL)
+	worktreeBasePath := filepath.Join(m.config.GetWorktreeBasePath(), repoPath+".git")
+
+	// Create parent directory (e.g., ~/.schmux/repos/facebook/)
+	if err := os.MkdirAll(filepath.Dir(worktreeBasePath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create repo directory: %w", err)
 	}
 
 	// Clone as bare repo (may fail if concurrent request already created it)

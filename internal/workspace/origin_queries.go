@@ -54,10 +54,28 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 	}
 
 	repoName := extractRepoName(repoURL)
-	queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
+
+	// Check for legacy flat path first (backward compatibility)
+	if legacyPath := legacyBareRepoPath(queryRepoDir, repoURL); legacyPath != "" {
+		// Use existing legacy repo
+		if m.originQueryRepoNeedsRepair(ctx, legacyPath) {
+			if err := m.prepareOriginQueryRepo(ctx, legacyPath, repoName); err != nil {
+				return "", fmt.Errorf("failed to repair origin query repo for %s: %w", repoName, err)
+			}
+		}
+		return legacyPath, nil
+	}
+
+	// Use namespaced path for new repos (owner/repo.git for GitHub, repo.git for others)
+	repoPath := extractRepoPath(repoURL)
+	queryRepoPath := filepath.Join(queryRepoDir, repoPath+".git")
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
-		fmt.Printf("[workspace] creating origin query repo: %s\n", repoName)
+		fmt.Printf("[workspace] creating origin query repo: %s\n", repoPath)
+		// Create parent directory (e.g., ~/.schmux/query/facebook/)
+		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0755); err != nil {
+			return "", fmt.Errorf("failed to create query repo directory: %w", err)
+		}
 		if err := m.cloneOriginQueryRepo(ctx, repoURL, queryRepoPath); err != nil {
 			return "", fmt.Errorf("failed to create query repo clone for %s: %w", repoName, err)
 		}
@@ -157,6 +175,21 @@ func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath 
 	return strings.TrimSpace(string(output)) == ""
 }
 
+// getQueryRepoPath returns the path to the query repo, checking legacy path first.
+// For backward compatibility, checks if a legacy flat path exists before using namespaced path.
+func (m *Manager) getQueryRepoPath(repoURL string) string {
+	queryRepoDir := m.config.GetQueryRepoPath()
+
+	// Check legacy path first
+	if legacyPath := legacyBareRepoPath(queryRepoDir, repoURL); legacyPath != "" {
+		return legacyPath
+	}
+
+	// Use namespaced path
+	repoPath := extractRepoPath(repoURL)
+	return filepath.Join(queryRepoDir, repoPath+".git")
+}
+
 // FetchOriginQueries fetches updates for all origin query repos.
 func (m *Manager) FetchOriginQueries(ctx context.Context) {
 	queryRepoDir := m.config.GetQueryRepoPath()
@@ -165,8 +198,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 	}
 
 	for _, repo := range m.config.GetRepos() {
-		repoName := extractRepoName(repo.URL)
-		queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
+		queryRepoPath := m.getQueryRepoPath(repo.URL)
 
 		// Skip if doesn't exist
 		if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
@@ -206,8 +238,7 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 	var allBranches []RecentBranch
 
 	for _, repo := range m.config.GetRepos() {
-		repoName := extractRepoName(repo.URL)
-		queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
+		queryRepoPath := m.getQueryRepoPath(repo.URL)
 
 		// Skip if doesn't exist
 		if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
@@ -347,10 +378,10 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 		return nil, fmt.Errorf("query repo path not configured")
 	}
 
-	repoName := extractRepoName(repoURL)
-	queryRepoPath := filepath.Join(queryRepoDir, repoName+".git")
+	queryRepoPath := m.getQueryRepoPath(repoURL)
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
+		repoName := extractRepoName(repoURL)
 		return nil, fmt.Errorf("bare clone not found for %s", repoName)
 	}
 
