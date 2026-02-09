@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -241,5 +242,141 @@ func TestResolveVSCodePathIntegration(t *testing.T) {
 		} else {
 			t.Logf("VS Code version: %s", string(output))
 		}
+	}
+}
+
+// TestStripEscapeSequences verifies that terminal escape sequences are correctly removed.
+func TestStripEscapeSequences(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no escape sequences",
+			input: "alias code=code-fb",
+			want:  "alias code=code-fb",
+		},
+		{
+			name:  "OSC sequences with BEL terminator",
+			input: "\x1b]1337;RemoteHost=user@host\x07\x1b]1337;CurrentDir=/home\x07alias code=code-fb",
+			want:  "alias code=code-fb",
+		},
+		{
+			name:  "OSC sequences with ST terminator",
+			input: "\x1b]1337;RemoteHost=user@host\x1b\\\x1b]1337;CurrentDir=/home\x1b\\alias code=code-fb",
+			want:  "alias code=code-fb",
+		},
+		{
+			name:  "iTerm2 shell integration sequences",
+			input: "\x1b]1337;RemoteHost=stefanomaz@stefanomaz-mac\x07\x1b]1337;CurrentDir=/Users/stefanomaz/code/my-schmux\x07\x1b]1337;ShellIntegrationVersion=14;shell=zsh\x07alias code=code-fb",
+			want:  "alias code=code-fb",
+		},
+		{
+			name:  "CSI sequences",
+			input: "\x1b[32malias code=code-fb\x1b[0m",
+			want:  "alias code=code-fb",
+		},
+		{
+			name:  "mixed OSC and CSI sequences",
+			input: "\x1b]1337;RemoteHost=user@host\x07\x1b[32m/usr/local/bin/code\x1b[0m",
+			want:  "/usr/local/bin/code",
+		},
+		{
+			name:  "absolute path with OSC prefix",
+			input: "\x1b]1337;CurrentDir=/home\x07/usr/local/bin/code",
+			want:  "/usr/local/bin/code",
+		},
+		{
+			name:  "zsh aliased-to format with escapes",
+			input: "\x1b]1337;RemoteHost=user@host\x07code: aliased to code-fb",
+			want:  "code: aliased to code-fb",
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "only escape sequences",
+			input: "\x1b]1337;RemoteHost=user@host\x07\x1b]1337;CurrentDir=/home\x07",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripEscapeSequences(tt.input)
+			if got != tt.want {
+				t.Errorf("stripEscapeSequences(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestResolveViaShellAliasParsing verifies that alias definitions are correctly
+// parsed after escape sequence stripping, using a mock shell script.
+func TestResolveViaShellAliasParsing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping on Windows - no shell alias support")
+	}
+
+	// Create a temporary directory with a mock target command
+	tmpDir := t.TempDir()
+	targetPath := filepath.Join(tmpDir, "code-custom")
+	if err := os.WriteFile(targetPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("Failed to create mock target: %v", err)
+	}
+
+	// Put our mock target in PATH so exec.LookPath can find it
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+string(os.PathListSeparator)+originalPath)
+	defer os.Setenv("PATH", originalPath)
+
+	// Create a mock shell that simulates an interactive shell emitting escape sequences
+	// followed by an alias definition
+	mockShell := filepath.Join(tmpDir, "mock-zsh")
+	// The mock shell responds to 'command -v code-test-alias' with escape sequences + alias output
+	mockShellScript := `#!/bin/sh
+# Simulate iTerm2 shell integration output + alias resolution
+printf '\033]1337;RemoteHost=user@host\007\033]1337;CurrentDir=/home\007alias code-test-alias=code-custom\n'
+`
+	if err := os.WriteFile(mockShell, []byte(mockShellScript), 0755); err != nil {
+		t.Fatalf("Failed to create mock shell: %v", err)
+	}
+
+	// Run our mock shell manually to verify output is what we expect
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, mockShell, "-i", "-c", "command -v code-test-alias")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Mock shell failed: %v", err)
+	}
+
+	result := string(output)
+	// Strip escape sequences
+	cleaned := stripEscapeSequences(result)
+	cleaned = strings.TrimSpace(cleaned)
+
+	if !strings.HasPrefix(cleaned, "alias ") {
+		t.Errorf("After stripping escapes, expected alias prefix, got: %q", cleaned)
+	}
+
+	// Parse the alias to get target
+	if idx := strings.Index(cleaned, "="); idx != -1 {
+		target := strings.Trim(cleaned[idx+1:], "'\"")
+		if target != "code-custom" {
+			t.Errorf("Parsed alias target = %q, want %q", target, "code-custom")
+		}
+
+		// Verify exec.LookPath finds the target
+		resolved, lookErr := exec.LookPath(target)
+		if lookErr != nil {
+			t.Errorf("exec.LookPath(%q) failed: %v", target, lookErr)
+		} else if resolved != targetPath {
+			t.Errorf("exec.LookPath(%q) = %q, want %q", target, resolved, targetPath)
+		}
+	} else {
+		t.Errorf("No '=' found in alias definition: %q", cleaned)
 	}
 }

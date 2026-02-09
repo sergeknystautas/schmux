@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
-import { updateNickname, disposeSession, getErrorMessage } from '../lib/api';
+import { updateNickname, disposeSession, reconnectRemoteHost, getErrorMessage } from '../lib/api';
 import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -14,6 +14,7 @@ import Tooltip from '../components/Tooltip';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import ConnectionProgressModal from '../components/ConnectionProgressModal';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -38,6 +39,18 @@ export default function SessionDetailPage() {
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
   const workspaceExists = workspaceId && workspaces?.some(ws => ws.id === workspaceId);
 
+  // Remote host disconnection state
+  const [reconnectModal, setReconnectModal] = useState<{
+    hostId: string;
+    flavorId: string;
+    displayName: string;
+    provisioningSessionId: string | null;
+  } | null>(null);
+  const currentWorkspaceForRemote = workspaces?.find(ws => ws.id === (sessionData?.workspace_id || workspaceId));
+  const isRemoteSession = Boolean(sessionData?.remote_host_id);
+  const remoteHostStatus = currentWorkspaceForRemote?.remote_host_status;
+  const remoteDisconnected = isRemoteSession && remoteHostStatus !== 'connected' && remoteHostStatus !== undefined;
+
   // Remember the workspace_id so we can filter after dispose
   useEffect(() => {
     if (sessionData?.workspace_id) {
@@ -59,6 +72,17 @@ export default function SessionDetailPage() {
     }
   }, [sessionMissing, workspaceId, workspaceExists, navigate]);
 
+  // If session is missing but workspace has other sessions, navigate to a sibling
+  useEffect(() => {
+    if (sessionMissing && workspaceId && workspaceExists) {
+      const ws = workspaces?.find(w => w.id === workspaceId);
+      const sibling = ws?.sessions?.find(s => s.id !== sessionId);
+      if (sibling) {
+        navigate(`/sessions/${sibling.id}`, { replace: true });
+      }
+    }
+  }, [sessionMissing, workspaceId, workspaceExists, workspaces, sessionId, navigate]);
+
   useEffect(() => {
     if (sessionData?.id) {
       markAsViewed(sessionData.id);
@@ -71,6 +95,8 @@ export default function SessionDetailPage() {
     if (!config?.terminal || typeof config.terminal.width !== 'number' || typeof config.terminal.height !== 'number') {
       return;
     }
+    // Don't create terminal stream while remote host is disconnected
+    if (remoteDisconnected) return;
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
@@ -94,7 +120,7 @@ export default function SessionDetailPage() {
     return () => {
       terminalStream.disconnect();
     };
-  }, [sessionData?.id, configLoading, config?.terminal]);
+  }, [sessionData?.id, configLoading, config?.terminal, remoteDisconnected]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
@@ -308,6 +334,50 @@ export default function SessionDetailPage() {
 
       <div className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}>
         <div className="session-detail__main">
+          {remoteDisconnected ? (
+            <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="empty-state__icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="1.5">
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                  <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+                  <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+                  <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+                  <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                  <line x1="12" y1="20" x2="12.01" y2="20" />
+                </svg>
+              </div>
+              <h3 className="empty-state__title">Remote host disconnected</h3>
+              <p className="empty-state__description">
+                The connection to {sessionData.remote_hostname || sessionData.remote_flavor_name || 'the remote host'} has been lost.
+                Reconnect to resume terminal streaming.
+              </p>
+              <button
+                className="btn btn--primary"
+                style={{ marginTop: 'var(--spacing-md)' }}
+                onClick={async () => {
+                  if (!sessionData.remote_host_id) return;
+                  try {
+                    const result = await reconnectRemoteHost(sessionData.remote_host_id);
+                    setReconnectModal({
+                      hostId: sessionData.remote_host_id,
+                      flavorId: result.flavor_id,
+                      displayName: result.hostname || sessionData.remote_flavor_name || 'Remote',
+                      provisioningSessionId: result.provisioning_session_id || null,
+                    });
+                  } catch (err) {
+                    toastError(getErrorMessage(err, 'Failed to reconnect'));
+                  }
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                Reconnect
+              </button>
+            </div>
+          ) : (
           <div className="log-viewer">
             <div className="log-viewer__header">
               <div className="log-viewer__info">
@@ -398,6 +468,7 @@ export default function SessionDetailPage() {
               </button>
             ) : null}
           </div>
+          )}
         </div>
 
         <aside className="session-detail__sidebar">
@@ -502,28 +573,17 @@ export default function SessionDetailPage() {
 
           <div className="form-group">
             <label className="form-group__label">Attach Command</label>
-            {sessionData.remote_host_id ? (
-              <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Remote session on {sessionData.remote_hostname || 'remote host'}
-                {sessionData.remote_pane_id && (
-                  <div style={{ marginTop: 'var(--spacing-xs)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                    Pane: {sessionData.remote_pane_id}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="copy-field">
-                <span className="copy-field__value">{sessionData.attach_cmd}</span>
-                <Tooltip content="Copy attach command">
-                  <button className="copy-field__btn" onClick={handleCopyAttach}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                  </button>
-                </Tooltip>
-              </div>
-            )}
+            <div className="copy-field">
+              <span className="copy-field__value">{sessionData.attach_cmd}</span>
+              <Tooltip content="Copy attach command">
+                <button className="copy-field__btn" onClick={handleCopyAttach}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </Tooltip>
+            </div>
           </div>
 
           <div style={{ marginTop: 'auto' }}>
@@ -537,6 +597,18 @@ export default function SessionDetailPage() {
           </div>
         </aside>
       </div>
+
+      {reconnectModal && (
+        <ConnectionProgressModal
+          flavorId={reconnectModal.flavorId}
+          flavorName={reconnectModal.displayName}
+          provisioningSessionId={reconnectModal.provisioningSessionId}
+          onClose={() => setReconnectModal(null)}
+          onConnected={() => {
+            setReconnectModal(null);
+          }}
+        />
+      )}
 
     </>
   );

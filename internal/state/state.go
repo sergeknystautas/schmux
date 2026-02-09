@@ -44,12 +44,12 @@ type RemoteHost struct {
 
 // Remote host status constants
 const (
-	RemoteHostStatusProvisioning   = "provisioning"
-	RemoteHostStatusConnecting = "connecting"
-	RemoteHostStatusConnected      = "connected"
-	RemoteHostStatusDisconnected   = "disconnected"
-	RemoteHostStatusExpired        = "expired"
-	RemoteHostStatusReconnecting   = "reconnecting"
+	RemoteHostStatusProvisioning = "provisioning"
+	RemoteHostStatusConnecting   = "connecting"
+	RemoteHostStatusConnected    = "connected"
+	RemoteHostStatusDisconnected = "disconnected"
+	RemoteHostStatusExpired      = "expired"
+	RemoteHostStatusReconnecting = "reconnecting"
 )
 
 // Workspace represents a workspace directory state.

@@ -4,10 +4,19 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// oscEscapeRe matches OSC escape sequences (e.g., iTerm2 shell integration markers).
+// Format: ESC ] ... BEL  or  ESC ] ... ESC \
+var oscEscapeRe = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+
+// csiEscapeRe matches CSI escape sequences (e.g., cursor positioning, colors).
+// Format: ESC [ ... <final byte>
+var csiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 // VSCodePath holds the resolved path to VS Code and how it was found.
 type VSCodePath struct {
@@ -83,6 +92,14 @@ func resolveViaShell(ctx context.Context, cmd string) (string, bool) {
 		}
 
 		result := strings.TrimSpace(string(output))
+		if result == "" || result == cmd {
+			continue
+		}
+
+		// Strip terminal escape sequences (OSC, CSI) that interactive shells may emit
+		// (e.g., iTerm2 shell integration markers like \x1b]1337;RemoteHost=...\x07)
+		result = stripEscapeSequences(result)
+		result = strings.TrimSpace(result)
 		if result == "" || result == cmd {
 			continue
 		}
@@ -205,4 +222,13 @@ func checkKnownLocations() (path string, source string, found bool) {
 	}
 
 	return "", "", false
+}
+
+// stripEscapeSequences removes terminal escape sequences from shell output.
+// Interactive shells may emit OSC sequences (iTerm2 shell integration, etc.)
+// and CSI sequences that pollute command output.
+func stripEscapeSequences(s string) string {
+	s = oscEscapeRe.ReplaceAllString(s, "")
+	s = csiEscapeRe.ReplaceAllString(s, "")
+	return s
 }

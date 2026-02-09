@@ -62,7 +62,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	}
 
 	// Determine what to log
-	var rawNodes []rawNode
+	var rawNodes []RawNode
 	var err error
 
 	if originMainHead == "" || localHead == originMainHead {
@@ -79,25 +79,31 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
 
-	if len(rawNodes) == 0 {
+	return BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxCommits), nil
+}
+
+// BuildGraphResponse builds a GitGraphResponse from raw nodes and branch metadata.
+// This is used by both local and remote graph handlers.
+func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxCommits int) *contracts.GitGraphResponse {
+	if len(nodes) == 0 {
 		return &contracts.GitGraphResponse{
-			Repo:     ws.Repo,
+			Repo:     repo,
 			Nodes:    []contracts.GitGraphNode{},
 			Branches: map[string]contracts.GitGraphBranch{},
-		}, nil
+		}
 	}
 
 	// Build hash → node index
-	nodeIndex := make(map[string]int, len(rawNodes))
-	for i, n := range rawNodes {
+	nodeIndex := make(map[string]int, len(nodes))
+	for i, n := range nodes {
 		nodeIndex[n.Hash] = i
 	}
 
 	// Derive branch membership by walking from each HEAD
-	nodeBranches := make(map[string]map[string]bool, len(rawNodes))
-	walkBranchMembership(rawNodes, nodeIndex, localHead, localBranch, nodeBranches)
+	nodeBranches := make(map[string]map[string]bool, len(nodes))
+	WalkBranchMembership(nodes, nodeIndex, localHead, localBranch, nodeBranches)
 	if originMainHead != "" {
-		walkBranchMembership(rawNodes, nodeIndex, originMainHead, defaultBranch, nodeBranches)
+		WalkBranchMembership(nodes, nodeIndex, originMainHead, defaultBranch, nodeBranches)
 	}
 
 	// The two branch names
@@ -110,8 +116,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	}
 
 	// Build annotated node map keyed by hash.
-	annotatedNodes := make(map[string]contracts.GitGraphNode, len(rawNodes))
-	for _, n := range rawNodes {
+	annotatedNodes := make(map[string]contracts.GitGraphNode, len(nodes))
+	for _, n := range nodes {
 		var branchList []string
 		if bm, ok := nodeBranches[n.Hash]; ok {
 			for _, branch := range branches {
@@ -136,10 +142,10 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 			Message:      n.Message,
 			Author:       n.Author,
 			Timestamp:    n.Timestamp,
-			Parents:      nonNilSlice(n.Parents),
-			Branches:     nonNilSlice(branchList),
-			IsHead:       nonNilSlice(isHead),
-			WorkspaceIDs: nonNilSlice(workspaceIDs),
+			Parents:      NonNilSlice(n.Parents),
+			Branches:     NonNilSlice(branchList),
+			IsHead:       NonNilSlice(isHead),
+			WorkspaceIDs: NonNilSlice(workspaceIDs),
 		}
 	}
 
@@ -154,8 +160,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	// - Reverse the result for rendering (heads first).
 
 	// Parse timestamps into time.Time for proper comparison (not string-based).
-	parsedTimes := make(map[string]time.Time, len(rawNodes))
-	for _, n := range rawNodes {
+	parsedTimes := make(map[string]time.Time, len(nodes))
+	for _, n := range nodes {
 		t, err := time.Parse(time.RFC3339, n.Timestamp)
 		if err != nil {
 			t = time.Time{} // zero time for unparseable
@@ -200,13 +206,13 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	}
 
 	// Build parent→children adjacency (within the graph).
-	childrenMap := make(map[string][]string, len(rawNodes))
-	graphParents := make(map[string][]string, len(rawNodes))
-	hashSet := make(map[string]bool, len(rawNodes))
-	for _, n := range rawNodes {
+	childrenMap := make(map[string][]string, len(nodes))
+	graphParents := make(map[string][]string, len(nodes))
+	hashSet := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
 		hashSet[n.Hash] = true
 	}
-	for _, n := range rawNodes {
+	for _, n := range nodes {
 		for _, p := range n.Parents {
 			if hashSet[p] {
 				childrenMap[p] = append(childrenMap[p], n.Hash)
@@ -217,7 +223,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 
 	// Find roots (nodes with no in-graph parents).
 	var roots []string
-	for _, n := range rawNodes {
+	for _, n := range nodes {
 		if len(graphParents[n.Hash]) == 0 {
 			roots = append(roots, n.Hash)
 		}
@@ -229,8 +235,8 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	})
 
 	// remaining[hash] = number of in-graph parents not yet visited.
-	remaining := make(map[string]int, len(rawNodes))
-	for _, n := range rawNodes {
+	remaining := make(map[string]int, len(nodes))
+	for _, n := range nodes {
 		remaining[n.Hash] = len(graphParents[n.Hash])
 	}
 
@@ -238,7 +244,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	// toVisit is a deque: pop from back (stack), unshift to front for deferred merges.
 	toVisit := make([]string, len(roots))
 	copy(toVisit, roots)
-	visited := make(map[string]bool, len(rawNodes))
+	visited := make(map[string]bool, len(nodes))
 	var topoOrder []string
 
 	for len(toVisit) > 0 {
@@ -274,12 +280,12 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 	}
 
 	// Reverse for rendering (heads → roots).
-	nodes := make([]contracts.GitGraphNode, 0, len(topoOrder))
+	resultNodes := make([]contracts.GitGraphNode, 0, len(topoOrder))
 	for i := len(topoOrder) - 1; i >= 0; i-- {
-		nodes = append(nodes, annotatedNodes[topoOrder[i]])
+		resultNodes = append(resultNodes, annotatedNodes[topoOrder[i]])
 	}
-	if len(nodes) > maxCommits {
-		nodes = nodes[:maxCommits]
+	if len(resultNodes) > maxCommits {
+		resultNodes = resultNodes[:maxCommits]
 	}
 
 	// Build branches map
@@ -288,24 +294,24 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 		branchesMap[defaultBranch] = contracts.GitGraphBranch{
 			Head:         originMainHead,
 			IsMain:       true,
-			WorkspaceIDs: nonNilSlice(branchWorkspaces[defaultBranch]),
+			WorkspaceIDs: NonNilSlice(branchWorkspaces[defaultBranch]),
 		}
 	}
 	branchesMap[localBranch] = contracts.GitGraphBranch{
 		Head:         localHead,
 		IsMain:       localBranch == defaultBranch,
-		WorkspaceIDs: nonNilSlice(branchWorkspaces[localBranch]),
+		WorkspaceIDs: NonNilSlice(branchWorkspaces[localBranch]),
 	}
 
 	return &contracts.GitGraphResponse{
-		Repo:     ws.Repo,
-		Nodes:    nodes,
+		Repo:     repo,
+		Nodes:    resultNodes,
 		Branches: branchesMap,
-	}, nil
+	}
 }
 
 // getGraphNodes fetches commits for the divergence region: local ahead, origin ahead, fork point, context.
-func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMain string, maxCommits, contextSize int) ([]rawNode, error) {
+func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMain string, maxCommits, contextSize int) ([]RawNode, error) {
 	// Get all commits reachable from HEAD or origin/main but not before fork point's parents,
 	// plus some context commits below the fork point.
 	// Strategy: log HEAD + origin/main with --ancestry-path from fork point, then add context.
@@ -325,7 +331,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMa
 		return runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxCommits)
 	}
 
-	nodes := parseGitLogOutput(string(output))
+	nodes := ParseGitLogOutput(string(output))
 
 	// Add context commits below the fork point
 	if contextSize > 0 {
@@ -339,7 +345,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMa
 		ctxCmd.Dir = gitDir
 		ctxOutput, ctxErr := ctxCmd.Output()
 		if ctxErr == nil {
-			contextNodes := parseGitLogOutput(string(ctxOutput))
+			contextNodes := ParseGitLogOutput(string(ctxOutput))
 			// Append context, deduplicating
 			seen := make(map[string]bool, len(nodes))
 			for _, n := range nodes {
@@ -357,8 +363,8 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMa
 	return nodes, nil
 }
 
-// rawNode is an intermediate parsed commit before annotation.
-type rawNode struct {
+// RawNode is an intermediate parsed commit before annotation.
+type RawNode struct {
 	Hash      string
 	ShortHash string
 	Message   string
@@ -389,8 +395,8 @@ func findMergeBase(ctx context.Context, repoPath, ref1, ref2 string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// runGitLog runs git log and parses the output into rawNode structs.
-func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]rawNode, error) {
+// runGitLog runs git log and parses the output into RawNode structs.
+func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]RawNode, error) {
 	args := []string{"log",
 		"--format=%H|%h|%s|%an|%aI|%P",
 		"--topo-order",
@@ -405,12 +411,12 @@ func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits i
 		return nil, fmt.Errorf("git log: %w", err)
 	}
 
-	return parseGitLogOutput(string(output)), nil
+	return ParseGitLogOutput(string(output)), nil
 }
 
-// parseGitLogOutput parses pipe-delimited git log output into rawNode structs.
-func parseGitLogOutput(output string) []rawNode {
-	var nodes []rawNode
+// ParseGitLogOutput parses pipe-delimited git log output into RawNode structs.
+func ParseGitLogOutput(output string) []RawNode {
+	var nodes []RawNode
 	seen := make(map[string]bool)
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
@@ -431,7 +437,7 @@ func parseGitLogOutput(output string) []rawNode {
 			parents = strings.Fields(parts[5])
 		}
 
-		nodes = append(nodes, rawNode{
+		nodes = append(nodes, RawNode{
 			Hash:      hash,
 			ShortHash: parts[1],
 			Message:   parts[2],
@@ -443,8 +449,8 @@ func parseGitLogOutput(output string) []rawNode {
 	return nodes
 }
 
-// walkBranchMembership marks all nodes reachable from head as belonging to branch.
-func walkBranchMembership(nodes []rawNode, nodeIndex map[string]int, head, branch string, nodeBranches map[string]map[string]bool) {
+// WalkBranchMembership marks all nodes reachable from head as belonging to branch.
+func WalkBranchMembership(nodes []RawNode, nodeIndex map[string]int, head, branch string, nodeBranches map[string]map[string]bool) {
 	stack := []string{head}
 	for len(stack) > 0 {
 		hash := stack[len(stack)-1]
@@ -470,8 +476,8 @@ func walkBranchMembership(nodes []rawNode, nodeIndex map[string]int, head, branc
 	}
 }
 
-// nonNilSlice returns the slice or an empty non-nil slice if nil.
-func nonNilSlice(s []string) []string {
+// NonNilSlice returns the slice or an empty non-nil slice if nil.
+func NonNilSlice(s []string) []string {
 	if s == nil {
 		return []string{}
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Client provides a high-level interface for tmux control mode.
@@ -513,4 +515,118 @@ func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, 
 		paneID = paneID[:idx]
 	}
 	return paneID, nil
+}
+
+// tmuxQuote quotes a string for safe use in tmux commands using double quotes.
+// Unlike shellQuote (which uses the '\'' trick that tmux doesn't support),
+// tmux double quotes handle embedded single quotes naturally.
+// In tmux double quotes: \ " and $ need to be escaped.
+func tmuxQuote(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "$", "\\$")
+	return "\"" + s + "\""
+}
+
+// RunCommand executes a command in a hidden tmux window and returns its output.
+// Instead of embedding the command in the new-window invocation (which has tmux
+// quoting issues with single quotes in VCS commands), it creates a window with
+// the default shell, types the command via send-keys, and polls capture-pane.
+func (c *Client) RunCommand(ctx context.Context, workdir, command string) (string, error) {
+	beginSentinel := fmt.Sprintf("__SCHMUX_BEGIN_%s__", uuid.New().String()[:8])
+	endSentinel := fmt.Sprintf("__SCHMUX_END_%s__", uuid.New().String()[:8])
+
+	fmt.Printf("[controlmode] RunCommand: workdir=%s cmd=%s\n", workdir, command)
+
+	// Create a hidden window with the default shell (no command = default shell).
+	// This avoids all tmux command-quoting issues because we don't embed the
+	// VCS command in the new-window invocation.
+	output, err := c.Execute(ctx, "new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}'")
+	if err != nil {
+		return "", fmt.Errorf("failed to create command window: %w", err)
+	}
+
+	parts := strings.Fields(strings.TrimSpace(output))
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unexpected new-window output: %q", output)
+	}
+	windowID := parts[0]
+	paneID := parts[1]
+
+	fmt.Printf("[controlmode] RunCommand: created window=%s pane=%s\n", windowID, paneID)
+
+	// Ensure the window is always cleaned up
+	defer func() {
+		killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if killErr := c.KillWindow(killCtx, windowID); killErr != nil {
+			fmt.Printf("[controlmode] RunCommand: failed to kill window %s: %v\n", windowID, killErr)
+		} else {
+			fmt.Printf("[controlmode] RunCommand: killed window %s\n", windowID)
+		}
+	}()
+
+	// Brief wait for the shell to initialize
+	time.Sleep(200 * time.Millisecond)
+
+	// Build the full command to type into the shell.
+	// Begin/end sentinels on their own lines let us cleanly extract just the output,
+	// ignoring the shell's command echo line.
+	fullCmd := fmt.Sprintf("echo %s; cd %s && %s; echo %s",
+		beginSentinel, shellQuote(workdir), command, endSentinel)
+
+	fmt.Printf("[controlmode] RunCommand: typing into pane %s: %s\n", paneID, fullCmd)
+
+	// Send command as literal keystrokes via send-keys -l.
+	// This bypasses tmux's command parser entirely — the text goes straight to the
+	// shell in the pane. tmuxQuote handles only the tmux protocol quoting layer.
+	_, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, tmuxQuote(fullCmd)))
+	if err != nil {
+		return "", fmt.Errorf("failed to send command keys: %w", err)
+	}
+	// Press Enter to execute
+	_, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
+	if err != nil {
+		return "", fmt.Errorf("failed to send Enter: %w", err)
+	}
+
+	// Poll capture-pane until end sentinel appears on its own line
+	const pollInterval = 200 * time.Millisecond
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	beginMarker := "\n" + beginSentinel + "\n"
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-c.closeCh:
+			return "", fmt.Errorf("client closed")
+		case <-ticker.C:
+			captured, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -t %s -p -S -50000", paneID))
+			if captureErr != nil {
+				return "", fmt.Errorf("capture-pane failed: %w", captureErr)
+			}
+
+			// Find end sentinel on its own line (last occurrence to skip command echo)
+			endIdx := strings.LastIndex(captured, "\n"+endSentinel)
+			if endIdx < 0 {
+				continue
+			}
+
+			// Find begin sentinel on its own line
+			beginIdx := strings.Index(captured, beginMarker)
+			if beginIdx < 0 {
+				continue
+			}
+
+			// Extract content between sentinels
+			contentStart := beginIdx + len(beginMarker)
+			result := strings.TrimSpace(captured[contentStart:endIdx])
+
+			fmt.Printf("[controlmode] RunCommand: captured %d bytes from pane %s\n", len(result), paneID)
+			return result, nil
+		}
+	}
 }

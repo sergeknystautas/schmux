@@ -77,7 +77,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   }, []);
 
   if (loading) {
-    return <div className="loading-state"><div className="spinner" /> Loading git graph...</div>;
+    return <div className="loading-state"><div className="spinner" /> Loading commit graph...</div>;
   }
 
   if (error) {

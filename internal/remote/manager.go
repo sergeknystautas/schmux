@@ -457,6 +457,15 @@ func (m *Manager) GetConnection(hostID string) *Connection {
 	return m.connections[hostID]
 }
 
+// RunCommand executes a command on a remote host and returns its output.
+func (m *Manager) RunCommand(ctx context.Context, hostID, workdir, command string) (string, error) {
+	conn := m.GetConnection(hostID)
+	if conn == nil {
+		return "", fmt.Errorf("no connection for host: %s", hostID)
+	}
+	return conn.RunCommand(ctx, workdir, command)
+}
+
 // GetConnectionByFlavorID returns the connection for a flavor ID.
 // Returns nil if not connected.
 func (m *Manager) GetConnectionByFlavorID(flavorID string) *Connection {
@@ -735,39 +744,38 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	return sessionID, nil
 }
 
-// StartReconnectAll attempts to reconnect all stale "connected" remote hosts at daemon startup.
-// Returns a map of hostID -> provisioningSessionID for hosts being reconnected.
-func (m *Manager) StartReconnectAll(onFail func(hostID string)) map[string]string {
+// MarkStaleHostsDisconnected marks all hosts that were "connected" in state as
+// "disconnected" at daemon startup. After a daemon restart, SSH/ET processes are
+// gone so these hosts are stale. We don't auto-reconnect because reconnection
+// typically requires interactive authentication (e.g., Yubikey touch) that can
+// only happen when the user explicitly clicks "Reconnect" in the dashboard.
+// Returns the number of hosts marked as disconnected.
+func (m *Manager) MarkStaleHostsDisconnected() int {
 	hosts := m.state.GetRemoteHosts()
-	result := make(map[string]string)
+	count := 0
 
 	for _, host := range hosts {
-		// Only reconnect hosts that were "connected" with a hostname (these are stale)
 		if host.Status != state.RemoteHostStatusConnected || host.Hostname == "" {
 			continue
 		}
 
-		// Skip expired hosts
+		// Skip expired hosts (handled separately by PruneExpiredHosts)
 		if host.ExpiresAt.Before(time.Now()) {
 			fmt.Printf("[remote] skipping expired host %s (%s)\n", host.ID, host.Hostname)
 			continue
 		}
 
-		sessionID, err := m.StartReconnect(host.ID, onFail)
-		if err != nil {
-			fmt.Printf("[remote] failed to start reconnection for %s (%s): %v\n", host.ID, host.Hostname, err)
-			continue
-		}
-
-		result[host.ID] = sessionID
-		fmt.Printf("[remote] started reconnection for host %s (%s)\n", host.ID, host.Hostname)
+		fmt.Printf("[remote] marking stale host %s (%s) as disconnected\n", host.ID, host.Hostname)
+		m.state.UpdateRemoteHostStatus(host.ID, state.RemoteHostStatusDisconnected)
+		count++
 	}
 
-	if len(result) > 0 {
-		fmt.Printf("[remote] StartReconnectAll: %d host(s) reconnecting\n", len(result))
+	if count > 0 {
+		m.state.Save()
+		m.notifyStateChange()
 	}
 
-	return result
+	return count
 }
 
 // GetFlavors returns all configured remote flavors with their connection status.
