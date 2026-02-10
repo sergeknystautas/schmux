@@ -162,6 +162,22 @@ func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, rem
 	return nil
 }
 
+// isUpToDateWithDefault checks whether HEAD in the given directory is an ancestor
+// of (or equal to) origin/<defaultBranch>. Returns true when the workspace has no
+// commits that have diverged from the default branch, meaning it's safe to reuse
+// for a different branch without polluting commit history.
+func (m *Manager) isUpToDateWithDefault(ctx context.Context, dir, repoURL string) bool {
+	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
+	if err != nil {
+		fmt.Printf("[workspace] cannot determine default branch, skipping reuse: %v\n", err)
+		return false
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", "origin/"+defaultBranch)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
 // gitPullRebase runs git pull --rebase origin <branch>.
 // For cloned repos with an origin remote, this avoids relying on potentially incorrect
 // upstream config. For local repos without origin, skips the pull.

@@ -187,6 +187,17 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 		if w.Repo == repoURL {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
+				// Check if workspace directory still exists
+				if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+					fmt.Printf("[workspace] directory missing, skipping: id=%s path=%s\n", w.ID, w.Path)
+					continue
+				}
+				// Only reuse if the workspace's branch hasn't diverged from the default branch.
+				// If it has diverged, reusing would pollute the new branch with commits from the old one.
+				if !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
+					fmt.Printf("[workspace] branch %s has diverged from default, skipping reuse: id=%s\n", w.Branch, w.ID)
+					continue
+				}
 				fmt.Printf("[workspace] reusing for different branch: id=%s old=%s new=%s\n", w.ID, w.Branch, branch)
 				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
