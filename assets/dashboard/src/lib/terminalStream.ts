@@ -243,7 +243,6 @@ export default class TerminalStream {
       cellHeight = core._renderService.dimensions.css.cell.height;
     }
 
-    // Calculate dimensions (subtract 3 from cols for padding, 1 from rows for overflow)
     const cols = Math.max(20, Math.floor(containerWidth / cellWidth) - 3);
     const rows = Math.max(5, Math.floor(containerHeight / cellHeight) - 1);
 
