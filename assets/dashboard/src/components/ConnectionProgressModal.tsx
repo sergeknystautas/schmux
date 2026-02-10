@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import 'xterm/css/xterm.css';
-import { getRemoteHosts } from '../lib/api';
-import type { RemoteHost } from '../lib/types';
+import { useState, useEffect, useRef } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
+import { getRemoteHosts } from "../lib/api";
+import type { RemoteHost } from "../lib/types";
 
 interface ConnectionProgressModalProps {
   flavorId: string;
@@ -21,9 +21,9 @@ export default function ConnectionProgressModal({
   onConnected,
 }: ConnectionProgressModalProps) {
   const [status, setStatus] = useState<
-    'provisioning' | 'connecting' | 'connected' | 'error' | 'reconnecting'
-  >('provisioning');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+    "provisioning" | "connecting" | "connected" | "error" | "reconnecting"
+  >("provisioning");
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -47,8 +47,8 @@ export default function ConnectionProgressModal({
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
+        background: "#1e1e1e",
+        foreground: "#d4d4d4",
       },
       rows: 20,
     });
@@ -65,23 +65,23 @@ export default function ConnectionProgressModal({
     term.focus();
 
     // Connect WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/provision/${provisioningSessionId}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.binaryType = 'arraybuffer';
+    ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
-      term.write('\r\n\x1b[32mConnecting to remote host...\x1b[0m\r\n\r\n');
+      term.write("\r\n\x1b[32mConnecting to remote host...\x1b[0m\r\n\r\n");
       // Send initial terminal size so the PTY matches the browser terminal
       const dims = fitAddon.proposeDimensions();
       if (dims && dims.cols > 0 && dims.rows > 0) {
         ws.send(
           JSON.stringify({
-            type: 'resize',
+            type: "resize",
             data: JSON.stringify({ cols: dims.cols, rows: dims.rows }),
-          })
+          }),
         );
       }
     };
@@ -90,18 +90,18 @@ export default function ConnectionProgressModal({
       if (event.data instanceof ArrayBuffer) {
         const data = new Uint8Array(event.data);
         term.write(data);
-      } else if (typeof event.data === 'string') {
+      } else if (typeof event.data === "string") {
         term.write(event.data);
       }
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-      term.write('\r\n\x1b[31mWebSocket connection error\x1b[0m\r\n');
+      console.error("WebSocket error:", err);
+      term.write("\r\n\x1b[31mWebSocket connection error\x1b[0m\r\n");
     };
 
     ws.onclose = () => {
-      term.write('\r\n\x1b[33mConnection closed\x1b[0m\r\n');
+      term.write("\r\n\x1b[33mConnection closed\x1b[0m\r\n");
     };
 
     // Send terminal input to WebSocket
@@ -114,7 +114,12 @@ export default function ConnectionProgressModal({
     // Send resize events to WebSocket so PTY matches browser terminal
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       if (ws.readyState === WebSocket.OPEN && cols > 0 && rows > 0) {
-        ws.send(JSON.stringify({ type: 'resize', data: JSON.stringify({ cols, rows }) }));
+        ws.send(
+          JSON.stringify({
+            type: "resize",
+            data: JSON.stringify({ cols, rows }),
+          }),
+        );
       }
     });
 
@@ -127,15 +132,20 @@ export default function ConnectionProgressModal({
         // Match by provisioning_session_id to find the exact connection we started.
         // Fallback: any active host for this flavor, then any host at all (to catch failures).
         const host =
-          hosts.find((h) => h.provisioning_session_id === provisioningSessionId) ||
           hosts.find(
-            (h) => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired'
+            (h) => h.provisioning_session_id === provisioningSessionId,
+          ) ||
+          hosts.find(
+            (h) =>
+              h.flavor_id === flavorId &&
+              h.status !== "disconnected" &&
+              h.status !== "expired",
           ) ||
           hosts.find((h) => h.flavor_id === flavorId);
 
         if (host) {
-          if (host.status === 'connected') {
-            setStatus('connected');
+          if (host.status === "connected") {
+            setStatus("connected");
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
               pollIntervalRef.current = null;
@@ -146,12 +156,15 @@ export default function ConnectionProgressModal({
                 onConnectedRef.current(host);
               }
             }, 1000);
-          } else if (host.status === 'connecting') {
-            setStatus('connecting');
-          } else if (host.status === 'reconnecting') {
-            setStatus('reconnecting');
-          } else if (host.status === 'disconnected' || host.status === 'expired') {
-            setStatus('error');
+          } else if (host.status === "connecting") {
+            setStatus("connecting");
+          } else if (host.status === "reconnecting") {
+            setStatus("reconnecting");
+          } else if (
+            host.status === "disconnected" ||
+            host.status === "expired"
+          ) {
+            setStatus("error");
             setErrorMessage(`Connection failed: host ${host.status}`);
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
@@ -160,7 +173,7 @@ export default function ConnectionProgressModal({
           }
         }
       } catch (err) {
-        console.error('Failed to poll host status:', err);
+        console.error("Failed to poll host status:", err);
       }
     };
 
@@ -195,43 +208,51 @@ export default function ConnectionProgressModal({
       }
     };
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const getStatusMessage = () => {
     switch (status) {
-      case 'provisioning':
-        return 'Provisioning remote host...';
-      case 'connecting':
-        return 'Connecting to host...';
-      case 'reconnecting':
-        return 'Reconnecting to host...';
-      case 'connected':
-        return 'Connected!';
-      case 'error':
-        return errorMessage || 'Connection failed';
+      case "provisioning":
+        return "Provisioning remote host...";
+      case "connecting":
+        return "Connecting to host...";
+      case "reconnecting":
+        return "Reconnecting to host...";
+      case "connected":
+        return "Connected!";
+      case "error":
+        return errorMessage || "Connection failed";
     }
   };
 
   const getStatusIcon = () => {
     const size = 24;
     switch (status) {
-      case 'provisioning':
+      case "provisioning":
         return (
           <div
             className="spinner"
-            style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }}
+            style={{
+              width: `${size}px`,
+              height: `${size}px`,
+              marginRight: "var(--spacing-sm)",
+            }}
           />
         );
-      case 'connecting':
+      case "connecting":
         return (
           <div
             className="spinner"
-            style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }}
+            style={{
+              width: `${size}px`,
+              height: `${size}px`,
+              marginRight: "var(--spacing-sm)",
+            }}
           />
         );
-      case 'reconnecting':
+      case "reconnecting":
         return (
           <svg
             width={size}
@@ -240,13 +261,13 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-warning)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            style={{ marginRight: "var(--spacing-sm)" }}
           >
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
         );
-      case 'connected':
+      case "connected":
         return (
           <svg
             width={size}
@@ -255,13 +276,13 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-success)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            style={{ marginRight: "var(--spacing-sm)" }}
           >
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
             <polyline points="22 4 12 14.01 9 11.01" />
           </svg>
         );
-      case 'error':
+      case "error":
         return (
           <svg
             width={size}
@@ -270,7 +291,7 @@ export default function ConnectionProgressModal({
             fill="none"
             stroke="var(--color-error)"
             strokeWidth="2"
-            style={{ marginRight: 'var(--spacing-sm)' }}
+            style={{ marginRight: "var(--spacing-sm)" }}
           >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
@@ -283,13 +304,17 @@ export default function ConnectionProgressModal({
   if (!provisioningSessionId) {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div
+          className="modal"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: "500px" }}
+        >
           <div
             className="modal__header"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
             }}
           >
             <h2 className="modal__title" style={{ margin: 0, flex: 1 }}>
@@ -298,23 +323,23 @@ export default function ConnectionProgressModal({
             <div
               onClick={onClose}
               style={{
-                cursor: 'pointer',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 'var(--radius-sm)',
-                transition: 'background-color 0.2s, opacity 0.2s',
+                cursor: "pointer",
+                padding: "4px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "var(--radius-sm)",
+                transition: "background-color 0.2s, opacity 0.2s",
                 opacity: 0.6,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.opacity = "1";
                 e.currentTarget.style.backgroundColor =
-                  'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
+                  "var(--color-bg-hover, rgba(255, 255, 255, 0.1))";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.6';
-                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.opacity = "0.6";
+                e.currentTarget.style.backgroundColor = "transparent";
               }}
             >
               <svg
@@ -333,9 +358,12 @@ export default function ConnectionProgressModal({
           </div>
           <div
             className="modal__body"
-            style={{ padding: 'var(--spacing-lg)', textAlign: 'center' }}
+            style={{ padding: "var(--spacing-lg)", textAlign: "center" }}
           >
-            <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }} />
+            <div
+              className="spinner"
+              style={{ margin: "0 auto var(--spacing-md)" }}
+            />
             <p>Starting connection...</p>
           </div>
         </div>
@@ -348,17 +376,24 @@ export default function ConnectionProgressModal({
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '900px', maxHeight: '80vh' }}
+        style={{ maxWidth: "900px", maxHeight: "80vh" }}
       >
         <div
           className="modal__header"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flex: 1 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--spacing-sm)",
+              flex: 1,
+            }}
+          >
             {getStatusIcon()}
             <div>
               <h2 className="modal__title" style={{ margin: 0 }}>
@@ -366,9 +401,9 @@ export default function ConnectionProgressModal({
               </h2>
               <p
                 style={{
-                  margin: '4px 0 0 0',
-                  fontSize: '0.875rem',
-                  color: 'var(--color-text-muted)',
+                  margin: "4px 0 0 0",
+                  fontSize: "0.875rem",
+                  color: "var(--color-text-muted)",
                 }}
               >
                 {getStatusMessage()}
@@ -378,23 +413,23 @@ export default function ConnectionProgressModal({
           <div
             onClick={onClose}
             style={{
-              cursor: 'pointer',
-              padding: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'background-color 0.2s, opacity 0.2s',
+              cursor: "pointer",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "var(--radius-sm)",
+              transition: "background-color 0.2s, opacity 0.2s",
               opacity: 0.6,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '1';
+              e.currentTarget.style.opacity = "1";
               e.currentTarget.style.backgroundColor =
-                'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
+                "var(--color-bg-hover, rgba(255, 255, 255, 0.1))";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '0.6';
-              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.opacity = "0.6";
+              e.currentTarget.style.backgroundColor = "transparent";
             }}
           >
             <svg
@@ -412,14 +447,14 @@ export default function ConnectionProgressModal({
           </div>
         </div>
 
-        <div className="modal__body" style={{ padding: 'var(--spacing-md)' }}>
+        <div className="modal__body" style={{ padding: "var(--spacing-md)" }}>
           <div
             ref={terminalRef}
             style={{
-              backgroundColor: '#1e1e1e',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--spacing-xs)',
-              minHeight: '400px',
+              backgroundColor: "#1e1e1e",
+              borderRadius: "var(--radius-sm)",
+              padding: "var(--spacing-xs)",
+              minHeight: "400px",
             }}
           />
         </div>
