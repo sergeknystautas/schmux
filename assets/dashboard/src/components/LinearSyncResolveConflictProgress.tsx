@@ -1,20 +1,20 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { dismissLinearSyncResolveConflictState } from "../lib/api";
-import { useSessions } from "../contexts/SessionsContext";
-import { useModal } from "./ModalProvider";
-import { useSync } from "../hooks/useSync";
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { dismissLinearSyncResolveConflictState } from '../lib/api';
+import { useSessions } from '../contexts/SessionsContext';
+import { useModal } from './ModalProvider';
+import { useSync } from '../hooks/useSync';
 import type {
   LinearSyncResolveConflictStatePayload,
   LinearSyncResolveConflictStep,
-} from "../lib/types";
+} from '../lib/types';
 
 type LinearSyncResolveConflictProgressProps = {
   workspaceId: string;
 };
 
 function StepIcon({ status }: { status: string }) {
-  if (status === "in_progress") {
+  if (status === 'in_progress') {
     return (
       <svg
         width="12"
@@ -28,7 +28,7 @@ function StepIcon({ status }: { status: string }) {
       </svg>
     );
   }
-  if (status === "done") {
+  if (status === 'done') {
     return (
       <svg
         width="12"
@@ -72,25 +72,25 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
   const [now, setNow] = React.useState(Date.now());
 
   React.useEffect(() => {
-    if (step.status !== "in_progress") return;
+    if (step.status !== 'in_progress') return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [step.status]);
 
   const startedAt = step.at ? Date.parse(step.at) : NaN;
   const elapsed =
-    step.status === "in_progress" && !Number.isNaN(startedAt)
+    step.status === 'in_progress' && !Number.isNaN(startedAt)
       ? formatElapsed(now - startedAt)
       : null;
 
   return (
     <div
       style={{
-        display: "flex",
-        alignItems: "flex-start",
+        display: 'flex',
+        alignItems: 'flex-start',
         gap: 8,
-        padding: "3px 0",
-        opacity: step.status === "in_progress" ? 1 : 0.8,
+        padding: '3px 0',
+        opacity: step.status === 'in_progress' ? 1 : 0.8,
       }}
     >
       <div
@@ -98,36 +98,36 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
           marginTop: 2,
           flexShrink: 0,
           minWidth: 32,
-          textAlign: "right",
+          textAlign: 'right',
         }}
       >
         {elapsed ? (
           <span
             style={{
-              fontSize: "0.7rem",
-              color: "var(--color-text-muted)",
-              fontFamily: "monospace",
+              fontSize: '0.7rem',
+              color: 'var(--color-text-muted)',
+              fontFamily: 'monospace',
             }}
           >
             {elapsed}
           </span>
         ) : (
-          <span style={{ display: "inline-block", width: 12 }}>
+          <span style={{ display: 'inline-block', width: 12 }}>
             <StepIcon status={step.status} />
           </span>
         )}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: "0.85rem" }}>{step.message}</span>
+        <span style={{ fontSize: '0.85rem' }}>{step.message}</span>
         {step.files && step.files.length > 0 && (
           <div
             style={{
-              fontSize: "0.75rem",
-              color: "var(--color-text-muted)",
+              fontSize: '0.75rem',
+              color: 'var(--color-text-muted)',
               marginTop: 2,
             }}
           >
-            {step.files.join(", ")}
+            {step.files.join(', ')}
           </div>
         )}
       </div>
@@ -138,11 +138,8 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 export default function LinearSyncResolveConflictProgress({
   workspaceId,
 }: LinearSyncResolveConflictProgressProps) {
-  const {
-    linearSyncResolveConflictStates,
-    workspaces,
-    clearLinearSyncResolveConflictState,
-  } = useSessions();
+  const { linearSyncResolveConflictStates, workspaces, clearLinearSyncResolveConflictState } =
+    useSessions();
   const navigate = useNavigate();
   const state: LinearSyncResolveConflictStatePayload | undefined =
     linearSyncResolveConflictStates[workspaceId];
@@ -151,9 +148,9 @@ export default function LinearSyncResolveConflictProgress({
 
   if (!state) return null;
 
-  const isActive = state.status === "in_progress";
-  const isDone = state.status === "done";
-  const isFailed = state.status === "failed";
+  const isActive = state.status === 'in_progress';
+  const isDone = state.status === 'done';
+  const isFailed = state.status === 'failed';
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const hasMoreCommits = (workspace?.git_behind ?? 0) > 0;
@@ -161,7 +158,7 @@ export default function LinearSyncResolveConflictProgress({
   const handleDismiss = async () => {
     clearLinearSyncResolveConflictState(workspaceId);
     const firstSession = workspace?.sessions?.[0];
-    navigate(firstSession ? `/sessions/${firstSession.id}` : "/");
+    navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
     try {
       await dismissLinearSyncResolveConflictState(workspaceId);
     } catch {
@@ -176,42 +173,39 @@ export default function LinearSyncResolveConflictProgress({
   };
 
   const borderColor = isActive
-    ? "var(--color-border)"
+    ? 'var(--color-border)'
     : isDone
-      ? "var(--color-success)"
-      : "var(--color-error)";
+      ? 'var(--color-success)'
+      : 'var(--color-error)';
 
   return (
-    <div style={{ fontSize: "0.85rem" }}>
+    <div style={{ fontSize: '0.85rem' }}>
       {/* Header */}
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           marginBottom: 6,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isActive && (
-            <div
-              className="spinner--small"
-              style={{ width: 14, height: 14, borderWidth: 2 }}
-            />
+            <div className="spinner--small" style={{ width: 14, height: 14, borderWidth: 2 }} />
           )}
           <strong>
             {isActive
-              ? "Resolving conflicts..."
+              ? 'Resolving conflicts...'
               : isDone
-                ? "Conflict resolution complete"
-                : "Conflict resolution failed"}
+                ? 'Conflict resolution complete'
+                : 'Conflict resolution failed'}
           </strong>
           {state.hash && (
             <span
               style={{
-                color: "var(--color-text-muted)",
-                fontFamily: "monospace",
-                fontSize: "0.8rem",
+                color: 'var(--color-text-muted)',
+                fontFamily: 'monospace',
+                fontSize: '0.8rem',
               }}
             >
               {state.hash.substring(0, 7)}
@@ -222,7 +216,7 @@ export default function LinearSyncResolveConflictProgress({
           <button
             className="btn btn--sm btn--ghost"
             onClick={handleDismiss}
-            style={{ padding: "2px 8px", fontSize: "0.75rem" }}
+            style={{ padding: '2px 8px', fontSize: '0.75rem' }}
           >
             dismiss
           </button>
@@ -233,13 +227,11 @@ export default function LinearSyncResolveConflictProgress({
       {!isActive && state.message && (
         <div
           style={{
-            padding: "6px 10px",
+            padding: '6px 10px',
             marginBottom: 6,
             borderRadius: 4,
-            background: isDone
-              ? "rgba(0, 180, 100, 0.08)"
-              : "rgba(220, 50, 50, 0.08)",
-            fontSize: "0.85rem",
+            background: isDone ? 'rgba(0, 180, 100, 0.08)' : 'rgba(220, 50, 50, 0.08)',
+            fontSize: '0.85rem',
           }}
         >
           {state.message}
@@ -247,7 +239,7 @@ export default function LinearSyncResolveConflictProgress({
       )}
 
       {/* Steps */}
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
         {state.steps.map((step, i) => (
           <StepRow key={i} step={step} />
         ))}
@@ -258,21 +250,15 @@ export default function LinearSyncResolveConflictProgress({
         <div
           style={{
             marginTop: 8,
-            borderTop: "1px solid var(--color-border)",
+            borderTop: '1px solid var(--color-border)',
             paddingTop: 6,
           }}
         >
-          <strong style={{ marginBottom: 4, display: "block" }}>
-            Next steps
-          </strong>
-          <div style={{ fontSize: "0.85rem", marginBottom: 8 }}>
+          <strong style={{ marginBottom: 4, display: 'block' }}>Next steps</strong>
+          <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>
             There are {workspace?.git_behind} commits left to sync.
           </div>
-          <button
-            className="btn btn--primary"
-            onClick={handleContinue}
-            disabled={continuing}
-          >
+          <button className="btn btn--primary" onClick={handleContinue} disabled={continuing}>
             {continuing && (
               <div
                 className="spinner--small"
@@ -280,12 +266,12 @@ export default function LinearSyncResolveConflictProgress({
                   width: 12,
                   height: 12,
                   borderWidth: 2,
-                  display: "inline-block",
+                  display: 'inline-block',
                   marginRight: 6,
                 }}
               />
             )}
-            {continuing ? "Starting..." : "Continue syncing"}
+            {continuing ? 'Starting...' : 'Continue syncing'}
           </button>
         </div>
       )}
