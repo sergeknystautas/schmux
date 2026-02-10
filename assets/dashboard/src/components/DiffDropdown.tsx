@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { diffExternal, getErrorMessage } from '../lib/api'
+import { diffExternal, getErrorMessage } from '../lib/api';
 import { useModal } from './ModalProvider';
 import type { WorkspaceResponse } from '../lib/types';
 
@@ -17,7 +17,7 @@ type DiffDropdownProps = {
 
 // Built-in diff commands (always available, not editable)
 const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
-  { name: 'VS Code', command: 'code --diff "$LOCAL" "$REMOTE"' }
+  { name: 'VS Code', command: 'code --diff "$LOCAL" "$REMOTE"' },
 ];
 
 export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDropdownProps) {
@@ -36,8 +36,12 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
       const rect = toggleRef.current.getBoundingClientRect();
       const gap = 4;
       // Estimate menu height: 1 for browser view + built-in + user commands
-      const estimatedMenuHeight = menuRef.current?.offsetHeight ||
-        Math.min(300, 40 + (1 + BUILTIN_DIFF_COMMANDS.length + (externalDiffCommands?.length || 0)) * 36);
+      const estimatedMenuHeight =
+        menuRef.current?.offsetHeight ||
+        Math.min(
+          300,
+          40 + (1 + BUILTIN_DIFF_COMMANDS.length + (externalDiffCommands?.length || 0)) * 36
+        );
 
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
@@ -85,7 +89,10 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
     navigate(`/diff/${workspace.id}`);
   };
 
-  const handleExternalDiff = async (cmd: ExternalDiffCommand, event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleExternalDiff = async (
+    cmd: ExternalDiffCommand,
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
     event.stopPropagation();
     setIsOpen(false);
     setExecuting(cmd.name);
@@ -115,11 +122,7 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
         right: `${window.innerWidth - menuPosition.left}px`,
       }}
     >
-      <button
-        className="spawn-dropdown__item"
-        onClick={handleViewInBrowser}
-        role="menuitem"
-      >
+      <button className="spawn-dropdown__item" onClick={handleViewInBrowser} role="menuitem">
         <span className="spawn-dropdown__item-label">View in browser</span>
       </button>
 
@@ -171,7 +174,14 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
         {executing ? (
           <div className="spinner--small"></div>
         ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
           </svg>

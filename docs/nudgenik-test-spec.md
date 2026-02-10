@@ -38,11 +38,13 @@ Both the extractor tests and the NudgeNik integration test read from this manife
 ## Running Tests
 
 Extractor tests:
+
 ```bash
 go test ./internal/tmux/...
 ```
 
 NudgeNik integration tests:
+
 ```bash
 go test -tags=integration ./internal/nudgenik
 ```

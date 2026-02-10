@@ -13,6 +13,7 @@ PRs contain context — title, description, author, branch info — that is lost
 ### 1. PR Discovery (daemon startup)
 
 At daemon startup:
+
 - Detect which `config.Repos` are GitHub repos by URL pattern (SSH or HTTPS).
 - Check visibility via unauthenticated `GET /repos/{owner}/{repo}`. Public = 200 + `"private": false`. Private/missing = 404, skip. Errors = log and retry.
 - For public repos, fetch open PRs via `GET /repos/{owner}/{repo}/pulls?state=open`. Limit to 5 PRs.
@@ -22,6 +23,7 @@ At daemon startup:
 ### 2. Home Page
 
 Below "Recent Branches", add a "Pull Requests" section showing:
+
 - Repo name, PR number (links to GitHub), title, source → target branch, author, relative date.
 - Refresh button that re-runs the daemon startup discovery logic.
 - Loading and empty states.

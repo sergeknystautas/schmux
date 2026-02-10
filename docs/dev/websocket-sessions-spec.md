@@ -21,6 +21,7 @@ Replace polling of `/api/sessions` with a WebSocket at `/ws/dashboard` that push
 Server sends typed messages on connect and on every change:
 
 **Sessions message** (type: "sessions"):
+
 ```json
 {
   "type": "sessions",
@@ -56,6 +57,7 @@ Server sends typed messages on connect and on every change:
 ```
 
 **Future: Config message** (type: "config"):
+
 ```json
 {
   "type": "config",
@@ -173,6 +175,7 @@ func (s *Server) handleSessionsWebSocket(w http.ResponseWriter, r *http.Request)
 The workspace status goroutine lives in `daemon.go` but needs to trigger broadcasts on the dashboard server. Options:
 
 **Option A**: Pass a callback function to the workspace manager
+
 ```go
 wm.SetOnStatusChange(func() {
     server.BroadcastSessions()
@@ -180,6 +183,7 @@ wm.SetOnStatusChange(func() {
 ```
 
 **Option B**: Use a channel that the server listens on
+
 ```go
 statusChangeChan := make(chan struct{}, 1)
 // daemon goroutine sends to channel
@@ -242,6 +246,7 @@ The `connected` state from the WebSocket replaces the `/api/healthz` polling. Th
 ### Keep /api/healthz for Initial Load
 
 Keep the endpoint for:
+
 - Version info on initial page load
 - CLI health checks
 - External monitoring

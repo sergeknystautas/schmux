@@ -1,4 +1,12 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 type KeyboardModeState = 'inactive' | 'active';
 
@@ -40,7 +48,12 @@ type KeyboardContextValue = {
   enterMode: () => void;
   exitMode: () => void;
   registerAction: (action: KeyboardAction) => void;
-  unregisterAction: (key: string, shiftKey?: boolean, scope?: KeyboardScope, prefixKey?: string) => void;
+  unregisterAction: (
+    key: string,
+    shiftKey?: boolean,
+    scope?: KeyboardScope,
+    prefixKey?: string
+  ) => void;
   actions: KeyboardAction[];
   context: KeyboardContextState;
   setContext: (context: KeyboardContextState) => void;
@@ -111,18 +124,21 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
   }, []);
 
   // Unregister an action
-  const unregisterAction = useCallback((key: string, shiftKey = false, scope?: KeyboardScope, prefixKey?: string) => {
-    setActions((current) => {
-      const next = current.filter((a) => {
-        if (a.key !== key) return true;
-        if (a.shiftKey !== shiftKey) return true;
-        if (a.prefixKey !== prefixKey) return true;
-        if (scope && !scopesEqual(a.scope, scope)) return true;
-        return false;
+  const unregisterAction = useCallback(
+    (key: string, shiftKey = false, scope?: KeyboardScope, prefixKey?: string) => {
+      setActions((current) => {
+        const next = current.filter((a) => {
+          if (a.key !== key) return true;
+          if (a.shiftKey !== shiftKey) return true;
+          if (a.prefixKey !== prefixKey) return true;
+          if (scope && !scopesEqual(a.scope, scope)) return true;
+          return false;
+        });
+        return next.length === current.length ? current : next;
       });
-      return next.length === current.length ? current : next;
-    });
-  }, []);
+    },
+    []
+  );
 
   // Enter keyboard mode
   const enterMode = useCallback(() => {
@@ -181,7 +197,9 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
       };
 
       if (pendingPrefixRef.current) {
-        const prefixedAction = actions.find((a) => a.prefixKey === pendingPrefixRef.current && matchesAction(a));
+        const prefixedAction = actions.find(
+          (a) => a.prefixKey === pendingPrefixRef.current && matchesAction(a)
+        );
         pendingPrefixRef.current = null;
         if (prefixedAction) {
           e.preventDefault();
@@ -227,9 +245,8 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
 
   // Prune actions that no longer match the active context
   useEffect(() => {
-    setActions((current) =>
-      {
-        const next = current.filter((action) => {
+    setActions((current) => {
+      const next = current.filter((action) => {
         const scope = action.scope;
         if (!scope || scope.type === 'global') {
           return true;
@@ -241,10 +258,9 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
           return context.sessionId === scope.id;
         }
         return false;
-        });
-        return next.length === current.length ? current : next;
-      }
-    );
+      });
+      return next.length === current.length ? current : next;
+    });
   }, [context.workspaceId, context.sessionId]);
 
   // Global Cmd+K listener to enter mode
@@ -277,12 +293,18 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
       setContext,
       clearContext,
     }),
-    [mode, enterMode, exitMode, registerAction, unregisterAction, actions, context, setContext, clearContext]
+    [
+      mode,
+      enterMode,
+      exitMode,
+      registerAction,
+      unregisterAction,
+      actions,
+      context,
+      setContext,
+      clearContext,
+    ]
   );
 
-  return (
-    <KeyboardContext.Provider value={value}>
-      {children}
-    </KeyboardContext.Provider>
-  );
+  return <KeyboardContext.Provider value={value}>{children}</KeyboardContext.Provider>;
 }

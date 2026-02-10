@@ -20,6 +20,7 @@ Add config to the existing `/ws/dashboard` WebSocket payload. Currently it only 
   ```
 
 **Triggers that call `BroadcastSessions()`:**
+
 - Session spawn/dispose
 - Session nudge updates
 - Config updates (handlers.go calls it after save)
@@ -91,6 +92,7 @@ func (s *Server) buildConfigResponse() ConfigResponse {
 ```
 
 Then `handleConfigGet` becomes:
+
 ```go
 func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, s.buildConfigResponse())
@@ -102,6 +104,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 **In `internal/dashboard/server.go` at line ~550:**
 
 Change the initial message from:
+
 ```go
 payload, err := json.Marshal(map[string]interface{}{
     "type":       "sessions",
@@ -110,6 +113,7 @@ payload, err := json.Marshal(map[string]interface{}{
 ```
 
 To:
+
 ```go
 payload, err := json.Marshal(map[string]interface{}{
     "type":       "dashboard",
@@ -128,6 +132,7 @@ Currently `SetNeedsRestart` doesn't trigger a broadcast. Need to add `BroadcastS
 **Option B:** Call `BroadcastSessions()` directly from handlers that change `needs_restart`
 
 In `internal/dashboard/handlers.go`, after calling `st.SetNeedsRestart(true)`:
+
 ```go
 st.SetNeedsRestart(true)
 go s.BroadcastSessions()

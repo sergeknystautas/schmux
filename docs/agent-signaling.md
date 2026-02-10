@@ -61,6 +61,7 @@ For agents that generate text responses (like Claude Code, Codex, etc.), output 
 **Important:** The signal must be on a separate line by itself. Signals embedded within other text are ignored.
 
 **Examples:**
+
 ```
 # Signal completion
 --<[schmux:completed:Implementation complete, ready for review]>--
@@ -79,6 +80,7 @@ For agents that generate text responses (like Claude Code, Codex, etc.), output 
 ```
 
 **Benefits:**
+
 - **Passes through markdown** - Unlike HTML comments, bracket markers are visible in rendered output
 - **Invisible to user** - Markers are stripped before showing to user in the dashboard
 - **Looks benign** - If not stripped, the marker looks like an innocuous code annotation
@@ -96,6 +98,7 @@ ESC ] 777 ; notify ; <state> ; <message> BEL
 The `notify` keyword is standard OSC 777. The "title" field contains the state, and "body" contains the optional message.
 
 **Examples:**
+
 ```bash
 # Signal completion
 printf '\x1b]777;notify;completed;Implementation complete, ready for review\x07'
@@ -114,19 +117,20 @@ printf '\x1b]777;notify;working;\x07'
 ```
 
 **Benefits:**
+
 - **Standard format** - Already supported by terminals (VSCode, rxvt-unicode)
 - **May trigger native notifications** - Terminals that support OSC 777 could show desktop notifications
 - **Interoperable** - Other tools could produce compatible signals
 
 ### Valid States
 
-| State | Meaning | Dashboard Display |
-|-------|---------|-------------------|
-| `completed` | Task finished successfully | ✓ Completed |
-| `needs_input` | Waiting for user authorization/input | ⚠ Needs Authorization |
-| `needs_testing` | Ready for user testing | 🧪 Needs User Testing |
-| `error` | Error occurred, needs intervention | ❌ Error |
-| `working` | Actively working (clears previous signal) | (clears status) |
+| State           | Meaning                                   | Dashboard Display     |
+| --------------- | ----------------------------------------- | --------------------- |
+| `completed`     | Task finished successfully                | ✓ Completed           |
+| `needs_input`   | Waiting for user authorization/input      | ⚠ Needs Authorization |
+| `needs_testing` | Ready for user testing                    | 🧪 Needs User Testing |
+| `error`         | Error occurred, needs intervention        | ❌ Error              |
+| `working`       | Actively working (clears previous signal) | (clears status)       |
 
 ### How Signals Flow
 
@@ -152,11 +156,11 @@ printf '\x1b]777;notify;working;\x07'
 
 Every spawned session receives these environment variables:
 
-| Variable | Example | Purpose |
-|----------|---------|---------|
-| `SCHMUX_ENABLED` | `1` | Indicates running in schmux |
-| `SCHMUX_SESSION_ID` | `myproj-abc-xyz12345` | Unique session identifier |
-| `SCHMUX_WORKSPACE_ID` | `myproj-abc` | Workspace identifier |
+| Variable              | Example               | Purpose                     |
+| --------------------- | --------------------- | --------------------------- |
+| `SCHMUX_ENABLED`      | `1`                   | Indicates running in schmux |
+| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345` | Unique session identifier   |
+| `SCHMUX_WORKSPACE_ID` | `myproj-abc`          | Workspace identifier        |
 
 Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling.
 
@@ -168,15 +172,16 @@ Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling.
 
 When you spawn a session, schmux automatically creates an instruction file in the workspace that teaches the agent about the signaling protocol.
 
-| Agent | Instruction File |
-|-------|------------------|
+| Agent       | Instruction File    |
+| ----------- | ------------------- |
 | Claude Code | `.claude/CLAUDE.md` |
-| Codex | `.codex/AGENTS.md` |
-| Gemini | `.gemini/GEMINI.md` |
+| Codex       | `.codex/AGENTS.md`  |
+| Gemini      | `.gemini/GEMINI.md` |
 
 ### What Gets Created
 
 The instruction file contains:
+
 - Explanation of the signaling protocol
 - Available states and when to use them
 - Code examples for signaling
@@ -186,30 +191,33 @@ Content is wrapped in markers for safe updates:
 
 ```markdown
 <!-- SCHMUX:BEGIN -->
+
 ## Schmux Status Signaling
+
 ...instructions...
+
 <!-- SCHMUX:END -->
 ```
 
 ### Provisioning Behavior
 
-| Scenario | Action |
-|----------|--------|
-| File doesn't exist | Create with signaling instructions |
-| File exists, no schmux block | Append signaling block |
-| File exists, has schmux block | Update the block (preserves user content) |
-| Unknown agent type | No action (signaling still works via env vars) |
+| Scenario                      | Action                                         |
+| ----------------------------- | ---------------------------------------------- |
+| File doesn't exist            | Create with signaling instructions             |
+| File exists, no schmux block  | Append signaling block                         |
+| File exists, has schmux block | Update the block (preserves user content)      |
+| Unknown agent type            | No action (signaling still works via env vars) |
 
 ### Model Support
 
 Models are mapped to their base tools:
 
-| Target | Base Tool | Instruction Path |
-|--------|-----------|------------------|
-| `claude`, `claude-opus`, `claude-sonnet`, `claude-haiku` | claude | `.claude/CLAUDE.md` |
-| `codex` | codex | `.codex/AGENTS.md` |
-| `gemini` | gemini | `.gemini/GEMINI.md` |
-| Third-party models (kimi, etc.) | claude | `.claude/CLAUDE.md` |
+| Target                                                   | Base Tool | Instruction Path    |
+| -------------------------------------------------------- | --------- | ------------------- |
+| `claude`, `claude-opus`, `claude-sonnet`, `claude-haiku` | claude    | `.claude/CLAUDE.md` |
+| `codex`                                                  | codex     | `.codex/AGENTS.md`  |
+| `gemini`                                                 | gemini    | `.gemini/GEMINI.md` |
+| Third-party models (kimi, etc.)                          | claude    | `.claude/CLAUDE.md` |
 
 ---
 
@@ -233,6 +241,7 @@ fi
 **Bash (for AI agents like Claude Code):**
 
 Output the signal marker on its own line in your response:
+
 ```
 --<[schmux:completed:Feature implemented successfully]>--
 ```
@@ -240,6 +249,7 @@ Output the signal marker on its own line in your response:
 Note: The signal must be on a separate line - do not embed it within other text.
 
 **Python:**
+
 ```python
 import os
 
@@ -254,16 +264,17 @@ signal_schmux("needs_input", "Approve the changes?")
 ```
 
 **Node.js:**
+
 ```javascript
-function signalSchmux(state, message = "") {
-    if (process.env.SCHMUX_ENABLED === "1") {
-        // Output the signal marker
-        console.log(`--<[schmux:${state}:${message}]>--`);
-    }
+function signalSchmux(state, message = '') {
+  if (process.env.SCHMUX_ENABLED === '1') {
+    // Output the signal marker
+    console.log(`--<[schmux:${state}:${message}]>--`);
+  }
 }
 
 // Usage
-signalSchmux("completed", "Build successful");
+signalSchmux('completed', 'Build successful');
 ```
 
 ### Best Practices
@@ -283,11 +294,11 @@ signalSchmux("completed", "Build successful");
 
 NudgeNik provides LLM-based state classification as a fallback:
 
-| Scenario | What Happens |
-|----------|--------------|
-| Agent signals directly | NudgeNik skipped (saves compute) |
-| No signal for 5+ minutes | NudgeNik analyzes output |
-| Agent doesn't support signaling | NudgeNik handles classification |
+| Scenario                        | What Happens                     |
+| ------------------------------- | -------------------------------- |
+| Agent signals directly          | NudgeNik skipped (saves compute) |
+| No signal for 5+ minutes        | NudgeNik analyzes output         |
+| Agent doesn't support signaling | NudgeNik handles classification  |
 
 ### Source Distinction
 
@@ -339,6 +350,7 @@ internal/
 ### Key Functions
 
 **Signal Detection** (`internal/signal/signal.go`):
+
 ```go
 // Parse signals from terminal output (both bracket-based and OSC 777)
 signals := signal.ParseSignals(data)
@@ -348,10 +360,12 @@ signals, cleanData := signal.ExtractAndStripSignals(data)
 ```
 
 The parser supports:
+
 - Bracket-based markers: `--<[schmux:state:message]>--`
 - OSC 777 escape sequences: `\x1b]777;notify;state;message\x07`
 
 **Provisioning** (`internal/provision/provision.go`):
+
 ```go
 // Ensure instruction file exists with signaling docs
 provision.EnsureAgentInstructions(workspacePath, targetName)
@@ -364,6 +378,7 @@ provision.RemoveAgentInstructions(workspacePath, targetName)
 ```
 
 **Instruction Config** (`internal/detect/tools.go`):
+
 ```go
 // Get instruction path for any target (tool or model)
 path := detect.GetInstructionPathForTarget("claude-opus")
@@ -385,6 +400,7 @@ path := detect.GetInstructionPathForTarget("claude-opus")
 ### Check Environment Variables
 
 In a schmux session:
+
 ```bash
 echo $SCHMUX_ENABLED        # Should be "1"
 echo $SCHMUX_SESSION_ID     # Should show session ID
@@ -420,6 +436,7 @@ Valid states: `needs_input`, `needs_testing`, `completed`, `error`, `working`
 To add signaling support for a new agent:
 
 1. **Add instruction config** in `internal/detect/tools.go`:
+
    ```go
    var agentInstructionConfigs = map[string]AgentInstructionConfig{
        // ...existing...

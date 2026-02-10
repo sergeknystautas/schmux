@@ -1,6 +1,6 @@
 # Sessions
 
-**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for *you* to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point—with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
+**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for _you_ to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point—with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
 
 **Problem:** Even with visibility, there's grunt work—spinning up sessions, creating workspaces, typing the same prompts. These small tasks steal attention from the actual problem you're trying to solve.
 
@@ -32,6 +32,7 @@ spawning → running → done → disposed
 ## Spawning Sessions
 
 ### New Workspace
+
 Creates a fresh git clone with a clean slate:
 
 ```bash
@@ -39,6 +40,7 @@ schmux spawn -t claude -r myproject -b feature-branch
 ```
 
 ### Existing Workspace
+
 Reuses directory; adds another agent to the mix:
 
 ```bash
@@ -46,6 +48,7 @@ schmux spawn -t codex -w myproject-001
 ```
 
 ### Options
+
 - `-t, --target`: Which target to run (detected tool, model, or user-defined)
 - `-r, --repo`: Repository name (for new workspace)
 - `-b, --branch`: Git branch to checkout
@@ -64,6 +67,7 @@ schmux spawn -t claude -t codex -t gemini -r myproject -b feature-x
 ```
 
 Dashboard also supports:
+
 - **Bulk create sessions** across the same or new workspaces
 - **On-demand workspace creation** when spawning
 - **Nicknames** for easy identification
@@ -90,17 +94,18 @@ When spawning into an existing workspace, the page shows workspace context (head
 
 The spawn page has three modes, determined once on page load:
 
-| Mode | Source | Description |
-|------|--------|-------------|
-| `workspace` | URL `?workspace_id=xxx` | Spawn into existing workspace |
+| Mode        | Source                        | Description                                                                                 |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `workspace` | URL `?workspace_id=xxx`       | Spawn into existing workspace                                                               |
 | `prefilled` | React Router `location.state` | Pre-selected repo/branch with prepared prompt and nickname (from home page recent branches) |
-| `fresh` | no params, no state | New spawn from scratch |
+| `fresh`     | no params, no state           | New spawn from scratch                                                                      |
 
 ### Data Sources
 
 The spawn page uses a three-layer persistence model:
 
 **Layer 1: Mode Logic (Entry Point)**
+
 - Highest priority, determined by navigation method
 - URL parameters: `workspace_id` for existing workspace spawns
 - React Router location state: `repo`, `branch`, `prompt`, `nickname` for prefilled mode
@@ -108,6 +113,7 @@ The spawn page uses a three-layer persistence model:
   - Produced by `POST /api/prepare-branch-spawn` (see below)
 
 **Layer 2: Session Storage Draft (Active Draft)**
+
 - Per-tab, survives page refresh within the same tab
 - What you're actively typing right now
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
@@ -118,6 +124,7 @@ The spawn page uses a three-layer persistence model:
 - `modelSelectionMode` values: `'single'` (one agent), `'multiple'` (toggle multiple), `'advanced'` (0-10 per agent)
 
 **Layer 3: Local Storage (Long-term Memory)**
+
 - Cross-tab, survives browser close/reopen
 - Last successful configuration
 - **Never auto-cleared**
@@ -130,27 +137,27 @@ The spawn page uses a three-layer persistence model:
 
 ### Form Fields
 
-| Field | Description |
-|-------|-------------|
-| repo | Repository URL, or `'__new__'` for new local repo |
-| branch | Git branch name |
-| newRepoName | Name for new local repo (only when repo is `'__new__'`) |
-| prompt | Task description for AI agents |
-| spawnMode | `'promptable'`, `'command'`, or `'resume'` |
-| selectedCommand | Which command to run (only when spawnMode is `'command'`) |
-| targetCounts | Map of target name to count (e.g. `{'claude-code': 2}`) |
+| Field              | Description                                                                  |
+| ------------------ | ---------------------------------------------------------------------------- |
+| repo               | Repository URL, or `'__new__'` for new local repo                            |
+| branch             | Git branch name                                                              |
+| newRepoName        | Name for new local repo (only when repo is `'__new__'`)                      |
+| prompt             | Task description for AI agents                                               |
+| spawnMode          | `'promptable'`, `'command'`, or `'resume'`                                   |
+| selectedCommand    | Which command to run (only when spawnMode is `'command'`)                    |
+| targetCounts       | Map of target name to count (e.g. `{'claude-code': 2}`)                      |
 | modelSelectionMode | `'single'`, `'multiple'`, or `'advanced'` - controls how agents are selected |
-| nickname | Friendly name for the session (auto-generated from prompt in fresh mode) |
+| nickname           | Friendly name for the session (auto-generated from prompt in fresh mode)     |
 
 ### Model Selection Modes
 
 When `spawnMode` is `'promptable'`, the agent selection UI offers three modes:
 
-| Mode | Description | Agent Behavior |
-|------|-------------|----------------|
-| `single` | One agent only | Clicking an agent deselects others (radio button behavior) |
+| Mode       | Description                       | Agent Behavior                                                      |
+| ---------- | --------------------------------- | ------------------------------------------------------------------- |
+| `single`   | One agent only                    | Clicking an agent deselects others (radio button behavior)          |
 | `multiple` | Multiple agents, one session each | Each agent toggles on/off independently (0 or 1 sessions per agent) |
-| `advanced` | Full control | Each agent can have 0-10 sessions via +/- counter buttons |
+| `advanced` | Full control                      | Each agent can have 0-10 sessions via +/- counter buttons           |
 
 The mode selector appears as a left column with buttons for each mode. The agent grid appears on the right, arranged in a responsive grid layout (wider columns in advanced mode for the counter controls).
 
@@ -164,61 +171,65 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 
 **Mode: `workspace`**
 
-| Field | 1. Mode Logic | 2. sessionStorage Draft | 3. localStorage | 4. Default |
-|-------|---------------|------------------------|-----------------|-----------|
-| repo | `workspace.repo` (locked) | - | - | - |
-| branch | `workspace.branch` (locked) | - | - | - |
-| prompt | - | `prompt` | - | `""` |
-| spawnMode | - | `spawnMode` | - | `'promptable'` |
-| modelSelectionMode | - | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
-| selectedCommand | - | `selectedCommand` | - | `""` |
-| targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
-| nickname | - | - | - | `""` |
+| Field              | 1. Mode Logic               | 2. sessionStorage Draft | 3. localStorage                   | 4. Default     |
+| ------------------ | --------------------------- | ----------------------- | --------------------------------- | -------------- |
+| repo               | `workspace.repo` (locked)   | -                       | -                                 | -              |
+| branch             | `workspace.branch` (locked) | -                       | -                                 | -              |
+| prompt             | -                           | `prompt`                | -                                 | `""`           |
+| spawnMode          | -                           | `spawnMode`             | -                                 | `'promptable'` |
+| modelSelectionMode | -                           | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
+| selectedCommand    | -                           | `selectedCommand`       | -                                 | `""`           |
+| targetCounts       | -                           | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
+| nickname           | -                           | -                       | -                                 | `""`           |
 
 **Mode: `prefilled`**
 
-| Field | 1. Mode Logic | 2. sessionStorage Draft | 3. localStorage | 4. Default |
-|-------|---------------|------------------------|-----------------|-----------|
-| repo | `location.state.repo` (locked) | - | - | - |
-| branch | `location.state.branch` (locked) | - | - | - |
-| prompt | `location.state.prompt` | - | - | - |
-| spawnMode | - | `spawnMode` | - | `'promptable'` |
-| modelSelectionMode | - | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
-| selectedCommand | - | `selectedCommand` | - | `""` |
-| targetCounts | - | `targetCounts` | `spawn-last-target-counts` | `{}` |
-| nickname | `location.state.nickname` | - | - | - |
+| Field              | 1. Mode Logic                    | 2. sessionStorage Draft | 3. localStorage                   | 4. Default     |
+| ------------------ | -------------------------------- | ----------------------- | --------------------------------- | -------------- |
+| repo               | `location.state.repo` (locked)   | -                       | -                                 | -              |
+| branch             | `location.state.branch` (locked) | -                       | -                                 | -              |
+| prompt             | `location.state.prompt`          | -                       | -                                 | -              |
+| spawnMode          | -                                | `spawnMode`             | -                                 | `'promptable'` |
+| modelSelectionMode | -                                | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
+| selectedCommand    | -                                | `selectedCommand`       | -                                 | `""`           |
+| targetCounts       | -                                | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
+| nickname           | `location.state.nickname`        | -                       | -                                 | -              |
 
 **Mode: `fresh`**
 
-| Field | 1. sessionStorage Draft | 2. localStorage | 3. Default |
-|-------|------------------------|-----------------|-----------|
-| repo | `repo` | `spawn-last-repo` | `""` |
-| branch | - | - | `""` |
-| newRepoName | `newRepoName` | - | `""` |
-| prompt | `prompt` | - | `""` |
-| spawnMode | `spawnMode` | - | `'promptable'` |
-| modelSelectionMode | `modelSelectionMode` | `spawn-last-model-selection-mode` | `'single'` |
-| selectedCommand | `selectedCommand` | - | `""` |
-| targetCounts | `targetCounts` | `spawn-last-target-counts` | `{}` |
+| Field              | 1. sessionStorage Draft | 2. localStorage                   | 3. Default     |
+| ------------------ | ----------------------- | --------------------------------- | -------------- |
+| repo               | `repo`                  | `spawn-last-repo`                 | `""`           |
+| branch             | -                       | -                                 | `""`           |
+| newRepoName        | `newRepoName`           | -                                 | `""`           |
+| prompt             | `prompt`                | -                                 | `""`           |
+| spawnMode          | `spawnMode`             | -                                 | `'promptable'` |
+| modelSelectionMode | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
+| selectedCommand    | `selectedCommand`       | -                                 | `""`           |
+| targetCounts       | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
 
 ### Resume Mode
 
 When `spawnMode` is `'resume'`, the form simplifies to target + repo selection:
 
 **In `workspace` or `prefilled` mode:**
+
 - Only the Target dropdown is shown (workspace is already determined by URL/state)
 - Spawns into the existing workspace with `resume: true`
 
 **In `fresh` mode:**
+
 - Target dropdown + Repo dropdown are shown
 - Creates a new workspace using the repo's default branch
 - Spawns with `resume: true` (agent runs its resume command, e.g., `claude --continue`)
 
 **Validation requirements:**
+
 - A target must be selected (`targetCounts` has at least one non-zero entry)
 - In fresh mode: a repo must be selected
 
 **On successful resume spawn:**
+
 - `spawn-last-repo` is updated in localStorage
 - Draft is cleared as usual
 
@@ -236,6 +247,7 @@ When the user clicks a recent branch on the home page:
 5. Spawn page detects `location.state` → enters prefilled mode
 
 **Branch review prompt** instructs the agent to:
+
 1. Read markdown/spec files in repo root and docs/ for project context and goals
 2. Review commit history on the branch
 3. Understand the scope of changes
@@ -249,19 +261,23 @@ The user can edit the prompt before engaging. Branch and nickname are auto-gener
 When at least one session spawns successfully:
 
 **Cleared:**
+
 - sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`)
 
 **Updated (write-back to localStorage):**
+
 - `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo) — for promptable, command, and resume modes
 - `spawn-last-target-counts` ← actual target counts used (only non-zero entries) — only for promptable mode
 - `spawn-last-model-selection-mode` ← actual model selection mode used — only for promptable mode
 
 **Never Cleared:**
+
 - localStorage values persist indefinitely
 
 ### Branch Suggestion
 
 Called during the "Engage" flow (inside `handleEngage`) when ALL of these are true:
+
 - Mode is `fresh`
 - `spawnMode` is `'promptable'`
 - `prompt` is not empty
@@ -318,6 +334,7 @@ tmux attach -t schmux-abc123
 ```
 
 Available from:
+
 - Dashboard: Copy attach command button
 - CLI: `schmux attach <session-id>`
 

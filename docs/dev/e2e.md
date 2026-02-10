@@ -62,6 +62,7 @@ docker run --rm schmux-e2e
 ```
 
 The Docker image includes:
+
 - Go compiler and test tools
 - tmux, git, curl, bash
 - Node.js + npm for dashboard build
@@ -137,15 +138,18 @@ When any E2E test fails, capture and persist:
 ## Implementation Status
 
 ### Completed
+
 - ✓ Docker-based E2E execution
 - ✓ Daemon lifecycle test (start/stop/health endpoint)
 - ✓ Spawn handler bug fix (repo name → repo URL lookup)
 
 ### Current Status
+
 - **Passing**: TestE2EDaemonLifecycle
 - **Failing**: TestE2EFullLifecycle and TestE2ETwoSessionsNaming due to pipe-pane issue
 
 ### Known Limitation
+
 **Pipe-pane fails in Docker container**: The spawn succeeds (session is created), but pipe-pane fails with "no server running on /tmp/tmUX-1000/default". This appears to be a Docker environment limitation where tmux socket resolution behaves differently when run from the daemon vs directly from bash.
 
 Works locally: Running `tmux new-session -d -s test && tmux pipe-pane -t =test:0.0 'cat >> /tmp/test.log'` works fine in the container.
@@ -153,6 +157,7 @@ Works locally: Running `tmux new-session -d -s test && tmux pipe-pane -t =test:0
 ### Implementation Phases
 
 ### Phase 1 (v1) - IN PROGRESS
+
 - ✓ Docker-based E2E execution
 - ✓ Daemon lifecycle validation
 - ✗ Session spawning with pipe-pane (blocked by Docker/tmux issue)
@@ -160,6 +165,7 @@ Works locally: Running `tmux new-session -d -s test && tmux pipe-pane -t =test:0
 - ✓ UI build included (no browser automation)
 
 ### Phase 2 (later)
+
 - Websocket coverage (session event stream)
 - Optional dashboard UI smoke tests
 
@@ -170,4 +176,3 @@ Works locally: Running `tmux new-session -d -s test && tmux pipe-pane -t =test:0
 - Which API endpoints are stable for health/session listing?
   - `/api/healthz` - confirmed stable
   - `/api/sessions` (GET) - confirmed stable
-

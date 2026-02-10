@@ -7,6 +7,7 @@ schmux workspaces show git status (branch, ahead/behind, dirty state) but have n
 **Reference implementation: Sapling ISL (Interactive Smartlog).** ALL design decisions for the git graph visualization follow ISL's approach. No exceptions. No alternatives. When in doubt, do what ISL does.
 
 Primary references (must stay in sync):
+
 - ISL docs: https://sapling-scm.com/docs/addons/isl/
 - ISL source: `~/dev/sapling/addons/isl/` (ordering + rendering logic)
 
@@ -39,6 +40,7 @@ ISL ordering does **not** follow a pure `(phase, date, hash)` sort. It is **topo
 sorted** with `sortAscCompare` as a tie-breaker, then reversed for rendering.
 
 From ISL `base_dag.ts` + `dag.ts`:
+
 1. **Topo sort** from roots → heads, ensuring parents appear before children.
 2. **Tie-breaks** via `sortAscCompare`:
    - **Phase**: draft before public
@@ -54,6 +56,7 @@ will create long, misleading edges.
 ### 2. Dynamic N-column layout
 
 Column assignment is **data-driven from branch info**, not hardcoded to 2 lanes:
+
 - Column 0: main/default branch
 - Column 1+: each additional branch gets the next available column
 - Nodes exclusively on a non-main branch go to that branch's column
@@ -76,6 +79,7 @@ All graph lines and node strokes use a single muted foreground color (`--color-t
 ### 5. Circles only for node glyphs
 
 All nodes are rendered as circles. No diamonds for fork points or merge commits. ISL uses uniform circle glyphs.
+
 - Virtual nodes (you-are-here, view-changes): filled circle in highlight color
 - Regular commits: open (unfilled) circle, stroke in graph color (or highlight color if on the working-copy column)
 
@@ -101,6 +105,7 @@ the local draft stack (not individual commit rows). This row represents the fact
 the workspace can sync/pull to catch up to main.
 
 schmux behavior:
+
 - Label text: **"Sync"** (not "Pull")
 - Show the **count** of main-ahead commits (e.g. "Sync · 4")
 - Show the **relative timestamp** of the newest main-ahead commit
@@ -123,10 +128,12 @@ The API returns a graph structure: a list of nodes (commits) sorted ISL-style (d
 Returns the commit graph for a single workspace, showing the workspace's local branch vs `origin/{defaultBranch}`. The graph is scoped to the divergence region: commits ahead on the local branch, commits ahead on origin/main since the fork point, and the fork point itself with a small amount of shared context.
 
 Query parameters:
+
 - `max_commits` (optional): Max total commits to return (default: 200).
 - `context` (optional): Number of shared-ancestor commits to include beyond the fork point (default: 5).
 
 Response:
+
 ```json
 {
   "repo": "github.com/user/project",
@@ -198,6 +205,7 @@ The frontend MUST NOT re-sort nodes. It processes them in the order received.
 **Files**: `internal/workspace/git_graph.go`, `internal/api/contracts/git_graph.go`, `internal/dashboard/handlers.go`
 
 `GetGitGraph` function:
+
 1. Looks up the workspace by ID from state to get `workspace.Path` and `workspace.Branch`.
 2. Detects the default branch name (`main` or `master`) via `git symbolic-ref refs/remotes/origin/HEAD`.
 3. Resolves `HEAD` (local branch tip) and `origin/{defaultBranch}` (remote main tip).
@@ -237,6 +245,7 @@ The graph is tightly scoped to the divergence region:
 7. Track `youAreHereColumn` for highlight coloring.
 
 **Key types**:
+
 ```typescript
 interface LayoutNode {
   hash: string;
@@ -248,14 +257,18 @@ interface LayoutNode {
 }
 
 interface LayoutEdge {
-  fromHash: string; toHash: string;
-  fromColumn: number; toColumn: number;
-  fromY: number; toY: number;
+  fromHash: string;
+  toHash: string;
+  fromColumn: number;
+  toColumn: number;
+  fromY: number;
+  toY: number;
 }
 
 interface LaneLine {
   column: number;
-  fromY: number; toY: number;
+  fromY: number;
+  toY: number;
 }
 
 interface GitGraphLayout {
@@ -272,16 +285,19 @@ interface GitGraphLayout {
 ### Frontend Rendering (`GitHistoryDAG.tsx`)
 
 SVG layers (back to front):
+
 1. **Column lines** (dashed, low opacity) — ISL column-reservation lines
 2. **Edge paths** (solid) — direct parent-child connections
 3. **Node circles** — commit glyphs
 
 Row content (right of SVG):
+
 - **you-are-here row**: "You are here" text
 - **view-changes row**: clickable button showing "{N} file(s), +{added} −{removed}", navigates to `/diff/:workspaceId`
 - **commit row**: short hash (clickable, copies full hash) | branch badges (from is_head) | message | author | relative time
 
 **Colors**:
+
 - `GRAPH_COLOR = var(--color-text-muted)` — all lines, all non-highlighted node strokes
 - `HIGHLIGHT_COLOR = var(--color-graph-lane-1)` — working-copy column lane line, node strokes on that column, filled virtual nodes
 
@@ -332,6 +348,7 @@ Generated via `go run ./cmd/gen-types` from Go structs. Includes `GitGraphDirtyS
 ## Current Implementation State
 
 ### What's done
+
 - Backend: `GetGitGraph` with fork point detection, divergence region scoping, branch membership walking, ISL-style draft-before-public sort, dirty state population.
 - API contract: `GitGraphResponse` with `GitGraphDirtyState`.
 - Frontend layout: `computeLayout` with dynamic column assignment, virtual node insertion, lane line computation with column 0 extension.
@@ -340,6 +357,7 @@ Generated via `go run ./cmd/gen-types` from Go structs. Includes `GitGraphDirtyS
 - Generated TypeScript types.
 
 ### Known issues being debugged
+
 - **Single-column rendering**: Despite correct backend data (draft nodes first with correct branch membership) and correct frontend logic (nodeColumn should return column 1 for branch-only nodes), the graph was rendering all nodes in column 0. This needs investigation — likely the dashboard assets need to be rebuilt (`go run ./cmd/build-dashboard`) and the daemon restarted to pick up the latest frontend code.
 
 ## Testing
@@ -366,6 +384,7 @@ Generated via `go run ./cmd/gen-types` from Go structs. Includes `GitGraphDirtyS
 ### Build Verification
 
 After any code changes:
+
 1. `go run ./cmd/gen-types` — regenerate TypeScript types if Go contracts changed
 2. `go run ./cmd/build-dashboard` — rebuild frontend assets
 3. `go test ./...` — run all backend tests

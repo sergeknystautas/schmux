@@ -21,7 +21,9 @@ export default function LegacyTerminalPage() {
       <div className="empty-state__icon">⚠️</div>
       <h3 className="empty-state__title">No session ID provided</h3>
       <p className="empty-state__description">Use the sessions list to open a terminal view.</p>
-      <Link to="/" className="btn btn--primary">Back to Home</Link>
+      <Link to="/" className="btn btn--primary">
+        Back to Home
+      </Link>
     </div>
   );
 }

@@ -19,6 +19,7 @@ Change `branchSuggestTimeout` from `15 * time.Second` to `30 * time.Second`.
 **File:** `assets/dashboard/src/routes/SpawnPage.tsx`
 
 Add state:
+
 ```ts
 const [showBranchInput, setShowBranchInput] = useState(false);
 ```

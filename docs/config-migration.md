@@ -26,22 +26,22 @@ access_control
 
 ## Field Mapping
 
-| Old Path | New Path | Notes |
-| --- | --- | --- |
-| `terminal.*` | `terminal.*` | Unchanged |
-| `nudgenik.target` | `nudgenik.target` | Unchanged |
-| `internal.viewed_buffer_ms` | `nudgenik.viewed_buffer_ms` | Moved |
-| `internal.session_seen_interval_ms` | `nudgenik.seen_interval_ms` | Renamed + moved |
-| `internal.sessions_poll_interval_ms` | `sessions.dashboard_poll_interval_ms` | Renamed + moved |
-| `internal.git_status_poll_interval_ms` | `sessions.git_status_poll_interval_ms` | Moved |
-| `internal.timeouts.git_clone_seconds` | `sessions.git_clone_timeout_ms` | **seconds → ms** |
-| `internal.timeouts.git_status_seconds` | `sessions.git_status_timeout_ms` | **seconds → ms** |
-| `internal.mtime_poll_interval_ms` | `xterm.mtime_poll_interval_ms` | Renamed block |
-| `internal.timeouts.tmux_query_seconds` | `xterm.query_timeout_ms` | **seconds → ms** |
-| `internal.timeouts.tmux_operation_seconds` | `xterm.operation_timeout_ms` | **seconds → ms** |
-| `internal.max_log_size_mb` | `xterm.max_log_size_mb` | Renamed block |
-| `internal.rotated_log_size_mb` | `xterm.rotated_log_size_mb` | Renamed block |
-| `internal.network_access` | `network.bind_address` | Now uses "127.0.0.1" or "0.0.0.0" |
+| Old Path                                   | New Path                               | Notes                             |
+| ------------------------------------------ | -------------------------------------- | --------------------------------- |
+| `terminal.*`                               | `terminal.*`                           | Unchanged                         |
+| `nudgenik.target`                          | `nudgenik.target`                      | Unchanged                         |
+| `internal.viewed_buffer_ms`                | `nudgenik.viewed_buffer_ms`            | Moved                             |
+| `internal.session_seen_interval_ms`        | `nudgenik.seen_interval_ms`            | Renamed + moved                   |
+| `internal.sessions_poll_interval_ms`       | `sessions.dashboard_poll_interval_ms`  | Renamed + moved                   |
+| `internal.git_status_poll_interval_ms`     | `sessions.git_status_poll_interval_ms` | Moved                             |
+| `internal.timeouts.git_clone_seconds`      | `sessions.git_clone_timeout_ms`        | **seconds → ms**                  |
+| `internal.timeouts.git_status_seconds`     | `sessions.git_status_timeout_ms`       | **seconds → ms**                  |
+| `internal.mtime_poll_interval_ms`          | `xterm.mtime_poll_interval_ms`         | Renamed block                     |
+| `internal.timeouts.tmux_query_seconds`     | `xterm.query_timeout_ms`               | **seconds → ms**                  |
+| `internal.timeouts.tmux_operation_seconds` | `xterm.operation_timeout_ms`           | **seconds → ms**                  |
+| `internal.max_log_size_mb`                 | `xterm.max_log_size_mb`                | Renamed block                     |
+| `internal.rotated_log_size_mb`             | `xterm.rotated_log_size_mb`            | Renamed block                     |
+| `internal.network_access`                  | `network.bind_address`                 | Now uses "127.0.0.1" or "0.0.0.0" |
 
 ## Unit Conversion (Seconds → Milliseconds)
 

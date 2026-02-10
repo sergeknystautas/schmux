@@ -13,7 +13,7 @@ export function navigateToWorkspace(
   workspaces: WorkspaceResponse[],
   workspaceId: string
 ): void {
-  const workspace = workspaces.find(ws => ws.id === workspaceId);
+  const workspace = workspaces.find((ws) => ws.id === workspaceId);
   if (workspace?.sessions?.length) {
     // Navigate to first session in workspace
     navigate(`/sessions/${workspace.sessions[0].id}`);

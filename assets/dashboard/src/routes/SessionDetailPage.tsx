@@ -19,12 +19,22 @@ import ConnectionProgressModal from '../components/ConnectionProgressModal';
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
   const { config, loading: configLoading } = useConfig();
-  const { sessionsById, workspaces, loading: sessionsLoading, error: sessionsError } = useSessions();
+  const {
+    sessionsById,
+    workspaces,
+    loading: sessionsLoading,
+    error: sessionsError,
+  } = useSessions();
   const navigate = useNavigate();
-  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'>('connecting');
+  const [wsStatus, setWsStatus] = useState<
+    'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
+  >('connecting');
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(SESSION_SIDEBAR_COLLAPSED_KEY, false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(
+    SESSION_SIDEBAR_COLLAPSED_KEY,
+    false
+  );
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
@@ -37,7 +47,7 @@ export default function SessionDetailPage() {
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
-  const workspaceExists = workspaceId && workspaces?.some(ws => ws.id === workspaceId);
+  const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
 
   // Remote host disconnection state
   const [reconnectModal, setReconnectModal] = useState<{
@@ -46,10 +56,13 @@ export default function SessionDetailPage() {
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
-  const currentWorkspaceForRemote = workspaces?.find(ws => ws.id === (sessionData?.workspace_id || workspaceId));
+  const currentWorkspaceForRemote = workspaces?.find(
+    (ws) => ws.id === (sessionData?.workspace_id || workspaceId)
+  );
   const isRemoteSession = Boolean(sessionData?.remote_host_id);
   const remoteHostStatus = currentWorkspaceForRemote?.remote_host_status;
-  const remoteDisconnected = isRemoteSession && remoteHostStatus !== 'connected' && remoteHostStatus !== undefined;
+  const remoteDisconnected =
+    isRemoteSession && remoteHostStatus !== 'connected' && remoteHostStatus !== undefined;
 
   // Remember the workspace_id so we can filter after dispose
   useEffect(() => {
@@ -75,8 +88,8 @@ export default function SessionDetailPage() {
   // If session is missing but workspace has other sessions, navigate to a sibling
   useEffect(() => {
     if (sessionMissing && workspaceId && workspaceExists) {
-      const ws = workspaces?.find(w => w.id === workspaceId);
-      const sibling = ws?.sessions?.find(s => s.id !== sessionId);
+      const ws = workspaces?.find((w) => w.id === workspaceId);
+      const sibling = ws?.sessions?.find((s) => s.id !== sessionId);
       if (sibling) {
         navigate(`/sessions/${sibling.id}`, { replace: true });
       }
@@ -92,7 +105,11 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
     if (configLoading) return;
-    if (!config?.terminal || typeof config.terminal.width !== 'number' || typeof config.terminal.height !== 'number') {
+    if (
+      !config?.terminal ||
+      typeof config.terminal.width !== 'number' ||
+      typeof config.terminal.height !== 'number'
+    ) {
       return;
     }
     // Don't create terminal stream while remote host is disconnected
@@ -106,7 +123,7 @@ export default function SessionDetailPage() {
         setFollowTail(!showing);
       },
       onStatusChange: (status) => setWsStatus(status),
-      onSelectedLinesChange: (lines) => setSelectedLines(lines)
+      onSelectedLinesChange: (lines) => setSelectedLines(lines),
     });
 
     terminalStreamRef.current = terminalStream;
@@ -212,7 +229,7 @@ export default function SessionDetailPage() {
         defaultValue: newNickname,
         placeholder: 'Enter nickname (optional)',
         confirmText: 'Save',
-        errorMessage
+        errorMessage,
       });
 
       if (newNickname === null) return; // User cancelled
@@ -278,13 +295,17 @@ export default function SessionDetailPage() {
         <div className="empty-state__icon">⚠️</div>
         <h3 className="empty-state__title">Error</h3>
         <p className="empty-state__description">{message}</p>
-        <Link to="/" className="btn btn--primary">Back to Home</Link>
+        <Link to="/" className="btn btn--primary">
+          Back to Home
+        </Link>
       </div>
     );
   }
 
   // Get the current workspace data
-  const currentWorkspace = workspaces?.find(ws => ws.id === (sessionData?.workspace_id || workspaceId));
+  const currentWorkspace = workspaces?.find(
+    (ws) => ws.id === (sessionData?.workspace_id || workspaceId)
+  );
 
   if (sessionMissing) {
     // No workspaceId means we lost state (e.g., page refresh) - navigate away
@@ -308,7 +329,10 @@ export default function SessionDetailPage() {
         <div className="empty-state">
           <div className="empty-state__icon">⚠️</div>
           <h3 className="empty-state__title">Session unavailable</h3>
-          <p className="empty-state__description">This session was disposed or no longer exists. Select another session from the tabs above.</p>
+          <p className="empty-state__description">
+            This session was disposed or no longer exists. Select another session from the tabs
+            above.
+          </p>
         </div>
       </>
     );
@@ -316,28 +340,52 @@ export default function SessionDetailPage() {
 
   const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sessionData.running ? 'Running' : 'Stopped';
-  const wsPillClass = wsStatus === 'connected'
-    ? 'connection-pill--connected'
-    : wsStatus === 'disconnected'
-      ? 'connection-pill--offline'
-      : 'connection-pill--reconnecting';
-  const wsPillText = wsStatus === 'connected' ? 'Live' : wsStatus === 'disconnected' ? 'Offline' : 'Connecting...';
+  const wsPillClass =
+    wsStatus === 'connected'
+      ? 'connection-pill--connected'
+      : wsStatus === 'disconnected'
+        ? 'connection-pill--offline'
+        : 'connection-pill--reconnecting';
+  const wsPillText =
+    wsStatus === 'connected' ? 'Live' : wsStatus === 'disconnected' ? 'Offline' : 'Connecting...';
 
   return (
     <>
       {currentWorkspace && (
         <>
           <WorkspaceHeader workspace={currentWorkspace} />
-          <SessionTabs sessions={currentWorkspace.sessions || []} currentSessionId={sessionId} workspace={currentWorkspace} />
+          <SessionTabs
+            sessions={currentWorkspace.sessions || []}
+            currentSessionId={sessionId}
+            workspace={currentWorkspace}
+          />
         </>
       )}
 
-      <div className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}>
+      <div
+        className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}
+      >
         <div className="session-detail__main">
           {remoteDisconnected ? (
-            <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              className="empty-state"
+              style={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
               <div className="empty-state__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="1.5">
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--color-error)"
+                  strokeWidth="1.5"
+                >
                   <line x1="1" y1="1" x2="23" y2="23" />
                   <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
                   <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
@@ -349,8 +397,9 @@ export default function SessionDetailPage() {
               </div>
               <h3 className="empty-state__title">Remote host disconnected</h3>
               <p className="empty-state__description">
-                The connection to {sessionData.remote_hostname || sessionData.remote_flavor_name || 'the remote host'} has been lost.
-                Reconnect to resume terminal streaming.
+                The connection to{' '}
+                {sessionData.remote_hostname || sessionData.remote_flavor_name || 'the remote host'}{' '}
+                has been lost. Reconnect to resume terminal streaming.
               </p>
               <button
                 className="btn btn--primary"
@@ -370,7 +419,14 @@ export default function SessionDetailPage() {
                   }
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <polyline points="23 4 23 10 17 10" />
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
@@ -378,108 +434,144 @@ export default function SessionDetailPage() {
               </button>
             </div>
           ) : (
-          <div className="log-viewer">
-            <div className="log-viewer__header">
-              <div className="log-viewer__info">
-                <Tooltip content={wsStatus === 'connected' ? 'WebSocket connected - receiving real-time terminal output' : wsStatus === 'disconnected' ? 'WebSocket disconnected - unable to receive terminal output' : 'WebSocket connecting...'}>
-                  <div className={`connection-pill ${wsPillClass}`}>
-                    <span className="connection-pill__dot"></span>
-                    <span>{wsPillText}</span>
-                  </div>
-                </Tooltip>
-                <Tooltip content={sessionData.running ? 'Agent process is running' : 'Agent process has stopped'}>
-                  <div className={`status-pill ${statusClass}`}>
-                    <span className="status-pill__dot"></span>
-                    <span>{statusText}</span>
-                  </div>
-                </Tooltip>
-              </div>
-              <div className="log-viewer__actions">
-                {selectionMode ? (
-                  <>
-                    <Tooltip content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}>
-                      <button
-                        className="btn btn--sm btn--primary"
-                        onClick={handleCopySelectedLines}
-                        disabled={selectedLines.length === 0}
+            <div className="log-viewer">
+              <div className="log-viewer__header">
+                <div className="log-viewer__info">
+                  <Tooltip
+                    content={
+                      wsStatus === 'connected'
+                        ? 'WebSocket connected - receiving real-time terminal output'
+                        : wsStatus === 'disconnected'
+                          ? 'WebSocket disconnected - unable to receive terminal output'
+                          : 'WebSocket connecting...'
+                    }
+                  >
+                    <div className={`connection-pill ${wsPillClass}`}>
+                      <span className="connection-pill__dot"></span>
+                      <span>{wsPillText}</span>
+                    </div>
+                  </Tooltip>
+                  <Tooltip
+                    content={
+                      sessionData.running ? 'Agent process is running' : 'Agent process has stopped'
+                    }
+                  >
+                    <div className={`status-pill ${statusClass}`}>
+                      <span className="status-pill__dot"></span>
+                      <span>{statusText}</span>
+                    </div>
+                  </Tooltip>
+                </div>
+                <div className="log-viewer__actions">
+                  {selectionMode ? (
+                    <>
+                      <Tooltip
+                        content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                        </svg>
-                        <span>Copy</span>
+                        <button
+                          className="btn btn--sm btn--primary"
+                          onClick={handleCopySelectedLines}
+                          disabled={selectedLines.length === 0}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          <span>Copy</span>
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Cancel selection">
+                        <button className="btn btn--sm" onClick={handleCancelSelection}>
+                          Cancel
+                        </button>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <Tooltip content="Select lines to copy">
+                      <button className="btn btn--sm" onClick={handleToggleSelectionMode}>
+                        Select lines
                       </button>
                     </Tooltip>
-                    <Tooltip content="Cancel selection">
-                      <button
-                        className="btn btn--sm"
-                        onClick={handleCancelSelection}
-                      >
-                        Cancel
-                      </button>
-                    </Tooltip>
-                  </>
-                ) : (
-                  <Tooltip content="Select lines to copy">
+                  )}
+                  <Tooltip content="Download log">
                     <button
                       className="btn btn--sm"
-                      onClick={handleToggleSelectionMode}
+                      onClick={() => {
+                        terminalStreamRef.current?.downloadOutput();
+                        success('Downloaded session log');
+                      }}
                     >
-                      Select lines
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
                     </button>
                   </Tooltip>
-                )}
-                <Tooltip content="Download log">
-                  <button
-                    className="btn btn--sm"
-                    onClick={() => {
-                      terminalStreamRef.current?.downloadOutput();
-                      success('Downloaded session log');
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                      <polyline points="7 10 12 15 17 10"></polyline>
-                      <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                  </button>
-                </Tooltip>
-                <Tooltip content="Toggle sidebar">
-                  <button className="btn btn--sm" onClick={toggleSidebar}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                      <line x1="9" y1="3" x2="9" y2="21"></line>
-                    </svg>
-                  </button>
-                </Tooltip>
+                  <Tooltip content="Toggle sidebar">
+                    <button className="btn btn--sm" onClick={toggleSidebar}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="9" y1="3" x2="9" y2="21"></line>
+                      </svg>
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
-            </div>
-            <div
-              key={sessionData.id}
-              id="terminal"
-              className="log-viewer__output"
-              ref={terminalRef}
-              style={{ cursor: selectionMode ? 'pointer' : undefined }}
-            ></div>
+              <div
+                key={sessionData.id}
+                id="terminal"
+                className="log-viewer__output"
+                ref={terminalRef}
+                style={{ cursor: selectionMode ? 'pointer' : undefined }}
+              ></div>
 
-            {showResume ? (
-              <button className="log-viewer__new-content" onClick={() => terminalStreamRef.current?.jumpToBottom()}>
-                Resume
-              </button>
-            ) : null}
-          </div>
+              {showResume ? (
+                <button
+                  className="log-viewer__new-content"
+                  onClick={() => terminalStreamRef.current?.jumpToBottom()}
+                >
+                  Resume
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
 
         <aside className="session-detail__sidebar">
           <div className="metadata-field">
             <span className="metadata-field__label">Session ID</span>
-            <span className="metadata-field__value metadata-field__value--mono">{sessionData.id}</span>
+            <span className="metadata-field__value metadata-field__value--mono">
+              {sessionData.id}
+            </span>
           </div>
 
           <div className="metadata-field">
             <span className="metadata-field__label">Branch</span>
-            <span className="metadata-field__value metadata-field__value--mono">{sessionData.branch}</span>
+            <span className="metadata-field__value metadata-field__value--mono">
+              {sessionData.branch}
+            </span>
           </div>
 
           <div className="metadata-field">
@@ -489,11 +581,25 @@ export default function SessionDetailPage() {
 
           {sessionData.nickname ? (
             <div className="metadata-field">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                }}
+              >
                 <span className="metadata-field__label">Nickname</span>
                 <Tooltip content="Edit nickname">
                   <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                     </svg>
@@ -504,33 +610,60 @@ export default function SessionDetailPage() {
             </div>
           ) : (
             <div className="metadata-field">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                }}
+              >
                 <span className="metadata-field__label">Nickname</span>
                 <Tooltip content="Add nickname">
                   <button className="btn btn--sm btn--ghost" onClick={handleEditNickname}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <line x1="12" y1="5" x2="12" y2="19"></line>
                       <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
                   </button>
                 </Tooltip>
               </div>
-              <span className="metadata-field__value" style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>Not set</span>
+              <span
+                className="metadata-field__value"
+                style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}
+              >
+                Not set
+              </span>
             </div>
           )}
 
           <div className="metadata-field">
             <span className="metadata-field__label">Created</span>
             <Tooltip content={formatTimestamp(sessionData.created_at)}>
-              <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>{formatRelativeTime(sessionData.created_at)}</span>
+              <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
+                {formatRelativeTime(sessionData.created_at)}
+              </span>
             </Tooltip>
           </div>
 
           <div className="metadata-field">
             <span className="metadata-field__label">Last Activity</span>
-            <Tooltip content={sessionData.last_output_at ? formatTimestamp(sessionData.last_output_at) : 'Never'}>
+            <Tooltip
+              content={
+                sessionData.last_output_at ? formatTimestamp(sessionData.last_output_at) : 'Never'
+              }
+            >
               <span className="metadata-field__value" style={{ alignSelf: 'flex-start' }}>
-                {sessionData.last_output_at ? formatRelativeTime(sessionData.last_output_at) : 'Never'}
+                {sessionData.last_output_at
+                  ? formatRelativeTime(sessionData.last_output_at)
+                  : 'Never'}
               </span>
             </Tooltip>
           </div>
@@ -547,11 +680,27 @@ export default function SessionDetailPage() {
 
           {sessionData.remote_host_id && (
             <>
-              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-md) 0' }} />
+              <hr
+                style={{
+                  border: 'none',
+                  borderTop: '1px solid var(--color-border)',
+                  margin: 'var(--spacing-md) 0',
+                }}
+              />
               <div className="metadata-field">
                 <span className="metadata-field__label">Environment</span>
-                <span className="metadata-field__value" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <span
+                  className="metadata-field__value"
+                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
                     <line x1="1" y1="10" x2="23" y2="10" />
                   </svg>
@@ -561,7 +710,10 @@ export default function SessionDetailPage() {
               {sessionData.remote_hostname && (
                 <div className="metadata-field">
                   <span className="metadata-field__label">Hostname</span>
-                  <span className="metadata-field__value metadata-field__value--mono" style={{ fontSize: '0.75rem' }}>
+                  <span
+                    className="metadata-field__value metadata-field__value--mono"
+                    style={{ fontSize: '0.75rem' }}
+                  >
                     {sessionData.remote_hostname}
                   </span>
                 </div>
@@ -569,7 +721,13 @@ export default function SessionDetailPage() {
             </>
           )}
 
-          <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-md) 0' }} />
+          <hr
+            style={{
+              border: 'none',
+              borderTop: '1px solid var(--color-border)',
+              margin: 'var(--spacing-md) 0',
+            }}
+          />
 
           <div className="form-group">
             <label className="form-group__label">Attach Command</label>
@@ -577,7 +735,14 @@ export default function SessionDetailPage() {
               <span className="copy-field__value">{sessionData.attach_cmd}</span>
               <Tooltip content="Copy attach command">
                 <button className="copy-field__btn" onClick={handleCopyAttach}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
@@ -588,7 +753,14 @@ export default function SessionDetailPage() {
 
           <div style={{ marginTop: 'auto' }}>
             <button className="btn btn--danger" style={{ width: '100%' }} onClick={handleDispose}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <polyline points="3 6 5 6 21 6"></polyline>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
               </svg>
@@ -609,7 +781,6 @@ export default function SessionDetailPage() {
           }}
         />
       )}
-
     </>
   );
 }

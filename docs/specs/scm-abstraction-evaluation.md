@@ -25,33 +25,33 @@ This document evaluates what it would take to abstract the Source Control Manage
 
 ### Backend Files (Go)
 
-| File | Lines | Git Operations | Abstraction Complexity |
-|------|-------|----------------|------------------------|
-| `internal/workspace/git.go` | 368 | fetch, checkout, pull, status, clean, safety checks | **Medium** - direct command execution |
-| `internal/workspace/git_graph.go` | 480 | commit graph with topological sort, branch membership | **High** - git-specific DAG model |
-| `internal/workspace/git_watcher.go` | 376 | watching `.git/`, `refs/`, `logs/` directories | **High** - git metadata paths |
-| `internal/workspace/worktree.go` | 356 | worktree add/remove/prune, branch conflict resolution | **High** - git worktree feature |
-| `internal/workspace/linear_sync.go` | 465 | iterative rebase, conflict detection/resolution | **High** - git rebase semantics |
-| `internal/workspace/origin_queries.go` | 386 | bare clone queries, recent branches, commit logs | **Medium** - query-repo pattern |
-| `internal/workspace/giturl.go` | 99 | build web URLs for GitHub/GitLab/Bitbucket | **Low** - web URL construction |
-| `internal/workspace/manager.go` | 671 | coordinates git ops for workspace lifecycle | **Medium** - orchestration layer |
-| `internal/dashboard/handlers.go` | ~100 | API endpoints for git status, diff, graph | **Low** - HTTP layer |
+| File                                   | Lines | Git Operations                                        | Abstraction Complexity                |
+| -------------------------------------- | ----- | ----------------------------------------------------- | ------------------------------------- |
+| `internal/workspace/git.go`            | 368   | fetch, checkout, pull, status, clean, safety checks   | **Medium** - direct command execution |
+| `internal/workspace/git_graph.go`      | 480   | commit graph with topological sort, branch membership | **High** - git-specific DAG model     |
+| `internal/workspace/git_watcher.go`    | 376   | watching `.git/`, `refs/`, `logs/` directories        | **High** - git metadata paths         |
+| `internal/workspace/worktree.go`       | 356   | worktree add/remove/prune, branch conflict resolution | **High** - git worktree feature       |
+| `internal/workspace/linear_sync.go`    | 465   | iterative rebase, conflict detection/resolution       | **High** - git rebase semantics       |
+| `internal/workspace/origin_queries.go` | 386   | bare clone queries, recent branches, commit logs      | **Medium** - query-repo pattern       |
+| `internal/workspace/giturl.go`         | 99    | build web URLs for GitHub/GitLab/Bitbucket            | **Low** - web URL construction        |
+| `internal/workspace/manager.go`        | 671   | coordinates git ops for workspace lifecycle           | **Medium** - orchestration layer      |
+| `internal/dashboard/handlers.go`       | ~100  | API endpoints for git status, diff, graph             | **Low** - HTTP layer                  |
 
 ### Frontend Files (TypeScript)
 
-| File | Lines | Purpose | Abstraction Need |
-|------|-------|---------|------------------|
-| `assets/dashboard/src/components/GitHistoryDAG.tsx` | 272 | Commit graph visualization | **Low** - consumes API, already abstract |
-| `assets/dashboard/src/lib/api.ts` | ~50 | API client calls | **None** - just HTTP calls |
-| `assets/dashboard/src/lib/types.generated.ts` | ~40 | TypeScript types | **None** - generated from Go types |
+| File                                                | Lines | Purpose                    | Abstraction Need                         |
+| --------------------------------------------------- | ----- | -------------------------- | ---------------------------------------- |
+| `assets/dashboard/src/components/GitHistoryDAG.tsx` | 272   | Commit graph visualization | **Low** - consumes API, already abstract |
+| `assets/dashboard/src/lib/api.ts`                   | ~50   | API client calls           | **None** - just HTTP calls               |
+| `assets/dashboard/src/lib/types.generated.ts`       | ~40   | TypeScript types           | **None** - generated from Go types       |
 
 ### Test Files
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `internal/workspace/git_test.go` | - | Unit tests for git operations |
-| `internal/workspace/git_graph_test.go` | - | Unit tests for graph logic |
-| `internal/workspace/git_watcher_test.go` | - | Unit tests for file watching |
+| File                                     | Lines | Purpose                       |
+| ---------------------------------------- | ----- | ----------------------------- |
+| `internal/workspace/git_test.go`         | -     | Unit tests for git operations |
+| `internal/workspace/git_graph_test.go`   | -     | Unit tests for graph logic    |
+| `internal/workspace/git_watcher_test.go` | -     | Unit tests for file watching  |
 
 ---
 
@@ -60,6 +60,7 @@ This document evaluates what it would take to abstract the Source Control Manage
 ### Boundary 1: Command Execution vs Semantic Operations
 
 **Current Pattern** (everywhere):
+
 ```go
 cmd := exec.CommandContext(ctx, "git", "fetch", "origin")
 cmd.Dir = dir
@@ -67,6 +68,7 @@ output, err := cmd.CombinedOutput()
 ```
 
 **Abstraction Target**:
+
 ```go
 type SCMProvider interface {
     Fetch(ctx context.Context, dir string) error
@@ -78,11 +80,13 @@ All direct `exec.CommandContext(ctx, "git", ...)` calls need to move into a `Git
 ### Boundary 2: Git-Specific Data Structures
 
 **Current**: Functions return git-specific formats:
+
 - `git status --porcelain` output parsing
 - `git log --format=%H|%h|%s|%an|%aI|%P` parsing
 - `refs/heads/`, `refs/remotes/`, `refs/tags/` paths
 
 **Abstraction Target**: Define domain types:
+
 ```go
 type Status struct {
     Dirty         bool
@@ -108,22 +112,26 @@ type Commit struct {
 ### Boundary 3: Workspace Strategy vs SCM Type
 
 **Current**: `source_code_management` field mixes two concerns:
+
 - SCM tool: git (only option currently)
 - Workspace strategy: worktree vs full clone
 
 **Abstraction Target**: Separate concerns:
+
 - `scm_type`: "git" (could add "jj", "sl" later)
 - `workspace_strategy`: "worktree", "clone", or SCM-specific strategy
 
 ### Boundary 4: Git Graph Algorithms
 
 **Current**: `git_graph.go` contains git-specific logic:
+
 - `git merge-base` for fork point
 - `git rev-list --left-right --count` for ahead/behind
 - `git log --topo-order` for traversal
 - Branch membership walking via parent pointers
 
 **Abstraction Target**: Define graph operations that any DAG-based SCM can implement:
+
 ```go
 type CommitGraph interface {
     GetNodes(opts GraphOptions) ([]Commit, error)
@@ -136,11 +144,13 @@ type CommitGraph interface {
 ### Boundary 5: File System Watching
 
 **Current**: `git_watcher.go` hardcodes:
+
 - `.git` directory path
 - `refs/` and `logs/` subdirectories
 - `.git` file parsing for worktrees
 
 **Abstraction Target**: Provider reports what to watch:
+
 ```go
 type MetadataWatcher interface {
     MetadataDir(path string) string
@@ -152,11 +162,13 @@ type MetadataWatcher interface {
 ### Boundary 6: Conflict Resolution
 
 **Current**: `linear_sync.go` assumes git conflict model:
+
 - `git rebase` stops on conflict
 - `git diff --name-only --diff-filter=U` lists conflicts
 - `git add` + `git rebase --continue` resolves
 
 **Abstraction Target**: Generalize conflict workflow:
+
 ```go
 type RebaseOperation interface {
     StartRebase(ctx context.Context, target string) error
@@ -391,6 +403,7 @@ type URLBuilder interface {
 ### Step 1: Create Interface Package (Low Risk)
 
 Create `internal/scm/` with:
+
 - `provider.go` - Provider interface
 - `strategy.go` - Strategy interface
 - `graph.go` - GraphQuery interface
@@ -402,6 +415,7 @@ Create `internal/scm/` with:
 ### Step 2: Create GitProvider (Low Risk)
 
 Create `internal/scm/git/provider.go`:
+
 - Move functions from `git.go` into methods on `GitProvider` struct
 - Implement all Provider interface methods
 - Add `NewGitProvider()` constructor
@@ -411,23 +425,27 @@ Create `internal/scm/git/provider.go`:
 ### Step 3: Wire GitProvider into Manager (Medium Risk)
 
 Modify `internal/workspace/manager.go`:
+
 - Add `Provider` field to Manager struct
 - Update `New()` to accept a Provider
 - Replace direct `m.gitFetch()` calls with `m.provider.Fetch()`
 - Update all git method calls to use provider interface
 
 **Files to modify**:
+
 - `manager.go` - update Manager to use Provider
 - Keep `git.go` initially (it will become unused)
 
 ### Step 4: Migrate Worktree Operations (High Risk)
 
 The worktree code is git-specific. Options:
+
 1. Create `GitWorktreeStrategy` implementing Strategy interface
 2. Move `worktree.go` code into the strategy
 3. Update Manager to use Strategy instead of direct worktree calls
 
 **Files to modify**:
+
 - Create `internal/scm/git/worktree_strategy.go`
 - `manager.go` - use Strategy interface
 - Keep `worktree.go` initially
@@ -435,12 +453,14 @@ The worktree code is git-specific. Options:
 ### Step 5: Migrate Graph Operations (High Risk)
 
 The graph code has git-specific logic (merge-base, rev-list). Steps:
+
 1. Create `GitGraphQuery` implementing GraphQuery interface
 2. Move `git_graph.go` code into the query implementation
 3. Update API handlers to use GraphQuery interface
 4. Normalize graph types to use shared Commit types
 
 **Files to modify**:
+
 - Create `internal/scm/git/graph_query.go`
 - `internal/dashboard/handlers.go` - use GraphQuery
 - Keep `git_graph.go` initially
@@ -448,37 +468,44 @@ The graph code has git-specific logic (merge-base, rev-list). Steps:
 ### Step 6: Migrate Watcher (Medium Risk)
 
 The watcher assumes `.git` directory structure. Steps:
+
 1. Add `WatchPaths()` method to Provider interface
 2. Update `GitWatcher` to call `provider.WatchPaths()` instead of hardcoding
 3. Move git-specific path resolution into GitProvider
 
 **Files to modify**:
+
 - `git_watcher.go` - use provider.WatchPaths()
 
 ### Step 7: Migrate Linear Sync (High Risk)
 
 The rebase logic is git-specific. Options:
+
 1. Keep as-is initially (it's a high-level workflow built on Provider ops)
 2. Extract into a `GitSyncStrategy` that knows about git rebase
-3. Or abstract into Provider.Rebase* methods (already in interface)
+3. Or abstract into Provider.Rebase\* methods (already in interface)
 
 **Files to modify**:
-- `linear_sync.go` - use provider.Rebase* methods
+
+- `linear_sync.go` - use provider.Rebase\* methods
 
 ### Step 8: Migrate Origin Queries (Medium Risk)
 
 The query repo pattern is git-specific but could generalize. Steps:
+
 1. Create `GitQueryProvider` wrapping bare clones
 2. Implement GraphQuery interface
 3. Update Manager to use QueryProvider
 
 **Files to modify**:
+
 - Create `internal/scm/git/query_provider.go`
 - `origin_queries.go` - move code into QueryProvider
 
 ### Step 9: Update Config (Low Risk)
 
 Add separate fields:
+
 ```go
 type Config struct {
     // Existing
@@ -491,15 +518,18 @@ type Config struct {
 ```
 
 Migration path:
+
 - Old `source_code_management: "git-worktree"` → `scm_type: "git"`, `workspace_strategy: "worktree"`
 - Old `source_code_management: "git"` → `scm_type: "git"`, `workspace_strategy: "clone"`
 
 **Files to modify**:
+
 - `config/config.go` - add new fields, add migration
 
 ### Step 10: Delete Old Files (Validation)
 
 Once all code uses interfaces:
+
 - Delete `git.go`
 - Delete `worktree.go`
 - Delete `git_graph.go`
@@ -510,6 +540,7 @@ Once all code uses interfaces:
 ### Step 11: Update Tests (Validation)
 
 Update all test files to use:
+
 - `GitProvider` instead of direct git commands
 - Mock Provider for testing Manager logic
 - Strategy interface tests
@@ -626,19 +657,19 @@ const (
 
 ## Risk Assessment
 
-| Step | Risk | Reason |
-|------|------|--------|
-| 1. Create interfaces | Low | No code changes |
-| 2. Create GitProvider | Low | New file, no changes |
-| 3. Wire into Manager | Medium | Changes core orchestration |
-| 4. Migrate worktree ops | High | Complex git-specific feature |
-| 5. Migrate graph ops | High | Custom DAG algorithms |
-| 6. Migrate watcher | Medium | File watching is tricky |
-| 7. Migrate linear sync | High | Complex multi-step workflow |
-| 8. Migrate origin queries | Medium | Well-contained code |
-| 9. Update config | Low | Backward compatible |
-| 10. Delete old files | Validation | Ensures nothing was missed |
-| 11. Update tests | Validation | Maintains coverage |
+| Step                      | Risk       | Reason                       |
+| ------------------------- | ---------- | ---------------------------- |
+| 1. Create interfaces      | Low        | No code changes              |
+| 2. Create GitProvider     | Low        | New file, no changes         |
+| 3. Wire into Manager      | Medium     | Changes core orchestration   |
+| 4. Migrate worktree ops   | High       | Complex git-specific feature |
+| 5. Migrate graph ops      | High       | Custom DAG algorithms        |
+| 6. Migrate watcher        | Medium     | File watching is tricky      |
+| 7. Migrate linear sync    | High       | Complex multi-step workflow  |
+| 8. Migrate origin queries | Medium     | Well-contained code          |
+| 9. Update config          | Low        | Backward compatible          |
+| 10. Delete old files      | Validation | Ensures nothing was missed   |
+| 11. Update tests          | Validation | Maintains coverage           |
 
 ---
 
@@ -647,6 +678,7 @@ const (
 ### Unit Tests
 
 Each `GitProvider` method should have tests:
+
 - Use test fixtures (real git repos in testdata)
 - Mock exec.Command for error cases
 - Test output parsing
@@ -654,6 +686,7 @@ Each `GitProvider` method should have tests:
 ### Integration Tests
 
 Test Manager with real Provider:
+
 - Spawn workspace from real git repo
 - Run sync operations
 - Verify state changes
@@ -661,6 +694,7 @@ Test Manager with real Provider:
 ### Mock Provider for Manager Tests
 
 Create `MockProvider` for testing Manager logic without git:
+
 ```go
 type MockProvider struct {
     // Track calls
@@ -675,22 +709,26 @@ type MockProvider struct {
 ## Summary
 
 **Total Scope**:
+
 - 15+ files with ~3,500 lines of git-specific code
 - 11 refactoring steps
 - Estimated 4-6 weeks for complete abstraction
 
 **Key Abstractions**:
+
 1. `Provider` interface - core SCM operations
 2. `Strategy` interface - workspace creation (worktree vs clone)
 3. `GraphQuery` interface - commit graph queries
 4. `URLBuilder` interface - web URL construction
 
 **Benefits**:
+
 - Testable (can mock Provider)
 - Extensible (can add JJ/Sapling providers)
 - Clear boundaries (git code isolated to one package)
 
 **Risks**:
+
 - Complex areas: worktrees, graph algorithms, rebase workflow
 - Need thorough testing to maintain parity
 - Config migration for existing users

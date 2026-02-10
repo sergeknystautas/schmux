@@ -66,11 +66,13 @@ tmux -CC new-session -A -s schmux
 ```
 
 Schmux uses a remote connection command with tmux control mode to:
+
 1. Provision/connect to remote host via persistent terminal
 2. Launch tmux in control mode
 3. Attach to session named "schmux" (create if doesn't exist)
 
 The connection command varies by infrastructure but typically follows this pattern:
+
 ```bash
 <remote-connect-cmd> <flavor-or-host> tmux -CC new-session -A -s schmux
 ```
@@ -80,6 +82,7 @@ The connection command varies by infrastructure but typically follows this patte
 Every command sent to tmux's stdin produces a response framed with guard lines:
 
 **Success response:**
+
 ```
 list-windows
 %begin 1578922740 269 1
@@ -89,6 +92,7 @@ list-windows
 ```
 
 **Error response:**
+
 ```
 invalid-command
 %begin 1578923149 270 1
@@ -97,6 +101,7 @@ parse error: unknown command: invalid-command
 ```
 
 **Guard line format:**
+
 - `%begin <timestamp> <cmd_id> <flags>`
 - `%end <timestamp> <cmd_id> <flags>` (success)
 - `%error <timestamp> <cmd_id> <flags>` (failure)
@@ -114,6 +119,7 @@ When panes produce output, tmux sends async notifications:
 **Format**: `%output <pane_id> <escaped_data>`
 
 **Escaping rules**: Characters < ASCII 32 and `\` are octal-escaped:
+
 - `\` → `\134`
 - Space → `\040`
 - CR (13) → `\015`
@@ -126,53 +132,64 @@ When panes produce output, tmux sends async notifications:
 
 tmux sends notifications when state changes:
 
-| Notification | Meaning |
-|-------------|---------|
-| `%window-add @3` | Window created |
-| `%window-close @3` | Window closed |
-| `%window-renamed @3 new-name` | Window renamed |
-| `%session-changed $1 foo` | Attached session changed |
-| `%pane-mode-changed %5` | Pane mode changed (e.g., copy mode) |
+| Notification                  | Meaning                             |
+| ----------------------------- | ----------------------------------- |
+| `%window-add @3`              | Window created                      |
+| `%window-close @3`            | Window closed                       |
+| `%window-renamed @3 new-name` | Window renamed                      |
+| `%session-changed $1 foo`     | Attached session changed            |
+| `%pane-mode-changed %5`       | Pane mode changed (e.g., copy mode) |
 
 ### Key Commands for Schmux
 
 **Create window (session) with command:**
+
 ```
 new-window -n sessionname -c /path/to/workdir -P -F '#{window_id} #{pane_id}' command
 ```
+
 Returns: `@3 %5` (window ID, pane ID)
 
 **Send input to pane:**
+
 ```
 send-keys -t %5 -l 'text to send'
 ```
+
 `-l` = literal mode (preserves special characters)
 
 **Kill window:**
+
 ```
 kill-window -t @3
 ```
 
 **Capture scrollback:**
+
 ```
 capture-pane -t %5 -p -S -2000
 ```
+
 Returns last 2000 lines of pane history.
 
 **List windows:**
+
 ```
 list-windows -F '#{window_id} #{window_name} #{pane_id}'
 ```
 
 **Create hidden window for command execution:**
+
 ```
 new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}' sh -c 'cd /path && command; echo __SCHMUX_DONE_uuid__'
 ```
+
 The `-d` flag prevents the window from stealing focus. Used by `RunCommand` to execute VCS commands.
 
 ### ID Prefixes
 
 tmux uses prefixes to distinguish entity types:
+
 - `$0`, `$1` = Session IDs
 - `@0`, `@3` = Window IDs
 - `%0`, `%5` = Pane IDs
@@ -215,6 +232,7 @@ tmux uses prefixes to distinguish entity types:
 ```
 
 **Fields:**
+
 - `id`: Auto-generated from flavor string, used for referencing
 - `flavor`: The exact value passed to the remote connection command (or the hostname for SSH)
 - `display_name`: Human-friendly name shown in UI
@@ -252,6 +270,7 @@ tmux uses prefixes to distinguish entity types:
     - IP address: `allocated (\\d+\\.\\d+\\.\\d+\\.\\d+)`
 
 **Remote Workspace Configuration (global):**
+
 - `vscode_command_template` (optional): Global fallback Go template for opening VS Code on remote workspaces. Per-flavor `vscode_command_template` overrides this.
   - Template variables: `{{.VSCodePath}}` - local VSCode path, `{{.Hostname}}` - remote hostname, `{{.Path}}` - remote workspace path
   - Default: `{{.VSCodePath}} --remote ssh-remote+{{.Hostname}} {{.Path}}`
@@ -260,6 +279,7 @@ tmux uses prefixes to distinguish entity types:
 **Connection Method Examples:**
 
 1. **Standard SSH** (default - no config needed):
+
    ```json
    {
      "id": "ssh_dev",
@@ -269,9 +289,11 @@ tmux uses prefixes to distinguish entity types:
      "workspace_path": "~/workspace"
    }
    ```
+
    Internally executes: `ssh -tt dev.example.com -- tmux -CC new-session -A -s schmux`
 
 2. **Custom Connection Tool** (e.g., cloud provider CLI):
+
    ```json
    {
      "id": "cloud_gpu",
@@ -283,6 +305,7 @@ tmux uses prefixes to distinguish entity types:
      "reconnect_command": "cloud-ssh reconnect {{.Hostname}}"
    }
    ```
+
    Internally executes:
    - Connect: `cloud-ssh connect gpu-large tmux -CC new-session -A -s schmux`
    - Reconnect: `cloud-ssh reconnect host123.example.com tmux -CC new-session -A -s schmux`
@@ -328,6 +351,7 @@ User configuration focuses on **host connectivity**. Schmux automatically append
 ```
 
 **Fields:**
+
 - `id`: Unique identifier (e.g., "remote-abc123")
 - `flavor_id`: References config.remote_flavors[].id
 - `hostname`: Parsed from connection output (e.g., "remote-host-456.example.com")
@@ -347,7 +371,7 @@ User configuration focuses on **host connectivity**. Schmux automatically append
       "remote_host_id": "remote-abc123",
       "remote_pane_id": "%5",
       "remote_window": "@3",
-      "status": "running",
+      "status": "running"
       // ... other fields
     }
   ]
@@ -367,7 +391,7 @@ User configuration focuses on **host connectivity**. Schmux automatically append
     {
       "id": "workspace-123",
       "remote_host_id": "remote-abc123",
-      "remote_path": "~/workspace",
+      "remote_path": "~/workspace"
       // ... other fields
     }
   ]
@@ -386,6 +410,7 @@ User configuration focuses on **host connectivity**. Schmux automatically append
 **Steps**:
 
 1. **Spawn process**:
+
    ```bash
    remote-connect gpu:ml-large tmux -CC new-session -A -s schmux
    ```
@@ -427,9 +452,11 @@ Reconnection is **never automatic**. When the daemon restarts, stale hosts (thos
    - Returns a provisioning session ID for WebSocket terminal streaming
 
 2. **Spawn with hostname**:
+
    ```bash
    dev connect -n host-456.example.com -- tmux -CC new-session -A -s schmux
    ```
+
    Uses the `reconnect_command` template with `{{.Hostname}}` resolved.
 
 3. **Authentication** (interactive, user-driven):
@@ -460,12 +487,14 @@ Reconnection is **never automatic**. When the daemon restarts, stale hosts (thos
 ### 3. Disconnection
 
 **Triggers**:
+
 - User closes laptop (network interruption)
 - User clicks "Disconnect" in UI
 - SSH/ET process crashes or exits
 - Daemon restart (all connections are lost)
 
 **Behavior**:
+
 - Local: Update state to status="disconnected"
 - Remote: Sessions keep running (tmux persists independently)
 - UI: Show "Disconnected" badge with "Reconnect" button
@@ -485,6 +514,7 @@ connection with interactive authentication.
 **Trigger**: Time reaches expires_at (12h from connection).
 
 **Behavior**:
+
 - Host is terminated by infrastructure
 - State updated to status="expired"
 - Sessions lost (cannot reconnect)
@@ -510,6 +540,7 @@ SpawnRemote(flavorID, target, prompt, nickname) →
 ```
 
 **CreateWindow flow**:
+
 1. Build command: `new-window -n name -c workdir -P -F '#{window_id} #{pane_id}' command`
 2. Send to tmux stdin
 3. Parse response: `@3 %5`
@@ -521,6 +552,7 @@ SpawnRemote(flavorID, target, prompt, nickname) →
 **Problem**: Provisioning takes ~15s. User shouldn't wait.
 
 **Solution**:
+
 - Mark session as status="provisioning"
 - Store in pending queue on connection
 - When connection ready: create all pending sessions
@@ -558,6 +590,7 @@ WebSocket /ws/terminal/{id} →
 ### Input Handling
 
 **Flow**:
+
 1. Browser: `terminal.onData(data)` → `sendInput(data)` → WebSocket
 2. Backend: Receive `{"type":"input","data":"ls\n"}` message
 3. Remote: `conn.SendKeys(ctx, paneID, data)`
@@ -578,6 +611,7 @@ WebSocket /ws/terminal/{id} →
 1. **Click [+ New Session]**
 
 2. **Environment Selection**:
+
    ```
    Where do you want to run?
 
@@ -587,6 +621,7 @@ WebSocket /ws/terminal/{id} →
    ```
 
 3. **Click remote flavor** → Connection flow starts:
+
    ```
    Connecting to GPU ML Large
 
@@ -600,6 +635,7 @@ WebSocket /ws/terminal/{id} →
    ```
 
 4. **Authentication prompt** (infrastructure-triggered):
+
    ```
    🔐 Authentication required
 
@@ -609,6 +645,7 @@ WebSocket /ws/terminal/{id} →
    ```
 
 5. **Connected** → Agent selection:
+
    ```
    New Session on GPU ML Large
 
@@ -623,6 +660,7 @@ WebSocket /ws/terminal/{id} →
    ```
 
 6. **Terminal view** (identical to local):
+
    ```
    Session: claude-abc123
    Host: GPU ML Large - remote-host-456.example.com
@@ -640,6 +678,7 @@ WebSocket /ws/terminal/{id} →
    ```
 
 **Time estimates**:
+
 - Provisioning: ~15s
 - Authentication: ~2s (user action)
 - Total: ~17s first connection
@@ -651,6 +690,7 @@ WebSocket /ws/terminal/{id} →
 1. **Click [+ New Session]**
 
 2. **Environment Selection**:
+
    ```
    Where do you want to run?
 
@@ -689,12 +729,14 @@ Local
 ### Disconnection/Reconnection
 
 **Disconnected state**:
+
 ```
 GPU ML Large - ⚠️ Disconnected
 ├─ claude-abc123  ? Unknown   (host disconnected)   [Reconnect]
 ```
 
 **Reconnect**:
+
 1. Click [Reconnect]
 2. Authentication required (new connection)
 3. Sessions rediscovered via `list-windows`
@@ -880,6 +922,7 @@ Shows authentication prompts, connection progress, etc.
 **Responsibility**: Parse stdin stream into structured events.
 
 **Output channels**:
+
 - `Responses()`: `%begin`/`%end`/`%error` blocks
 - `Output()`: `%output` notifications
 - `Events()`: `%window-add`, `%session-changed`, etc.
@@ -892,6 +935,7 @@ Shows authentication prompts, connection progress, etc.
 **Responsibility**: Send commands, correlate responses, manage subscriptions.
 
 **Key methods**:
+
 - `Execute(ctx, cmd string) (string, error)` - Send command, wait for response
 - `CreateWindow(ctx, name, workdir, command) (windowID, paneID, error)`
 - `SendKeys(ctx, paneID, keys) error`
@@ -928,6 +972,7 @@ The `-d` flag ensures the window doesn't steal focus from the user's active sess
 The `CommandBuilder` interface generates shell command strings for VCS operations. Each method returns a complete command string ready to be executed via `RunCommand`.
 
 **Interface methods**:
+
 - `DiffNumstat() string` - Numstat diff against HEAD
 - `ShowFile(path, revision) string` - Show file at a revision
 - `FileContent(path) string` - Read file from working directory
@@ -939,6 +984,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 - `DefaultBranchRef(branch) string` - Upstream branch ref (e.g., `origin/main`)
 
 **Implementations**:
+
 - `GitCommandBuilder` - Generates git commands (e.g., `git diff HEAD --numstat`, `git show HEAD:path`)
 - `SaplingCommandBuilder` - Generates sapling commands (e.g., `sl diff --numstat`, `sl cat -r .^ path`)
 
@@ -946,20 +992,21 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 
 **Key sapling equivalences**:
 
-| Operation | Git | Sapling |
-|-----------|-----|---------|
-| Diff numstat | `git diff HEAD --numstat` | `sl diff --numstat` |
-| Show file at HEAD | `git show HEAD:file` | `sl cat -r .^ file` |
-| Untracked files | `git ls-files --others --exclude-standard` | `sl status --unknown --no-status` |
-| Resolve ref | `git rev-parse --verify HEAD` | `sl log -T '{node}' -r '.' --limit 1` |
-| Merge base | `git merge-base ref1 ref2` | `sl log -T '{node}' -r 'ancestor(ref1, ref2)'` |
-| Default branch ref | `origin/main` | `remote/main` |
+| Operation          | Git                                        | Sapling                                        |
+| ------------------ | ------------------------------------------ | ---------------------------------------------- |
+| Diff numstat       | `git diff HEAD --numstat`                  | `sl diff --numstat`                            |
+| Show file at HEAD  | `git show HEAD:file`                       | `sl cat -r .^ file`                            |
+| Untracked files    | `git ls-files --others --exclude-standard` | `sl status --unknown --no-status`              |
+| Resolve ref        | `git rev-parse --verify HEAD`              | `sl log -T '{node}' -r '.' --limit 1`          |
+| Merge base         | `git merge-base ref1 ref2`                 | `sl log -T '{node}' -r 'ancestor(ref1, ref2)'` |
+| Default branch ref | `origin/main`                              | `remote/main`                                  |
 
 ### Connection Manager (`internal/remote/connection.go`)
 
 **Responsibility**: Manage single remote host connection.
 
 **Lifecycle**:
+
 1. `NewConnection(cfg)` - Create struct
 2. `Connect(ctx)` - Spawn remote connection command via PTY, parse output, initialize client, start process monitor
 3. `Reconnect(ctx, hostname)` - Reuse existing hostname, same flow as Connect
@@ -968,9 +1015,11 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Process monitoring**: A `monitorProcess` goroutine (started in both `Connect` and `Reconnect`) calls `cmd.Wait()` to detect when the SSH/ET process exits. On unexpected exit, it calls `Close()` to update the status to "disconnected" and notify the dashboard. This is the sole caller of `cmd.Wait()` to avoid double-wait races.
 
 **Key methods**:
+
 - `RunCommand(ctx, workdir, command) (string, error)` - Execute a command on the remote host via hidden tmux window
 
 **Key fields**:
+
 - `cmd *exec.Cmd` - The remote connection process
 - `pty *os.File` - PTY for interactive authentication
 - `client *controlmode.Client` - Control mode interface
@@ -981,10 +1030,12 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Status tracking**: `onStatusChange` and `onProgress` callbacks notify manager of state transitions.
 
 **Session queuing methods**:
+
 - `QueueSession(ctx, sessionID, name, workdir, command) <-chan PendingSessionResult` - Queue a session for creation when connected
 - `drainPendingQueue(ctx)` - Process all pending sessions after connection is ready
 
 **PTY streaming methods**:
+
 - `SubscribePTYOutput() chan []byte` - Subscribe to raw PTY output (for provisioning WebSocket)
 - `UnsubscribePTYOutput(ch)` - Remove subscriber
 
@@ -993,6 +1044,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Responsibility**: Manage multiple remote hosts.
 
 **Key methods**:
+
 - `Connect(ctx, flavorID) (*Connection, error)` - Get/create connection
 - `Reconnect(ctx, hostID) (*Connection, error)` - Reconnect by ID
 - `StartConnect(flavorID) (provisioningSessionID, error)` - Non-blocking background connection
@@ -1009,6 +1061,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **New method**: `SpawnRemote(ctx, flavorID, target, prompt, nickname) (*state.Session, error)`
 
 **Flow**:
+
 1. Get/create remote connection
 2. If provisioning: queue session, return with status="provisioning"
 3. If connected: create window via control mode
@@ -1031,6 +1084,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Modified**: `handleWorkspaceGitGraph()` - Detects remote workspaces and delegates to `handleRemoteGitGraph()`.
 
 **New**: `handleRemoteDiff(w, r, ws)` - Executes VCS diff commands on the remote host via `RunCommand`:
+
 1. Gets connection and VCS command builder from flavor config
 2. Runs `DiffNumstat()` to get changed files with line counts
 3. For each file: runs `ShowFile(path, "HEAD")` and `FileContent(path)` for old/new content
@@ -1038,6 +1092,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 5. Returns same `DiffResponse` JSON format as local handler
 
 **New**: `handleRemoteGitGraph(w, r, ws, maxCommits, contextSize)` - Builds commit graph from remote VCS:
+
 1. Gets connection and VCS command builder
 2. Detects default branch via `git symbolic-ref` on remote
 3. Resolves HEAD and default branch ref via `ResolveRef()`
@@ -1050,6 +1105,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Validation**: Skip repo/branch requirement when `RemoteFlavorID != ""`.
 
 **Remote-specific handlers** (in `handlers_remote.go`):
+
 - Remote flavor CRUD (GET/POST/PUT/DELETE)
 - Remote host listing, connect, reconnect, disconnect
 - Flavor status endpoint
@@ -1062,6 +1118,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **New**: `handleProvisionWebSocket()` - Streams raw PTY output during provisioning for live terminal display.
 
 **Remote streaming** (`handleRemoteTerminalWebSocket`):
+
 1. Validate session has `RemotePaneID` (return 503 if still provisioning)
 2. Subscribe to `conn.SubscribeOutput(paneID)`
 3. Capture initial scrollback
@@ -1080,6 +1137,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 **Modified**: `Create()` - Don't add remote workspaces to git watcher.
 
 **Exported graph functions** (`git_graph.go`): The following functions are exported for reuse by the remote git graph handler:
+
 - `ParseGitLogOutput(output string) []RawNode` - Parses pipe-delimited log output into structured nodes
 - `BuildGraphResponse(nodes, localBranch, defaultBranch, ...) *GitGraphResponse` - Builds the full graph response from raw nodes (topological sort, branch annotation, etc.)
 - `RawNode` - Exported struct for parsed commit data
@@ -1095,6 +1153,7 @@ The `CommandBuilder` interface generates shell command strings for VCS operation
 Previously, the diff tab and commit graph tab were gated on `isGit` (`!workspace?.vcs || workspace.vcs === 'git'`), hiding them for non-git workspaces including remote workspaces with sapling.
 
 Now uses `isVCS` which is `true` when:
+
 - The workspace is remote (`remote_host_id` is set) — backend handles VCS abstraction
 - VCS is "git" (or omitted, which defaults to git)
 - VCS is "sapling"
@@ -1106,6 +1165,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 1. tmux Control Mode over Custom Agent
 
 **Rationale**:
+
 - tmux provides robust session persistence (agents survive disconnection)
 - Protocol is well-documented and stable
 - No custom agent to deploy/maintain on remote hosts
@@ -1116,6 +1176,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 2. Sessions as tmux Windows
 
 **Rationale**:
+
 - One tmux session per host (all Schmux sessions share it)
 - Each Schmux session = one tmux window
 - Simplifies reconnection (one `tmux -CC` attachment)
@@ -1126,6 +1187,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 3. Pane ID Targeting (not names)
 
 **Rationale**:
+
 - Pane IDs (`%5`) are stable across reconnections
 - Window names can be changed by agent or user
 - IDs unambiguous, names can collide
@@ -1135,6 +1197,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 4. Subscriptions over Polling
 
 **Rationale**:
+
 - Control mode pushes `%output` automatically
 - No need to poll `capture-pane` for updates
 - Lower latency, less tmux load
@@ -1144,6 +1207,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 5. Scrollback Capture on Connect
 
 **Rationale**:
+
 - User expects to see history when opening terminal
 - Subscriptions only capture live output (post-subscribe)
 - `capture-pane -S -2000` provides bootstrap history
@@ -1153,6 +1217,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 6. Literal Mode for Input (`send-keys -l`)
 
 **Rationale**:
+
 - Preserves special characters (Ctrl-C, arrows, etc.)
 - Prevents tmux from interpreting keys as commands
 - User input sent exactly as typed
@@ -1162,6 +1227,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 7. 12-Hour Host Expiry
 
 **Rationale**:
+
 - Matches infrastructure policy for on-demand instances
 - Forces cleanup of idle hosts
 - Prevents unlimited cost accumulation
@@ -1171,6 +1237,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 8. Concurrent Command Safety via Mutex
 
 **Rationale**:
+
 - Multiple goroutines can spawn sessions simultaneously
 - Interleaved stdin writes corrupt command stream
 - Mutex serializes writes, preserves command boundaries
@@ -1180,6 +1247,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 9. Hidden Window Command Execution (`RunCommand`)
 
 **Rationale**:
+
 - Remote diff/graph features require running VCS commands on the remote host
 - No SSH or separate transport available — only tmux control mode
 - Hidden windows (`new-window -d`) don't steal focus from user sessions
@@ -1194,6 +1262,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 10. VCS Command Builder Abstraction
 
 **Rationale**:
+
 - Remote workspaces may use git or sapling
 - Same diff/graph UI should work for both VCS types
 - Command syntax differs significantly (e.g., `git show HEAD:file` vs `sl cat -r .^ file`)
@@ -1204,6 +1273,7 @@ This ensures diff and commit graph tabs appear for all remote workspaces regardl
 ### 11. Shared Graph Building Logic
 
 **Rationale**:
+
 - Local and remote git graph handlers produce identical response formats
 - Topological sort, branch annotation, and ISL-style ordering are complex algorithms
 - Exporting `ParseGitLogOutput` and `BuildGraphResponse` prevents duplication

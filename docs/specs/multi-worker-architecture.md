@@ -43,23 +43,24 @@ Each worker has its own session manager. The control plane doesn't manage sessio
 
 ## Ownership Table
 
-| Concern | Owner |
-|---------|-------|
-| Git credentials, SSH keys | Worker (pre-provisioned) |
-| Workspace creation/cleanup | Worker (on request from control plane) |
-| Agent binaries (claude, codex) | Worker (pre-provisioned) |
-| Agent capabilities | Worker advertises, control plane discovers |
-| Prompts / spawn intent | Control plane |
-| Session lifecycle | Worker (on request from control plane) |
-| Terminal output | Worker (streams to control plane) |
-| Aggregated state / UI | Control plane |
-| User configuration | Control plane |
+| Concern                        | Owner                                      |
+| ------------------------------ | ------------------------------------------ |
+| Git credentials, SSH keys      | Worker (pre-provisioned)                   |
+| Workspace creation/cleanup     | Worker (on request from control plane)     |
+| Agent binaries (claude, codex) | Worker (pre-provisioned)                   |
+| Agent capabilities             | Worker advertises, control plane discovers |
+| Prompts / spawn intent         | Control plane                              |
+| Session lifecycle              | Worker (on request from control plane)     |
+| Terminal output                | Worker (streams to control plane)          |
+| Aggregated state / UI          | Control plane                              |
+| User configuration             | Control plane                              |
 
 ## Worker Interface
 
 Minimum surface area for control plane → worker communication:
 
 ### Session Operations
+
 - **Spawn**(workspace spec, command, env, terminal size) → session handle
 - **Dispose**(session handle)
 - **IsRunning**(session handle) → bool
@@ -68,10 +69,12 @@ Minimum surface area for control plane → worker communication:
 - **StreamOutput**(session handle) → stream
 
 ### Workspace Operations
+
 - **GetOrCreateWorkspace**(repo URL, branch) → workspace ID + path
 - **ListWorkspaces**() → []workspace
 
 ### Discovery
+
 - **Capabilities**() → available agents, resource limits
 - **Status**() → health, active session count
 
@@ -116,11 +119,13 @@ The worker itself doesn't care whether it's managed or external — same interfa
 Each worker runs a small server. Control plane calls it directly.
 
 **Pros:**
+
 - Clean, well-understood
 - Bidirectional streaming for terminal output
 - Strong typing with gRPC
 
 **Cons:**
+
 - Every worker needs a listening port
 - Network reachability required (firewall, NAT issues)
 - Auth and TLS per worker
@@ -130,11 +135,13 @@ Each worker runs a small server. Control plane calls it directly.
 Control plane SSHes into workers and runs commands.
 
 **Pros:**
+
 - No extra server process on worker — just schmux binary + sshd
 - Works naturally for external machines
 - Auth via existing SSH keys
 
 **Cons:**
+
 - SSH is clunky as an RPC mechanism
 - Encoding/decoding over stdin/stdout
 - Connection overhead
@@ -144,11 +151,13 @@ Control plane SSHes into workers and runs commands.
 Workers connect outbound to control plane via WebSocket or gRPC stream.
 
 **Pros:**
+
 - Solves reachability — workers behind NATs/firewalls just need outbound access
 - Control plane doesn't need to know worker addresses upfront
 - Standard pattern (Buildkite, GitHub Actions runners, etc.)
 
 **Cons:**
+
 - More complex connection management
 - Reconnection logic
 - Request multiplexing over persistent connections
@@ -158,20 +167,22 @@ Workers connect outbound to control plane via WebSocket or gRPC stream.
 Control plane communicates via `docker exec` or mounted unix sockets.
 
 **Pros:**
+
 - Simple, no network auth
 - No extra ports
 
 **Cons:**
+
 - Only works for local docker containers
 - Not generalizable to remote workers
 
 ### Transport Recommendations by Worker Type
 
-| Worker Type | Natural Transport |
-|-------------|-------------------|
-| Local docker containers | Unix socket or docker exec |
+| Worker Type              | Natural Transport                |
+| ------------------------ | -------------------------------- |
+| Local docker containers  | Unix socket or docker exec       |
 | Remote external machines | Reverse connection (phones home) |
-| Remote managed VMs | gRPC or reverse connection |
+| Remote managed VMs       | gRPC or reverse connection       |
 
 The **reverse connection model** is most general — handles both managed and external workers, avoids firewall/NAT issues.
 

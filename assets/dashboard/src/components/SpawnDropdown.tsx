@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { spawnSessions, getErrorMessage } from '../lib/api'
-import { useToast } from './ToastProvider'
-import { useSessions } from '../contexts/SessionsContext'
-import { mergeQuickLaunchNames } from '../lib/quicklaunch'
+import { spawnSessions, getErrorMessage } from '../lib/api';
+import { useToast } from './ToastProvider';
+import { useSessions } from '../contexts/SessionsContext';
+import { mergeQuickLaunchNames } from '../lib/quicklaunch';
 import type { WorkspaceResponse } from '../lib/types';
 
 type SpawnDropdownProps = {
@@ -13,7 +13,11 @@ type SpawnDropdownProps = {
   disabled?: boolean;
 };
 
-export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disabled }: SpawnDropdownProps) {
+export default function SpawnDropdown({
+  workspace,
+  globalQuickLaunchNames,
+  disabled,
+}: SpawnDropdownProps) {
   const mergedQuickLaunch = useMemo<string[]>(() => {
     return mergeQuickLaunchNames(globalQuickLaunchNames, workspace.quick_launch || []);
   }, [globalQuickLaunchNames, workspace.quick_launch]);
@@ -33,7 +37,8 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
       const rect = toggleRef.current.getBoundingClientRect();
       const gap = 4;
       // Estimate menu height based on items, or use actual measurement if available
-      const estimatedMenuHeight = menuRef.current?.offsetHeight ||
+      const estimatedMenuHeight =
+        menuRef.current?.offsetHeight ||
         Math.min(300, 60 + (mergedQuickLaunch?.length || 0) * 52 + 40);
 
       const spaceBelow = window.innerHeight - rect.bottom - gap;
@@ -84,7 +89,10 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
     navigate(`/spawn?workspace_id=${workspace.id}`);
   };
 
-  const handleQuickLaunchSpawn = async (name: string, event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleQuickLaunchSpawn = async (
+    name: string,
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
     event.stopPropagation();
     setIsOpen(false);
     setSpawning(true);
@@ -128,11 +136,7 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
         right: `${window.innerWidth - menuPosition.left}px`,
       }}
     >
-      <button
-        className="spawn-dropdown__item"
-        onClick={handleCustomSpawn}
-        role="menuitem"
-      >
+      <button className="spawn-dropdown__item" onClick={handleCustomSpawn} role="menuitem">
         <span className="spawn-dropdown__item-label">Custom…</span>
         <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
       </button>
@@ -153,11 +157,7 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
         </>
       )}
 
-      {!hasQuickLaunch && (
-        <div className="spawn-dropdown__empty">
-          No quick launch presets
-        </div>
-      )}
+      {!hasQuickLaunch && <div className="spawn-dropdown__empty">No quick launch presets</div>}
     </div>
   );
 
@@ -181,7 +181,14 @@ export default function SpawnDropdown({ workspace, globalQuickLaunchNames, disab
           </>
         ) : (
           <>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="12" y1="8" x2="12" y2="16"></line>
               <line x1="8" y1="12" x2="16" y2="12"></line>
