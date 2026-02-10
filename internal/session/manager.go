@@ -264,9 +264,13 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	}
 
 	// Provision agent instruction files with signaling instructions
-	if err := provision.EnsureAgentInstructions(w.Path, targetName); err != nil {
-		// Log warning but don't fail spawn - signaling is optional
-		fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
+	// Only for agents that don't support CLI-based instruction injection
+	baseTool := detect.GetBaseToolName(targetName)
+	if !provision.SupportsSystemPromptFlag(baseTool) {
+		if err := provision.EnsureAgentInstructions(w.Path, targetName); err != nil {
+			// Log warning but don't fail spawn - signaling is optional
+			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
+		}
 	}
 
 	// Resolve model if target is a model kind
@@ -539,6 +543,16 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 			return "", err
 		}
 		cmd := strings.Join(parts, " ")
+
+		// Inject signaling instructions via CLI flag for supported tools
+		baseTool := detect.GetBaseToolName(target.Name)
+		if model != nil {
+			baseTool = model.BaseTool
+		}
+		if provision.SupportsSystemPromptFlag(baseTool) {
+			cmd = fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+		}
+
 		// Resume mode still needs model env vars for third-party models
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), cmd), nil
@@ -551,6 +565,15 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	if model != nil && model.ModelFlag != "" {
 		// Inject model flag for tools like Codex that use CLI flags instead of env vars
 		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, model.ModelFlag, shellQuote(model.ModelValue))
+	}
+
+	// Inject signaling instructions via CLI flag for supported tools
+	baseTool := detect.GetBaseToolName(target.Name)
+	if model != nil {
+		baseTool = model.BaseTool
+	}
+	if provision.SupportsSystemPromptFlag(baseTool) {
+		baseCommand = fmt.Sprintf("%s --append-system-prompt %s", baseCommand, shellQuote(provision.SignalingInstructions))
 	}
 
 	if target.Promptable {

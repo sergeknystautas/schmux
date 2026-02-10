@@ -212,6 +212,18 @@ func RemoveAgentInstructions(workspacePath, targetName string) error {
 	return os.WriteFile(instructionPath, []byte(newContent), 0644)
 }
 
+// SupportsSystemPromptFlag returns true if the tool supports passing
+// instructions via CLI flag (e.g., --append-system-prompt for Claude).
+// Tools that support this don't need file-based instruction injection.
+func SupportsSystemPromptFlag(toolName string) bool {
+	switch toolName {
+	case "claude":
+		return true
+	default:
+		return false
+	}
+}
+
 // HasSignalingInstructions checks if the instruction file for a target
 // already has the schmux signaling block.
 func HasSignalingInstructions(workspacePath, targetName string) bool {
