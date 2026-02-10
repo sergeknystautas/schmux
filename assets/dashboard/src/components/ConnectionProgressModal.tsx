@@ -20,7 +20,9 @@ export default function ConnectionProgressModal({
   onClose,
   onConnected,
 }: ConnectionProgressModalProps) {
-  const [status, setStatus] = useState<'provisioning' | 'connecting' | 'connected' | 'error' | 'reconnecting'>('provisioning');
+  const [status, setStatus] = useState<
+    'provisioning' | 'connecting' | 'connected' | 'error' | 'reconnecting'
+  >('provisioning');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -75,7 +77,12 @@ export default function ConnectionProgressModal({
       // Send initial terminal size so the PTY matches the browser terminal
       const dims = fitAddon.proposeDimensions();
       if (dims && dims.cols > 0 && dims.rows > 0) {
-        ws.send(JSON.stringify({ type: 'resize', data: JSON.stringify({ cols: dims.cols, rows: dims.rows }) }));
+        ws.send(
+          JSON.stringify({
+            type: 'resize',
+            data: JSON.stringify({ cols: dims.cols, rows: dims.rows }),
+          })
+        );
       }
     };
 
@@ -119,9 +126,12 @@ export default function ConnectionProgressModal({
         const hosts = await getRemoteHosts();
         // Match by provisioning_session_id to find the exact connection we started.
         // Fallback: any active host for this flavor, then any host at all (to catch failures).
-        const host = hosts.find(h => h.provisioning_session_id === provisioningSessionId)
-          || hosts.find(h => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired')
-          || hosts.find(h => h.flavor_id === flavorId);
+        const host =
+          hosts.find((h) => h.provisioning_session_id === provisioningSessionId) ||
+          hosts.find(
+            (h) => h.flavor_id === flavorId && h.status !== 'disconnected' && h.status !== 'expired'
+          ) ||
+          hosts.find((h) => h.flavor_id === flavorId);
 
         if (host) {
           if (host.status === 'connected') {
@@ -209,32 +219,62 @@ export default function ConnectionProgressModal({
     switch (status) {
       case 'provisioning':
         return (
-          <div className="spinner" style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }} />
+          <div
+            className="spinner"
+            style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }}
+          />
         );
       case 'connecting':
         return (
-          <div className="spinner" style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }} />
+          <div
+            className="spinner"
+            style={{ width: `${size}px`, height: `${size}px`, marginRight: 'var(--spacing-sm)' }}
+          />
         );
       case 'reconnecting':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-warning)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--color-warning)"
+            strokeWidth="2"
+            style={{ marginRight: 'var(--spacing-sm)' }}
+          >
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
         );
       case 'connected':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--color-success)"
+            strokeWidth="2"
+            style={{ marginRight: 'var(--spacing-sm)' }}
+          >
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
           </svg>
         );
       case 'error':
         return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="2" style={{ marginRight: 'var(--spacing-sm)' }}>
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="15" y1="9" x2="9" y2="15"/>
-            <line x1="9" y1="9" x2="15" y2="15"/>
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--color-error)"
+            strokeWidth="2"
+            style={{ marginRight: 'var(--spacing-sm)' }}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
         );
     }
@@ -244,12 +284,17 @@ export default function ConnectionProgressModal({
     return (
       <div className="modal-overlay" onClick={onClose}>
         <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-          <div className="modal__header" style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <h2 className="modal__title" style={{ margin: 0, flex: 1 }}>Connecting to {flavorName}</h2>
+          <div
+            className="modal__header"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <h2 className="modal__title" style={{ margin: 0, flex: 1 }}>
+              Connecting to {flavorName}
+            </h2>
             <div
               onClick={onClose}
               style={{
@@ -264,20 +309,32 @@ export default function ConnectionProgressModal({
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.backgroundColor = 'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
+                e.currentTarget.style.backgroundColor =
+                  'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.opacity = '0.6';
                 e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </div>
           </div>
-          <div className="modal__body" style={{ padding: 'var(--spacing-lg)', textAlign: 'center' }}>
+          <div
+            className="modal__body"
+            style={{ padding: 'var(--spacing-lg)', textAlign: 'center' }}
+          >
             <div className="spinner" style={{ margin: '0 auto var(--spacing-md)' }} />
             <p>Starting connection...</p>
           </div>
@@ -293,16 +350,27 @@ export default function ConnectionProgressModal({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '900px', maxHeight: '80vh' }}
       >
-        <div className="modal__header" style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
+        <div
+          className="modal__header"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flex: 1 }}>
             {getStatusIcon()}
             <div>
-              <h2 className="modal__title" style={{ margin: 0 }}>{flavorName}</h2>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+              <h2 className="modal__title" style={{ margin: 0 }}>
+                {flavorName}
+              </h2>
+              <p
+                style={{
+                  margin: '4px 0 0 0',
+                  fontSize: '0.875rem',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
                 {getStatusMessage()}
               </p>
             </div>
@@ -321,14 +389,23 @@ export default function ConnectionProgressModal({
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.opacity = '1';
-              e.currentTarget.style.backgroundColor = 'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
+              e.currentTarget.style.backgroundColor =
+                'var(--color-bg-hover, rgba(255, 255, 255, 0.1))';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.opacity = '0.6';
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

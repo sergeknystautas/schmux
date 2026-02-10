@@ -73,14 +73,22 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
     <HelpModalContext.Provider value={value}>
       {children}
       {isOpen && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="help-modal-title"
+        >
           <div className="modal modal--wide">
             <div className="modal__header">
-              <h2 className="modal__title" id="help-modal-title">Keyboard Shortcuts</h2>
+              <h2 className="modal__title" id="help-modal-title">
+                Keyboard Shortcuts
+              </h2>
             </div>
             <div className="modal__body">
               <p style={{ marginBottom: 'var(--spacing-md)' }}>
-                Press <kbd>{modKey}</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to execute an action.
+                Press <kbd>{modKey}</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to
+                execute an action.
               </p>
               <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">
                 <thead>
@@ -96,7 +104,9 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
                     const left = leftShortcuts[index];
                     const right = rightShortcuts[index];
                     return (
-                      <tr key={`${left?.key || 'empty-left'}-${right?.key || 'empty-right'}-${index}`}>
+                      <tr
+                        key={`${left?.key || 'empty-left'}-${right?.key || 'empty-right'}-${index}`}
+                      >
                         <td>{left ? <kbd>{left.key}</kbd> : null}</td>
                         <td>{left?.description || ''}</td>
                         <td>{right ? <kbd>{right.key}</kbd> : null}</td>
@@ -120,22 +130,32 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
                 </thead>
                 <tbody>
                   <tr>
-                    <td><kbd>{directShortcuts[0].key}</kbd></td>
+                    <td>
+                      <kbd>{directShortcuts[0].key}</kbd>
+                    </td>
                     <td>{directShortcuts[0].description}</td>
-                    <td><kbd>{directShortcuts[1].key}</kbd></td>
+                    <td>
+                      <kbd>{directShortcuts[1].key}</kbd>
+                    </td>
                     <td>{directShortcuts[1].description}</td>
                   </tr>
                   <tr>
-                    <td><kbd>{directShortcuts[2].key}</kbd></td>
+                    <td>
+                      <kbd>{directShortcuts[2].key}</kbd>
+                    </td>
                     <td>{directShortcuts[2].description}</td>
-                    <td><kbd>{directShortcuts[3].key}</kbd></td>
+                    <td>
+                      <kbd>{directShortcuts[3].key}</kbd>
+                    </td>
                     <td>{directShortcuts[3].description}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <div className="modal__footer">
-              <button className="btn btn--primary" onClick={close}>Close</button>
+              <button className="btn btn--primary" onClick={close}>
+                Close
+              </button>
             </div>
           </div>
         </div>

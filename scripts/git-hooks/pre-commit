@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Get staged files
+GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+PRETTIER_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx|css|md|json)$' || true)
+
+# Ensure prettier is installed (only if we have prettier-eligible files)
+if [ -n "$PRETTIER_FILES" ]; then
+    if ! (cd assets/dashboard && npm list prettier >/dev/null 2>&1); then
+        echo "Installing prettier..."
+        (cd assets/dashboard && npm install --save-dev prettier)
+    fi
+fi
+
+# Format Go files
+if [ -n "$GO_FILES" ]; then
+    echo "Formatting Go files..."
+    echo "$GO_FILES" | xargs gofmt -w
+    echo "$GO_FILES" | xargs git add
+fi
+
+# Format Prettier files
+if [ -n "$PRETTIER_FILES" ]; then
+    echo "Formatting TS/JS/CSS/MD/JSON files..."
+    echo "$PRETTIER_FILES" | xargs npx --prefix assets/dashboard prettier --write --ignore-unknown
+    echo "$PRETTIER_FILES" | xargs git add
+fi

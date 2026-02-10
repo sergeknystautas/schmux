@@ -34,6 +34,7 @@ Local-only files (`.env`, configs, secrets) that shouldn't be in git can be auto
 Overlay files are stored in `~/.schmux/overlays/<repo-name>/` where `<repo-name>` matches the name from your repos config.
 
 Example structure:
+
 ```
 ~/.schmux/overlays/
 ├── myproject/
@@ -77,6 +78,7 @@ When a branch has a remote tracking branch, the branch name in the workspace tab
 ### Line Change Tracking
 
 The workspace table displays uncommitted line additions and deletions calculated via `git diff --numstat HEAD`, covering both staged and unstaged modifications:
+
 - **+N** (green): Lines added
 - **-M** (red): Lines removed
 
@@ -108,6 +110,7 @@ Configure named commands in `~/.schmux/config.json` under `external_diff_command
 ```
 
 Available placeholders:
+
 - `{old_file}`: Original file version
 - `{new_file}`: Modified file version
 - `{file}`: Current file (for single-file tools)
@@ -142,16 +145,19 @@ schmux prevents accidental data loss:
 schmux supports standard git branch naming conventions:
 
 **Valid characters:**
+
 - Alphanumeric characters (a-z, A-Z, 0-9)
-- Hyphens (-), underscores (_), periods (.), and forward slashes (/) for hierarchical names
+- Hyphens (-), underscores (\_), periods (.), and forward slashes (/) for hierarchical names
 - Examples: `feature-branch`, `feature/subfeature`, `bugfix_123`, `release.v1.0`
 
 **Constraints:**
-- Cannot begin or end with a separator (/ - . _)
-- Cannot contain consecutive separators (//, --, __, .., etc.)
+
+- Cannot begin or end with a separator (/ - . \_)
+- Cannot contain consecutive separators (//, --, \_\_, .., etc.)
 - Maximum length follows git conventions (typically 256 characters)
 
 **Automatic handling:**
+
 - If you request a branch name that's already in use, schmux appends a unique suffix (e.g., `feature-x7k`)
 - Branch names with invalid characters are rejected with a helpful error message
 
@@ -159,10 +165,10 @@ schmux supports standard git branch naming conventions:
 
 schmux supports two modes for creating workspace directories, configurable in **Settings > Workspace > Source Code Management**:
 
-| Mode | Description | Branch Handling |
-|------|-------------|-----------------|
+| Mode                       | Description                               | Branch Handling                               |
+| -------------------------- | ----------------------------------------- | --------------------------------------------- |
 | **Git Worktree** (default) | Efficient disk usage, shares repo history | Each branch can only be used by one workspace |
-| **Git (Full Clone)** | Independent clones | Multiple workspaces can use the same branch |
+| **Git (Full Clone)**       | Independent clones                        | Multiple workspaces can use the same branch   |
 
 ### Git Worktree Mode
 
@@ -260,8 +266,8 @@ Place a `.schmux/config.json` file inside any workspace directory:
 
 Currently, workspace configs support:
 
-| Setting | Description |
-|---------|-------------|
+| Setting        | Description                                          |
+| -------------- | ---------------------------------------------------- |
 | `quick_launch` | Quick launch presets specific to this workspace/repo |
 
 ### Quick Launch
@@ -286,12 +292,12 @@ Define quick launch presets that only appear for this repository:
 
 #### Schema
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Display name (required) |
-| `command` | string | Shell command to run directly |
-| `target` | string | Run target (claude, codex, model, or user-defined) |
-| `prompt` | string | Prompt to send to the target |
+| Field     | Type   | Description                                        |
+| --------- | ------ | -------------------------------------------------- |
+| `name`    | string | Display name (required)                            |
+| `command` | string | Shell command to run directly                      |
+| `target`  | string | Run target (claude, codex, model, or user-defined) |
+| `prompt`  | string | Prompt to send to the target                       |
 
 #### Rules
 
@@ -302,18 +308,21 @@ Define quick launch presets that only appear for this repository:
 #### Merge Behavior
 
 Workspace quick launch items are merged with global quick launch items:
+
 - Items with the same name: workspace version takes precedence
 - Items with unique names: both appear in the spawn dropdown
 
 ### Config File Watching
 
 The daemon monitors workspace config files and reloads them automatically:
+
 - **On startup**: All workspace configs are loaded
 - **On change**: Config is reloaded when the file's modification time changes
 - **Parse errors**: Logged once per change (not spammed on every poll cycle)
 - **Success**: Logged when config is successfully loaded after a change
 
 Example log output:
+
 ```
 [workspace] loaded config from /path/to/workspace/.schmux/config.json
 [workspace] warning: failed to parse /path/to/workspace/.schmux/config.json: invalid character...

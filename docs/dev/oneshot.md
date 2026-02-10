@@ -4,11 +4,11 @@ Oneshot is schmux's prompt-in/result-out execution mode for AI agents. It's used
 
 ## Consumers
 
-| Consumer | Package | Schema | What it does |
-|----------|---------|--------|-------------|
-| NudgeNik | `internal/nudgenik` | `nudgenik` | Classifies agent terminal state (stuck, waiting, completed, etc.) |
-| Branch Suggest | `internal/branchsuggest` | `branch-suggest` | Generates a git branch name and nickname from a user prompt |
-| Conflict Resolve | `internal/conflictresolve` | `conflict-resolve` | Resolves git rebase conflicts via LLM, reports actions per file |
+| Consumer         | Package                    | Schema             | What it does                                                      |
+| ---------------- | -------------------------- | ------------------ | ----------------------------------------------------------------- |
+| NudgeNik         | `internal/nudgenik`        | `nudgenik`         | Classifies agent terminal state (stuck, waiting, completed, etc.) |
+| Branch Suggest   | `internal/branchsuggest`   | `branch-suggest`   | Generates a git branch name and nickname from a user prompt       |
+| Conflict Resolve | `internal/conflictresolve` | `conflict-resolve` | Resolves git rebase conflicts via LLM, reports actions per file   |
 
 ## Execution Flow
 
@@ -48,10 +48,10 @@ This keeps the interface consistent: every agent gets its schema from a file.
 
 ### CLI Arguments by Agent
 
-| Agent | Oneshot flag | Schema flag | Schema value |
-|-------|-------------|-------------|-------------|
-| Claude | `-p --output-format json` | `--json-schema` | Inline JSON (read from file) |
-| Codex | `exec --json` | `--output-schema` | File path |
+| Agent  | Oneshot flag              | Schema flag       | Schema value                 |
+| ------ | ------------------------- | ----------------- | ---------------------------- |
+| Claude | `-p --output-format json` | `--json-schema`   | Inline JSON (read from file) |
+| Codex  | `exec --json`             | `--output-schema` | File path                    |
 
 ## Schema Registry
 
@@ -82,6 +82,7 @@ Callers reference labels, never raw JSON.
 ### Validation
 
 `TestSchemaRegistry` walks every registered schema and checks:
+
 - All `required` keys exist in `properties`
 - When `additionalProperties` is a schema object, `properties` is explicitly defined (OpenAI requirement)
 - Recursive validation of nested objects
@@ -115,11 +116,13 @@ cases:
 ### Capturing New Test Data
 
 1. Find the tmux session:
+
    ```bash
    tmux ls
    ```
 
 2. Capture terminal output:
+
    ```bash
    tmux capture-pane -e -p -S -100 -t "session name" > internal/tmux/testdata/claude-16.txt
    ```
@@ -127,6 +130,7 @@ cases:
 3. Add the case to `manifest.yaml` with the expected state and notes.
 
 4. Generate the `.want.txt` golden file:
+
    ```bash
    UPDATE_GOLDEN=1 go test -v -run TestUpdateGoldenFiles ./internal/tmux/...
    ```
@@ -202,6 +206,7 @@ Straightforward to test with this pattern. Input is a user prompt string, output
 ### Conflict Resolve
 
 Harder — requires a real git repo with actual merge conflicts as fixtures. The test would need to:
+
 1. Set up a repo with known conflicts
 2. Run the oneshot call with `dir` set to the repo
 3. Verify the LLM resolved the files correctly and returned accurate JSON

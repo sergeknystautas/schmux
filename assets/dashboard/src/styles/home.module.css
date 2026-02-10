@@ -24,11 +24,7 @@
 
 /* Hero Section */
 .heroSection {
-  background: linear-gradient(
-    135deg,
-    var(--color-surface) 0%,
-    var(--color-surface-alt) 100%
-  );
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-alt) 100%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--spacing-xl);
@@ -43,11 +39,7 @@
   right: 0;
   width: 200px;
   height: 200px;
-  background: radial-gradient(
-    circle at top right,
-    var(--color-accent-subtle) 0%,
-    transparent 70%
-  );
+  background: radial-gradient(circle at top right, var(--color-accent-subtle) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -562,8 +554,13 @@
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* Connection Status */

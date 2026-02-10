@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **NEVER run `npm install`, `npm run build`, or `vite build` directly.**
 
 The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wrapper:
+
 - Installs npm deps correctly
 - Runs vite build with proper environment
 - Outputs to `assets/dashboard/dist/` which gets embedded in the Go binary
@@ -61,11 +62,14 @@ docker run --rm schmux-e2e
 Before committing changes, you MUST run:
 
 1. **Run all tests**: `./test.sh --all`
-2. **Format code**: `go fmt ./...`
+2. **Format code**: `./format.sh` (or let the pre-commit hook handle it automatically)
+
+The pre-commit hook automatically formats staged Go, TypeScript, JavaScript, CSS, Markdown, and JSON files. Running `./format.sh` auto-installs the hook if missing.
 
 The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
 For faster iteration during development:
+
 - Run unit tests only: `./test.sh` (or `go test ./...`)
 - Skip E2E tests and let CI handle them on PRs
 
@@ -118,6 +122,7 @@ See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns
 - **Real-time updates**: connection indicator, preserve scroll position
 
 Routes:
+
 - `/` - Tips (tmux shortcuts, quick reference)
 - `/spawn` - Spawn wizard (multi-step form)
 - `/sessions/{id}` - Session detail with terminal

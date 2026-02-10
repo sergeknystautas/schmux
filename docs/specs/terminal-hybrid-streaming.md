@@ -31,6 +31,7 @@ tmux session → pipe-pane → log file → WebSocket handler (polling) → brow
 **Resize path**: `browser → WebSocket → tmux.ResizeWindow() → tmux session`
 
 This approach had complexity:
+
 - Log file rotation when size exceeded threshold (~1MB)
 - Byte offset tracking to avoid re-sending content
 - Safe start point detection to avoid mid-escape-sequence reads
@@ -38,6 +39,7 @@ This approach had complexity:
 - Concurrency controls for rotation locks
 
 **But it worked well for UX**:
+
 - xterm.js owned the scrollback buffer
 - Mouse wheel scrolled the xterm.js viewport (not sent to tmux)
 - Links were clickable (WebLinksAddon)
@@ -60,12 +62,14 @@ tmux session ← → PTY (tmux attach-session) → WebSocket handler → browser
 **Resize path**: `browser → WebSocket → pty.Setsize() → PTY only (not tmux window)`
 
 Benefits:
+
 - Eliminated file polling latency
 - Removed log rotation complexity
 - Removed ANSI extraction logic
 - Simplified to 233 lines
 
 **But broke UX**:
+
 - tmux's mouse mode captures scroll events → sent through PTY → scroll goes to tmux, not xterm.js
 - All keyboard input goes through PTY → no way to intercept for React shortcuts
 - `pty.Setsize()` only resizes the PTY, doesn't call `tmux resize-window`
@@ -76,6 +80,7 @@ Benefits:
 ### Option 1: Decoupled I/O (No PTY Attach)
 
 Separate input and output channels entirely:
+
 - Output: Stream via `tmux pipe-pane` or periodic `capture-pane -p -e`
 - Input: Send via `tmux send-keys` API calls
 - Resize: Use `tmux resize-pane` commands
@@ -86,6 +91,7 @@ Separate input and output channels entirely:
 ### Option 2: Modal Interaction (Observation/Interactive Modes)
 
 Default to read-only observation mode, explicit toggle to interact:
+
 - Observe mode (default): Stream output only, browser scroll/shortcuts work
 - Interactive mode (click-in or hotkey): Full PTY capture for typing
 
@@ -95,6 +101,7 @@ Default to read-only observation mode, explicit toggle to interact:
 ### Option 3: Focus-Based Capture
 
 Terminal only captures input when explicitly focused:
+
 - Click inside terminal → captures keyboard
 - Click outside (or Escape) → releases capture
 - Mouse wheel always scrolls xterm.js buffer
@@ -105,6 +112,7 @@ Terminal only captures input when explicitly focused:
 ### Option 4: xterm.js Scrollback + PTY Passthrough
 
 Keep PTY for input, but fix scrolling at the xterm.js layer:
+
 - Configure xterm.js with large scrollback buffer
 - Intercept mouse wheel events → scroll xterm.js buffer, NOT PTY
 - Keyboard capture only when terminal has focus
@@ -144,6 +152,7 @@ Keep PTY-attached streaming for real-time output, but route input/resize through
 ```
 
 **Why this approach**:
+
 1. **Real-time output**: PTY attach is faster than file polling (no 100ms intervals)
 2. **xterm.js UX restored**: Mouse scroll stays in browser, links work, selection works
 3. **Proven input path**: `tmux send-keys` was used in Phase 1 and worked
@@ -157,6 +166,7 @@ Keep PTY-attached streaming for real-time output, but route input/resize through
 #### Input Handler (lines ~199-214)
 
 **Current** (broken):
+
 ```go
 case "input":
     // nudge clearing...
@@ -166,6 +176,7 @@ case "input":
 ```
 
 **Proposed**:
+
 ```go
 case "input":
     // nudge clearing... (keep existing logic)
@@ -186,6 +197,7 @@ case "input":
 #### Resize Handler (lines ~215-230)
 
 **Current** (broken):
+
 ```go
 case "resize":
     var resizeData struct { Cols int; Rows int }
@@ -196,6 +208,7 @@ case "resize":
 ```
 
 **Proposed**:
+
 ```go
 case "resize":
     var resizeData struct { Cols int; Rows int }
@@ -225,6 +238,7 @@ case "resize":
 ```
 
 **Rationale**: Both resizes are needed:
+
 - `ResizeWindow` changes the actual tmux window dimensions (what the session sees)
 - `pty.Setsize` tells the attached PTY client about the new size (so output is formatted correctly)
 
@@ -235,6 +249,7 @@ The order matters: resize tmux first, then the PTY, so the PTY receives output a
 #### Remove pipe-pane startup (lines ~139-142)
 
 **Current**:
+
 ```go
 // Start pipe-pane to log file
 if err := tmux.StartPipePane(ctx, tmuxSession, logPath); err != nil {
@@ -249,6 +264,7 @@ Note: The daemon bootstrap code (`EnsurePipePane`, `daemon.go` recovery logic) i
 ### Frontend: No Changes Expected
 
 The frontend (`terminalStream.ts`) already has the correct behavior:
+
 - `scrollback: 1000` — maintains local buffer
 - `WebLinksAddon` — clickable links
 - `handleUserScroll()` / `followTail` — follow mode with scroll detection
@@ -260,6 +276,7 @@ The issue was backend-side: writing input to PTY and only resizing PTY (not tmux
 ### Existing Safeguards
 
 Session creation already calls (in `session/manager.go`):
+
 ```go
 tmux.SetWindowSizeManual(ctx, tmuxSession)  // Prevent client size fighting
 tmux.ResizeWindow(ctx, tmuxSession, width, height)  // Set initial size
@@ -269,14 +286,14 @@ This ensures the attached PTY client doesn't override explicit resize commands.
 
 ## Known Risks and Concerns
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| **SendKeys edge cases** | Medium | Test special chars, Unicode, large pastes, bracketed paste mode |
-| **Process spawn overhead** | Low | One `send-keys` per keystroke batch; Phase 1 worked fine |
-| **Escape sequence splitting** | Low | xterm.js batches sequences; `\x1b[A` sent as unit |
-| **Resize race conditions** | Low | ResizeWindow before Setsize; tmux updates first |
-| **Scroll handling** | Medium | Verify Phase 1 scroll logic (follow mode, viewport events) works with hybrid approach |
-| **Alternate screen apps** | Accepted | xterm.js scrollback doesn't work with vim/less/htop; user can use Ctrl+B, [ for tmux copy mode |
+| Risk                          | Severity | Mitigation                                                                                     |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| **SendKeys edge cases**       | Medium   | Test special chars, Unicode, large pastes, bracketed paste mode                                |
+| **Process spawn overhead**    | Low      | One `send-keys` per keystroke batch; Phase 1 worked fine                                       |
+| **Escape sequence splitting** | Low      | xterm.js batches sequences; `\x1b[A` sent as unit                                              |
+| **Resize race conditions**    | Low      | ResizeWindow before Setsize; tmux updates first                                                |
+| **Scroll handling**           | Medium   | Verify Phase 1 scroll logic (follow mode, viewport events) works with hybrid approach          |
+| **Alternate screen apps**     | Accepted | xterm.js scrollback doesn't work with vim/less/htop; user can use Ctrl+B, [ for tmux copy mode |
 
 ## Verification Plan
 

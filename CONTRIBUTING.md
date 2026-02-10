@@ -15,11 +15,13 @@ Thanks for your interest in contributing! This document provides quick links to 
 **NEVER run `npm install`, `npm run build`, or `vite build` directly.**
 
 The React dashboard MUST be built via:
+
 ```bash
 go run ./cmd/build-dashboard
 ```
 
 This Go wrapper:
+
 - Installs npm deps correctly
 - Runs vite build with proper environment
 - Outputs to `assets/dashboard/dist/` which gets embedded in the Go binary
@@ -37,6 +39,7 @@ Before committing changes, you MUST run:
 2. **Format code**: `go fmt ./...`
 
 The `test.sh` script provides a convenient way to run tests with various options:
+
 ```bash
 ./test.sh              # Run unit tests (default)
 ./test.sh --all        # Run both unit and E2E tests

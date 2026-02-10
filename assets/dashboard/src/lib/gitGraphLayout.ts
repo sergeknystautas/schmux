@@ -57,7 +57,15 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
   const { nodes, branches } = response;
 
   if (nodes.length === 0) {
-    return { nodes: [], edges: [], columnCount: 0, rowHeight: ROW_HEIGHT, laneLines: [], localBranch: null, youAreHereColumn: null };
+    return {
+      nodes: [],
+      edges: [],
+      columnCount: 0,
+      rowHeight: ROW_HEIGHT,
+      laneLines: [],
+      localBranch: null,
+      youAreHereColumn: null,
+    };
   }
 
   // Identify branches
@@ -93,13 +101,9 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
 
   // HEAD hashes
   const mainHeadHash = branches[mainBranch]?.head ?? null;
-  const localHeadHash = localBranch !== mainBranch
-    ? branches[localBranch]?.head ?? null
-    : null;
+  const localHeadHash = localBranch !== mainBranch ? (branches[localBranch]?.head ?? null) : null;
   const workingCopyParent = localHeadHash ?? mainHeadHash;
-  const workingCopyColumn = localBranch !== mainBranch
-    ? (branchColumns.get(localBranch) ?? 1)
-    : 0;
+  const workingCopyColumn = localBranch !== mainBranch ? (branchColumns.get(localBranch) ?? 1) : 0;
 
   // Identify main-ahead commits (on main exclusively, not on local branch).
   // These get collapsed into a single "Sync" summary row per ISL pattern §10.

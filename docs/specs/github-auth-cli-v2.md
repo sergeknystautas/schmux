@@ -4,6 +4,7 @@
 Redesign `schmux auth github` to guide users through GitHub OAuth setup with clear explanations, prerequisite checking, and optional certificate generation. The CLI should be approachable for users who don't understand OAuth/TLS, while still being fast for users who know what they're doing.
 
 **Key Changes from v1**
+
 - Explain the overall setup before asking questions
 - Check prerequisites before collecting values
 - Offer to generate TLS certificates (via mkcert)
@@ -15,6 +16,7 @@ Redesign `schmux auth github` to guide users through GitHub OAuth setup with cle
 ## Visual Design
 
 ### Style Guidelines
+
 - **Not a TUI**: Sequential questions, not ncurses-style full-screen interface
 - **ANSI colors** for clarity (see color reference below)
 - **Section dividers**: Use box-drawing characters (`━`) for visual separation
@@ -23,21 +25,21 @@ Redesign `schmux auth github` to guide users through GitHub OAuth setup with cle
 
 ### Color Reference
 
-| Element | Color | ANSI Code | Example |
-|---------|-------|-----------|---------|
-| Section header bar | Cyan | `\033[36m` | `━━━━━━━━━━━━━━` |
-| Section title | Cyan + Bold | `\033[1;36m` | `GitHub Authentication Setup` |
-| Step title | Cyan + Bold | `\033[1;36m` | `Step 1: Hostname` |
-| Explanatory text | Dim | `\033[2m` | `This will be the URL you type...` |
-| Prompt label | Bold | `\033[1m` | `Hostname` |
-| Default value | Dim | `\033[2m` | `[schmux.local]` |
-| User input | Normal | (none) | User's typed text |
-| Important values | Bold | `\033[1m` | `https://schmux.local` |
-| Success/checkmark | Green | `\033[32m` | `✓ Certificates saved` |
-| Warning | Yellow | `\033[33m` | `⚠ Certificate not found` |
-| Error | Red | `\033[31m` | `✗ mkcert failed` |
-| URLs/paths | Cyan | `\033[36m` | `https://github.com/settings/developers` |
-| Code/commands | Cyan | `\033[36m` | `brew install mkcert` |
+| Element            | Color       | ANSI Code    | Example                                  |
+| ------------------ | ----------- | ------------ | ---------------------------------------- |
+| Section header bar | Cyan        | `\033[36m`   | `━━━━━━━━━━━━━━`                         |
+| Section title      | Cyan + Bold | `\033[1;36m` | `GitHub Authentication Setup`            |
+| Step title         | Cyan + Bold | `\033[1;36m` | `Step 1: Hostname`                       |
+| Explanatory text   | Dim         | `\033[2m`    | `This will be the URL you type...`       |
+| Prompt label       | Bold        | `\033[1m`    | `Hostname`                               |
+| Default value      | Dim         | `\033[2m`    | `[schmux.local]`                         |
+| User input         | Normal      | (none)       | User's typed text                        |
+| Important values   | Bold        | `\033[1m`    | `https://schmux.local`                   |
+| Success/checkmark  | Green       | `\033[32m`   | `✓ Certificates saved`                   |
+| Warning            | Yellow      | `\033[33m`   | `⚠ Certificate not found`                |
+| Error              | Red         | `\033[31m`   | `✗ mkcert failed`                        |
+| URLs/paths         | Cyan        | `\033[36m`   | `https://github.com/settings/developers` |
+| Code/commands      | Cyan        | `\033[36m`   | `brew install mkcert`                    |
 
 Reset code: `\033[0m`
 
@@ -115,6 +117,7 @@ The CLI uses the [charmbracelet/huh](https://github.com/charmbracelet/huh) libra
 - Accessibility support
 
 Example usage:
+
 ```go
 import "github.com/charmbracelet/huh"
 
@@ -163,6 +166,7 @@ huh.NewInput().
 ```
 
 **Navigation:**
+
 - Arrow keys to navigate options
 - Enter to confirm
 - Escape to cancel
@@ -194,13 +198,13 @@ This will be the URL you type in your browser (e.g., https://schmux.local).[/dim
 
 ### Symbols
 
-| Symbol | Usage | Unicode |
-|--------|-------|---------|
-| `━` | Section divider bar | U+2501 |
-| `✓` | Success | U+2713 |
-| `✗` | Error | U+2717 |
-| `⚠` | Warning | U+26A0 |
-| `→` | Arrow (for steps) | U+2192 |
+| Symbol | Usage               | Unicode |
+| ------ | ------------------- | ------- |
+| `━`    | Section divider bar | U+2501  |
+| `✓`    | Success             | U+2713  |
+| `✗`    | Error               | U+2717  |
+| `⚠`    | Warning             | U+26A0  |
+| `→`    | Arrow (for steps)   | U+2192  |
 
 ---
 
@@ -209,6 +213,7 @@ This will be the URL you type in your browser (e.g., https://schmux.local).[/dim
 ### Phase 1: Introduction
 
 Display:
+
 - Title: "GitHub Authentication Setup"
 - Brief explanation of what GitHub auth does
 - List the 3 things needed (hostname, TLS certs, GitHub OAuth App)
@@ -226,11 +231,13 @@ Display:
 ### Phase 3: TLS Certificate Setup
 
 **Check existing config first**:
+
 - If `tls.cert_path` and `tls.key_path` are already set and files exist, show current paths and ask if they want to keep them
 
 **Prompt**: Do you have TLS certificates for `<hostname>`?
 
 Options:
+
 1. **Yes, I have certificates** → Prompt for cert and key paths
 2. **No, generate them for me** → Certificate generation flow
 3. **No, and I'll set them up later** → Skip (will show warning at end)
@@ -239,6 +246,7 @@ Options:
 
 1. Check if `mkcert` is installed (`which mkcert`)
 2. If not installed:
+
    ```
    ⚠ mkcert is not installed.
 
@@ -248,22 +256,27 @@ Options:
 
    Then run this command again.
    ```
+
    Exit with code 1.
 
 3. If installed, check if CA is installed (`mkcert -CAROOT` and check for rootCA.pem)
 4. If CA not installed:
+
    ```
    mkcert needs to install its CA certificate (one-time setup).
    This may prompt for your password.
 
    Install CA now? [Y/n]:
    ```
+
    Run `mkcert -install` if confirmed.
 
 5. Generate certificates:
+
    ```
    Generating certificates for schmux.local...
    ```
+
    - Create `~/.schmux/tls/` directory if needed
    - Run: `mkcert -cert-file ~/.schmux/tls/<hostname>.pem -key-file ~/.schmux/tls/<hostname>-key.pem <hostname>`
    - Verify files were created
@@ -280,11 +293,13 @@ Options:
 ### Phase 4: GitHub OAuth App Setup
 
 **Check existing secrets first**:
+
 - If `client_id` exists in secrets, show masked version and ask if they want to update
 
 **Prompt**: Have you created a GitHub OAuth App?
 
 Options:
+
 1. **Yes** → Proceed to credentials
 2. **No, help me create one** → Show creation guide
 
@@ -323,6 +338,7 @@ Wait for Enter, then proceed to credentials.
 ### Phase 5: Additional Settings
 
 **Network Access**
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Additional Settings
@@ -337,6 +353,7 @@ Enable network access? [y/N]:
 Default: existing value
 
 **Session TTL**
+
 ```
 Session TTL is how long you stay logged in before needing to re-authenticate.
 
@@ -348,6 +365,7 @@ Default: existing value or 1440 (24 hours)
 ### Phase 6: Validation and Summary
 
 **Validate**:
+
 - Certificate file exists and is readable
 - Key file exists and is readable
 - Certificate hostname matches `public_base_url` hostname (SAN or CN)
@@ -355,6 +373,7 @@ Default: existing value or 1440 (24 hours)
 - Client Secret is not empty (or existing secret exists)
 
 **Show summary**:
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Configuration Summary
@@ -371,6 +390,7 @@ Default: existing value or 1440 (24 hours)
 ```
 
 **Show warnings** (if any):
+
 ```
 ⚠ Warnings:
   - Certificate file not found: ~/.schmux/tls/schmux.local.pem
@@ -378,16 +398,19 @@ Default: existing value or 1440 (24 hours)
 ```
 
 **Confirm save**:
+
 - If no warnings: `Save configuration? [Y/n]:`
 - If warnings: `Save anyway? [y/N]:` (default No)
 
 ### Phase 7: Save and Next Steps
 
 **Save**:
+
 - Write to `config.json` (under `access_control`)
 - Write to `secrets.json` (under `auth.github`)
 
 **Show next steps**:
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Setup Complete
@@ -426,6 +449,7 @@ Users can press Enter through all prompts to keep existing configuration, or cha
 ## Data Written
 
 ### config.json
+
 ```json
 {
   "network": {
@@ -446,6 +470,7 @@ Users can press Enter through all prompts to keep existing configuration, or cha
 ```
 
 ### secrets.json
+
 ```json
 {
   "auth": {

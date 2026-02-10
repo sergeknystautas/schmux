@@ -54,25 +54,25 @@ var Version = "dev"
 
 Binaries are built for:
 
-| OS | Architecture | Binary Name |
-|----|--------------|-------------|
-| macOS | Intel | `schmux-darwin-amd64` |
+| OS    | Architecture  | Binary Name           |
+| ----- | ------------- | --------------------- |
+| macOS | Intel         | `schmux-darwin-amd64` |
 | macOS | Apple Silicon | `schmux-darwin-arm64` |
-| Linux | x86_64 | `schmux-linux-amd64` |
-| Linux | ARM64 | `schmux-linux-arm64` |
+| Linux | x86_64        | `schmux-linux-amd64`  |
+| Linux | ARM64         | `schmux-linux-arm64`  |
 
 ## Release Artifacts
 
 Each GitHub Release (e.g., `v1.2.3`) includes:
 
-| Artifact | Purpose |
-|----------|---------|
-| `schmux-darwin-amd64` | macOS Intel binary |
-| `schmux-darwin-arm64` | macOS Apple Silicon binary |
-| `schmux-linux-amd64` | Linux x86_64 binary |
-| `schmux-linux-arm64` | Linux ARM64 binary |
-| `dashboard-assets.tar.gz` | Pre-built React dashboard |
-| `checksums.txt` | SHA256 checksums for all artifacts |
+| Artifact                  | Purpose                            |
+| ------------------------- | ---------------------------------- |
+| `schmux-darwin-amd64`     | macOS Intel binary                 |
+| `schmux-darwin-arm64`     | macOS Apple Silicon binary         |
+| `schmux-linux-amd64`      | Linux x86_64 binary                |
+| `schmux-linux-arm64`      | Linux ARM64 binary                 |
+| `dashboard-assets.tar.gz` | Pre-built React dashboard          |
+| `checksums.txt`           | SHA256 checksums for all artifacts |
 
 Dashboard assets are distributed separately from the binary. The install script and `schmux update` command download both the binary and assets, extracting assets to `~/.schmux/dashboard/`.
 
@@ -153,6 +153,7 @@ jobs:
 **Before tagging**, update documentation:
 
 1. **Update CHANGES.md** - Add a new entry at the top with a high-level description of what changed in this release:
+
    ```markdown
    ## Version 1.2.3 (2025-01-15)
 
@@ -162,6 +163,7 @@ jobs:
    ```
 
 2. **Update README.md** - Ensure the latest version is reflected in the Status section:
+
    ```markdown
    ## Status
 
@@ -173,6 +175,7 @@ jobs:
 **Then create and push the tag**:
 
 4. Create and push tag:
+
    ```bash
    git tag v1.2.3
    git push origin v1.2.3
@@ -381,17 +384,17 @@ This is a passive notification only—no automatic updates.
 
 ### New Files
 
-| File | Purpose |
-|------|---------|
-| `internal/version/version.go` | Version constant (set via ldflags) |
-| `internal/update/update.go` | Self-update logic |
-| `install.sh` | Installation script |
-| `.github/workflows/release.yml` | CI release workflow |
+| File                            | Purpose                            |
+| ------------------------------- | ---------------------------------- |
+| `internal/version/version.go`   | Version constant (set via ldflags) |
+| `internal/update/update.go`     | Self-update logic                  |
+| `install.sh`                    | Installation script                |
+| `.github/workflows/release.yml` | CI release workflow                |
 
 ### Modified Files
 
-| File | Change |
-|------|--------|
+| File                 | Change                                 |
+| -------------------- | -------------------------------------- |
 | `cmd/schmux/main.go` | Add `update` command, `--version` flag |
 
 ## User Experience
@@ -481,13 +484,13 @@ The update command replaces the binary at its current location. This requires wr
 
 ## Summary
 
-| Aspect | Approach |
-|--------|----------|
-| Distribution | Pre-built binaries via GitHub Releases |
-| Installation | `curl \| bash` install script |
-| Updates | `schmux update` self-updates |
-| Version source | Git tags (`v1.2.3`) |
-| Version in binary | ldflags injection |
-| Platforms | darwin/linux × amd64/arm64 |
-| Dashboard assets | Downloaded separately to ~/.schmux/dashboard/ |
-| CI | GitHub Actions on tag push |
+| Aspect            | Approach                                      |
+| ----------------- | --------------------------------------------- |
+| Distribution      | Pre-built binaries via GitHub Releases        |
+| Installation      | `curl \| bash` install script                 |
+| Updates           | `schmux update` self-updates                  |
+| Version source    | Git tags (`v1.2.3`)                           |
+| Version in binary | ldflags injection                             |
+| Platforms         | darwin/linux × amd64/arm64                    |
+| Dashboard assets  | Downloaded separately to ~/.schmux/dashboard/ |
+| CI                | GitHub Actions on tag push                    |

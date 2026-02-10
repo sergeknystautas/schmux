@@ -56,7 +56,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   // Refetch when git state changes via WebSocket session updates.
   // Track the git-relevant fields and refetch when they change.
   const { workspaces } = useSessions();
-  const ws = workspaces.find(w => w.id === workspaceId);
+  const ws = workspaces.find((w) => w.id === workspaceId);
   const gitFingerprint = ws
     ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
     : '';
@@ -77,7 +77,11 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   }, []);
 
   if (loading) {
-    return <div className="loading-state"><div className="spinner" /> Loading commit graph...</div>;
+    return (
+      <div className="loading-state">
+        <div className="spinner" /> Loading commit graph...
+      </div>
+    );
   }
 
   if (error) {
@@ -99,8 +103,14 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   return (
     <div className="git-dag">
-      <div className="git-dag__scroll" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
-        <div className="git-dag__container" style={{ position: 'relative', minHeight: totalHeight }}>
+      <div
+        className="git-dag__scroll"
+        style={{ overflow: 'auto', maxHeight: 'calc(100vh - 200px)' }}
+      >
+        <div
+          className="git-dag__container"
+          style={{ position: 'relative', minHeight: totalHeight }}
+        >
           <svg
             className="git-dag__svg"
             width={graphWidth}
@@ -109,7 +119,12 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           >
             {/* Persistent column lines (ISL-style: dashed, background) */}
             {layout.laneLines.map((ll, i) => (
-              <ColumnLine key={`col-${i}`} laneLine={ll} rowHeight={layout.rowHeight} isHighlight={ll.column === yahCol} />
+              <ColumnLine
+                key={`col-${i}`}
+                laneLine={ll}
+                rowHeight={layout.rowHeight}
+                isHighlight={ll.column === yahCol}
+              />
             ))}
 
             {/* Edges (solid, foreground) */}
@@ -119,7 +134,12 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
             {/* Node glyphs (circles only — ISL style) */}
             {layout.nodes.map((ln) => (
-              <NodeCircle key={ln.hash} node={ln} rowHeight={layout.rowHeight} isHighlight={ln.column === yahCol} />
+              <NodeCircle
+                key={ln.hash}
+                node={ln}
+                rowHeight={layout.rowHeight}
+                isHighlight={ln.column === yahCol}
+              />
             ))}
           </svg>
 
@@ -141,7 +161,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                       onClick={() => navigate(`/diff/${workspaceId}`)}
                       title="View uncommitted changes"
                     >
-                      {ln.dirtyState.filesChanged} file{ln.dirtyState.filesChanged !== 1 ? 's' : ''}, +{ln.dirtyState.linesAdded} −{ln.dirtyState.linesRemoved}
+                      {ln.dirtyState.filesChanged} file{ln.dirtyState.filesChanged !== 1 ? 's' : ''}
+                      , +{ln.dirtyState.linesAdded} −{ln.dirtyState.linesRemoved}
                     </button>
                   </div>
                 );
@@ -150,9 +171,12 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
                     <span className="git-dag__sync-summary">
-                      Sync &middot; {ln.syncSummary.count} commit{ln.syncSummary.count !== 1 ? 's' : ''}
+                      Sync &middot; {ln.syncSummary.count} commit
+                      {ln.syncSummary.count !== 1 ? 's' : ''}
                     </span>
-                    <span className="git-dag__time">{relativeTime(ln.syncSummary.newestTimestamp)}</span>
+                    <span className="git-dag__time">
+                      {relativeTime(ln.syncSummary.newestTimestamp)}
+                    </span>
                   </div>
                 );
               }
@@ -174,7 +198,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                     {ln.node.is_head.length > 0 && (
                       <span className="git-dag__head-labels">
                         {ln.node.is_head.map((b) => (
-                          <span key={b} className="git-dag__head-label">{b}</span>
+                          <span key={b} className="git-dag__head-label">
+                            {b}
+                          </span>
                         ))}
                       </span>
                     )}
@@ -193,7 +219,15 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 }
 
 /** Circle glyph for all nodes (ISL-style: no diamonds) */
-function NodeCircle({ node, rowHeight, isHighlight }: { node: LayoutNode; rowHeight: number; isHighlight: boolean }) {
+function NodeCircle({
+  node,
+  rowHeight,
+  isHighlight,
+}: {
+  node: LayoutNode;
+  rowHeight: number;
+  isHighlight: boolean;
+}) {
   const cx = GRAPH_PADDING + node.column * COLUMN_WIDTH;
   const cy = node.y + rowHeight / 2;
 
@@ -236,14 +270,25 @@ function NodeCircle({ node, rowHeight, isHighlight }: { node: LayoutNode; rowHei
 }
 
 /** Dashed persistent column line (ISL-style column state) */
-function ColumnLine({ laneLine, rowHeight, isHighlight }: { laneLine: LaneLine; rowHeight: number; isHighlight: boolean }) {
+function ColumnLine({
+  laneLine,
+  rowHeight,
+  isHighlight,
+}: {
+  laneLine: LaneLine;
+  rowHeight: number;
+  isHighlight: boolean;
+}) {
   const x = GRAPH_PADDING + laneLine.column * COLUMN_WIDTH;
   const y1 = laneLine.fromY + rowHeight / 2;
   const y2 = laneLine.toY + rowHeight / 2;
 
   return (
     <line
-      x1={x} y1={y1} x2={x} y2={y2}
+      x1={x}
+      y1={y1}
+      x2={x}
+      y2={y2}
       stroke={isHighlight ? HIGHLIGHT_COLOR : GRAPH_COLOR}
       strokeWidth={1.5}
       strokeDasharray="3,2"

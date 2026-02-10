@@ -16,8 +16,8 @@ const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
   'Needs Feature Clarification': '\uD83D\uDD0D',
   'Needs User Testing': '\uD83D\uDC40',
-  'Completed': '\u2705',
-  'Error': '\u274C',
+  Completed: '\u2705',
+  Error: '\u274C',
 };
 
 function formatNudgeSummary(summary?: string) {
@@ -43,7 +43,15 @@ type SessionTabsProps = {
   activeLinearSyncResolveConflictTab?: boolean;
 };
 
-export default function SessionTabs({ sessions, currentSessionId, workspace, activeDiffTab, activeSpawnTab, activeGitTab, activeLinearSyncResolveConflictTab }: SessionTabsProps) {
+export default function SessionTabs({
+  sessions,
+  currentSessionId,
+  workspace,
+  activeDiffTab,
+  activeSpawnTab,
+  activeGitTab,
+  activeLinearSyncResolveConflictTab,
+}: SessionTabsProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { success, error: toastError } = useToast();
@@ -71,7 +79,8 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   // Local workspaces: show for git (default when vcs is omitted).
   // Remote workspaces: always show (backend handles VCS abstraction).
   const isRemote = Boolean(workspace?.remote_host_id);
-  const isVCS = isRemote || !workspace?.vcs || workspace.vcs === 'git' || workspace.vcs === 'sapling';
+  const isVCS =
+    isRemote || !workspace?.vcs || workspace.vcs === 'git' || workspace.vcs === 'sapling';
 
   // Calculate if we should show diff tab
   const linesAdded = workspace?.git_lines_added ?? 0;
@@ -85,7 +94,8 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
       const rect = spawnButtonRef.current.getBoundingClientRect();
       const gap = 4;
       const edgePadding = 8;
-      const estimatedMenuHeight = spawnMenuRef.current?.offsetHeight ||
+      const estimatedMenuHeight =
+        spawnMenuRef.current?.offsetHeight ||
         Math.min(300, 60 + (quickLaunch?.length || 0) * 52 + 40);
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
@@ -221,7 +231,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
   const handleDispose = async (sessionId: string, event: React.MouseEvent) => {
     event.stopPropagation();
 
-    const sess = sessions.find(s => s.id === sessionId);
+    const sess = sessions.find((s) => s.id === sessionId);
     let sessionDisplay = sessionId;
     if (sess?.nickname) {
       sessionDisplay = `${sess.nickname} (${sessionId})`;
@@ -250,10 +260,12 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     const displayName = sess.nickname || sess.target;
     const disabled = resolveInProgress;
 
-    const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
+    const runTarget = (config?.run_targets || []).find((t) => t.name === sess.target);
     const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-    const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
+    const nudgeEmoji = sess.nudge_state
+      ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+      : null;
     const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
     // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
@@ -295,13 +307,17 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
         style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         <div className="session-tab__row1">
-          <span className="session-tab__name">
-            {displayName}
-          </span>
-          <Tooltip content={!sess.running ? 'Session stopped' : (sess.last_output_at ? formatTimestamp(sess.last_output_at) : 'Never')}>
-            <span className="session-tab__activity">
-              {activityDisplay}
-            </span>
+          <span className="session-tab__name">{displayName}</span>
+          <Tooltip
+            content={
+              !sess.running
+                ? 'Session stopped'
+                : sess.last_output_at
+                  ? formatTimestamp(sess.last_output_at)
+                  : 'Never'
+            }
+          >
+            <span className="session-tab__activity">{activityDisplay}</span>
           </Tooltip>
           <Tooltip content="Dispose session" variant="warning">
             <button
@@ -310,18 +326,22 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
               aria-label={`Dispose ${sess.id}`}
               disabled={disabled}
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+              >
                 <line x1="4" y1="4" x2="20" y2="20"></line>
                 <line x1="20" y1="4" x2="4" y2="20"></line>
               </svg>
             </button>
           </Tooltip>
         </div>
-        {nudgePreviewElement && (
-          <div className="session-tab__row2">
-            {nudgePreviewElement}
-          </div>
-        )}
+        {nudgePreviewElement && <div className="session-tab__row2">{nudgePreviewElement}</div>}
       </div>
     );
   };
@@ -348,7 +368,13 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
         {hasChanges && (
           <span className="session-tab__diff-stats">
             {linesAdded > 0 && <span style={{ color: 'var(--color-success)' }}>+{linesAdded}</span>}
-            {linesRemoved > 0 && <span style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}>-{linesRemoved}</span>}
+            {linesRemoved > 0 && (
+              <span
+                style={{ color: 'var(--color-error)', marginLeft: linesAdded > 0 ? '4px' : '0' }}
+              >
+                -{linesRemoved}
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -382,7 +408,11 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
     const hash = crState?.hash ? crState.hash.substring(0, 7) : '...';
     const isActive = crState ? crState.status === 'in_progress' : true;
     const isFailed = crState?.status === 'failed';
-    const label = isActive ? 'Resolving conflict on' : isFailed ? 'Resolve conflict failed on' : 'Resolve conflict on';
+    const label = isActive
+      ? 'Resolving conflict on'
+      : isFailed
+        ? 'Resolve conflict failed on'
+        : 'Resolve conflict on';
     return (
       <div
         className={`session-tab session-tab--diff${activeLinearSyncResolveConflictTab ? ' session-tab--active' : ''}`}
@@ -396,8 +426,13 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
         }}
       >
         <div className="session-tab__row1">
-          <span className="session-tab__name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {isActive && <div className="spinner--small" style={{ width: 10, height: 10, borderWidth: 2 }} />}
+          <span
+            className="session-tab__name"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            {isActive && (
+              <div className="spinner--small" style={{ width: 10, height: 10, borderWidth: 2 }} />
+            )}
             {label} {hash}
           </span>
         </div>
@@ -431,51 +466,47 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
           </svg>
         )}
       </button>
-      {spawnMenuOpen && !spawning && createPortal(
-        <div
-          ref={spawnMenuRef}
-          className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
-          role="menu"
-          style={{
-            position: 'fixed',
-            top: placementAbove ? 'auto' : `${menuPosition.top}px`,
-            bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
-            left: `${menuPosition.left}px`,
-          }}
-        >
-          <button
-            className="spawn-dropdown__item"
-            onClick={handleCustomSpawn}
-            role="menuitem"
+      {spawnMenuOpen &&
+        !spawning &&
+        createPortal(
+          <div
+            ref={spawnMenuRef}
+            className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: placementAbove ? 'auto' : `${menuPosition.top}px`,
+              bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
+              left: `${menuPosition.left}px`,
+            }}
           >
-            <span className="spawn-dropdown__item-label">Custom...</span>
-            <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
-          </button>
+            <button className="spawn-dropdown__item" onClick={handleCustomSpawn} role="menuitem">
+              <span className="spawn-dropdown__item-label">Custom...</span>
+              <span className="spawn-dropdown__item-hint">Open spawn wizard</span>
+            </button>
 
-          {quickLaunch.length > 0 && (
-            <>
-              <div className="spawn-dropdown__separator" role="separator"></div>
-              {quickLaunch.map((name) => (
-                <button
-                  key={name}
-                  className="spawn-dropdown__item"
-                  onClick={(e) => handleQuickLaunchSpawn(name, e)}
-                  role="menuitem"
-                >
-                  <span className="spawn-dropdown__item-label">{name}</span>
-                </button>
-              ))}
-            </>
-          )}
+            {quickLaunch.length > 0 && (
+              <>
+                <div className="spawn-dropdown__separator" role="separator"></div>
+                {quickLaunch.map((name) => (
+                  <button
+                    key={name}
+                    className="spawn-dropdown__item"
+                    onClick={(e) => handleQuickLaunchSpawn(name, e)}
+                    role="menuitem"
+                  >
+                    <span className="spawn-dropdown__item-label">{name}</span>
+                  </button>
+                ))}
+              </>
+            )}
 
-          {quickLaunch.length === 0 && (
-            <div className="spawn-dropdown__empty">
-              No quick launch presets
-            </div>
-          )}
-        </div>,
-        document.body
-      )}
+            {quickLaunch.length === 0 && (
+              <div className="spawn-dropdown__empty">No quick launch presets</div>
+            )}
+          </div>,
+          document.body
+        )}
     </>
   );
 
@@ -499,9 +530,7 @@ export default function SessionTabs({ sessions, currentSessionId, workspace, act
           style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
         >
           <div className="session-tab__row1">
-            <span className="session-tab__name">
-              Spawning...
-            </span>
+            <span className="session-tab__name">Spawning...</span>
           </div>
         </div>
       )}

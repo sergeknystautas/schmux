@@ -50,9 +50,9 @@ export async function playAttentionSound(): Promise<void> {
     osc2.frequency.setValueAtTime(660, now + 0.12); // E5
     gain2.gain.setValueAtTime(0, now + 0.12);
     gain2.gain.linearRampToValueAtTime(0.25, now + 0.14);
-    gain2.gain.linearRampToValueAtTime(0, now + 0.30);
+    gain2.gain.linearRampToValueAtTime(0, now + 0.3);
     osc2.start(now + 0.12);
-    osc2.stop(now + 0.30);
+    osc2.stop(now + 0.3);
   } catch (e) {
     // Silently fail if audio is not available
     console.warn('Failed to play notification sound:', e);
@@ -62,10 +62,7 @@ export async function playAttentionSound(): Promise<void> {
 /**
  * States that should trigger an attention sound.
  */
-export const ATTENTION_STATES = new Set([
-  'Needs Authorization',
-  'Error',
-]);
+export const ATTENTION_STATES = new Set(['Needs Authorization', 'Error']);
 
 /**
  * Check if a nudge state should trigger an attention sound.

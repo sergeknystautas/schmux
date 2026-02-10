@@ -40,23 +40,26 @@ export default function useLocalStorage<T>(
 
   // Return a wrapped version of useState's setter function that
   // persists the new value to localStorage
-  const setValue = useCallback((value: T | ((prev: T) => T)) => {
-    try {
-      // Allow value to be a function so we have same API as useState
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
+  const setValue = useCallback(
+    (value: T | ((prev: T) => T)) => {
+      try {
+        // Allow value to be a function so we have same API as useState
+        const valueToStore = value instanceof Function ? value(storedValue) : value;
 
-      setStoredValue(valueToStore);
+        setStoredValue(valueToStore);
 
-      // Save to localStorage
-      if (valueToStore === undefined) {
-        window.localStorage.removeItem(storageKey);
-      } else {
-        window.localStorage.setItem(storageKey, JSON.stringify(valueToStore));
+        // Save to localStorage
+        if (valueToStore === undefined) {
+          window.localStorage.removeItem(storageKey);
+        } else {
+          window.localStorage.setItem(storageKey, JSON.stringify(valueToStore));
+        }
+      } catch (error) {
+        console.error(`Error setting localStorage key "${storageKey}":`, error);
       }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${storageKey}":`, error);
-    }
-  }, [storageKey, storedValue]);
+    },
+    [storageKey, storedValue]
+  );
 
   // Remove value from localStorage and reset to initialValue
   const removeValue = useCallback(() => {

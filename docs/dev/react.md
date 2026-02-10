@@ -26,6 +26,7 @@ This document describes the architecture, patterns, and conventions for the Schm
 The Schmux frontend is a **single-page application** built with React 18 that provides real-time monitoring and management of AI agent tmux sessions. It runs entirely in the browser, communicating with a Go daemon via REST API and WebSocket connections.
 
 **Key Characteristics:**
+
 - Dashboard-style UI for observability and orchestration
 - Real-time terminal streaming via WebSocket
 - CLI and web are first-class; web emphasizes observability and orchestration
@@ -38,20 +39,20 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 
 ### Core
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| React | 18.2.0 | UI framework |
-| ReactDOM | 18.2.0 | DOM rendering |
-| Vite | 5.0.12 | Build tool & dev server |
-| React Router | 6.22.3 | Client-side routing |
+| Technology   | Version | Purpose                 |
+| ------------ | ------- | ----------------------- |
+| React        | 18.2.0  | UI framework            |
+| ReactDOM     | 18.2.0  | DOM rendering           |
+| Vite         | 5.0.12  | Build tool & dev server |
+| React Router | 6.22.3  | Client-side routing     |
 
 ### Specialized
 
-| Technology | Purpose |
-|------------|---------|
-| @xterm/xterm | 5.5.0 | Terminal emulation |
-| react-diff-viewer-continued | 3.4.0 | Diff visualization |
-| react-tooltip | 5.30.0 | Tooltip library (deprecated - using custom) |
+| Technology                  | Purpose |
+| --------------------------- | ------- | ------------------------------------------- |
+| @xterm/xterm                | 5.5.0   | Terminal emulation                          |
+| react-diff-viewer-continued | 3.4.0   | Diff visualization                          |
+| react-tooltip               | 5.30.0  | Tooltip library (deprecated - using custom) |
 
 ### Build
 
@@ -69,6 +70,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 > **Use the simplest solution that works.** Don't add abstraction until it's clearly needed.
 
 **Examples:**
+
 - React Context instead of Redux for global state
 - Manual polling instead of WebSockets for everything
 - Custom components instead of UI libraries
@@ -84,6 +86,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 > **Server state is the source of truth.** The UI reflects it, doesn't own it.
 
 **Implications:**
+
 - Poll to refresh server state
 - Optimistic updates used sparingly
 - URL parameters drive view state
@@ -93,6 +96,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 > **When things fail, show something useful.**
 
 **Implementation:**
+
 - Loading states for all async operations
 - Error boundaries to catch React errors
 - Empty states when no data exists
@@ -165,13 +169,16 @@ export default function AppShell() {
     <div className="app-shell">
       <header>...</header>
       <nav>...</nav>
-      <main><Outlet /></main>
+      <main>
+        <Outlet />
+      </main>
     </div>
   );
 }
 ```
 
 **Characteristics:**
+
 - Use `<Outlet />` for nested routes
 - Don't contain business logic
 - Presentational only
@@ -183,6 +190,7 @@ Components that implement specific features or views.
 **Examples:** `SessionDetailPage.tsx`, `SpawnPage.tsx`
 
 **Characteristics:**
+
 - May contain business logic
 - Use hooks for data fetching
 - Handle user interactions
@@ -195,6 +203,7 @@ Components that provide context or services to children.
 **Examples:** `ToastProvider.tsx`, `ModalProvider.tsx`, `ConfigProvider.tsx`
 
 **Characteristics:**
+
 - Wrap application or feature subtree
 - Export custom hooks for access
 - Minimal rendering (usually render children + portals)
@@ -206,6 +215,7 @@ Reusable presentational components.
 **Examples:** `Tooltip.tsx`, `LoadingState.tsx` (planned)
 
 **Characteristics:**
+
 - Highly reusable
 - Controlled via props
 - No business logic
@@ -233,6 +243,7 @@ const [items, setItems] = useState([]);
 ```
 
 **Examples:**
+
 - Modal open/closed
 - Form input values
 - Accordion expanded/collapsed
@@ -284,6 +295,7 @@ useEffect(() => {
 **Use for:** View state that should be bookmarkable
 
 **Examples:**
+
 - Filters (`?s=running&r=repo-name`)
 - Resource IDs (`/sessions/{id}`)
 - Spawn prefill (`?workspace_id=xxx&repo=yyy`)
@@ -302,9 +314,7 @@ The pending navigation system allows components to request navigation that will 
 **Type Definition:**
 
 ```typescript
-type PendingNavigation =
-  | { type: 'session'; id: string }
-  | { type: 'workspace'; id: string };
+type PendingNavigation = { type: 'session'; id: string } | { type: 'workspace'; id: string };
 ```
 
 **Usage:**
@@ -329,6 +339,7 @@ clearPendingNavigation();
 5. If user navigates elsewhere first, pending navigation is automatically cleared
 
 **Implementation location:**
+
 - State and logic: `contexts/SessionsContext.tsx`
 - Hook export: `lib/navigation.ts` as `usePendingNavigation()`
 
@@ -396,6 +407,7 @@ CSS custom properties define the design system in `global.css`:
 ```
 
 **Benefits:**
+
 - Consistent spacing, colors, typography
 - Easy theming (dark mode)
 - Design consistency without CSS bloat
@@ -428,6 +440,7 @@ document.documentElement.setAttribute('data-theme', 'dark');
 ```
 
 **Implementation:**
+
 - CSS variables redefine in dark mode media query
 - `useTheme` hook manages toggle
 - Persists to localStorage
@@ -437,6 +450,7 @@ document.documentElement.setAttribute('data-theme', 'dark');
 Most styles are **global** with specific class names. Only `tips.module.css` uses CSS Modules.
 
 **Rationale:**
+
 - Small codebase doesn't need complex scoping
 - Consistent naming prevents conflicts
 - Easier to share styles across components
@@ -458,6 +472,7 @@ export async function getSessions() {
 ```
 
 **Patterns:**
+
 - RESTful endpoints
 - JSON request/response
 - Error throwing with `Error` objects
@@ -474,7 +489,7 @@ useEffect(() => {
   const load = async () => {
     try {
       const data = await getSessions();
-      if (!active) return;  // Ignore if unmounted
+      if (!active) return; // Ignore if unmounted
       setSessions(data);
     } catch (err) {
       setError(err.message);
@@ -482,11 +497,14 @@ useEffect(() => {
   };
 
   load();
-  return () => { active = false; };  // Cleanup
+  return () => {
+    active = false;
+  }; // Cleanup
 }, []);
 ```
 
 **Improvements Planned:**
+
 - AbortController for cancellation
 - React Query for caching/refetching
 
@@ -504,6 +522,7 @@ class TerminalStream {
 ```
 
 **Features:**
+
 - Bi-directional communication
 - Auto-reconnect on disconnect
 - Terminal scaling
@@ -566,6 +585,7 @@ This section documents significant architectural decisions and the reasoning beh
 **Status:** Implemented — TypeScript migration complete
 
 **Rationale:**
+
 - Type safety prevents bugs and improves code quality
 - Better IDE support with autocomplete and refactoring
 - Industry standard for React applications
@@ -573,6 +593,7 @@ This section documents significant architectural decisions and the reasoning beh
 - Easier onboarding for new developers
 
 **Implementation:**
+
 - All `.jsx` files migrated to `.tsx`
 - All `.js` files migrated to `.ts`
 - Type definitions added for API responses and component props
@@ -585,12 +606,14 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Use React Context for global state instead of Redux/Zustand
 
 **Rationale:**
+
 - App complexity doesn't warrant full state management library
 - Context is built into React
 - Less boilerplate
 - Easier to understand for new developers
 
 **Trade-offs:**
+
 - More re-renders (mitigated by splitting contexts)
 - No dev tools (less important with simple state)
 - Manual optimization with `useMemo`/`useCallback`
@@ -604,12 +627,14 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Use REST API + manual polling for most data, WebSocket only for terminal output
 
 **Rationale:**
+
 - WebSocket connections are expensive
 - Most data doesn't need true real-time updates
 - Polling is simpler and more reliable
 - Terminal is the only truly real-time feature
 
 **Trade-offs:**
+
 - 5-second delay on updates (acceptable for dashboard use case)
 - Unnecessary requests when no data changed
 
@@ -622,6 +647,7 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Build custom components instead of using Material-UI, Ant Design, etc.
 
 **Rationale:**
+
 - Total control over look and feel
 - Smaller bundle size
 - Learn React deeply by building from scratch
@@ -629,6 +655,7 @@ This section documents significant architectural decisions and the reasoning beh
 - App-specific UI needs (terminal, workspace trees)
 
 **Trade-offs:**
+
 - More code to maintain
 - Reinventing some wheels
 - Less polished out-of-the-box
@@ -642,6 +669,7 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Use traditional CSS with design tokens, not styled-components or Emotion
 
 **Rationale:**
+
 - Simpler build pipeline
 - Better performance (no runtime CSS generation)
 - Easier to debug
@@ -649,6 +677,7 @@ This section documents significant architectural decisions and the reasoning beh
 - Dark mode via media query is simple
 
 **Trade-offs:**
+
 - No prop-driven styles
 - More global namespace concerns
 - No style colocation with components
@@ -662,6 +691,7 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Build as SPA with Vite, not Next.js or Remix
 
 **Rationale:**
+
 - App is primarily used by single user (admin)
 - SEO not a concern (internal tool)
 - Simpler deployment (static files)
@@ -669,6 +699,7 @@ This section documents significant architectural decisions and the reasoning beh
 - Daemon is Go, not Node (so no Next.js integration benefit)
 
 **Trade-offs:**
+
 - Slower initial page load
 - No progressive enhancement
 - Browser must support JS
@@ -682,12 +713,14 @@ This section documents significant architectural decisions and the reasoning beh
 **Decision:** Use class-based wrapper around xterm.js, not React component
 
 **Rationale:**
+
 - xterm.js has imperative API
 - Complex lifecycle (connect, disconnect, resize)
 - Easier to encapsulate in class
 - React integration via ref
 
 **Trade-offs:**
+
 - Mixes paradigms (classes vs hooks)
 - Less "React-idiomatic"
 
@@ -702,7 +735,7 @@ This section documents significant architectural decisions and the reasoning beh
 **❌ Don't do this:**
 
 ```jsx
-let savedState = false;  // Persists unpredictably
+let savedState = false; // Persists unpredictably
 
 export default function Component() {
   const [state, setState] = useState(savedState);
@@ -735,7 +768,7 @@ export default function Component() {
 setState((current) => {
   const next = { ...current };
   items.forEach((item) => {
-    next[item.id] = item;  // Mutation during iteration
+    next[item.id] = item; // Mutation during iteration
   });
   return next;
 });
@@ -746,7 +779,7 @@ setState((current) => {
 ```jsx
 setState((current) => ({
   ...current,
-  ...Object.fromEntries(items.map(item => [item.id, item]))
+  ...Object.fromEntries(items.map((item) => [item.id, item])),
 }));
 ```
 
@@ -764,7 +797,7 @@ document.getElementById('my-element').textContent = 'Hello';
 
 ```jsx
 const [text, setText] = useState('Hello');
-<div>{text}</div>
+<div>{text}</div>;
 ```
 
 **Exception:** Third-party libraries like xterm.js that require DOM elements.
@@ -780,14 +813,14 @@ const [items, setItems] = useState([]);
 const [filtered, setFiltered] = useState([]);
 
 useEffect(() => {
-  setFiltered(items.filter(item => item.active));
+  setFiltered(items.filter((item) => item.active));
 }, [items]);
 ```
 
 **✅ Compute during render:**
 
 ```jsx
-const filtered = items.filter(item => item.active);
+const filtered = items.filter((item) => item.active);
 ```
 
 ---

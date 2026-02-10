@@ -10,7 +10,7 @@ export default function LinearSyncResolveConflictPage() {
   const navigate = useNavigate();
   const { workspaces, linearSyncResolveConflictStates } = useSessions();
 
-  const workspace = workspaces?.find(ws => ws.id === workspaceId);
+  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const crState = workspaceId ? linearSyncResolveConflictStates[workspaceId] : undefined;
 
   // Navigate home if workspace was disposed

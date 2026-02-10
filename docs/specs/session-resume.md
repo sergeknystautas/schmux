@@ -23,23 +23,24 @@ The user enters `/resume` in the prompt textarea (same pattern as `/command`). T
 
 ### Spawn Modes After Change
 
-| Mode | Trigger | Form Fields | Command Built |
-|------|---------|-------------|---------------|
-| Promptable | (default) | target + prompt | `claude 'the prompt'` |
-| Command | `/command` | raw command | user's literal command |
-| Resume | `/resume` | target only | `claude --continue` |
+| Mode       | Trigger    | Form Fields     | Command Built          |
+| ---------- | ---------- | --------------- | ---------------------- |
+| Promptable | (default)  | target + prompt | `claude 'the prompt'`  |
+| Command    | `/command` | raw command     | user's literal command |
+| Resume     | `/resume`  | target only     | `claude --continue`    |
 
 ### Resume Command Per Agent
 
-| Agent | Resume Command | Notes |
-|-------|---------------|-------|
-| Claude Code | `claude --continue` | Resumes last conversation in the working directory |
-| Codex | `codex resume --last` | Resumes last conversation in the working directory |
-| Gemini CLI | `gemini -r latest` | Resumes last conversation in the working directory |
+| Agent       | Resume Command        | Notes                                              |
+| ----------- | --------------------- | -------------------------------------------------- |
+| Claude Code | `claude --continue`   | Resumes last conversation in the working directory |
+| Codex       | `codex resume --last` | Resumes last conversation in the working directory |
+| Gemini CLI  | `gemini -r latest`    | Resumes last conversation in the working directory |
 
 ### Workspace Selection
 
 Resume can work with either an existing workspace or a new workspace:
+
 - **Existing workspace**: When accessed from `/spawn?workspace_id=X`, spawns into that workspace
 - **New workspace**: When accessed from `/spawn`, creates a new workspace using repo + default branch
 
@@ -66,7 +67,7 @@ Add a new tool mode `ToolModeResume` in `internal/detect/commands.go`. Each tool
 ### What This Does NOT Include
 
 - Persisting conversation IDs or agent session state
-- Resuming a *specific* past conversation (only "most recent in this directory")
+- Resuming a _specific_ past conversation (only "most recent in this directory")
 - Any changes to agent process lifecycle or tmux session management
 
 ### Documentation Updates
@@ -78,11 +79,11 @@ Add a new tool mode `ToolModeResume` in `internal/detect/commands.go`. Each tool
 
 When user types `/resume`, the form enters resume spawn mode (parallel to promptable and command modes):
 
-| Spawn Mode | Prompt Visible | Workspace Selection |
-|------------|----------------|---------------------|
-| Promptable | Yes | Fresh: repo/branch input; Workspace/prefilled: pre-filled |
-| Command | No | Fresh: repo/branch input; Workspace/prefilled: pre-filled |
-| **Resume** | **No** | **Workspace picker only** (must select existing workspace) |
+| Spawn Mode | Prompt Visible | Workspace Selection                                        |
+| ---------- | -------------- | ---------------------------------------------------------- |
+| Promptable | Yes            | Fresh: repo/branch input; Workspace/prefilled: pre-filled  |
+| Command    | No             | Fresh: repo/branch input; Workspace/prefilled: pre-filled  |
+| **Resume** | **No**         | **Workspace picker only** (must select existing workspace) |
 
 In resume mode with fresh entry (no `workspace_id`), show a dropdown of existing workspaces. User must select where to resume — cannot create new workspaces in resume mode.
 
@@ -96,8 +97,8 @@ In resume mode with fresh entry (no `workspace_id`), show a dropdown of existing
 ## Open Questions
 
 1. Should `/resume` be available from the CLI (`schmux spawn --resume`) or dashboard-only initially?
--> dashboard only
+   -> dashboard only
 2. When Claude Code's `--continue` finds no prior conversation in the directory, it starts fresh — should we warn the user?
--> no, they can do it in the interactive session
+   -> no, they can do it in the interactive session
 3. Should the home page "Recent Branches" flow default to `/resume` mode instead of the synthesized prompt?
--> hmmm, could be in the future
+   -> hmmm, could be in the future

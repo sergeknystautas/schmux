@@ -11,20 +11,40 @@ interface PromptTextareaProps {
 }
 
 // Measure caret pixel coordinates inside a textarea using a mirror div
-function getCaretCoordinates(textarea: HTMLTextAreaElement, position: number): { top: number; left: number } {
+function getCaretCoordinates(
+  textarea: HTMLTextAreaElement,
+  position: number
+): { top: number; left: number } {
   const mirror = document.createElement('div');
   const computed = getComputedStyle(textarea);
 
   // Copy styles that affect text layout
   const props = [
-    'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
-    'letterSpacing', 'wordWrap', 'whiteSpace', 'tabSize',
-    'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-    'boxSizing', 'width',
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'fontStyle',
+    'lineHeight',
+    'letterSpacing',
+    'wordWrap',
+    'whiteSpace',
+    'tabSize',
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft',
+    'borderTopWidth',
+    'borderRightWidth',
+    'borderBottomWidth',
+    'borderLeftWidth',
+    'boxSizing',
+    'width',
   ];
   for (const prop of props) {
-    mirror.style.setProperty(prop, computed.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase()));
+    mirror.style.setProperty(
+      prop,
+      computed.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase())
+    );
   }
   mirror.style.position = 'absolute';
   mirror.style.visibility = 'hidden';
@@ -56,7 +76,10 @@ function estimateLineCount(textarea: HTMLTextAreaElement): number {
   const mirror = document.createElement('div');
   const props = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing'];
   for (const prop of props) {
-    mirror.style.setProperty(prop, computed.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase()));
+    mirror.style.setProperty(
+      prop,
+      computed.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase())
+    );
   }
   mirror.style.position = 'absolute';
   mirror.style.visibility = 'hidden';
@@ -110,13 +133,15 @@ export default function PromptTextarea({
         setExpanded(true);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // once on mount
 
   // Derive slash menu state from value + cursor position (avoids state batching issues)
   const beforeCursor = value.substring(0, cursorPosRef.current);
   const slashMatch = beforeCursor.match(/\/([\w ]*)$/);
-  const slashActive = !dismissed && !!slashMatch &&
+  const slashActive =
+    !dismissed &&
+    !!slashMatch &&
     (slashMatch.index === 0 || /\s/.test(beforeCursor[slashMatch.index! - 1]));
   const slashQuery = slashActive ? slashMatch![1] : '';
   const slashStartPos = slashActive ? slashMatch!.index! : 0;
@@ -127,7 +152,7 @@ export default function PromptTextarea({
   }
 
   const filteredCommands = commands
-    .filter(cmd => {
+    .filter((cmd) => {
       const searchKey = cmd.startsWith('/') ? cmd : `/command ${cmd}`;
       const fullQuery = slashMatch ? `/${slashQuery}` : '';
       return searchKey.startsWith(fullQuery);
@@ -181,15 +206,18 @@ export default function PromptTextarea({
   };
 
   // Select a command and remove the /query text
-  const selectCommand = useCallback((command: string) => {
-    const beforeSlash = value.substring(0, slashStartRef.current);
-    const afterCursor = value.substring(cursorPosRef.current);
-    const newValue = beforeSlash + afterCursor;
+  const selectCommand = useCallback(
+    (command: string) => {
+      const beforeSlash = value.substring(0, slashStartRef.current);
+      const afterCursor = value.substring(cursorPosRef.current);
+      const newValue = beforeSlash + afterCursor;
 
-    onChange(newValue);
-    onSelectCommand(command);
-    setDismissed(true);
-  }, [value, onChange, onSelectCommand]);
+      onChange(newValue);
+      onSelectCommand(command);
+      setDismissed(true);
+    },
+    [value, onChange, onSelectCommand]
+  );
 
   // Handle clicking outside
   useEffect(() => {

@@ -10,11 +10,13 @@ Rename "variants" to "models" throughout the codebase. Expand the concept to inc
 ## Motivation
 
 The current "variant" terminology is confusing:
+
 - Users think in terms of **models** (Sonnet, Opus, Kimi)
 - "Variant" sounds like a configuration tweak, not a model choice
 - Native Claude model selection (Opus vs Sonnet vs Haiku) doesn't fit the current model
 
 After the rename:
+
 - Users select a **model** when spawning
 - Some models are just different `ANTHROPIC_MODEL` values (Claude native)
 - Some models also change the endpoint (Kimi, GLM, MiniMax)
@@ -24,22 +26,23 @@ After the rename:
 
 ### Claude Native Models (no endpoint change)
 
-| ID | Display Name | Model Value |
-|----|--------------|-------------|
-| `claude-opus` | claude opus 4.5 | `claude-opus-4-5-20251101` |
+| ID              | Display Name      | Model Value                  |
+| --------------- | ----------------- | ---------------------------- |
+| `claude-opus`   | claude opus 4.5   | `claude-opus-4-5-20251101`   |
 | `claude-sonnet` | claude sonnet 4.5 | `claude-sonnet-4-5-20250929` |
-| `claude-haiku` | claude haiku 4.5 | `claude-haiku-4-5-20251001` |
+| `claude-haiku`  | claude haiku 4.5  | `claude-haiku-4-5-20251001`  |
 
 ### Third-Party Models (endpoint + model change)
 
-| ID | Display Name | Provider | Endpoint | Model Value |
-|----|--------------|----------|----------|-------------|
+| ID              | Display Name     | Provider | Endpoint                    | Model Value     |
+| --------------- | ---------------- | -------- | --------------------------- | --------------- |
 | `kimi-thinking` | kimi k2 thinking | Moonshot | `api.moonshot.ai/anthropic` | `kimi-thinking` |
-| `kimi-k2.5` | kimi k2.5 | Moonshot | `api.moonshot.ai/anthropic` | `kimi-k2.5` |
-| `glm-4.7` | glm 4.7 | Z.AI | `api.z.ai/api/anthropic` | `glm-4.7` |
-| `minimax-m2.1` | minimax m2.1 | MiniMax | `api.minimax.io/anthropic` | `minimax-m2.1` |
+| `kimi-k2.5`     | kimi k2.5        | Moonshot | `api.moonshot.ai/anthropic` | `kimi-k2.5`     |
+| `glm-4.7`       | glm 4.7          | Z.AI     | `api.z.ai/api/anthropic`    | `glm-4.7`       |
+| `minimax-m2.1`  | minimax m2.1     | MiniMax  | `api.minimax.io/anthropic`  | `minimax-m2.1`  |
 
 **Not included (experimental/outdated):**
+
 - Kimi K2 Instruct - not used
 - Claude Sonnet 4, Haiku 3.5 - superseded by 4.5 versions
 - GLM 4.5 - superseded by 4.7
@@ -47,15 +50,15 @@ After the rename:
 
 ### Pricing (per million tokens, as of 2026-01-27)
 
-| Model | Input | Output | Source |
-|-------|-------|--------|--------|
-| Claude Opus 4.5 | $5.00 | $25.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
-| Claude Sonnet 4.5 | $3.00 | $15.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
-| Claude Haiku 4.5 | $1.00 | $5.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) |
-| kimi k2 thinking | $0.60 | $2.50 | [Moonshot](https://platform.moonshot.ai/docs/pricing/chat) |
-| kimi k2.5 | $0.60 | $3.00 | [VentureBeat](https://venturebeat.com/orchestration/moonshot-ai-debuts-kimi-k2-5-most-powerful-open-source-llm-beating-opus-4-5) |
-| glm 4.7 | $0.60 | $2.20 | [Z.AI](https://docs.z.ai/guides/overview/pricing) |
-| minimax m2.1 | $0.27 | $1.12 | [MiniMax](https://platform.minimax.io/docs/guides/pricing) |
+| Model             | Input | Output | Source                                                                                                                           |
+| ----------------- | ----- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Opus 4.5   | $5.00 | $25.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)                                                            |
+| Claude Sonnet 4.5 | $3.00 | $15.00 | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)                                                            |
+| Claude Haiku 4.5  | $1.00 | $5.00  | [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)                                                            |
+| kimi k2 thinking  | $0.60 | $2.50  | [Moonshot](https://platform.moonshot.ai/docs/pricing/chat)                                                                       |
+| kimi k2.5         | $0.60 | $3.00  | [VentureBeat](https://venturebeat.com/orchestration/moonshot-ai-debuts-kimi-k2-5-most-powerful-open-source-llm-beating-opus-4-5) |
+| glm 4.7           | $0.60 | $2.20  | [Z.AI](https://docs.z.ai/guides/overview/pricing)                                                                                |
+| minimax m2.1      | $0.27 | $1.12  | [MiniMax](https://platform.minimax.io/docs/guides/pricing)                                                                       |
 
 ## Data Model Changes
 
@@ -138,43 +141,43 @@ The `variants` array is removed entirely - no user overrides needed.
 
 ### Core Data Model
 
-| File | Change |
-|------|--------|
+| File                          | Change                                                   |
+| ----------------------------- | -------------------------------------------------------- |
 | `internal/detect/variants.go` | Rename to `models.go`, update `Variant` → `Model` struct |
-| `internal/config/variants.go` | Rename to `models.go`, update types and functions |
-| `internal/config/config.go` | Remove `Variants []VariantConfig` field entirely |
-| `internal/config/secrets.go` | Update secrets key from `"variants"` to `"models"` |
+| `internal/config/variants.go` | Rename to `models.go`, update types and functions        |
+| `internal/config/config.go`   | Remove `Variants []VariantConfig` field entirely         |
+| `internal/config/secrets.go`  | Update secrets key from `"variants"` to `"models"`       |
 
 ### Session Management
 
-| File | Change |
-|------|--------|
+| File                          | Change                                                     |
+| ----------------------------- | ---------------------------------------------------------- |
 | `internal/session/manager.go` | Update `ResolveTarget` to use `Model` instead of `Variant` |
 
 ### API Layer
 
-| File | Change |
-|------|--------|
-| `internal/api/contracts/config.go` | Add `Model` type, remove `Variant` type, update `ConfigResponse` |
-| `internal/dashboard/handlers.go` | Add `models` to config response, remove `/api/variants`, rename secrets endpoints to `/api/models/` |
-| `internal/dashboard/server.go` | Update route registration |
-| `pkg/cli/daemon_client.go` | Update client types |
+| File                               | Change                                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `internal/api/contracts/config.go` | Add `Model` type, remove `Variant` type, update `ConfigResponse`                                    |
+| `internal/dashboard/handlers.go`   | Add `models` to config response, remove `/api/variants`, rename secrets endpoints to `/api/models/` |
+| `internal/dashboard/server.go`     | Update route registration                                                                           |
+| `pkg/cli/daemon_client.go`         | Update client types                                                                                 |
 
 ### Frontend
 
-| File | Change |
-|------|--------|
-| `assets/dashboard/src/lib/types.ts` | Add `Model` type, remove `Variant` types |
-| `assets/dashboard/src/lib/api.ts` | Remove `getVariants()`, use `models` from `getConfig()`, rename secrets functions to `configureModelSecrets`/`removeModelSecrets` |
-| `assets/dashboard/src/routes/ConfigPage.tsx` | Use `models` from config instead of separate variants fetch |
+| File                                         | Change                                                                                                                            |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/lib/types.ts`          | Add `Model` type, remove `Variant` types                                                                                          |
+| `assets/dashboard/src/lib/api.ts`            | Remove `getVariants()`, use `models` from `getConfig()`, rename secrets functions to `configureModelSecrets`/`removeModelSecrets` |
+| `assets/dashboard/src/routes/ConfigPage.tsx` | Use `models` from config instead of separate variants fetch                                                                       |
 
 ### Documentation
 
-| File | Change |
-|------|--------|
+| File              | Change                                |
+| ----------------- | ------------------------------------- |
 | `docs/targets.md` | Rename "Variants" section to "Models" |
-| `docs/api.md` | Update API endpoint documentation |
-| `CLAUDE.md` | Update references |
+| `docs/api.md`     | Update API endpoint documentation     |
+| `CLAUDE.md`       | Update references                     |
 
 ## Migration Strategy
 
@@ -217,10 +220,12 @@ type Secrets struct {
 Remove the separate `/api/variants` endpoint. Model metadata moves into `/api/config`:
 
 **Before:** Two endpoints
+
 - `GET /api/config` → includes `variants` (user overrides) and adds configured variants to `run_targets`
 - `GET /api/variants` → model metadata (display name, required secrets, usage URL, configured)
 
 **After:** Single endpoint
+
 - `GET /api/config` → includes `models` with full metadata
 - `DELETE /api/variants` endpoint (or keep as deprecated alias)
 
@@ -236,14 +241,14 @@ interface ConfigResponse {
 }
 
 interface Model {
-  id: string;                 // e.g., "claude-sonnet", "kimi-thinking"
-  display_name: string;       // e.g., "Claude Sonnet 4.5"
-  base_tool: string;          // e.g., "claude"
-  provider: string;           // "anthropic", "moonshot", "zai", "minimax"
-  category: string;           // "native" or "third-party"
+  id: string; // e.g., "claude-sonnet", "kimi-thinking"
+  display_name: string; // e.g., "Claude Sonnet 4.5"
+  base_tool: string; // e.g., "claude"
+  provider: string; // "anthropic", "moonshot", "zai", "minimax"
+  category: string; // "native" or "third-party"
   required_secrets: string[]; // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
-  usage_url: string;          // signup/pricing page
-  configured: boolean;        // true for native, true for third-party if secrets exist
+  usage_url: string; // signup/pricing page
+  configured: boolean; // true for native, true for third-party if secrets exist
 }
 ```
 
@@ -253,9 +258,9 @@ No user override layer - if you don't want a model, don't configure its secrets.
 
 Keep the secrets management endpoints but rename:
 
-| Before | After |
-|--------|-------|
-| `POST /api/variants/{name}/secrets` | `POST /api/models/{name}/secrets` |
+| Before                                | After                               |
+| ------------------------------------- | ----------------------------------- |
+| `POST /api/variants/{name}/secrets`   | `POST /api/models/{name}/secrets`   |
 | `DELETE /api/variants/{name}/secrets` | `DELETE /api/models/{name}/secrets` |
 
 ## UI Changes
@@ -284,6 +289,7 @@ Keep the secrets management endpoints but rename:
 ### Model Configuration Page
 
 Accessible from Settings. Shows:
+
 - All available models
 - Which are configured (secrets present for third-party)
 - Links to provider signup pages
@@ -292,6 +298,7 @@ Accessible from Settings. Shows:
 ## Implementation Phases
 
 ### Phase 1: Rename + Migration
+
 1. Rename `Variant` → `Model` in detect package
 2. Add new fields (`Provider`, `Category`, `Endpoint`, `ModelValue`)
 3. Add native Claude models to builtin list
@@ -301,24 +308,28 @@ Accessible from Settings. Shows:
 7. Run `go run ./cmd/gen-types` to regenerate TS types
 
 ### Phase 2: Frontend
+
 1. Update API calls (`/api/models`)
 2. Update spawn wizard UI with grouped model selector
 3. Update settings/configuration pages
 4. Update documentation references
 
 ### Phase 3: Cleanup
+
 1. Remove deprecated `variants` JSON field support (after N releases)
 2. Remove backward compat code
 
 ## Testing
 
 ### Unit Tests
+
 - Model resolution with native models
 - Model resolution with third-party models
 - Config migration from `variants` to `models`
 - Secrets migration
 
 ### E2E Tests
+
 - Spawn with native Claude model selection
 - Spawn with third-party model (if secrets configured)
 

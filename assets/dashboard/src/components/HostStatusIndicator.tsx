@@ -1,8 +1,23 @@
 import type { RemoteHost } from '../lib/types';
 
-export type HostStatus = 'ready' | 'connected' | 'provisioning' | 'connecting' | 'disconnected' | 'expired' | 'reconnecting';
+export type HostStatus =
+  | 'ready'
+  | 'connected'
+  | 'provisioning'
+  | 'connecting'
+  | 'disconnected'
+  | 'expired'
+  | 'reconnecting';
 
-const validStatuses: HostStatus[] = ['ready', 'connected', 'provisioning', 'connecting', 'disconnected', 'expired', 'reconnecting'];
+const validStatuses: HostStatus[] = [
+  'ready',
+  'connected',
+  'provisioning',
+  'connecting',
+  'disconnected',
+  'expired',
+  'reconnecting',
+];
 
 function isValidStatus(s: string): s is HostStatus {
   return validStatuses.includes(s as HostStatus);
@@ -14,7 +29,11 @@ interface HostStatusIndicatorProps {
   size?: 'sm' | 'md';
 }
 
-export default function HostStatusIndicator({ status, hostname, size = 'sm' }: HostStatusIndicatorProps) {
+export default function HostStatusIndicator({
+  status,
+  hostname,
+  size = 'sm',
+}: HostStatusIndicatorProps) {
   const getStatusConfig = () => {
     switch (status) {
       case 'ready':

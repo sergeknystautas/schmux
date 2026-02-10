@@ -47,6 +47,7 @@ For worktrees, also watches the shared worktree base's `refs/` directory.
 ### Worktree Handling
 
 A worktree's `.git` is a file pointing to `<base-repo>/worktrees/<name>/`. The watcher watches both:
+
 - The worktree-specific gitdir (HEAD, index)
 - The shared worktree base's `refs/` directory
 

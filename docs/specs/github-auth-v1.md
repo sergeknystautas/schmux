@@ -1,12 +1,14 @@
 # GitHub Auth v1 Spec
 
 **Goal**
+
 - Add first-party authentication to the dashboard/API using GitHub OAuth.
 - Auth is independent of `network_access`.
 - If auth is enabled, all UI/API/WS access requires authentication.
 - Keep structure extensible for future providers (OIDC), but only GitHub in v1.
 
 **Non-Goals (v1)**
+
 - Org/team/user allowlists.
 - Multiple providers.
 - Password or local accounts.
@@ -17,6 +19,7 @@
 ## Configuration & Secrets
 
 ### Config (`config.json`)
+
 New fields under `access_control`:
 
 - `auth.enabled` (bool, default false)
@@ -28,6 +31,7 @@ New fields under `access_control`:
   - `auth.tls.key_path` (string, required)
 
 Example:
+
 ```json
 {
   "access_control": {
@@ -47,13 +51,15 @@ Example:
 ```
 
 ### Secrets (`~/.schmux/secrets.json`)
+
 Extend format to allow auth credentials while remaining backward compatible.
 
 Preferred structure:
+
 ```json
 {
   "models": {
-    "anthropic": {"ANTHROPIC_AUTH_TOKEN":"..."}
+    "anthropic": { "ANTHROPIC_AUTH_TOKEN": "..." }
   },
   "auth": {
     "github": {
@@ -65,14 +71,17 @@ Preferred structure:
 ```
 
 Legacy structure (must still work):
+
 ```json
 {
-  "anthropic": {"ANTHROPIC_AUTH_TOKEN":"..."}
+  "anthropic": { "ANTHROPIC_AUTH_TOKEN": "..." }
 }
 ```
 
 ### Validation Rules
+
 When auth is enabled:
+
 - `public_base_url` is required.
 - `public_base_url` must be `https://...` (allow `http://localhost` only).
 - TLS config is required and must point to readable cert/key files.
@@ -84,6 +93,7 @@ When auth is enabled:
 ## Auth Flow
 
 ### Endpoints
+
 - `GET /auth/login`
   - Redirects to GitHub OAuth authorize endpoint.
   - Uses `state`.
@@ -97,6 +107,7 @@ When auth is enabled:
   - Returns current user info when authenticated.
 
 ### Session
+
 - Cookie-based session (signed/encrypted).
 - Cookie attributes:
   - `HttpOnly`
@@ -105,6 +116,7 @@ When auth is enabled:
 - TTL from `session_ttl_minutes`.
 
 ### User Model (minimal)
+
 - GitHub `id`, `login`, `name`, `avatar_url`.
 
 ---
@@ -112,18 +124,23 @@ When auth is enabled:
 ## Access Enforcement
 
 ### UI
+
 - If auth enabled and unauthenticated: redirect to `/auth/login`.
 - `/` and all SPA routes are protected server-side.
 
 ### API
+
 - All `/api/*` routes require auth.
 
 ### WebSocket
+
 - `/ws/*` requires auth cookie.
 - WebSocket origin checks must allow only the derived allowed origins (must include `public_base_url`).
 
 ### CORS
+
 When auth is enabled:
+
 - `Access-Control-Allow-Origin` must be explicit (no `*`).
 - `Access-Control-Allow-Credentials: true`.
 - Allowed origins are derived from `public_base_url` (must include it).
@@ -133,6 +150,7 @@ When auth is enabled:
 ## Dashboard UI (Advanced Config Tab)
 
 ### Access Control section
+
 - Existing: Network Access toggle.
 - New: Authentication
   - Enable auth toggle
@@ -142,17 +160,20 @@ When auth is enabled:
   - Session TTL (minutes)
 
 ### Secrets UI
+
 - Reuse existing "Model secrets" pattern for auth secrets.
 - Add “Auth secrets (GitHub)” modal/input:
   - `client_id`
   - `client_secret`
 
 ### Restart behavior
+
 - Any auth change requires daemon restart.
 
 ---
 
 ## Documentation Updates
+
 - `docs/api.md`: authentication, auth endpoints, cookie requirements, CORS changes.
 - `docs/web.md`: login required when auth enabled.
 - `docs/dev/README.md`: configuration + secrets.json format + mkcert/tls setup guidance.
@@ -160,6 +181,7 @@ When auth is enabled:
 ---
 
 ## Implementation Plan (high-level)
+
 1. Extend config schema + validation for `access_control.auth`.
 2. Extend `secrets.json` loader to support `auth` while keeping legacy format.
 3. Add auth handlers (GitHub OAuth flow, session cookies).

@@ -10,7 +10,7 @@ export default function GitGraphPage() {
   const navigate = useNavigate();
   const { workspaces, loading } = useSessions();
 
-  const workspace = workspaces.find(ws => ws.id === workspaceId);
+  const workspace = workspaces.find((ws) => ws.id === workspaceId);
 
   useEffect(() => {
     if (!loading && !workspace) navigate('/');

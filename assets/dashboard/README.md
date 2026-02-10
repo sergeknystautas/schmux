@@ -8,11 +8,13 @@ and handle dependencies properly.
 ## Building
 
 From the **project root**, run:
+
 ```bash
 go run ./cmd/build-dashboard
 ```
 
 This command will:
+
 1. Install npm dependencies
 2. Run the Vite build
 3. Output to `./schmux` binary
@@ -29,6 +31,7 @@ that output goes to the right location for embedding in the Go binary.
 ❌ `cd assets/dashboard && npm run dev`
 
 If you need a development server with hot-reload during development:
+
 ```bash
 cd assets/dashboard
 npm run dev

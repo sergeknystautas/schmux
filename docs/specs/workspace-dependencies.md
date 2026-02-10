@@ -4,6 +4,7 @@
 Allow workspaces to declare dependencies on other workspaces. This is a bidirectional relationship used for visual indicators in the web dashboard — when workspace A depends on workspace B, and B exists, A is considered "blocked" by that dependency.
 
 **Key Behaviors**
+
 - Dependencies are stored in `state.json` (transient runtime state)
 - If workspace A depends on B, and B exists → A is blocked
 - If workspace A depends on B, and B is disposed → A is unblocked (link just breaks)
@@ -15,6 +16,7 @@ Allow workspaces to declare dependencies on other workspaces. This is a bidirect
 ## Data Model
 
 ### state.json
+
 ```json
 {
   "workspaces": {
@@ -45,6 +47,7 @@ Allow workspaces to declare dependencies on other workspaces. This is a bidirect
 ```
 
 ### Go Types
+
 ```go
 // internal/state/state.go
 type Workspace struct {
@@ -62,7 +65,9 @@ type Workspace struct {
 ## Backend Changes
 
 ### State Interface (`internal/state/interfaces.go`)
+
 Add methods:
+
 ```go
 // SetDependency adds a dependency relationship
 SetDependency(workspaceID, dependsOn string) error
@@ -76,6 +81,7 @@ GetTransitiveDependencies(workspaceID string) []string
 ```
 
 ### CLI Commands (`internal/cli/workspace.go`)
+
 ```bash
 # Add a dependency
 ./schmux workspace depend <workspace> <depends-on>
@@ -88,6 +94,7 @@ GetTransitiveDependencies(workspaceID string) []string
 ```
 
 Output format:
+
 ```
 schmux-001
   Direct dependencies:      schmux-002, schmux-003
@@ -98,6 +105,7 @@ schmux-001
 ### Dashboard API (`internal/dashboard/handlers.go`)
 
 **GET /api/sessions** response - extend `WorkspaceResponse`:
+
 ```go
 type WorkspaceResponse struct {
     ID                   string   `json:"id"`
@@ -113,6 +121,7 @@ type WorkspaceResponse struct {
 ```
 
 **New endpoints**:
+
 ```
 POST /api/workspaces/{id}/dependencies
   Body: {"dependency": "workspace-id"}
@@ -121,6 +130,7 @@ DELETE /api/workspaces/{id}/dependencies/{depId}
 ```
 
 ### Cleanup on Dispose
+
 When `RemoveWorkspace(id)` is called, also remove `id` from all other workspaces' `dependencies` arrays.
 
 ---
@@ -128,26 +138,28 @@ When `RemoveWorkspace(id)` is called, also remove `id` from all other workspaces
 ## Frontend Changes
 
 ### TypeScript Types (`contracts.ts` - generated from Go)
+
 ```typescript
 interface Workspace {
-    id: string;
-    repo: string;
-    branch: string;
-    path: string;
-    sessionCount: number;
-    sessions: Session[];
-    gitAhead: number;
-    gitBehind: number;
-    gitLinesAdded: number;
-    gitLinesRemoved: number;
-    gitFilesChanged: number;
-    dependencies: string[];           // NEW
-    transitiveDependencies: string[]; // NEW
-    blockedBy: string[];              // NEW
+  id: string;
+  repo: string;
+  branch: string;
+  path: string;
+  sessionCount: number;
+  sessions: Session[];
+  gitAhead: number;
+  gitBehind: number;
+  gitLinesAdded: number;
+  gitLinesRemoved: number;
+  gitFilesChanged: number;
+  dependencies: string[]; // NEW
+  transitiveDependencies: string[]; // NEW
+  blockedBy: string[]; // NEW
 }
 ```
 
 ### Sidebar (`Sidebar.tsx`)
+
 - **Muted visual**: Workspaces with non-empty `blockedBy` appear muted (reduced opacity, desaturated)
 - **Ordering**: Best-effort topological sort — blocked workspaces appear below their dependencies
   - Use Kahn's algorithm or similar
@@ -155,7 +167,9 @@ interface Workspace {
   - Fall back to workspace numbering for unrelated workspaces
 
 ### WorkspaceHeader (`WorkspaceHeader.tsx`)
+
 **Status indicator** (right side, next to VS Code / dispose icons):
+
 - **Green dot**: Unblocked (`blockedBy.length === 0`)
 - **Yellow `↓ N` badge**: Blocked by N workspaces
 - **Tooltip**: Lists the blocking dependencies by name
@@ -163,6 +177,7 @@ interface Workspace {
 **Click handler**: Opens dependencies modal
 
 ### Dependencies Modal (`DependenciesModal.tsx`)
+
 - Shows current direct dependencies
 - Add: typeahead dropdown of other workspaces (filter out self and existing deps)
 - Remove: click × on each dependency chip
@@ -215,6 +230,7 @@ func (s *State) GetTransitiveDependencies(workspaceID string) []string {
 ## API Contract Changes
 
 ### GET /api/sessions Response
+
 ```json
 {
   "workspaces": [
@@ -240,7 +256,9 @@ func (s *State) GetTransitiveDependencies(workspaceID string) []string {
 ```
 
 ### POST /api/workspaces/{id}/dependencies
+
 **Request**:
+
 ```json
 {
   "dependency": "schmux-002"
@@ -248,6 +266,7 @@ func (s *State) GetTransitiveDependencies(workspaceID string) []string {
 ```
 
 **Response**:
+
 ```json
 {
   "status": "ok"
@@ -255,7 +274,9 @@ func (s *State) GetTransitiveDependencies(workspaceID string) []string {
 ```
 
 ### DELETE /api/workspaces/{id}/dependencies/{depId}
+
 **Response**:
+
 ```json
 {
   "status": "ok"

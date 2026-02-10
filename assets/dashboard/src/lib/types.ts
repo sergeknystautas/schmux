@@ -48,7 +48,7 @@ export interface SessionWithWorkspace extends SessionResponse {
 export interface RepoResponse {
   name: string;
   url: string;
-  default_branch?: string;  // Detected default branch (main, master, etc.), omitted if not yet detected
+  default_branch?: string; // Detected default branch (main, master, etc.), omitted if not yet detected
 }
 
 export interface RunTargetResponse {
@@ -60,9 +60,9 @@ export interface RunTargetResponse {
 
 export interface QuickLaunchPreset {
   name: string;
-  command?: string;        // shell command to run directly
-  target?: string;         // run target (claude, codex, model, etc.)
-  prompt?: string | null;  // prompt for the target
+  command?: string; // shell command to run directly
+  target?: string; // run target (claude, codex, model, etc.)
+  prompt?: string | null; // prompt for the target
 }
 
 export interface BuiltinQuickLaunchCookbook {
@@ -85,7 +85,7 @@ export type {
   PrReview,
   PrReviewUpdate,
   Notifications,
-  NotificationsUpdate
+  NotificationsUpdate,
 } from './types.generated';
 
 export interface SpawnRequest {
@@ -93,19 +93,19 @@ export interface SpawnRequest {
   branch: string;
   prompt: string;
   nickname: string;
-  targets?: Record<string, number>;  // target-based spawn
-  command?: string;                   // command-based spawn (alternative to targets)
+  targets?: Record<string, number>; // target-based spawn
+  command?: string; // command-based spawn (alternative to targets)
   workspace_id?: string;
   quick_launch_name?: string;
-  resume?: boolean;                   // resume mode: use agent's resume command
-  remote_flavor_id?: string;          // optional: spawn on remote host
+  resume?: boolean; // resume mode: use agent's resume command
+  remote_flavor_id?: string; // optional: spawn on remote host
 }
 
 export interface SpawnResult {
   session_id?: string;
   workspace_id?: string;
-  target?: string;   // for target-based spawns
-  command?: string;  // for command-based spawns
+  target?: string; // for target-based spawns
+  command?: string; // for command-based spawns
   prompt?: string;
   nickname?: string;
   error?: string;
@@ -194,9 +194,7 @@ export interface TerminalSize {
 
 export type ApiError = Error & { isConflict?: boolean };
 
-export type PendingNavigation =
-  | { type: 'session'; id: string }
-  | { type: 'workspace'; id: string };
+export type PendingNavigation = { type: 'session'; id: string } | { type: 'workspace'; id: string };
 
 export interface LinearSyncResponse {
   success: boolean;

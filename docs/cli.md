@@ -31,6 +31,7 @@ schmux help                               # Show help message
 ```
 
 **Common spawn patterns:**
+
 ```bash
 # In current workspace (auto-detected)
 schmux spawn -t claude -p "do a code review"
@@ -82,6 +83,7 @@ schmux status
 ```
 
 **Output:**
+
 ```
 schmux daemon is running
 Dashboard: http://localhost:7337
@@ -121,12 +123,14 @@ This command walks you through a step-by-step wizard:
 4. **Additional Settings** - Network access and session TTL
 
 **Features:**
+
 - Auto-generates TLS certificates via mkcert (stored in `~/.schmux/tls/`)
 - Shows exact values to copy when creating the GitHub OAuth App
 - Detects existing configuration and uses as defaults
 - Validates certificate hostname match before saving
 
 **Example session:**
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ GitHub Authentication Setup                                             │
@@ -147,6 +151,7 @@ Dashboard hostname: schmux.local
 ```
 
 **After completion:**
+
 1. Add hostname to `/etc/hosts` if needed
 2. Restart daemon: `./schmux stop && ./schmux start`
 3. Open `https://<hostname>:7337` in your browser
@@ -160,6 +165,7 @@ Dashboard hostname: schmux.local
 Spawn a new run target session.
 
 **Syntax:**
+
 ```bash
 schmux spawn -t <target> [flags]
 ```
@@ -211,6 +217,7 @@ schmux spawn -t glm-4.7 -p "fix bug" --json
 ```
 
 **Output:**
+
 ```
 Spawn results:
   [glm-4.7] Session: schmux-001-abc12345
@@ -225,6 +232,7 @@ Spawn results:
 List all sessions (grouped by workspace).
 
 **Syntax:**
+
 ```bash
 schmux list [--json]
 ```
@@ -240,6 +248,7 @@ schmux list --json
 ```
 
 **Output:**
+
 ```
 Sessions:
 
@@ -258,11 +267,13 @@ myproject-002 (feature-x) [ahead 3]
 Attach to a running session with tmux.
 
 **Syntax:**
+
 ```bash
 schmux attach <session-id>
 ```
 
 **Example:**
+
 ```bash
 schmux attach schmux-001-abc12345
 ```
@@ -276,16 +287,19 @@ This is equivalent to running `tmux attach -t <session-id>` directly, but uses t
 Dispose (delete) a session.
 
 **Syntax:**
+
 ```bash
 schmux dispose <session-id>
 ```
 
 **Example:**
+
 ```bash
 schmux dispose schmux-001-abc12345
 ```
 
 **Output:**
+
 ```
 Dispose session schmux-001-abc12345? [y/N] y
 Session schmux-001-abc12345 disposed.
@@ -300,6 +314,7 @@ Session schmux-001-abc12345 disposed.
 Refresh (reapply) overlay files to a workspace.
 
 **Syntax:**
+
 ```bash
 schmux refresh-overlay <workspace-id>
 ```
@@ -307,21 +322,25 @@ schmux refresh-overlay <workspace-id>
 Overlays allow you to copy local-only files (like `.env` files) to workspaces automatically. Files are stored in `~/.schmux/overlays/<repo-name>/` and are only copied if covered by `.gitignore`.
 
 **Example:**
+
 ```bash
 schmux refresh-overlay myproject-001
 ```
 
 **Output:**
+
 ```
 Refreshing overlay for workspace myproject-001 (myproject)
 Overlay refreshed successfully for workspace myproject-001
 ```
 
 **Errors:**
+
 - `workspace has active sessions: <id>` - Cannot refresh while sessions are running
 - `workspace not found: <id>` - Workspace ID doesn't exist
 
 **When to use:**
+
 - After updating files in an overlay directory
 - After adding new files to an overlay directory
 - After a workspace was created before overlays were set up
@@ -388,18 +407,17 @@ The CLI reads configuration from `~/.schmux/config.json`. See [targets.md](targe
 Run targets can be referenced by name in the `-t` flag. Detected tools and models are also valid targets.
 
 **Example config:**
+
 ```json
 {
   "workspace_path": "~/schmux-workspaces",
-  "repos": [
-    {"name": "schmux", "url": "git@github.com:user/schmux.git"}
-  ],
+  "repos": [{ "name": "schmux", "url": "git@github.com:user/schmux.git" }],
   "run_targets": [
-    {"name": "glm-4.7-cli", "type": "promptable", "command": "/path/to/glm-4.7"},
-    {"name": "zsh", "type": "command", "command": "zsh"}
+    { "name": "glm-4.7-cli", "type": "promptable", "command": "/path/to/glm-4.7" },
+    { "name": "zsh", "type": "command", "command": "zsh" }
   ],
   "quick_launch": [
-    {"name": "Review: Kimi", "target": "kimi-thinking", "prompt": "Please review these changes."}
+    { "name": "Review: Kimi", "target": "kimi-thinking", "prompt": "Please review these changes." }
   ]
 }
 ```
@@ -409,12 +427,14 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
 ## When to Use CLI vs Web
 
 **Use the CLI when:**
+
 - You're already in a terminal
 - You need quick, one-off operations
 - You're scripting or automating
 - You want JSON output for processing
 
 **Use the web dashboard when:**
+
 - You need to monitor many sessions at once
 - You want real-time terminal output
 - You're comparing results across agents

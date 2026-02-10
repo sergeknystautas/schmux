@@ -4,9 +4,11 @@
 Add an interactive CLI flow to configure GitHub auth and TLS without hand-editing JSON. The CLI writes to `config.json` and `secrets.json`, performs non-blocking validation, and allows saving even when warnings exist.
 
 **Command**
+
 - `schmux auth github`
 
 **Non-Goals (v1)**
+
 - Full OAuth verification flow.
 - Org/team allowlists.
 - Multiple providers.
@@ -16,7 +18,9 @@ Add an interactive CLI flow to configure GitHub auth and TLS without hand-editin
 ## Data Sources / Writes
 
 ### Config (`config.json`)
+
 Writes under `access_control`:
+
 - `network_access` (prompted; user can keep existing)
 - `auth.enabled` (set true)
 - `auth.provider` (`github`)
@@ -26,7 +30,9 @@ Writes under `access_control`:
 - `auth.tls.key_path`
 
 ### Secrets (`~/.schmux/secrets.json`)
+
 Writes:
+
 - `auth.github.client_id`
 - `auth.github.client_secret`
 
@@ -67,16 +73,19 @@ Must preserve existing model secrets and existing auth secrets for other provide
 ## Validation (Warnings Only)
 
 ### Required Presence Checks (warn only)
+
 - `public_base_url` present and parseable URL.
 - `tls.cert_path` and `tls.key_path` present.
 - `client_id` and `client_secret` present.
 
 ### TLS Checks (warn only)
+
 - Files exist and are readable.
 - Cert parses successfully.
 - Cert SAN (or CN fallback) matches `public_base_url` host.
 
 ### Connectivity Checks
+
 - None (no OAuth flow validation in v1).
 
 ---
@@ -84,12 +93,14 @@ Must preserve existing model secrets and existing auth secrets for other provide
 ## Web UI Validation (Advanced Config)
 
 Add non-blocking warnings during save:
+
 - Public base URL is missing/invalid or non-https (except localhost).
 - TLS cert/key missing or unreadable.
 - Cert SAN/CN does not match `public_base_url` host.
 - Missing GitHub `client_id`/`client_secret` in `secrets.json` (if UI can detect via API).
 
 Behavior:
+
 - Warnings are shown inline.
 - User can still save.
 - Save triggers `needs_restart`.

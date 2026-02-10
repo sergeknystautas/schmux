@@ -25,9 +25,11 @@ go test ./internal/tmux
 ## Unit Test Conventions
 
 ### Framework
+
 Standard Go `testing` package with `*_test.go` files and `TestXxx` naming.
 
 ### Table-Driven Unit Tests
+
 Prefer table-driven tests for parsing and state transitions:
 
 ```go
@@ -52,6 +54,7 @@ func TestParseStatus(t *testing.T) {
 ```
 
 ### Unit Test Data
+
 Test fixtures live in `testdata/` directories next to the code they test.
 
 Example: `internal/tmux/testdata/` contains tmux session captures for testing terminal parsing.
@@ -61,6 +64,7 @@ Example: `internal/tmux/testdata/` contains tmux session captures for testing te
 ## Package-Specific Notes
 
 ### `internal/tmux`
+
 Tests use captured tmux output stored in `testdata/`. To update captures:
 
 ```bash
@@ -71,9 +75,11 @@ tmux kill-session -t test-capture
 ```
 
 ### `internal/dashboard`
+
 Tests use a mock server. No external dependencies required.
 
 ### `internal/workspace`
+
 Tests use temporary directories for workspace operations. Cleaned up automatically.
 
 ---
@@ -85,6 +91,7 @@ E2E tests validate the full system: CLI → daemon → tmux → HTTP API.
 ### Running E2E Tests
 
 **In Docker (recommended):**
+
 ```bash
 # Build and run E2E tests in Docker
 docker build -f Dockerfile.e2e -t schmux-e2e .
@@ -95,6 +102,7 @@ docker run --rm -v $(pwd)/artifacts:/home/e2e/internal/e2e/testdata/failures sch
 ```
 
 **Locally (requires schmux binary in PATH):**
+
 ```bash
 # Build schmux first
 go build -o schmux ./cmd/schmux
@@ -114,6 +122,7 @@ go test -v ./internal/e2e
 ### E2E Test Isolation
 
 E2E tests run in Docker containers. The container provides all isolation:
+
 - Container's `~/.schmux/` is isolated from host
 - Container's port 7337 is isolated
 - Container's tmux server is isolated

@@ -16,7 +16,9 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<Record<string, LinearSyncResolveConflictStatePayload>>({});
+  const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<
+    Record<string, LinearSyncResolveConflictStatePayload>
+  >({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -57,7 +59,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
           setWorkspaces(data.workspaces);
           setLoading(false);
         } else if (data.type === 'linear_sync_resolve_conflict' && data.workspace_id) {
-          setLinearSyncResolveConflictStates(prev => ({
+          setLinearSyncResolveConflictStates((prev) => ({
             ...prev,
             [data.workspace_id]: data,
           }));
@@ -74,10 +76,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
 
       // Schedule reconnect with exponential backoff
       reconnectTimeoutRef.current = window.setTimeout(() => {
-        reconnectDelayRef.current = Math.min(
-          reconnectDelayRef.current * 2,
-          MAX_RECONNECT_DELAY_MS
-        );
+        reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_DELAY_MS);
         connect();
       }, reconnectDelayRef.current);
     };
@@ -104,7 +103,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   }, [connect]);
 
   const clearLinearSyncResolveConflictState = useCallback((workspaceId: string) => {
-    setLinearSyncResolveConflictStates(prev => {
+    setLinearSyncResolveConflictStates((prev) => {
       if (!prev[workspaceId]) return prev;
       const next = { ...prev };
       delete next[workspaceId];
@@ -112,5 +111,11 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     });
   }, []);
 
-  return { workspaces, connected, loading, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState };
+  return {
+    workspaces,
+    connected,
+    loading,
+    linearSyncResolveConflictStates,
+    clearLinearSyncResolveConflictState,
+  };
 }

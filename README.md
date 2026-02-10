@@ -57,6 +57,7 @@ To build from source instead, see [Contributing](CONTRIBUTING.md).
 When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn't exist, the daemon will guide you through creating a configuration:
 
 1. **Start schmux**:
+
    ```bash
    schmux start
    ```
@@ -73,18 +74,23 @@ When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn
 ### Common Issues
 
 **Problem**: `tmux is not installed or not accessible`
+
 - **Solution**: Install tmux (`brew install tmux` on macOS)
 
 **Problem**: `config file not found: ~/.schmux/config.json`
+
 - **Solution**: Run `schmux start` - it will offer to create a config for you
 
 **Problem**: `run target command is required for X`
+
 - **Solution**: Make sure each run target has `name`, `type`, and `command`
 
 **Problem**: Dashboard shows "Disconnected"
+
 - **Solution**: Check if daemon is running with `schmux status`
 
 **Problem**: I want local config files in each workspace
+
 - **Solution**: Use workspace overlays - see `docs/workspaces.md` for details
 
 ## Features
@@ -133,11 +139,13 @@ When you run `schmux start` for the first time, if `~/.schmux/config.json` doesn
 See [CHANGES.md](CHANGES.md) for what's new in each release.
 
 ### Known Limitations
+
 - Windows support via WSL only (no native Windows support)
 - Dashboard runs locally only (no remote access by default)
 - See [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) for non-goals
 
 ### Roadmap
+
 - v1.1: Enhanced NudgeNik capabilities
 - Future: Browser UI automation tests
 

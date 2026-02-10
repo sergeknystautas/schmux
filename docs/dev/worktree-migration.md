@@ -9,11 +9,13 @@ Replace full `git clone` per workspace with `git worktree` to reduce disk usage 
 ## Motivation
 
 Currently, each workspace is a full clone:
+
 - **Disk usage**: Each clone duplicates `.git/objects` (~50-200MB per repo)
 - **Creation time**: Network clone for every workspace
 - **Fetch overhead**: Each workspace fetches independently
 
 With worktrees:
+
 - **Disk usage**: One worktree base + lightweight worktrees (working files only)
 - **Creation time**: Instant local operation
 - **Fetch efficiency**: One fetch updates all worktrees
@@ -536,26 +538,27 @@ Call on daemon startup for each worktree base.
 ### Worktree base deletion
 
 If `~/.schmux/repos/myrepo.git` is deleted while worktrees exist:
+
 - Worktrees become invalid (`.git` file points to missing path)
 - Detection: Check if resolved worktree base path exists
 - Recovery: Log error, allow re-creating worktree base on next workspace create
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `internal/state/state.go` | Add `BaseRepo` struct, `BaseRepos` field, accessors |
-| `internal/config/config.go` | Add `BaseReposPath` field and `GetWorktreeBasePath()` |
-| `internal/workspace/manager.go` | Major changes: worktree operations, helper functions |
+| File                            | Change                                                |
+| ------------------------------- | ----------------------------------------------------- |
+| `internal/state/state.go`       | Add `BaseRepo` struct, `BaseRepos` field, accessors   |
+| `internal/config/config.go`     | Add `BaseReposPath` field and `GetWorktreeBasePath()` |
+| `internal/workspace/manager.go` | Major changes: worktree operations, helper functions  |
 
 ## Files Unchanged
 
-| File | Reason |
-|------|--------|
-| `internal/session/manager.go` | Sessions don't care about git internals |
-| `internal/dashboard/handlers.go` | API unchanged |
-| `assets/dashboard/**` | Workspace model unchanged from UI perspective |
-| `cmd/schmux/**` | No new CLI commands needed |
+| File                             | Reason                                        |
+| -------------------------------- | --------------------------------------------- |
+| `internal/session/manager.go`    | Sessions don't care about git internals       |
+| `internal/dashboard/handlers.go` | API unchanged                                 |
+| `assets/dashboard/**`            | Workspace model unchanged from UI perspective |
+| `cmd/schmux/**`                  | No new CLI commands needed                    |
 
 ## Testing
 

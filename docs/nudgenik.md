@@ -1,6 +1,6 @@
 # NudgeNik
 
-**Problem:** Coding agents and LLMs are inherently powerful *because* they aren't binary and can operate in ambiguous spaces. But most orchestration tools are attempting to squash that ambiguity rather than recognize that software development is ambiguous — it's messy, requires judgment, and isn't reducible to binary pass/fail metrics.
+**Problem:** Coding agents and LLMs are inherently powerful _because_ they aren't binary and can operate in ambiguous spaces. But most orchestration tools are attempting to squash that ambiguity rather than recognize that software development is ambiguous — it's messy, requires judgment, and isn't reducible to binary pass/fail metrics.
 
 ---
 
@@ -18,6 +18,7 @@ NudgeNik summarizes the agent's state into one of:
 - **Done**: Completed all work
 
 This is valuable right now for:
+
 - Triage: Know which sessions need your attention first
 - Quick assessment: Scan many sessions at a glance
 - Focus allocation: Don't waste time on agents that are still working
@@ -34,11 +35,11 @@ NudgeNik can be augmented with direct agent signaling for cheaper and more relia
 
 ### How They Work Together
 
-| Scenario | What Happens |
-|----------|--------------|
+| Scenario                 | What Happens                                          |
+| ------------------------ | ----------------------------------------------------- |
 | Agent supports signaling | Direct signals used; NudgeNik skipped (saves compute) |
-| Agent doesn't signal | NudgeNik analyzes output as before |
-| No signals for 5+ min | NudgeNik kicks in as fallback |
+| Agent doesn't signal     | NudgeNik analyzes output as before                    |
+| No signals for 5+ min    | NudgeNik kicks in as fallback                         |
 
 ### API Distinction
 
@@ -66,6 +67,7 @@ Did they actually run the tests they claimed? Do they need integration testing? 
 ### Ask (Almost Rhetorical) Questions
 
 When agents are stuck or looping on a problem, NudgeNik could prompt:
+
 - "This agent has retried the same approach 5 times. Try a different model?"
 - "Tests are failing but the agent claims success. Review needed."
 
@@ -78,6 +80,7 @@ When agents are stuck or looping on a problem, NudgeNik could prompt:
 ### Seek Other Expertise
 
 When progress has stalled:
+
 - Suggest trying a different model to think differently
 - Flag that human intervention is needed
 - Recommend bringing in a specialist agent

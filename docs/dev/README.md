@@ -112,6 +112,7 @@ Output: `schmux daemon started`
 ```
 
 Output:
+
 ```
 schmux daemon is running
 Dashboard: http://localhost:7337
@@ -122,6 +123,7 @@ Dashboard: http://localhost:7337
 Open http://localhost:7337 in your browser.
 
 From there you can:
+
 - **Spawn sessions** - Select repo, enter branch/prompt, choose agents
 - **View sessions** - See all running sessions with attach commands
 - **View terminal** - Watch real-time output from each session
@@ -180,6 +182,7 @@ schmux/
 ### Making Changes
 
 1. **Create a branch** for your work:
+
    ```bash
    git checkout -b feature/my-feature
    ```
@@ -187,16 +190,19 @@ schmux/
 2. **Make your changes** and update tests
 
 3. **Run tests** to ensure nothing breaks:
+
    ```bash
    go test ./...
    ```
 
 4. **Compile-check** to verify everything builds:
+
    ```bash
    go build ./...
    ```
 
 5. **Build the runnable binary** (so you’re testing the code you just changed):
+
    ```bash
    # Produces ./schmux in the repo root
    go build ./cmd/schmux
@@ -206,6 +212,7 @@ schmux/
    ```
 
 6. **Test manually** if applicable:
+
    ```bash
    # Start daemon
    ./schmux start
@@ -218,6 +225,7 @@ schmux/
    ```
 
 7. **Commit** your changes:
+
    ```bash
    git add -A
    git commit -m "Description of changes"
@@ -230,6 +238,7 @@ schmux/
 ### Config File Location
 
 `~/.schmux/config.json` - Created manually, contains:
+
 - **workspace_path**: Directory for cloned repositories
 - **repos**: List of git repositories to work with
 - **run_targets**: Available AI agents and commands (name + type + command)
@@ -237,6 +246,7 @@ schmux/
 ### State File Location
 
 `~/.schmux/state.json` - Auto-generated, contains:
+
 - **workspaces**: Managed workspace directories
 - **sessions**: Active session information
 
@@ -244,10 +254,10 @@ schmux/
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `schmux start` | Start daemon in background |
-| `schmux stop` | Stop daemon |
+| Command         | Description                          |
+| --------------- | ------------------------------------ |
+| `schmux start`  | Start daemon in background           |
+| `schmux stop`   | Stop daemon                          |
 | `schmux status` | Show daemon status and dashboard URL |
 
 ## Web Dashboard
@@ -265,11 +275,13 @@ schmux/
 When auth is enabled, schmux serves HTTPS directly using the configured certificate paths.
 
 **Recommended setup** - Use the interactive wizard:
+
 ```bash
 ./schmux auth github
 ```
 
 This walks you through:
+
 1. Choosing a hostname (e.g., `schmux.local`)
 2. Auto-generating TLS certificates via mkcert (or providing your own)
 3. Creating a GitHub OAuth App with the exact values to copy
@@ -278,6 +290,7 @@ This walks you through:
 Certificates are stored in `~/.schmux/tls/` and config is written to `~/.schmux/config.json` and `~/.schmux/secrets.json`.
 
 **Manual setup** (if needed):
+
 ```bash
 # Install mkcert and local CA once
 brew install mkcert
@@ -288,6 +301,7 @@ mkcert -cert-file ~/.schmux/tls/schmux.local.pem -key-file ~/.schmux/tls/schmux.
 ```
 
 Then configure in `config.json`:
+
 ```json
 {
   "network": {
@@ -308,6 +322,7 @@ Then configure in `config.json`:
 ```
 
 And GitHub credentials in `secrets.json`:
+
 ```json
 {
   "auth": {
@@ -336,11 +351,13 @@ netstat -tulpn | grep 7337  # Linux
 ### Tmux Session Issues
 
 List all schmux sessions:
+
 ```bash
 tmux list-sessions | grep schmux
 ```
 
 Kill a stuck session:
+
 ```bash
 tmux kill-session -t <session-name>
 ```
@@ -348,6 +365,7 @@ tmux kill-session -t <session-name>
 ### Daemon Won't Stop
 
 Force kill:
+
 ```bash
 # Check PID
 cat ~/.schmux/daemon.pid
@@ -365,6 +383,7 @@ rm ~/.schmux/daemon.pid
 ### Clean State
 
 To start fresh:
+
 ```bash
 # Stop daemon first
 ./schmux stop
@@ -392,6 +411,7 @@ go test ./...                 # Run all tests
 **Why?** Inline comments provide context that AI agents and readers need directly alongside the command, which is especially valuable when commands are copied or referenced programmatically. The comments are valid shell syntax and don't break execution.
 
 This convention is used by other high-visibility projects like:
+
 - [openai/openai-codex](https://github.com/openai/openai-codex)
 - [bead-community/bead](https://github.com/bead-community/bead)
 

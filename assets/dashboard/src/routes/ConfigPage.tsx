@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getConfig, updateConfig, configureModelSecrets, removeModelSecrets, getOverlays, getBuiltinQuickLaunch, getAuthSecretsStatus, saveAuthSecrets, getErrorMessage } from '../lib/api';
+import {
+  getConfig,
+  updateConfig,
+  configureModelSecrets,
+  removeModelSecrets,
+  getOverlays,
+  getBuiltinQuickLaunch,
+  getAuthSecretsStatus,
+  saveAuthSecrets,
+  getErrorMessage,
+} from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -33,9 +43,9 @@ const slugToStep = (slug: string | null) => {
 
 // Model aliases for canonical ID normalization
 const modelAliases: Record<string, string> = {
-  'opus': 'claude-opus',
-  'sonnet': 'claude-sonnet',
-  'haiku': 'claude-haiku',
+  opus: 'claude-opus',
+  sonnet: 'claude-sonnet',
+  haiku: 'claude-haiku',
   'minimax-m2.1': 'minimax',
 };
 
@@ -138,7 +148,9 @@ export default function ConfigPage() {
   const [detectedTargets, setDetectedTargets] = useState<RunTargetResponse[]>([]);
   const [quickLaunch, setQuickLaunch] = useState<QuickLaunchPreset[]>([]);
   const [builtinQuickLaunch, setBuiltinQuickLaunch] = useState<BuiltinQuickLaunchCookbook[]>([]); // Built-in quick launch presets
-  const [externalDiffCommands, setExternalDiffCommands] = useState<{ name: string; command: string }[]>([]);
+  const [externalDiffCommands, setExternalDiffCommands] = useState<
+    { name: string; command: string }[]
+  >([]);
   const [externalDiffCleanupMinutes, setExternalDiffCleanupMinutes] = useState(60);
   const [models, setModels] = useState<Model[]>([]);
   const [nudgenikTarget, setNudgenikTarget] = useState('');
@@ -285,16 +297,26 @@ export default function ConfigPage() {
   const [newQuickLaunchName, setNewQuickLaunchName] = useState('');
   const [newQuickLaunchTarget, setNewQuickLaunchTarget] = useState('');
   const [newQuickLaunchPrompt, setNewQuickLaunchPrompt] = useState('');
-  const [selectedCookbookTemplate, setSelectedCookbookTemplate] = useState<BuiltinQuickLaunchCookbook | null>(null); // Track which cookbook template is being added
+  const [selectedCookbookTemplate, setSelectedCookbookTemplate] =
+    useState<BuiltinQuickLaunchCookbook | null>(null); // Track which cookbook template is being added
 
   // Validation state per step
-  const [stepErrors, setStepErrors] = useState<Record<number, string | null>>({ 1: null, 2: null, 3: null, 4: null, 5: null });
+  const [stepErrors, setStepErrors] = useState<Record<number, string | null>>({
+    1: null,
+    2: null,
+    3: null,
+    4: null,
+    5: null,
+  });
 
   const localAuthWarnings: string[] = [];
   if (authEnabled) {
     if (!authPublicBaseURL.trim()) {
       localAuthWarnings.push('Public base URL is required when auth is enabled.');
-    } else if (!authPublicBaseURL.startsWith('https://') && !authPublicBaseURL.startsWith('http://localhost')) {
+    } else if (
+      !authPublicBaseURL.startsWith('https://') &&
+      !authPublicBaseURL.startsWith('http://localhost')
+    ) {
       localAuthWarnings.push('Public base URL must be https (http://localhost allowed).');
     }
     if (!authTlsCertPath.trim()) {
@@ -326,14 +348,16 @@ export default function ConfigPage() {
         setTerminalBootstrapLines(String(data.terminal?.bootstrap_lines || 20000));
         setRepos(data.repos || []);
 
-        const detectedItems = (data.run_targets || []).filter(t => t.source === 'detected');
+        const detectedItems = (data.run_targets || []).filter((t) => t.source === 'detected');
         const modelBaseTools = new Set((data.models || []).map((model) => model.base_tool));
-        const filteredDetectedItems = detectedItems.filter((target) => !modelBaseTools.has(target.name));
+        const filteredDetectedItems = detectedItems.filter(
+          (target) => !modelBaseTools.has(target.name)
+        );
         const promptableItems = (data.run_targets || []).filter(
-          t => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'model'
+          (t) => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'model'
         );
         const commandItems = (data.run_targets || []).filter(
-          t => t.type === 'command' && t.source !== 'detected' && t.source !== 'model'
+          (t) => t.type === 'command' && t.source !== 'detected' && t.source !== 'model'
         );
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
@@ -383,7 +407,10 @@ export default function ConfigPage() {
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
             externalDiffCommands: data.external_diff_commands || [],
-            externalDiffCleanupMinutes: Math.max(1, (data.external_diff_cleanup_after_ms || 3600000) / 60000),
+            externalDiffCleanupMinutes: Math.max(
+              1,
+              (data.external_diff_cleanup_after_ms || 3600000) / 60000
+            ),
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
@@ -434,7 +461,9 @@ export default function ConfigPage() {
     };
 
     load();
-    return () => { active = false };
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Load overlays data
@@ -457,7 +486,9 @@ export default function ConfigPage() {
     };
 
     loadOverlays();
-    return () => { active = false };
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Load built-in quick launch templates
@@ -478,7 +509,9 @@ export default function ConfigPage() {
     };
 
     loadBuiltinQuickLaunch();
-    return () => { active = false };
+    return () => {
+      active = false;
+    };
   }, []);
 
   const reloadModels = async () => {
@@ -515,7 +548,7 @@ export default function ConfigPage() {
       }
     }
 
-    setStepErrors(prev => ({ ...prev, [step]: error }));
+    setStepErrors((prev) => ({ ...prev, [step]: error }));
     return !error;
   };
 
@@ -536,19 +569,27 @@ export default function ConfigPage() {
       const seedLines = parseInt(terminalSeedLines);
 
       const runTargets = [
-        ...promptableTargets.map(t => ({ ...t, type: 'promptable' })),
-        ...commandTargets.map(t => ({ ...t, type: 'command' }))
+        ...promptableTargets.map((t) => ({ ...t, type: 'promptable' })),
+        ...commandTargets.map((t) => ({ ...t, type: 'command' })),
       ];
 
       const updateRequest: ConfigUpdateRequest = {
         workspace_path: workspacePath,
         source_code_management: sourceCodeManagement,
-        terminal: { width, height, seed_lines: seedLines, bootstrap_lines: parseInt(terminalBootstrapLines) },
+        terminal: {
+          width,
+          height,
+          seed_lines: seedLines,
+          bootstrap_lines: parseInt(terminalBootstrapLines),
+        },
         repos: repos,
         run_targets: runTargets,
         quick_launch: quickLaunch,
         external_diff_commands: externalDiffCommands,
-        external_diff_cleanup_after_ms: Math.max(60000, Math.round(externalDiffCleanupMinutes * 60000)),
+        external_diff_cleanup_after_ms: Math.max(
+          60000,
+          Math.round(externalDiffCleanupMinutes * 60000)
+        ),
         nudgenik: {
           target: nudgenikTarget || '',
           viewed_buffer_ms: viewedBuffer,
@@ -687,7 +728,7 @@ export default function ConfigPage() {
       toastError('Repo URL is required');
       return;
     }
-    if (repos.some(r => r.name === newRepoName)) {
+    if (repos.some((r) => r.name === newRepoName)) {
       toastError('Repo name already exists');
       return;
     }
@@ -699,7 +740,7 @@ export default function ConfigPage() {
   const removeRepo = async (name) => {
     const confirmed = await confirm('Remove repo?', `Remove "${name}" from the config?`);
     if (confirmed) {
-      setRepos(repos.filter(r => r.name !== name));
+      setRepos(repos.filter((r) => r.name !== name));
     }
   };
 
@@ -712,49 +753,78 @@ export default function ConfigPage() {
       toastError('Run target command is required');
       return;
     }
-    const nameExists = [...promptableTargets, ...commandTargets, ...detectedTargets]
-      .some(t => t.name === newPromptableName);
+    const nameExists = [...promptableTargets, ...commandTargets, ...detectedTargets].some(
+      (t) => t.name === newPromptableName
+    );
     if (nameExists) {
       toastError('Run target name already exists');
       return;
     }
-    setPromptableTargets([...promptableTargets, { name: newPromptableName, command: newPromptableCommand, type: 'promptable', source: 'user' }]);
+    setPromptableTargets([
+      ...promptableTargets,
+      {
+        name: newPromptableName,
+        command: newPromptableCommand,
+        type: 'promptable',
+        source: 'user',
+      },
+    ]);
     setNewPromptableName('');
     setNewPromptableCommand('');
   };
 
   const checkTargetUsage = (targetName) => {
     // Normalize to canonical model ID if targetName is a model ID or alias
-    let canonicalName = targetName
-    const model = models.find(m => m.id === targetName || (modelAliases[m.id] === targetName))
+    let canonicalName = targetName;
+    const model = models.find((m) => m.id === targetName || modelAliases[m.id] === targetName);
     if (model) {
-      canonicalName = model.id
+      canonicalName = model.id;
     }
 
-    const inQuickLaunch = quickLaunch.some((item) => item.target === canonicalName || (modelAliases[item.target] === canonicalName));
-    const inNudgenik = nudgenikTarget && (nudgenikTarget === canonicalName || (modelAliases[nudgenikTarget] === canonicalName));
-    const inBranchSuggest = branchSuggestTarget && (branchSuggestTarget === canonicalName || (modelAliases[branchSuggestTarget] === canonicalName));
-    const inConflictResolve = conflictResolveTarget && (conflictResolveTarget === canonicalName || (modelAliases[conflictResolveTarget] === canonicalName));
-    const inPrReview = prReviewTarget && (prReviewTarget === canonicalName || (modelAliases[prReviewTarget] === canonicalName));
+    const inQuickLaunch = quickLaunch.some(
+      (item) => item.target === canonicalName || modelAliases[item.target] === canonicalName
+    );
+    const inNudgenik =
+      nudgenikTarget &&
+      (nudgenikTarget === canonicalName || modelAliases[nudgenikTarget] === canonicalName);
+    const inBranchSuggest =
+      branchSuggestTarget &&
+      (branchSuggestTarget === canonicalName ||
+        modelAliases[branchSuggestTarget] === canonicalName);
+    const inConflictResolve =
+      conflictResolveTarget &&
+      (conflictResolveTarget === canonicalName ||
+        modelAliases[conflictResolveTarget] === canonicalName);
+    const inPrReview =
+      prReviewTarget &&
+      (prReviewTarget === canonicalName || modelAliases[prReviewTarget] === canonicalName);
     return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve, inPrReview };
   };
 
   const removePromptableTarget = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve || usage.inPrReview) {
+    if (
+      usage.inQuickLaunch ||
+      usage.inNudgenik ||
+      usage.inBranchSuggest ||
+      usage.inConflictResolve ||
+      usage.inPrReview
+    ) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
         usage.inBranchSuggest ? 'branch suggest target' : null,
         usage.inConflictResolve ? 'conflict resolve target' : null,
-        usage.inPrReview ? 'PR review target' : null
-      ].filter(Boolean).join(' and ');
+        usage.inPrReview ? 'PR review target' : null,
+      ]
+        .filter(Boolean)
+        .join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
     }
     const confirmed = await confirm('Remove run target?', `Remove "${name}" from the config?`);
     if (confirmed) {
-      setPromptableTargets(promptableTargets.filter(t => t.name !== name));
+      setPromptableTargets(promptableTargets.filter((t) => t.name !== name));
     }
   };
 
@@ -767,33 +837,45 @@ export default function ConfigPage() {
       toastError('Command is required');
       return;
     }
-    const nameExists = [...promptableTargets, ...commandTargets, ...detectedTargets]
-      .some(t => t.name === newCommandName);
+    const nameExists = [...promptableTargets, ...commandTargets, ...detectedTargets].some(
+      (t) => t.name === newCommandName
+    );
     if (nameExists) {
       toastError('Run target name already exists');
       return;
     }
-    setCommandTargets([...commandTargets, { name: newCommandName, command: newCommandCommand, type: 'command', source: 'user' }]);
+    setCommandTargets([
+      ...commandTargets,
+      { name: newCommandName, command: newCommandCommand, type: 'command', source: 'user' },
+    ]);
     setNewCommandName('');
     setNewCommandCommand('');
   };
 
   const removeCommand = async (name) => {
     const usage = checkTargetUsage(name);
-    if (usage.inQuickLaunch || usage.inNudgenik || usage.inBranchSuggest || usage.inConflictResolve || usage.inPrReview) {
+    if (
+      usage.inQuickLaunch ||
+      usage.inNudgenik ||
+      usage.inBranchSuggest ||
+      usage.inConflictResolve ||
+      usage.inPrReview
+    ) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
         usage.inNudgenik ? 'nudgenik target' : null,
         usage.inBranchSuggest ? 'branch suggest target' : null,
         usage.inConflictResolve ? 'conflict resolve target' : null,
-        usage.inPrReview ? 'PR review target' : null
-      ].filter(Boolean).join(' and ');
+        usage.inPrReview ? 'PR review target' : null,
+      ]
+        .filter(Boolean)
+        .join(' and ');
       toastError(`Cannot remove "${name}" while used by ${reasons}.`);
       return;
     }
     const confirmed = await confirm('Remove command?', `Remove "${name}" from the config?`);
     if (confirmed) {
-      setCommandTargets(commandTargets.filter(c => c.name !== name));
+      setCommandTargets(commandTargets.filter((c) => c.name !== name));
     }
   };
 
@@ -804,7 +886,7 @@ export default function ConfigPage() {
       return;
     }
     const name = newQuickLaunchName.trim() || targetName;
-    if (quickLaunch.some(q => q.name === name)) {
+    if (quickLaunch.some((q) => q.name === name)) {
       toastError('Quick launch name already exists');
       return;
     }
@@ -832,7 +914,7 @@ export default function ConfigPage() {
   const removeQuickLaunch = async (name) => {
     const confirmed = await confirm('Remove quick launch?', `Remove "${name}" from the config?`);
     if (confirmed) {
-      setQuickLaunch(quickLaunch.filter(q => q.name !== name));
+      setQuickLaunch(quickLaunch.filter((q) => q.name !== name));
     }
   };
 
@@ -843,12 +925,12 @@ export default function ConfigPage() {
     const newPath = await prompt('Edit Workspace Directory', {
       defaultValue: workspacePath,
       placeholder: '~/schmux-workspaces',
-      confirmText: 'Save'
+      confirmText: 'Save',
     });
     if (newPath !== null) {
       setWorkspacePath(newPath);
       if (newPath.trim()) {
-        setStepErrors(prev => ({ ...prev, 1: null }));
+        setStepErrors((prev) => ({ ...prev, 1: null }));
       }
     }
   };
@@ -859,15 +941,17 @@ export default function ConfigPage() {
       if (usage.inQuickLaunch || usage.inNudgenik) {
         const reasons = [
           usage.inQuickLaunch ? 'quick launch item' : null,
-          usage.inNudgenik ? 'nudgenik target' : null
-        ].filter(Boolean).join(' and ');
+          usage.inNudgenik ? 'nudgenik target' : null,
+        ]
+          .filter(Boolean)
+          .join(' and ');
         toastError(`Cannot remove model "${model.display_name}" while used by ${reasons}.`);
         return;
       }
       const confirmed = await confirm(`Remove ${model.display_name}?`, {
         confirmText: 'Remove',
         danger: true,
-        detailedMessage: 'Remove stored secrets for this model?'
+        detailedMessage: 'Remove stored secrets for this model?',
       });
       if (!confirmed) return;
       try {
@@ -888,7 +972,7 @@ export default function ConfigPage() {
     const value = await prompt(title, {
       placeholder: secretKey,
       confirmText: mode === 'add' ? 'Add' : 'Update',
-      password: true
+      password: true,
     });
     if (value === null) return;
     if (!value.trim()) {
@@ -919,18 +1003,20 @@ export default function ConfigPage() {
     const { target, command } = runTargetEditModal;
 
     if (!command.trim()) {
-      setRunTargetEditModal(current => current ? { ...current, error: 'Command is required' } : null);
+      setRunTargetEditModal((current) =>
+        current ? { ...current, error: 'Command is required' } : null
+      );
       return;
     }
 
     if (target.type === 'promptable') {
-      setPromptableTargets(promptableTargets.map(t =>
-        t.name === target.name ? { ...t, command } : t
-      ));
+      setPromptableTargets(
+        promptableTargets.map((t) => (t.name === target.name ? { ...t, command } : t))
+      );
     } else {
-      setCommandTargets(commandTargets.map(t =>
-        t.name === target.name ? { ...t, command } : t
-      ));
+      setCommandTargets(
+        commandTargets.map((t) => (t.name === target.name ? { ...t, command } : t))
+      );
     }
     closeRunTargetEditModal();
   };
@@ -941,7 +1027,7 @@ export default function ConfigPage() {
     // For command targets, prefill with the underlying target's command
     let initialPrompt = item.prompt || '';
     if (isCommandTarget) {
-      const commandTarget = commandTargets.find(t => t.name === item.target);
+      const commandTarget = commandTargets.find((t) => t.name === item.target);
       if (commandTarget) {
         initialPrompt = commandTarget.command;
       }
@@ -950,7 +1036,7 @@ export default function ConfigPage() {
       item,
       prompt: initialPrompt,
       isCommandTarget,
-      error: ''
+      error: '',
     });
   };
 
@@ -965,27 +1051,31 @@ export default function ConfigPage() {
 
     const isPromptable = promptableTargetNames.has(target);
     if (isPromptable && !prompt.trim()) {
-      setQuickLaunchEditModal(current => current ? { ...current, error: 'Prompt is required for promptable targets' } : null);
+      setQuickLaunchEditModal((current) =>
+        current ? { ...current, error: 'Prompt is required for promptable targets' } : null
+      );
       return;
     }
 
     // For command target items, require non-empty command and update the underlying run target
     if (isCommandTarget) {
       if (!prompt.trim()) {
-        setQuickLaunchEditModal(current => current ? { ...current, error: 'Command is required for command targets' } : null);
+        setQuickLaunchEditModal((current) =>
+          current ? { ...current, error: 'Command is required for command targets' } : null
+        );
         return;
       }
-      setCommandTargets(commandTargets.map(t =>
-        t.name === target ? { ...t, command: prompt } : t
-      ));
+      setCommandTargets(
+        commandTargets.map((t) => (t.name === target ? { ...t, command: prompt } : t))
+      );
     }
 
     // Update the quick launch item
-    setQuickLaunch(quickLaunch.map(p =>
-      p.name === item.name
-        ? { name: item.name, target, prompt: isPromptable ? prompt : null }
-        : p
-    ));
+    setQuickLaunch(
+      quickLaunch.map((p) =>
+        p.name === item.name ? { name: item.name, target, prompt: isPromptable ? prompt : null } : p
+      )
+    );
     closeQuickLaunchEditModal();
   };
 
@@ -1009,7 +1099,9 @@ export default function ConfigPage() {
     const { clientId, clientSecret } = authSecretsModal;
 
     if (!clientId.trim() || !clientSecret.trim()) {
-      setAuthSecretsModal(current => current ? { ...current, error: 'Both client ID and client secret are required' } : null);
+      setAuthSecretsModal((current) =>
+        current ? { ...current, error: 'Both client ID and client secret are required' } : null
+      );
       return;
     }
 
@@ -1021,21 +1113,27 @@ export default function ConfigPage() {
       closeAuthSecretsModal();
       success('GitHub credentials saved');
     } catch (err) {
-      setAuthSecretsModal(current => current ? { ...current, error: getErrorMessage(err, 'Failed to save credentials') } : null);
+      setAuthSecretsModal((current) =>
+        current ? { ...current, error: getErrorMessage(err, 'Failed to save credentials') } : null
+      );
     }
   };
 
   const promptableTargetNames = new Set([
     ...detectedTargets.map((target) => target.name),
     ...promptableTargets.map((target) => target.name),
-    ...models.filter((model) => model.configured).map((model) => model.id)
+    ...models.filter((model) => model.configured).map((model) => model.id),
   ]);
 
   const commandTargetNames = new Set(commandTargets.map((target) => target.name));
-  const nudgenikTargetMissing = nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
-  const branchSuggestTargetMissing = branchSuggestTarget.trim() !== '' && !promptableTargetNames.has(branchSuggestTarget.trim());
-  const conflictResolveTargetMissing = conflictResolveTarget.trim() !== '' && !promptableTargetNames.has(conflictResolveTarget.trim());
-  const prReviewTargetMissing = prReviewTarget.trim() !== '' && !promptableTargetNames.has(prReviewTarget.trim());
+  const nudgenikTargetMissing =
+    nudgenikTarget.trim() !== '' && !promptableTargetNames.has(nudgenikTarget.trim());
+  const branchSuggestTargetMissing =
+    branchSuggestTarget.trim() !== '' && !promptableTargetNames.has(branchSuggestTarget.trim());
+  const conflictResolveTargetMissing =
+    conflictResolveTarget.trim() !== '' && !promptableTargetNames.has(conflictResolveTarget.trim());
+  const prReviewTargetMissing =
+    prReviewTarget.trim() !== '' && !promptableTargetNames.has(prReviewTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -1048,7 +1146,7 @@ export default function ConfigPage() {
     2: true, // Run targets (now includes models) are optional
     3: true, // Quick launch is optional
     4: true, // External diff is optional
-    5: true // Advanced step is always valid (has defaults)
+    5: true, // Advanced step is always valid (has defaults)
   };
 
   if (loading) {
@@ -1138,32 +1236,33 @@ export default function ConfigPage() {
       {apiNeedsRestart && (
         <div className="banner banner--warning" style={{ marginBottom: 'var(--spacing-lg)' }}>
           <p style={{ margin: 0 }}>
-            <strong>Restart required:</strong> Network access setting has changed. Restart the daemon for this setting to take effect: <code>./schmux stop && ./schmux start</code>
+            <strong>Restart required:</strong> Network access setting has changed. Restart the
+            daemon for this setting to take effect: <code>./schmux stop && ./schmux start</code>
           </p>
         </div>
       )}
 
       {/* Steps navigation for first-run wizard only */}
       {isFirstRun && (
-      <div className="wizard__steps">
-        {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
-          const isCompleted = isFirstRun && stepNum < currentStep;
-          const isCurrent = stepNum === currentStep;
-          const stepLabel = TABS[stepNum - 1];
+        <div className="wizard__steps">
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((stepNum) => {
+            const isCompleted = isFirstRun && stepNum < currentStep;
+            const isCurrent = stepNum === currentStep;
+            const stepLabel = TABS[stepNum - 1];
 
-          return (
-            <div
-              key={stepNum}
-              className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
-              data-step={stepNum}
-              onClick={() => setCurrentStep(stepNum)}
-              style={{ cursor: 'pointer' }}
-            >
-              {stepLabel}
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <div
+                key={stepNum}
+                className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''} ${isCompleted ? 'wizard__step--completed' : ''}`}
+                data-step={stepNum}
+                onClick={() => setCurrentStep(stepNum)}
+                style={{ cursor: 'pointer' }}
+              >
+                {stepLabel}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {/* Wizard content */}
@@ -1173,8 +1272,9 @@ export default function ConfigPage() {
             <div className="wizard-step-content" data-step="1">
               <h2 className="wizard-step-content__title">Workspace Directory</h2>
               <p className="wizard-step-content__description">
-                This is where schmux will store cloned repositories. Each session gets its own workspace directory here.
-                Only affects new sessions - existing workspaces keep their current location.
+                This is where schmux will store cloned repositories. Each session gets its own
+                workspace directory here. Only affects new sessions - existing workspaces keep their
+                current location.
               </p>
 
               <div className="form-group">
@@ -1187,11 +1287,7 @@ export default function ConfigPage() {
                     readOnly
                     style={{ background: 'var(--color-surface-alt)', flex: 1 }}
                   />
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={handleEditWorkspacePath}
-                  >
+                  <button type="button" className="btn" onClick={handleEditWorkspacePath}>
                     Edit
                   </button>
                 </div>
@@ -1213,7 +1309,7 @@ export default function ConfigPage() {
                 <div className="item-list">
                   {repos.map((repo) => {
                     // Find overlay info for this repo
-                    const overlay = overlays.find(o => o.repo_name === repo.name);
+                    const overlay = overlays.find((o) => o.repo_name === repo.name);
                     const overlayPath = overlay?.path || `~/.schmux/overlays/${repo.name}`;
                     const fileCount = overlay?.exists ? overlay.file_count : 0;
 
@@ -1222,9 +1318,15 @@ export default function ConfigPage() {
                         <div className="item-list__item-primary">
                           <span className="item-list__item-name">{repo.name}</span>
                           <span className="item-list__item-detail">{repo.url}</span>
-                          <span className="item-list__item-detail" style={{ fontSize: '0.85em', opacity: 0.8 }}>
-                            Overlay: {overlayPath} {overlay?.exists ? (
-                              <span style={{ color: 'var(--color-success)' }}>({fileCount} files)</span>
+                          <span
+                            className="item-list__item-detail"
+                            style={{ fontSize: '0.85em', opacity: 0.8 }}
+                          >
+                            Overlay: {overlayPath}{' '}
+                            {overlay?.exists ? (
+                              <span style={{ color: 'var(--color-success)' }}>
+                                ({fileCount} files)
+                              </span>
                             ) : (
                               <span style={{ color: 'var(--color-text-muted)' }}>(empty)</span>
                             )}
@@ -1261,7 +1363,9 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addRepo()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm btn--primary" onClick={addRepo}>Add</button>
+                <button type="button" className="btn btn--sm btn--primary" onClick={addRepo}>
+                  Add
+                </button>
               </div>
 
               <h3>Source Code Management</h3>
@@ -1280,20 +1384,22 @@ export default function ConfigPage() {
                 <p className="form-group__hint">
                   {sourceCodeManagement === 'git-worktree' ? (
                     <>
-                      <strong>git worktree:</strong> Efficient disk usage, shares repo history across workspaces.
-                      Each branch can only be used by one workspace at a time.
+                      <strong>git worktree:</strong> Efficient disk usage, shares repo history
+                      across workspaces. Each branch can only be used by one workspace at a time.
                     </>
                   ) : (
                     <>
-                      <strong>git:</strong> Independent clones for each workspace.
-                      Multiple workspaces can use the same branch.
+                      <strong>git:</strong> Independent clones for each workspace. Multiple
+                      workspaces can use the same branch.
                     </>
                   )}
                 </p>
               </div>
 
               {stepErrors[1] && (
-                <p className="form-group__error" style={{ marginTop: 'var(--spacing-md)' }}>{stepErrors[1]}</p>
+                <p className="form-group__error" style={{ marginTop: 'var(--spacing-md)' }}>
+                  {stepErrors[1]}
+                </p>
               )}
             </div>
           )}
@@ -1302,16 +1408,19 @@ export default function ConfigPage() {
             <div className="wizard-step-content" data-step="2">
               <h2 className="wizard-step-content__title">Run Targets</h2>
               <p className="wizard-step-content__description">
-                Configure user-supplied run targets. Detected tools appear automatically in the spawn wizard.
+                Configure user-supplied run targets. Detected tools appear automatically in the
+                spawn wizard.
               </p>
 
               <h3>Detected Run Targets (Read-only)</h3>
               <p className="section-hint">
-                Official tools we detected on this machine and confirmed working. These are read-only.
+                Official tools we detected on this machine and confirmed working. These are
+                read-only.
               </p>
               {detectedTargets.length === 0 ? (
                 <div className="empty-state-hint">
-                  No detected run targets. Use the detect endpoint or restart the daemon to refresh detection.
+                  No detected run targets. Use the detect endpoint or restart the daemon to refresh
+                  detection.
                 </div>
               ) : (
                 <div className="item-list item-list--two-col">
@@ -1319,7 +1428,9 @@ export default function ConfigPage() {
                     <div className="item-list__item" key={target.name}>
                       <div className="item-list__item-primary item-list__item-row">
                         <span className="item-list__item-name">{target.name}</span>
-                        <span className="item-list__item-detail item-list__item-detail--wide">{target.command}</span>
+                        <span className="item-list__item-detail item-list__item-detail--wide">
+                          {target.command}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -1380,7 +1491,9 @@ export default function ConfigPage() {
                           </button>
                         )
                       ) : (
-                        <span className="status-badge status-badge--success">No secrets required</span>
+                        <span className="status-badge status-badge--success">
+                          No secrets required
+                        </span>
                       )}
                     </div>
                   ))}
@@ -1401,7 +1514,9 @@ export default function ConfigPage() {
                     <div className="item-list__item" key={target.name}>
                       <div className="item-list__item-primary item-list__item-row">
                         <span className="item-list__item-name">{target.name}</span>
-                        <span className="item-list__item-detail item-list__item-detail--wide">{target.command}</span>
+                        <span className="item-list__item-detail item-list__item-detail--wide">
+                          {target.command}
+                        </span>
                       </div>
                       {target.source === 'user' ? (
                         <div className="btn-group">
@@ -1450,12 +1565,19 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addPromptableTarget()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm btn--primary" onClick={addPromptableTarget}>Add</button>
+                <button
+                  type="button"
+                  className="btn btn--sm btn--primary"
+                  onClick={addPromptableTarget}
+                >
+                  Add
+                </button>
               </div>
 
               <h3>Command Targets</h3>
               <p className="section-hint">
-                Shell commands you want to run quickly, like launching a terminal or starting the app.
+                Shell commands you want to run quickly, like launching a terminal or starting the
+                app.
               </p>
               {commandTargets.length === 0 ? (
                 <div className="empty-state-hint">
@@ -1467,7 +1589,9 @@ export default function ConfigPage() {
                     <div className="item-list__item" key={cmd.name}>
                       <div className="item-list__item-primary item-list__item-row">
                         <span className="item-list__item-name">{cmd.name}</span>
-                        <span className="item-list__item-detail item-list__item-detail--wide">{cmd.command}</span>
+                        <span className="item-list__item-detail item-list__item-detail--wide">
+                          {cmd.command}
+                        </span>
                       </div>
                       {cmd.source === 'user' ? (
                         <div className="btn-group">
@@ -1516,7 +1640,9 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addCommand()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm btn--primary" onClick={addCommand}>Add</button>
+                <button type="button" className="btn btn--sm btn--primary" onClick={addCommand}>
+                  Add
+                </button>
               </div>
             </div>
           )}
@@ -1530,9 +1656,7 @@ export default function ConfigPage() {
 
               <div className="quick-launch-editor">
                 {quickLaunch.length === 0 ? (
-                  <div className="quick-launch-editor__empty">
-                    No quick launch items yet.
-                  </div>
+                  <div className="quick-launch-editor__empty">No quick launch items yet.</div>
                 ) : (
                   <div className="quick-launch-editor__list">
                     {quickLaunch.map((item) => (
@@ -1540,10 +1664,12 @@ export default function ConfigPage() {
                         <div className="quick-launch-editor__item-main">
                           <span className="quick-launch-editor__item-name">{item.name}</span>
                           <span className="quick-launch-editor__item-detail">
-                            {commandTargetNames.has(item.target) ? (() => {
-                              const cmd = commandTargets.find(t => t.name === item.target);
-                              return cmd ? cmd.command : item.target;
-                            })() : `${item.target}${item.prompt ? ` — ${item.prompt}` : ''}`}
+                            {commandTargetNames.has(item.target)
+                              ? (() => {
+                                  const cmd = commandTargets.find((t) => t.name === item.target);
+                                  return cmd ? cmd.command : item.target;
+                                })()
+                              : `${item.target}${item.prompt ? ` — ${item.prompt}` : ''}`}
                           </span>
                         </div>
                         <div className="btn-group">
@@ -1612,14 +1738,24 @@ export default function ConfigPage() {
                         <>
                           <optgroup label="Promptable Targets">
                             {[
-                              ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
-                              ...models.filter((model) => model.configured).map((model) => ({
-                                value: model.id,
-                                label: model.display_name
+                              ...detectedTargets.map((target) => ({
+                                value: target.name,
+                                label: target.name,
                               })),
-                              ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
+                              ...models
+                                .filter((model) => model.configured)
+                                .map((model) => ({
+                                  value: model.id,
+                                  label: model.display_name,
+                                })),
+                              ...promptableTargets.map((target) => ({
+                                value: target.name,
+                                label: target.name,
+                              })),
                             ].map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
                             ))}
                           </optgroup>
                         </>
@@ -1628,29 +1764,44 @@ export default function ConfigPage() {
                         <>
                           <optgroup label="Promptable Targets">
                             {[
-                              ...detectedTargets.map((target) => ({ value: target.name, label: target.name })),
-                              ...models.filter((model) => model.configured).map((model) => ({
-                                value: model.id,
-                                label: model.display_name
+                              ...detectedTargets.map((target) => ({
+                                value: target.name,
+                                label: target.name,
                               })),
-                              ...promptableTargets.map((target) => ({ value: target.name, label: target.name }))
+                              ...models
+                                .filter((model) => model.configured)
+                                .map((model) => ({
+                                  value: model.id,
+                                  label: model.display_name,
+                                })),
+                              ...promptableTargets.map((target) => ({
+                                value: target.name,
+                                label: target.name,
+                              })),
                             ].map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
                             ))}
                           </optgroup>
                           <optgroup label="Command Targets">
                             {commandTargets.map((target) => (
-                              <option key={target.name} value={target.name}>{target.name}</option>
+                              <option key={target.name} value={target.name}>
+                                {target.name}
+                              </option>
                             ))}
                           </optgroup>
                         </>
                       )}
                     </select>
-                    <button type="button" className="btn btn--primary" onClick={addQuickLaunch}>Add</button>
+                    <button type="button" className="btn btn--primary" onClick={addQuickLaunch}>
+                      Add
+                    </button>
                   </div>
 
                   {/* Show prompt for Cookbook OR when promptable target is selected */}
-                  {(selectedCookbookTemplate || promptableTargetNames.has(newQuickLaunchTarget)) && (
+                  {(selectedCookbookTemplate ||
+                    promptableTargetNames.has(newQuickLaunchTarget)) && (
                     <div className="quick-launch-editor__prompt">
                       <label className="form-group__label">
                         {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Prompt'}
@@ -1671,11 +1822,12 @@ export default function ConfigPage() {
                   <div className="quick-launch-editor__cookbook">
                     <h3 className="quick-launch-editor__section-title">Cookbook</h3>
                     <p className="quick-launch-editor__section-description">
-                      Pre-configured quick launch recipes. Click to add to your quick launch with your chosen target.
+                      Pre-configured quick launch recipes. Click to add to your quick launch with
+                      your chosen target.
                     </p>
                     <div className="quick-launch-editor__list">
                       {builtinQuickLaunch.map((template) => {
-                        const isAdded = quickLaunch.some(p => p.name === template.name);
+                        const isAdded = quickLaunch.some((p) => p.name === template.name);
                         const isSelected = selectedCookbookTemplate?.name === template.name;
                         return (
                           <div
@@ -1683,7 +1835,9 @@ export default function ConfigPage() {
                             key={`cookbook-${template.name}`}
                           >
                             <div className="quick-launch-editor__item-main">
-                              <span className="quick-launch-editor__item-name">{template.name}</span>
+                              <span className="quick-launch-editor__item-name">
+                                {template.name}
+                              </span>
                               <span className="quick-launch-editor__item-detail quick-launch-editor__item-detail--prompt">
                                 {template.prompt.slice(0, 80)}
                                 {template.prompt.length > 80 ? '...' : ''}
@@ -1700,7 +1854,11 @@ export default function ConfigPage() {
                                   setNewQuickLaunchName(template.name);
                                   setNewQuickLaunchPrompt(template.prompt);
                                   // Focus on target select
-                                  (document.querySelector('.quick-launch-editor__select') as HTMLSelectElement | null)?.focus();
+                                  (
+                                    document.querySelector(
+                                      '.quick-launch-editor__select'
+                                    ) as HTMLSelectElement | null
+                                  )?.focus();
                                 }}
                               >
                                 Add
@@ -1738,17 +1896,25 @@ export default function ConfigPage() {
                       <option value="">Disabled</option>
                       <optgroup label="Detected Tools">
                         {detectedTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                       <optgroup label="Models">
-                        {models.filter((model) => model.configured).map((model) => (
-                          <option key={model.id} value={model.id}>{model.display_name}</option>
-                        ))}
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
                       </optgroup>
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                     </select>
@@ -1756,7 +1922,9 @@ export default function ConfigPage() {
                       Select a promptable target for PR review sessions, or leave disabled.
                     </p>
                     {prReviewTargetMissing && (
-                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                      <p className="form-group__error">
+                        Selected target is not available or not promptable.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1770,11 +1938,15 @@ export default function ConfigPage() {
                   <div className="item-list">
                     <div className="item-list__item">
                       <span className="item-list__item-name">VS Code</span>
-                      <span className="item-list__item-detail">Always available in the diff dropdown</span>
+                      <span className="item-list__item-detail">
+                        Always available in the diff dropdown
+                      </span>
                     </div>
                     <div className="item-list__item">
                       <span className="item-list__item-name">Web view</span>
-                      <span className="item-list__item-detail">Always available in the diff dropdown</span>
+                      <span className="item-list__item-detail">
+                        Always available in the diff dropdown
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1786,20 +1958,24 @@ export default function ConfigPage() {
                 </div>
                 <div className="settings-section__body">
                   {externalDiffCommands.length === 0 ? (
-                    <div className="empty-state-hint">
-                      No custom diff tools configured.
-                    </div>
+                    <div className="empty-state-hint">No custom diff tools configured.</div>
                   ) : (
                     <div className="item-list item-list--two-col">
                       {externalDiffCommands.map((cmd) => (
                         <div className="item-list__item" key={cmd.name}>
                           <div className="item-list__item-primary item-list__item-row">
                             <span className="item-list__item-name">{cmd.name}</span>
-                            <span className="item-list__item-detail item-list__item-detail--wide mono">{cmd.command}</span>
+                            <span className="item-list__item-detail item-list__item-detail--wide mono">
+                              {cmd.command}
+                            </span>
                           </div>
                           <button
                             className="btn btn--sm btn--danger"
-                            onClick={() => setExternalDiffCommands(externalDiffCommands.filter(c => c.name !== cmd.name))}
+                            onClick={() =>
+                              setExternalDiffCommands(
+                                externalDiffCommands.filter((c) => c.name !== cmd.name)
+                              )
+                            }
                           >
                             Remove
                           </button>
@@ -1830,7 +2006,13 @@ export default function ConfigPage() {
                         onChange={(e) => setNewDiffCommand(e.target.value)}
                       />
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 'var(--spacing-sm)' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        paddingBottom: 'var(--spacing-sm)',
+                      }}
+                    >
                       <button
                         type="button"
                         className="btn btn--primary"
@@ -1838,7 +2020,7 @@ export default function ConfigPage() {
                         onClick={() => {
                           const name = newDiffName.trim();
                           const command = newDiffCommand.trim();
-                          if (externalDiffCommands.some(c => c.name === name)) {
+                          if (externalDiffCommands.some((c) => c.name === name)) {
                             toastError('Diff tool name already exists');
                             return;
                           }
@@ -1867,7 +2049,9 @@ export default function ConfigPage() {
                         min="1"
                         className="input"
                         value={externalDiffCleanupMinutes}
-                        onChange={(e) => setExternalDiffCleanupMinutes(Math.max(1, Number(e.target.value) || 1))}
+                        onChange={(e) =>
+                          setExternalDiffCleanupMinutes(Math.max(1, Number(e.target.value) || 1))
+                        }
                       />
                       <p className="form-group__hint">
                         Temp diff files will be removed after this delay (default: 60 minutes).
@@ -1883,7 +2067,8 @@ export default function ConfigPage() {
             <div className="wizard-step-content" data-step="5">
               <h2 className="wizard-step-content__title">Advanced Settings</h2>
               <p className="wizard-step-content__description">
-                Terminal dimensions and advanced timing controls. You can leave these as defaults unless you have specific needs.
+                Terminal dimensions and advanced timing controls. You can leave these as defaults
+                unless you have specific needs.
               </p>
 
               <div className="settings-section">
@@ -1901,17 +2086,25 @@ export default function ConfigPage() {
                       <option value="">Disabled</option>
                       <optgroup label="Detected Tools">
                         {detectedTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                       <optgroup label="Models">
-                        {models.filter((model) => model.configured).map((model) => (
-                          <option key={model.id} value={model.id}>{model.display_name}</option>
-                        ))}
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
                       </optgroup>
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                     </select>
@@ -1919,7 +2112,9 @@ export default function ConfigPage() {
                       Select a promptable target for NudgeNik session feedback, or leave disabled.
                     </p>
                     {nudgenikTargetMissing && (
-                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                      <p className="form-group__error">
+                        Selected target is not available or not promptable.
+                      </p>
                     )}
                   </div>
 
@@ -1931,9 +2126,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={viewedBuffer === 0 ? '' : viewedBuffer}
-                        onChange={(e) => setViewedBuffer(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                        onChange={(e) =>
+                          setViewedBuffer(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 5000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Time to keep session marked as "viewed" after last check</p>
+                      <p className="form-group__hint">
+                        Time to keep session marked as "viewed" after last check
+                      </p>
                     </div>
 
                     <div className="form-group">
@@ -1943,7 +2144,11 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={nudgenikSeenInterval === 0 ? '' : nudgenikSeenInterval}
-                        onChange={(e) => setNudgenikSeenInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 2000)}
+                        onChange={(e) =>
+                          setNudgenikSeenInterval(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 2000
+                          )
+                        }
                       />
                       <p className="form-group__hint">How often to check for session activity</p>
                     </div>
@@ -1966,17 +2171,25 @@ export default function ConfigPage() {
                       <option value="">Disabled</option>
                       <optgroup label="Detected Tools">
                         {detectedTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                       <optgroup label="Models">
-                        {models.filter((model) => model.configured).map((model) => (
-                          <option key={model.id} value={model.id}>{model.display_name}</option>
-                        ))}
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
                       </optgroup>
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                     </select>
@@ -1984,7 +2197,9 @@ export default function ConfigPage() {
                       Select a promptable target for branch name suggestion, or leave disabled.
                     </p>
                     {branchSuggestTargetMissing && (
-                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                      <p className="form-group__error">
+                        Selected target is not available or not promptable.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -2005,25 +2220,37 @@ export default function ConfigPage() {
                       <option value="">Disabled</option>
                       <optgroup label="Detected Tools">
                         {detectedTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                       <optgroup label="Models">
-                        {models.filter((model) => model.configured).map((model) => (
-                          <option key={model.id} value={model.id}>{model.display_name}</option>
-                        ))}
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
                       </optgroup>
                       <optgroup label="User Promptable">
                         {promptableTargets.map((target) => (
-                          <option key={target.name} value={target.name}>{target.name}</option>
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
                         ))}
                       </optgroup>
                     </select>
                     <p className="form-group__hint">
-                      Select a promptable target for merge conflict resolution. When &quot;sync from main conflict&quot; encounters a conflict, this target will be spawned to resolve it.
+                      Select a promptable target for merge conflict resolution. When &quot;sync from
+                      main conflict&quot; encounters a conflict, this target will be spawned to
+                      resolve it.
                     </p>
                     {conflictResolveTargetMissing && (
-                      <p className="form-group__error">Selected target is not available or not promptable.</p>
+                      <p className="form-group__error">
+                        Selected target is not available or not promptable.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -2036,8 +2263,23 @@ export default function ConfigPage() {
                 <div className="settings-section__body">
                   <div className="form-group">
                     <label className="form-group__label">Dashboard Access</label>
-                    <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center', fontSize: '0.9rem' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 'var(--spacing-md)',
+                        alignItems: 'center',
+                        fontSize: '0.9rem',
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          cursor: 'pointer',
+                          fontSize: 'inherit',
+                        }}
+                      >
                         <input
                           type="radio"
                           name="networkAccess"
@@ -2046,7 +2288,15 @@ export default function ConfigPage() {
                         />
                         <span>Local access only</span>
                       </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer', fontSize: 'inherit' }}>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          cursor: 'pointer',
+                          fontSize: 'inherit',
+                        }}
+                      >
                         <input
                           type="radio"
                           name="networkAccess"
@@ -2071,7 +2321,14 @@ export default function ConfigPage() {
                 </div>
                 <div className="settings-section__body">
                   <div className="form-group">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={authEnabled}
@@ -2095,7 +2352,9 @@ export default function ConfigPage() {
                           value={authPublicBaseURL}
                           onChange={(e) => setAuthPublicBaseURL(e.target.value)}
                         />
-                        <p className="form-group__hint">The URL users will type to access schmux. Must be https.</p>
+                        <p className="form-group__hint">
+                          The URL users will type to access schmux. Must be https.
+                        </p>
                       </div>
 
                       <div className="form-row">
@@ -2120,8 +2379,12 @@ export default function ConfigPage() {
                           />
                         </div>
                       </div>
-                      <p className="form-group__hint" style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}>
-                        Use <code>mkcert</code> to generate local certificates, or run <code>schmux auth github</code> for guided setup.
+                      <p
+                        className="form-group__hint"
+                        style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
+                      >
+                        Use <code>mkcert</code> to generate local certificates, or run{' '}
+                        <code>schmux auth github</code> for guided setup.
                       </p>
 
                       <div className="form-group">
@@ -2132,9 +2395,13 @@ export default function ConfigPage() {
                           style={{ maxWidth: '120px' }}
                           min="1"
                           value={authSessionTTLMinutes}
-                          onChange={(e) => setAuthSessionTTLMinutes(parseInt(e.target.value) || 1440)}
+                          onChange={(e) =>
+                            setAuthSessionTTLMinutes(parseInt(e.target.value) || 1440)
+                          }
                         />
-                        <p className="form-group__hint">How long before requiring re-authentication.</p>
+                        <p className="form-group__hint">
+                          How long before requiring re-authentication.
+                        </p>
                       </div>
 
                       <div className="form-group">
@@ -2146,7 +2413,9 @@ export default function ConfigPage() {
                                 {authClientIdSet && authClientSecretSet ? (
                                   <span style={{ color: 'var(--color-success)' }}>Configured</span>
                                 ) : (
-                                  <span style={{ color: 'var(--color-warning)' }}>Not configured</span>
+                                  <span style={{ color: 'var(--color-warning)' }}>
+                                    Not configured
+                                  </span>
                                 )}
                               </span>
                               <span className="item-list__item-detail">
@@ -2172,18 +2441,46 @@ export default function ConfigPage() {
                             )}
                           </div>
                         </div>
-                        <div className="form-group__hint" style={{ marginTop: 'var(--spacing-sm)' }}>
-                          <p className="form-group__hint" style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}>
+                        <div
+                          className="form-group__hint"
+                          style={{ marginTop: 'var(--spacing-sm)' }}
+                        >
+                          <p
+                            className="form-group__hint"
+                            style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
+                          >
                             To create or check on your GitHub OAuth credentials, follow these steps:
                           </p>
                           <ol style={{ margin: 0, paddingLeft: 'var(--spacing-lg)' }}>
-                            <li>Go to <a href="https://github.com/settings/developers" target="_blank" rel="noreferrer">github.com/settings/developers</a></li>
+                            <li>
+                              Go to{' '}
+                              <a
+                                href="https://github.com/settings/developers"
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                github.com/settings/developers
+                              </a>
+                            </li>
                             <li>Click "New OAuth App" (or edit existing)</li>
-                            <li>Use these values:
+                            <li>
+                              Use these values:
                               <ul style={{ marginTop: 'var(--spacing-xs)' }}>
-                                <li>Application name: <code>schmux</code></li>
-                                <li>Homepage URL: <code>{authPublicBaseURL || 'https://schmux.local:7337'}</code></li>
-                                <li>Callback URL: <code>{authPublicBaseURL ? `${authPublicBaseURL.replace(/\/+$/, '')}/auth/callback` : 'https://schmux.local:7337/auth/callback'}</code></li>
+                                <li>
+                                  Application name: <code>schmux</code>
+                                </li>
+                                <li>
+                                  Homepage URL:{' '}
+                                  <code>{authPublicBaseURL || 'https://schmux.local:7337'}</code>
+                                </li>
+                                <li>
+                                  Callback URL:{' '}
+                                  <code>
+                                    {authPublicBaseURL
+                                      ? `${authPublicBaseURL.replace(/\/+$/, '')}/auth/callback`
+                                      : 'https://schmux.local:7337/auth/callback'}
+                                  </code>
+                                </li>
                               </ul>
                             </li>
                             <li>Copy the Client ID and Client Secret</li>
@@ -2212,7 +2509,14 @@ export default function ConfigPage() {
                 </div>
                 <div className="settings-section__body">
                   <div className="form-group">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={!soundDisabled}
@@ -2221,7 +2525,8 @@ export default function ConfigPage() {
                       <span>Play sound when agents need attention</span>
                     </label>
                     <p className="form-group__hint">
-                      Plays an audio notification when an agent signals it needs input or encounters an error.
+                      Plays an audio notification when an agent signals it needs input or encounters
+                      an error.
                     </p>
                   </div>
                 </div>
@@ -2278,7 +2583,9 @@ export default function ConfigPage() {
                         value={terminalBootstrapLines}
                         onChange={(e) => setTerminalBootstrapLines(e.target.value)}
                       />
-                      <p className="form-group__hint">Lines to send on initial WebSocket connection (default: 20000)</p>
+                      <p className="form-group__hint">
+                        Lines to send on initial WebSocket connection (default: 20000)
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -2297,7 +2604,11 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={dashboardPollInterval === 0 ? '' : dashboardPollInterval}
-                        onChange={(e) => setDashboardPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                        onChange={(e) =>
+                          setDashboardPollInterval(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 5000
+                          )
+                        }
                       />
                       <p className="form-group__hint">How often to refresh sessions list</p>
                     </div>
@@ -2309,9 +2620,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={gitStatusPollInterval === 0 ? '' : gitStatusPollInterval}
-                        onChange={(e) => setGitStatusPollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
+                        onChange={(e) =>
+                          setGitStatusPollInterval(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 10000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">How often to refresh git status (dirty, ahead, behind)</p>
+                      <p className="form-group__hint">
+                        How often to refresh git status (dirty, ahead, behind)
+                      </p>
                     </div>
                   </div>
 
@@ -2323,9 +2640,16 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={gitCloneTimeout === 0 ? '' : gitCloneTimeout}
-                        onChange={(e) => setGitCloneTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 300000)}
+                        onChange={(e) =>
+                          setGitCloneTimeout(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 300000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Maximum time to wait for git clone when spawning sessions (default: 300000ms = 5 min)</p>
+                      <p className="form-group__hint">
+                        Maximum time to wait for git clone when spawning sessions (default: 300000ms
+                        = 5 min)
+                      </p>
                     </div>
 
                     <div className="form-group">
@@ -2335,9 +2659,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={gitStatusTimeout === 0 ? '' : gitStatusTimeout}
-                        onChange={(e) => setGitStatusTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 30000)}
+                        onChange={(e) =>
+                          setGitStatusTimeout(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 30000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Maximum time to wait for git status/diff operations (default: 30000ms)</p>
+                      <p className="form-group__hint">
+                        Maximum time to wait for git status/diff operations (default: 30000ms)
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -2356,9 +2686,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={mtimePollInterval === 0 ? '' : mtimePollInterval}
-                        onChange={(e) => setMtimePollInterval(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                        onChange={(e) =>
+                          setMtimePollInterval(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 5000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">How often to check log file mtimes for new output</p>
+                      <p className="form-group__hint">
+                        How often to check log file mtimes for new output
+                      </p>
                     </div>
 
                     <div className="form-group">
@@ -2368,9 +2704,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={xtermQueryTimeout === 0 ? '' : xtermQueryTimeout}
-                        onChange={(e) => setXtermQueryTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 5000)}
+                        onChange={(e) =>
+                          setXtermQueryTimeout(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 5000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Maximum time to wait for xterm query operations (default: 5000ms)</p>
+                      <p className="form-group__hint">
+                        Maximum time to wait for xterm query operations (default: 5000ms)
+                      </p>
                     </div>
                   </div>
 
@@ -2382,9 +2724,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="100"
                         value={xtermOperationTimeout === 0 ? '' : xtermOperationTimeout}
-                        onChange={(e) => setXtermOperationTimeout(e.target.value === '' ? 0 : parseInt(e.target.value) || 10000)}
+                        onChange={(e) =>
+                          setXtermOperationTimeout(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 10000
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Maximum time to wait for xterm operations (default: 10000ms)</p>
+                      <p className="form-group__hint">
+                        Maximum time to wait for xterm operations (default: 10000ms)
+                      </p>
                     </div>
 
                     <div className="form-group">
@@ -2394,9 +2742,15 @@ export default function ConfigPage() {
                         className="input input--compact"
                         min="1"
                         value={maxLogSizeMB === 0 ? '' : maxLogSizeMB}
-                        onChange={(e) => setMaxLogSizeMB(e.target.value === '' ? 0 : parseInt(e.target.value) || 50)}
+                        onChange={(e) =>
+                          setMaxLogSizeMB(
+                            e.target.value === '' ? 0 : parseInt(e.target.value) || 50
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Maximum log file size before rotation (default: 50MB)</p>
+                      <p className="form-group__hint">
+                        Maximum log file size before rotation (default: 50MB)
+                      </p>
                     </div>
                   </div>
 
@@ -2409,17 +2763,23 @@ export default function ConfigPage() {
                         min="1"
                         max={maxLogSizeMB}
                         value={rotatedLogSizeMB === 0 ? '' : rotatedLogSizeMB}
-                        onChange={(e) => setRotatedLogSizeMB(e.target.value === '' ? 0 : Math.min(parseInt(e.target.value) || 1, maxLogSizeMB))}
+                        onChange={(e) =>
+                          setRotatedLogSizeMB(
+                            e.target.value === ''
+                              ? 0
+                              : Math.min(parseInt(e.target.value) || 1, maxLogSizeMB)
+                          )
+                        }
                       />
-                      <p className="form-group__hint">Target log size after rotation - keeps the tail (default: 1MB)</p>
+                      <p className="form-group__hint">
+                        Target log size after rotation - keeps the tail (default: 1MB)
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {stepErrors[5] && (
-                <p className="form-group__error">{stepErrors[5]}</p>
-              )}
+              {stepErrors[5] && <p className="form-group__error">{stepErrors[5]}</p>}
             </div>
           )}
         </div>
@@ -2429,11 +2789,7 @@ export default function ConfigPage() {
           <div className="wizard__actions">
             <div className="wizard__actions-left">
               {currentStep > 1 && (
-                <button
-                  className="btn"
-                  onClick={prevStep}
-                  disabled={saving}
-                >
+                <button className="btn" onClick={prevStep} disabled={saving}>
                   ← Back
                 </button>
               )}
@@ -2448,7 +2804,11 @@ export default function ConfigPage() {
                     const saved = await saveCurrentStep();
                     if (saved) {
                       completeFirstRun();
-                      await show('Setup Complete! 🎉', 'schmux is ready to go. Spawn your first session to start working with run targets.', { confirmText: 'Go to Spawn', cancelText: null });
+                      await show(
+                        'Setup Complete! 🎉',
+                        'schmux is ready to go. Spawn your first session to start working with run targets.',
+                        { confirmText: 'Go to Spawn', cancelText: null }
+                      );
                       navigate('/spawn');
                     }
                   }
@@ -2487,7 +2847,11 @@ export default function ConfigPage() {
                   autoFocus
                   placeholder="Ov23li..."
                   value={authSecretsModal.clientId}
-                  onChange={(e) => setAuthSecretsModal(current => current ? { ...current, clientId: e.target.value } : null)}
+                  onChange={(e) =>
+                    setAuthSecretsModal((current) =>
+                      current ? { ...current, clientId: e.target.value } : null
+                    )
+                  }
                 />
               </div>
               <div className="form-group">
@@ -2497,7 +2861,11 @@ export default function ConfigPage() {
                   className="input"
                   placeholder="Enter client secret"
                   value={authSecretsModal.clientSecret}
-                  onChange={(e) => setAuthSecretsModal(current => current ? { ...current, clientSecret: e.target.value } : null)}
+                  onChange={(e) =>
+                    setAuthSecretsModal((current) =>
+                      current ? { ...current, clientSecret: e.target.value } : null
+                    )
+                  }
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') saveAuthSecretsModal();
                   }}
@@ -2510,7 +2878,9 @@ export default function ConfigPage() {
               )}
             </div>
             <div className="modal__footer">
-              <button className="btn" onClick={closeAuthSecretsModal}>Cancel</button>
+              <button className="btn" onClick={closeAuthSecretsModal}>
+                Cancel
+              </button>
               <button className="btn btn--primary" onClick={saveAuthSecretsModal}>
                 Save
               </button>
@@ -2541,7 +2911,11 @@ export default function ConfigPage() {
                 <textarea
                   className="input"
                   value={runTargetEditModal.command}
-                  onChange={(e) => setRunTargetEditModal(current => current ? { ...current, command: e.target.value, error: '' } : null)}
+                  onChange={(e) =>
+                    setRunTargetEditModal((current) =>
+                      current ? { ...current, command: e.target.value, error: '' } : null
+                    )
+                  }
                   rows={6}
                   autoFocus
                 />
@@ -2556,8 +2930,12 @@ export default function ConfigPage() {
               )}
             </div>
             <div className="modal__footer">
-              <button className="btn" onClick={closeRunTargetEditModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={saveRunTargetEditModal}>Save</button>
+              <button className="btn" onClick={closeRunTargetEditModal}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" onClick={saveRunTargetEditModal}>
+                Save
+              </button>
             </div>
           </div>
         </div>
@@ -2586,7 +2964,11 @@ export default function ConfigPage() {
                   <textarea
                     className="input"
                     value={quickLaunchEditModal.prompt}
-                    onChange={(e) => setQuickLaunchEditModal(current => current ? { ...current, prompt: e.target.value, error: '' } : null)}
+                    onChange={(e) =>
+                      setQuickLaunchEditModal((current) =>
+                        current ? { ...current, prompt: e.target.value, error: '' } : null
+                      )
+                    }
                     placeholder="Shell command to run"
                     rows={6}
                     autoFocus
@@ -2601,7 +2983,11 @@ export default function ConfigPage() {
                   <textarea
                     className="input quick-launch-editor__prompt-input"
                     value={quickLaunchEditModal.prompt}
-                    onChange={(e) => setQuickLaunchEditModal(current => current ? { ...current, prompt: e.target.value, error: '' } : null)}
+                    onChange={(e) =>
+                      setQuickLaunchEditModal((current) =>
+                        current ? { ...current, prompt: e.target.value, error: '' } : null
+                      )
+                    }
                     placeholder="Prompt to send to the agent"
                     rows={10}
                     autoFocus
@@ -2613,8 +2999,12 @@ export default function ConfigPage() {
               )}
             </div>
             <div className="modal__footer">
-              <button className="btn" onClick={closeQuickLaunchEditModal}>Cancel</button>
-              <button className="btn btn--primary" onClick={saveQuickLaunchEditModal}>Save</button>
+              <button className="btn" onClick={closeQuickLaunchEditModal}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" onClick={saveQuickLaunchEditModal}>
+                Save
+              </button>
             </div>
           </div>
         </div>

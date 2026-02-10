@@ -7,7 +7,9 @@ export default function NotFoundPage() {
       <div className="empty-state__icon">⚠️</div>
       <h3 className="empty-state__title">Page not found</h3>
       <p className="empty-state__description">The page you requested does not exist.</p>
-      <Link to="/" className="btn btn--primary">Back to Home</Link>
+      <Link to="/" className="btn btn--primary">
+        Back to Home
+      </Link>
     </div>
   );
 }
