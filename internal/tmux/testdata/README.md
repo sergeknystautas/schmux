@@ -25,6 +25,7 @@ tmux capture-pane -e -p -S -100 -t "session name" > internal/tmux/testdata/claud
 ## Naming Convention
 
 Files are named by agent type followed by an incremental number:
+
 - `claude-01.txt`, `claude-02.txt`, ...
 - `codex-01.txt`, `codex-02.txt`, ...
 
@@ -35,6 +36,7 @@ Files are named by agent type followed by an incremental number:
 2. Add the case to `manifest.yaml` (capture file, expected NudgeNik state, notes).
 
 3. Generate the `.want.txt` file:
+
    ```bash
    UPDATE_GOLDEN=1 go test -v -run TestUpdateGoldenFiles ./internal/tmux/...
    ```
@@ -58,6 +60,7 @@ See `manifest.yaml` for the full list of captures, expected states, and notes.
 ## How Extraction Works
 
 The `ExtractLatestResponse` function:
+
 1. Finds the last prompt line (`❯` or `›`)
 2. Collects non-empty content lines going backwards (up to 80 lines)
 3. Appends any choice menu lines after the prompt

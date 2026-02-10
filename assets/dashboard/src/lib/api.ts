@@ -51,7 +51,7 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
   const response = await fetch('/api/spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     // Get error message from response body
@@ -65,11 +65,14 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
  * Checks if a branch is already in use by an existing workspace (worktree conflict).
  * Only relevant when source_code_manager is "git-worktree".
  */
-export async function checkBranchConflict(repo: string, branch: string): Promise<{ conflict: boolean; workspace_id?: string }> {
+export async function checkBranchConflict(
+  repo: string,
+  branch: string
+): Promise<{ conflict: boolean; workspace_id?: string }> {
   const response = await fetch('/api/check-branch-conflict', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, branch })
+    body: JSON.stringify({ repo, branch }),
   });
   if (!response.ok) {
     throw new Error('Failed to check branch conflict');
@@ -85,7 +88,7 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
   const response = await fetch('/api/suggest-branch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -112,11 +115,14 @@ export interface PrepareBranchSpawnResponse {
   nickname: string;
 }
 
-export async function prepareBranchSpawn(repo: string, branch: string): Promise<PrepareBranchSpawnResponse> {
+export async function prepareBranchSpawn(
+  repo: string,
+  branch: string
+): Promise<PrepareBranchSpawnResponse> {
   const response = await fetch('/api/prepare-branch-spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, branch })
+    body: JSON.stringify({ repo, branch }),
   });
   if (!response.ok) {
     const err = await response.text();
@@ -131,11 +137,14 @@ export async function disposeSession(sessionId: string): Promise<{ status: strin
   return response.json();
 }
 
-export async function updateNickname(sessionId: string, nickname: string): Promise<{ status: string }> {
+export async function updateNickname(
+  sessionId: string,
+  nickname: string
+): Promise<{ status: string }> {
   const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nickname })
+    body: JSON.stringify({ nickname }),
   });
   if (!response.ok) {
     if (response.status === 409) {
@@ -158,7 +167,9 @@ export async function disposeWorkspace(workspaceId: string): Promise<{ status: s
   return response.json();
 }
 
-export async function disposeWorkspaceAll(workspaceId: string): Promise<{ status: string; sessions_disposed: number }> {
+export async function disposeWorkspaceAll(
+  workspaceId: string
+): Promise<{ status: string; sessions_disposed: number }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, { method: 'POST' });
   if (!response.ok) {
     const err = await response.json();
@@ -187,11 +198,13 @@ export async function scanWorkspaces(): Promise<ScanResult> {
   return response.json();
 }
 
-export async function updateConfig(request: ConfigUpdateRequest): Promise<{ status: string; message?: string; warning?: string; warnings?: string[] }> {
+export async function updateConfig(
+  request: ConfigUpdateRequest
+): Promise<{ status: string; message?: string; warning?: string; warnings?: string[] }> {
   const response = await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     let message = response.statusText || 'Failed to update config';
@@ -210,17 +223,23 @@ export async function updateConfig(request: ConfigUpdateRequest): Promise<{ stat
   return response.json();
 }
 
-export async function getAuthSecretsStatus(): Promise<{ client_id_set: boolean; client_secret_set: boolean }> {
+export async function getAuthSecretsStatus(): Promise<{
+  client_id_set: boolean;
+  client_secret_set: boolean;
+}> {
   const response = await fetch('/api/auth/secrets');
   if (!response.ok) throw new Error('Failed to fetch auth secrets');
   return response.json();
 }
 
-export async function saveAuthSecrets(payload: { client_id: string; client_secret: string }): Promise<{ status: string }> {
+export async function saveAuthSecrets(payload: {
+  client_id: string;
+  client_secret: string;
+}): Promise<{ status: string }> {
   const response = await fetch('/api/auth/secrets', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const err = await response.text();
@@ -232,7 +251,7 @@ export async function saveAuthSecrets(payload: { client_id: string; client_secre
 export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
   const response = await fetch(`/api/open-vscode/${workspaceId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
     const err = await response.json();
@@ -241,11 +260,14 @@ export async function openVSCode(workspaceId: string): Promise<OpenVSCodeRespons
   return response.json();
 }
 
-export async function diffExternal(workspaceId: string, command?: string): Promise<DiffExternalResponse> {
+export async function diffExternal(
+  workspaceId: string,
+  command?: string
+): Promise<DiffExternalResponse> {
   const response = await fetch(`/api/diff-external/${workspaceId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(command ? { command } : {})
+    body: JSON.stringify(command ? { command } : {}),
   });
   if (!response.ok) {
     const err = await response.json();
@@ -269,11 +291,14 @@ export async function detectTools(): Promise<DetectToolsResponse> {
 /**
  * Configures secrets for a third-party model.
  */
-export async function configureModelSecrets(modelId: string, secrets: Record<string, string>): Promise<{ status: string }> {
+export async function configureModelSecrets(
+  modelId: string,
+  secrets: Record<string, string>
+): Promise<{ status: string }> {
   const response = await fetch(`/api/models/${modelId}/secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secrets })
+    body: JSON.stringify({ secrets }),
   });
   if (!response.ok) {
     const err = await response.text();
@@ -287,7 +312,7 @@ export async function configureModelSecrets(modelId: string, secrets: Record<str
  */
 export async function removeModelSecrets(modelId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/models/${modelId}/secrets`, {
-    method: 'DELETE'
+    method: 'DELETE',
   });
   if (!response.ok) {
     const err = await response.text();
@@ -305,7 +330,7 @@ export async function getOverlays(): Promise<OverlaysResponse> {
 export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
     const err = await response.json();
@@ -329,7 +354,7 @@ export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookboo
 export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
     const err = await response.json();
@@ -341,7 +366,7 @@ export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyn
 export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
     const err = await response.json();
@@ -350,10 +375,12 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
   return response.json();
 }
 
-export async function linearSyncResolveConflict(workspaceId: string): Promise<LinearSyncResolveConflictResponse> {
+export async function linearSyncResolveConflict(
+  workspaceId: string
+): Promise<LinearSyncResolveConflictResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok && response.status !== 202) {
     const err = await response.json();
@@ -363,9 +390,12 @@ export async function linearSyncResolveConflict(workspaceId: string): Promise<Li
 }
 
 export async function dismissLinearSyncResolveConflictState(workspaceId: string): Promise<void> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`, {
-    method: 'DELETE',
-  });
+  const response = await fetch(
+    `/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
+    {
+      method: 'DELETE',
+    }
+  );
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error((err as Record<string, string>).message || 'Failed to dismiss');
@@ -410,7 +440,7 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
   const response = await fetch('/api/prs/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber })
+    body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber }),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -429,11 +459,13 @@ export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
   return response.json();
 }
 
-export async function createRemoteFlavor(request: RemoteFlavorCreateRequest): Promise<RemoteFlavor> {
+export async function createRemoteFlavor(
+  request: RemoteFlavorCreateRequest
+): Promise<RemoteFlavor> {
   const response = await fetch('/api/config/remote-flavors', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -442,11 +474,14 @@ export async function createRemoteFlavor(request: RemoteFlavorCreateRequest): Pr
   return response.json();
 }
 
-export async function updateRemoteFlavor(id: string, request: RemoteFlavorCreateRequest): Promise<RemoteFlavor> {
+export async function updateRemoteFlavor(
+  id: string,
+  request: RemoteFlavorCreateRequest
+): Promise<RemoteFlavor> {
   const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -457,7 +492,7 @@ export async function updateRemoteFlavor(id: string, request: RemoteFlavorCreate
 
 export async function deleteRemoteFlavor(id: string): Promise<void> {
   const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
-    method: 'DELETE'
+    method: 'DELETE',
   });
   if (!response.ok) {
     const text = await response.text();
@@ -485,7 +520,7 @@ export async function connectRemoteHost(request: RemoteHostConnectRequest): Prom
   const response = await fetch('/api/remote/hosts/connect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -496,7 +531,7 @@ export async function connectRemoteHost(request: RemoteHostConnectRequest): Prom
 
 export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
   const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
-    method: 'POST'
+    method: 'POST',
   });
   if (!response.ok) {
     const text = await response.text();
@@ -507,7 +542,7 @@ export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
 
 export async function disconnectRemoteHost(hostId: string): Promise<void> {
   const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
-    method: 'DELETE'
+    method: 'DELETE',
   });
   if (!response.ok) {
     const text = await response.text();

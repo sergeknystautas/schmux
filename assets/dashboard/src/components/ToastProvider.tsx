@@ -31,17 +31,23 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
-  const addToast = useCallback((message: string, type: ToastType = 'info', duration = 3000) => {
-    const id = nextId++;
-    setToasts((current) => [...current, { id, message, type }]);
-    setTimeout(() => removeToast(id), duration);
-  }, [removeToast]);
+  const addToast = useCallback(
+    (message: string, type: ToastType = 'info', duration = 3000) => {
+      const id = nextId++;
+      setToasts((current) => [...current, { id, message, type }]);
+      setTimeout(() => removeToast(id), duration);
+    },
+    [removeToast]
+  );
 
-  const api = useMemo(() => ({
-    show: addToast,
-    success: (message: string, duration?: number) => addToast(message, 'success', duration),
-    error: (message: string, duration?: number) => addToast(message, 'error', duration)
-  }), [addToast]);
+  const api = useMemo(
+    () => ({
+      show: addToast,
+      success: (message: string, duration?: number) => addToast(message, 'success', duration),
+      error: (message: string, duration?: number) => addToast(message, 'error', duration),
+    }),
+    [addToast]
+  );
 
   return (
     <ToastContext.Provider value={api}>

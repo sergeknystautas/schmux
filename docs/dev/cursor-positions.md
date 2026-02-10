@@ -14,6 +14,7 @@ This is the fundamental issue. When the bootstrap process captures the screen co
 ## Evidence from Testing
 
 ### Test 1: Basic Capture Test
+
 ```bash
 # Created tmux session with content
 # Cursor position: x=41, y=18
@@ -22,12 +23,15 @@ This is the fundamental issue. When the bootstrap process captures the screen co
 ```
 
 ### Test 2: ANSI Cursor Position Sequence Format
+
 The ANSI escape sequence for cursor position is:
+
 ```
 ESC [ <row> ; <col> H
 ```
 
 For a cursor at position (x=41, y=18), the sequence should be:
+
 ```
 ESC [ 19 ; 42 H
 ```
@@ -35,6 +39,7 @@ ESC [ 19 ; 42 H
 In hex: `1b 5b 31 39 3b 34 32 48`
 
 ### Test 3: Verification
+
 Searched the captured output for any `ESC [ ... H` sequences - **none found**.
 
 This confirms that `tmux capture-pane` does not include cursor position information.
@@ -42,6 +47,7 @@ This confirms that `tmux capture-pane` does not include cursor position informat
 ### Test 4: Comparison of capture-pane flags
 
 Tested `-e` (include escape sequences) vs `-C` (alternative flag):
+
 - `-e`: Captures screen content with color/attribute escape sequences
 - `-C`: Escapes escape sequences (makes them literal) - NOT useful for us
 - Neither includes cursor position sequences
@@ -49,6 +55,7 @@ Tested `-e` (include escape sequences) vs `-C` (alternative flag):
 ### Test 5: Full scrollback vs limited capture
 
 Tested `-S -` (full scrollback) vs `-S -1000` (last 1000 lines):
+
 - Both produce identical output format
 - Neither includes cursor position sequences
 - Capturing more lines doesn't solve the problem
@@ -56,6 +63,7 @@ Tested `-S -` (full scrollback) vs `-S -1000` (last 1000 lines):
 ## Why This Matters
 
 When a terminal emulator receives text without cursor positioning:
+
 1. It renders the content line by line
 2. The cursor ends up at the end of the last line
 3. Any terminal UI (TUI) applications expect the cursor to be at a specific position
@@ -64,11 +72,14 @@ When a terminal emulator receives text without cursor positioning:
 ## Double Cursor Issue (January 2026)
 
 ### Symptom
+
 When viewing Claude Code sessions via xterm.js websocket, two cursors appear:
+
 - **Correct cursor** at line 35 (where Claude's input prompt is)
 - **Phantom cursor** at line 39 (4 lines below)
 
 ### Root Cause Analysis
+
 1. Claude Code draws its own visual cursor using **reverse video** (`\x1b[7m` space `\x1b[27m`)
 2. Claude's UI does `\x1b[4A` (cursor up 4) to update status line, then 4 newlines to return
 3. After processing all escape sequences, xterm.js cursor ends at line 39
@@ -78,12 +89,15 @@ When viewing Claude Code sessions via xterm.js websocket, two cursors appear:
 **Key insight:** The phantom cursor (line 39) is xterm.js's actual cursor position. The "correct" cursor (line 35) is Claude's visual indicator. The 4-line difference matches the `\x1b[4A` pattern.
 
 ### Why tmux doesn't have this problem
+
 When attached directly to tmux:
+
 - tmux maintains a **grid data structure** with correct cursor position
 - On attach, tmux **regenerates** output from the grid (not replay of escape sequences)
 - Cursor is positioned correctly as part of the redraw
 
 Our approach:
+
 - capture-pane gives historical escape sequences
 - pipe-pane gives raw PTY output
 - Neither is the "grid-regenerated" output that real tmux clients receive
@@ -93,16 +107,19 @@ Our approach:
 ### ❌ Approach 1: Append cursor position sequence to captured content
 
 **What was tried:**
+
 1. Query cursor position using `tmux display-message -p '#{cursor_x} '#{cursor_y}'`
 2. Generate ANSI cursor position sequence: `ESC [<row+1>;<col+1>H`
 3. Append this sequence to the end of captured content
 
 **Result:** FAILED
+
 - Cursor was still in wrong position (at bottom)
 - New content from pipe-pane was written at incorrect positions
 - Text appeared intermixed with existing content (e.g., "great thank you" mixed with purple letters)
 
 **Why it failed:**
+
 - Appending cursor position to captured content conflicts with how the terminal processes the captured sequences
 - The cursor position we query is the visual position on screen, but when replayed, the terminal interprets it differently
 - pipe-pane output contains **relative** cursor movements (like `\x1b[4A`) that assume the cursor is in a specific position - our repositioning breaks those assumptions
@@ -110,10 +127,12 @@ Our approach:
 ### ❌ Approach 2: Hide xterm.js cursor (send `\x1b[?25l`)
 
 **What was tried:**
+
 1. Prepend cursor hide sequence `\x1b[?25l` to the content sent to xterm.js
 2. Rely on Claude Code's reverse video block as the visual cursor
 
 **Result:** PARTIALLY WORKED
+
 - Fixed the double cursor issue for Claude Code sessions
 - But broke shell sessions - no cursor visible at all
 - Not feasible to detect which application is running to conditionally show/hide
@@ -123,6 +142,7 @@ Our approach:
 ### ❌ Approach 3: Control mode or headless terminal
 
 **Research findings:**
+
 - tmux control mode (`tmux -CC`) provides structured `%output` notifications
 - BUT `%output` is also raw PTY output - "exactly what the application running in the pane sent to tmux"
 - xterm.js has a serialize addon that can save/restore terminal state
@@ -132,6 +152,7 @@ Our approach:
 ## Bugs Fixed During Investigation (January 2026)
 
 ### Bug 1: File offset calculation in websocket.go
+
 **Location:** `internal/dashboard/websocket.go` line 571
 
 **Bug:** `offset = int64(len(data))` should be `offset += int64(len(data))`
@@ -141,6 +162,7 @@ Our approach:
 **Symptoms:** Captured websocket data was same size as full log file even when bootstrapping from offset.
 
 ### Bug 2: extractANSISequences reading entire file when offset=0
+
 **Location:** `internal/dashboard/websocket.go` in `extractANSISequences()`
 
 **Bug:** When `endOffset == 0`, the function read the entire file instead of reading 0 bytes.
@@ -166,11 +188,13 @@ Our approach:
 **Status:** Cursor and position are NOT perfectly restored after bootstrap recovery, but the system is functional.
 
 **What works:**
+
 - Users can see what happened (captured content is written to log)
 - TUI applications will eventually self-correct and redraw properly as they receive new input
 - New output from pipe-pane continues to stream correctly
 
 **Limitations:**
+
 - Cursor may be at the wrong position initially after recovery
 - Some manual intervention or waiting may be required for TUI apps to fully restore their state
 
@@ -179,15 +203,18 @@ Our approach:
 ## Technical Details
 
 ### tmux cursor position format
+
 - `#{cursor_x}`: column position, 0-indexed
 - `#{cursor_y}`: row position, 0-indexed
 
 ### ANSI cursor position sequence
+
 - Format: `ESC [<row>;<col>H`
 - Values are 1-indexed
 - Conversion needed: row = cursor_y + 1, col = cursor_x + 1
 
 ### WebSocket client behavior
+
 The WebSocket client correctly processes pipe-pane logs that have cursor sequences (when piping from beginning).
 The `extractANSISequences()` function in `internal/dashboard/websocket.go` filters cursor movements for replay optimization,
 but this is NOT the problem - the client works correctly for normal pipe-pane logs.
@@ -195,6 +222,7 @@ but this is NOT the problem - the client works correctly for normal pipe-pane lo
 ## Repro Case Data (January 2026)
 
 Session `schmux-004-3509c4cf` was used for debugging:
+
 - Session created: 2026-01-23T16:22:00 PST
 - Log file created: Jan 23 22:10:42 (bootstrap happened ~6 hours after session start)
 - Log file size: ~4.1MB
@@ -202,6 +230,7 @@ Session `schmux-004-3509c4cf` was used for debugging:
 - **A copy of the log file was saved to ~/Downloads for future debugging (outside of git)**
 
 Key observations in captured data:
+
 - 662 reverse video on (`\x1b[7m`) sequences, 662 reverse video off (`\x1b[27m`) - balanced
 - 0 cursor hide (`\x1b[?25l`) or show (`\x1b[?25h`) sequences
 - 0 cursor save (`\x1b7` or `\x1b[s`) or restore (`\x1b8` or `\x1b[u`) sequences

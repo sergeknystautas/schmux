@@ -55,41 +55,47 @@ export function useModal() {
 export default function ModalProvider({ children }: { children: React.ReactNode }) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
-  const show = (title: string, message: string, options: ModalOptionsInput = {}) => new Promise<boolean | null>((resolve) => {
-    const normalizedOptions = typeof options === 'string' ? {} : options;
-    const resolveModal = resolve as (value: boolean | string | null) => void;
-    setModal({
-      title,
-      message,
-      confirmText: normalizedOptions.confirmText || 'Confirm',
-      cancelText: normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
-      danger: normalizedOptions.danger || false,
-      detailedMessage: normalizedOptions.detailedMessage || '',
-      resolve: resolveModal
+  const show = (title: string, message: string, options: ModalOptionsInput = {}) =>
+    new Promise<boolean | null>((resolve) => {
+      const normalizedOptions = typeof options === 'string' ? {} : options;
+      const resolveModal = resolve as (value: boolean | string | null) => void;
+      setModal({
+        title,
+        message,
+        confirmText: normalizedOptions.confirmText || 'Confirm',
+        cancelText:
+          normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
+        danger: normalizedOptions.danger || false,
+        detailedMessage: normalizedOptions.detailedMessage || '',
+        resolve: resolveModal,
+      });
     });
-  });
 
-  const alert = (title: string, message: string) => show(title, message, { confirmText: 'OK', cancelText: null });
+  const alert = (title: string, message: string) =>
+    show(title, message, { confirmText: 'OK', cancelText: null });
 
-  const confirm = (message: string, options: ModalOptionsInput = {}) => show('Confirm Action', message, options);
+  const confirm = (message: string, options: ModalOptionsInput = {}) =>
+    show('Confirm Action', message, options);
 
-  const prompt = (title: string, options: ModalOptionsInput = {}) => new Promise<string | null>((resolve) => {
-    const normalizedOptions = typeof options === 'string' ? {} : options;
-    const resolveModal = resolve as (value: boolean | string | null) => void;
-    setModal({
-      title,
-      isPrompt: true,
-      defaultValue: normalizedOptions.defaultValue || '',
-      placeholder: normalizedOptions.placeholder || '',
-      confirmText: normalizedOptions.confirmText || 'Save',
-      cancelText: normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
-      errorMessage: normalizedOptions.errorMessage || '',
-      danger: normalizedOptions.danger || false,
-      detailedMessage: normalizedOptions.detailedMessage || '',
-      password: normalizedOptions.password || false,
-      resolve: resolveModal
+  const prompt = (title: string, options: ModalOptionsInput = {}) =>
+    new Promise<string | null>((resolve) => {
+      const normalizedOptions = typeof options === 'string' ? {} : options;
+      const resolveModal = resolve as (value: boolean | string | null) => void;
+      setModal({
+        title,
+        isPrompt: true,
+        defaultValue: normalizedOptions.defaultValue || '',
+        placeholder: normalizedOptions.placeholder || '',
+        confirmText: normalizedOptions.confirmText || 'Save',
+        cancelText:
+          normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
+        errorMessage: normalizedOptions.errorMessage || '',
+        danger: normalizedOptions.danger || false,
+        detailedMessage: normalizedOptions.detailedMessage || '',
+        password: normalizedOptions.password || false,
+        resolve: resolveModal,
+      });
     });
-  });
 
   const api = useMemo(() => ({ show, alert, confirm, prompt }), []);
 
@@ -136,10 +142,17 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
     <ModalContext.Provider value={api}>
       {children}
       {modal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+        >
           <div className="modal">
             <div className="modal__header">
-              <h2 className="modal__title" id="modal-title">{modal.title}</h2>
+              <h2 className="modal__title" id="modal-title">
+                {modal.title}
+              </h2>
             </div>
             <div className="modal__body">
               {modal.isPrompt ? (
@@ -157,7 +170,10 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
                     }}
                   />
                   {modal.errorMessage && (
-                    <p className="form-group__error" style={{ marginTop: 'var(--spacing-sm)', color: 'var(--color-error)' }}>
+                    <p
+                      className="form-group__error"
+                      style={{ marginTop: 'var(--spacing-sm)', color: 'var(--color-error)' }}
+                    >
                       {modal.errorMessage}
                     </p>
                   )}
@@ -165,17 +181,21 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
               ) : (
                 <>
                   {'message' in modal ? <p>{modal.message}</p> : null}
-                  {modal.detailedMessage ? <p className="text-muted">{modal.detailedMessage}</p> : null}
+                  {modal.detailedMessage ? (
+                    <p className="text-muted">{modal.detailedMessage}</p>
+                  ) : null}
                 </>
               )}
             </div>
             <div className="modal__footer">
               {modal.cancelText ? (
-                <button className="btn" onClick={() => close(null)}>{modal.cancelText}</button>
+                <button className="btn" onClick={() => close(null)}>
+                  {modal.cancelText}
+                </button>
               ) : null}
               <button
                 className={`btn ${modal.danger ? 'btn--danger' : 'btn--primary'}`}
-                onClick={() => modal.isPrompt ? handlePromptConfirm() : close(true)}
+                onClick={() => (modal.isPrompt ? handlePromptConfirm() : close(true))}
                 autoFocus={!modal.isPrompt}
               >
                 {modal.confirmText}

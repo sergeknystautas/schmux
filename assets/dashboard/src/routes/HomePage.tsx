@@ -3,7 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
-import { scanWorkspaces, getRecentBranches, prepareBranchSpawn, getPRs, refreshPRs, checkoutPR, getErrorMessage } from '../lib/api';
+import {
+  scanWorkspaces,
+  getRecentBranches,
+  prepareBranchSpawn,
+  getPRs,
+  refreshPRs,
+  checkoutPR,
+  getErrorMessage,
+} from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
 import type { WorkspaceResponse, RecentBranch, PullRequest } from '../lib/types';
 import styles from '../styles/home.module.css';
@@ -27,7 +35,16 @@ function formatRelativeDate(isoDate: string): string {
 
 // SVG Icons
 const GitBranchIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="4" cy="4" r="2" />
     <circle cx="4" cy="12" r="2" />
     <circle cx="12" cy="4" r="2" />
@@ -36,54 +53,125 @@ const GitBranchIcon = () => (
 );
 
 const PlusIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+  >
     <path d="M8 3v10M3 8h10" />
   </svg>
 );
 
 const RocketIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
-    <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
-    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
-    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+    <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
   </svg>
 );
 
 const FolderIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M2 4a1 1 0 0 1 1-1h3l2 2h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z" />
   </svg>
 );
 
 const ScanIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="8" cy="8" r="6" />
     <path d="M8 2v6l4 2" />
   </svg>
 );
 
 const ChevronRightIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M6 4l4 4-4 4" />
   </svg>
 );
 
 const TerminalIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="4 17 10 11 4 5" />
     <line x1="12" y1="19" x2="20" y2="19" />
   </svg>
 );
 
 const CloseIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M4 4l8 8M12 4l-8 8" />
   </svg>
 );
 
 const GitPullRequestIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="4" cy="4" r="2" />
     <circle cx="4" cy="12" r="2" />
     <circle cx="12" cy="12" r="2" />
@@ -93,7 +181,16 @@ const GitPullRequestIcon = () => (
 );
 
 const RefreshIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M2 8a6 6 0 0 1 10.3-4.2L14 2v4h-4l1.7-1.7A4.5 4.5 0 0 0 3.5 8" />
     <path d="M14 8a6 6 0 0 1-10.3 4.2L2 14v-4h4l-1.7 1.7A4.5 4.5 0 0 0 12.5 8" />
   </svg>
@@ -164,7 +261,9 @@ export default function HomePage() {
       if (result.error) {
         toastError(result.error);
       } else {
-        success(`Found ${result.fetched_count} pull request${result.fetched_count !== 1 ? 's' : ''}`);
+        success(
+          `Found ${result.fetched_count} pull request${result.fetched_count !== 1 ? 's' : ''}`
+        );
       }
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to refresh PRs'));
@@ -200,9 +299,8 @@ export default function HomePage() {
     setScanning(true);
     try {
       const result = await scanWorkspaces();
-      const changes = (result.added?.length || 0) +
-                      (result.updated?.length || 0) +
-                      (result.removed?.length || 0);
+      const changes =
+        (result.added?.length || 0) + (result.updated?.length || 0) + (result.removed?.length || 0);
       if (changes > 0) {
         success(`Scan complete: ${changes} change${changes !== 1 ? 's' : ''} found`);
       } else {
@@ -240,16 +338,14 @@ export default function HomePage() {
         {/* Hero Section - dismissable */}
         {!heroDismissed && (
           <div className={styles.heroSection}>
-            <button
-              className={styles.heroDismiss}
-              onClick={handleDismissHero}
-              title="Dismiss"
-            >
+            <button className={styles.heroDismiss} onClick={handleDismissHero} title="Dismiss">
               <CloseIcon />
             </button>
             <div className={styles.heroContent}>
               <h1 className={styles.heroTitle}>
-                <span className={styles.heroIcon}><TerminalIcon /></span>
+                <span className={styles.heroIcon}>
+                  <TerminalIcon />
+                </span>
                 schmux
               </h1>
               <p className={styles.heroSubtitle}>
@@ -262,14 +358,16 @@ export default function HomePage() {
         {/* Primary Action - Spawn New Session (only when no workspaces) */}
         {workspaces.length === 0 && (
           <Link to="/spawn" className={styles.primaryAction}>
-            <span className={styles.primaryActionIcon}><RocketIcon /></span>
+            <span className={styles.primaryActionIcon}>
+              <RocketIcon />
+            </span>
             <span className={styles.primaryActionText}>
               <span className={styles.primaryActionTitle}>Spawn New Session</span>
-              <span className={styles.primaryActionHint}>
-                Start your first AI coding session
-              </span>
+              <span className={styles.primaryActionHint}>Start your first AI coding session</span>
             </span>
-            <span className={styles.primaryActionArrow}><ChevronRightIcon /></span>
+            <span className={styles.primaryActionArrow}>
+              <ChevronRightIcon />
+            </span>
           </Link>
         )}
 
@@ -289,9 +387,7 @@ export default function HomePage() {
               </div>
             ) : recentBranches.length === 0 ? (
               <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>
-                  No branches found yet.
-                </p>
+                <p className={styles.placeholderText}>No branches found yet.</p>
                 <p className={styles.placeholderHint}>
                   Branches will appear after the first fetch completes.
                 </p>
@@ -319,7 +415,9 @@ export default function HomePage() {
                           )}
                         </span>
                         <span className={styles.branchRepo}>{branch.repo_name}</span>
-                        <span className={styles.branchDate}>{formatRelativeDate(branch.commit_date)}</span>
+                        <span className={styles.branchDate}>
+                          {formatRelativeDate(branch.commit_date)}
+                        </span>
                       </div>
                       <div className={styles.branchRow2}>
                         <span className={styles.branchSubject}>{branch.subject}</span>
@@ -357,9 +455,7 @@ export default function HomePage() {
               </div>
             ) : pullRequests.length === 0 ? (
               <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>
-                  No open pull requests found.
-                </p>
+                <p className={styles.placeholderText}>No open pull requests found.</p>
                 <p className={styles.placeholderHint}>
                   PRs from public GitHub repos will appear here.
                 </p>
@@ -378,7 +474,9 @@ export default function HomePage() {
                       onClick={() => {
                         if (isBusy) return;
                         if (!canCheckout) {
-                          toastError('No PR review target configured. Set pr_review.target in config.');
+                          toastError(
+                            'No PR review target configured. Set pr_review.target in config.'
+                          );
                           return;
                         }
                         handlePRClick(pr);
@@ -388,7 +486,9 @@ export default function HomePage() {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           if (!canCheckout) {
-                            toastError('No PR review target configured. Set pr_review.target in config.');
+                            toastError(
+                              'No PR review target configured. Set pr_review.target in config.'
+                            );
                             return;
                           }
                           handlePRClick(pr);
@@ -411,8 +511,8 @@ export default function HomePage() {
                             style={{ color: 'inherit', textDecoration: 'none' }}
                           >
                             #{pr.number}
-                          </a>
-                          {' '}{pr.title}
+                          </a>{' '}
+                          {pr.title}
                           {isCheckingOut && (
                             <span className={styles.branchSpinner}>
                               <div className="spinner spinner--small" />
@@ -420,7 +520,9 @@ export default function HomePage() {
                           )}
                         </span>
                         <span className={styles.branchRepo}>{pr.repo_name}</span>
-                        <span className={styles.branchDate}>{formatRelativeDate(pr.created_at)}</span>
+                        <span className={styles.branchDate}>
+                          {formatRelativeDate(pr.created_at)}
+                        </span>
                       </div>
                       <div className={styles.branchRow2}>
                         <span className={styles.branchSubject}>
@@ -434,7 +536,6 @@ export default function HomePage() {
             )}
           </div>
         </div>
-
       </div>
 
       {/* Right Column - Workspaces */}
@@ -477,7 +578,7 @@ export default function HomePage() {
                 </div>
                 <div className={styles.tableBody}>
                   {workspaces.map((ws) => {
-                    const runningCount = ws.sessions.filter(s => s.running).length;
+                    const runningCount = ws.sessions.filter((s) => s.running).length;
                     return (
                       <button
                         key={ws.id}
@@ -490,9 +591,7 @@ export default function HomePage() {
                           <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                         </div>
                         <div className={styles.workspaceStats}>
-                          <span className={styles.sessionCount}>
-                            {ws.session_count}
-                          </span>
+                          <span className={styles.sessionCount}>{ws.session_count}</span>
                           {runningCount > 0 && (
                             <span className={styles.runningBadge} title={`${runningCount} running`}>
                               <span className={styles.runningDot} />
@@ -512,7 +611,9 @@ export default function HomePage() {
         {/* Connection Status */}
         {!loading && (
           <div className={styles.connectionStatus}>
-            <span className={`${styles.connectionDot} ${connected ? styles.connectionDotConnected : styles.connectionDotDisconnected}`} />
+            <span
+              className={`${styles.connectionDot} ${connected ? styles.connectionDotConnected : styles.connectionDotDisconnected}`}
+            />
             <span className={styles.connectionText}>
               {connected ? 'Live updates' : 'Reconnecting...'}
             </span>

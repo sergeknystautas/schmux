@@ -1,21 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
-import useTheme from '../hooks/useTheme'
-import useVersionInfo from '../hooks/useVersionInfo'
-import useLocalStorage from '../hooks/useLocalStorage'
-import Tooltip from './Tooltip'
-import KeyboardModeIndicator from './KeyboardModeIndicator'
-import ConnectionProgressModal from './ConnectionProgressModal'
-import { useConfig } from '../contexts/ConfigContext'
-import { useSessions } from '../contexts/SessionsContext'
-import { useKeyboardMode } from '../contexts/KeyboardContext'
-import { useHelpModal } from './KeyboardHelpModal'
-import { formatRelativeTime } from '../lib/utils'
-import { navigateToWorkspace } from '../lib/navigation'
-import useOverheatIndicator from '../hooks/useOverheatIndicator'
-import { useModal } from './ModalProvider'
-import { useToast } from './ToastProvider'
-import { disposeWorkspace, getErrorMessage, openVSCode, reconnectRemoteHost } from '../lib/api'
+import useTheme from '../hooks/useTheme';
+import useVersionInfo from '../hooks/useVersionInfo';
+import useLocalStorage from '../hooks/useLocalStorage';
+import Tooltip from './Tooltip';
+import KeyboardModeIndicator from './KeyboardModeIndicator';
+import ConnectionProgressModal from './ConnectionProgressModal';
+import { useConfig } from '../contexts/ConfigContext';
+import { useSessions } from '../contexts/SessionsContext';
+import { useKeyboardMode } from '../contexts/KeyboardContext';
+import { useHelpModal } from './KeyboardHelpModal';
+import { formatRelativeTime } from '../lib/utils';
+import { navigateToWorkspace } from '../lib/navigation';
+import useOverheatIndicator from '../hooks/useOverheatIndicator';
+import { useModal } from './ModalProvider';
+import { useToast } from './ToastProvider';
+import { disposeWorkspace, getErrorMessage, openVSCode, reconnectRemoteHost } from '../lib/api';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -23,7 +23,7 @@ const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
   'Needs Feature Clarification': '\uD83D\uDD0D',
   'Needs User Testing': '\uD83D\uDC40',
-  'Completed': '\u2705',
+  Completed: '\u2705',
 };
 
 function WorkingSpinner() {
@@ -82,7 +82,9 @@ export default function AppShell() {
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
   const currentSession = sessionMatch && sessionId ? sessionsById(workspaces)[sessionId] : null;
   const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId;
-  const currentWorkspace = currentWorkspaceId ? workspaces?.find(ws => ws.id === currentWorkspaceId) : null;
+  const currentWorkspace = currentWorkspaceId
+    ? workspaces?.find((ws) => ws.id === currentWorkspaceId)
+    : null;
 
   const showUpdateBadge = versionInfo?.update_available;
   const nudgenikEnabled = Boolean(config?.nudgenik?.target);
@@ -176,10 +178,10 @@ export default function AppShell() {
       // Cmd+Left: Previous session in workspace
       if (e.key === 'ArrowLeft') {
         if (!context.workspaceId || !context.sessionId) return;
-        const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+        const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
         if (!workspace?.sessions?.length) return;
 
-        const currentIndex = workspace.sessions.findIndex(s => s.id === context.sessionId);
+        const currentIndex = workspace.sessions.findIndex((s) => s.id === context.sessionId);
         if (currentIndex <= 0) return; // Already at first or not found
 
         e.preventDefault();
@@ -190,10 +192,10 @@ export default function AppShell() {
       // Cmd+Right: Next session in workspace
       if (e.key === 'ArrowRight') {
         if (!context.workspaceId || !context.sessionId) return;
-        const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+        const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
         if (!workspace?.sessions?.length) return;
 
-        const currentIndex = workspace.sessions.findIndex(s => s.id === context.sessionId);
+        const currentIndex = workspace.sessions.findIndex((s) => s.id === context.sessionId);
         if (currentIndex === -1 || currentIndex >= workspace.sessions.length - 1) return;
 
         e.preventDefault();
@@ -206,7 +208,7 @@ export default function AppShell() {
         if (!workspaces?.length) return;
 
         const currentIndex = context.workspaceId
-          ? workspaces.findIndex(ws => ws.id === context.workspaceId)
+          ? workspaces.findIndex((ws) => ws.id === context.workspaceId)
           : -1;
         if (currentIndex <= 0) return; // Already at first or not in a workspace
 
@@ -220,7 +222,7 @@ export default function AppShell() {
         if (!workspaces?.length) return;
 
         const currentIndex = context.workspaceId
-          ? workspaces.findIndex(ws => ws.id === context.workspaceId)
+          ? workspaces.findIndex((ws) => ws.id === context.workspaceId)
           : -1;
 
         // If not in any workspace, go to first workspace
@@ -245,7 +247,7 @@ export default function AppShell() {
   // Register workspace-specific keyboard actions based on active context
   useEffect(() => {
     if (!context.workspaceId) return;
-    const workspace = workspaces?.find(ws => ws.id === context.workspaceId);
+    const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
     if (!workspace) return;
 
     const scope = { type: 'workspace', id: context.workspaceId } as const;
@@ -308,7 +310,8 @@ export default function AppShell() {
       shiftKey: true,
       description: 'Dispose workspace',
       handler: async () => {
-        const resolveInProgress = linearSyncResolveConflictStates[workspace.id]?.status === 'in_progress';
+        const resolveInProgress =
+          linearSyncResolveConflictStates[workspace.id]?.status === 'in_progress';
         if (resolveInProgress) return;
         const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
         if (!accepted) return;
@@ -333,7 +336,18 @@ export default function AppShell() {
         unregisterAction(i.toString());
       }
     };
-  }, [context.workspaceId, workspaces, registerAction, unregisterAction, navigate, alert, confirm, linearSyncResolveConflictStates, success, toastError]);
+  }, [
+    context.workspaceId,
+    workspaces,
+    registerAction,
+    unregisterAction,
+    navigate,
+    alert,
+    confirm,
+    linearSyncResolveConflictStates,
+    success,
+    toastError,
+  ]);
 
   return (
     <div className={`app-shell${navCollapsed ? ' app-shell--collapsed' : ''}`}>
@@ -344,7 +358,10 @@ export default function AppShell() {
             <NavLink to="/" className="logo">
               schmux
               {showUpdateBadge && (
-                <span className="update-badge" title={`Update available: ${versionInfo.latest_version}`}></span>
+                <span
+                  className="update-badge"
+                  title={`Update available: ${versionInfo.latest_version}`}
+                ></span>
               )}
             </NavLink>
             <button
@@ -352,7 +369,14 @@ export default function AppShell() {
               onClick={() => setNavCollapsed(!navCollapsed)}
               aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 {navCollapsed ? (
                   <polyline points="9 18 15 12 9 6"></polyline>
                 ) : (
@@ -364,16 +388,22 @@ export default function AppShell() {
 
           <div className="nav-workspaces">
             <div className="nav-spawn-btn-container">
-              <button
-                className="btn nav-spawn-btn"
-                onClick={() => navigate('/spawn')}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <button className="btn nav-spawn-btn" onClick={() => navigate('/spawn')}>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
                 Add Workspace
-                <kbd className="nav-spawn-btn__kbd">{navigator.platform?.includes('Mac') ? '⌘K N' : 'Ctrl+K N'}</kbd>
+                <kbd className="nav-spawn-btn__kbd">
+                  {navigator.platform?.includes('Mac') ? '⌘K N' : 'Ctrl+K N'}
+                </kbd>
               </button>
             </div>
             <div className="nav-section-header">
@@ -393,14 +423,20 @@ export default function AppShell() {
 
               // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
               const isRemote = !!workspace.remote_host_id;
-              const remoteHostname = workspace.sessions?.find(s => s.remote_hostname)?.remote_hostname;
-              const displayBranch = (isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo))
-                ? remoteHostname
-                : workspace.branch;
+              const remoteHostname = workspace.sessions?.find(
+                (s) => s.remote_hostname
+              )?.remote_hostname;
+              const displayBranch =
+                isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
+                  ? remoteHostname
+                  : workspace.branch;
               const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
 
               return (
-                <div key={workspace.id} className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}`}>
+                <div
+                  key={workspace.id}
+                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}`}
+                >
                   <div
                     className="nav-workspace__header"
                     onClick={() => handleWorkspaceClick(workspace.id)}
@@ -412,7 +448,9 @@ export default function AppShell() {
                             width: '8px',
                             height: '8px',
                             borderRadius: '50%',
-                            backgroundColor: remoteDisconnected ? 'var(--color-error)' : 'var(--color-success)',
+                            backgroundColor: remoteDisconnected
+                              ? 'var(--color-error)'
+                              : 'var(--color-success)',
                             display: 'inline-block',
                             marginRight: '6px',
                             flexShrink: 0,
@@ -425,12 +463,33 @@ export default function AppShell() {
                     {hasChanges && (
                       <span className="nav-workspace__changes">
                         {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
-                        {linesRemoved > 0 && <span className="text-error" style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}>-{linesRemoved}</span>}
+                        {linesRemoved > 0 && (
+                          <span
+                            className="text-error"
+                            style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
+                          >
+                            -{linesRemoved}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>
-                  <div className="nav-workspace__repo" style={remoteDisconnected ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' } : undefined}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div
+                    className="nav-workspace__repo"
+                    style={
+                      remoteDisconnected
+                        ? {
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '4px',
+                          }
+                        : undefined
+                    }
+                  >
+                    <span
+                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
                       {isRemote && workspace.remote_flavor_name
                         ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
                         : getRepoName(workspace.repo)}
@@ -476,10 +535,14 @@ export default function AppShell() {
                           : '-';
 
                       // Check if this session's target is promptable
-                      const runTarget = (config?.run_targets || []).find(t => t.name === sess.target);
+                      const runTarget = (config?.run_targets || []).find(
+                        (t) => t.name === sess.target
+                      );
                       const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-                      const nudgeEmoji = sess.nudge_state ? (nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD') : null;
+                      const nudgeEmoji = sess.nudge_state
+                        ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+                        : null;
                       const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
                       // Determine what to show in row2
@@ -513,7 +576,11 @@ export default function AppShell() {
                                   fill="none"
                                   stroke="currentColor"
                                   strokeWidth="2"
-                                  style={{ marginRight: '4px', verticalAlign: 'text-bottom', opacity: 0.7 }}
+                                  style={{
+                                    marginRight: '4px',
+                                    verticalAlign: 'text-bottom',
+                                    opacity: 0.7,
+                                  }}
                                   aria-label={sess.remote_flavor_name || 'Remote'}
                                 >
                                   <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
@@ -524,9 +591,7 @@ export default function AppShell() {
                             </span>
                             <span className="nav-session__activity">{activityDisplay}</span>
                           </div>
-                          <div className="nav-session__row2">
-                            {nudgePreviewElement || '\u00A0'}
-                          </div>
+                          <div className="nav-session__row2">{nudgePreviewElement || '\u00A0'}</div>
                         </div>
                       );
                     })}
@@ -539,9 +604,17 @@ export default function AppShell() {
           <div className="nav-links">
             <NavLink
               to="/tips"
-              className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}${isNotConfigured ? ' nav-link--disabled' : ''}`}
+              className={({ isActive }) =>
+                `nav-link${isActive ? ' nav-link--active' : ''}${isNotConfigured ? ' nav-link--disabled' : ''}`
+              }
             >
-              <svg className="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="nav-link__icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <circle cx="12" cy="12" r="10"></circle>
                 <line x1="12" y1="16" x2="12" y2="12"></line>
                 <line x1="12" y1="8" x2="12.01" y2="8"></line>
@@ -552,9 +625,15 @@ export default function AppShell() {
               to="/config"
               className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
             >
-              <svg className="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+              <svg
+                className="nav-link__icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
               </svg>
               <span>Config</span>
             </NavLink>
@@ -562,7 +641,13 @@ export default function AppShell() {
               to="/settings/remote"
               className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
             >
-              <svg className="nav-link__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="nav-link__icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
                 <line x1="8" y1="21" x2="16" y2="21"></line>
                 <line x1="12" y1="17" x2="12" y2="21"></line>
@@ -574,26 +659,50 @@ export default function AppShell() {
 
         <div className="nav-bottom">
           <div className="nav-bottom__version">
-            {versionInfo?.version ? (versionInfo.version === 'dev' ? 'Version dev' : `Version ${versionInfo.version}`) : 'Loading...'}
+            {versionInfo?.version
+              ? versionInfo.version === 'dev'
+                ? 'Version dev'
+                : `Version ${versionInfo.version}`
+              : 'Loading...'}
           </div>
           <div className="nav-bottom__actions">
-            <div className={`connection-pill connection-pill--sm ${connected ? 'connection-pill--connected' : 'connection-pill--offline'}`}>
+            <div
+              className={`connection-pill connection-pill--sm ${connected ? 'connection-pill--connected' : 'connection-pill--offline'}`}
+            >
               <span className="connection-pill__dot"></span>
               <span>{connected ? 'Connected' : 'Offline'}</span>
             </div>
             <Tooltip content="Toggle theme">
-              <button id="themeToggle" className="icon-btn icon-btn--sm" aria-label="Toggle theme" onClick={toggleTheme}>
+              <button
+                id="themeToggle"
+                className="icon-btn icon-btn--sm"
+                aria-label="Toggle theme"
+                onClick={toggleTheme}
+              >
                 <span className="icon-theme"></span>
               </button>
             </Tooltip>
             <Tooltip content="View on GitHub">
-              <a href="https://github.com/sergeknystautas/schmux" target="_blank" rel="noopener noreferrer" className="icon-btn icon-btn--sm" aria-label="View on GitHub">
-                <svg className="icon-github" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              <a
+                href="https://github.com/sergeknystautas/schmux"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="icon-btn icon-btn--sm"
+                aria-label="View on GitHub"
+              >
+                <svg
+                  className="icon-github"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
                 </svg>
               </a>
             </Tooltip>
-            {mode === 'active' && <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>}
+            {mode === 'active' && (
+              <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>
+            )}
             {overheating && (
               <div className="connection-pill connection-pill--sm connection-pill--overheating">
                 <span className="connection-pill__dot"></span>

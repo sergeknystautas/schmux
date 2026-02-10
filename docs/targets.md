@@ -11,6 +11,7 @@ A Run Target is what you can execute—any AI coding tool or command.
 ### Three Types of Run Targets
 
 #### 1. Detected Tools
+
 Officially supported and auto-detected tools with built-in knowledge:
 
 - **Claude** (`claude`) — Anthropic's coding agent
@@ -18,12 +19,14 @@ Officially supported and auto-detected tools with built-in knowledge:
 - **Gemini** (`gemini`) — Google's coding agent
 
 Each detected tool has two command modes:
+
 - **Interactive**: Spawns an interactive shell (e.g., `claude`)
 - **Oneshot**: Prompt-in, immediate output (e.g., `claude -p`)
 
 Detected tools are always **promptable** and support **models**.
 
 #### 2. User Promptable Commands
+
 User-supplied command lines that accept a prompt as their final argument:
 
 ```json
@@ -35,6 +38,7 @@ User-supplied command lines that accept a prompt as their final argument:
 ```
 
 #### 3. User Commands
+
 User-supplied command lines that do not accept prompts (shell scripts, tools):
 
 ```json
@@ -55,11 +59,11 @@ Models are the AI models you can use for spawning sessions. They include native 
 
 Native models require no configuration—just select them when spawning.
 
-| ID | Display Name |
-|----|--------------|
-| `claude-opus` | claude opus 4.5 |
+| ID              | Display Name      |
+| --------------- | ----------------- |
+| `claude-opus`   | claude opus 4.5   |
 | `claude-sonnet` | claude sonnet 4.5 |
-| `claude-haiku` | claude haiku 4.5 |
+| `claude-haiku`  | claude haiku 4.5  |
 
 You can also use short aliases: `opus`, `sonnet`, `haiku`.
 
@@ -67,13 +71,13 @@ You can also use short aliases: `opus`, `sonnet`, `haiku`.
 
 Third-party models require API secrets to be configured.
 
-| ID | Display Name | Provider |
-|----|--------------|----------|
-| `kimi-thinking` | kimi k2 thinking | Moonshot AI |
-| `kimi-k2.5` | kimi k2.5 | Moonshot AI |
-| `glm-4.7` | glm 4.7 | Z.AI |
-| `minimax` | minimax m2.1 | MiniMax |
-| `qwen3-coder-plus` | qwen 3 coder plus | DashScope |
+| ID                 | Display Name      | Provider    |
+| ------------------ | ----------------- | ----------- |
+| `kimi-thinking`    | kimi k2 thinking  | Moonshot AI |
+| `kimi-k2.5`        | kimi k2.5         | Moonshot AI |
+| `glm-4.7`          | glm 4.7           | Z.AI        |
+| `minimax`          | minimax m2.1      | MiniMax     |
+| `qwen3-coder-plus` | qwen 3 coder plus | DashScope   |
 
 > **Note:** For backward compatibility, `minimax-m2.1` is also accepted as an alias for the `minimax` model.
 
@@ -101,6 +105,7 @@ Third-party models require API secrets. Create `~/.schmux/secrets.json`:
 ```
 
 > **See integration docs:**
+>
 > - [Qwen3 Coder](https://qwen.ai/blog?id=qwen3-coder)
 > - [Kimi (Moonshot)](https://platform.moonshot.ai/docs/guide/agent-support)
 > - [GLM (Z.AI)](https://docs.z.ai/scenario-example/develop-tools/claude)
@@ -109,6 +114,7 @@ Third-party models require API secrets. Create `~/.schmux/secrets.json`:
 Provider-scoped secrets are shared across models for a given provider. For example, adding Moonshot secrets once unlocks both Kimi models.
 
 This file is:
+
 - Created automatically when you first configure a model
 - Never logged or displayed in the UI
 - Read-only to the daemon
@@ -116,6 +122,7 @@ This file is:
 ### Context Compatibility
 
 Models are available anywhere their base detected tool is allowed:
+
 - Internal use (NudgeNik)
 - Spawn wizard
 - Quick launch presets
@@ -134,6 +141,7 @@ schmux includes a library of pre-defined command templates for common AI coding 
 - **merge in main**: Merge main into current branch
 
 Built-in commands:
+
 - Appear in both the spawn dropdown and spawn wizard
 - Are merged with user-defined commands (built-ins take precedence on duplicate names)
 - Work in production (installed binary) and development
@@ -162,6 +170,7 @@ Define your own commands in `~/.schmux/config.json`:
 ```
 
 **Rules:**
+
 - `type = "promptable"` requires the target accepts the prompt as the final argument
 - `type = "command"` means no prompt is allowed
 - Detected tools do **not** appear in `run_targets` (they're built-in)
@@ -174,12 +183,12 @@ Quick Launch provides one-click execution of shell commands or AI agents with pr
 
 ### Schema
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Display name (required) |
-| `command` | string | Shell command to run directly |
-| `target` | string | Run target (claude, codex, model, or user-defined) |
-| `prompt` | string | Prompt to send to the target |
+| Field     | Type   | Description                                        |
+| --------- | ------ | -------------------------------------------------- |
+| `name`    | string | Display name (required)                            |
+| `command` | string | Shell command to run directly                      |
+| `target`  | string | Run target (claude, codex, model, or user-defined) |
+| `prompt`  | string | Prompt to send to the target                       |
 
 ### Rules
 
@@ -222,16 +231,19 @@ Workspace presets are merged with global presets (workspace takes precedence on 
 ## Contexts (Where Targets Are Used)
 
 ### Internal Use
+
 - Used by schmux itself (e.g., NudgeNik)
 - **Restricted to detected tools only** (and their models)
 - Uses **oneshot** mode
 
 ### Wizard
+
 - Interactive flow for spawning sessions
 - Can use **any run target**
 - For detected tools, uses **interactive** mode
 
 ### Quick Launch
+
 - User-configured presets
 - Can use **any run target**
 - Must include a prompt if target is promptable
@@ -244,15 +256,11 @@ Workspace presets are merged with global presets (workspace takes precedence on 
 ```json
 {
   "workspace_path": "~/schmux-workspaces",
-  "repos": [
-    {"name": "myproject", "url": "git@github.com:user/myproject.git"}
-  ],
+  "repos": [{ "name": "myproject", "url": "git@github.com:user/myproject.git" }],
   "run_targets": [
-    {"name": "my-custom-agent", "type": "promptable", "command": "/path/to/my-agent"}
+    { "name": "my-custom-agent", "type": "promptable", "command": "/path/to/my-agent" }
   ],
-  "quick_launch": [
-    {"name": "Review: Kimi", "target": "kimi-thinking", "prompt": "..."}
-  ]
+  "quick_launch": [{ "name": "Review: Kimi", "target": "kimi-thinking", "prompt": "..." }]
 }
 ```
 

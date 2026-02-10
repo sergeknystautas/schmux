@@ -18,7 +18,7 @@ type ExternalDiffCommand = {
 
 // Built-in diff commands (always available)
 const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
-  { name: 'VS Code', command: 'code --diff "$LOCAL" "$REMOTE"' }
+  { name: 'VS Code', command: 'code --diff "$LOCAL" "$REMOTE"' },
 ];
 
 const DIFF_SIDEBAR_WIDTH_KEY = 'schmux-diff-sidebar-width';
@@ -46,14 +46,17 @@ export default function DiffPage() {
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [executingDiff, setExecutingDiff] = useState<string | null>(null);
-  const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(DIFF_SIDEBAR_WIDTH_KEY, DEFAULT_SIDEBAR_WIDTH);
+  const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(
+    DIFF_SIDEBAR_WIDTH_KEY,
+    DEFAULT_SIDEBAR_WIDTH
+  );
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
 
-  const workspace = workspaces?.find(ws => ws.id === workspaceId);
-  const workspaceExists = workspaceId && workspaces?.some(ws => ws.id === workspaceId);
+  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
+  const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
   const externalDiffCommands = config?.external_diff_commands || [];
 
   // Navigate home if workspace was disposed
@@ -68,13 +71,16 @@ export default function DiffPage() {
     setIsResizing(true);
   }, []);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizing || !containerRef.current) return;
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const newWidth = e.clientX - containerRect.left;
-    const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
-    setSidebarWidth(clampedWidth);
-  }, [isResizing, setSidebarWidth]);
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isResizing || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - containerRect.left;
+      const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
+      setSidebarWidth(clampedWidth);
+    },
+    [isResizing, setSidebarWidth]
+  );
 
   const handleMouseUp = useCallback(() => {
     setIsResizing(false);
@@ -122,8 +128,8 @@ export default function DiffPage() {
 
         if (savedFilePath && data.files?.length > 0) {
           // Find the file by path (check new_path first, then old_path for deleted files)
-          const foundIndex = data.files.findIndex(f =>
-            (f.new_path || f.old_path) === savedFilePath
+          const foundIndex = data.files.findIndex(
+            (f) => (f.new_path || f.old_path) === savedFilePath
           );
           if (foundIndex >= 0) {
             setSelectedFileIndex(foundIndex);
@@ -149,13 +155,14 @@ export default function DiffPage() {
     const currentStats = {
       files: workspace.git_files_changed,
       added: workspace.git_lines_added,
-      removed: workspace.git_lines_removed
+      removed: workspace.git_lines_removed,
     };
 
     const prevStats = prevGitStatsRef.current;
 
     // Check if any git stat has changed
-    const statsChanged = !prevStats ||
+    const statsChanged =
+      !prevStats ||
       prevStats.files !== currentStats.files ||
       prevStats.added !== currentStats.added ||
       prevStats.removed !== currentStats.removed;
@@ -170,11 +177,13 @@ export default function DiffPage() {
           setDiffData(data);
 
           // Try to restore the same file by path if it still exists
-          const currentFilePath = diffData?.files?.[selectedFileIndex]?.new_path || diffData?.files?.[selectedFileIndex]?.old_path;
+          const currentFilePath =
+            diffData?.files?.[selectedFileIndex]?.new_path ||
+            diffData?.files?.[selectedFileIndex]?.old_path;
 
           if (currentFilePath && data.files?.length > 0) {
-            const foundIndex = data.files.findIndex(f =>
-              (f.new_path || f.old_path) === currentFilePath
+            const foundIndex = data.files.findIndex(
+              (f) => (f.new_path || f.old_path) === currentFilePath
             );
             if (foundIndex >= 0) {
               setSelectedFileIndex(foundIndex);
@@ -223,9 +232,16 @@ export default function DiffPage() {
 
   // Save selected file path to localStorage when it changes
   useEffect(() => {
-    const filePath = diffData?.files?.[selectedFileIndex]?.new_path || diffData?.files?.[selectedFileIndex]?.old_path;
+    const filePath =
+      diffData?.files?.[selectedFileIndex]?.new_path ||
+      diffData?.files?.[selectedFileIndex]?.old_path;
     if (filePath) {
-      console.log('[DiffPage] Saving selected file to localStorage:', filePath, 'at index:', selectedFileIndex);
+      console.log(
+        '[DiffPage] Saving selected file to localStorage:',
+        filePath,
+        'at index:',
+        selectedFileIndex
+      );
       localStorage.setItem(getSelectedFileKey(workspaceId), filePath);
     }
   }, [selectedFileIndex, workspaceId, diffData]);
@@ -254,7 +270,9 @@ export default function DiffPage() {
           <div className="empty-state__icon">⚠️</div>
           <h3 className="empty-state__title">Failed to load diff</h3>
           <p className="empty-state__description">{error}</p>
-          <Link to="/" className="btn btn--primary">Back to Home</Link>
+          <Link to="/" className="btn btn--primary">
+            Back to Home
+          </Link>
         </div>
       </>
     );
@@ -273,7 +291,9 @@ export default function DiffPage() {
         <div className="empty-state">
           <h3 className="empty-state__title">No changes in workspace</h3>
           <p className="empty-state__description">This workspace has no uncommitted changes</p>
-          <Link to="/" className="btn btn--primary">Back to Home</Link>
+          <Link to="/" className="btn btn--primary">
+            Back to Home
+          </Link>
         </div>
       </>
     );
@@ -289,7 +309,7 @@ export default function DiffPage() {
     }
     return {
       filename: fullPath.substring(lastSlash + 1),
-      directory: fullPath.substring(0, lastSlash + 1)
+      directory: fullPath.substring(0, lastSlash + 1),
     };
   };
 
@@ -335,16 +355,17 @@ export default function DiffPage() {
               {executingDiff === cmd.name ? <div className="spinner--small"></div> : cmd.name}
             </button>
           ))}
-          {hasUserCommands && externalDiffCommands.map((cmd) => (
-            <button
-              key={cmd.name}
-              className="btn btn--sm btn--ghost btn--bordered"
-              onClick={() => handleExternalDiff(cmd)}
-              disabled={executingDiff !== null}
-            >
-              {executingDiff === cmd.name ? <div className="spinner--small"></div> : cmd.name}
-            </button>
-          ))}
+          {hasUserCommands &&
+            externalDiffCommands.map((cmd) => (
+              <button
+                key={cmd.name}
+                className="btn btn--sm btn--ghost btn--bordered"
+                onClick={() => handleExternalDiff(cmd)}
+                disabled={executingDiff !== null}
+              >
+                {executingDiff === cmd.name ? <div className="spinner--small"></div> : cmd.name}
+              </button>
+            ))}
         </div>
 
         <div className="diff-layout" ref={containerRef}>
@@ -360,7 +381,14 @@ export default function DiffPage() {
                     onClick={() => setSelectedFileIndex(index)}
                   >
                     <div className="diff-file-item__info">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
                         <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
                         <polyline points="13 2 13 9 20 9"></polyline>
                       </svg>
@@ -368,8 +396,19 @@ export default function DiffPage() {
                       {directory && <span className="diff-file-item__dir">{directory}</span>}
                     </div>
                     <span className="diff-file-item__stats">
-                      {file.lines_added > 0 && <span style={{ color: 'var(--color-success)' }}>+{file.lines_added}</span>}
-                      {file.lines_removed > 0 && <span style={{ color: 'var(--color-error)', marginLeft: file.lines_added > 0 ? '4px' : '0' }}>-{file.lines_removed}</span>}
+                      {file.lines_added > 0 && (
+                        <span style={{ color: 'var(--color-success)' }}>+{file.lines_added}</span>
+                      )}
+                      {file.lines_removed > 0 && (
+                        <span
+                          style={{
+                            color: 'var(--color-error)',
+                            marginLeft: file.lines_added > 0 ? '4px' : '0',
+                          }}
+                        >
+                          -{file.lines_removed}
+                        </span>
+                      )}
                     </span>
                   </button>
                 );
@@ -386,16 +425,18 @@ export default function DiffPage() {
             {selectedFile && (
               <>
                 <div className="diff-content__header">
-                  <h2 className="diff-content__title">{selectedFile.new_path || selectedFile.old_path}</h2>
-                  <span className={`badge badge--${selectedFile.status === 'added' ? 'success' : selectedFile.status === 'deleted' ? 'danger' : 'neutral'}`}>
+                  <h2 className="diff-content__title">
+                    {selectedFile.new_path || selectedFile.old_path}
+                  </h2>
+                  <span
+                    className={`badge badge--${selectedFile.status === 'added' ? 'success' : selectedFile.status === 'deleted' ? 'danger' : 'neutral'}`}
+                  >
                     {selectedFile.status}
                   </span>
                 </div>
                 <div className="diff-viewer-wrapper" ref={contentRef}>
                   {selectedFile.is_binary ? (
-                    <div className="diff-binary-notice">
-                      Binary file not shown
-                    </div>
+                    <div className="diff-binary-notice">Binary file not shown</div>
                   ) : (
                     <ReactDiffViewer
                       oldValue={selectedFile.old_content || ''}

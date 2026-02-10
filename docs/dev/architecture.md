@@ -60,43 +60,53 @@ docs/                    # Documentation
 ## Key Packages
 
 ### Daemon (`internal/daemon/`)
+
 Long-running background process that coordinates all other packages.
 
 **Responsibilities:**
+
 - Start/stop lifecycle
 - Coordinate session and workspace managers
 - Host the dashboard server
 
 ### Dashboard (`internal/dashboard/`)
+
 HTTP server and WebSocket handler for terminal streaming.
 
 **Key files:**
+
 - `server.go` - HTTP server setup, route registration
 - `handlers.go` - API endpoint handlers
 - `terminal.go` - WebSocket terminal streaming
 
 ### Session (`internal/session/`)
+
 Session lifecycle management and tracking.
 
 **Responsibilities:**
+
 - Spawn sessions (tmux create + agent execution)
 - Track session status (spawning, running, done, disposed)
 - Capture terminal output
 - Dispose sessions
 
 ### Workspace (`internal/workspace/`)
+
 Git repository management and workspace creation.
 
 **Responsibilities:**
+
 - Clone and checkout git repos
 - Create sequential workspace directories
 - Copy overlay files
 - Track workspace state (dirty, ahead, behind)
 
 ### tmux (`internal/tmux/`)
+
 tmux CLI wrapper.
 
 **Key functions:**
+
 - `Create(name, command, width, height)` - Create new session
 - `CapturePane(name)` - Get terminal output
 - `ListSessions()` - List all tmux sessions
@@ -200,17 +210,20 @@ type Tmux interface {
 ## Build & Deployment
 
 ### Development
+
 ```bash
 go run ./cmd/schmux daemon-run
 ```
 
 ### Production
+
 ```bash
 go build ./cmd/schmux
 ./schmux start
 ```
 
 ### Dashboard
+
 ```bash
 # Build React assets
 go run ./cmd/build-dashboard

@@ -61,6 +61,7 @@ Before committing changes, you MUST run:
 The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
 For faster iteration during development:
+
 - Run unit tests only: `./test.sh` (or `go test ./...`)
 - Skip E2E tests and let CI handle them on PRs
 

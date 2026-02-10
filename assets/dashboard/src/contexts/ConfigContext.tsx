@@ -112,34 +112,34 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const isNotConfigured = useMemo(() => {
     if (loading || error) return false;
     const wsPath = config?.workspace_path || '';
-    return !wsPath.trim() ||
-           !config?.repos ||
-           config.repos.length === 0;
+    return !wsPath.trim() || !config?.repos || config.repos.length === 0;
   }, [config, loading, error]);
 
   // Helper to get repo name from URL
-  const getRepoName = useCallback((repoUrl: string) => {
-    if (!repoUrl) return repoUrl;
-    const repo = config?.repos?.find(r => r.url === repoUrl);
-    return repo?.name || repoUrl;
-  }, [config?.repos]);
-
-  const value = useMemo(() => ({
-    config,
-    loading,
-    error,
-    isNotConfigured,
-    isFirstRun,
-    completeFirstRun: () => setIsFirstRun(false),
-    reloadConfig: loadConfig,
-    getRepoName,
-  }), [config, loading, error, isNotConfigured, isFirstRun, loadConfig, getRepoName]);
-
-  return (
-    <ConfigContext.Provider value={value}>
-      {children}
-    </ConfigContext.Provider>
+  const getRepoName = useCallback(
+    (repoUrl: string) => {
+      if (!repoUrl) return repoUrl;
+      const repo = config?.repos?.find((r) => r.url === repoUrl);
+      return repo?.name || repoUrl;
+    },
+    [config?.repos]
   );
+
+  const value = useMemo(
+    () => ({
+      config,
+      loading,
+      error,
+      isNotConfigured,
+      isFirstRun,
+      completeFirstRun: () => setIsFirstRun(false),
+      reloadConfig: loadConfig,
+      getRepoName,
+    }),
+    [config, loading, error, isNotConfigured, isFirstRun, loadConfig, getRepoName]
+  );
+
+  return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 
 export function useConfig() {

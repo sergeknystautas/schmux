@@ -10,7 +10,10 @@ type ViewedSessionsContextValue = {
 const ViewedSessionsContext = createContext<ViewedSessionsContextValue | null>(null);
 
 export function ViewedSessionsProvider({ children }: { children: React.ReactNode }) {
-  const [viewedSessions, setViewedSessions] = useLocalStorage<Record<string, number>>(VIEWED_SESSIONS_KEY, {});
+  const [viewedSessions, setViewedSessions] = useLocalStorage<Record<string, number>>(
+    VIEWED_SESSIONS_KEY,
+    {}
+  );
   const { config } = useConfig();
 
   const markAsViewed = useCallback((sessionId: string) => {

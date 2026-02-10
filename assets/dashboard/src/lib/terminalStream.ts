@@ -50,7 +50,11 @@ export default class TerminalStream {
   dragStartLine: number | null;
   dragIsSelecting: boolean;
 
-  constructor(sessionId: string, containerElement: HTMLElement, options: TerminalStreamOptions = {}) {
+  constructor(
+    sessionId: string,
+    containerElement: HTMLElement,
+    options: TerminalStreamOptions = {}
+  ) {
     this.sessionId = sessionId;
     this.containerElement = containerElement;
     this.ws = null;
@@ -98,7 +102,10 @@ export default class TerminalStream {
       const estimatedCellHeight = 17;
       cols = Math.max(20, Math.floor(containerRect.width / estimatedCellWidth) - 1);
       rows = Math.max(5, Math.floor(containerRect.height / estimatedCellHeight) - 1);
-    } else if (typeof this.terminalSize?.width !== 'number' || typeof this.terminalSize?.height !== 'number') {
+    } else if (
+      typeof this.terminalSize?.width !== 'number' ||
+      typeof this.terminalSize?.height !== 'number'
+    ) {
       const message = 'Terminal size is unavailable in config';
       this.containerElement.textContent = `Error: ${message}`;
       console.error(message);
@@ -113,7 +120,7 @@ export default class TerminalStream {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      allowProposedApi: true,  // Required for registerDecoration API
+      allowProposedApi: true, // Required for registerDecoration API
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -133,10 +140,10 @@ export default class TerminalStream {
         brightBlue: '#3b8eea',
         brightMagenta: '#d670d6',
         brightCyan: '#29b8db',
-        brightWhite: '#ffffff'
+        brightWhite: '#ffffff',
       },
       scrollback: 1000,
-      convertEol: true
+      convertEol: true,
     });
 
     this.terminal.loadAddon(new WebLinksAddon());
@@ -202,7 +209,14 @@ export default class TerminalStream {
 
   // Central measurement function - calculates terminal dimensions from the rendered terminal
   // Returns { cols, rows, cellWidth, cellHeight, containerWidth, containerHeight } or null if measurement fails
-  measureTerminal(): { cols: number; rows: number; cellWidth: number; cellHeight: number; containerWidth: number; containerHeight: number } | null {
+  measureTerminal(): {
+    cols: number;
+    rows: number;
+    cellWidth: number;
+    cellHeight: number;
+    containerWidth: number;
+    containerHeight: number;
+  } | null {
     if (!this.terminal) return null;
 
     const containerRect = this.containerElement.getBoundingClientRect();
@@ -214,7 +228,13 @@ export default class TerminalStream {
     if (containerWidth <= 0 || containerHeight <= 0) return null;
 
     // Measure actual cell dimensions from the terminal
-    const core = (this.terminal as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
+    const core = (
+      this.terminal as unknown as {
+        _core: {
+          _renderService: { dimensions: { css: { cell: { width: number; height: number } } } };
+        };
+      }
+    )._core;
     let cellWidth = 9;
     let cellHeight = 17;
 
@@ -229,7 +249,6 @@ export default class TerminalStream {
 
     return { cols, rows, cellWidth, cellHeight, containerWidth, containerHeight };
   }
-
 
   // Synchronous resize - calculates and applies dimensions immediately
   // Used during initialization to ensure terminal is sized before WebSocket connects
@@ -269,10 +288,12 @@ export default class TerminalStream {
 
   sendResize(cols: number, rows: number) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'resize',
-        data: JSON.stringify({ cols, rows })
-      }));
+      this.ws.send(
+        JSON.stringify({
+          type: 'resize',
+          data: JSON.stringify({ cols, rows }),
+        })
+      );
     }
   }
 
@@ -427,7 +448,7 @@ export default class TerminalStream {
   }
 
   getSelectedLines(): string[] {
-    return Array.from(this.selectedLines.values()).map(sl => sl.text);
+    return Array.from(this.selectedLines.values()).map((sl) => sl.text);
   }
 
   clearSelection() {
@@ -438,7 +459,7 @@ export default class TerminalStream {
   private clearSelectionMarkers() {
     if (!this.terminal) return;
     for (const selected of this.selectedLines.values()) {
-      const marker = this.terminal.markers.find(m => m.id === selected.markerId);
+      const marker = this.terminal.markers.find((m) => m.id === selected.markerId);
       if (marker) {
         marker.dispose();
       }
@@ -556,7 +577,7 @@ export default class TerminalStream {
 
     const selected = this.selectedLines.get(bufferLine);
     if (selected) {
-      const marker = this.terminal.markers.find(m => m.id === selected.markerId);
+      const marker = this.terminal.markers.find((m) => m.id === selected.markerId);
       if (marker) {
         marker.dispose();
       }
@@ -581,13 +602,17 @@ export default class TerminalStream {
     if (!marker) return;
 
     const screenElement = this.terminal.element?.querySelector('.xterm-screen');
-    const cellWidth = screenElement ? screenElement.getBoundingClientRect().width / this.terminal.cols : 9;
-    const cellHeight = screenElement ? screenElement.getBoundingClientRect().height / this.terminal.rows : 17;
+    const cellWidth = screenElement
+      ? screenElement.getBoundingClientRect().width / this.terminal.cols
+      : 9;
+    const cellHeight = screenElement
+      ? screenElement.getBoundingClientRect().height / this.terminal.rows
+      : 17;
 
     const decoration = this.terminal.registerDecoration({
       marker,
       width: this.terminal.cols,
-      layer: 'top'
+      layer: 'top',
     });
 
     if (decoration) {
@@ -603,7 +628,7 @@ export default class TerminalStream {
       this.selectedLines.set(bufferLine, {
         bufferLine,
         markerId: marker.id,
-        text: lineText
+        text: lineText,
       });
 
       marker.onDispose(() => {

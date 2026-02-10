@@ -1,16 +1,32 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useEffect,
+  useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
 import { playAttentionSound, isAttentionState } from '../lib/notificationSound';
-import type { SessionWithWorkspace, WorkspaceResponse, LinearSyncResolveConflictStatePayload, PendingNavigation } from '../lib/types';
+import type {
+  SessionWithWorkspace,
+  WorkspaceResponse,
+  LinearSyncResolveConflictStatePayload,
+  PendingNavigation,
+} from '../lib/types';
 
 type SessionsContextValue = {
   workspaces: WorkspaceResponse[];
   loading: boolean;
   error: string;
   connected: boolean;
-  waitForSession: (sessionId: string, opts?: { timeoutMs?: number; intervalMs?: number }) => Promise<boolean>;
+  waitForSession: (
+    sessionId: string,
+    opts?: { timeoutMs?: number; intervalMs?: number }
+  ) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
@@ -24,7 +40,13 @@ const SessionsContext = createContext<SessionsContextValue | null>(null);
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { config } = useConfig();
-  const { workspaces, loading, connected, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSessionsWebSocket();
+  const {
+    workspaces,
+    loading,
+    connected,
+    linearSyncResolveConflictStates,
+    clearLinearSyncResolveConflictState,
+  } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
 
   const sessionsById = useMemo(() => {
@@ -91,7 +113,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         setPendingNavigationState(null);
       }
     } else if (pendingNavigation.type === 'workspace') {
-      const workspace = workspaces.find(ws => ws.id === pendingNavigation.id);
+      const workspace = workspaces.find((ws) => ws.id === pendingNavigation.id);
       if (workspace) {
         if (workspace.sessions?.length) {
           navigate(`/sessions/${workspace.sessions[0].id}`);
@@ -116,42 +138,55 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     setPendingNavigationState(null);
   }, []);
 
-  const waitForSession = useCallback(async (sessionId: string, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
-    if (!sessionId) return false;
-    // Check ref to get current value, not stale closure
-    if (sessionsByIdRef.current[sessionId]) return true;
-
-    // With WebSocket, we just need to wait for the next update
-    // The server will broadcast when a session is created
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      // Check if session appeared (state updated via WebSocket)
-      // Read from ref to get current value, not stale closure
+  const waitForSession = useCallback(
+    async (sessionId: string, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
+      if (!sessionId) return false;
+      // Check ref to get current value, not stale closure
       if (sessionsByIdRef.current[sessionId]) return true;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
-    return false;
-  }, []);
 
-  const value = useMemo(() => ({
-    workspaces,
-    loading,
-    error: '',
-    connected,
-    waitForSession,
-    sessionsById,
-    linearSyncResolveConflictStates,
-    clearLinearSyncResolveConflictState,
-    pendingNavigation,
-    setPendingNavigation,
-    clearPendingNavigation,
-  }), [workspaces, loading, connected, waitForSession, sessionsById, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState, pendingNavigation, setPendingNavigation, clearPendingNavigation]);
-
-  return (
-    <SessionsContext.Provider value={value}>
-      {children}
-    </SessionsContext.Provider>
+      // With WebSocket, we just need to wait for the next update
+      // The server will broadcast when a session is created
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        // Check if session appeared (state updated via WebSocket)
+        // Read from ref to get current value, not stale closure
+        if (sessionsByIdRef.current[sessionId]) return true;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+      return false;
+    },
+    []
   );
+
+  const value = useMemo(
+    () => ({
+      workspaces,
+      loading,
+      error: '',
+      connected,
+      waitForSession,
+      sessionsById,
+      linearSyncResolveConflictStates,
+      clearLinearSyncResolveConflictState,
+      pendingNavigation,
+      setPendingNavigation,
+      clearPendingNavigation,
+    }),
+    [
+      workspaces,
+      loading,
+      connected,
+      waitForSession,
+      sessionsById,
+      linearSyncResolveConflictStates,
+      clearLinearSyncResolveConflictState,
+      pendingNavigation,
+      setPendingNavigation,
+      clearPendingNavigation,
+    ]
+  );
+
+  return <SessionsContext.Provider value={value}>{children}</SessionsContext.Provider>;
 }
 
 export function useSessions() {

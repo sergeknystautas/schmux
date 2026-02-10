@@ -18,7 +18,7 @@ English is becoming a programming language. Prompts are load-bearing infrastruct
 
 ## 2. Non-Goals
 
-schmux is deliberately *not* trying to be:
+schmux is deliberately _not_ trying to be:
 
 - **A cloud service** — schmux runs locally on your machine. No hosted infrastructure, no accounts, no data leaving your filesystem.
 - **Agent-to-agent orchestration** — schmux doesn't have agents coordinating with each other autonomously. The human is always the coordinator.
@@ -61,7 +61,7 @@ schmux is deliberately *not* trying to be:
 
 ## 5. Sessions
 
-**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for *you* to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point—with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
+**Problem:** Most agent orchestration focuses on agents talking to each other, batch operations, and strict sandboxes. This makes it hard for _you_ to see what's happening or step in when needed. For long-running agent work, you need a lightweight, local solution where you can observe, review, and interject at any point—with sessions that persist if you disconnect, preserve history, and can be reviewed after completion.
 
 - **Each coding agent runs interactively in its own tmux session**
 - **Session lifecycle states**: spawning → running → done → disposed
@@ -100,13 +100,14 @@ schmux is deliberately *not* trying to be:
 
 ## 7. NudgeNik: A Glimpse of the Future
 
-**Problem:** Coding agents and LLMs are inherently powerful *because* they aren't binary and can operate in ambiguous spaces. But most orchestration tools are attempting to squash that ambiguity rather than recognize that software development is ambiguous — it's messy, requires judgment, and isn't reducible to binary pass/fail metrics.
+**Problem:** Coding agents and LLMs are inherently powerful _because_ they aren't binary and can operate in ambiguous spaces. But most orchestration tools are attempting to squash that ambiguity rather than recognize that software development is ambiguous — it's messy, requires judgment, and isn't reducible to binary pass/fail metrics.
 
 **What NudgeNik does today:** It reads what agents recently did and concludes what they're up to. This is valuable right now to tell you whether an agent is blocked (needs permission to run a command or approve a change), waiting for feedback or has clarifying questions, done with everything, or still actively working.
 
 **Where this is going:** Using an LLM to read the English output of coding agents opens the door for more human-centric agent organization. Instead of creating strict orchestration that requires very clear goals, we recognize that software development is messy and requires interpretation.
 
 NudgeNik can grow to:
+
 - **Evaluate what agents are doing and suggest next steps** — Did they actually run the tests they claimed? Do they need integration testing? Did they finish the requirements?
 - **Ask (almost rhetorical) questions** when agents are stuck or looping on a problem
 - **Suggest seeking other expertise** or trying a different model to think differently when progress has stalled
