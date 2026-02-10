@@ -239,3 +239,107 @@ func TestGetOrCreate_BranchReuse_Failure(t *testing.T) {
 	// to validate that state is not corrupted when prepare() fails.
 	// The success test validates the fix (prepare() called before state update).
 }
+
+// TestGetOrCreate_BranchReuse_DivergedSkipsReuse verifies that a workspace whose
+// branch has diverged from the default branch is NOT reused for a different branch.
+// This prevents commit history pollution: without this guard, the new branch would
+// inherit all the diverged commits from the old branch.
+func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
+		Repos: []config.Repo{
+			{Name: "test", URL: repoDir},
+		},
+	}
+	manager := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create workspace on "main"
+	ws1, err := manager.GetOrCreate(ctx, repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main failed: %v", err)
+	}
+
+	// Add a diverging commit directly in the workspace (not on origin/main)
+	runGit(t, ws1.Path, "config", "user.email", "test@test.com")
+	runGit(t, ws1.Path, "config", "user.name", "Test User")
+	writeFile(t, ws1.Path, "diverged.txt", "diverged content")
+	runGit(t, ws1.Path, "add", ".")
+	runGit(t, ws1.Path, "commit", "-m", "diverging commit")
+
+	// Now request a different branch — the workspace has diverged so it should
+	// NOT be reused; a new workspace should be created instead.
+	ws2, err := manager.GetOrCreate(ctx, repoDir, "feature-new")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-new failed: %v", err)
+	}
+
+	if ws2.ID == ws1.ID {
+		t.Fatalf("expected a NEW workspace because old branch diverged, but got same ID %s", ws2.ID)
+	}
+
+	// Verify the new workspace's branch does NOT contain the diverging commit
+	cmd := exec.Command("git", "-C", ws2.Path, "log", "--oneline")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log failed: %v", err)
+	}
+	if strings.Contains(string(output), "diverging commit") {
+		t.Fatalf("new workspace branch should not contain the diverging commit, got:\n%s", output)
+	}
+}
+
+// TestGetOrCreate_BranchReuse_UpToDateAllowsReuse verifies that a workspace whose
+// branch is at or behind the default branch IS reused for a different branch.
+func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-1")
+
+	cfg := &config.Config{
+		WorkspacePath:    t.TempDir(),
+		WorktreeBasePath: t.TempDir(),
+		Repos: []config.Repo{
+			{Name: "test", URL: repoDir},
+		},
+	}
+	manager := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create workspace on "main" — no diverging commits
+	ws1, err := manager.GetOrCreate(ctx, repoDir, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreate main failed: %v", err)
+	}
+
+	// Request different branch — workspace is up-to-date with main so reuse is OK
+	ws2, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
+	}
+
+	if ws2.ID != ws1.ID {
+		t.Errorf("expected workspace reuse (same ID), got %s vs %s", ws1.ID, ws2.ID)
+	}
+
+	ws2State, _ := st.GetWorkspace(ws2.ID)
+	if ws2State.Branch != "feature-1" {
+		t.Errorf("expected branch feature-1 in state, got %s", ws2State.Branch)
+	}
+}
