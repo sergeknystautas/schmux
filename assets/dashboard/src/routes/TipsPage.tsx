@@ -569,6 +569,12 @@ export default function TipsPage() {
                     </td>
                     <td>Go to home page</td>
                   </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>?</span>
+                    </td>
+                    <td>Show keyboard shortcuts help modal</td>
+                  </tr>
                 </tbody>
               </table>
 
@@ -624,6 +630,55 @@ export default function TipsPage() {
                       <span className={styles.keyCombo}>W</span>
                     </td>
                     <td>Dispose session (requires confirmation)</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <h3>Direct Shortcuts</h3>
+              <p>These shortcuts work without entering keyboard mode.</p>
+              <table className={styles.modelTable}>
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘K / Ctrl+K</span>
+                    </td>
+                    <td>Toggle keyboard mode</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘← / Ctrl+←</span>
+                    </td>
+                    <td>Previous session in workspace</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘→ / Ctrl+→</span>
+                    </td>
+                    <td>Next session in workspace</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘↑ / Ctrl+↑</span>
+                    </td>
+                    <td>Previous workspace</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘↓ / Ctrl+↓</span>
+                    </td>
+                    <td>Next workspace</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <span className={styles.keyCombo}>⌘Enter / Ctrl+Enter</span>
+                    </td>
+                    <td>Submit spawn form (on spawn page)</td>
                   </tr>
                 </tbody>
               </table>

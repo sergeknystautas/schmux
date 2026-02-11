@@ -25,6 +25,7 @@ const shortcuts = [
   { key: 'D', description: 'Go to diff page' },
   { key: 'G', description: 'Go to git graph' },
   { key: 'H', description: 'Go to home' },
+  { key: '?', description: 'Show this help' },
 ];
 
 // Detect if user is on Mac (use Cmd) or Windows/Linux (use Ctrl)
@@ -32,10 +33,12 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(na
 const modKey = isMac ? 'Cmd' : 'Ctrl';
 
 const directShortcuts = [
+  { key: `${modKey}+K`, description: 'Toggle keyboard mode' },
   { key: `${modKey}+←`, description: 'Previous session in workspace' },
   { key: `${modKey}+→`, description: 'Next session in workspace' },
   { key: `${modKey}+↑`, description: 'Previous workspace' },
   { key: `${modKey}+↓`, description: 'Next workspace' },
+  { key: `${modKey}+Enter`, description: 'Submit spawn form' },
 ];
 
 export default function HelpModalProvider({ children }: { children: React.ReactNode }) {
@@ -126,26 +129,20 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>
-                      <kbd>{directShortcuts[0].key}</kbd>
-                    </td>
-                    <td>{directShortcuts[0].description}</td>
-                    <td>
-                      <kbd>{directShortcuts[1].key}</kbd>
-                    </td>
-                    <td>{directShortcuts[1].description}</td>
-                  </tr>
-                  <tr>
-                    <td>
-                      <kbd>{directShortcuts[2].key}</kbd>
-                    </td>
-                    <td>{directShortcuts[2].description}</td>
-                    <td>
-                      <kbd>{directShortcuts[3].key}</kbd>
-                    </td>
-                    <td>{directShortcuts[3].description}</td>
-                  </tr>
+                  {Array.from({ length: Math.ceil(directShortcuts.length / 2) }).map((_, index) => {
+                    const left = directShortcuts[index * 2];
+                    const right = directShortcuts[index * 2 + 1];
+                    return (
+                      <tr
+                        key={`direct-${left?.key || 'empty-left'}-${right?.key || 'empty-right'}-${index}`}
+                      >
+                        <td>{left ? <kbd>{left.key}</kbd> : null}</td>
+                        <td>{left?.description || ''}</td>
+                        <td>{right ? <kbd>{right.key}</kbd> : null}</td>
+                        <td>{right?.description || ''}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
