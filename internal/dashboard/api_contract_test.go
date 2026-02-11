@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 	return server, cfg, st
 }
 
@@ -253,7 +253,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	ws := state.Workspace{
 		ID:     "ws-quick",

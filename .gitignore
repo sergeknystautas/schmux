@@ -31,3 +31,6 @@ vendor/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Air hot-reload temp directory
+tmp/

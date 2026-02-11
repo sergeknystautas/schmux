@@ -28,27 +28,99 @@ This Go wrapper:
 
 See [React Architecture](docs/dev/react.md) for more details.
 
+## Development with Hot-Reload
+
+For active development, use the hot-reload script instead of manual builds:
+
+```bash
+./dev.sh
+```
+
+This starts both servers with automatic rebuilding:
+
+| Component      | Tool                                    | What happens on save            |
+| -------------- | --------------------------------------- | ------------------------------- |
+| Go backend     | [air](https://github.com/air-verse/air) | Rebuilds and restarts (~2-3s)   |
+| React frontend | Vite HMR                                | Instant browser update (<100ms) |
+
+**First run** will prompt to install dependencies:
+
+- `air` via `go install github.com/air-verse/air@latest`
+- npm packages via `npm install` in `assets/dashboard/`
+
+**Output** is prefixed with `[backend]` and `[frontend]` for clarity.
+
+**Access** the dashboard at http://localhost:7337 (same as production).
+
+**Stop** with `Ctrl+C` - both servers shut down cleanly.
+
+### How it works
+
+The Go daemon runs with `--dev-proxy` flag, which reverse-proxies non-API requests to the Vite dev server (port 5173). This gives you:
+
+- React HMR without page refresh
+- Working API endpoints and WebSockets
+- Same URL as production
+
+### When to use what
+
+| Task                 | Command                                                 |
+| -------------------- | ------------------------------------------------------- |
+| Active development   | `./dev.sh`                                              |
+| One-shot build + run | `./run.sh`                                              |
+| Production build     | `go run ./cmd/build-dashboard && go build ./cmd/schmux` |
+
 ## Pre-Commit Requirements
 
 Before committing changes, you MUST run:
 
 1. **Run all tests**: `./test.sh --all`
-   - Or run individually:
-     - Unit tests only: `./test.sh` (or `go test ./...`)
-     - E2E tests only: `./test.sh --e2e`
 2. **Format code**: `go fmt ./...`
 
-The `test.sh` script provides a convenient way to run tests with various options:
+## Testing
+
+The `test.sh` script is the primary way to run tests:
 
 ```bash
 ./test.sh              # Run unit tests (default)
 ./test.sh --all        # Run both unit and E2E tests
 ./test.sh --race       # Run with race detector
 ./test.sh --coverage   # Run with coverage report
-./test.sh --help       # See all options
+./test.sh --verbose    # Run with verbose output
+./test.sh --quick      # Fast mode (no race detector)
+./test.sh --e2e        # Run E2E tests only
+./test.sh --help       # Show all options
 ```
 
-**Note:** E2E tests require Docker and take longer to run. You can skip them during development and let CI run them on PRs.
+### E2E Tests Require Docker
+
+E2E tests run in a Docker container to ensure a consistent environment:
+
+```bash
+# Install Docker first (if not already installed)
+# macOS: brew install --cask docker
+# Linux: https://docs.docker.com/engine/install/
+
+# Then run E2E tests
+./test.sh --e2e
+```
+
+The script automatically:
+
+1. Builds a Docker image from `Dockerfile.e2e`
+2. Runs the E2E test suite inside the container
+3. Reports results
+
+### When to Run What
+
+| Situation                 | Command            | Time    |
+| ------------------------- | ------------------ | ------- |
+| Quick check while coding  | `go test ./...`    | ~10s    |
+| Before committing         | `./test.sh --all`  | ~2-3min |
+| Debugging race conditions | `./test.sh --race` | ~30s    |
+| CI/PR validation          | `./test.sh --all`  | ~2-3min |
+
+**Tip:** During active development, run unit tests frequently (`go test ./...`) and let CI handle E2E tests on PRs. Run `./test.sh --all` before pushing.
 
 ## Documentation
 

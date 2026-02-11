@@ -244,7 +244,8 @@ func Status() (running bool, url string, startedAt string, err error) {
 
 // Run runs the daemon (this is the entry point for the daemon process).
 // If background is true, SIGINT/SIGQUIT are ignored (for start command).
-func Run(background bool) error {
+// If devProxy is true, non-API requests are proxied to Vite dev server.
+func Run(background bool, devProxy bool) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -361,7 +362,7 @@ func Run(background bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown, devProxy)
 
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st)

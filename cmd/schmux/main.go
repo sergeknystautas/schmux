@@ -11,6 +11,20 @@ import (
 	"github.com/sergeknystautas/schmux/pkg/cli"
 )
 
+// parseDaemonRunFlags parses the flags for daemon-run command.
+// Returns (devProxy, background) flags.
+func parseDaemonRunFlags(args []string) (devProxy bool, background bool) {
+	for _, arg := range args {
+		switch arg {
+		case "--dev-proxy":
+			devProxy = true
+		case "--background":
+			background = true
+		}
+	}
+	return
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -45,15 +59,8 @@ func main() {
 			}
 			fmt.Println("schmux daemon started")
 		} else { // daemon-run
-			background := false
-			args := os.Args[2:]
-			for _, arg := range args {
-				if arg == "--background" {
-					background = true
-					break
-				}
-			}
-			if err := daemon.Run(background); err != nil {
+			devProxy, background := parseDaemonRunFlags(os.Args[2:])
+			if err := daemon.Run(background, devProxy); err != nil {
 				fmt.Fprintf(os.Stderr, "Daemon error: %v\n", err)
 				os.Exit(1)
 			}
