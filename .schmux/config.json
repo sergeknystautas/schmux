@@ -2,7 +2,7 @@
   "quick_launch": [
     {
       "name": "run schmux",
-      "command": "run.sh"
+      "command": "./run.sh"
     }
   ]
 }
