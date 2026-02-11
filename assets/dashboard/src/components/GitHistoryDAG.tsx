@@ -6,6 +6,7 @@ import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gi
 import type { GitGraphResponse } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSync } from '../hooks/useSync';
+import Tooltip from './Tooltip';
 
 interface GitHistoryDAGProps {
   workspaceId: string;
@@ -37,7 +38,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [loading, setLoading] = useState(true);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const { handleSmartSync } = useSync();
+  const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
+  const { handleSmartSync, handleLinearSyncToMain } = useSync();
 
   const fetchData = useCallback(async () => {
     try {
@@ -150,9 +152,45 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           <div className="git-dag__rows" style={{ marginLeft: graphWidth }}>
             {layout.nodes.map((ln) => {
               if (ln.nodeType === 'you-are-here') {
+                const showFfToMain = (ws?.git_ahead ?? 0) > 0;
+                const ffDisabled = (ws?.git_behind ?? 0) > 0 || (ws?.git_files_changed ?? 0) > 0;
+                const ffTooltip =
+                  (ws?.git_files_changed ?? 0) > 0
+                    ? 'Commit local changes first'
+                    : ffDisabled
+                      ? 'Main is ahead — sync from main first'
+                      : 'Sends your local branch commits to main with history';
+
+                const onFfToMainClick = async () => {
+                  if (!ws || ffDisabled || ffToMainSyncing) return;
+                  setFfToMainSyncing(true);
+                  try {
+                    await handleLinearSyncToMain(ws.id);
+                  } finally {
+                    setFfToMainSyncing(false);
+                  }
+                };
+
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
                     <span className="git-dag__you-are-here">You are here</span>
+                    {showFfToMain && (
+                      <Tooltip content={ffTooltip}>
+                        <button
+                          className="git-dag__ff-to-main-button"
+                          onClick={onFfToMainClick}
+                          disabled={ffDisabled || ffToMainSyncing}
+                        >
+                          {ffToMainSyncing ? (
+                            <>
+                              <span className="spinner" /> FF'ing to main
+                            </>
+                          ) : (
+                            <>FF to main</>
+                          )}
+                        </button>
+                      </Tooltip>
+                    )}
                   </div>
                 );
               }
@@ -175,9 +213,6 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                 const hasKnownConflict =
                   ws?.conflict_on_branch && ws.conflict_on_branch === ws.branch;
                 const syncIndicator = hasKnownConflict ? '🟡' : '🟢';
-                const syncTitle = hasKnownConflict
-                  ? 'Known conflict - click to resolve'
-                  : 'Click to sync from main';
 
                 const onSyncClick = async () => {
                   if (!ws || syncing) return;
@@ -191,20 +226,21 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <button
-                      className="git-dag__sync-button"
-                      onClick={onSyncClick}
-                      disabled={syncing || !ws}
-                      title={syncTitle}
-                    >
-                      {syncing ? (
-                        <>
-                          <span className="spinner" /> Sync'ing
-                        </>
-                      ) : (
-                        <>{syncIndicator} Sync</>
-                      )}
-                    </button>
+                    <Tooltip content="Iteratively rebases this branch to origin/HEAD">
+                      <button
+                        className="git-dag__sync-button"
+                        onClick={onSyncClick}
+                        disabled={syncing || !ws}
+                      >
+                        {syncing ? (
+                          <>
+                            <span className="spinner" /> Rebase'ing
+                          </>
+                        ) : (
+                          <>{syncIndicator} Rebase to HEAD</>
+                        )}
+                      </button>
+                    </Tooltip>
                     <span className="git-dag__sync-summary">
                       &middot; {ln.syncSummary.count} commit
                       {ln.syncSummary.count !== 1 ? 's' : ''}
