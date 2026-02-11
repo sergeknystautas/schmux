@@ -1136,6 +1136,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
 		Models:                     models,
+		ModelVersions:              s.config.GetModelVersions(),
 		Terminal:                   contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
@@ -1468,6 +1469,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.ModelVersions != nil {
+		cfg.SetModelVersions(*req.ModelVersions)
+	}
+
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
 		fmt.Printf("[config] validation error: %v\n", err)
@@ -1597,11 +1602,16 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
 	available := cfg.GetAvailableModels(config.DetectedToolsFromConfig(cfg))
+	versions := cfg.GetModelVersions()
 	resp := make([]contracts.Model, 0, len(available))
 	for _, model := range available {
 		configured, err := modelConfigured(model)
 		if err != nil {
 			return nil, err
+		}
+		pinnedVersion := ""
+		if versions != nil {
+			pinnedVersion = versions[model.ID]
 		}
 		resp = append(resp, contracts.Model{
 			ID:              model.ID,
@@ -1612,6 +1622,8 @@ func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
 			RequiredSecrets: model.RequiredSecrets,
 			UsageURL:        model.UsageURL,
 			Configured:      configured,
+			PinnedVersion:   pinnedVersion,
+			DefaultValue:    model.ModelValue,
 		})
 	}
 	return resp, nil

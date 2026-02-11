@@ -471,6 +471,11 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
 	model, ok := detect.FindModel(targetName)
 	if ok {
+		// Apply version override from config if present
+		if override := m.config.GetModelVersion(model.ID); override != "" {
+			model.ModelValue = override
+		}
+
 		// Verify the base tool is detected
 		detectedTools := config.DetectedToolsFromConfig(m.config)
 		baseToolDetected := false

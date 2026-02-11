@@ -77,6 +77,7 @@ type Config struct {
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
+	Models                     *ModelsConfig          `json:"models,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -293,6 +294,11 @@ type QuickLaunch struct {
 type ExternalDiffCommand struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
+}
+
+// ModelsConfig holds model-related configuration.
+type ModelsConfig struct {
+	Versions map[string]string `json:"versions,omitempty"` // modelID -> pinned version
 }
 
 const (
@@ -1406,4 +1412,28 @@ func generateRemoteFlavorID(flavor string) string {
 // GenerateRemoteFlavorID is the exported version of generateRemoteFlavorID.
 func GenerateRemoteFlavorID(flavor string) string {
 	return generateRemoteFlavorID(flavor)
+}
+
+// GetModelVersion returns the pinned version for a model, or empty string if not pinned.
+func (c *Config) GetModelVersion(modelID string) string {
+	if c.Models == nil || c.Models.Versions == nil {
+		return ""
+	}
+	return c.Models.Versions[modelID]
+}
+
+// GetModelVersions returns all pinned model versions.
+func (c *Config) GetModelVersions() map[string]string {
+	if c.Models == nil || c.Models.Versions == nil {
+		return nil
+	}
+	return c.Models.Versions
+}
+
+// SetModelVersions sets the model version overrides.
+func (c *Config) SetModelVersions(versions map[string]string) {
+	if c.Models == nil {
+		c.Models = &ModelsConfig{}
+	}
+	c.Models.Versions = versions
 }

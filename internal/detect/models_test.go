@@ -109,12 +109,12 @@ func TestBuildEnv(t *testing.T) {
 		expectedEnv map[string]string
 	}{
 		{
-			name:       "native model - no endpoint",
-			endpoint:   "",
-			modelValue: "claude-sonnet-4-5-20250929",
-			modelFlag:  "",
+			name:        "native model - no endpoint, uses CLI flag",
+			endpoint:    "",
+			modelValue:  "opus",
+			modelFlag:   "--model",
 			expectedEnv: map[string]string{
-				"ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
+				// No ANTHROPIC_MODEL when ModelFlag is set
 			},
 		},
 		{
