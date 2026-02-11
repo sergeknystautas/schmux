@@ -362,7 +362,8 @@ export default function AppShell() {
                 </svg>
                 Add Workspace
                 <kbd className="nav-spawn-btn__kbd">
-                  {navigator.platform?.includes('Mac') ? '⌘K N' : 'Ctrl+K N'}
+                  {navigator.platform?.includes('Mac') ? '⌘K ' : 'Ctrl+K '}
+                  {context.workspaceId ? 'Shift+N' : 'N'}
                 </kbd>
               </button>
             </div>
