@@ -38,29 +38,32 @@ func (m Model) BuildEnv() map[string]string {
 
 // builtinModels defines the canonical model IDs and display names exposed to the UI.
 var builtinModels = []Model{
-	// Native Claude models
+	// Native Claude models - use tier names, CLI will resolve to latest
 	{
 		ID:          "claude-opus",
-		DisplayName: "claude opus 4.5",
+		DisplayName: "claude opus",
 		BaseTool:    "claude",
 		Provider:    "anthropic",
-		ModelValue:  "claude-opus-4-5-20251101",
+		ModelValue:  "opus",
+		ModelFlag:   "--model",
 		Category:    "native",
 	},
 	{
 		ID:          "claude-sonnet",
-		DisplayName: "claude sonnet 4.5",
+		DisplayName: "claude sonnet",
 		BaseTool:    "claude",
 		Provider:    "anthropic",
-		ModelValue:  "claude-sonnet-4-5-20250929",
+		ModelValue:  "sonnet",
+		ModelFlag:   "--model",
 		Category:    "native",
 	},
 	{
 		ID:          "claude-haiku",
-		DisplayName: "claude haiku 4.5",
+		DisplayName: "claude haiku",
 		BaseTool:    "claude",
 		Provider:    "anthropic",
-		ModelValue:  "claude-haiku-4-5-20251001",
+		ModelValue:  "haiku",
+		ModelFlag:   "--model",
 		Category:    "native",
 	},
 	// Third-party models

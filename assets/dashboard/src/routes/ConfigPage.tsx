@@ -85,6 +85,7 @@ type ConfigSnapshot = {
   authTlsCertPath: string;
   authTlsKeyPath: string;
   soundDisabled: boolean;
+  modelVersions: Record<string, string>;
 };
 
 type RunTargetEditModalState = {
@@ -192,6 +193,7 @@ export default function ConfigPage() {
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
   const [soundDisabled, setSoundDisabled] = useState(false);
+  const [modelVersions, setModelVersions] = useState<Record<string, string>>({});
 
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
@@ -241,6 +243,7 @@ export default function ConfigPage() {
       authTlsCertPath,
       authTlsKeyPath,
       soundDisabled,
+      modelVersions,
     };
 
     // Deep comparison for arrays
@@ -283,7 +286,8 @@ export default function ConfigPage() {
       current.authSessionTTLMinutes !== originalConfig.authSessionTTLMinutes ||
       current.authTlsCertPath !== originalConfig.authTlsCertPath ||
       current.authTlsKeyPath !== originalConfig.authTlsKeyPath ||
-      current.soundDisabled !== originalConfig.soundDisabled
+      current.soundDisabled !== originalConfig.soundDisabled ||
+      JSON.stringify(current.modelVersions) !== JSON.stringify(originalConfig.modelVersions)
     );
   };
 
@@ -396,6 +400,7 @@ export default function ConfigPage() {
         setAuthWarnings([]);
         setApiNeedsRestart(data.needs_restart || false);
         setSoundDisabled(data.notifications?.sound_disabled || false);
+        setModelVersions(data.model_versions || {});
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -438,6 +443,7 @@ export default function ConfigPage() {
             authTlsCertPath: data.network?.tls?.cert_path || '',
             authTlsKeyPath: data.network?.tls?.key_path || '',
             soundDisabled: data.notifications?.sound_disabled || false,
+            modelVersions: data.model_versions || {},
           });
         }
 
@@ -633,6 +639,7 @@ export default function ConfigPage() {
         notifications: {
           sound_disabled: soundDisabled,
         },
+        model_versions: modelVersions,
       };
 
       const result = await updateConfig(updateRequest);
@@ -683,6 +690,7 @@ export default function ConfigPage() {
           authTlsCertPath,
           authTlsKeyPath,
           soundDisabled,
+          modelVersions,
         });
       }
 
@@ -2529,6 +2537,39 @@ export default function ConfigPage() {
                       an error.
                     </p>
                   </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Model Versions</h3>
+                </div>
+                <div className="settings-section__body">
+                  <p className="form-group__hint" style={{ marginBottom: 'var(--spacing-md)' }}>
+                    Pin specific model versions or leave empty to use the latest.
+                  </p>
+                  {models
+                    ?.filter((m) => m.provider === 'anthropic' && m.category === 'native')
+                    .map((model) => (
+                      <div key={model.id} className="form-group">
+                        <label className="form-group__label">{model.display_name}</label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={modelVersions[model.id] || ''}
+                          onChange={(e) => {
+                            const newVersions = { ...modelVersions };
+                            if (e.target.value) {
+                              newVersions[model.id] = e.target.value;
+                            } else {
+                              delete newVersions[model.id];
+                            }
+                            setModelVersions(newVersions);
+                          }}
+                          placeholder={`(latest - ${model.default_value})`}
+                        />
+                      </div>
+                    ))}
                 </div>
               </div>
 

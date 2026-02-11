@@ -29,6 +29,7 @@ export interface ConfigResponse {
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
   models: Model[];
+  model_versions?: Record<string, string>;
   terminal: Terminal;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
@@ -60,6 +61,7 @@ export interface ConfigUpdateRequest {
   access_control?: AccessControlUpdate;
   pr_review?: PrReviewUpdate;
   notifications?: NotificationsUpdate;
+  model_versions?: Record<string, string>;
 }
 
 export interface ConflictResolve {
@@ -117,6 +119,8 @@ export interface Model {
   required_secrets?: string[];
   usage_url?: string;
   configured: boolean;
+  pinned_version?: string;
+  default_value: string;
 }
 
 export interface Network {

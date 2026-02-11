@@ -52,6 +52,8 @@ type Model struct {
 	RequiredSecrets []string `json:"required_secrets,omitempty"` // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
 	UsageURL        string   `json:"usage_url,omitempty"`        // signup/pricing page
 	Configured      bool     `json:"configured"`                 // true if secrets are configured (or native model)
+	PinnedVersion   string   `json:"pinned_version,omitempty"`   // version if pinned
+	DefaultValue    string   `json:"default_value"`              // tier name (opus/sonnet/haiku)
 }
 
 // Terminal represents terminal dimensions.
@@ -128,6 +130,7 @@ type ConfigResponse struct {
 	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
 	Models                     []Model               `json:"models"`
+	ModelVersions              map[string]string     `json:"model_versions,omitempty"` // pinned versions
 	Terminal                   Terminal              `json:"terminal"`
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
@@ -234,6 +237,7 @@ type ConfigUpdateRequest struct {
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
+	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
 
 // PrReviewUpdate represents partial PR review config updates.
