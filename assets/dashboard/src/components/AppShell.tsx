@@ -146,28 +146,6 @@ export default function AppShell() {
     };
   }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
 
-  // Register global workspace jump prefix actions (K then 1-9)
-  useEffect(() => {
-    for (let i = 1; i <= 9; i++) {
-      registerAction({
-        key: i.toString(),
-        prefixKey: 'k',
-        description: `Jump to workspace ${i}`,
-        handler: () => {
-          if (!workspaces || !workspaces[i - 1]) return;
-          navigateToWorkspace(navigate, workspaces, workspaces[i - 1].id);
-        },
-        scope: { type: 'global' },
-      });
-    }
-
-    return () => {
-      for (let i = 1; i <= 9; i++) {
-        unregisterAction(i.toString(), false, undefined, 'k');
-      }
-    };
-  }, [registerAction, unregisterAction, navigate, workspaces]);
-
   // Direct Cmd+Arrow shortcuts for navigation (no keyboard mode required)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -252,21 +230,6 @@ export default function AppShell() {
 
     const scope = { type: 'workspace', id: context.workspaceId } as const;
 
-    // 1-9 - jump to session by index (1-indexed: 1=first, 2=second, etc.)
-    for (let i = 1; i <= 9; i++) {
-      registerAction({
-        key: i.toString(),
-        description: `Jump to session ${i}`,
-        handler: () => {
-          if (!workspace.sessions) return;
-          if (workspace.sessions[i - 1]) {
-            navigate(`/sessions/${workspace.sessions[i - 1].id}`);
-          }
-        },
-        scope,
-      });
-    }
-
     // D - go to diff page
     registerAction({
       key: 'd',
@@ -332,9 +295,6 @@ export default function AppShell() {
       unregisterAction('g');
       unregisterAction('v');
       unregisterAction('w', true);
-      for (let i = 1; i <= 9; i++) {
-        unregisterAction(i.toString());
-      }
     };
   }, [
     context.workspaceId,
