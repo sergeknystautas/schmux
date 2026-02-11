@@ -1,13 +1,25 @@
-import type { GitGraphResponse, GitGraphNode } from './types';
+import type { GitGraphResponse, GitGraphNode, FileDiff } from './types';
 
 export interface LayoutNode {
   hash: string;
   column: number;
   y: number;
   node: GitGraphNode;
-  nodeType: 'commit' | 'you-are-here' | 'view-changes' | 'sync-summary';
-  /** Dirty working copy state (only on view-changes nodes) */
-  dirtyState?: { filesChanged: number; linesAdded: number; linesRemoved: number };
+  nodeType:
+    | 'commit'
+    | 'you-are-here'
+    | 'commit-actions'
+    | 'commit-file'
+    | 'commit-footer'
+    | 'sync-summary';
+  /** Dirty working copy state (only on commit-actions nodes) */
+  dirtyState?: {
+    files_changed: number;
+    lines_added: number;
+    lines_removed: number;
+  };
+  /** File info (only on commit-file nodes) */
+  file?: FileDiff;
   /** Sync summary metadata (only on sync-summary nodes) */
   syncSummary?: { count: number; newestTimestamp: string };
 }
@@ -53,7 +65,7 @@ const ROW_HEIGHT = 28;
  * following ISL's pattern of a single virtual working-copy commit.
  * Branch labels are rendered as badges on commit rows via is_head data.
  */
-export function computeLayout(response: GitGraphResponse): GitGraphLayout {
+export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []): GitGraphLayout {
   const { nodes, branches } = response;
 
   if (nodes.length === 0) {
@@ -176,18 +188,45 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
       });
       rowIndex++;
 
-      if (dirtyState && dirtyState.files_changed > 0) {
+      // Insert commit workflow rows: actions, files, footer
+      if (files.length > 0) {
+        // Actions row (Select All, Deselect All, Discard)
         layoutNodes.push({
-          hash: '__view-changes__',
+          hash: '__commit-actions__',
           column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
           node,
-          nodeType: 'view-changes',
-          dirtyState: {
-            filesChanged: dirtyState.files_changed,
-            linesAdded: dirtyState.lines_added,
-            linesRemoved: dirtyState.lines_removed,
-          },
+          nodeType: 'commit-actions',
+          dirtyState: dirtyState
+            ? {
+                files_changed: dirtyState.files_changed,
+                lines_added: dirtyState.lines_added,
+                lines_removed: dirtyState.lines_removed,
+              }
+            : undefined,
+        });
+        rowIndex++;
+
+        // One row per file
+        for (let i = 0; i < files.length; i++) {
+          layoutNodes.push({
+            hash: `__commit-file-${i}__`,
+            column: workingCopyColumn,
+            y: rowIndex * ROW_HEIGHT,
+            node,
+            nodeType: 'commit-file',
+            file: files[i],
+          });
+          rowIndex++;
+        }
+
+        // Footer row (Commit, Amend buttons)
+        layoutNodes.push({
+          hash: '__commit-footer__',
+          column: workingCopyColumn,
+          y: rowIndex * ROW_HEIGHT,
+          node,
+          nodeType: 'commit-footer',
         });
         rowIndex++;
       }
@@ -212,28 +251,42 @@ export function computeLayout(response: GitGraphResponse): GitGraphLayout {
   // Build edges
   const edges: LayoutEdge[] = [];
 
-  // you-are-here → [view-changes →] HEAD commit
+  // you-are-here → [commit workflow rows →] HEAD commit
   if (workingCopyParent) {
     const yahNode = nodeByHash.get('__you-are-here__');
-    const vcNode = nodeByHash.get('__view-changes__');
+    const footerNode = nodeByHash.get('__commit-footer__');
     const headNode = nodeByHash.get(workingCopyParent);
 
-    if (vcNode && yahNode) {
-      edges.push({
-        fromHash: '__you-are-here__',
-        toHash: '__view-changes__',
-        fromColumn: yahNode.column,
-        toColumn: vcNode.column,
-        fromY: yahNode.y,
-        toY: vcNode.y,
-      });
+    if (footerNode && yahNode) {
+      // Edge from you-are-here to commit-actions (first workflow row)
+      const actionsNode = nodeByHash.get('__commit-actions__');
+      if (actionsNode) {
+        edges.push({
+          fromHash: '__you-are-here__',
+          toHash: '__commit-actions__',
+          fromColumn: yahNode.column,
+          toColumn: actionsNode.column,
+          fromY: yahNode.y,
+          toY: actionsNode.y,
+        });
+        // Edge from commit-actions to commit-footer (solid line through files)
+        edges.push({
+          fromHash: '__commit-actions__',
+          toHash: '__commit-footer__',
+          fromColumn: actionsNode.column,
+          toColumn: footerNode.column,
+          fromY: actionsNode.y,
+          toY: footerNode.y,
+        });
+      }
+      // Edge from commit-footer to HEAD commit
       if (headNode) {
         edges.push({
-          fromHash: '__view-changes__',
+          fromHash: '__commit-footer__',
           toHash: workingCopyParent,
-          fromColumn: vcNode.column,
+          fromColumn: footerNode.column,
           toColumn: headNode.column,
-          fromY: vcNode.y,
+          fromY: footerNode.y,
           toY: headNode.y,
         });
       }

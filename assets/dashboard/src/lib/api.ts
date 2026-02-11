@@ -549,3 +549,85 @@ export async function disconnectRemoteHost(hostId: string): Promise<void> {
     throw new Error(text || 'Failed to disconnect remote host');
   }
 }
+
+// ============================================================================
+// Git Commit Workflow API
+// ============================================================================
+
+export async function gitCommitStage(
+  workspaceId: string,
+  files: string[]
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit-stage`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Failed to stage files');
+  }
+  return response.json();
+}
+
+export async function gitAmend(
+  workspaceId: string,
+  files: string[]
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-amend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Failed to amend commit');
+  }
+  return response.json();
+}
+
+export async function gitDiscard(
+  workspaceId: string,
+  files?: string[]
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-discard`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(files ? { files } : {}),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Failed to discard changes');
+  }
+  return response.json();
+}
+
+export async function spawnCommitSession(
+  workspaceId: string,
+  repo: string,
+  branch: string,
+  selectedFiles: string[]
+): Promise<SpawnResult[]> {
+  const stagedList = selectedFiles.map((f) => `• ${f}`).join('\n');
+  const prompt = `please create a thorough git commit for these staged files:
+
+${stagedList}
+
+do the necessary precommit steps first.
+
+do not include the generated and co-authored lines. please keep the message focused whenever possible on the features, not just describe code changes.`;
+
+  const spawnRequest: SpawnRequest = {
+    repo,
+    branch,
+    nickname: 'git commit',
+    prompt,
+    targets: { claude: 1 },
+    workspace_id: workspaceId,
+  };
+
+  return spawnSessions(spawnRequest);
+}

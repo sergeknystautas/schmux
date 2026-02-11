@@ -3063,6 +3063,8 @@ a:hover {
 .git-dag {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .git-dag__scroll {
@@ -3070,6 +3072,7 @@ a:hover {
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   background-color: var(--color-surface);
   padding: var(--spacing-lg);
+  min-height: 0;
 }
 
 .git-dag__container {
@@ -3104,6 +3107,34 @@ a:hover {
   padding: 0 4px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.git-dag__action-button {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--color-text);
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 2px 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-fast) var(--easing);
+}
+
+.git-dag__action-button:hover:not(:disabled) {
+  background-color: var(--color-border);
+  border-color: var(--color-text-muted);
+}
+
+.git-dag__action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .git-dag__ff-to-main-button {
@@ -3258,6 +3289,100 @@ a:hover {
   color: var(--color-text-faint);
   width: 60px;
   text-align: right;
+}
+
+/* ============================================================================
+ * Commit Workflow (embedded in git-dag view-changes row)
+ * ============================================================================ */
+
+.commit-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.commit-workflow__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.commit-workflow__file-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.commit-workflow__file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.commit-workflow__file-item:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.commit-workflow__file-item:last-child {
+  border-bottom: none;
+}
+
+.commit-workflow__checkbox {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.commit-workflow__status {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  min-width: 24px;
+  text-align: center;
+}
+
+.commit-workflow__status--added {
+  background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+
+.commit-workflow__status--modified {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.commit-workflow__status--deleted {
+  background-color: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+}
+
+.commit-workflow__status--untracked {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.commit-workflow__filename {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-workflow__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-xs);
 }
 
 /* ============================================================================
