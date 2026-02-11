@@ -60,7 +60,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const fetchData = useCallback(async () => {
     try {
       const [graphResp, diffResp] = await Promise.all([
-        getGitGraph(workspaceId),
+        getGitGraph(workspaceId, { maxCommits: 15, context: 14 }),
         getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
