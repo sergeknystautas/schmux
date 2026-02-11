@@ -184,11 +184,12 @@ func (t *SessionTracker) attachAndRead() error {
 		return fmt.Errorf("tmux session does not exist: %s", target)
 	}
 
-	// Query tmux window size to initialize PTY with correct dimensions
-	width, height, err := tmux.GetWindowSize(ctx, target)
+	// Query tmux window size to initialize PTY with correct dimensions.
+	// Retry a few times to handle a timing condition where a freshly spawned
+	// session hasn't fully initialized its window yet.
+	width, height, err := t.getWindowSizeWithRetry(ctx, target)
 	if err != nil {
-		fmt.Printf("[tracker] warning: failed to get tmux window size, using defaults: %v\n", err)
-		width, height = 80, 24
+		return fmt.Errorf("failed to get window size: %w", err)
 	}
 
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
@@ -281,6 +282,35 @@ func (t *SessionTracker) attachAndRead() error {
 		default:
 		}
 	}
+}
+
+// getWindowSizeWithRetry retries GetWindowSize to handle timing issues with freshly spawned sessions.
+func (t *SessionTracker) getWindowSizeWithRetry(ctx context.Context, target string) (width, height int, err error) {
+	const maxAttempts = 10
+	const retryDelay = 100 * time.Millisecond
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		width, height, err = tmux.GetWindowSize(ctx, target)
+		if err == nil {
+			return width, height, nil
+		}
+
+		// Check if we should stop retrying
+		select {
+		case <-t.stopCh:
+			return 0, 0, fmt.Errorf("tracker stopped while waiting for session ready")
+		case <-ctx.Done():
+			return 0, 0, fmt.Errorf("context cancelled while waiting for session ready")
+		default:
+		}
+
+		// Don't sleep on the last attempt
+		if attempt < maxAttempts-1 {
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return 0, 0, fmt.Errorf("session window not ready after %d attempts: %w", maxAttempts, err)
 }
 
 // findValidUTF8Boundary returns the length of data up to the last complete UTF-8 character.
