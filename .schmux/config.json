@@ -6,7 +6,7 @@
     },
     {
       "name": "shell",
-      "command": "/bin/bash"
+      "command": "/bin/zsh"
     }
   ]
 }

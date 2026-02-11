@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -82,6 +83,7 @@ type Server struct {
 	workspace  workspace.WorkspaceManager
 	httpServer *http.Server
 	shutdown   func() // Callback to trigger daemon shutdown
+	devProxy   bool   // When true, proxy non-API routes to Vite dev server
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -132,7 +134,7 @@ type versionInfo struct {
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func()) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func(), devProxy bool) *Server {
 	s := &Server{
 		config:                          cfg,
 		state:                           st,
@@ -141,6 +143,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:                       wm,
 		prDiscovery:                     prd,
 		shutdown:                        shutdown,
+		devProxy:                        devProxy,
 		wsConns:                         make(map[string]*wsConn),
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
@@ -204,8 +207,15 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
 	// Static assets - all UI routes go through handleApp
-	mux.HandleFunc("/", s.handleApp)
-	mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
+	if s.devProxy {
+		// In dev mode, proxy all non-API routes to Vite dev server
+		viteProxy := createDevProxyHandler("http://localhost:5173")
+		mux.Handle("/", viteProxy)
+		fmt.Println("[daemon] dev-proxy enabled: proxying to Vite at http://localhost:5173")
+	} else {
+		mux.HandleFunc("/", s.handleApp)
+		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
+	}
 
 	// Auth routes
 	mux.HandleFunc("/auth/login", s.handleAuthLogin)
@@ -437,6 +447,28 @@ func (s *Server) getDashboardDistPath() string {
 	// Fallback - return first candidate even if it doesn't exist
 	// (will result in 404s but won't crash)
 	return candidates[0]
+}
+
+// createDevProxyHandler creates a reverse proxy handler to the Vite dev server.
+func createDevProxyHandler(targetURL string) http.Handler {
+	target, err := url.Parse(targetURL)
+	if err != nil {
+		// Fallback: return a handler that returns 502
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Dev proxy misconfigured", http.StatusBadGateway)
+		})
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// Customize the director to handle WebSocket upgrade for Vite HMR
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
+
+	return proxy
 }
 
 // RegisterWebSocket registers a WebSocket connection for a session.

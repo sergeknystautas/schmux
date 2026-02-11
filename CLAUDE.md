@@ -19,9 +19,29 @@ The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wr
 ❌ **WRONG**: `cd assets/dashboard && npm install && npm run build`
 ✅ **RIGHT**: `go run ./cmd/build-dashboard`
 
+## Hot-Reload Development Mode
+
+For active development with automatic rebuilding:
+
+```bash
+./dev.sh
+```
+
+This runs both Go backend (via air) and React frontend (via Vite) with hot-reload:
+
+- **Go changes**: Rebuilds and restarts automatically (~2-3s)
+- **React changes**: Instant browser update via HMR (<100ms)
+- **Access**: http://localhost:7337 (same URL as production)
+- **Stop**: Ctrl+C
+
+First run prompts to install `air` and npm dependencies if missing.
+
 ## Build, Test, and Run Commands
 
 ```bash
+# Hot-reload development (recommended for active development)
+./dev.sh
+
 # Build the binary (outputs ./schmux)
 go build ./cmd/schmux
 

@@ -1,6 +1,10 @@
 package dashboard
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -273,4 +277,34 @@ func TestBroadcastToSession(t *testing.T) {
 			t.Errorf("expected 0 for nonexistent session, got %d", count)
 		}
 	})
+}
+
+func TestDevProxyHandler(t *testing.T) {
+	// Create a mock Vite server
+	viteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<!DOCTYPE html><html>Vite Dev Server</html>"))
+	}))
+	defer viteServer.Close()
+
+	// Extract port from viteServer.URL (format: http://127.0.0.1:PORT)
+	viteURL := viteServer.URL
+
+	// Create dev proxy handler
+	handler := createDevProxyHandler(viteURL)
+
+	// Test that requests are proxied
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "Vite Dev Server") {
+		t.Errorf("expected body to contain 'Vite Dev Server', got %s", string(body))
+	}
 }

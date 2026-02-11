@@ -23,7 +23,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath)
 		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestHandleHasNudgenik(t *testing.T) {
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath)
 		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -81,7 +81,7 @@ func TestHandleAskNudgenik(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	// Add a test session
 	testSession := state.Session{
@@ -151,7 +151,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	ws := state.Workspace{
 		ID:     "ws-1",
@@ -223,7 +223,7 @@ func TestHandleSuggestBranch(t *testing.T) {
 		statePath := t.TempDir() + "/state.json"
 		wm := workspace.New(cfg, st, statePath)
 		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
 		req, _ := http.NewRequest(http.MethodPost, "/api/suggest-branch", body)
@@ -243,7 +243,7 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	t.Run("GET request returns presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
@@ -329,7 +329,7 @@ func TestHandleHealthz(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	// Start version check to populate version info
 	server.StartVersionCheck()
@@ -376,7 +376,7 @@ func TestHandleUpdate(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), nil, false)
 
 	t.Run("POST method accepted, GET rejected", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/update", nil)

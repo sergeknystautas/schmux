@@ -1,0 +1,42 @@
+# Air configuration for schmux hot-reload development
+# See: https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Build command - just the Go binary, not the dashboard
+  cmd = "go build -o ./tmp/schmux ./cmd/schmux"
+  # Binary to run with arguments (full_bin replaces deprecated bin + args)
+  full_bin = "./tmp/schmux daemon-run --dev-proxy"
+  # Watch these extensions
+  include_ext = ["go", "tmpl", "html"]
+  # Ignore these directories (assets handled by Vite)
+  exclude_dir = ["assets", "tmp", "vendor", "node_modules", ".git", "docs"]
+  # Exclude test files from triggering rebuilds
+  exclude_regex = ["_test\\.go$"]
+  # Delay before rebuild (ms) - debounce rapid saves
+  delay = 500
+  # Stop running old binary before building
+  stop_on_error = true
+  # Send interrupt signal before killing
+  send_interrupt = true
+  # Delay after interrupt before kill
+  kill_delay = 500
+
+[log]
+  # Disable air's timestamps (dev.sh adds prefixes)
+  time = false
+  # Only show main output
+  main_only = true
+
+[color]
+  # Disable colors (dev.sh handles coloring)
+  main = ""
+  watcher = ""
+  build = ""
+  runner = ""
+
+[misc]
+  # Clean tmp dir on exit
+  clean_on_exit = true
