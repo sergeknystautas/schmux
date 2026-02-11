@@ -402,6 +402,7 @@ func (m *Manager) spawnStreamJSON(ctx context.Context, w *state.Workspace, sessi
 		WorkspaceID: w.ID,
 		Target:      targetName,
 		Nickname:    nickname,
+		Prompt:      prompt,
 		TmuxSession: "", // No tmux session for stream-json mode
 		RenderMode:  "html",
 		CreatedAt:   time.Now(),

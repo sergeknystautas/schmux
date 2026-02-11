@@ -438,7 +438,11 @@ export default function SessionDetailPage() {
               </button>
             </div>
           ) : isHtmlMode ? (
-            <ConversationView sessionId={sessionData.id} running={sessionData.running} />
+            <ConversationView
+              sessionId={sessionData.id}
+              running={sessionData.running}
+              initialPrompt={sessionData.prompt}
+            />
           ) : (
             <div className="log-viewer">
               <div className="log-viewer__header">
@@ -736,27 +740,27 @@ export default function SessionDetailPage() {
           />
 
           {!isHtmlMode && sessionData.attach_cmd && (
-          <div className="form-group">
-            <label className="form-group__label">Attach Command</label>
-            <div className="copy-field">
-              <span className="copy-field__value">{sessionData.attach_cmd}</span>
-              <Tooltip content="Copy attach command">
-                <button className="copy-field__btn" onClick={handleCopyAttach}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
-              </Tooltip>
+            <div className="form-group">
+              <label className="form-group__label">Attach Command</label>
+              <div className="copy-field">
+                <span className="copy-field__value">{sessionData.attach_cmd}</span>
+                <Tooltip content="Copy attach command">
+                  <button className="copy-field__btn" onClick={handleCopyAttach}>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
             </div>
-          </div>
           )}
 
           <div style={{ marginTop: 'auto' }}>

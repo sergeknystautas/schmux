@@ -29,7 +29,7 @@
 
 /* User messages: subtle accent tint background */
 .conversation-message--user {
-  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+  background: var(--color-accent-subtle, rgba(99, 102, 241, 0.08));
 }
 
 /* Assistant messages: clean, no background */
@@ -64,8 +64,87 @@
 
 /* Content styling */
 .conversation-message__content {
-  white-space: pre-wrap;
   font-family: var(--font-sans);
+}
+
+/* Markdown typography */
+.conversation-message__content p {
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.conversation-message__content p:last-child {
+  margin-bottom: 0;
+}
+
+.conversation-message__content h1,
+.conversation-message__content h2,
+.conversation-message__content h3,
+.conversation-message__content h4,
+.conversation-message__content h5,
+.conversation-message__content h6 {
+  margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.conversation-message__content h1:first-child,
+.conversation-message__content h2:first-child,
+.conversation-message__content h3:first-child {
+  margin-top: 0;
+}
+
+.conversation-message__content h1 {
+  font-size: 1.5rem;
+}
+.conversation-message__content h2 {
+  font-size: 1.25rem;
+}
+.conversation-message__content h3 {
+  font-size: 1.1rem;
+}
+.conversation-message__content h4 {
+  font-size: 1rem;
+}
+
+.conversation-message__content ul,
+.conversation-message__content ol {
+  margin: 0 0 var(--spacing-md) 0;
+  padding-left: var(--spacing-xl);
+}
+
+.conversation-message__content li {
+  margin-bottom: var(--spacing-xs);
+}
+
+.conversation-message__content li:last-child {
+  margin-bottom: 0;
+}
+
+.conversation-message__content blockquote {
+  margin: var(--spacing-md) 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.conversation-message__content hr {
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+  margin: var(--spacing-lg) 0;
+}
+
+.conversation-message__content a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.conversation-message__content a:hover {
+  text-decoration: underline;
+}
+
+.conversation-message__content strong {
+  font-weight: 600;
 }
 
 .conversation-message__content code {
@@ -88,6 +167,8 @@
 .conversation-message__content pre code {
   background: none;
   padding: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 
 /* Tool use - inline minimal style */

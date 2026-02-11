@@ -1,4 +1,5 @@
 <!-- SCHMUX:BEGIN -->
+
 ## Schmux Status Signaling
 
 This workspace is managed by schmux. Signal your status to help the user monitor your progress.
@@ -6,6 +7,7 @@ This workspace is managed by schmux. Signal your status to help the user monitor
 ### How to Signal
 
 Output this marker **on its own line** in your response:
+
 ```
 --<[schmux:state:message]>--
 ```
@@ -14,13 +16,13 @@ Output this marker **on its own line** in your response:
 
 ### Available States
 
-| State | When to Use |
-|-------|-------------|
-| `completed` | Task finished successfully |
-| `needs_input` | Waiting for user confirmation, approval, or choice |
-| `needs_testing` | Implementation ready for user to test |
-| `error` | Something failed that needs user attention |
-| `working` | Starting new work (clears previous status) |
+| State           | When to Use                                        |
+| --------------- | -------------------------------------------------- |
+| `completed`     | Task finished successfully                         |
+| `needs_input`   | Waiting for user confirmation, approval, or choice |
+| `needs_testing` | Implementation ready for user to test              |
+| `error`         | Something failed that needs user attention         |
+| `working`       | Starting new work (clears previous status)         |
 
 ### Examples
 

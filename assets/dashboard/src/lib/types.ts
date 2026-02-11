@@ -4,6 +4,7 @@ export interface SessionResponse {
   branch: string;
   branch_url?: string;
   nickname?: string;
+  prompt?: string;
   render_mode?: 'text' | 'html';
   created_at: string;
   last_output_at?: string;
@@ -364,6 +365,4 @@ export interface StreamJsonWSPermissionResponse {
   approved: boolean;
 }
 
-export type StreamJsonWSClientMessage =
-  | StreamJsonWSUserMessage
-  | StreamJsonWSPermissionResponse;
+export type StreamJsonWSClientMessage = StreamJsonWSUserMessage | StreamJsonWSPermissionResponse;

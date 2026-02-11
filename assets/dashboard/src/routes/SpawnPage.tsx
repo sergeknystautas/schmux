@@ -393,9 +393,9 @@ export default function SpawnPage() {
       .map(([name]) => name);
     if (selectedNames.length === 0) return false;
     const claudeBaseTools = new Set(
-      models.filter(m => m.base_tool === 'claude').map(m => m.id)
+      models.filter((m) => m.base_tool === 'claude').map((m) => m.id)
     );
-    return selectedNames.every(name => name === 'claude' || claudeBaseTools.has(name));
+    return selectedNames.every((name) => name === 'claude' || claudeBaseTools.has(name));
   }, [targetCounts, models]);
 
   // Reset render mode when switching away from Claude targets

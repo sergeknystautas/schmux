@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import Markdown from 'react-markdown';
 import '../styles/conversation.css';
 import type { StreamJsonMessage, StreamJsonWSServerMessage } from '../lib/types';
 
 interface ConversationViewProps {
   sessionId: string;
   running: boolean;
+  initialPrompt?: string;
 }
 
 // Extract text from a content value (string, array of content blocks, or nested)
@@ -28,6 +30,7 @@ function extractText(content: unknown): string {
 //   { type: "user"|"assistant", message: { content: ... } }
 //   { type: "user"|"assistant", content: ... }
 //   { role: "user"|"assistant", content: ... }
+//   { type: "user", message: { role: "user", content: "text" } }
 function getTextContent(message: StreamJsonMessage): string {
   // Try message.message.content first (wrapped form)
   if (message.message?.content != null) {
@@ -38,6 +41,10 @@ function getTextContent(message: StreamJsonMessage): string {
   if (message.content != null) {
     const text = extractText(message.content);
     if (text) return text;
+  }
+  // For user messages, content might be directly in message.message as a string
+  if (typeof message.message === 'string') {
+    return message.message;
   }
   return '';
 }
@@ -248,8 +255,23 @@ function MessageInput({
   );
 }
 
-export default function ConversationView({ sessionId, running }: ConversationViewProps) {
-  const [messages, setMessages] = useState<StreamJsonMessage[]>([]);
+export default function ConversationView({
+  sessionId,
+  running,
+  initialPrompt,
+}: ConversationViewProps) {
+  const [messages, setMessages] = useState<StreamJsonMessage[]>(() => {
+    // Initialize with the initial prompt as the first message if provided
+    if (initialPrompt) {
+      return [
+        {
+          type: 'user',
+          message: { role: 'user', content: initialPrompt },
+        },
+      ];
+    }
+    return [];
+  });
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>(
     'connecting'
   );
@@ -283,7 +305,14 @@ export default function ConversationView({ sessionId, running }: ConversationVie
           const data = JSON.parse(event.data) as StreamJsonWSServerMessage;
 
           if (data.type === 'history') {
-            setMessages(data.messages);
+            // Prepend initial prompt if provided
+            const historyMessages = initialPrompt
+              ? [
+                  { type: 'user', message: { role: 'user', content: initialPrompt } },
+                  ...data.messages,
+                ]
+              : data.messages;
+            setMessages(historyMessages);
             // Process tool results from history
             const results = new Map<string, string>();
             for (const msg of data.messages) {
@@ -373,6 +402,17 @@ export default function ConversationView({ sessionId, running }: ConversationVie
   // Send user message
   const handleSendMessage = useCallback((content: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Add user message to local state immediately
+      const userMessage: StreamJsonMessage = {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: content,
+        },
+      };
+      setMessages((prev) => [...prev, userMessage]);
+
+      // Send to backend
       wsRef.current.send(JSON.stringify({ type: 'user_message', content }));
     }
   }, []);
@@ -420,7 +460,11 @@ export default function ConversationView({ sessionId, running }: ConversationVie
       if (!text && toolUses.length === 0) return null;
       return (
         <div key={index} className="conversation-message conversation-message--assistant">
-          {text && <div className="conversation-message__content">{text}</div>}
+          {text && (
+            <div className="conversation-message__content">
+              <Markdown>{text}</Markdown>
+            </div>
+          )}
           {toolUses.length > 0 && (
             <div className="tool-use-list">
               {toolUses.map((tool) => (
@@ -452,20 +496,16 @@ export default function ConversationView({ sessionId, running }: ConversationVie
       );
     }
 
-    // Result message
+    // Result message - only show errors, skip success messages
     if (isResultMessage(msg)) {
       const isError = msg.is_error || msg.subtype === 'error' || msg.result?.is_error;
-      const costText = msg.cost_usd !== undefined ? ` · $${msg.cost_usd.toFixed(4)}` : '';
+      if (!isError) return null; // Skip "Done" messages
       return (
         <div
           key={index}
-          className={`conversation-message conversation-message--result ${
-            isError ? 'conversation-message--result-error' : 'conversation-message--result-success'
-          }`}
+          className="conversation-message conversation-message--result conversation-message--result-error"
         >
-          {isError ? '✗ Error' : '✓ Done'}
-          {msg.result?.text ? ` — ${msg.result.text}` : ''}
-          {costText}
+          ✗ Error{msg.result?.text ? ` — ${msg.result.text}` : ''}
         </div>
       );
     }
