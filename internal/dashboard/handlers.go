@@ -83,6 +83,9 @@ func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
+// maxBodySize is the maximum request body size for JSON requests (1MB).
+const maxBodySize = 1 << 20
+
 // SessionResponseItem represents a session in the API response.
 type SessionResponseItem struct {
 	ID           string `json:"id"`
@@ -3517,6 +3520,225 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
+// Stages the specified files for commit.
+func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/git-commit-stage")
+	if workspaceID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		return
+	}
+
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		Files []string `json:"files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	ctx := context.Background()
+	for _, file := range req.Files {
+		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
+		cmd.Dir = ws.Path
+		if output, err := cmd.CombinedOutput(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git add failed: %s", string(output))})
+			return
+		}
+	}
+
+	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+		fmt.Printf("[dashboard] failed to update git status after stage: %v\n", err)
+	}
+	s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Files staged"})
+}
+
+// handleGitAmend handles POST /api/workspaces/{id}/git-amend.
+// Stages the specified files and amends the last commit.
+func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/git-amend")
+	if workspaceID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		return
+	}
+
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		return
+	}
+
+	if ws.GitAhead <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No commits to amend"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		Files []string `json:"files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if len(req.Files) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "at least one file is required"})
+		return
+	}
+
+	ctx := context.Background()
+	for _, file := range req.Files {
+		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
+		cmd.Dir = ws.Path
+		if output, err := cmd.CombinedOutput(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git add failed: %s", string(output))})
+			return
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "commit", "--amend", "--no-edit")
+	cmd.Dir = ws.Path
+	if output, err := cmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git commit --amend failed: %s", string(output))})
+		return
+	}
+
+	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+		fmt.Printf("[dashboard] failed to update git status after amend: %v\n", err)
+	}
+	s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit amended"})
+}
+
+// handleGitDiscard handles POST /api/workspaces/{id}/git-discard.
+// Discards local changes. If files are specified, only those files are discarded.
+func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/git-discard")
+	if workspaceID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		return
+	}
+
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		Files []string `json:"files"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // Ignore error - empty body means discard all
+
+	ctx := context.Background()
+
+	if len(req.Files) > 0 {
+		// Discard specific files
+		for _, file := range req.Files {
+			// Try git checkout for tracked files
+			cmd := exec.CommandContext(ctx, "git", "checkout", "--", file)
+			cmd.Dir = ws.Path
+			cmd.CombinedOutput() // Ignore error - file might be untracked
+
+			// Try git clean for untracked files
+			cmd = exec.CommandContext(ctx, "git", "clean", "-f", "--", file)
+			cmd.Dir = ws.Path
+			cmd.CombinedOutput() // Ignore error - file might be tracked
+		}
+	} else {
+		// Discard all changes
+		cmd := exec.CommandContext(ctx, "git", "clean", "-fd")
+		cmd.Dir = ws.Path
+		if output, err := cmd.CombinedOutput(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git clean failed: %s", string(output))})
+			return
+		}
+
+		cmd = exec.CommandContext(ctx, "git", "checkout", "--", ".")
+		cmd.Dir = ws.Path
+		if output, err := cmd.CombinedOutput(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git checkout failed: %s", string(output))})
+			return
+		}
+	}
+
+	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+		fmt.Printf("[dashboard] failed to update git status after discard: %v\n", err)
+	}
+	s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"})
 }
 
 // shellSplit splits a command line string into arguments, respecting quotes.

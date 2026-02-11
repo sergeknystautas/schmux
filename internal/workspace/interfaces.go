@@ -97,6 +97,10 @@ type WorkspaceManager interface {
 	// UpdateGitStatus refreshes the git status for a single workspace.
 	UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error)
 
+	// GetWorkspaceGitFiles returns detailed file change info for a workspace.
+	// This includes file paths, status, and line counts. It does NOT fetch from the remote.
+	GetWorkspaceGitFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error)
+
 	// UpdateAllGitStatus refreshes git status for all workspaces.
 	UpdateAllGitStatus(ctx context.Context)
 

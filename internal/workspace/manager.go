@@ -561,7 +561,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	}
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, w.Path, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, _ := m.gitStatus(ctx, w.Path, w.Repo)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)

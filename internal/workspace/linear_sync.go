@@ -209,7 +209,7 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}
 
 	// 3. Re-check all conditions on server with fresh git status
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged := m.gitStatus(ctx, workspacePath, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, _ := m.gitStatus(ctx, workspacePath, w.Repo)
 	if dirty {
 		return &LinearSyncResult{
 			Success: false,

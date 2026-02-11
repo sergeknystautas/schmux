@@ -14,8 +14,12 @@ import (
 
 // handleLinearSync handles POST requests for workspace linear sync operations.
 // Dispatches to specific handlers based on URL suffix:
+// - GET /api/workspaces/{id}/git-graph - get commit graph
 // - POST /api/workspaces/{id}/linear-sync-from-main - sync commits from main into branch
 // - POST /api/workspaces/{id}/linear-sync-to-main - sync commits from branch to main
+// - POST /api/workspaces/{id}/git-commit-stage - stage files for commit
+// - POST /api/workspaces/{id}/git-amend - amend last commit
+// - POST /api/workspaces/{id}/git-discard - discard all changes
 func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
@@ -48,6 +52,12 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 		s.handleLinearSyncToMain(w, r)
 	} else if strings.HasSuffix(path, "/linear-sync-resolve-conflict") {
 		s.handleLinearSyncResolveConflict(w, r)
+	} else if strings.HasSuffix(path, "/git-commit-stage") {
+		s.handleGitCommitStage(w, r)
+	} else if strings.HasSuffix(path, "/git-amend") {
+		s.handleGitAmend(w, r)
+	} else if strings.HasSuffix(path, "/git-discard") {
+		s.handleGitDiscard(w, r)
 	} else if strings.HasSuffix(path, "/dispose") {
 		s.handleDisposeWorkspace(w, r)
 	} else if strings.HasSuffix(path, "/dispose-all") {

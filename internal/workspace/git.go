@@ -20,6 +20,14 @@ var branchNamePattern = regexp.MustCompile(`^[a-z0-9_]+(?:[._/-][a-z0-9_]+)*$`)
 // ErrInvalidBranchName is returned when a branch name fails validation.
 var ErrInvalidBranchName = errors.New("invalid branch name")
 
+// GitChangedFile represents a changed file with its status and line changes.
+type GitChangedFile struct {
+	Path         string
+	Status       string // "added", "modified", "deleted", "untracked"
+	LinesAdded   int
+	LinesRemoved int
+}
+
 // ValidateBranchName checks whether a branch name is acceptable for use.
 // Returns nil if valid, or an error describing the problem.
 func ValidateBranchName(branch string) error {
@@ -266,17 +274,139 @@ func (m *Manager) gitClean(ctx context.Context, dir string) error {
 	return nil
 }
 
+// GetWorkspaceGitFiles returns the list of changed files for a workspace.
+// Implements the WorkspaceManager interface.
+func (m *Manager) GetWorkspaceGitFiles(ctx context.Context, workspaceID string) ([]GitChangedFile, error) {
+	ws, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	return m.GetDirtyFiles(ctx, ws.Path)
+}
+
+// GetDirtyFiles returns the list of changed files in a workspace directory.
+// Uses the same logic as the diff endpoint for consistency.
+func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFile, error) {
+	files := []GitChangedFile{}
+
+	// Get changed files using git diff HEAD --numstat (same as diff endpoint)
+	// --numstat shows: added/deleted lines filename
+	// HEAD compares against last commit (includes both staged and unstaged)
+	// --find-renames finds renames
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
+	output, err := cmd.Output()
+	if err != nil {
+		// No changes is not an error
+		output = []byte{}
+	}
+
+	// Parse numstat output
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+
+		addedStr := parts[0]
+		filePath := parts[2]
+
+		// Determine status
+		status := "modified"
+		if addedStr == "-" {
+			// File was deleted
+			status = "deleted"
+		} else {
+			// Check if file exists in HEAD to determine if it's added or modified
+			checkCmd := exec.CommandContext(ctx, "git", "-C", dir, "cat-file", "-e", "HEAD:"+filePath)
+			if err := checkCmd.Run(); err != nil {
+				// File doesn't exist in HEAD, so it's new
+				status = "added"
+			}
+		}
+
+		files = append(files, GitChangedFile{
+			Path:   filePath,
+			Status: status,
+		})
+	}
+
+	// Get untracked files (same as diff endpoint)
+	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
+	untrackedCmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--others", "--exclude-standard")
+	untrackedOutput, err := untrackedCmd.Output()
+	if err == nil {
+		untrackedLines := strings.Split(string(untrackedOutput), "\n")
+		for _, filePath := range untrackedLines {
+			if filePath == "" {
+				continue
+			}
+			files = append(files, GitChangedFile{
+				Path:   filePath,
+				Status: "untracked",
+			})
+		}
+	}
+
+	return files, nil
+}
+
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int)
-func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, files []GitChangedFile)
+func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, files []GitChangedFile) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
+	// Initialize files slice
+	files = []GitChangedFile{}
+
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
+	// Also get file-level status from --porcelain output
 	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	statusCmd.Dir = dir
 	output, err := statusCmd.CombinedOutput()
 	dirty = err == nil && len(strings.TrimSpace(string(output))) > 0
+
+	// Parse git status --porcelain output to get file status
+	// Format: XY filename where X is staged, Y is unstaged
+	// ?? = untracked, M = modified, A = added, D = deleted
+	if err == nil {
+		statusLines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range statusLines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// Parse status code
+			statusCode := line[:2]
+			filePath := strings.TrimPrefix(line[3:], "\"")
+
+			// Determine file status
+			var status string
+			if strings.HasPrefix(statusCode, "??") {
+				status = "untracked"
+			} else if strings.Contains(statusCode, "M") {
+				status = "modified"
+			} else if strings.Contains(statusCode, "A") {
+				status = "added"
+			} else if strings.Contains(statusCode, "D") {
+				status = "deleted"
+			} else {
+				status = "modified" // default fallback
+			}
+
+			files = append(files, GitChangedFile{
+				Path:         filePath,
+				Status:       status,
+				LinesAdded:   0,
+				LinesRemoved: 0,
+			})
+		}
+	}
 
 	// Check ahead/behind counts using rev-list
 	// Compare against the detected default branch to show GitHub-style status:
@@ -303,7 +433,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	// Get line additions/deletions from uncommitted changes using diff --numstat HEAD
 	// Using HEAD includes both staged and unstaged changes
 	// Output format per line: "additions\tdeletions\tfilename"
-	// We sum across all changed files
+	// We sum across all changed files AND track per-file line counts
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--numstat", "HEAD")
 	diffCmd.Dir = dir
 	output, err = diffCmd.CombinedOutput()
@@ -311,15 +441,28 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 		trimmed := strings.TrimSpace(string(output))
 		if trimmed != "" {
 			lines := strings.Split(trimmed, "\n")
-			filesChanged = len(lines)
 			for _, line := range lines {
 				parts := strings.Split(line, "\t")
-				if len(parts) >= 2 {
-					if added, err := strconv.Atoi(parts[0]); err == nil {
+				if len(parts) >= 3 {
+					added := 0
+					removed := 0
+					if a, err := strconv.Atoi(parts[0]); err == nil {
+						added = a
 						linesAdded += added
 					}
-					if removed, err := strconv.Atoi(parts[1]); err == nil && parts[1] != "-" {
+					if r, err := strconv.Atoi(parts[1]); err == nil && parts[1] != "-" {
+						removed = r
 						linesRemoved += removed
+					}
+					filePath := parts[2]
+
+					// Update the corresponding file in the files slice
+					for i, f := range files {
+						if f.Path == filePath {
+							files[i].LinesAdded = added
+							files[i].LinesRemoved = removed
+							break
+						}
 					}
 				}
 			}
@@ -339,21 +482,45 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 			}
 			// Check if file is binary using git's detection (with fast heuristic fallback)
 			fullPath := filepath.Join(dir, filePath)
+			var lineCount int
 			if difftool.IsBinaryFile(ctx, dir, filePath) {
-				filesChanged++
-				continue
-			}
-			// Count lines with a size cap to avoid loading large files
-			lineCount, err := countLinesCapped(fullPath, 1024*1024) // 1MB cap
-			if err != nil {
-				continue // Skip files we can't read
+				lineCount = 0
+			} else {
+				// Count lines with a size cap to avoid loading large files
+				lc, err := countLinesCapped(fullPath, 1024*1024) // 1MB cap
+				if err != nil {
+					lineCount = 0 // Skip files we can't read
+				} else {
+					lineCount = lc
+				}
 			}
 			linesAdded += lineCount
-			filesChanged++
+
+			// Update the corresponding file in the files slice
+			found := false
+			for i, f := range files {
+				if f.Path == filePath {
+					files[i].LinesAdded = lineCount
+					found = true
+					break
+				}
+			}
+			// If not found in files slice, add it (might happen if git status didn't catch it)
+			if !found {
+				files = append(files, GitChangedFile{
+					Path:         filePath,
+					Status:       "untracked",
+					LinesAdded:   lineCount,
+					LinesRemoved: 0,
+				})
+			}
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged
+	// Calculate total files changed
+	filesChanged = len(files)
+
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, files
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.

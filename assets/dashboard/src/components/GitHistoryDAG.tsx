@@ -1,11 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getGitGraph } from '../lib/api';
+import {
+  getGitGraph,
+  getDiff,
+  gitCommitStage,
+  gitAmend,
+  gitDiscard,
+  spawnCommitSession,
+} from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
-import type { GitGraphResponse } from '../lib/types';
+import type { GitGraphResponse, FileDiff } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSync } from '../hooks/useSync';
+import { useModal } from './ModalProvider';
+import { usePendingNavigation } from '../lib/navigation';
 import Tooltip from './Tooltip';
 
 interface GitHistoryDAGProps {
@@ -32,20 +41,34 @@ function relativeTime(timestamp: string): string {
 
 export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const navigate = useNavigate();
+  const { confirm, alert } = useModal();
+  const { setPendingNavigation } = usePendingNavigation();
   const [data, setData] = useState<GitGraphResponse | null>(null);
+  const [diffFiles, setDiffFiles] = useState<FileDiff[]>([]);
   const [layout, setLayout] = useState<GitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isAmending, setIsAmending] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain } = useSync();
 
   const fetchData = useCallback(async () => {
     try {
-      const resp = await getGitGraph(workspaceId);
-      setData(resp);
-      setLayout(computeLayout(resp));
+      const [graphResp, diffResp] = await Promise.all([
+        getGitGraph(workspaceId),
+        getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
+      ]);
+      setData(graphResp);
+      const files = diffResp.files || [];
+      setDiffFiles(files);
+      // Select all files by default
+      setSelectedFiles(new Set(files.map((f) => f.new_path || f.old_path || '')));
+      setLayout(computeLayout(graphResp, files));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load git graph');
@@ -108,10 +131,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   return (
     <div className="git-dag">
-      <div
-        className="git-dag__scroll"
-        style={{ overflow: 'auto', maxHeight: 'calc(100vh - 200px)' }}
-      >
+      <div className="git-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
         <div
           className="git-dag__container"
           style={{ position: 'relative', minHeight: totalHeight }}
@@ -194,17 +214,176 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                   </div>
                 );
               }
-              if (ln.nodeType === 'view-changes' && ln.dirtyState) {
+              if (ln.nodeType === 'commit-actions') {
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
                     <button
-                      className="git-dag__view-changes"
-                      onClick={() => navigate(`/diff/${workspaceId}`)}
-                      title="View uncommitted changes"
+                      className="git-dag__action-button"
+                      onClick={() =>
+                        setSelectedFiles(
+                          new Set(diffFiles.map((f) => f.new_path || f.old_path || ''))
+                        )
+                      }
                     >
-                      {ln.dirtyState.filesChanged} file{ln.dirtyState.filesChanged !== 1 ? 's' : ''}
-                      , +{ln.dirtyState.linesAdded} −{ln.dirtyState.linesRemoved}
+                      Select All
                     </button>
+                    <button
+                      className="git-dag__action-button"
+                      onClick={() => setSelectedFiles(new Set())}
+                    >
+                      Deselect All
+                    </button>
+                    <button
+                      className="git-dag__action-button"
+                      onClick={async () => {
+                        const filesToDiscard = Array.from(selectedFiles);
+                        if (filesToDiscard.length === 0) return;
+                        const title = `Discard ${filesToDiscard.length} selected file${filesToDiscard.length === 1 ? '' : 's'}?`;
+                        const message = `This will discard changes to:\n\n${filesToDiscard.map((f) => `• ${f}`).join('\n')}`;
+                        const confirmed = await confirm(title, {
+                          danger: true,
+                          detailedMessage: message,
+                        });
+                        if (!confirmed) return;
+                        setIsDiscarding(true);
+                        try {
+                          await gitDiscard(workspaceId, filesToDiscard);
+                          fetchData();
+                        } catch (err) {
+                          await alert(
+                            'Discard Failed',
+                            err instanceof Error ? err.message : 'Unknown error'
+                          );
+                        } finally {
+                          setIsDiscarding(false);
+                        }
+                      }}
+                      disabled={isDiscarding || selectedFiles.size === 0}
+                    >
+                      {isDiscarding ? 'Discarding...' : 'Discard'}
+                    </button>
+                  </div>
+                );
+              }
+              if (ln.nodeType === 'commit-file' && ln.file) {
+                const filePath = ln.file.new_path || ln.file.old_path || '';
+                const isSelected = selectedFiles.has(filePath);
+                const status = ln.file.status || 'modified';
+                const statusLabel =
+                  status === 'added'
+                    ? 'A'
+                    : status === 'deleted'
+                      ? 'D'
+                      : status === 'untracked'
+                        ? '??'
+                        : 'M';
+                const statusClass =
+                  status === 'added'
+                    ? 'commit-workflow__status--added'
+                    : status === 'deleted'
+                      ? 'commit-workflow__status--deleted'
+                      : 'commit-workflow__status--modified';
+                const toggleFile = () => {
+                  const newSet = new Set(selectedFiles);
+                  if (newSet.has(filePath)) newSet.delete(filePath);
+                  else newSet.add(filePath);
+                  setSelectedFiles(newSet);
+                };
+                return (
+                  <div
+                    key={ln.hash}
+                    className="git-dag__row git-dag__file-row"
+                    style={{ height: layout.rowHeight, cursor: 'pointer' }}
+                    onClick={toggleFile}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={toggleFile}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ marginRight: '8px' }}
+                    />
+                    <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
+                    <span className="commit-workflow__filename">{filePath}</span>
+                  </div>
+                );
+              }
+              if (ln.nodeType === 'commit-footer') {
+                const canAmend = (ws?.git_ahead ?? 0) > 0;
+                return (
+                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                    <button
+                      className="btn btn--sm"
+                      disabled={selectedFiles.size === 0 || isCommitting}
+                      onClick={async () => {
+                        const fileList = Array.from(selectedFiles)
+                          .map((f) => `• ${f}`)
+                          .join('\n');
+                        const confirmed = await confirm(`Commit ${selectedFiles.size} files?`, {
+                          confirmText: 'Commit',
+                          detailedMessage: `The following files will be staged and committed:\n\n${fileList}`,
+                        });
+                        if (!confirmed) return;
+                        setIsCommitting(true);
+                        try {
+                          await gitCommitStage(workspaceId, Array.from(selectedFiles));
+                          if (ws) {
+                            const results = await spawnCommitSession(
+                              workspaceId,
+                              ws.repo,
+                              ws.branch,
+                              Array.from(selectedFiles)
+                            );
+                            if (results.length > 0 && results[0].session_id) {
+                              setPendingNavigation({ type: 'session', id: results[0].session_id });
+                            }
+                          }
+                          fetchData();
+                        } catch (err) {
+                          await alert(
+                            'Commit Failed',
+                            err instanceof Error ? err.message : 'Unknown error'
+                          );
+                        } finally {
+                          setIsCommitting(false);
+                        }
+                      }}
+                    >
+                      {isCommitting ? 'Committing...' : 'Commit'}
+                    </button>
+                    {canAmend && (
+                      <button
+                        className="btn btn--sm"
+                        disabled={selectedFiles.size === 0 || isAmending}
+                        onClick={async () => {
+                          const fileList = Array.from(selectedFiles)
+                            .map((f) => `• ${f}`)
+                            .join('\n');
+                          const confirmed = await confirm(
+                            `Amend commit with ${selectedFiles.size} files?`,
+                            {
+                              confirmText: 'Amend',
+                              detailedMessage: `The following files will be staged and amend the previous commit:\n\n${fileList}`,
+                            }
+                          );
+                          if (!confirmed) return;
+                          setIsAmending(true);
+                          try {
+                            await gitAmend(workspaceId, Array.from(selectedFiles));
+                            fetchData();
+                          } catch (err) {
+                            await alert(
+                              'Amend Failed',
+                              err instanceof Error ? err.message : 'Unknown error'
+                            );
+                          } finally {
+                            setIsAmending(false);
+                          }
+                        }}
+                      >
+                        {isAmending ? 'Amending...' : 'Amend'}
+                      </button>
+                    )}
                   </div>
                 );
               }
@@ -303,7 +482,16 @@ function NodeCircle({
   const cx = GRAPH_PADDING + node.column * COLUMN_WIDTH;
   const cy = node.y + rowHeight / 2;
 
-  if (node.nodeType === 'you-are-here' || node.nodeType === 'view-changes') {
+  // Commit workflow rows don't get circles - just the lane line passes through
+  if (
+    node.nodeType === 'commit-file' ||
+    node.nodeType === 'commit-actions' ||
+    node.nodeType === 'commit-footer'
+  ) {
+    return null;
+  }
+
+  if (node.nodeType === 'you-are-here') {
     return (
       <circle
         cx={cx}
