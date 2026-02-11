@@ -19,15 +19,12 @@ export function useHelpModal() {
 const shortcuts = [
   { key: 'N', description: 'Spawn new session (context-aware)' },
   { key: 'Shift+N', description: 'Spawn new session (always general)' },
-  { key: '1-9', description: 'Jump to session by index (1=first)' },
-  { key: 'K, 1-9', description: 'Jump to workspace by index' },
   { key: 'W', description: 'Dispose session' },
   { key: 'Shift+W', description: 'Dispose workspace' },
   { key: 'V', description: 'Open workspace in VS Code' },
   { key: 'D', description: 'Go to diff page' },
   { key: 'G', description: 'Go to git graph' },
   { key: 'H', description: 'Go to home' },
-  { key: '?', description: 'Show this help modal' },
 ];
 
 // Detect if user is on Mac (use Cmd) or Windows/Linux (use Ctrl)

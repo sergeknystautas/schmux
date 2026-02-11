@@ -565,23 +565,9 @@ export default function TipsPage() {
                   </tr>
                   <tr>
                     <td>
-                      <span className={styles.keyCombo}>K</span> then{' '}
-                      <span className={styles.keyCombo}>1</span>–
-                      <span className={styles.keyCombo}>9</span>
-                    </td>
-                    <td>Jump to workspace by index</td>
-                  </tr>
-                  <tr>
-                    <td>
                       <span className={styles.keyCombo}>H</span>
                     </td>
                     <td>Go to home page</td>
-                  </tr>
-                  <tr>
-                    <td>
-                      <span className={styles.keyCombo}>?</span>
-                    </td>
-                    <td>Show keyboard shortcuts help modal</td>
                   </tr>
                 </tbody>
               </table>
@@ -596,13 +582,6 @@ export default function TipsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>
-                      <span className={styles.keyCombo}>1</span>–
-                      <span className={styles.keyCombo}>9</span>
-                    </td>
-                    <td>Jump to session by index (1 = first session)</td>
-                  </tr>
                   <tr>
                     <td>
                       <span className={styles.keyCombo}>D</span>
@@ -648,14 +627,6 @@ export default function TipsPage() {
                   </tr>
                 </tbody>
               </table>
-
-              <p>
-                <em>
-                  Tip: You can also press <span className={styles.keyCombo}>⌘K</span> then{' '}
-                  <span className={styles.keyCombo}>?</span> from anywhere in the dashboard to see a
-                  quick-reference help modal.
-                </em>
-              </p>
             </div>
           )}
         </div>
