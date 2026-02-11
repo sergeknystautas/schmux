@@ -3,6 +3,10 @@
     {
       "name": "run schmux",
       "command": "./run.sh"
+    },
+    {
+      "name": "shell",
+      "command": "/bin/bash"
     }
   ]
 }
