@@ -10,6 +10,7 @@ import {
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
+import type { WorkspaceResponse } from '../lib/types';
 
 export function useSync() {
   const navigate = useNavigate();
@@ -87,9 +88,27 @@ export function useSync() {
     [alert, confirm, navigate]
   );
 
+  // Smart sync: chooses clean or conflict resolution based on workspace state
+  const handleSmartSync = useCallback(
+    async (workspace: WorkspaceResponse): Promise<void> => {
+      const hasKnownConflict =
+        workspace.conflict_on_branch && workspace.conflict_on_branch === workspace.branch;
+
+      if (hasKnownConflict) {
+        // Known conflict on current branch - go straight to conflict resolution
+        await startConflictResolution(workspace.id);
+      } else {
+        // Try clean sync first
+        await handleLinearSyncFromMain(workspace.id);
+      }
+    },
+    [startConflictResolution, handleLinearSyncFromMain]
+  );
+
   return {
     startConflictResolution,
     handleLinearSyncFromMain,
     handleLinearSyncToMain,
+    handleSmartSync,
   };
 }
