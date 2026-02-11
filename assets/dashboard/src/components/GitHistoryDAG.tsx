@@ -5,6 +5,7 @@ import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR } from '../lib/gitGraphLayo
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSync } from '../hooks/useSync';
 
 interface GitHistoryDAGProps {
   workspaceId: string;
@@ -35,6 +36,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const { handleSmartSync } = useSync();
 
   const fetchData = useCallback(async () => {
     try {
@@ -168,12 +171,45 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
                 );
               }
               if (ln.nodeType === 'sync-summary' && ln.syncSummary) {
+                // Determine sync status indicator based on conflict state
+                const hasKnownConflict =
+                  ws?.conflict_on_branch && ws.conflict_on_branch === ws.branch;
+                const syncIndicator = hasKnownConflict ? '🟡' : '🟢';
+                const syncTitle = hasKnownConflict
+                  ? 'Known conflict - click to resolve'
+                  : 'Click to sync from main';
+
+                const onSyncClick = async () => {
+                  if (!ws || syncing) return;
+                  setSyncing(true);
+                  try {
+                    await handleSmartSync(ws);
+                  } finally {
+                    setSyncing(false);
+                  }
+                };
+
                 return (
                   <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
+                    <button
+                      className="git-dag__sync-button"
+                      onClick={onSyncClick}
+                      disabled={syncing || !ws}
+                      title={syncTitle}
+                    >
+                      {syncing ? (
+                        <>
+                          <span className="spinner" /> Sync'ing
+                        </>
+                      ) : (
+                        <>{syncIndicator} Sync</>
+                      )}
+                    </button>
                     <span className="git-dag__sync-summary">
-                      Sync &middot; {ln.syncSummary.count} commit
+                      &middot; {ln.syncSummary.count} commit
                       {ln.syncSummary.count !== 1 ? 's' : ''}
                     </span>
+                    <span style={{ flex: 1 }} />
                     <span className="git-dag__time">
                       {relativeTime(ln.syncSummary.newestTimestamp)}
                     </span>

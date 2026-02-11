@@ -36,6 +36,7 @@ export interface WorkspaceResponse {
   remote_flavor_name?: string;
   remote_flavor?: string;
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
+  conflict_on_branch?: string; // Branch where sync conflict was detected
 }
 
 export interface SessionWithWorkspace extends SessionResponse {
