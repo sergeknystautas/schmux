@@ -108,7 +108,7 @@ func TestParseResult(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "spurious text before JSON payload",
+			name:  "spurious text before JSON payload",
 			input: `blah{"all_resolved": true, "confidence": "high", "summary": "Resolved", "files": {"foo.go": {"action": "modified", "description": "merged"}}}`,
 			wantResult: OneshotResult{
 				AllResolved: true,
@@ -118,7 +118,7 @@ func TestParseResult(t *testing.T) {
 			},
 		},
 		{
-			name: "spurious text before envelope JSON",
+			name:  "spurious text before envelope JSON",
 			input: `some output prefix{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Done", "files": {"a.go": {"action": "modified", "description": "fixed"}}}}`,
 			wantResult: OneshotResult{
 				AllResolved: true,
@@ -128,7 +128,7 @@ func TestParseResult(t *testing.T) {
 			},
 		},
 		{
-			name: "spurious text before and after JSON payload",
+			name:  "spurious text before and after JSON payload",
 			input: `prefix{"all_resolved": true, "confidence": "high", "summary": "Ok", "files": {"b.go": {"action": "deleted", "description": "removed"}}}trailing garbage`,
 			wantResult: OneshotResult{
 				AllResolved: true,
@@ -332,9 +332,9 @@ func TestExecute_RawResponseOnParseError(t *testing.T) {
 			wantRawResponse: "",
 		},
 		{
-			name:         "spurious prefix before envelope is unwrapped successfully",
-			cfg:          testConfig("claude"),
-			mockResponse: `blah{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Resolved", "files": {"foo.go": {"action": "modified", "description": "merged"}}}}`,
+			name:            "spurious prefix before envelope is unwrapped successfully",
+			cfg:             testConfig("claude"),
+			mockResponse:    `blah{"type": "result", "structured_output": {"all_resolved": true, "confidence": "high", "summary": "Resolved", "files": {"foo.go": {"action": "modified", "description": "merged"}}}}`,
 			wantRawResponse: "",
 		},
 	}
