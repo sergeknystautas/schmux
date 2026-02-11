@@ -352,7 +352,11 @@ export default function DiffPage() {
               onClick={() => handleExternalDiff(cmd)}
               disabled={executingDiff !== null}
             >
-              {executingDiff === cmd.name ? <div className="spinner--small"></div> : cmd.name}
+              {executingDiff === cmd.name ? (
+                <div className="spinner spinner--small"></div>
+              ) : (
+                cmd.name
+              )}
             </button>
           ))}
           {hasUserCommands &&
@@ -363,7 +367,11 @@ export default function DiffPage() {
                 onClick={() => handleExternalDiff(cmd)}
                 disabled={executingDiff !== null}
               >
-                {executingDiff === cmd.name ? <div className="spinner--small"></div> : cmd.name}
+                {executingDiff === cmd.name ? (
+                  <div className="spinner spinner--small"></div>
+                ) : (
+                  cmd.name
+                )}
               </button>
             ))}
         </div>

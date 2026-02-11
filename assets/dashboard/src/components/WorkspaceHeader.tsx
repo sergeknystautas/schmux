@@ -228,7 +228,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               aria-label={`Open ${workspace.id} in VS Code`}
             >
               {openingVSCode ? (
-                <div className="spinner--small"></div>
+                <div className="spinner spinner--small"></div>
               ) : (
                 <svg
                   width="16"

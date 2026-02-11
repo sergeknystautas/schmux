@@ -191,7 +191,10 @@ export default function LinearSyncResolveConflictProgress({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isActive && (
-            <div className="spinner--small" style={{ width: 14, height: 14, borderWidth: 2 }} />
+            <div
+              className="spinner spinner--small"
+              style={{ width: 14, height: 14, borderWidth: 2 }}
+            />
           )}
           <strong>
             {isActive
@@ -261,7 +264,7 @@ export default function LinearSyncResolveConflictProgress({
           <button className="btn btn--primary" onClick={handleContinue} disabled={continuing}>
             {continuing && (
               <div
-                className="spinner--small"
+                className="spinner spinner--small"
                 style={{
                   width: 12,
                   height: 12,
