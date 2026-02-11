@@ -226,13 +226,13 @@ drained:
 			}
 			// Filter terminal mode sequences that interfere with xterm.js scrollback
 			filtered := filterMouseMode(chunk)
-			// Check for schmux OSC signals and strip them from output
-			signals, cleanData := signal.ExtractAndStripSignals(filtered)
+			// Check for schmux signals (markers remain visible in output)
+			signals := signal.ParseSignals(filtered)
 			for _, sig := range signals {
 				s.handleAgentSignal(sessionID, sig)
 			}
-			if len(cleanData) > 0 {
-				if err := sendOutput("append", string(cleanData)); err != nil {
+			if len(filtered) > 0 {
+				if err := sendOutput("append", string(filtered)); err != nil {
 					return
 				}
 			}
