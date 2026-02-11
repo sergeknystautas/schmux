@@ -172,7 +172,7 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
         aria-label="View diff options"
       >
         {executing ? (
-          <div className="spinner--small"></div>
+          <div className="spinner spinner--small"></div>
         ) : (
           <svg
             width="14"

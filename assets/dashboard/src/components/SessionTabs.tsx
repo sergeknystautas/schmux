@@ -459,12 +459,17 @@ export default function SessionTabs({
         <div className="session-tab__row1">
           <span
             className="session-tab__name"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}
           >
             {isActive && (
-              <div className="spinner--small" style={{ width: 10, height: 10, borderWidth: 2 }} />
+              <div
+                className="spinner spinner--small"
+                style={{ width: 10, height: 10, borderWidth: 2, flexShrink: 0 }}
+              />
             )}
-            {label} {hash}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {label} {hash}
+            </span>
           </span>
           {!isActive && (
             <Tooltip content="Dismiss" variant="warning">
