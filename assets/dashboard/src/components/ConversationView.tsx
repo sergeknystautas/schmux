@@ -67,9 +67,7 @@ function getToolUseBlocks(message: StreamJsonMessage): Array<{
   // Try message.message.content first, then message.content
   const content = message.message?.content ?? message.content;
   if (!Array.isArray(content)) return [];
-  return content.filter(
-    (block: { type: string }) => block.type === 'tool_use'
-  );
+  return content.filter((block: { type: string }) => block.type === 'tool_use');
 }
 
 // Check if message is a permission request (tool_use_permission subtype)
@@ -82,52 +80,63 @@ function isResultMessage(message: StreamJsonMessage): boolean {
   return message.type === 'result';
 }
 
-// Render a simple code block for tool input/output
-function CodeBlock({ content }: { content: string }) {
-  return (
-    <pre style={{ margin: 0 }}>
-      <code>{content}</code>
-    </pre>
-  );
+// Extract a human-readable target from tool input (file path, command, etc.)
+function getToolTarget(name: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const inp = input as Record<string, unknown>;
+
+  // Common patterns for different tools
+  if (inp.file_path) return String(inp.file_path);
+  if (inp.path) return String(inp.path);
+  if (inp.command) {
+    const cmd = String(inp.command);
+    return cmd.length > 60 ? cmd.slice(0, 57) + '...' : cmd;
+  }
+  if (inp.pattern) return String(inp.pattern);
+  if (inp.query) return String(inp.query);
+  if (inp.url) return String(inp.url);
+
+  return null;
 }
 
-// Tool use card component
-function ToolUseCard({
-  name,
-  input,
-  result,
-}: {
-  name: string;
-  input: unknown;
-  result?: string;
-}) {
+// Inline tool use component - minimal, expandable
+function ToolUseInline({ name, input, result }: { name: string; input: unknown; result?: string }) {
   const [open, setOpen] = useState(false);
-  const inputStr =
-    typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+  const target = getToolTarget(name, input);
+  const hasResult = result !== undefined;
+  const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
 
   return (
-    <div className="tool-use-card">
-      <div className="tool-use-card__header" onClick={() => setOpen(!open)}>
-        <span
-          className={`tool-use-card__toggle${open ? ' tool-use-card__toggle--open' : ''}`}
-        >
+    <div>
+      <div className="tool-use-inline" onClick={() => setOpen(!open)}>
+        <span className={`tool-use-inline__icon${open ? ' tool-use-inline__icon--open' : ''}`}>
           &#x25B6;
         </span>
-        <span className="tool-use-card__name">{name}</span>
+        <span className="tool-use-inline__name">{name}</span>
+        {target && <span className="tool-use-inline__target">{target}</span>}
+        <span
+          className={`tool-use-inline__status ${
+            hasResult ? 'tool-use-inline__status--success' : 'tool-use-inline__status--pending'
+          }`}
+        >
+          {hasResult ? '✓' : '…'}
+        </span>
       </div>
       {open && (
-        <>
-          <div className="tool-use-card__body">
-            <div className="tool-use-card__section-label">Input</div>
-            <CodeBlock content={inputStr} />
+        <div className="tool-use-details">
+          <div className="tool-use-details__section">
+            <div className="tool-use-details__label">Input</div>
+            <div className="tool-use-details__content">{inputStr}</div>
           </div>
           {result !== undefined && (
-            <div className="tool-use-card__result">
-              <div className="tool-use-card__section-label">Result</div>
-              <CodeBlock content={result} />
+            <div className="tool-use-details__section">
+              <div className="tool-use-details__label">Result</div>
+              <div className="tool-use-details__content">
+                {result.length > 2000 ? result.slice(0, 2000) + '...' : result}
+              </div>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -155,22 +164,19 @@ function PermissionPrompt({
   return (
     <div className="permission-prompt">
       <div className="permission-prompt__header">
-        Permission Required:{' '}
-        <span className="permission-prompt__tool">{toolName}</span>
+        Allow <span className="permission-prompt__tool">{toolName}</span>?
       </div>
-      {description && (
-        <div className="permission-prompt__description">{description}</div>
-      )}
+      {description && <div className="permission-prompt__description">{description}</div>}
       <div className="permission-prompt__actions">
         <button
           className="btn btn--primary btn--sm"
           onClick={() => handleRespond(true)}
           disabled={responded}
         >
-          Approve
+          Allow
         </button>
         <button
-          className="btn btn--danger btn--sm"
+          className="btn btn--secondary btn--sm"
           onClick={() => handleRespond(false)}
           disabled={responded}
         >
@@ -226,9 +232,7 @@ function MessageInput({
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         placeholder={
-          disabled
-            ? 'Waiting for agent...'
-            : 'Send a follow-up message... (Cmd+Enter to send)'
+          disabled ? 'Waiting for agent...' : 'Send a follow-up message... (Cmd+Enter to send)'
         }
         disabled={disabled}
         rows={1}
@@ -244,14 +248,11 @@ function MessageInput({
   );
 }
 
-export default function ConversationView({
-  sessionId,
-  running,
-}: ConversationViewProps) {
+export default function ConversationView({ sessionId, running }: ConversationViewProps) {
   const [messages, setMessages] = useState<StreamJsonMessage[]>([]);
-  const [wsStatus, setWsStatus] = useState<
-    'connecting' | 'connected' | 'disconnected'
-  >('connecting');
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>(
+    'connecting'
+  );
   const [followTail, setFollowTail] = useState(true);
   const [showResume, setShowResume] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -259,9 +260,7 @@ export default function ConversationView({
   const wsRef = useRef<WebSocket | null>(null);
   // Track tool results by tool_use_id
   const toolResultsRef = useRef<Map<string, string>>(new Map());
-  const [toolResults, setToolResults] = useState<Map<string, string>>(
-    new Map()
-  );
+  const [toolResults, setToolResults] = useState<Map<string, string>>(new Map());
 
   // Connect to WebSocket
   useEffect(() => {
@@ -288,19 +287,11 @@ export default function ConversationView({
             // Process tool results from history
             const results = new Map<string, string>();
             for (const msg of data.messages) {
-              if (
-                msg.type === 'content_block_start' &&
-                msg.content_block?.type === 'tool_result'
-              ) {
+              if (msg.type === 'content_block_start' && msg.content_block?.type === 'tool_result') {
                 const id = msg.content_block.tool_use_id;
                 const content = msg.content_block.content;
                 if (id && content) {
-                  results.set(
-                    id,
-                    typeof content === 'string'
-                      ? content
-                      : JSON.stringify(content)
-                  );
+                  results.set(id, typeof content === 'string' ? content : JSON.stringify(content));
                 }
               }
               // Also check for tool_result type messages
@@ -308,12 +299,7 @@ export default function ConversationView({
                 const id = msg.tool_use_id;
                 const content = msg.content;
                 if (id && content) {
-                  results.set(
-                    id,
-                    typeof content === 'string'
-                      ? content
-                      : JSON.stringify(content)
-                  );
+                  results.set(id, typeof content === 'string' ? content : JSON.stringify(content));
                 }
               }
             }
@@ -325,9 +311,7 @@ export default function ConversationView({
             // Check if this is a tool result
             if (msg.type === 'tool_result' && msg.tool_use_id && msg.content) {
               const content =
-                typeof msg.content === 'string'
-                  ? msg.content
-                  : JSON.stringify(msg.content);
+                typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
               toolResultsRef.current.set(msg.tool_use_id, content);
               setToolResults(new Map(toolResultsRef.current));
             }
@@ -387,36 +371,27 @@ export default function ConversationView({
   };
 
   // Send user message
-  const handleSendMessage = useCallback(
-    (content: string) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({ type: 'user_message', content })
-        );
-      }
-    },
-    []
-  );
+  const handleSendMessage = useCallback((content: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'user_message', content }));
+    }
+  }, []);
 
   // Send permission response
-  const handlePermissionResponse = useCallback(
-    (requestId: string, approved: boolean) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'permission_response',
-            request_id: requestId,
-            approved,
-          })
-        );
-      }
-    },
-    []
-  );
+  const handlePermissionResponse = useCallback((requestId: string, approved: boolean) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'permission_response',
+          request_id: requestId,
+          approved,
+        })
+      );
+    }
+  }, []);
 
   // Determine if input should be disabled (during agent turn)
-  const lastMessage =
-    messages.length > 0 ? messages[messages.length - 1] : null;
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const isAgentTurn =
     running &&
     lastMessage !== null &&
@@ -433,7 +408,6 @@ export default function ConversationView({
       if (!text) return null;
       return (
         <div key={index} className="conversation-message conversation-message--user">
-          <div className="conversation-message__role">You</div>
           <div className="conversation-message__content">{text}</div>
         </div>
       );
@@ -446,18 +420,19 @@ export default function ConversationView({
       if (!text && toolUses.length === 0) return null;
       return (
         <div key={index} className="conversation-message conversation-message--assistant">
-          <div className="conversation-message__role">Claude</div>
-          {text && (
-            <div className="conversation-message__content">{text}</div>
+          {text && <div className="conversation-message__content">{text}</div>}
+          {toolUses.length > 0 && (
+            <div className="tool-use-list">
+              {toolUses.map((tool) => (
+                <ToolUseInline
+                  key={tool.id}
+                  name={tool.name}
+                  input={tool.input}
+                  result={toolResults.get(tool.id)}
+                />
+              ))}
+            </div>
           )}
-          {toolUses.map((tool) => (
-            <ToolUseCard
-              key={tool.id}
-              name={tool.name}
-              input={tool.input}
-              result={toolResults.get(tool.id)}
-            />
-          ))}
         </div>
       );
     }
@@ -469,10 +444,7 @@ export default function ConversationView({
           key={index}
           toolName={msg.tool?.name || msg.tool_name || 'Unknown tool'}
           description={
-            msg.description ||
-            (msg.tool?.input
-              ? JSON.stringify(msg.tool.input, null, 2)
-              : '')
+            msg.description || (msg.tool?.input ? JSON.stringify(msg.tool.input, null, 2) : '')
           }
           requestId={msg.request_id || `perm-${index}`}
           onRespond={handlePermissionResponse}
@@ -482,32 +454,25 @@ export default function ConversationView({
 
     // Result message
     if (isResultMessage(msg)) {
-      const isError =
-        msg.is_error || msg.subtype === 'error' || msg.result?.is_error;
+      const isError = msg.is_error || msg.subtype === 'error' || msg.result?.is_error;
+      const costText = msg.cost_usd !== undefined ? ` · $${msg.cost_usd.toFixed(4)}` : '';
       return (
         <div
           key={index}
           className={`conversation-message conversation-message--result ${
-            isError
-              ? 'conversation-message--result-error'
-              : 'conversation-message--result-success'
+            isError ? 'conversation-message--result-error' : 'conversation-message--result-success'
           }`}
         >
-          {isError ? 'Error' : 'Completed'}
-          {msg.result?.text ? `: ${msg.result.text}` : ''}
-          {msg.cost_usd !== undefined
-            ? ` (cost: $${msg.cost_usd.toFixed(4)})`
-            : ''}
+          {isError ? '✗ Error' : '✓ Done'}
+          {msg.result?.text ? ` — ${msg.result.text}` : ''}
+          {costText}
         </div>
       );
     }
 
     // System messages
     if (msg.type === 'system') {
-      const text =
-        typeof msg.message === 'string'
-          ? msg.message
-          : msg.message?.content || '';
+      const text = typeof msg.message === 'string' ? msg.message : msg.message?.content || '';
       if (!text) return null;
       return (
         <div key={index} className="conversation-message conversation-message--system">
@@ -528,14 +493,8 @@ export default function ConversationView({
         onScroll={handleScroll}
       >
         {messages.length === 0 && wsStatus === 'connected' && (
-          <div
-            style={{
-              color: 'var(--color-text-muted)',
-              fontStyle: 'italic',
-              padding: 'var(--spacing-lg)',
-            }}
-          >
-            Waiting for agent response...
+          <div className="conversation-message conversation-message--system">
+            Waiting for response...
           </div>
         )}
         {messages.map((msg, i) => renderMessage(msg, i))}
