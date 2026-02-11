@@ -70,6 +70,7 @@ function formatElapsed(ms: number) {
 
 function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
   const [now, setNow] = React.useState(Date.now());
+  const [expanded, setExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (step.status !== 'in_progress') return;
@@ -82,6 +83,8 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
     step.status === 'in_progress' && !Number.isNaN(startedAt)
       ? formatElapsed(now - startedAt)
       : null;
+
+  const showSummary = step.status === 'failed' && step.summary;
 
   return (
     <div
@@ -128,6 +131,43 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
             }}
           >
             {step.files.join(', ')}
+          </div>
+        )}
+        {showSummary && (
+          <div style={{ marginTop: 4 }}>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                padding: 0,
+                textDecoration: 'underline',
+              }}
+            >
+              {expanded ? 'Hide' : 'Show'} LLM response
+            </button>
+            {expanded && (
+              <pre
+                style={{
+                  marginTop: 4,
+                  padding: '8px 10px',
+                  background: 'rgba(0, 0, 0, 0.15)',
+                  borderRadius: 4,
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  color: 'var(--color-text-muted)',
+                  maxHeight: 200,
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {step.summary}
+              </pre>
+            )}
           </div>
         )}
       </div>

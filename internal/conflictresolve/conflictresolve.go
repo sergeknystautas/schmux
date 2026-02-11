@@ -19,6 +19,9 @@ var (
 	ErrInvalidResponse = errors.New("invalid conflict resolve response")
 )
 
+// executorFunc is the function used to run a oneshot target. Package-level var for testability.
+var executorFunc = oneshot.ExecuteTarget
+
 // FileAction describes what the LLM did to resolve a single conflicted file.
 type FileAction struct {
 	Action      string `json:"action"`                // "modified" or "deleted"
@@ -95,41 +98,104 @@ Rules:
 // Execute runs the conflict resolution one-shot call against the configured target.
 // The workspacePath sets the working directory for the oneshot process so the LLM
 // agent can read and edit the conflicted files.
-func Execute(ctx context.Context, cfg *config.Config, prompt string, workspacePath string) (OneshotResult, error) {
+// The second return value is the raw LLM response text, returned on parse errors
+// so callers can surface it to the user. It is empty when the error is pre-parse
+// (e.g. disabled, target not found, execution failure) or on success.
+func Execute(ctx context.Context, cfg *config.Config, prompt string, workspacePath string) (OneshotResult, string, error) {
 	targetName := cfg.GetConflictResolveTarget()
 	if targetName == "" {
-		return OneshotResult{}, ErrDisabled
+		return OneshotResult{}, "", ErrDisabled
 	}
 
 	timeout := time.Duration(cfg.GetConflictResolveTimeoutMs()) * time.Millisecond
 
-	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, prompt, oneshot.SchemaConflictResolve, timeout, workspacePath)
+	response, err := executorFunc(ctx, cfg, targetName, prompt, oneshot.SchemaConflictResolve, timeout, workspacePath)
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
-			return OneshotResult{}, ErrTargetNotFound
+			return OneshotResult{}, "", ErrTargetNotFound
 		}
-		return OneshotResult{}, fmt.Errorf("oneshot execute: %w", err)
+		return OneshotResult{}, "", fmt.Errorf("oneshot execute: %w", err)
 	}
 
 	result, err := ParseResult(response)
 	if err != nil {
-		return OneshotResult{}, err
+		return OneshotResult{}, response, err
 	}
 
-	return result, nil
+	return result, "", nil
 }
 
 // ParseResult parses a JSON response from the LLM.
+// It handles direct JSON, Claude Code envelope responses ({"type":"result",
+// "structured_output": {...}}), and responses with spurious text before/after
+// the JSON payload (e.g. "blah{...}trailing").
 func ParseResult(raw string) (OneshotResult, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return OneshotResult{}, ErrInvalidResponse
 	}
 
-	var result OneshotResult
-	if err := json.Unmarshal([]byte(trimmed), &result); err != nil {
-		return OneshotResult{}, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
+	// Try to find and parse a JSON object from the response.
+	jsonStr, ok := findJSON(trimmed)
+	if !ok {
+		return OneshotResult{}, fmt.Errorf("%w: no JSON object found in response", ErrInvalidResponse)
 	}
 
-	return result, nil
+	// Try direct parse as OneshotResult.
+	var result OneshotResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err == nil && result.Confidence != "" {
+		return result, nil
+	}
+
+	// Try to unwrap a Claude Code envelope that contains structured_output or result.
+	extracted, ok := extractFromEnvelope(jsonStr)
+	if ok {
+		var envResult OneshotResult
+		if err := json.Unmarshal([]byte(extracted), &envResult); err == nil {
+			return envResult, nil
+		}
+	}
+
+	// JSON was found but doesn't contain the expected fields.
+	return OneshotResult{}, fmt.Errorf("%w: response JSON does not contain expected fields", ErrInvalidResponse)
+}
+
+// findJSON locates the first valid JSON object in s, skipping any leading
+// non-JSON text. Returns the JSON substring and true if found.
+func findJSON(s string) (string, bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '{' {
+			dec := json.NewDecoder(strings.NewReader(s[i:]))
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err == nil {
+				return string(raw), true
+			}
+		}
+	}
+	return "", false
+}
+
+// extractFromEnvelope tries to extract the conflict-resolve payload from a
+// Claude Code result envelope. It checks "structured_output" (JSON object) first,
+// then "result" (JSON string).
+func extractFromEnvelope(raw string) (string, bool) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		return "", false
+	}
+
+	// structured_output is an embedded JSON object — use it directly.
+	if so, ok := envelope["structured_output"]; ok && len(so) > 0 && so[0] == '{' {
+		return string(so), true
+	}
+
+	// result is a JSON-encoded string containing the payload.
+	if r, ok := envelope["result"]; ok && len(r) > 0 {
+		var s string
+		if err := json.Unmarshal(r, &s); err == nil && strings.TrimSpace(s) != "" {
+			return s, true
+		}
+	}
+
+	return "", false
 }

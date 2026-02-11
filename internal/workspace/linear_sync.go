@@ -541,7 +541,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		})
 
 		prompt := conflictresolve.BuildPrompt(workspacePath, hash, localCommitHash, localCommitMessage, unmergedFiles)
-		oneshotResult, err := conflictresolve.Execute(ctx, m.config, prompt, workspacePath)
+		oneshotResult, rawResponse, err := conflictresolve.Execute(ctx, m.config, prompt, workspacePath)
 
 		// Record the resolution attempt
 		fileNames := make([]string, 0, len(unmergedFiles))
@@ -558,7 +558,8 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			resolution.Summary = fmt.Sprintf("LLM error: %v", err)
 			resolutions = append(resolutions, resolution)
 			msg := fmt.Sprintf("Could not resolve conflict on local commit %s: %v", localCommitHash, err)
-			emit(ResolveConflictStep{Action: "llm_call", Status: "failed", Message: msg, LocalCommit: localCommitHash, Files: unmergedFiles})
+			stepSummary := truncateString(rawResponse, 2000)
+			emit(ResolveConflictStep{Action: "llm_call", Status: "failed", Message: msg, LocalCommit: localCommitHash, Files: unmergedFiles, Summary: stepSummary})
 			abortAndUnwind(msg)
 			return &LinearSyncResolveConflictResult{
 				Success:     false,
@@ -767,6 +768,17 @@ func minLen(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// truncateString returns s truncated to maxLen characters, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // getUnmergedFiles returns the list of unmerged (conflicted) file paths.
