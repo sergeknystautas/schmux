@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -204,34 +205,73 @@ func (t *SessionTracker) attachAndRead() error {
 	defer t.closePTY()
 
 	buf := make([]byte, 8192)
+	var pending []byte // Holds incomplete UTF-8 sequence from previous read
+
 	for {
 		n, err := ptmx.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			meaningful := isMeaningfulTerminalChunk(chunk)
-			now := time.Now()
-
-			t.mu.Lock()
-			shouldUpdate := meaningful && (t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce)
-			if shouldUpdate {
-				t.lastEvent = now
+			// Prepend any pending bytes from previous read
+			var data []byte
+			if len(pending) > 0 {
+				data = make([]byte, len(pending)+n)
+				copy(data, pending)
+				copy(data[len(pending):], buf[:n])
+				pending = nil
+			} else {
+				data = buf[:n]
 			}
-			clientCh := t.clientCh
-			t.mu.Unlock()
 
-			if shouldUpdate {
-				t.state.UpdateSessionLastOutput(t.sessionID, now)
+			// Find the last valid UTF-8 boundary
+			validLen := findValidUTF8Boundary(data)
+
+			// Keep incomplete sequence for next read
+			if validLen < len(data) {
+				pending = make([]byte, len(data)-validLen)
+				copy(pending, data[validLen:])
+				data = data[:validLen]
 			}
-			if clientCh != nil {
-				select {
-				case clientCh <- chunk:
-				default:
+
+			// Only process if we have complete UTF-8 sequences
+			if len(data) > 0 {
+				chunk := make([]byte, len(data))
+				copy(chunk, data)
+
+				meaningful := isMeaningfulTerminalChunk(chunk)
+				now := time.Now()
+
+				t.mu.Lock()
+				shouldUpdate := meaningful && (t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce)
+				if shouldUpdate {
+					t.lastEvent = now
+				}
+				clientCh := t.clientCh
+				t.mu.Unlock()
+
+				if shouldUpdate {
+					t.state.UpdateSessionLastOutput(t.sessionID, now)
+				}
+				if clientCh != nil {
+					select {
+					case clientCh <- chunk:
+					default:
+					}
 				}
 			}
 		}
 
 		if err != nil {
+			// Flush any remaining pending bytes on error/EOF
+			if len(pending) > 0 {
+				t.mu.RLock()
+				clientCh := t.clientCh
+				t.mu.RUnlock()
+				if clientCh != nil {
+					select {
+					case clientCh <- pending:
+					default:
+					}
+				}
+			}
 			return err
 		}
 
@@ -241,6 +281,67 @@ func (t *SessionTracker) attachAndRead() error {
 		default:
 		}
 	}
+}
+
+// findValidUTF8Boundary returns the length of data up to the last complete UTF-8 character.
+// If data ends mid-character, those trailing bytes are excluded.
+func findValidUTF8Boundary(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+
+	// If the entire slice is valid UTF-8, return its full length
+	if utf8.Valid(data) {
+		return len(data)
+	}
+
+	// Find where the incomplete sequence starts by checking trailing bytes.
+	// UTF-8 continuation bytes are 10xxxxxx (0x80-0xBF).
+	// A leading byte indicates the start of a multi-byte sequence.
+	//
+	// Walk backwards to find the start of an incomplete sequence:
+	// - If we find a leading byte, check if enough bytes follow for a complete character
+	// - The leading byte pattern tells us how many bytes the character needs
+
+	for i := len(data) - 1; i >= 0 && i >= len(data)-4; i-- {
+		b := data[i]
+
+		// Check if this is a leading byte (not a continuation byte)
+		if b&0xC0 != 0x80 {
+			// This is either ASCII (0xxxxxxx) or a leading byte (11xxxxxx)
+			if b < 0x80 {
+				// ASCII byte - everything up to and including this is valid
+				return i + 1
+			}
+
+			// It's a leading byte - determine expected sequence length
+			var seqLen int
+			switch {
+			case b&0xE0 == 0xC0:
+				seqLen = 2 // 110xxxxx
+			case b&0xF0 == 0xE0:
+				seqLen = 3 // 1110xxxx
+			case b&0xF8 == 0xF0:
+				seqLen = 4 // 11110xxx
+			default:
+				// Invalid leading byte, skip it
+				continue
+			}
+
+			// Check if we have enough bytes for this sequence
+			remaining := len(data) - i
+			if remaining >= seqLen {
+				// Sequence is complete, include it
+				return i + seqLen
+			}
+			// Sequence is incomplete, exclude it
+			return i
+		}
+	}
+
+	// If we get here, we only have continuation bytes (shouldn't happen in valid streams)
+	// Return 0 to buffer everything
+	return 0
 }
 
 func (t *SessionTracker) shouldLogRetry(now time.Time) bool {
