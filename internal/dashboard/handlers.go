@@ -285,18 +285,12 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		return response[i].ID < response[j].ID
 	})
 
-	// Sort sessions within each workspace by display name
+	// Sort sessions within each workspace by creation time (oldest first)
 	for i := range response {
 		sort.Slice(response[i].Sessions, func(j, k int) bool {
-			nameJ := response[i].Sessions[j].Nickname
-			if nameJ == "" {
-				nameJ = response[i].Sessions[j].Target
-			}
-			nameK := response[i].Sessions[k].Nickname
-			if nameK == "" {
-				nameK = response[i].Sessions[k].Target
-			}
-			return nameJ < nameK
+			timeJ, _ := time.Parse(time.RFC3339, response[i].Sessions[j].CreatedAt)
+			timeK, _ := time.Parse(time.RFC3339, response[i].Sessions[k].CreatedAt)
+			return timeJ.Before(timeK)
 		})
 	}
 
