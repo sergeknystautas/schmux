@@ -308,18 +308,6 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}, nil
 }
 
-// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
-// Deprecated: Use LinearSyncFromDefault instead.
-func (m *Manager) LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
-	return m.LinearSyncFromDefault(ctx, workspaceID)
-}
-
-// LinearSyncToMain performs a fast-forward push to origin/main.
-// Deprecated: Use LinearSyncToDefault instead.
-func (m *Manager) LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
-	return m.LinearSyncToDefault(ctx, workspaceID)
-}
-
 // LinearSyncResolveConflict rebases exactly one commit from the default branch, handling conflicts.
 // When a conflict occurs during replay of local commits, it pauses the rebase, runs a non-interactive
 // one-shot LLM call to resolve the conflicted files, then continues. Repeats for each conflicting commit.

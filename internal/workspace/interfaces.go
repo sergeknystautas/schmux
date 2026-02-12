@@ -129,14 +129,6 @@ type WorkspaceManager interface {
 	// GetDefaultBranch returns the detected default branch for a repo URL.
 	GetDefaultBranch(ctx context.Context, repoURL string) (string, error)
 
-	// LinearSyncFromMain performs an iterative rebase from origin/main into the current branch.
-	// Deprecated: Use LinearSyncFromDefault instead.
-	LinearSyncFromMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
-
-	// LinearSyncToMain performs a fast-forward push to origin/main.
-	// Deprecated: Use LinearSyncToDefault instead.
-	LinearSyncToMain(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
-
 	// LinearSyncFromDefault performs an iterative rebase from the default branch into the current branch.
 	LinearSyncFromDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
 
