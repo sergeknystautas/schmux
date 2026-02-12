@@ -53,14 +53,12 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 		return "", fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
-	repoName := extractRepoName(repoURL)
-
 	// Check for legacy flat path first (backward compatibility)
 	if legacyPath := legacyBareRepoPath(queryRepoDir, repoURL); legacyPath != "" {
 		// Use existing legacy repo
 		if m.originQueryRepoNeedsRepair(ctx, legacyPath) {
-			if err := m.prepareOriginQueryRepo(ctx, legacyPath, repoName); err != nil {
-				return "", fmt.Errorf("failed to repair origin query repo for %s: %w", repoName, err)
+			if err := m.prepareOriginQueryRepo(ctx, legacyPath, repoURL); err != nil {
+				return "", fmt.Errorf("failed to repair origin query repo: %w", err)
 			}
 		}
 		return legacyPath, nil
@@ -77,14 +75,14 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 			return "", fmt.Errorf("failed to create query repo directory: %w", err)
 		}
 		if err := m.cloneOriginQueryRepo(ctx, repoURL, queryRepoPath); err != nil {
-			return "", fmt.Errorf("failed to create query repo clone for %s: %w", repoName, err)
+			return "", fmt.Errorf("failed to create query repo clone: %w", err)
 		}
-		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
-			return "", fmt.Errorf("failed to initialize origin query repo for %s: %w", repoName, err)
+		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
+			return "", fmt.Errorf("failed to initialize origin query repo: %w", err)
 		}
 	} else if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
-		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
-			return "", fmt.Errorf("failed to repair origin query repo for %s: %w", repoName, err)
+		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
+			return "", fmt.Errorf("failed to repair origin query repo: %w", err)
 		}
 	}
 
@@ -111,11 +109,11 @@ func (m *Manager) cloneOriginQueryRepo(ctx context.Context, url, path string) er
 }
 
 // prepareOriginQueryRepo ensures the query repo has remote tracking refs and origin/HEAD.
-func (m *Manager) prepareOriginQueryRepo(ctx context.Context, queryRepoPath, repoName string) error {
+func (m *Manager) prepareOriginQueryRepo(ctx context.Context, queryRepoPath, repoURL string) error {
 	if err := m.ensureOriginFetchRefspec(ctx, queryRepoPath); err != nil {
 		return err
 	}
-	if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repoName); err != nil {
+	if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
 		return err
 	}
 	if !m.originHeadExists(ctx, queryRepoPath) {
@@ -135,12 +133,17 @@ func (m *Manager) ensureOriginFetchRefspec(ctx context.Context, queryRepoPath st
 	return nil
 }
 
-func (m *Manager) fetchOriginQueryRepo(ctx context.Context, queryRepoPath, repoName string) error {
+func (m *Manager) fetchOriginQueryRepo(ctx context.Context, queryRepoPath, repoURL string) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(fetchCtx, "git", "fetch", "--prune", "origin")
 	cmd.Dir = queryRepoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
+		// Try to get repo name from config for better error messages
+		repoName := repoURL
+		if repo, found := m.config.FindRepoByURL(repoURL); found {
+			repoName = repo.Name
+		}
 		return fmt.Errorf("git fetch failed for origin query repo %s: %w: %s", repoName, err, string(output))
 	}
 	return nil
@@ -205,7 +208,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 			continue
 		}
 
-		if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.Name); err != nil {
+		if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
 			fmt.Printf("[workspace] warning: %v\n", err)
 			continue
 		}
@@ -381,7 +384,11 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 	queryRepoPath := m.getQueryRepoPath(repoURL)
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
-		repoName := extractRepoName(repoURL)
+		// Try to get repo name from config for better error messages
+		repoName := repoURL
+		if repo, found := m.config.FindRepoByURL(repoURL); found {
+			repoName = repo.Name
+		}
 		return nil, fmt.Errorf("bare clone not found for %s", repoName)
 	}
 

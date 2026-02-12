@@ -313,11 +313,11 @@ export default function HomePage() {
     }
   };
 
-  const handleBranchClick = async (repoUrl: string, branchName: string) => {
-    const key = `${repoUrl}:${branchName}`;
+  const handleBranchClick = async (repoName: string, branchName: string) => {
+    const key = `${repoName}:${branchName}`;
     setPreparingBranch(key);
     try {
-      const result = await prepareBranchSpawn(repoUrl, branchName);
+      const result = await prepareBranchSpawn(repoName, branchName);
       navigate('/spawn', { state: result });
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to prepare branch spawn'));
@@ -395,13 +395,13 @@ export default function HomePage() {
             ) : (
               <div className={styles.branchList}>
                 {recentBranches.slice(0, 5).map((branch, idx) => {
-                  const key = `${branch.repo_url}:${branch.branch}`;
+                  const key = `${branch.repo_name}:${branch.branch}`;
                   const isPreparing = preparingBranch === key;
                   return (
                     <button
-                      key={`${branch.repo_url}-${branch.branch}-${idx}`}
+                      key={`${branch.repo_name}-${branch.branch}-${idx}`}
                       className={styles.branchItem}
-                      onClick={() => handleBranchClick(branch.repo_url, branch.branch)}
+                      onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
                       title={`Spawn session on ${branch.branch}`}
                       disabled={!!preparingBranch}
                     >
