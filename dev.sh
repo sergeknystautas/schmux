@@ -144,6 +144,7 @@ BEOF
         cat > "$DEV_BUILD_STATUS_FILE" <<BEOF
 {"success":false,"workspace_path":"${workspace_path}","error":"${err_msg}","at":"${timestamp}"}
 BEOF
+        echo "$build_output" > "$DEV_BUILD_STATUS_FILE.log" 2>/dev/null || true
         return 1
     fi
 }
