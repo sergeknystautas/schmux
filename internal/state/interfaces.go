@@ -18,6 +18,8 @@ type StateStore interface {
 	UpdateSessionLastSignal(sessionID string, t time.Time)
 	IncrementNudgeSeq(sessionID string) uint64
 	GetNudgeSeq(sessionID string) uint64
+	UpdateSessionNudge(sessionID, nudge string) error
+	ClearSessionNudge(sessionID string) bool
 
 	// Workspace operations
 	GetWorkspaces() []Workspace

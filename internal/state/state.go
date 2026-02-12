@@ -373,6 +373,38 @@ func (s *State) GetNudgeSeq(sessionID string) uint64 {
 	return 0
 }
 
+// UpdateSessionNudge atomically updates just the Nudge field for a session.
+// Use this instead of UpdateSession when only the nudge needs to change,
+// to avoid overwriting concurrent updates to other session fields.
+func (s *State) UpdateSessionNudge(sessionID, nudge string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].Nudge = nudge
+			return nil
+		}
+	}
+	return fmt.Errorf("session not found: %s", sessionID)
+}
+
+// ClearSessionNudge atomically clears the Nudge field if it is non-empty.
+// Returns true if the nudge was cleared, false if it was already empty.
+func (s *State) ClearSessionNudge(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			if s.Sessions[i].Nudge == "" {
+				return false
+			}
+			s.Sessions[i].Nudge = ""
+			return true
+		}
+	}
+	return false
+}
+
 // RemoveSession removes a session from the state.
 func (s *State) RemoveSession(id string) error {
 	s.mu.Lock()
