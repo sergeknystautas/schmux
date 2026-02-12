@@ -250,15 +250,14 @@ drained:
 				if isTerminalResponse(msg.Data) {
 					continue
 				}
-				// Preserve existing nudge-clearing behavior.
-				if sess.Nudge != "" && (strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z")) {
-					sess.Nudge = ""
-					if err := s.state.UpdateSession(*sess); err != nil {
-						fmt.Printf("[nudgenik] error clearing nudge: %v\n", err)
-					} else if err := s.state.Save(); err != nil {
-						fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
-					} else {
-						go s.BroadcastSessions()
+				// Clear nudge atomically — avoid using stale sess pointer.
+				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") {
+					if s.state.ClearSessionNudge(sessionID) {
+						if err := s.state.Save(); err != nil {
+							fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+						} else {
+							go s.BroadcastSessions()
+						}
 					}
 				}
 				if err := tracker.SendInput(msg.Data); err != nil {
@@ -499,15 +498,14 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 				}
 				cancel()
 
-				// Clear nudge on enter, tab, or shift-tab
-				if sess.Nudge != "" && (strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z")) {
-					sess.Nudge = ""
-					if err := s.state.UpdateSession(*sess); err != nil {
-						fmt.Printf("[nudgenik] error clearing nudge: %v\n", err)
-					} else if err := s.state.Save(); err != nil {
-						fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
-					} else {
-						go s.BroadcastSessions()
+				// Clear nudge atomically — avoid using stale sess pointer.
+				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") {
+					if s.state.ClearSessionNudge(sessionID) {
+						if err := s.state.Save(); err != nil {
+							fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+						} else {
+							go s.BroadcastSessions()
+						}
 					}
 				}
 			}
