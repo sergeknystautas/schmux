@@ -88,12 +88,16 @@ type Session struct {
 	Pid          int       `json:"pid"`                      // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`                        // Last time terminal had new output (in-memory only, not persisted)
 	LastSignalAt time.Time `json:"last_signal_at,omitempty"` // Last time agent sent a direct signal
-	NudgeSeq     uint64    `json:"nudge_seq,omitempty"`      // Monotonic counter for nudge delivery dedup
-	Nudge        string    `json:"nudge,omitempty"`          // NudgeNik consultation result
-	RemoteHostID string    `json:"remote_host_id,omitempty"` // Empty for local sessions
-	RemotePaneID string    `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
-	RemoteWindow string    `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
-	Status       string    `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
+	// NudgeSeq is a monotonic counter for frontend notification dedup.
+	// Only incremented by direct agent signals (HandleAgentSignal), NOT by
+	// nudgenik polls or manual nudge clears — the UI notification sound
+	// should only fire when an agent explicitly requests attention.
+	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
+	Nudge        string `json:"nudge,omitempty"`          // NudgeNik consultation result
+	RemoteHostID string `json:"remote_host_id,omitempty"` // Empty for local sessions
+	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
+	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
+	Status       string `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
 }
 
 // New creates a new empty State instance.
