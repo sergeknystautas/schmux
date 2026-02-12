@@ -100,6 +100,11 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 
 	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s\n", workspaceID)
 
+	// Pause Vite file watching during rebase to prevent transform errors
+	// from transient conflict markers in source files.
+	s.pauseViteWatch()
+	defer s.resumeViteWatch()
+
 	// Perform the sync from main
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
@@ -268,6 +273,11 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 
 	// Launch background goroutine
 	go func() {
+		// Pause Vite file watching during conflict resolution to prevent
+		// transform errors from transient conflict markers in source files.
+		s.pauseViteWatch()
+		defer s.resumeViteWatch()
+
 		// Panic recovery — never leave state stuck at in_progress
 		defer func() {
 			if r := recover(); r != nil {

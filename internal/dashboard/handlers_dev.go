@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -141,4 +142,33 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	if s.devRestart != nil {
 		go s.devRestart()
 	}
+}
+
+// pauseViteWatch tells the Vite dev server to suppress HMR updates.
+// This prevents transform errors from transient conflict markers during
+// git rebase/merge operations. Safe to call when not in dev mode (no-op).
+func (s *Server) pauseViteWatch() {
+	if !s.devMode {
+		return
+	}
+	resp, err := http.Post("http://localhost:5173/__dev/pause-watch", "", strings.NewReader(""))
+	if err != nil {
+		fmt.Printf("[dev] failed to pause Vite watch: %v\n", err)
+		return
+	}
+	resp.Body.Close()
+}
+
+// resumeViteWatch tells the Vite dev server to resume HMR updates.
+// If any files changed while paused, Vite will trigger a full page reload.
+func (s *Server) resumeViteWatch() {
+	if !s.devMode {
+		return
+	}
+	resp, err := http.Post("http://localhost:5173/__dev/resume-watch", "", strings.NewReader(""))
+	if err != nil {
+		fmt.Printf("[dev] failed to resume Vite watch: %v\n", err)
+		return
+	}
+	resp.Body.Close()
 }
