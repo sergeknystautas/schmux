@@ -357,7 +357,7 @@ export default function HomePage() {
 
         {/* Primary Action - Spawn New Session (only when no workspaces) */}
         {workspaces.length === 0 && (
-          <Link to="/spawn" className={styles.primaryAction}>
+          <Link to="/spawn" className={styles.primaryAction} data-testid="spawn-new-session">
             <span className={styles.primaryActionIcon}>
               <RocketIcon />
             </span>
@@ -372,7 +372,7 @@ export default function HomePage() {
         )}
 
         {/* Recent Branches Section */}
-        <div className={styles.sectionCard}>
+        <div className={styles.sectionCard} data-testid="recent-branches">
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>
               <GitBranchIcon />
@@ -551,6 +551,7 @@ export default function HomePage() {
               onClick={handleScan}
               disabled={scanning}
               title="Scan for workspace changes"
+              data-testid="scan-workspaces"
             >
               <ScanIcon />
               {scanning ? 'Scanning...' : 'Scan'}
@@ -571,7 +572,7 @@ export default function HomePage() {
                 </p>
               </div>
             ) : (
-              <div className={styles.workspaceTable}>
+              <div className={styles.workspaceTable} data-testid="workspace-list">
                 <div className={styles.tableHeader}>
                   <span className={styles.headerCell}>Workspace</span>
                   <span className={styles.headerCellRight}>Sessions</span>
@@ -585,6 +586,7 @@ export default function HomePage() {
                         className={styles.workspaceRow}
                         onClick={() => handleWorkspaceClick(ws.id)}
                         type="button"
+                        data-testid={`workspace-${ws.id}`}
                       >
                         <div className={styles.workspaceInfo}>
                           <span className={styles.workspaceBranch}>{ws.branch}</span>

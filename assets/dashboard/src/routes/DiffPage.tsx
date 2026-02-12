@@ -373,7 +373,7 @@ export default function DiffPage() {
         <div className="diff-layout" ref={containerRef}>
           <div className="diff-sidebar" style={{ width: `${sidebarWidth}px`, flexShrink: 0 }}>
             <h3 className="diff-sidebar__title">Changed Files ({diffData?.files?.length || 0})</h3>
-            <div className="diff-file-list">
+            <div className="diff-file-list" data-testid="diff-file-list">
               {diffData?.files?.map((file, index) => {
                 const { filename, directory } = splitPath(file.new_path || file.old_path);
                 return (
@@ -381,6 +381,7 @@ export default function DiffPage() {
                     key={index}
                     className={`diff-file-item${selectedFileIndex === index ? ' diff-file-item--active' : ''}`}
                     onClick={() => setSelectedFileIndex(index)}
+                    data-testid={`diff-file-${index}`}
                   >
                     <div className="diff-file-item__info">
                       <svg
@@ -423,7 +424,7 @@ export default function DiffPage() {
             onMouseDown={handleMouseDown}
           />
 
-          <div className="diff-content">
+          <div className="diff-content" data-testid="diff-viewer">
             {selectedFile && (
               <>
                 <div className="diff-content__header">
