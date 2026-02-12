@@ -173,7 +173,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           {showFfToMain && (
             <Tooltip content={ffTooltip}>
               <button
-                className="git-dag__ff-to-main-button"
+                className="git-dag__btn git-dag__ff-to-main-button"
                 onClick={onFfToMainClick}
                 disabled={ffDisabled || ffToMainSyncing}
               >
@@ -198,18 +198,18 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           style={{ height: lay.rowHeight }}
         >
           <button
-            className="git-dag__action-button"
+            className="git-dag__btn"
             onClick={() =>
               setSelectedFiles(new Set(diffFiles.map((f) => f.new_path || f.old_path || '')))
             }
           >
             Select All
           </button>
-          <button className="git-dag__action-button" onClick={() => setSelectedFiles(new Set())}>
+          <button className="git-dag__btn" onClick={() => setSelectedFiles(new Set())}>
             Deselect All
           </button>
           <button
-            className="git-dag__action-button"
+            className="git-dag__btn"
             onClick={async () => {
               const filesToDiscard = Array.from(selectedFiles);
               if (filesToDiscard.length === 0) return;
@@ -283,7 +283,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           style={{ height: lay.rowHeight }}
         >
           <button
-            className="git-dag__action-button"
+            className="git-dag__btn"
             disabled={selectedFiles.size === 0 || isCommitting}
             onClick={async () => {
               const fileList = Array.from(selectedFiles)
@@ -320,7 +320,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           </button>
           {canAmend && (
             <button
-              className="git-dag__action-button"
+              className="git-dag__btn"
               disabled={selectedFiles.size === 0 || isAmending}
               onClick={async () => {
                 const fileList = Array.from(selectedFiles)
@@ -365,11 +365,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       return (
         <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
           <Tooltip content="Iteratively rebases this branch to origin/HEAD">
-            <button
-              className="git-dag__sync-button"
-              onClick={onSyncClick}
-              disabled={syncing || !ws}
-            >
+            <button className="git-dag__btn" onClick={onSyncClick} disabled={syncing || !ws}>
               {syncing ? (
                 <>
                   <span className="spinner" /> Rebase'ing
