@@ -1,0 +1,120 @@
+# Scenario Test Docker Image for schmux
+# Runs Playwright scenario tests against a live schmux daemon inside the container.
+# Build: docker build -f Dockerfile.scenarios -t schmux-scenarios .
+# Run:   docker run --rm schmux-scenarios
+
+# ---------------------------------------------------------------------------
+# Stage 1: Go builder — compile the schmux binary
+# ---------------------------------------------------------------------------
+FROM golang:1.24-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o schmux ./cmd/schmux
+
+# ---------------------------------------------------------------------------
+# Stage 2: Dashboard builder — build the React dashboard
+# ---------------------------------------------------------------------------
+FROM node:20-bookworm AS dashboard-builder
+
+WORKDIR /src
+COPY --from=builder /src /src
+COPY assets/dashboard/package*.json assets/dashboard/
+RUN cd assets/dashboard && npm ci
+RUN cd assets/dashboard && npm run build
+
+# ---------------------------------------------------------------------------
+# Stage 3: Playwright installer — install deps + Chromium
+# ---------------------------------------------------------------------------
+FROM node:20-bookworm AS playwright-installer
+
+WORKDIR /tests
+COPY test/scenarios/generated/package*.json ./
+RUN npm ci
+RUN npx playwright install chromium --with-deps
+
+# ---------------------------------------------------------------------------
+# Stage 4: Final runtime image
+# ---------------------------------------------------------------------------
+FROM node:20-bookworm
+
+# Install runtime dependencies required by schmux
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    bash \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright browser system dependencies (shared libs for Chromium)
+# We copy the browsers below, but the OS-level deps must be installed here.
+COPY --from=playwright-installer /tests/package*.json /tmp/pw-deps/
+COPY --from=playwright-installer /tests/node_modules /tmp/pw-deps/node_modules
+RUN cd /tmp/pw-deps && npx playwright install-deps chromium && rm -rf /tmp/pw-deps
+
+WORKDIR /app
+
+# Copy schmux binary
+COPY --from=builder /src/schmux /usr/local/bin/schmux
+
+# Copy dashboard dist (the binary looks for ./assets/dashboard/dist relative to cwd)
+COPY --from=dashboard-builder /src/assets/dashboard/dist ./assets/dashboard/dist
+
+# Copy Playwright test files + node_modules
+COPY test/scenarios/generated/*.ts ./test/scenarios/generated/
+COPY test/scenarios/generated/package*.json ./test/scenarios/generated/
+COPY --from=playwright-installer /tests/node_modules ./test/scenarios/generated/node_modules
+
+# Copy Playwright browsers from the installer stage
+COPY --from=playwright-installer /root/.cache/ms-playwright /root/.cache/ms-playwright
+
+# Create the entrypoint script
+RUN cat <<'ENTRYPOINT_SCRIPT' > /entrypoint.sh
+#!/bin/bash
+set -e
+
+# Git requires user config for schmux repo operations
+git config --global user.email "test@schmux.dev"
+git config --global user.name "Schmux Test"
+
+# Start the schmux daemon in the background
+cd /app
+schmux daemon-run &
+DAEMON_PID=$!
+
+# Wait for the daemon to become healthy
+echo "Waiting for schmux daemon to become healthy..."
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:7337/api/healthz > /dev/null 2>&1; then
+        echo "Daemon is healthy (attempt $i)"
+        break
+    fi
+    if [ "$i" -eq 30 ]; then
+        echo "ERROR: Daemon failed to become healthy after 30 attempts"
+        kill $DAEMON_PID 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+# Run Playwright scenario tests
+cd /app/test/scenarios/generated
+npx playwright test
+TEST_EXIT=$?
+
+# Clean up
+kill $DAEMON_PID 2>/dev/null || true
+exit $TEST_EXIT
+ENTRYPOINT_SCRIPT
+
+RUN chmod +x /entrypoint.sh
+
+# Verify key tools are available
+RUN tmux -V && schmux --help > /dev/null 2>&1 || true
+
+ENTRYPOINT ["/entrypoint.sh"]
