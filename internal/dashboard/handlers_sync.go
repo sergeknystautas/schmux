@@ -111,7 +111,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	result, err := s.workspace.LinearSyncFromMain(ctx, workspaceID)
+	result, err := s.workspace.LinearSyncFromDefault(ctx, workspaceID)
 	if err != nil {
 		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -212,7 +212,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	result, err := s.workspace.LinearSyncToMain(ctx, workspaceID)
+	result, err := s.workspace.LinearSyncToDefault(ctx, workspaceID)
 	if err != nil {
 		fmt.Printf("[workspace] linear-sync-to-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
