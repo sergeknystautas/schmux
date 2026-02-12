@@ -136,12 +136,11 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Update git status after sync
+	// Update git status after sync (best-effort, don't block response)
 	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
-		if errors.Is(err, workspace.ErrWorkspaceLocked) {
-			return
+		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
+			fmt.Printf("[workspace] linear-sync-from-main warning: failed to update git status: %v\n", err)
 		}
-		fmt.Printf("[workspace] linear-sync-from-main warning: failed to update git status: %v\n", err)
 	}
 
 	// Update ConflictOnBranch based on result
@@ -219,12 +218,11 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Update git status after sync
+	// Update git status after sync (best-effort, don't block response)
 	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
-		if errors.Is(err, workspace.ErrWorkspaceLocked) {
-			return
+		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
+			fmt.Printf("[workspace] linear-sync-to-main warning: failed to update git status: %v\n", err)
 		}
-		fmt.Printf("[workspace] linear-sync-to-main warning: failed to update git status: %v\n", err)
 	}
 
 	successMsg := "success"

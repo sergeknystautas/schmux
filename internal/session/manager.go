@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/provision"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -34,12 +35,20 @@ const (
 
 // Manager manages sessions.
 type Manager struct {
-	config        *config.Config
-	state         state.StateStore
-	workspace     workspace.WorkspaceManager
-	remoteManager *remote.Manager // Optional, for remote sessions
-	trackers      map[string]*SessionTracker
-	mu            sync.RWMutex
+	config          *config.Config
+	state           state.StateStore
+	workspace       workspace.WorkspaceManager
+	remoteManager   *remote.Manager // Optional, for remote sessions
+	signalCallback  func(sessionID string, sig signal.Signal)
+	trackers        map[string]*SessionTracker
+	remoteDetectors map[string]*remoteSignalMonitor // signal detectors for remote sessions
+	mu              sync.RWMutex
+}
+
+// remoteSignalMonitor holds a signal detector and its stop channel for a remote session.
+type remoteSignalMonitor struct {
+	detector *signal.SignalDetector
+	stopCh   chan struct{}
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -61,17 +70,108 @@ const (
 // New creates a new session manager.
 func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager) *Manager {
 	return &Manager{
-		config:        cfg,
-		state:         st,
-		workspace:     wm,
-		trackers:      make(map[string]*SessionTracker),
-		remoteManager: nil,
+		config:          cfg,
+		state:           st,
+		workspace:       wm,
+		trackers:        make(map[string]*SessionTracker),
+		remoteDetectors: make(map[string]*remoteSignalMonitor),
+		remoteManager:   nil,
 	}
 }
 
 // SetRemoteManager sets the remote manager for remote session support.
 func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
+}
+
+// SetSignalCallback sets the callback for signal detection from session output.
+func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
+	m.signalCallback = cb
+}
+
+// StartRemoteSignalMonitor creates a signal detector for a remote session and starts
+// a goroutine that subscribes to the remote output channel.
+func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
+	if m.remoteManager == nil || sess.RemotePaneID == "" || sess.RemoteHostID == "" {
+		return
+	}
+	if m.signalCallback == nil {
+		return
+	}
+
+	conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+	if conn == nil || !conn.IsConnected() {
+		return
+	}
+
+	m.mu.Lock()
+	if m.remoteDetectors[sess.ID] != nil {
+		m.mu.Unlock()
+		return // already running
+	}
+
+	sessionID := sess.ID
+	signalCb := m.signalCallback
+	detector := signal.NewSignalDetector(sessionID, func(sig signal.Signal) {
+		signalCb(sessionID, sig)
+	})
+	detector.SetNearMissCallback(func(line string) {
+		fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", signal.ShortID(sessionID), line)
+	})
+	stopCh := make(chan struct{})
+	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
+		detector: detector,
+		stopCh:   stopCh,
+	}
+	m.mu.Unlock()
+
+	// Parse scrollback for missed signals
+	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	scrollback, err := conn.CapturePaneLines(capCtx, sess.RemotePaneID, 200)
+	capCancel()
+	if err == nil && scrollback != "" {
+		detector.Feed([]byte(scrollback))
+		detector.Flush()
+	}
+
+	// Start goroutine to monitor output
+	outputCh := conn.SubscribeOutput(sess.RemotePaneID)
+	go func() {
+		defer conn.UnsubscribeOutput(sess.RemotePaneID, outputCh)
+		flushTicker := time.NewTicker(signal.FlushTimeout)
+		defer flushTicker.Stop()
+
+		for {
+			select {
+			case <-stopCh:
+				detector.Flush()
+				return
+			case event, ok := <-outputCh:
+				if !ok {
+					detector.Flush()
+					return
+				}
+				if event.Data != "" {
+					detector.Feed([]byte(event.Data))
+				}
+			case <-flushTicker.C:
+				if detector.ShouldFlush() {
+					detector.Flush()
+				}
+			}
+		}
+	}()
+}
+
+// StopRemoteSignalMonitor stops the signal detector goroutine for a remote session.
+func (m *Manager) StopRemoteSignalMonitor(sessionID string) {
+	m.mu.Lock()
+	mon := m.remoteDetectors[sessionID]
+	delete(m.remoteDetectors, sessionID)
+	m.mu.Unlock()
+	if mon != nil {
+		close(mon.stopCh)
+	}
 }
 
 // GetRemoteManager returns the remote manager (may be nil).
@@ -183,18 +283,31 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		go func() {
 			select {
 			case result := <-resultCh:
+				// Re-read session from state to avoid overwriting concurrent changes.
+				current, ok := m.state.GetSession(sessionID)
+				if !ok {
+					fmt.Printf("[session] queued session %s: session no longer in state\n", sessionID)
+					return
+				}
 				if result.Error != nil {
 					fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
-					sess.Status = "failed"
+					current.Status = "failed"
 				} else {
 					fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
 						sessionID, result.WindowID, result.PaneID)
-					sess.Status = "running"
-					sess.RemoteWindow = result.WindowID
-					sess.RemotePaneID = result.PaneID
+					current.Status = "running"
+					current.RemoteWindow = result.WindowID
+					current.RemotePaneID = result.PaneID
 				}
-				m.state.UpdateSession(sess)
-				m.state.Save()
+				if err := m.state.UpdateSession(current); err != nil {
+					fmt.Printf("[session] queued session %s: failed to update state: %v\n", sessionID, err)
+				}
+				if err := m.state.Save(); err != nil {
+					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
+				}
+				if current.Status == "running" {
+					m.StartRemoteSignalMonitor(current)
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -230,6 +343,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
+
+	m.StartRemoteSignalMonitor(sess)
 
 	return &sess, nil
 }
@@ -891,6 +1006,9 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 		}
 	}
 
+	// Stop signal monitor for remote session
+	m.StopRemoteSignalMonitor(sess.ID)
+
 	// DO NOT remove the workspace for remote sessions - it's shared across all
 	// sessions on the same remote host. The workspace persists until the host
 	// is disconnected or expired.
@@ -1070,8 +1188,17 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		return existing
 	}
 
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state)
+	var cb func(signal.Signal)
+	if m.signalCallback != nil {
+		sessionID := sess.ID
+		signalCb := m.signalCallback
+		cb = func(sig signal.Signal) {
+			signalCb(sessionID, sig)
+		}
+	}
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, cb)
 	m.trackers[sess.ID] = tracker
+
 	m.mu.Unlock()
 	tracker.Start()
 	return tracker
@@ -1094,4 +1221,26 @@ func (m *Manager) updateTrackerSessionName(sessionID, tmuxSession string) {
 	if tracker != nil {
 		tracker.SetTmuxSession(tmuxSession)
 	}
+}
+
+// PruneLogFiles removes log files in logsDir that don't belong to any active session.
+// Active session IDs are provided as a set. Log files are expected to be named "{sessionID}.log".
+func PruneLogFiles(logsDir string, activeIDs map[string]bool) (removed int) {
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".log")
+		if !activeIDs[sessionID] {
+			logPath := filepath.Join(logsDir, entry.Name())
+			if os.Remove(logPath) == nil {
+				removed++
+			}
+		}
+	}
+	return removed
 }

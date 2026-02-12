@@ -10,6 +10,7 @@ export interface SessionResponse {
   attach_cmd: string;
   nudge_state?: string;
   nudge_summary?: string;
+  nudge_seq?: number;
   // Remote session fields
   remote_host_id?: string;
   remote_pane_id?: string;

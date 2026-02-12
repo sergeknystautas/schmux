@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
+	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -377,6 +379,18 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
 
+	// Wire signal detection: tracker → session manager → dashboard server
+	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
+		server.HandleAgentSignal(sessionID, sig)
+	})
+
+	// Start signal monitors for existing remote sessions
+	for _, sess := range st.GetSessions() {
+		if sess.IsRemoteSession() && sess.RemotePaneID != "" {
+			sm.StartRemoteSignalMonitor(sess)
+		}
+	}
+
 	// Mark stale remote hosts as disconnected at startup.
 	// Hosts that were "connected" in state are stale (SSH/ET processes are gone).
 	// Don't auto-reconnect — reconnection requires interactive auth (e.g., Yubikey)
@@ -537,11 +551,15 @@ func Shutdown() {
 // DevRestart triggers a dev mode restart. The daemon will exit with
 // ErrDevRestart, which the caller should translate to exit code 42.
 func DevRestart() {
-	close(devRestartChan)
+	devRestartOnce.Do(func() {
+		close(devRestartChan)
+	})
 	if cancelFunc != nil {
 		cancelFunc()
 	}
 }
+
+var devRestartOnce sync.Once
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions
 // and automatically asks NudgeNik for consultation.

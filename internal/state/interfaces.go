@@ -16,6 +16,8 @@ type StateStore interface {
 	RemoveSession(id string) error
 	UpdateSessionLastOutput(sessionID string, t time.Time)
 	UpdateSessionLastSignal(sessionID string, t time.Time)
+	IncrementNudgeSeq(sessionID string) uint64
+	GetNudgeSeq(sessionID string) uint64
 
 	// Workspace operations
 	GetWorkspaces() []Workspace
