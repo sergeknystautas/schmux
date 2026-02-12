@@ -76,6 +76,8 @@ Third-party models require API secrets to be configured.
 | `kimi-thinking`    | kimi k2 thinking  | Moonshot AI |
 | `kimi-k2.5`        | kimi k2.5         | Moonshot AI |
 | `glm-4.7`          | glm 4.7           | Z.AI        |
+| `glm-4.5-air`      | glm 4.5 air       | Z.AI        |
+| `glm-5`            | glm 5             | Z.AI        |
 | `minimax`          | minimax m2.1      | MiniMax     |
 | `qwen3-coder-plus` | qwen 3 coder plus | DashScope   |
 
@@ -92,6 +94,12 @@ Third-party models require API secrets. Create `~/.schmux/secrets.json`:
       "ANTHROPIC_AUTH_TOKEN": "sk-..."
     },
     "glm-4.7": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
+    },
+    "glm-4.5-air": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
+    },
+    "glm-5": {
       "ANTHROPIC_AUTH_TOKEN": "..."
     },
     "minimax": {
@@ -128,6 +136,17 @@ Models are available anywhere their base detected tool is allowed:
 - Quick launch presets
 
 Models do **not** apply to user-supplied run targets.
+
+### Codex Models
+
+Codex models require the Codex CLI to be installed and detected. No API secrets are required—configuration is handled by the Codex tool itself.
+
+| ID                   | Display Name       |
+| -------------------- | ------------------ |
+| `gpt-5.2-codex`      | gpt 5.2 codex      |
+| `gpt-5.3-codex`      | gpt 5.3 codex      |
+| `gpt-5.1-codex-max`  | gpt 5.1 codex max  |
+| `gpt-5.1-codex-mini` | gpt 5.1 codex mini |
 
 ---
 
