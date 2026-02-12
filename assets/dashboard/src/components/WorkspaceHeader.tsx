@@ -146,7 +146,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const handleLinearSyncToMainClick = async () => {
     setIsDropdownOpen(false);
     setMerging(true);
-    await handleLinearSyncToMain(workspace.id);
+    await handleLinearSyncToMain(workspace.id, workspace.path);
     setMerging(false);
   };
 
