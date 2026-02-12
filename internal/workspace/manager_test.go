@@ -488,6 +488,14 @@ func (m *mockStateStore) GetNudgeSeq(sessionID string) uint64 {
 	return m.state.GetNudgeSeq(sessionID)
 }
 
+func (m *mockStateStore) UpdateSessionNudge(sessionID, nudge string) error {
+	return m.state.UpdateSessionNudge(sessionID, nudge)
+}
+
+func (m *mockStateStore) ClearSessionNudge(sessionID string) bool {
+	return m.state.ClearSessionNudge(sessionID)
+}
+
 func (m *mockStateStore) GetNeedsRestart() bool {
 	return m.state.GetNeedsRestart()
 }
