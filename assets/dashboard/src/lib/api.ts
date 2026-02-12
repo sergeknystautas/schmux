@@ -28,6 +28,19 @@ import type {
   WorkspaceResponse,
 } from './types';
 
+// Custom error types that preserve API response fields
+export class LinearSyncError extends Error {
+  isPreCommitHookError: boolean;
+  preCommitErrorDetail?: string;
+
+  constructor(message: string, isPreCommitHookError: boolean, preCommitErrorDetail?: string) {
+    super(message);
+    this.name = 'LinearSyncError';
+    this.isPreCommitHookError = isPreCommitHookError;
+    this.preCommitErrorDetail = preCommitErrorDetail;
+  }
+}
+
 // Extract error message from unknown catch value
 export function getErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
@@ -357,8 +370,12 @@ export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyn
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to sync from main');
+    const err = (await response.json()) as LinearSyncResponse & { message: string };
+    throw new LinearSyncError(
+      err.message || 'Failed to sync from main',
+      err.is_pre_commit_hook_error || false,
+      err.pre_commit_error_detail
+    );
   }
   return response.json();
 }

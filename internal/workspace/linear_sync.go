@@ -12,6 +12,23 @@ import (
 	"github.com/sergeknystautas/schmux/internal/conflictresolve"
 )
 
+// PreCommitHookError indicates that a WIP commit failed due to a pre-commit hook (e.g., formatting errors).
+type PreCommitHookError struct {
+	error
+}
+
+func (e *PreCommitHookError) Error() string {
+	if e.error != nil {
+		return "WIP commit failed - pre-commit hook error (fix formatting errors before rebasing)"
+	}
+	return "WIP commit failed - pre-commit hook error (fix formatting errors before rebasing)"
+}
+
+// Unwrap returns the underlying error for compatibility with errors.Is/As.
+func (e *PreCommitHookError) Unwrap() error {
+	return e.error
+}
+
 // LinearSyncFromDefault performs an iterative rebase from the default branch into the current branch.
 // This brings commits FROM the default branch INTO the current branch one at a time, preserving local changes.
 // Supports diverged branches - will replay local commits on top of default branch's commits.
@@ -106,7 +123,7 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			didCommit = false
 			fmt.Printf("[workspace] no local changes to commit\n")
 		} else {
-			return nil, fmt.Errorf("git commit failed: %w: %s", err, string(commitOutput))
+			return nil, &PreCommitHookError{fmt.Errorf("%s: %s", err, truncateOutput(string(commitOutput)))}
 		}
 	} else {
 		fmt.Printf("[workspace] committed local changes as: %s\n", wipUUID)
@@ -388,7 +405,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		if strings.Contains(string(commitOutput), "nothing to commit") {
 			didCommit = false
 		} else {
-			return nil, fmt.Errorf("git commit failed: %w: %s", err, string(commitOutput))
+			return nil, &PreCommitHookError{fmt.Errorf("%s: %s", err, truncateOutput(string(commitOutput)))}
 		}
 	}
 
@@ -779,6 +796,16 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// truncateOutput trims whitespace and truncates git command output to 300 characters.
+// Appends "..." if truncated. Useful for keeping error messages readable.
+func truncateOutput(output string) string {
+	s := strings.TrimSpace(output)
+	if len(s) <= 300 {
+		return s
+	}
+	return strings.TrimSpace(s[:297]) + "..."
 }
 
 // getUnmergedFiles returns the list of unmerged (conflicted) file paths.

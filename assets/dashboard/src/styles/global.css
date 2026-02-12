@@ -2074,6 +2074,8 @@ body {
 
 .modal__body {
   padding: var(--spacing-lg);
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .modal__footer {

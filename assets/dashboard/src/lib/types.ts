@@ -202,6 +202,8 @@ export interface LinearSyncResponse {
   success_count?: number;
   conflicting_hash?: string;
   branch?: string;
+  is_pre_commit_hook_error?: boolean;
+  pre_commit_error_detail?: string;
 }
 
 export interface ConflictResolution {
