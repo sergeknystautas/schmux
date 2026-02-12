@@ -15,6 +15,7 @@ const (
 type SignalDetector struct {
 	sessionID        string
 	buf              []byte
+	stripBuf         []byte // reusable buffer for stripANSIBytes
 	callback         func(Signal)
 	nearMissCallback func(string)
 	lastData         time.Time
@@ -73,7 +74,8 @@ func (d *SignalDetector) ShouldFlush() bool {
 
 func (d *SignalDetector) parseLines(data []byte) {
 	now := time.Now()
-	cleanData := stripANSIBytes(data)
+	d.stripBuf = stripANSIBytes(d.stripBuf, data)
+	cleanData := d.stripBuf
 	signals := parseBracketSignals(cleanData, now)
 	for _, sig := range signals {
 		d.callback(sig)
