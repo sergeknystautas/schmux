@@ -208,8 +208,12 @@ func (t *SessionTracker) attachAndRead() error {
 	}
 
 	// Parse scrollback for signals missed while daemon was down (first attach only).
+	// Suppress the callback during scrollback parsing — signals detected here are
+	// from before the daemon restart. The agent's current state is already persisted
+	// in sess.Nudge, so re-firing would cause duplicate notifications.
 	if t.signalDetector != nil && !t.scrollbackParsed {
 		t.scrollbackParsed = true
+		t.signalDetector.Suppress(true)
 		capCtx, capCancel := context.WithTimeout(ctx, 2*time.Second)
 		scrollback, capErr := tmux.CaptureLastLines(capCtx, target, 200, false)
 		capCancel()
@@ -217,6 +221,7 @@ func (t *SessionTracker) attachAndRead() error {
 			t.signalDetector.Feed([]byte(scrollback))
 			t.signalDetector.Flush()
 		}
+		t.signalDetector.Suppress(false)
 	}
 
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
