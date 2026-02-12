@@ -52,6 +52,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [syncing, setSyncing] = useState(false);
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const knownFilesRef = useRef<Set<string>>(new Set());
   const [isCommitting, setIsCommitting] = useState(false);
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -66,8 +67,24 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       setData(graphResp);
       const files = diffResp.files || [];
       setDiffFiles(files);
-      // Select all files by default
-      setSelectedFiles(new Set(files.map((f) => f.new_path || f.old_path || '')));
+      setSelectedFiles((prev) => {
+        const newPaths = new Set(files.map((f) => f.new_path || f.old_path || ''));
+        const known = knownFilesRef.current;
+        if (known.size === 0) {
+          knownFilesRef.current = newPaths;
+          return newPaths;
+        }
+        const result = new Set<string>();
+        for (const p of newPaths) {
+          if (known.has(p)) {
+            if (prev.has(p)) result.add(p); // preserve user's selection
+          } else {
+            result.add(p); // new file — auto-select
+          }
+        }
+        knownFilesRef.current = newPaths;
+        return result;
+      });
       setLayout(computeLayout(graphResp, files));
       setError(null);
     } catch (err) {
