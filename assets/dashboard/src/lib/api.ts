@@ -631,16 +631,18 @@ export async function gitDiscard(
   return response.json();
 }
 
+const COMMIT_PROMPT_INSTRUCTIONS = [
+  'Please create a thorough git commit for these staged files:',
+  '',
+  '{{FILE_LIST}}',
+  '',
+  'Do the necessary precommit steps first.',
+  'Do not include the generated and co-authored lines.',
+  'Keep the message focused on features, not just code changes.',
+].join('\n');
+
 function buildCommitPrompt(fileList: string): string {
-  return [
-    'Please create a thorough git commit for these staged files:',
-    '',
-    fileList,
-    '',
-    'Do the necessary precommit steps first.',
-    'Do not include the generated and co-authored lines.',
-    'Keep the message focused on features, not just code changes.',
-  ].join('\n');
+  return COMMIT_PROMPT_INSTRUCTIONS.replace('{{FILE_LIST}}', fileList);
 }
 
 export async function spawnCommitSession(
