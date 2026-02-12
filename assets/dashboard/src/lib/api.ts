@@ -48,6 +48,18 @@ export function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+// Parse error from a non-ok Response, trying JSON then falling back to text
+async function parseErrorResponse(response: Response, fallback: string): Promise<never> {
+  let message = fallback;
+  try {
+    const err = await response.json();
+    message = err.error || fallback;
+  } catch {
+    message = (await response.text()) || fallback;
+  }
+  throw new Error(message);
+}
+
 export async function getSessions(): Promise<WorkspaceResponse[]> {
   const response = await fetch('/api/sessions');
   if (!response.ok) throw new Error('Failed to fetch sessions');
@@ -584,8 +596,7 @@ export async function gitCommitStage(
     }
   );
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to stage files');
+    await parseErrorResponse(response, 'Failed to stage files');
   }
   return response.json();
 }
@@ -600,8 +611,7 @@ export async function gitAmend(
     body: JSON.stringify({ files }),
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to amend commit');
+    await parseErrorResponse(response, 'Failed to amend commit');
   }
   return response.json();
 }
@@ -616,8 +626,7 @@ export async function gitDiscard(
     body: JSON.stringify(files ? { files } : {}),
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to discard changes');
+    await parseErrorResponse(response, 'Failed to discard changes');
   }
   return response.json();
 }
