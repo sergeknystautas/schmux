@@ -266,7 +266,12 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	// Provision agent instruction files with signaling instructions
 	// Only for agents that don't support CLI-based instruction injection
 	baseTool := detect.GetBaseToolName(targetName)
-	if !provision.SupportsSystemPromptFlag(baseTool) {
+	if provision.SupportsSystemPromptFlag(baseTool) {
+		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
+			// Log warning but don't fail spawn - signaling is optional
+			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
+		}
+	} else {
 		if err := provision.EnsureAgentInstructions(w.Path, targetName); err != nil {
 			// Log warning but don't fail spawn - signaling is optional
 			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
@@ -555,7 +560,14 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 			baseTool = model.BaseTool
 		}
 		if provision.SupportsSystemPromptFlag(baseTool) {
-			cmd = fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+			switch baseTool {
+			case "claude":
+				cmd = fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellQuote(provision.SignalingInstructionsFilePath()))
+			case "codex":
+				cmd = fmt.Sprintf("%s -c %s", cmd, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+			default:
+				cmd = fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+			}
 		}
 
 		// Resume mode still needs model env vars for third-party models
@@ -578,7 +590,14 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		baseTool = model.BaseTool
 	}
 	if provision.SupportsSystemPromptFlag(baseTool) {
-		baseCommand = fmt.Sprintf("%s --append-system-prompt %s", baseCommand, shellQuote(provision.SignalingInstructions))
+		switch baseTool {
+		case "claude":
+			baseCommand = fmt.Sprintf("%s --append-system-prompt-file %s", baseCommand, shellQuote(provision.SignalingInstructionsFilePath()))
+		case "codex":
+			baseCommand = fmt.Sprintf("%s -c %s", baseCommand, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+		default:
+			baseCommand = fmt.Sprintf("%s --append-system-prompt %s", baseCommand, shellQuote(provision.SignalingInstructions))
+		}
 	}
 
 	if target.Promptable {

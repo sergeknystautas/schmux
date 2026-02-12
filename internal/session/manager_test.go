@@ -412,6 +412,12 @@ func containsMiddle(s, substr string) bool {
 }
 
 func TestBuildCommand(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir() failed: %v", err)
+	}
+	signalingFilePath := filepath.Join(homeDir, ".schmux", "signaling.md")
+
 	tests := []struct {
 		name             string
 		target           ResolvedTarget
@@ -441,6 +447,8 @@ func TestBuildCommand(t *testing.T) {
 			shouldContain: []string{
 				"ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'",
 				"claude",
+				"--append-system-prompt-file",
+				shellQuote(signalingFilePath),
 				"'hello world'",
 			},
 		},
@@ -456,6 +464,7 @@ func TestBuildCommand(t *testing.T) {
 			prompt: "write a function",
 			model: &detect.Model{
 				ID:         "gpt-5.2-codex",
+				BaseTool:   "codex",
 				ModelValue: "gpt-5.2-codex",
 				ModelFlag:  "-m",
 			},
@@ -465,6 +474,8 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"-m",
 				"'gpt-5.2-codex'",
+				"-c",
+				shellQuote("model_instructions_file=" + signalingFilePath),
 				"'write a function'",
 			},
 			shouldNotContain: []string{
@@ -485,6 +496,7 @@ func TestBuildCommand(t *testing.T) {
 			prompt: "test prompt",
 			model: &detect.Model{
 				ID:         "gpt-5.3-codex",
+				BaseTool:   "codex",
 				ModelValue: "gpt-5.3-codex",
 				ModelFlag:  "-m",
 			},
@@ -495,6 +507,8 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"-m",
 				"'gpt-5.3-codex'",
+				"-c",
+				shellQuote("model_instructions_file=" + signalingFilePath),
 				"'test prompt'",
 			},
 			shouldNotContain: []string{
@@ -565,6 +579,8 @@ func TestBuildCommand(t *testing.T) {
 			shouldContain: []string{
 				"claude",
 				"--continue",
+				"--append-system-prompt-file",
+				shellQuote(signalingFilePath),
 			},
 		},
 		{
@@ -590,6 +606,8 @@ func TestBuildCommand(t *testing.T) {
 				"ANTHROPIC_MODEL='claude-opus-4-5-20251101'",
 				"claude",
 				"--continue",
+				"--append-system-prompt-file",
+				shellQuote(signalingFilePath),
 			},
 		},
 		{
@@ -609,6 +627,8 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"resume",
 				"--last",
+				"-c",
+				shellQuote("model_instructions_file=" + signalingFilePath),
 			},
 		},
 	}
