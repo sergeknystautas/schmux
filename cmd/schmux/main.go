@@ -148,6 +148,14 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "analyze-repo":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewAnalyzeRepoCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "auth":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "Usage: schmux auth github")
@@ -193,6 +201,9 @@ func printUsage() {
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
 	fmt.Println()
+	fmt.Println("Analysis Commands:")
+	fmt.Println("  analyze-repo    Analyze repository structure and co-change history")
+	fmt.Println()
 	fmt.Println("Other:")
 	fmt.Println("  auth github  Configure GitHub auth")
 	fmt.Println("  version     Show version")
@@ -205,5 +216,6 @@ func printUsage() {
 	fmt.Println("  schmux list                         # List all sessions")
 	fmt.Println("  schmux attach <session-id>           # Attach to a session")
 	fmt.Println("  schmux refresh-overlay <workspace>   # Refresh overlay files")
+	fmt.Println("  schmux analyze-repo myrepo           # Write repo-index.json for configured repo")
 	fmt.Println("  schmux auth github                   # Configure GitHub auth")
 }

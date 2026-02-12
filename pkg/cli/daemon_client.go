@@ -272,6 +272,51 @@ func (c *Client) RefreshOverlay(ctx context.Context, workspaceID string) error {
 	return nil
 }
 
+// AnalyzeRepo triggers repo analysis for a configured repo and writes repo-index.json server-side.
+func (c *Client) AnalyzeRepo(ctx context.Context, repoName string, depth int, output string) (*AnalyzeRepoResponse, error) {
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+	}
+
+	reqBody := AnalyzeRepoRequest{
+		RepoName: repoName,
+		Depth:    depth,
+		Output:   output,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/repos/analyze-repo", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errorBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("daemon returned status %d (failed to read error body: %v)", resp.StatusCode, readErr)
+		}
+		return nil, fmt.Errorf("daemon returned status %d: %s", resp.StatusCode, string(errorBody))
+	}
+
+	var out AnalyzeRepoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("failed to decode analyze-repo response: %w", err)
+	}
+	return &out, nil
+}
+
 // Types
 
 // Config represents the daemon configuration.
@@ -347,6 +392,20 @@ type Session struct {
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
 	AttachCmd    string `json:"attach_cmd"`
+}
+
+// AnalyzeRepoRequest is the daemon API payload for repository analysis.
+type AnalyzeRepoRequest struct {
+	RepoName string `json:"repo_name"`
+	Depth    int    `json:"depth,omitempty"`
+	Output   string `json:"output,omitempty"`
+}
+
+// AnalyzeRepoResponse is returned when repository analysis completes.
+type AnalyzeRepoResponse struct {
+	RepoName string `json:"repo_name"`
+	RepoPath string `json:"repo_path"`
+	Output   string `json:"output"`
 }
 
 // WorkspaceWithSessions represents a workspace with its sessions.

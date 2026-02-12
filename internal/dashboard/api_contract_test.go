@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -38,6 +39,15 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	return server, cfg, st
 }
 
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
+	}
+}
+
 func TestAPIContract_Healthz(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
@@ -56,6 +66,68 @@ func TestAPIContract_Healthz(t *testing.T) {
 	if resp["status"] != "ok" {
 		t.Fatalf("expected status ok, got %q", resp["status"])
 	}
+}
+
+func TestAPIContract_AnalyzeRepo(t *testing.T) {
+	server, cfg, st := newTestServer(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "initial")
+
+	cfg.Repos = []config.Repo{{Name: "demo", URL: repo}}
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "demo-001",
+		Repo:   repo,
+		Branch: "main",
+		Path:   repo,
+	}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	t.Run("success", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{
+			"repo_name": "demo",
+			"depth":     50,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/repos/analyze-repo", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleAnalyzeRepo(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rr.Code)
+		}
+
+		var resp map[string]string
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp["output"] == "" {
+			t.Fatalf("expected output path in response")
+		}
+		if _, err := os.Stat(resp["output"]); err != nil {
+			t.Fatalf("expected output file to exist: %v", err)
+		}
+	})
+
+	t.Run("repo not found", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{
+			"repo_name": "missing",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/repos/analyze-repo", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleAnalyzeRepo(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", rr.Code)
+		}
+	})
 }
 
 func TestAPIContract_SpawnValidation(t *testing.T) {

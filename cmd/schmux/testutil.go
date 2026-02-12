@@ -21,6 +21,8 @@ type MockDaemonClient struct {
 	getConfigErr      error
 	getSessionsErr    error
 	refreshOverlayErr error
+	analyzeRepoResp   *cli.AnalyzeRepoResponse
+	analyzeRepoErr    error
 }
 
 func (m *MockDaemonClient) IsRunning() bool {
@@ -83,4 +85,18 @@ func (m *MockDaemonClient) RefreshOverlay(ctx context.Context, workspaceID strin
 
 	// Workspace not found
 	return fmt.Errorf("workspace not found: %s", workspaceID)
+}
+
+func (m *MockDaemonClient) AnalyzeRepo(ctx context.Context, repoName string, depth int, output string) (*cli.AnalyzeRepoResponse, error) {
+	if m.analyzeRepoErr != nil {
+		return nil, m.analyzeRepoErr
+	}
+	if m.analyzeRepoResp != nil {
+		return m.analyzeRepoResp, nil
+	}
+	return &cli.AnalyzeRepoResponse{
+		RepoName: repoName,
+		RepoPath: "/tmp/workspace",
+		Output:   "/tmp/workspace/repo-index.json",
+	}, nil
 }

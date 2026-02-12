@@ -25,6 +25,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/precog"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/vcs"
@@ -3300,6 +3301,124 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleAnalyzeRepo handles POST /api/repos/analyze-repo.
+// It resolves repo_name from config, selects a local workspace checkout, runs
+// repository analysis, and writes the JSON index on the daemon side.
+func (s *Server) handleAnalyzeRepo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type AnalyzeRepoRequest struct {
+		RepoName string `json:"repo_name"`
+		Depth    int    `json:"depth,omitempty"`
+		Output   string `json:"output,omitempty"`
+	}
+	type AnalyzeRepoResponse struct {
+		RepoName string `json:"repo_name"`
+		RepoPath string `json:"repo_path"`
+		Output   string `json:"output"`
+	}
+
+	var req AnalyzeRepoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+	if strings.TrimSpace(req.RepoName) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo_name is required"})
+		return
+	}
+	if req.Depth < 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "depth must be >= 0"})
+		return
+	}
+
+	var repoURL string
+	for _, repo := range s.config.GetRepos() {
+		if repo.Name == req.RepoName {
+			repoURL = repo.URL
+			break
+		}
+	}
+	if repoURL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found in config: " + req.RepoName})
+		return
+	}
+
+	var localPaths []string
+	for _, ws := range s.state.GetWorkspaces() {
+		if ws.Repo == repoURL && !ws.IsRemoteWorkspace() {
+			localPaths = append(localPaths, ws.Path)
+		}
+	}
+	if len(localPaths) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no local workspace found for repo: " + req.RepoName})
+		return
+	}
+	sort.Strings(localPaths)
+	repoPath := localPaths[0]
+
+	outputPath := req.Output
+	if outputPath == "" {
+		outputPath = filepath.Join(repoPath, "repo-index.json")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	indexer := precog.NewRepoIndexer(req.Depth)
+	index, err := indexer.Analyze(ctx, repoPath)
+	if err != nil {
+		fmt.Printf("[precog] analyze-repo error: repo=%s path=%s error=%v\n", req.RepoName, repoPath, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output directory: %v", err)})
+		return
+	}
+
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to encode analysis: %v", err)})
+		return
+	}
+	if err := os.WriteFile(outputPath, append(data, '\n'), 0o644); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to write output: %v", err)})
+		return
+	}
+
+	fmt.Printf("[precog] analyze-repo success: repo=%s path=%s output=%s\n", req.RepoName, repoPath, outputPath)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AnalyzeRepoResponse{
+		RepoName: req.RepoName,
+		RepoPath: repoPath,
+		Output:   outputPath,
+	})
 }
 
 // BuiltinQuickLaunchCookbook represents a built-in quick launch cookbook entry.

@@ -29,4 +29,7 @@ type DaemonClient interface {
 
 	// RefreshOverlay reapplies overlay files to a workspace.
 	RefreshOverlay(ctx context.Context, workspaceID string) error
+
+	// AnalyzeRepo triggers repository analysis for a configured repo name.
+	AnalyzeRepo(ctx context.Context, repoName string, depth int, output string) (*AnalyzeRepoResponse, error)
 }

@@ -455,3 +455,54 @@ func TestClient_ScanWorkspaces(t *testing.T) {
 		}
 	})
 }
+
+func TestClient_AnalyzeRepo(t *testing.T) {
+	t.Run("returns response on success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Errorf("method = %q, want POST", r.Method)
+			}
+			if r.URL.Path != "/api/repos/analyze-repo" {
+				t.Errorf("path = %q, want /api/repos/analyze-repo", r.URL.Path)
+			}
+
+			var req AnalyzeRepoRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if req.RepoName != "myrepo" {
+				t.Errorf("repo_name = %q, want myrepo", req.RepoName)
+			}
+
+			_ = json.NewEncoder(w).Encode(AnalyzeRepoResponse{
+				RepoName: "myrepo",
+				RepoPath: "/tmp/ws/myrepo-001",
+				Output:   "/tmp/ws/myrepo-001/repo-index.json",
+			})
+		}))
+		defer server.Close()
+
+		client := NewDaemonClient(server.URL)
+		resp, err := client.AnalyzeRepo(context.Background(), "myrepo", 250, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.RepoName != "myrepo" {
+			t.Errorf("RepoName = %q, want myrepo", resp.RepoName)
+		}
+	})
+
+	t.Run("returns error on non-200 status", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad request"))
+		}))
+		defer server.Close()
+
+		client := NewDaemonClient(server.URL)
+		_, err := client.AnalyzeRepo(context.Background(), "myrepo", 100, "")
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+}
