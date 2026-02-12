@@ -236,12 +236,6 @@ export default function DiffPage() {
       diffData?.files?.[selectedFileIndex]?.new_path ||
       diffData?.files?.[selectedFileIndex]?.old_path;
     if (filePath) {
-      console.log(
-        '[DiffPage] Saving selected file to localStorage:',
-        filePath,
-        'at index:',
-        selectedFileIndex
-      );
       localStorage.setItem(getSelectedFileKey(workspaceId), filePath);
     }
   }, [selectedFileIndex, workspaceId, diffData]);

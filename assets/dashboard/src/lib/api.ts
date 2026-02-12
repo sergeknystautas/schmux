@@ -622,20 +622,26 @@ export async function gitDiscard(
   return response.json();
 }
 
+function buildCommitPrompt(fileList: string): string {
+  return [
+    'Please create a thorough git commit for these staged files:',
+    '',
+    fileList,
+    '',
+    'Do the necessary precommit steps first.',
+    'Do not include the generated and co-authored lines.',
+    'Keep the message focused on features, not just code changes.',
+  ].join('\n');
+}
+
 export async function spawnCommitSession(
   workspaceId: string,
   repo: string,
   branch: string,
   selectedFiles: string[]
 ): Promise<SpawnResult[]> {
-  const stagedList = selectedFiles.map((f) => `• ${f}`).join('\n');
-  const prompt = `please create a thorough git commit for these staged files:
-
-${stagedList}
-
-do the necessary precommit steps first.
-
-do not include the generated and co-authored lines. please keep the message focused whenever possible on the features, not just describe code changes.`;
+  const fileList = selectedFiles.join('\n');
+  const prompt = buildCommitPrompt(fileList);
 
   const spawnRequest: SpawnRequest = {
     repo,

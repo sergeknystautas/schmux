@@ -98,7 +98,6 @@ function estimateLineCount(textarea: HTMLTextAreaElement): number {
     count += Math.max(1, Math.ceil(line.length / cols));
   }
 
-  console.log(`[estimateLineCount] charW=${charWidth.toFixed(2)} cols=${cols} est=${count}`);
   return count;
 }
 

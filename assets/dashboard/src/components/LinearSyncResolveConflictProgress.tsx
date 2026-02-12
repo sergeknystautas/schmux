@@ -283,8 +283,8 @@ export default function LinearSyncResolveConflictProgress({
 
       {/* Steps */}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {state.steps.map((step, i) => (
-          <StepRow key={i} step={step} />
+        {state.steps.map((step) => (
+          <StepRow key={step.action} step={step} />
         ))}
       </div>
 

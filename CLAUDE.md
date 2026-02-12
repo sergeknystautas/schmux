@@ -54,7 +54,7 @@ First run installs npm dependencies if missing.
 # Build the binary (outputs ./schmux)
 go build ./cmd/schmux
 
-# Generate TypeScript types from Go contracts**:
+# Generate TypeScript types from Go contracts:
 go run ./cmd/gen-types
 
 # Build the React dashboard (see warning above)
