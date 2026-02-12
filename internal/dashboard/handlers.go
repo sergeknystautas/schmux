@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -2666,7 +2667,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request body to get command name
 	var req DiffExternalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		fmt.Printf("[session] diff-external: failed to decode request: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -3743,7 +3744,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Only allow empty/EOF body (means "discard all").
 		// Malformed JSON is an error — don't silently discard everything.
-		if err.Error() != "EOF" {
+		if !errors.Is(err, io.EOF) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
