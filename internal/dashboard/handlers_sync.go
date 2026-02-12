@@ -145,6 +145,12 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 
 	// Update ConflictOnBranch based on result
 	if result.ConflictingHash != "" {
+		// Re-fetch workspace to avoid overwriting concurrent changes
+		ws, found = s.state.GetWorkspace(workspaceID)
+		if !found {
+			http.Error(w, "Workspace not found after sync", http.StatusNotFound)
+			return
+		}
 		// Conflict detected - set ConflictOnBranch to current branch
 		branch := ws.Branch
 		ws.ConflictOnBranch = &branch
