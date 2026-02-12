@@ -303,11 +303,6 @@ drained:
 
 // HandleAgentSignal processes a bracket-marker signal from an agent and updates the session nudge state.
 func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
-	sess, err := s.session.GetSession(sessionID)
-	if err != nil {
-		return
-	}
-
 	// Map signal state to nudge format for frontend compatibility
 	nudgeResult := nudgenik.Result{
 		State:   signal.MapStateToNudge(sig.State),
@@ -315,33 +310,33 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 		Source:  "agent",
 	}
 
-	// "working" clears the nudge
+	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
 	if sig.State == "working" {
-		sess.Nudge = ""
+		s.state.UpdateSessionNudge(sessionID, "")
 	} else {
 		payload, err := json.Marshal(nudgeResult)
 		if err != nil {
 			fmt.Printf("[signal] %s - failed to serialize nudge: %v\n", sessionID, err)
 			return
 		}
-		sess.Nudge = string(payload)
+		if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
+			fmt.Printf("[signal] %s - failed to update nudge: %v\n", sessionID, err)
+			return
+		}
 	}
 
 	// Update last signal time
 	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
 
-	// Update the session first (sets Nudge field), then increment NudgeSeq.
-	// Order matters: UpdateSession replaces the entire struct, so IncrementNudgeSeq
-	// must come after to avoid being overwritten by the stale sess copy.
-	//
-	// NudgeSeq is intentionally only incremented here (direct agent signals),
-	// not for nudgenik-generated nudges or manual clears — the frontend
-	// notification sound should only play when an agent explicitly signals.
-	if err := s.state.UpdateSession(*sess); err != nil {
-		fmt.Printf("[signal] %s - failed to update session: %v\n", sessionID, err)
-		return
+	// Only increment NudgeSeq for non-working signals.
+	// "working" is a clear operation, not a notification — incrementing would
+	// wastefully advance the sequence and confuse frontend dedup.
+	var seq uint64
+	if sig.State != "working" {
+		seq = s.state.IncrementNudgeSeq(sessionID)
+	} else {
+		seq = s.state.GetNudgeSeq(sessionID)
 	}
-	seq := s.state.IncrementNudgeSeq(sessionID)
 
 	if err := s.state.Save(); err != nil {
 		fmt.Printf("[signal] %s - failed to save state: %v\n", sessionID, err)
@@ -350,8 +345,9 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 
 	fmt.Printf("[signal] %s - received %s signal (seq=%d): %s\n", signal.ShortID(sessionID), sig.State, seq, sig.Message)
 
-	// Broadcast the update to all clients
-	go s.BroadcastSessions()
+	// Broadcast immediately — signals should not be delayed by the 500ms debounce.
+	// doBroadcast is thread-safe (state reads use RWMutex, client writes use per-conn mutex).
+	go s.doBroadcast()
 }
 
 // handleRemoteTerminalWebSocket streams terminal output from a remote session via control mode.
