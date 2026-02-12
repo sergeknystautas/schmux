@@ -38,15 +38,12 @@ For active development, use the hot-reload script instead of manual builds:
 
 This starts both servers with automatic rebuilding:
 
-| Component      | Tool                                    | What happens on save            |
-| -------------- | --------------------------------------- | ------------------------------- |
-| Go backend     | [air](https://github.com/air-verse/air) | Rebuilds and restarts (~2-3s)   |
-| React frontend | Vite HMR                                | Instant browser update (<100ms) |
+| Component      | Tool                         | What happens on save             |
+| -------------- | ---------------------------- | -------------------------------- |
+| Go backend     | `dev.sh` loop + `--dev-mode` | Rebuilds and restarts on exit 42 |
+| React frontend | Vite HMR                     | Instant browser update (<100ms)  |
 
-**First run** will prompt to install dependencies:
-
-- `air` via `go install github.com/air-verse/air@latest`
-- npm packages via `npm install` in `assets/dashboard/`
+**First run** will install npm dependencies if missing.
 
 **Output** is prefixed with `[backend]` and `[frontend]` for clarity.
 
@@ -56,7 +53,7 @@ This starts both servers with automatic rebuilding:
 
 ### How it works
 
-The Go daemon runs with `--dev-proxy` flag, which reverse-proxies non-API requests to the Vite dev server (port 5173). This gives you:
+The Go daemon runs with `--dev-mode` flag, which reverse-proxies non-API requests to the Vite dev server (port 5173). This gives you:
 
 - React HMR without page refresh
 - Working API endpoints and WebSockets
