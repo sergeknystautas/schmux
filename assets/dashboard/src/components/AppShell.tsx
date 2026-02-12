@@ -202,6 +202,19 @@ export default function AppShell() {
     };
   }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
 
+  // beforeunload prevents accidental tab close (Cmd+W, browser X button, etc.)
+  const confirmBeforeClose = config?.notifications?.confirm_before_close ?? false;
+  useEffect(() => {
+    if (!confirmBeforeClose) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [confirmBeforeClose]);
+
   // Direct Cmd+Arrow shortcuts for navigation (no keyboard mode required)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

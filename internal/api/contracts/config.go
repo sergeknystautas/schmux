@@ -151,7 +151,8 @@ type PrReview struct {
 
 // Notifications represents dashboard notification settings.
 type Notifications struct {
-	SoundDisabled bool `json:"sound_disabled"`
+	SoundDisabled      bool `json:"sound_disabled"`
+	ConfirmBeforeClose bool `json:"confirm_before_close"`
 }
 
 // TerminalUpdate represents partial terminal updates.
@@ -247,5 +248,6 @@ type PrReviewUpdate struct {
 
 // NotificationsUpdate represents partial notifications config updates.
 type NotificationsUpdate struct {
-	SoundDisabled *bool `json:"sound_disabled,omitempty"`
+	SoundDisabled      *bool `json:"sound_disabled,omitempty"`
+	ConfirmBeforeClose *bool `json:"confirm_before_close,omitempty"`
 }

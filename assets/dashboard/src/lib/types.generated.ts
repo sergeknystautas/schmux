@@ -139,10 +139,12 @@ export interface NetworkUpdate {
 
 export interface Notifications {
   sound_disabled: boolean;
+  confirm_before_close: boolean;
 }
 
 export interface NotificationsUpdate {
   sound_disabled?: boolean;
+  confirm_before_close?: boolean;
 }
 
 export interface Nudgenik {

@@ -65,6 +65,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   },
   notifications: {
     sound_disabled: false,
+    confirm_before_close: false,
   },
   needs_restart: false,
 };
