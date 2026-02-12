@@ -9,6 +9,33 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
+let warmupRegistered = false;
+
+/**
+ * Registers a one-time user interaction listener to pre-warm the AudioContext.
+ * Browsers suspend AudioContext until a user gesture (click, keydown, etc.).
+ * Without this, the first notification sound may be silently lost.
+ */
+export function warmupAudioContext(): void {
+  if (warmupRegistered) return;
+  warmupRegistered = true;
+
+  const resume = () => {
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    // Remove all listeners after first interaction
+    document.removeEventListener('click', resume);
+    document.removeEventListener('keydown', resume);
+    document.removeEventListener('touchstart', resume);
+  };
+
+  document.addEventListener('click', resume, { once: true });
+  document.addEventListener('keydown', resume, { once: true });
+  document.addEventListener('touchstart', resume, { once: true });
+}
+
 async function ensureAudioContextResumed(): Promise<void> {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') {
