@@ -144,7 +144,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         if (!ws || ffDisabled || ffToMainSyncing) return;
         setFfToMainSyncing(true);
         try {
-          await handleLinearSyncToMain(ws.id);
+          await handleLinearSyncToMain(ws.id, ws.path);
         } finally {
           setFfToMainSyncing(false);
         }
