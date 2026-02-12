@@ -371,7 +371,13 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown, DevRestart, devProxy, devMode)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, dashboard.ServerOptions{
+		Shutdown:    Shutdown,
+		DevRestart:  DevRestart,
+		DevProxy:    devProxy,
+		DevMode:     devMode,
+		ShutdownCtx: shutdownCtx,
+	})
 
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st)

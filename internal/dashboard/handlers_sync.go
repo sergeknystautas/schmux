@@ -343,11 +343,11 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			go s.BroadcastSessions()
 		}
 
-		ctx := context.Background()
+		ctx := s.shutdownCtx
 		result, err := s.workspace.LinearSyncResolveConflict(ctx, workspaceID, onStep)
 
 		// Update git status (best-effort; do not block final state)
-		if _, err := s.workspace.UpdateGitStatus(context.Background(), workspaceID); err != nil {
+		if _, err := s.workspace.UpdateGitStatus(s.shutdownCtx, workspaceID); err != nil {
 			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
 				fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to update git status: %v\n", err)
 			}
