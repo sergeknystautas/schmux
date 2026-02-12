@@ -12,6 +12,14 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+// linearSyncResponse is the error/status response used by both sync-from-main and sync-to-main handlers.
+type linearSyncResponse struct {
+	Success              bool   `json:"success"`
+	Message              string `json:"message"`
+	IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
+	PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
+}
+
 // handleLinearSync handles POST requests for workspace linear sync operations.
 // Dispatches to specific handlers based on URL suffix:
 // - GET /api/workspaces/{id}/git-graph - get commit graph
@@ -81,19 +89,12 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	type LinearSyncResponse struct {
-		Success              bool   `json:"success"`
-		Message              string `json:"message"`
-		IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
-		PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
-	}
-
 	// Get workspace from state
 	ws, found := s.state.GetWorkspace(workspaceID)
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(LinearSyncResponse{
+		json.NewEncoder(w).Encode(linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -121,7 +122,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		var preCommitErr *workspace.PreCommitHookError
 		isPreCommitHookError := errors.As(err, &preCommitErr)
 
-		resp := LinearSyncResponse{
+		resp := linearSyncResponse{
 			Success:              false,
 			Message:              "Failed to sync from main",
 			IsPreCommitHookError: isPreCommitHookError,
@@ -187,19 +188,12 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	type LinearSyncResponse struct {
-		Success              bool   `json:"success"`
-		Message              string `json:"message"`
-		IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
-		PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
-	}
-
 	// Get workspace from state
 	_, found := s.state.GetWorkspace(workspaceID)
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(LinearSyncResponse{
+		json.NewEncoder(w).Encode(linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -217,7 +211,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		fmt.Printf("[workspace] linear-sync-to-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(LinearSyncResponse{
+		json.NewEncoder(w).Encode(linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to sync to main: %v", err),
 		})
