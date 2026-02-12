@@ -82,8 +82,10 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	}
 
 	type LinearSyncResponse struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
+		Success              bool   `json:"success"`
+		Message              string `json:"message"`
+		IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
+		PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
 	}
 
 	// Get workspace from state
@@ -114,10 +116,23 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(LinearSyncResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to sync from main: %v", err),
-		})
+
+		// Check if it's a pre-commit hook error
+		var preCommitErr *workspace.PreCommitHookError
+		isPreCommitHookError := errors.As(err, &preCommitErr)
+
+		resp := LinearSyncResponse{
+			Success:              false,
+			Message:              "Failed to sync from main",
+			IsPreCommitHookError: isPreCommitHookError,
+		}
+
+		// Extract the raw error detail for pre-commit hook failures
+		if isPreCommitHookError && preCommitErr.Unwrap() != nil {
+			resp.PreCommitErrorDetail = preCommitErr.Unwrap().Error()
+		}
+
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -168,8 +183,10 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type LinearSyncResponse struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
+		Success              bool   `json:"success"`
+		Message              string `json:"message"`
+		IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
+		PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
 	}
 
 	// Get workspace from state

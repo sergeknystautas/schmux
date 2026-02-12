@@ -7,6 +7,7 @@ import {
   disposeWorkspaceAll,
   getErrorMessage,
   getDevStatus,
+  LinearSyncError,
 } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
@@ -58,7 +59,21 @@ export function useSync() {
           await alert('Error', 'Sync failed.');
         }
       } catch (err) {
-        await alert('Error', err instanceof Error ? err.message : 'Failed to sync from main');
+        // Check if it's a pre-commit hook error (using custom error type)
+        if (err instanceof LinearSyncError && err.isPreCommitHookError) {
+          await show(
+            'Pre-commit Hook Failed',
+            'To rebase commits, we create a WIP commit which is triggering pre-commit hooks that fail. Fix the errors shown below and try again.',
+            {
+              confirmText: 'OK',
+              cancelText: null,
+              detailedMessage: err.preCommitErrorDetail || '',
+              wide: true,
+            }
+          );
+          return;
+        }
+        await alert('Error', getErrorMessage(err, 'Failed to sync from main'));
       }
     },
     [alert, show, startConflictResolution]

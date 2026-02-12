@@ -6,6 +6,7 @@ type ModalBase = {
   cancelText: string | null;
   danger: boolean;
   detailedMessage: string;
+  wide: boolean;
   resolve: (value: boolean | string | null) => void;
 };
 
@@ -33,6 +34,7 @@ type ModalOptions = {
   placeholder?: string;
   errorMessage?: string;
   password?: boolean;
+  wide?: boolean;
 };
 
 type ModalOptionsInput = ModalOptions | string;
@@ -67,6 +69,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
           normalizedOptions.cancelText !== undefined ? normalizedOptions.cancelText : 'Cancel',
         danger: normalizedOptions.danger || false,
         detailedMessage: normalizedOptions.detailedMessage || '',
+        wide: normalizedOptions.wide || false,
         resolve: resolveModal,
       });
     });
@@ -93,6 +96,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
         danger: normalizedOptions.danger || false,
         detailedMessage: normalizedOptions.detailedMessage || '',
         password: normalizedOptions.password || false,
+        wide: normalizedOptions.wide || false,
         resolve: resolveModal,
       });
     });
@@ -148,7 +152,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
           aria-modal="true"
           aria-labelledby="modal-title"
         >
-          <div className="modal">
+          <div className={`modal${modal.wide ? ' modal--wide' : ''}`}>
             <div className="modal__header">
               <h2 className="modal__title" id="modal-title">
                 {modal.title}
