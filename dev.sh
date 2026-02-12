@@ -182,8 +182,13 @@ fi
 # Start Vite from current workspace
 start_vite "$CURRENT_WORKSPACE"
 
-# Give Vite a moment to start
-sleep 2
+# Wait for Vite to be ready (up to 10 seconds)
+for i in $(seq 1 20); do
+    if curl -s -o /dev/null "http://localhost:${VITE_PORT:-5173}" 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
 
 echo ""
 echo -e "  ${CYAN}Backend:${NC}   ${BINARY} (loop-based restart)"
