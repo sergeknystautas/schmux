@@ -462,3 +462,44 @@ func TestSignalDetectorSuppressBlocksCallback(t *testing.T) {
 		t.Fatalf("expected 1 signal after unsuppress, got %d", len(signals))
 	}
 }
+
+func TestDetectorFlushTickerScenario(t *testing.T) {
+	// Simulates the scenario where a signal is the last thing written
+	// without a trailing newline, and no more data arrives.
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// Feed signal without trailing newline
+	d.Feed([]byte("--<[schmux:completed:Done]>--"))
+
+	// Nothing detected yet (no newline, no flush)
+	mu.Lock()
+	if len(got) != 0 {
+		t.Fatalf("expected 0 signals before flush, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Simulate time passing
+	d.lastData = time.Now().Add(-time.Second)
+
+	// ShouldFlush should be true
+	if !d.ShouldFlush() {
+		t.Fatal("ShouldFlush should return true after timeout")
+	}
+
+	// Flush should detect the signal
+	d.Flush()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal after flush, got %d", len(got))
+	}
+	if got[0].State != "completed" {
+		t.Errorf("state = %q, want completed", got[0].State)
+	}
+}
