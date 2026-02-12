@@ -235,6 +235,29 @@ func (t *SessionTracker) attachAndRead() error {
 	t.attachCmd = attachCmd
 	t.mu.Unlock()
 
+	// Start a periodic flush ticker to detect signals that arrive without
+	// a trailing newline (e.g., the last thing an agent writes before going silent).
+	// Without this, ShouldFlush() is only checked after PTY reads, which blocks
+	// when no data is flowing.
+	flushDone := make(chan struct{})
+	if t.signalDetector != nil {
+		go func() {
+			ticker := time.NewTicker(signal.FlushTimeout)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if t.signalDetector.ShouldFlush() {
+						t.signalDetector.Flush()
+					}
+				case <-flushDone:
+					return
+				}
+			}
+		}()
+	}
+	defer close(flushDone)
+
 	defer t.closePTY()
 
 	buf := make([]byte, 8192)
@@ -320,9 +343,6 @@ func (t *SessionTracker) attachAndRead() error {
 			}
 			return io.EOF
 		default:
-			if t.signalDetector != nil && t.signalDetector.ShouldFlush() {
-				t.signalDetector.Flush()
-			}
 		}
 	}
 }
