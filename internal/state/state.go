@@ -87,7 +87,8 @@ type Session struct {
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"`                      // PID of the target process from tmux pane
 	LastOutputAt time.Time `json:"-"`                        // Last time terminal had new output (in-memory only, not persisted)
-	LastSignalAt time.Time `json:"-"`                        // Last time agent sent a direct signal (in-memory only)
+	LastSignalAt time.Time `json:"last_signal_at,omitempty"` // Last time agent sent a direct signal
+	NudgeSeq     uint64    `json:"nudge_seq,omitempty"`      // Monotonic counter for nudge delivery dedup
 	Nudge        string    `json:"nudge,omitempty"`          // NudgeNik consultation result
 	RemoteHostID string    `json:"remote_host_id,omitempty"` // Empty for local sessions
 	RemotePaneID string    `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
@@ -341,6 +342,31 @@ func (s *State) UpdateSessionLastSignal(sessionID string, t time.Time) {
 			return
 		}
 	}
+}
+
+// IncrementNudgeSeq atomically increments the NudgeSeq counter and returns the new value.
+func (s *State) IncrementNudgeSeq(sessionID string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].NudgeSeq++
+			return s.Sessions[i].NudgeSeq
+		}
+	}
+	return 0
+}
+
+// GetNudgeSeq returns the current NudgeSeq for a session.
+func (s *State) GetNudgeSeq(sessionID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sess := range s.Sessions {
+		if sess.ID == sessionID {
+			return sess.NudgeSeq
+		}
+	}
+	return 0
 }
 
 // RemoveSession removes a session from the state.

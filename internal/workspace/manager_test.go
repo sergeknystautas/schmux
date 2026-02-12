@@ -480,6 +480,14 @@ func (m *mockStateStore) UpdateSessionLastSignal(sessionID string, t time.Time) 
 	m.state.UpdateSessionLastSignal(sessionID, t)
 }
 
+func (m *mockStateStore) IncrementNudgeSeq(sessionID string) uint64 {
+	return m.state.IncrementNudgeSeq(sessionID)
+}
+
+func (m *mockStateStore) GetNudgeSeq(sessionID string) uint64 {
+	return m.state.GetNudgeSeq(sessionID)
+}
+
 func (m *mockStateStore) GetNeedsRestart() bool {
 	return m.state.GetNeedsRestart()
 }

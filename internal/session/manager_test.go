@@ -342,73 +342,62 @@ func TestEnsurePipePane(t *testing.T) {
 
 func TestPruneLogFiles(t *testing.T) {
 	t.Run("prune with no active sessions", func(t *testing.T) {
-		// Use temp directory for logs, not ~/.schmux/logs
 		tmpDir := t.TempDir()
 
-		// Create test log files in temp directory
-		testLogPath := filepath.Join(tmpDir, "orphaned-session.log")
-		if err := os.WriteFile(testLogPath, []byte("test"), 0644); err != nil {
+		// Create test log files
+		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.log"), []byte("test"), 0644); err != nil {
 			t.Fatalf("failed to create test log: %v", err)
 		}
 
-		// Manually call prune logic with temp directory
-		activeIDs := make(map[string]bool) // empty = no active sessions
-		entries, err := os.ReadDir(tmpDir)
-		if err != nil {
-			t.Fatalf("failed to read temp log dir: %v", err)
+		removed := PruneLogFiles(tmpDir, map[string]bool{})
+		if removed != 1 {
+			t.Errorf("PruneLogFiles() removed = %d, want 1", removed)
 		}
 
-		// Count files before prune
-		beforeCount := 0
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
-				beforeCount++
-			}
-		}
-
-		// Simulate prune - delete files not in activeIDs
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-				continue
-			}
-			sessionID := strings.TrimSuffix(entry.Name(), ".log")
-			if !activeIDs[sessionID] {
-				logPath := filepath.Join(tmpDir, entry.Name())
-				os.Remove(logPath)
-			}
-		}
-
-		// File should be removed
-		if _, err := os.Stat(testLogPath); err == nil {
-			t.Error("orphaned log file still exists (expected to be removed)")
-		}
-
-		// Count files after prune
-		entries, _ = os.ReadDir(tmpDir)
-		afterCount := 0
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
-				afterCount++
-			}
-		}
-
-		if beforeCount != 1 || afterCount != 0 {
-			t.Errorf("expected 1 file before, 0 after; got %d before, %d after", beforeCount, afterCount)
+		// File should be gone
+		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.log")); err == nil {
+			t.Error("orphaned log file still exists (expected removal)")
 		}
 	})
-}
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (len(substr) == 0 || s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
+	t.Run("prune keeps active session logs", func(t *testing.T) {
+		tmpDir := t.TempDir()
 
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+		// Create log files: one active, one orphaned
+		if err := os.WriteFile(filepath.Join(tmpDir, "active-session.log"), []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create active log: %v", err)
 		}
-	}
-	return false
+		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.log"), []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create orphaned log: %v", err)
+		}
+
+		removed := PruneLogFiles(tmpDir, map[string]bool{"active-session": true})
+		if removed != 1 {
+			t.Errorf("PruneLogFiles() removed = %d, want 1", removed)
+		}
+
+		// Active log should remain
+		if _, err := os.Stat(filepath.Join(tmpDir, "active-session.log")); err != nil {
+			t.Error("active session log was removed (expected to be kept)")
+		}
+		// Orphaned log should be gone
+		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.log")); err == nil {
+			t.Error("orphaned log file still exists (expected removal)")
+		}
+	})
+
+	t.Run("prune skips non-log files", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(tmpDir, "notes.txt"), []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create non-log file: %v", err)
+		}
+
+		removed := PruneLogFiles(tmpDir, map[string]bool{})
+		if removed != 0 {
+			t.Errorf("PruneLogFiles() removed = %d, want 0 (non-log files should be skipped)", removed)
+		}
+	})
 }
 
 func TestBuildCommand(t *testing.T) {

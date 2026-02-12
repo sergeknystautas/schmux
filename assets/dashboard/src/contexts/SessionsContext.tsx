@@ -65,32 +65,36 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     return map;
   }, [workspaces]);
 
-  // Track previous nudge states to detect changes
-  const prevNudgeStatesRef = useRef<Record<string, string | undefined>>({});
-
-  // Detect nudge state changes and play notification sound
+  // Detect nudge state changes and play notification sound (localStorage-based deduplication)
   useEffect(() => {
-    const prevStates = prevNudgeStatesRef.current;
     let shouldPlaySound = false;
 
     Object.entries(sessionsById).forEach(([sessionId, session]) => {
-      const prevState = prevStates[sessionId];
-      const newState = session.nudge_state;
+      const nudgeSeq = session.nudge_seq ?? 0;
+      if (nudgeSeq === 0) return;
 
-      // Only notify if state changed TO an attention state (not if it was already that state)
-      if (newState !== prevState && isAttentionState(newState)) {
+      const storageKey = `schmux:ack:${sessionId}`;
+      const lastAckedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
+
+      if (nudgeSeq > lastAckedSeq && isAttentionState(session.nudge_state)) {
         shouldPlaySound = true;
+        localStorage.setItem(storageKey, String(nudgeSeq));
       }
     });
 
-    // Update ref with current states
-    const newStates: Record<string, string | undefined> = {};
-    Object.entries(sessionsById).forEach(([sessionId, session]) => {
-      newStates[sessionId] = session.nudge_state;
-    });
-    prevNudgeStatesRef.current = newStates;
+    // Cleanup: remove localStorage entries for sessions that no longer exist
+    // Iterate backwards to avoid skipping entries when removeItem shifts indices.
+    const currentSessionIds = new Set(Object.keys(sessionsById));
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('schmux:ack:')) {
+        const sessionId = key.slice('schmux:ack:'.length);
+        if (!currentSessionIds.has(sessionId)) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
 
-    // Play sound if any session transitioned to attention state (and sound is not disabled)
     if (shouldPlaySound && !config?.notifications?.sound_disabled) {
       playAttentionSound();
     }

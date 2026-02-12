@@ -226,11 +226,6 @@ drained:
 			}
 			// Filter terminal mode sequences that interfere with xterm.js scrollback
 			filtered := filterMouseMode(chunk)
-			// Check for schmux signals (markers remain visible in output)
-			signals := signal.ParseSignals(filtered)
-			for _, sig := range signals {
-				s.handleAgentSignal(sessionID, sig)
-			}
 			if len(filtered) > 0 {
 				if err := sendOutput("append", string(filtered)); err != nil {
 					return
@@ -306,8 +301,8 @@ drained:
 	}
 }
 
-// handleAgentSignal processes an OSC 777 signal from an agent and updates the session nudge state.
-func (s *Server) handleAgentSignal(sessionID string, sig signal.Signal) {
+// HandleAgentSignal processes a bracket-marker signal from an agent and updates the session nudge state.
+func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	sess, err := s.session.GetSession(sessionID)
 	if err != nil {
 		return
@@ -332,19 +327,24 @@ func (s *Server) handleAgentSignal(sessionID string, sig signal.Signal) {
 		sess.Nudge = string(payload)
 	}
 
-	// Update last signal time (in-memory only)
+	// Update last signal time
 	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
 
+	// Update the session first (sets Nudge field), then increment NudgeSeq.
+	// Order matters: UpdateSession replaces the entire struct, so IncrementNudgeSeq
+	// must come after to avoid being overwritten by the stale sess copy.
 	if err := s.state.UpdateSession(*sess); err != nil {
 		fmt.Printf("[signal] %s - failed to update session: %v\n", sessionID, err)
 		return
 	}
+	seq := s.state.IncrementNudgeSeq(sessionID)
+
 	if err := s.state.Save(); err != nil {
 		fmt.Printf("[signal] %s - failed to save state: %v\n", sessionID, err)
 		return
 	}
 
-	fmt.Printf("[signal] %s - received %s signal: %s\n", sessionID[:8], sig.State, sig.Message)
+	fmt.Printf("[signal] %s - received %s signal (seq=%d): %s\n", signal.ShortID(sessionID), sig.State, seq, sig.Message)
 
 	// Broadcast the update to all clients
 	go s.BroadcastSessions()

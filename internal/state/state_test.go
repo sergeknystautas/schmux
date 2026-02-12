@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -862,4 +863,126 @@ func TestSaveImmediateVsBatched(t *testing.T) {
 	if _, err := os.Stat(statePath); err != nil {
 		t.Errorf("SaveBatched() should persist after debounce: %v", err)
 	}
+}
+
+func TestNudgeSeqPersistenceRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	// Create state with a session, increment NudgeSeq, save
+	s := New(statePath)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+	s.IncrementNudgeSeq("sess-1") // 1
+	s.IncrementNudgeSeq("sess-1") // 2
+	s.IncrementNudgeSeq("sess-1") // 3
+	seq := s.GetNudgeSeq("sess-1")
+	if seq != 3 {
+		t.Fatalf("NudgeSeq before save = %d, want 3", seq)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load from disk and verify
+	loaded, err := Load(statePath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	loadedSeq := loaded.GetNudgeSeq("sess-1")
+	if loadedSeq != 3 {
+		t.Errorf("NudgeSeq after load = %d, want 3", loadedSeq)
+	}
+}
+
+func TestLastSignalAtPersistenceRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	// Create state with a session, set LastSignalAt, save
+	s := New(statePath)
+	ts := time.Date(2026, 2, 11, 12, 0, 0, 0, time.UTC)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+	s.UpdateSessionLastSignal("sess-1", ts)
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load from disk and verify
+	loaded, err := Load(statePath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	sess, found := loaded.GetSession("sess-1")
+	if !found {
+		t.Fatal("session not found after load")
+	}
+	if !sess.LastSignalAt.Equal(ts) {
+		t.Errorf("LastSignalAt after load = %v, want %v", sess.LastSignalAt, ts)
+	}
+}
+
+func TestLastOutputAtNotPersisted(t *testing.T) {
+	// LastOutputAt has json:"-" and should NOT survive save/load
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	s := New(statePath)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+	s.UpdateSessionLastOutput("sess-1", time.Now())
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	loaded, err := Load(statePath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	sess, found := loaded.GetSession("sess-1")
+	if !found {
+		t.Fatal("session not found after load")
+	}
+	if !sess.LastOutputAt.IsZero() {
+		t.Errorf("LastOutputAt should be zero after load, got %v", sess.LastOutputAt)
+	}
+}
+
+func TestIncrementNudgeSeqConcurrent(t *testing.T) {
+	s := New("")
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+
+	const goroutines = 10
+	const increments = 100
+
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < increments; j++ {
+				s.IncrementNudgeSeq("sess-1")
+			}
+		}()
+	}
+	wg.Wait()
+
+	expected := uint64(goroutines * increments)
+	got := s.GetNudgeSeq("sess-1")
+	if got != expected {
+		t.Errorf("NudgeSeq after concurrent increments = %d, want %d", got, expected)
+	}
+}
+
+func TestIncrementNudgeSeqNonexistentSession(t *testing.T) {
+	s := New("")
+	// Should return 0 for non-existent session, not panic
+	seq := s.IncrementNudgeSeq("nonexistent")
+	if seq != 0 {
+		t.Errorf("IncrementNudgeSeq for nonexistent session = %d, want 0", seq)
+	}
+}
+
+func TestUpdateSessionLastSignalNonexistentSession(t *testing.T) {
+	s := New("")
+	// Should not panic for non-existent session
+	s.UpdateSessionLastSignal("nonexistent", time.Now())
 }

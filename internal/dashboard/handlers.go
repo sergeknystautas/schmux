@@ -100,6 +100,7 @@ type SessionResponseItem struct {
 	AttachCmd    string `json:"attach_cmd"`
 	NudgeState   string `json:"nudge_state,omitempty"`
 	NudgeSummary string `json:"nudge_summary,omitempty"`
+	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
 	// Remote session fields
 	RemoteHostID     string `json:"remote_host_id,omitempty"`
 	RemotePaneID     string `json:"remote_pane_id,omitempty"`
@@ -271,6 +272,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			AttachCmd:        attachCmd,
 			NudgeState:       nudgeState,
 			NudgeSummary:     nudgeSummary,
+			NudgeSeq:         sess.NudgeSeq,
 			RemoteHostID:     sess.RemoteHostID,
 			RemotePaneID:     sess.RemotePaneID,
 			RemoteHostname:   remoteHostname,
@@ -3540,6 +3542,18 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(resp)
 }
 
+// validateGitFilePaths checks that none of the file paths contain path traversal
+// components (e.g., "../"). Returns an error message if any path is invalid.
+func validateGitFilePaths(files []string) string {
+	for _, f := range files {
+		cleaned := filepath.Clean(f)
+		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+			return fmt.Sprintf("invalid file path: %q", f)
+		}
+	}
+	return ""
+}
+
 // handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
 // Stages the specified files for commit.
 func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
@@ -3575,6 +3589,13 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if msg := validateGitFilePaths(req.Files); msg != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": msg})
 		return
 	}
 
@@ -3651,6 +3672,13 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := validateGitFilePaths(req.Files); msg != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		return
+	}
+
 	ctx := context.Background()
 	for _, file := range req.Files {
 		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
@@ -3712,22 +3740,63 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Files []string `json:"files"`
 	}
-	json.NewDecoder(r.Body).Decode(&req) // Ignore error - empty body means discard all
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Only allow empty/EOF body (means "discard all").
+		// Malformed JSON is an error — don't silently discard everything.
+		if err.Error() != "EOF" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			return
+		}
+	}
+
+	if len(req.Files) > 0 {
+		if msg := validateGitFilePaths(req.Files); msg != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": msg})
+			return
+		}
+	}
 
 	ctx := context.Background()
+
+	fmt.Printf("[git-discard] workspace=%s path=%s files=%v\n", ws.ID, ws.Path, req.Files)
 
 	if len(req.Files) > 0 {
 		// Discard specific files
 		for _, file := range req.Files {
-			// Try git checkout for tracked files
-			cmd := exec.CommandContext(ctx, "git", "checkout", "--", file)
+			// Try git checkout HEAD for tracked files (restores from HEAD, undoing both staging and edits)
+			cmd := exec.CommandContext(ctx, "git", "checkout", "HEAD", "--", file)
 			cmd.Dir = ws.Path
-			cmd.CombinedOutput() // Ignore error - file might be untracked
-
-			// Try git clean for untracked files
-			cmd = exec.CommandContext(ctx, "git", "clean", "-f", "--", file)
-			cmd.Dir = ws.Path
-			cmd.CombinedOutput() // Ignore error - file might be tracked
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				fmt.Printf("[git-discard] checkout HEAD failed for %q: %s\n", file, strings.TrimSpace(string(output)))
+				// File might be staged-new (added but not in HEAD) — unstage and remove
+				cmd = exec.CommandContext(ctx, "git", "rm", "-f", "--cached", "--", file)
+				cmd.Dir = ws.Path
+				if output2, err2 := cmd.CombinedOutput(); err2 == nil {
+					fmt.Printf("[git-discard] unstaged new file %q\n", file)
+					// Now remove the working tree copy
+					filePath := filepath.Join(ws.Path, file)
+					if rmErr := os.Remove(filePath); rmErr != nil {
+						fmt.Printf("[git-discard] failed to remove working tree file %q: %v\n", file, rmErr)
+					}
+				} else {
+					fmt.Printf("[git-discard] rm --cached failed for %q: %s\n", file, strings.TrimSpace(string(output2)))
+					// Last resort: try git clean for truly untracked files
+					cmd = exec.CommandContext(ctx, "git", "clean", "-f", "--", file)
+					cmd.Dir = ws.Path
+					if output3, err3 := cmd.CombinedOutput(); err3 != nil {
+						fmt.Printf("[git-discard] clean also failed for %q: %s\n", file, strings.TrimSpace(string(output3)))
+					} else {
+						fmt.Printf("[git-discard] cleaned untracked file %q\n", file)
+					}
+				}
+			} else {
+				fmt.Printf("[git-discard] restored %q from HEAD\n", file)
+			}
 		}
 	} else {
 		// Discard all changes

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/creack/pty"
+	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -31,15 +32,17 @@ var trackerIgnorePrefixes = [][]byte{
 // SessionTracker maintains a long-lived PTY attachment for a tmux session.
 // It tracks output activity and forwards terminal output to one active websocket client.
 type SessionTracker struct {
-	sessionID   string
-	tmuxSession string
-	state       state.StateStore
+	sessionID      string
+	tmuxSession    string
+	state          state.StateStore
+	signalDetector *signal.SignalDetector
 
-	mu        sync.RWMutex
-	clientCh  chan []byte
-	ptmx      *os.File
-	attachCmd *exec.Cmd
-	lastEvent time.Time
+	mu               sync.RWMutex
+	clientCh         chan []byte
+	ptmx             *os.File
+	attachCmd        *exec.Cmd
+	lastEvent        time.Time
+	scrollbackParsed bool // true after first scrollback parse (prevents re-parsing on PTY reconnect)
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -56,14 +59,21 @@ func (t *SessionTracker) IsAttached() bool {
 }
 
 // NewSessionTracker creates a tracker for a session.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore) *SessionTracker {
-	return &SessionTracker{
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalCallback func(signal.Signal)) *SessionTracker {
+	t := &SessionTracker{
 		sessionID:   sessionID,
 		tmuxSession: tmuxSession,
 		state:       st,
 		stopCh:      make(chan struct{}),
 		doneCh:      make(chan struct{}),
 	}
+	if signalCallback != nil {
+		t.signalDetector = signal.NewSignalDetector(sessionID, signalCallback)
+		t.signalDetector.SetNearMissCallback(func(line string) {
+			fmt.Printf("[signal] %s - potential missed signal: %q\n", signal.ShortID(sessionID), line)
+		})
+	}
+	return t
 }
 
 // Start launches the tracker loop in a background goroutine.
@@ -166,6 +176,11 @@ func (t *SessionTracker) run() {
 			}
 		}
 
+		// Flush any buffered signal data on disconnect
+		if t.signalDetector != nil {
+			t.signalDetector.Flush()
+		}
+
 		if t.waitOrStop(trackerRestartDelay) {
 			return
 		}
@@ -190,6 +205,18 @@ func (t *SessionTracker) attachAndRead() error {
 	width, height, err := t.getWindowSizeWithRetry(ctx, target)
 	if err != nil {
 		return fmt.Errorf("failed to get window size: %w", err)
+	}
+
+	// Parse scrollback for signals missed while daemon was down (first attach only).
+	if t.signalDetector != nil && !t.scrollbackParsed {
+		t.scrollbackParsed = true
+		capCtx, capCancel := context.WithTimeout(ctx, 2*time.Second)
+		scrollback, capErr := tmux.CaptureLastLines(capCtx, target, 200, false)
+		capCancel()
+		if capErr == nil && scrollback != "" {
+			t.signalDetector.Feed([]byte(scrollback))
+			t.signalDetector.Flush()
+		}
 	}
 
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
@@ -237,6 +264,11 @@ func (t *SessionTracker) attachAndRead() error {
 				chunk := make([]byte, len(data))
 				copy(chunk, data)
 
+				// Feed to signal detector (line accumulation handles chunk splits)
+				if t.signalDetector != nil {
+					t.signalDetector.Feed(chunk)
+				}
+
 				meaningful := isMeaningfulTerminalChunk(chunk)
 				now := time.Now()
 
@@ -278,8 +310,14 @@ func (t *SessionTracker) attachAndRead() error {
 
 		select {
 		case <-t.stopCh:
+			if t.signalDetector != nil {
+				t.signalDetector.Flush()
+			}
 			return io.EOF
 		default:
+			if t.signalDetector != nil && t.signalDetector.ShouldFlush() {
+				t.signalDetector.Flush()
+			}
 		}
 	}
 }

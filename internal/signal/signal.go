@@ -3,6 +3,8 @@ package signal
 
 import (
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,53 +32,130 @@ type Signal struct {
 // This prevents matching signals in code blocks or documentation examples.
 var bracketPattern = regexp.MustCompile(`(?m)^[⏺•\-\*\s]*--<\[schmux:(\w+):([^\]]*)\]>--[ \t]*\r*$`)
 
-// ansiPattern matches ANSI escape sequences (CSI sequences like cursor movement, colors, etc.)
-// Also matches DEC Private Mode sequences (\x1b[?...) used for terminal mode switching.
-// Used to strip terminal escape sequences from signal messages.
-var ansiPattern = regexp.MustCompile(`\x1b\[\??[0-9;]*[A-Za-z]`)
+// stripANSIBytes removes ANSI escape sequences from a byte slice using a state machine.
+// Cursor forward sequences (\x1b[nC) are replaced with n spaces to preserve word boundaries.
+// Cursor down sequences (\x1b[nB) are replaced with n newlines to preserve line boundaries.
+// All other escape sequences (CSI, OSC, DCS, APC) are consumed entirely.
+// This follows ECMA-48 terminal protocol structure for complete coverage.
+func stripANSIBytes(data []byte) []byte {
+	const (
+		stNormal = iota
+		stEsc
+		stCSI
+		stOSC
+		stDCS // also handles APC
+	)
 
-// oscSeqPattern matches OSC (Operating System Command) sequences like window title changes.
-// Format: ESC ] <params> BEL  or  ESC ] <params> ST
-// These are NOT CSI sequences and need separate handling.
-var oscSeqPattern = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	out := make([]byte, 0, len(data))
+	st := stNormal
+	escSeen := false    // for OSC/DCS ST terminator detection (\x1b\\)
+	var csiParam []byte // accumulate CSI parameter bytes to parse count
 
-// cursorForwardPattern matches cursor forward sequences (\x1b[nC) which terminals often use
-// instead of spaces. We replace these with actual spaces to preserve word boundaries.
-var cursorForwardPattern = regexp.MustCompile(`\x1b\[\d*C`)
+	for _, b := range data {
+		switch st {
+		case stNormal:
+			if b == 0x1b {
+				st = stEsc
+			} else {
+				out = append(out, b)
+			}
 
-// cursorDownPattern matches cursor down sequences (\x1b[nB) which terminals use for
-// vertical movement. We replace these with newlines to preserve line boundaries.
-var cursorDownPattern = regexp.MustCompile(`\x1b\[\d*B`)
+		case stEsc:
+			switch b {
+			case '[':
+				st = stCSI
+				csiParam = csiParam[:0]
+			case ']':
+				st = stOSC
+				escSeen = false
+			case 'P', '_': // DCS or APC
+				st = stDCS
+				escSeen = false
+			default:
+				// Unknown ESC sequence (e.g., ESC c for reset) — consume just the ESC
+				st = stNormal
+			}
 
-// stripANSI removes ANSI escape sequences from a string.
-// Cursor forward sequences (\x1b[nC) are replaced with spaces to preserve word boundaries,
-// since terminals often use these instead of actual space characters.
-// Cursor down sequences (\x1b[nB) are replaced with newlines to preserve line boundaries.
-// Also removes OSC sequences (like window title changes).
-func stripANSI(s string) string {
-	// First replace cursor forward sequences with spaces
-	s = cursorForwardPattern.ReplaceAllString(s, " ")
-	// Replace cursor down sequences with newlines
-	s = cursorDownPattern.ReplaceAllString(s, "\n")
-	// Remove OSC sequences (window titles, etc.)
-	s = oscSeqPattern.ReplaceAllString(s, "")
-	// Then remove all other ANSI sequences
-	return ansiPattern.ReplaceAllString(s, "")
+		case stCSI:
+			if b >= 0x30 && b <= 0x3F {
+				// Parameter bytes (0-9, :, ;, <, =, >, ?)
+				csiParam = append(csiParam, b)
+			} else if b >= 0x20 && b <= 0x2F {
+				// Intermediate bytes — ignore
+			} else if b >= 0x40 && b <= 0x7E {
+				// Final byte — determines the command
+				switch b {
+				case 'C': // Cursor Forward — replace with spaces
+					n := parseCSICount(csiParam)
+					for i := 0; i < n; i++ {
+						out = append(out, ' ')
+					}
+				case 'B': // Cursor Down — replace with newlines
+					n := parseCSICount(csiParam)
+					for i := 0; i < n; i++ {
+						out = append(out, '\n')
+					}
+				}
+				// All other CSI commands: consume (emit nothing)
+				st = stNormal
+			}
+			// Else: still accumulating CSI sequence
+
+		case stOSC:
+			if escSeen {
+				if b == '\\' {
+					st = stNormal
+				}
+				escSeen = false
+				continue
+			}
+			if b == 0x07 { // BEL terminates OSC
+				st = stNormal
+				continue
+			}
+			escSeen = b == 0x1b
+
+		case stDCS:
+			if escSeen {
+				if b == '\\' {
+					st = stNormal
+				}
+				escSeen = false
+				continue
+			}
+			escSeen = b == 0x1b
+		}
+	}
+
+	return out
 }
 
-// stripANSIBytes removes ANSI escape sequences from a byte slice.
-// Cursor forward sequences (\x1b[nC) are replaced with spaces to preserve word boundaries.
-// Cursor down sequences (\x1b[nB) are replaced with newlines to preserve line boundaries.
-// Also removes OSC sequences (like window title changes).
-func stripANSIBytes(data []byte) []byte {
-	// First replace cursor forward sequences with spaces
-	data = cursorForwardPattern.ReplaceAll(data, []byte(" "))
-	// Replace cursor down sequences with newlines
-	data = cursorDownPattern.ReplaceAll(data, []byte("\n"))
-	// Remove OSC sequences (window titles, etc.)
-	data = oscSeqPattern.ReplaceAll(data, nil)
-	// Then remove all other ANSI sequences
-	return ansiPattern.ReplaceAll(data, nil)
+// parseCSICount extracts the numeric parameter from CSI parameter bytes.
+// Returns 1 if no parameter is present (default for cursor movement commands).
+// Handles DEC Private Mode prefix '?' by skipping it.
+func parseCSICount(params []byte) int {
+	if len(params) == 0 {
+		return 1
+	}
+	// Skip DEC private mode prefix
+	s := string(params)
+	if len(s) > 0 && s[0] == '?' {
+		return 1 // DEC private mode sequences don't have meaningful counts for our purposes
+	}
+	// Take first parameter before any ';'
+	if idx := strings.IndexByte(s, ';'); idx >= 0 {
+		s = s[:idx]
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 1
+	}
+	return n
+}
+
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	return string(stripANSIBytes([]byte(s)))
 }
 
 // IsValidState checks if a state string is a recognized schmux signal state.
@@ -84,12 +163,9 @@ func IsValidState(state string) bool {
 	return ValidStates[state]
 }
 
-// parseBracketSignals extracts signals from bracket-based markers (--<[schmux:state:message]>--).
-// Strips ANSI escape sequences from data before matching to handle terminals that insert
-// cursor movement sequences between characters.
-func parseBracketSignals(data []byte, now time.Time) []Signal {
-	// Strip ANSI sequences before matching to handle embedded cursor movements
-	cleanData := stripANSIBytes(data)
+// parseBracketSignals extracts signals from clean (ANSI-stripped) data using
+// bracket-based markers (--<[schmux:state:message]>--).
+func parseBracketSignals(cleanData []byte, now time.Time) []Signal {
 	matches := bracketPattern.FindAllSubmatch(cleanData, -1)
 	if len(matches) == 0 {
 		return nil
@@ -115,13 +191,14 @@ func parseBracketSignals(data []byte, now time.Time) []Signal {
 	return signals
 }
 
-// ParseSignals extracts all valid schmux signals from the given data.
+// parseSignals extracts all valid schmux signals from the given data.
 // Recognizes bracket-based markers (--<[schmux:state:message]>--).
 // Only returns signals where the state matches a valid schmux state.
-// Signal markers are NOT stripped from the data - they remain visible in terminal output.
-func ParseSignals(data []byte) []Signal {
+// This is an internal helper used by tests to validate the core parsing logic.
+func parseSignals(data []byte) []Signal {
 	now := time.Now()
-	return parseBracketSignals(data, now)
+	cleanData := stripANSIBytes(data)
+	return parseBracketSignals(cleanData, now)
 }
 
 // MapStateToNudge maps a signal state to the corresponding nudge display state.
@@ -141,4 +218,13 @@ func MapStateToNudge(state string) string {
 	default:
 		return state
 	}
+}
+
+// ShortID returns the first 8 characters of an ID for log output,
+// or the full ID if it's shorter than 8 characters.
+func ShortID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
