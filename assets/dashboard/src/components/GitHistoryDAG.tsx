@@ -129,6 +129,272 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const totalHeight = layout.nodes.length * layout.rowHeight;
   const yahCol = layout.youAreHereColumn;
 
+  const renderNode = (ln: LayoutNode, lay: GitGraphLayout) => {
+    if (ln.nodeType === 'you-are-here') {
+      const showFfToMain = (ws?.git_ahead ?? 0) > 0;
+      const ffDisabled = (ws?.git_behind ?? 0) > 0 || (ws?.git_files_changed ?? 0) > 0;
+      const ffTooltip =
+        (ws?.git_files_changed ?? 0) > 0
+          ? 'Commit local changes first'
+          : ffDisabled
+            ? 'Main is ahead — sync from main first'
+            : 'Sends your local branch commits to main with history';
+
+      const onFfToMainClick = async () => {
+        if (!ws || ffDisabled || ffToMainSyncing) return;
+        setFfToMainSyncing(true);
+        try {
+          await handleLinearSyncToMain(ws.id);
+        } finally {
+          setFfToMainSyncing(false);
+        }
+      };
+
+      return (
+        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+          <span className="git-dag__you-are-here">You are here</span>
+          {showFfToMain && (
+            <Tooltip content={ffTooltip}>
+              <button
+                className="git-dag__ff-to-main-button"
+                onClick={onFfToMainClick}
+                disabled={ffDisabled || ffToMainSyncing}
+              >
+                {ffToMainSyncing ? (
+                  <>
+                    <span className="spinner" /> FF'ing to main
+                  </>
+                ) : (
+                  <>FF to main</>
+                )}
+              </button>
+            </Tooltip>
+          )}
+        </div>
+      );
+    }
+    if (ln.nodeType === 'commit-actions') {
+      return (
+        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+          <button
+            className="git-dag__action-button"
+            onClick={() =>
+              setSelectedFiles(new Set(diffFiles.map((f) => f.new_path || f.old_path || '')))
+            }
+          >
+            Select All
+          </button>
+          <button className="git-dag__action-button" onClick={() => setSelectedFiles(new Set())}>
+            Deselect All
+          </button>
+          <button
+            className="git-dag__action-button"
+            onClick={async () => {
+              const filesToDiscard = Array.from(selectedFiles);
+              if (filesToDiscard.length === 0) return;
+              const title = `Discard ${filesToDiscard.length} selected file${filesToDiscard.length === 1 ? '' : 's'}?`;
+              const message = `This will discard changes to:\n\n${filesToDiscard.map((f) => `• ${f}`).join('\n')}`;
+              const confirmed = await confirm(title, {
+                danger: true,
+                detailedMessage: message,
+              });
+              if (!confirmed) return;
+              setIsDiscarding(true);
+              try {
+                await gitDiscard(workspaceId, filesToDiscard);
+                fetchData();
+              } catch (err) {
+                await alert('Discard Failed', err instanceof Error ? err.message : 'Unknown error');
+              } finally {
+                setIsDiscarding(false);
+              }
+            }}
+            disabled={isDiscarding || selectedFiles.size === 0}
+          >
+            {isDiscarding ? 'Discarding...' : 'Discard'}
+          </button>
+        </div>
+      );
+    }
+    if (ln.nodeType === 'commit-file' && ln.file) {
+      const filePath = ln.file.new_path || ln.file.old_path || '';
+      const isSelected = selectedFiles.has(filePath);
+      const status = ln.file.status || 'modified';
+      const statusLabel =
+        status === 'added' ? 'A' : status === 'deleted' ? 'D' : status === 'untracked' ? '??' : 'M';
+      const statusClass =
+        status === 'added'
+          ? 'commit-workflow__status--added'
+          : status === 'deleted'
+            ? 'commit-workflow__status--deleted'
+            : 'commit-workflow__status--modified';
+      const toggleFile = () => {
+        const newSet = new Set(selectedFiles);
+        if (newSet.has(filePath)) newSet.delete(filePath);
+        else newSet.add(filePath);
+        setSelectedFiles(newSet);
+      };
+      return (
+        <div
+          key={ln.hash}
+          className="git-dag__file-row"
+          style={{ cursor: 'pointer' }}
+          onClick={toggleFile}
+        >
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={toggleFile}
+            onClick={(e) => e.stopPropagation()}
+            style={{ marginRight: '8px' }}
+          />
+          <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
+          <span className="commit-workflow__filename">{filePath}</span>
+        </div>
+      );
+    }
+    if (ln.nodeType === 'commit-footer') {
+      const canAmend = (ws?.git_ahead ?? 0) > 0;
+      return (
+        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+          <button
+            className="git-dag__action-button"
+            disabled={selectedFiles.size === 0 || isCommitting}
+            onClick={async () => {
+              const fileList = Array.from(selectedFiles)
+                .map((f) => `• ${f}`)
+                .join('\n');
+              const confirmed = await confirm(`Commit ${selectedFiles.size} files?`, {
+                confirmText: 'Commit',
+                detailedMessage: `The following files will be staged and committed:\n\n${fileList}`,
+              });
+              if (!confirmed) return;
+              setIsCommitting(true);
+              try {
+                await gitCommitStage(workspaceId, Array.from(selectedFiles));
+                if (ws) {
+                  const results = await spawnCommitSession(
+                    workspaceId,
+                    ws.repo,
+                    ws.branch,
+                    Array.from(selectedFiles)
+                  );
+                  if (results.length > 0 && results[0].session_id) {
+                    setPendingNavigation({ type: 'session', id: results[0].session_id });
+                  }
+                }
+                fetchData();
+              } catch (err) {
+                await alert('Commit Failed', err instanceof Error ? err.message : 'Unknown error');
+              } finally {
+                setIsCommitting(false);
+              }
+            }}
+          >
+            {isCommitting ? 'Committing...' : 'Commit'}
+          </button>
+          {canAmend && (
+            <button
+              className="git-dag__action-button"
+              disabled={selectedFiles.size === 0 || isAmending}
+              onClick={async () => {
+                const fileList = Array.from(selectedFiles)
+                  .map((f) => `• ${f}`)
+                  .join('\n');
+                const confirmed = await confirm(`Amend commit with ${selectedFiles.size} files?`, {
+                  confirmText: 'Amend',
+                  detailedMessage: `The following files will be staged and amend the previous commit:\n\n${fileList}`,
+                });
+                if (!confirmed) return;
+                setIsAmending(true);
+                try {
+                  await gitAmend(workspaceId, Array.from(selectedFiles));
+                  fetchData();
+                } catch (err) {
+                  await alert('Amend Failed', err instanceof Error ? err.message : 'Unknown error');
+                } finally {
+                  setIsAmending(false);
+                }
+              }}
+            >
+              {isAmending ? 'Amending...' : 'Amend'}
+            </button>
+          )}
+        </div>
+      );
+    }
+    if (ln.nodeType === 'sync-summary' && ln.syncSummary) {
+      const hasKnownConflict = ws?.conflict_on_branch && ws.conflict_on_branch === ws.branch;
+      const syncIndicator = hasKnownConflict ? '🟡' : '🟢';
+
+      const onSyncClick = async () => {
+        if (!ws || syncing) return;
+        setSyncing(true);
+        try {
+          await handleSmartSync(ws);
+        } finally {
+          setSyncing(false);
+        }
+      };
+
+      return (
+        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+          <Tooltip content="Iteratively rebases this branch to origin/HEAD">
+            <button
+              className="git-dag__sync-button"
+              onClick={onSyncClick}
+              disabled={syncing || !ws}
+            >
+              {syncing ? (
+                <>
+                  <span className="spinner" /> Rebase'ing
+                </>
+              ) : (
+                <>{syncIndicator} Rebase to HEAD</>
+              )}
+            </button>
+          </Tooltip>
+          <span className="git-dag__sync-summary">
+            &middot; {ln.syncSummary.count} commit
+            {ln.syncSummary.count !== 1 ? 's' : ''}
+          </span>
+          <span style={{ flex: 1 }} />
+          <span className="git-dag__time">{relativeTime(ln.syncSummary.newestTimestamp)}</span>
+        </div>
+      );
+    }
+    return (
+      <div
+        key={ln.hash}
+        className="git-dag__row"
+        style={{ height: lay.rowHeight }}
+        title={ln.node.hash}
+      >
+        <button
+          className="git-dag__hash"
+          onClick={() => copyHash(ln.node.hash)}
+          title={copiedHash === ln.node.hash ? 'Copied!' : 'Click to copy full hash'}
+        >
+          {ln.node.short_hash}
+        </button>
+        <span className="git-dag__message">
+          {ln.node.is_head.length > 0 && (
+            <span className="git-dag__head-labels">
+              {ln.node.is_head.map((b) => (
+                <span key={b} className="git-dag__head-label">
+                  {b}
+                </span>
+              ))}
+            </span>
+          )}
+          {ln.node.message}
+        </span>
+        <span className="git-dag__author">{ln.node.author}</span>
+        <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="git-dag">
       <div className="git-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
@@ -170,298 +436,33 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
           {/* Row content */}
           <div className="git-dag__rows" style={{ marginLeft: graphWidth }}>
-            {layout.nodes.map((ln) => {
-              if (ln.nodeType === 'you-are-here') {
-                const showFfToMain = (ws?.git_ahead ?? 0) > 0;
-                const ffDisabled = (ws?.git_behind ?? 0) > 0 || (ws?.git_files_changed ?? 0) > 0;
-                const ffTooltip =
-                  (ws?.git_files_changed ?? 0) > 0
-                    ? 'Commit local changes first'
-                    : ffDisabled
-                      ? 'Main is ahead — sync from main first'
-                      : 'Sends your local branch commits to main with history';
+            {(() => {
+              const commitTypes = new Set(['commit-actions', 'commit-file', 'commit-footer']);
+              const groups: { type: 'regular' | 'commit'; nodes: LayoutNode[] }[] = [];
+              let current: (typeof groups)[0] | null = null;
 
-                const onFfToMainClick = async () => {
-                  if (!ws || ffDisabled || ffToMainSyncing) return;
-                  setFfToMainSyncing(true);
-                  try {
-                    await handleLinearSyncToMain(ws.id);
-                  } finally {
-                    setFfToMainSyncing(false);
-                  }
-                };
+              for (const ln of layout.nodes) {
+                const isCommit = commitTypes.has(ln.nodeType);
+                const groupType = isCommit ? 'commit' : 'regular';
+                if (!current || current.type !== groupType) {
+                  current = { type: groupType, nodes: [] };
+                  groups.push(current);
+                }
+                current.nodes.push(ln);
+              }
 
-                return (
-                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <span className="git-dag__you-are-here">You are here</span>
-                    {showFfToMain && (
-                      <Tooltip content={ffTooltip}>
-                        <button
-                          className="git-dag__ff-to-main-button"
-                          onClick={onFfToMainClick}
-                          disabled={ffDisabled || ffToMainSyncing}
-                        >
-                          {ffToMainSyncing ? (
-                            <>
-                              <span className="spinner" /> FF'ing to main
-                            </>
-                          ) : (
-                            <>FF to main</>
-                          )}
-                        </button>
-                      </Tooltip>
-                    )}
-                  </div>
-                );
-              }
-              if (ln.nodeType === 'commit-actions') {
-                return (
-                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <button
-                      className="git-dag__action-button"
-                      onClick={() =>
-                        setSelectedFiles(
-                          new Set(diffFiles.map((f) => f.new_path || f.old_path || ''))
-                        )
-                      }
-                    >
-                      Select All
-                    </button>
-                    <button
-                      className="git-dag__action-button"
-                      onClick={() => setSelectedFiles(new Set())}
-                    >
-                      Deselect All
-                    </button>
-                    <button
-                      className="git-dag__action-button"
-                      onClick={async () => {
-                        const filesToDiscard = Array.from(selectedFiles);
-                        if (filesToDiscard.length === 0) return;
-                        const title = `Discard ${filesToDiscard.length} selected file${filesToDiscard.length === 1 ? '' : 's'}?`;
-                        const message = `This will discard changes to:\n\n${filesToDiscard.map((f) => `• ${f}`).join('\n')}`;
-                        const confirmed = await confirm(title, {
-                          danger: true,
-                          detailedMessage: message,
-                        });
-                        if (!confirmed) return;
-                        setIsDiscarding(true);
-                        try {
-                          await gitDiscard(workspaceId, filesToDiscard);
-                          fetchData();
-                        } catch (err) {
-                          await alert(
-                            'Discard Failed',
-                            err instanceof Error ? err.message : 'Unknown error'
-                          );
-                        } finally {
-                          setIsDiscarding(false);
-                        }
-                      }}
-                      disabled={isDiscarding || selectedFiles.size === 0}
-                    >
-                      {isDiscarding ? 'Discarding...' : 'Discard'}
-                    </button>
-                  </div>
-                );
-              }
-              if (ln.nodeType === 'commit-file' && ln.file) {
-                const filePath = ln.file.new_path || ln.file.old_path || '';
-                const isSelected = selectedFiles.has(filePath);
-                const status = ln.file.status || 'modified';
-                const statusLabel =
-                  status === 'added'
-                    ? 'A'
-                    : status === 'deleted'
-                      ? 'D'
-                      : status === 'untracked'
-                        ? '??'
-                        : 'M';
-                const statusClass =
-                  status === 'added'
-                    ? 'commit-workflow__status--added'
-                    : status === 'deleted'
-                      ? 'commit-workflow__status--deleted'
-                      : 'commit-workflow__status--modified';
-                const toggleFile = () => {
-                  const newSet = new Set(selectedFiles);
-                  if (newSet.has(filePath)) newSet.delete(filePath);
-                  else newSet.add(filePath);
-                  setSelectedFiles(newSet);
-                };
-                return (
-                  <div
-                    key={ln.hash}
-                    className="git-dag__row git-dag__file-row"
-                    style={{ height: layout.rowHeight, cursor: 'pointer' }}
-                    onClick={toggleFile}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={toggleFile}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ marginRight: '8px' }}
-                    />
-                    <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
-                    <span className="commit-workflow__filename">{filePath}</span>
-                  </div>
-                );
-              }
-              if (ln.nodeType === 'commit-footer') {
-                const canAmend = (ws?.git_ahead ?? 0) > 0;
-                return (
-                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <button
-                      className="btn btn--sm"
-                      disabled={selectedFiles.size === 0 || isCommitting}
-                      onClick={async () => {
-                        const fileList = Array.from(selectedFiles)
-                          .map((f) => `• ${f}`)
-                          .join('\n');
-                        const confirmed = await confirm(`Commit ${selectedFiles.size} files?`, {
-                          confirmText: 'Commit',
-                          detailedMessage: `The following files will be staged and committed:\n\n${fileList}`,
-                        });
-                        if (!confirmed) return;
-                        setIsCommitting(true);
-                        try {
-                          await gitCommitStage(workspaceId, Array.from(selectedFiles));
-                          if (ws) {
-                            const results = await spawnCommitSession(
-                              workspaceId,
-                              ws.repo,
-                              ws.branch,
-                              Array.from(selectedFiles)
-                            );
-                            if (results.length > 0 && results[0].session_id) {
-                              setPendingNavigation({ type: 'session', id: results[0].session_id });
-                            }
-                          }
-                          fetchData();
-                        } catch (err) {
-                          await alert(
-                            'Commit Failed',
-                            err instanceof Error ? err.message : 'Unknown error'
-                          );
-                        } finally {
-                          setIsCommitting(false);
-                        }
-                      }}
-                    >
-                      {isCommitting ? 'Committing...' : 'Commit'}
-                    </button>
-                    {canAmend && (
-                      <button
-                        className="btn btn--sm"
-                        disabled={selectedFiles.size === 0 || isAmending}
-                        onClick={async () => {
-                          const fileList = Array.from(selectedFiles)
-                            .map((f) => `• ${f}`)
-                            .join('\n');
-                          const confirmed = await confirm(
-                            `Amend commit with ${selectedFiles.size} files?`,
-                            {
-                              confirmText: 'Amend',
-                              detailedMessage: `The following files will be staged and amend the previous commit:\n\n${fileList}`,
-                            }
-                          );
-                          if (!confirmed) return;
-                          setIsAmending(true);
-                          try {
-                            await gitAmend(workspaceId, Array.from(selectedFiles));
-                            fetchData();
-                          } catch (err) {
-                            await alert(
-                              'Amend Failed',
-                              err instanceof Error ? err.message : 'Unknown error'
-                            );
-                          } finally {
-                            setIsAmending(false);
-                          }
-                        }}
-                      >
-                        {isAmending ? 'Amending...' : 'Amend'}
-                      </button>
-                    )}
-                  </div>
-                );
-              }
-              if (ln.nodeType === 'sync-summary' && ln.syncSummary) {
-                // Determine sync status indicator based on conflict state
-                const hasKnownConflict =
-                  ws?.conflict_on_branch && ws.conflict_on_branch === ws.branch;
-                const syncIndicator = hasKnownConflict ? '🟡' : '🟢';
-
-                const onSyncClick = async () => {
-                  if (!ws || syncing) return;
-                  setSyncing(true);
-                  try {
-                    await handleSmartSync(ws);
-                  } finally {
-                    setSyncing(false);
-                  }
-                };
-
-                return (
-                  <div key={ln.hash} className="git-dag__row" style={{ height: layout.rowHeight }}>
-                    <Tooltip content="Iteratively rebases this branch to origin/HEAD">
-                      <button
-                        className="git-dag__sync-button"
-                        onClick={onSyncClick}
-                        disabled={syncing || !ws}
-                      >
-                        {syncing ? (
-                          <>
-                            <span className="spinner" /> Rebase'ing
-                          </>
-                        ) : (
-                          <>{syncIndicator} Rebase to HEAD</>
-                        )}
-                      </button>
-                    </Tooltip>
-                    <span className="git-dag__sync-summary">
-                      &middot; {ln.syncSummary.count} commit
-                      {ln.syncSummary.count !== 1 ? 's' : ''}
-                    </span>
-                    <span style={{ flex: 1 }} />
-                    <span className="git-dag__time">
-                      {relativeTime(ln.syncSummary.newestTimestamp)}
-                    </span>
-                  </div>
-                );
-              }
-              return (
-                <div
-                  key={ln.hash}
-                  className="git-dag__row"
-                  style={{ height: layout.rowHeight }}
-                  title={ln.node.hash}
-                >
-                  <button
-                    className="git-dag__hash"
-                    onClick={() => copyHash(ln.node.hash)}
-                    title={copiedHash === ln.node.hash ? 'Copied!' : 'Click to copy full hash'}
-                  >
-                    {ln.node.short_hash}
-                  </button>
-                  <span className="git-dag__message">
-                    {ln.node.is_head.length > 0 && (
-                      <span className="git-dag__head-labels">
-                        {ln.node.is_head.map((b) => (
-                          <span key={b} className="git-dag__head-label">
-                            {b}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                    {ln.node.message}
-                  </span>
-                  <span className="git-dag__author">{ln.node.author}</span>
-                  <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
-                </div>
-              );
-            })}
+              return groups.map((group, gi) => {
+                const rendered = group.nodes.map((ln) => renderNode(ln, layout));
+                if (group.type === 'commit') {
+                  return (
+                    <div key={`commit-section-${gi}`} className="git-dag__commit-section">
+                      {rendered}
+                    </div>
+                  );
+                }
+                return <>{rendered}</>;
+              });
+            })()}
           </div>
         </div>
       </div>

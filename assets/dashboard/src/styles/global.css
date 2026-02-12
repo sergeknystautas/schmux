@@ -25,6 +25,7 @@
   --color-info: #17a2b8;
 
   /* Spacing Scale */
+  --spacing-xxs: 2px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;
@@ -1231,6 +1232,11 @@ body {
   background: var(--color-surface);
 }
 
+.session-tab:first-child {
+  position: relative;
+  left: -1px;
+}
+
 .session-tab--active {
   border-color: var(--color-accent);
   background: var(--color-surface);
@@ -1375,7 +1381,7 @@ body {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
-  border-radius: 0 var(--radius-lg) 0 0;
+  border-radius: 0;
 }
 
 .diff-actions__label {
@@ -1683,7 +1689,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-xs);
   background-color: var(--color-surface-alt);
   border-bottom: 1px solid var(--color-border);
 }
@@ -1792,8 +1798,8 @@ body {
 }
 
 /* Terminal focus indicator - subtle border glow when xterm has focus */
-#terminal.log-viewer__output:has(.xterm.focus) {
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+.session-detail:has(#terminal .xterm.focus) {
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 /* Toggle Switch */
@@ -3152,13 +3158,25 @@ a:hover {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 0 var(--spacing-md);
+  padding: 0 var(--spacing-md) 0 0;
   font-size: 0.75rem;
   transition: background-color var(--duration-fast) var(--easing);
 }
 
 .git-dag__row:hover {
   background-color: var(--color-surface-alt);
+}
+
+.git-dag__file-row {
+  margin-left: var(--spacing-lg);
+}
+
+.git-dag__commit-section {
+  background: var(--color-surface-alt);
+  outline: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xxs) var(--spacing-xs);
+  margin: var(--spacing-xs) 0;
 }
 
 .git-dag__you-are-here {
@@ -3436,7 +3454,7 @@ a:hover {
 
 .commit-workflow__filename {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

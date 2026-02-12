@@ -69,6 +69,30 @@ ensure_npm_deps() {
     fi
 }
 
+# Kill any process listening on a given port
+kill_port() {
+    local port="$1"
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo -e "${YELLOW}[dev]${NC} Killing processes on port ${port}: ${pids}"
+        echo "$pids" | xargs kill 2>/dev/null || true
+        # Wait for port to be freed
+        for i in $(seq 1 30); do
+            if ! lsof -ti :"$port" >/dev/null 2>&1; then
+                return 0
+            fi
+            sleep 0.1
+        done
+        # Force kill if still alive
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+            sleep 0.2
+        fi
+    fi
+}
+
 # Start Vite dev server from a workspace path
 start_vite() {
     local workspace_path="$1"
@@ -80,6 +104,9 @@ start_vite() {
         wait "$VITE_PID" 2>/dev/null || true
         VITE_PID=""
     fi
+
+    # Ensure port 5173 is free (catches orphaned node processes)
+    kill_port 5173
 
     ensure_npm_deps "$workspace_path"
 
