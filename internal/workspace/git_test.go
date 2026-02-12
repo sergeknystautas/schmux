@@ -438,6 +438,76 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 	t.Log("gitPullRebase() takes branch parameter - explicitly pulls from origin/<branch>")
 }
 
+// TestCheckGitSafety_PushedToOriginBranch verifies that checkGitSafety reports
+// Safe=true when commits have been pushed to origin/<branch>, even if the branch's
+// upstream tracking ref (@{u}) points to a different branch (e.g., origin/main).
+// This reproduces the bug where "git push origin <branch>" succeeds but disposal
+// still reports unpushed commits because @{u} points to origin/main.
+func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create a "remote" repo with an initial commit
+	tmpDir := t.TempDir()
+	remoteDir := gitTestWorkTree(t)
+
+	// Create a local clone
+	localDir := filepath.Join(tmpDir, "local")
+	runGit(t, tmpDir, "clone", remoteDir, "local")
+	runGit(t, localDir, "config", "user.email", "test@test.com")
+	runGit(t, localDir, "config", "user.name", "Test")
+
+	// Create a feature branch FROM origin/main (simulating schmux's addWorktree
+	// with: git worktree add -b feature/test path origin/main)
+	// This sets @{u} to origin/main due to branch.autoSetupMerge
+	runGit(t, localDir, "checkout", "-b", "feature/test", "origin/main")
+
+	// Make 3 commits on the feature branch
+	writeFile(t, localDir, "file1.txt", "one")
+	runGit(t, localDir, "add", ".")
+	runGit(t, localDir, "commit", "-m", "commit 1")
+	writeFile(t, localDir, "file2.txt", "two")
+	runGit(t, localDir, "add", ".")
+	runGit(t, localDir, "commit", "-m", "commit 2")
+	writeFile(t, localDir, "file3.txt", "three")
+	runGit(t, localDir, "add", ".")
+	runGit(t, localDir, "commit", "-m", "commit 3")
+
+	// Push the feature branch to origin (without -u, so @{u} stays origin/main)
+	runGit(t, localDir, "push", "origin", "feature/test")
+
+	// Set up the workspace manager
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+
+	// Add workspace to state
+	w := state.Workspace{
+		ID:     "test-001",
+		Repo:   remoteDir,
+		Branch: "feature/test",
+		Path:   localDir,
+	}
+	st.AddWorkspace(w)
+
+	// Run checkGitSafety - should be Safe since all commits are pushed
+	ctx := context.Background()
+	safety, err := m.checkGitSafety(ctx, "test-001")
+	if err != nil {
+		t.Fatalf("checkGitSafety() error: %v", err)
+	}
+
+	if !safety.Safe {
+		t.Errorf("checkGitSafety() Safe = false, want true (commits are pushed to origin/feature/test)\n"+
+			"Reason: %s\nAheadCommits: %d", safety.Reason, safety.AheadCommits)
+	}
+	if safety.AheadCommits != 0 {
+		t.Errorf("checkGitSafety() AheadCommits = %d, want 0", safety.AheadCommits)
+	}
+}
+
 func TestGitRemoteBranchExists(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
