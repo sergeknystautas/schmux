@@ -6,6 +6,7 @@ import {
   linearSyncResolveConflict,
   disposeWorkspaceAll,
   getErrorMessage,
+  getDevStatus,
 } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
@@ -64,19 +65,38 @@ export function useSync() {
   );
 
   const handleLinearSyncToMain = useCallback(
-    async (workspaceId: string): Promise<void> => {
+    async (workspaceId: string, workspacePath?: string): Promise<void> => {
       try {
         const result = await linearSyncToMain(workspaceId);
         if (result.success) {
           const branch = result.branch || 'main';
           const count = result.success_count ?? 0;
-          const disposeConfirmed = await confirm(
-            `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
-          );
-          if (disposeConfirmed) {
-            await disposeWorkspaceAll(workspaceId);
-            await alert('Success', 'Workspace and sessions disposed');
-            navigate('/');
+
+          // Check if this workspace is the live dev workspace
+          let isDevLive = false;
+          if (workspacePath) {
+            try {
+              const devStatus = await getDevStatus();
+              isDevLive = devStatus.source_workspace === workspacePath;
+            } catch {
+              // Not in dev mode or dev status unavailable — ignore
+            }
+          }
+
+          if (isDevLive) {
+            await alert(
+              'Pushed',
+              `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is currently live in dev mode — switch to another workspace before disposing it.`
+            );
+          } else {
+            const disposeConfirmed = await confirm(
+              `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
+            );
+            if (disposeConfirmed) {
+              await disposeWorkspaceAll(workspaceId);
+              await alert('Success', 'Workspace and sessions disposed');
+              navigate('/');
+            }
           }
         } else {
           await alert('Error', 'Sync failed.');
