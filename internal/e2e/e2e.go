@@ -97,8 +97,19 @@ func (e *Env) Cleanup() {
 		cancel()
 		e.T.Logf("stop output: %s", out)
 
-		// Wait a bit for daemon to fully stop
-		time.Sleep(500 * time.Millisecond)
+		// Poll until daemon is fully stopped
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
+			resp, err := http.DefaultClient.Do(req)
+			cancel()
+			if err != nil {
+				break // Daemon is stopped
+			}
+			resp.Body.Close()
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
 	if e.gitRepoDir != "" {
@@ -167,16 +178,22 @@ func (e *Env) DaemonStop() {
 
 	e.daemonStarted = false
 
-	// Verify daemon is stopped
-	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
-	_, err = http.DefaultClient.Do(req)
-	cancel()
-	if err == nil {
-		e.T.Error("Daemon is still running after stop")
+	// Poll until health endpoint is unreachable (daemon fully stopped)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			// Connection refused or timeout means daemon is stopped
+			return
+		}
+		resp.Body.Close()
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	e.T.Error("Daemon is still running after stop (timed out waiting for shutdown)")
 }
 
 // CreateLocalGitRepo creates a local git repo for testing.
@@ -1028,4 +1045,55 @@ func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *AP
 
 	e.T.Fatalf("Timed out waiting for session %s to be running", sessionID)
 	return nil
+}
+
+// WaitForSessionGoneFromAPI polls the API until the given session ID no longer appears.
+func (e *Env) WaitForSessionGoneFromAPI(sessionID string, timeout time.Duration) {
+	e.T.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		sessions := e.GetAPISessions()
+		found := false
+		for _, sess := range sessions {
+			if sess.ID == sessionID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	e.T.Fatalf("Timed out waiting for session %s to be removed from API", sessionID)
+}
+
+// WaitForAllSessionsGoneFromAPI polls the API until none of the given session IDs appear.
+func (e *Env) WaitForAllSessionsGoneFromAPI(sessionIDs []string, timeout time.Duration) {
+	e.T.Helper()
+	deadline := time.Now().Add(timeout)
+
+	remaining := make(map[string]bool)
+	for _, id := range sessionIDs {
+		remaining[id] = true
+	}
+
+	for time.Now().Before(deadline) {
+		sessions := e.GetAPISessions()
+		stillPresent := false
+		for _, sess := range sessions {
+			if remaining[sess.ID] {
+				stillPresent = true
+				break
+			}
+		}
+		if !stillPresent {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	e.T.Fatalf("Timed out waiting for sessions to be removed from API")
 }

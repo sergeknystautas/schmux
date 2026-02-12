@@ -103,7 +103,7 @@ func TestE2EFullLifecycle(t *testing.T) {
 		if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 			t.Fatalf("Failed to write workspace config: %v", err)
 		}
-		time.Sleep(2 * time.Second)
+		// Config is read on demand during spawn, so no sleep is needed here.
 	})
 
 	// Ensure we capture artifacts if anything fails
@@ -226,20 +226,18 @@ func TestE2EFullLifecycle(t *testing.T) {
 
 	// Step 8: Dispose sessions
 	t.Run("08_DisposeSessions", func(t *testing.T) {
+		var ids []string
 		if session1ID != "" {
 			env.DisposeSession(session1ID)
+			ids = append(ids, session1ID)
 		}
 		if session2ID != "" {
 			env.DisposeSession(session2ID)
+			ids = append(ids, session2ID)
 		}
 
-		// Verify sessions are gone
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == session1ID || sess.ID == session2ID {
-				t.Error("Session still exists after dispose")
-			}
-		}
+		// Poll until sessions are gone from API
+		env.WaitForAllSessionsGoneFromAPI(ids, 5*time.Second)
 
 		// Verify tmux sessions are gone
 		tmuxSessions := env.GetTmuxSessions()
@@ -741,10 +739,15 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 		}
 		t.Logf("Initial state: %d workspaces", len(msg.Workspaces))
 
-		// Wait for debounce window to pass (server debounces broadcasts at 500ms)
-		// The git status goroutine broadcasts on startup, and we need to wait
-		// for that debounce window to close before spawning
-		time.Sleep(600 * time.Millisecond)
+		// Drain any pending broadcasts from startup (e.g., git status goroutine).
+		// Read with a short timeout until no more messages arrive, so the
+		// subsequent WaitForDashboardSession reads only post-spawn messages.
+		for {
+			_, err := env.ReadDashboardMessage(conn, 800*time.Millisecond)
+			if err != nil {
+				break // No more pending messages
+			}
+		}
 	})
 
 	var sessionID string
@@ -765,8 +768,13 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 	})
 
 	t.Run("DisposeAndReceiveUpdate", func(t *testing.T) {
-		// Wait for debounce window to pass from spawn broadcast
-		time.Sleep(600 * time.Millisecond)
+		// Drain any pending broadcasts from spawn so we start fresh.
+		for {
+			_, err := env.ReadDashboardMessage(conn, 800*time.Millisecond)
+			if err != nil {
+				break
+			}
+		}
 		env.DisposeSession(sessionID)
 
 		// Wait for the session to disappear via websocket
