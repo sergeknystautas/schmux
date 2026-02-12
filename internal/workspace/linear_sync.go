@@ -529,7 +529,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		emit(ResolveConflictStep{
 			Action:             "conflict_detected",
 			Status:             "done",
-			Message:            fmt.Sprintf("Conflict on %s — %d file(s)", localCommitHash[:minLen(len(localCommitHash), 7)], len(unmergedFiles)),
+			Message:            fmt.Sprintf("Conflict on %s — %d file(s)", localCommitHash[:min(len(localCommitHash), 7)], len(unmergedFiles)),
 			LocalCommit:        localCommitHash,
 			LocalCommitMessage: localCommitMessage,
 			Files:              unmergedFiles,
@@ -766,13 +766,6 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		Hash:        hash,
 		Resolutions: resolutions,
 	}, nil
-}
-
-func minLen(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // truncateString returns s truncated to maxLen characters, appending "..." if truncated.
