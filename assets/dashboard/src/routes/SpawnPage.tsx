@@ -794,6 +794,7 @@ export default function SpawnPage() {
                 commands={[...commandTargets.map((t) => t.name), '/resume']}
                 onSelectCommand={handleSlashCommandSelect}
                 onSubmit={handleEngage}
+                data-testid="spawn-prompt"
               />
             </div>
           </>
@@ -874,6 +875,7 @@ export default function SpawnPage() {
                   className="select"
                   required
                   value={repo}
+                  data-testid="spawn-repo-select"
                   onChange={(event) => {
                     setRepo(event.target.value);
                   }}
@@ -975,6 +977,7 @@ export default function SpawnPage() {
                           type="button"
                           className={`btn${isSelected ? ' btn--primary' : ''}`}
                           onClick={() => toggleAgent(item.name)}
+                          data-testid={`agent-${item.name}`}
                           style={{
                             height: 'auto',
                             padding: 'var(--spacing-sm)',
@@ -1005,6 +1008,7 @@ export default function SpawnPage() {
                       return (
                         <div
                           key={item.name}
+                          data-testid={`agent-${item.name}`}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -1097,6 +1101,7 @@ export default function SpawnPage() {
                     className="select"
                     required
                     value={repo}
+                    data-testid="spawn-repo-select"
                     onChange={(event) => {
                       setRepo(event.target.value);
                       if (event.target.value !== '__new__') {
@@ -1162,7 +1167,12 @@ export default function SpawnPage() {
           }}
         >
           {(spawnMode === 'command' || spawnMode === 'resume') && (
-            <button className="btn" onClick={handlePromptMode} disabled={engagePhase !== 'idle'}>
+            <button
+              className="btn"
+              onClick={handlePromptMode}
+              disabled={engagePhase !== 'idle'}
+              data-testid="spawn-mode-prompt"
+            >
               Prompt
             </button>
           )}
@@ -1170,6 +1180,7 @@ export default function SpawnPage() {
             className="btn btn--primary"
             onClick={handleEngage}
             disabled={engagePhase !== 'idle'}
+            data-testid="spawn-submit"
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
           >
             {engagePhase === 'naming' ? (

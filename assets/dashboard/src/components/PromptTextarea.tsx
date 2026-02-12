@@ -8,6 +8,7 @@ interface PromptTextareaProps {
   commands: string[];
   onSelectCommand: (command: string) => void;
   onSubmit?: () => void;
+  'data-testid'?: string;
 }
 
 // Measure caret pixel coordinates inside a textarea using a mirror div
@@ -108,6 +109,7 @@ export default function PromptTextarea({
   commands,
   onSelectCommand,
   onSubmit,
+  'data-testid': dataTestId,
 }: PromptTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -246,6 +248,7 @@ export default function PromptTextarea({
         rows={expanded ? 20 : 5}
         className="textarea"
         autoFocus
+        data-testid={dataTestId}
         style={{
           border: 'none',
           borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',

@@ -544,6 +544,7 @@ export default function SessionDetailPage() {
                 id="terminal"
                 className="log-viewer__output"
                 ref={terminalRef}
+                data-testid="terminal-viewport"
                 style={{ cursor: selectionMode ? 'pointer' : undefined }}
               ></div>
 
@@ -559,7 +560,7 @@ export default function SessionDetailPage() {
           )}
         </div>
 
-        <aside className="session-detail__sidebar">
+        <aside className="session-detail__sidebar" data-testid="session-sidebar">
           <div className="metadata-field">
             <span className="metadata-field__label">Session ID</span>
             <span className="metadata-field__value metadata-field__value--mono">
@@ -580,7 +581,7 @@ export default function SessionDetailPage() {
           </div>
 
           {sessionData.nickname ? (
-            <div className="metadata-field">
+            <div className="metadata-field" data-testid="session-nickname">
               <div
                 style={{
                   display: 'flex',
@@ -609,7 +610,7 @@ export default function SessionDetailPage() {
               <span className="metadata-field__value">{sessionData.nickname}</span>
             </div>
           ) : (
-            <div className="metadata-field">
+            <div className="metadata-field" data-testid="session-nickname">
               <div
                 style={{
                   display: 'flex',
@@ -671,7 +672,7 @@ export default function SessionDetailPage() {
           <div className="metadata-field">
             <span className="metadata-field__label">Status</span>
             <div>
-              <span className={`status-pill ${statusClass}`}>
+              <span className={`status-pill ${statusClass}`} data-testid="session-status">
                 <span className="status-pill__dot"></span>
                 {statusText}
               </span>
@@ -752,7 +753,12 @@ export default function SessionDetailPage() {
           </div>
 
           <div style={{ marginTop: 'auto' }}>
-            <button className="btn btn--danger" style={{ width: '100%' }} onClick={handleDispose}>
+            <button
+              className="btn btn--danger"
+              style={{ width: '100%' }}
+              onClick={handleDispose}
+              data-testid="dispose-session"
+            >
               <svg
                 width="14"
                 height="14"

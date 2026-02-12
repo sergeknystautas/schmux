@@ -1200,6 +1200,7 @@ export default function ConfigPage() {
                   await saveCurrentStep();
                 }}
                 disabled={saving || !hasChanges()}
+                data-testid="config-save"
               >
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
@@ -1215,6 +1216,7 @@ export default function ConfigPage() {
                   key={stepNum}
                   className={`wizard__step ${isCurrent ? 'wizard__step--active' : ''}`}
                   data-step={stepNum}
+                  data-testid={`config-tab-${TAB_SLUGS[stepNum - 1]}`}
                   onClick={() => setCurrentStep(stepNum)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -1379,7 +1381,12 @@ export default function ConfigPage() {
                     onKeyDown={(e) => e.key === 'Enter' && addRepo()}
                   />
                 </div>
-                <button type="button" className="btn btn--sm btn--primary" onClick={addRepo}>
+                <button
+                  type="button"
+                  className="btn btn--sm btn--primary"
+                  onClick={addRepo}
+                  data-testid="add-repo"
+                >
                   Add
                 </button>
               </div>
@@ -1585,6 +1592,7 @@ export default function ConfigPage() {
                   type="button"
                   className="btn btn--sm btn--primary"
                   onClick={addPromptableTarget}
+                  data-testid="add-target"
                 >
                   Add
                 </button>
