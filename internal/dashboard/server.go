@@ -108,6 +108,7 @@ type Server struct {
 	broadcastTimer   *time.Timer
 	broadcastMu      sync.Mutex
 	broadcastDone    chan struct{}
+	broadcastReady   chan struct{}
 	broadcastOnce    sync.Once
 	broadcastStopped bool
 
@@ -167,6 +168,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
 		broadcastDone:                   make(chan struct{}),
+		broadcastReady:                  make(chan struct{}),
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
 	}
@@ -623,6 +625,7 @@ func (s *Server) BroadcastSessions() {
 	// Lazy initialization: create timer on first use
 	if s.broadcastTimer == nil {
 		s.broadcastTimer = time.NewTimer(500 * time.Millisecond)
+		close(s.broadcastReady)
 		return
 	}
 
@@ -639,17 +642,14 @@ func (s *Server) BroadcastSessions() {
 
 // broadcastLoop waits for the debounce timer to fire, then broadcasts to all clients.
 func (s *Server) broadcastLoop() {
-	for {
-		if s.broadcastTimer == nil {
-			// Timer not yet initialized, wait for it or shutdown
-			select {
-			case <-s.broadcastDone:
-				return
-			case <-time.After(10 * time.Millisecond):
-				continue
-			}
-		}
+	// Wait for the timer to be initialized
+	select {
+	case <-s.broadcastReady:
+	case <-s.broadcastDone:
+		return
+	}
 
+	for {
 		select {
 		case <-s.broadcastTimer.C:
 			// Check shutdown flag before broadcasting
