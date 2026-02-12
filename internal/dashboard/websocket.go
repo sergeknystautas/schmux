@@ -333,6 +333,10 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	// Update the session first (sets Nudge field), then increment NudgeSeq.
 	// Order matters: UpdateSession replaces the entire struct, so IncrementNudgeSeq
 	// must come after to avoid being overwritten by the stale sess copy.
+	//
+	// NudgeSeq is intentionally only incremented here (direct agent signals),
+	// not for nudgenik-generated nudges or manual clears — the frontend
+	// notification sound should only play when an agent explicitly signals.
 	if err := s.state.UpdateSession(*sess); err != nil {
 		fmt.Printf("[signal] %s - failed to update session: %v\n", sessionID, err)
 		return
