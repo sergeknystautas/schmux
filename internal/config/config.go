@@ -82,6 +82,11 @@ type Config struct {
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
+
+	// repoURLCache is a lazily-built cache mapping repo URL to Repo.
+	// Not serialized to JSON. Built on first call to FindRepoByURL.
+	// Invalidated by Save() when repos change.
+	repoURLCache map[string]Repo `json:"-"`
 }
 
 // RemoteFlavor represents a remote host flavor configuration.
@@ -568,6 +573,19 @@ func (c *Config) FindRepo(name string) (Repo, bool) {
 	return Repo{}, false
 }
 
+// FindRepoByURL finds a repository by its URL.
+// Uses a lazily-built cache for O(1) lookups.
+func (c *Config) FindRepoByURL(url string) (Repo, bool) {
+	if c.repoURLCache == nil {
+		c.repoURLCache = make(map[string]Repo, len(c.Repos))
+		for _, repo := range c.Repos {
+			c.repoURLCache[repo.URL] = repo
+		}
+	}
+	repo, found := c.repoURLCache[url]
+	return repo, found
+}
+
 // GetRunTarget finds a run target by name.
 func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
 	for _, target := range c.RunTargets {
@@ -789,6 +807,9 @@ func (c *Config) Save() error {
 		os.Remove(tmpPath) // Clean up temp file
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Invalidate the repo URL cache since repos may have changed
+	c.repoURLCache = nil
 
 	return nil
 }
