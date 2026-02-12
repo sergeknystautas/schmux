@@ -99,7 +99,8 @@ export default function AppShell() {
     } catch (err) {
       setDevRebuilding(false);
       setDevRebuildTarget(null);
-      console.error('Rebuild failed:', err);
+      setDevRebuildPhase(null);
+      toastError(err instanceof Error ? err.message : 'Rebuild failed');
     }
   };
 
