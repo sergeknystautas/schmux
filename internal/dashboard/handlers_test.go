@@ -370,6 +370,31 @@ func TestHandleHealthz(t *testing.T) {
 	})
 }
 
+func TestValidateGitFilePaths(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  string // "" means valid
+	}{
+		{"valid path", []string{"src/main.go"}, ""},
+		{"nested valid path", []string{"a/b/c/file.txt"}, ""},
+		{"absolute path", []string{"/etc/passwd"}, `invalid file path: "/etc/passwd"`},
+		{"parent traversal", []string{"../../etc/passwd"}, `invalid file path: "../../etc/passwd"`},
+		{"empty string", []string{""}, `invalid file path: ""`},
+		{"dot", []string{"."}, `invalid file path: "."`},
+		{"dot slash", []string{"./"}, `invalid file path: "./"`},
+		{"mixed valid and invalid", []string{"ok.go", "."}, `invalid file path: "."`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validateGitFilePaths(tt.files)
+			if got != tt.want {
+				t.Errorf("validateGitFilePaths(%v) = %q, want %q", tt.files, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandleUpdate(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	st := state.New("")
