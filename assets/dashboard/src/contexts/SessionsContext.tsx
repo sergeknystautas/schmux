@@ -10,7 +10,7 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
-import { playAttentionSound, isAttentionState } from '../lib/notificationSound';
+import { playAttentionSound, isAttentionState, warmupAudioContext } from '../lib/notificationSound';
 import type {
   SessionWithWorkspace,
   WorkspaceResponse,
@@ -48,6 +48,10 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearLinearSyncResolveConflictState,
   } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+
+  useEffect(() => {
+    warmupAudioContext();
+  }, []);
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
