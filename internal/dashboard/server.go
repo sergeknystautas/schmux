@@ -74,18 +74,28 @@ func (w *wsConn) IsClosed() bool {
 	return w.closed
 }
 
+// ServerOptions holds optional configuration for NewServer.
+type ServerOptions struct {
+	Shutdown    func()          // Callback to trigger daemon shutdown
+	DevRestart  func()          // Callback to trigger dev mode restart (exit code 42)
+	DevProxy    bool            // When true, proxy non-API routes to Vite dev server
+	DevMode     bool            // When true, dev mode API endpoints are enabled
+	ShutdownCtx context.Context // Context cancelled on daemon shutdown; defaults to context.Background()
+}
+
 // Server represents the dashboard HTTP server.
 type Server struct {
-	config     *config.Config
-	state      state.StateStore
-	statePath  string
-	session    *session.Manager
-	workspace  workspace.WorkspaceManager
-	httpServer *http.Server
-	shutdown   func() // Callback to trigger daemon shutdown
-	devRestart func() // Callback to trigger dev mode restart (exit code 42)
-	devProxy   bool   // When true, proxy non-API routes to Vite dev server
-	devMode    bool   // When true, dev mode API endpoints are enabled
+	config      *config.Config
+	state       state.StateStore
+	statePath   string
+	session     *session.Manager
+	workspace   workspace.WorkspaceManager
+	httpServer  *http.Server
+	shutdown    func() // Callback to trigger daemon shutdown
+	devRestart  func() // Callback to trigger dev mode restart (exit code 42)
+	devProxy    bool   // When true, proxy non-API routes to Vite dev server
+	devMode     bool   // When true, dev mode API endpoints are enabled
+	shutdownCtx context.Context
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -136,7 +146,11 @@ type versionInfo struct {
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func(), devRestart func(), devProxy bool, devMode bool) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, opts ServerOptions) *Server {
+	shutdownCtx := opts.ShutdownCtx
+	if shutdownCtx == nil {
+		shutdownCtx = context.Background()
+	}
 	s := &Server{
 		config:                          cfg,
 		state:                           st,
@@ -144,10 +158,11 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		session:                         sm,
 		workspace:                       wm,
 		prDiscovery:                     prd,
-		shutdown:                        shutdown,
-		devRestart:                      devRestart,
-		devProxy:                        devProxy,
-		devMode:                         devMode,
+		shutdown:                        opts.Shutdown,
+		devRestart:                      opts.DevRestart,
+		devProxy:                        opts.DevProxy,
+		devMode:                         opts.DevMode,
+		shutdownCtx:                     shutdownCtx,
 		wsConns:                         make(map[string]*wsConn),
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
