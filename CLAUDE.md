@@ -27,14 +27,23 @@ For active development with automatic rebuilding:
 ./dev.sh
 ```
 
-This runs both Go backend (via air) and React frontend (via Vite) with hot-reload:
+This runs the Go backend and React frontend (via Vite) with workspace switching support:
 
-- **Go changes**: Rebuilds and restarts automatically (~2-3s)
+- **Go changes**: Trigger rebuild from the dashboard Dev Mode panel
 - **React changes**: Instant browser update via HMR (<100ms)
+- **Workspace switching**: Switch which worktree's code is running from the dashboard UI
 - **Access**: http://localhost:7337 (same URL as production)
 - **Stop**: Ctrl+C
 
-First run prompts to install `air` and npm dependencies if missing.
+The dev mode panel in the sidebar lets you switch between workspaces:
+
+- **FE**: Restart Vite pointed at a different worktree's `assets/dashboard/`
+- **BE**: Rebuild Go binary from a different worktree, restart daemon
+- **Both**: Both frontend and backend switch
+
+Build failures are safe — the old binary keeps running if the new build fails.
+
+First run installs npm dependencies if missing.
 
 ## Build, Test, and Run Commands
 

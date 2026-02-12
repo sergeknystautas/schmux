@@ -970,3 +970,62 @@ Errors:
 
 - 400: "session ID is required"
 - 410: "session not running"
+
+## Dev Mode Endpoints
+
+These endpoints are only registered when the daemon is started with `--dev-mode` (via `./dev.sh`).
+
+### GET /api/dev/status
+
+Returns the current dev mode state.
+
+Response:
+
+```json
+{
+  "active": true,
+  "source_workspace": "/path/to/current/worktree",
+  "last_build": {
+    "success": true,
+    "workspace_path": "/path/to/worktree",
+    "error": "",
+    "at": "2025-01-15T10:30:00Z"
+  }
+}
+```
+
+### POST /api/dev/rebuild
+
+Triggers a dev mode rebuild/restart for a workspace. The daemon writes a restart manifest, responds, then exits with code 42. The wrapper script (`dev.sh`) reads the manifest and rebuilds/restarts accordingly.
+
+Request:
+
+```json
+{
+  "workspace_id": "schmux-003",
+  "type": "frontend|backend|both"
+}
+```
+
+Response:
+
+```json
+{ "status": "rebuilding" }
+```
+
+Errors:
+
+- 400: missing workspace_id, invalid type
+- 404: workspace not found
+
+### GET /api/healthz (dev mode extension)
+
+When dev mode is active, the healthz response includes an additional field:
+
+```json
+{
+  "status": "ok",
+  "version": "dev",
+  "dev_mode": true
+}
+```

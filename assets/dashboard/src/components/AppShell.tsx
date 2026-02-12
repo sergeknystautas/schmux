@@ -15,7 +15,15 @@ import { navigateToWorkspace } from '../lib/navigation';
 import useOverheatIndicator from '../hooks/useOverheatIndicator';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
-import { disposeWorkspace, getErrorMessage, openVSCode, reconnectRemoteHost } from '../lib/api';
+import {
+  disposeWorkspace,
+  getErrorMessage,
+  openVSCode,
+  reconnectRemoteHost,
+  getDevStatus,
+  devRebuild,
+  type DevStatus,
+} from '../lib/api';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -61,6 +69,54 @@ export default function AppShell() {
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
+
+  // Dev mode state
+  const isDevMode = !!versionInfo?.dev_mode;
+  const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
+  const [devRebuilding, setDevRebuilding] = useState(false);
+  const [devRebuildTarget, setDevRebuildTarget] = useState<string | null>(null);
+  const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting'>('building');
+
+  useEffect(() => {
+    if (!isDevMode) return;
+    getDevStatus()
+      .then(setDevStatus)
+      .catch(() => {});
+  }, [isDevMode, connected]);
+
+  // Identify which workspaces are dev-eligible (same repo as source)
+  const devSourceWorkspace = workspaces?.find((ws) => ws.path === devStatus?.source_workspace);
+  const devSourceRepo = devSourceWorkspace?.repo;
+
+  const handleDevRebuild = async (workspaceId: string, type: 'frontend' | 'backend' | 'both') => {
+    try {
+      setDevRebuilding(true);
+      setDevRebuildTarget(workspaceId);
+      setDevRebuildPhase('building');
+      await devRebuild(workspaceId, type);
+      // API responded — daemon is about to exit, now waiting for restart
+      setDevRebuildPhase('restarting');
+    } catch (err) {
+      setDevRebuilding(false);
+      setDevRebuildTarget(null);
+      console.error('Rebuild failed:', err);
+    }
+  };
+
+  // Reset rebuilding state when we reconnect after a rebuild.
+  // Track whether we went through a disconnection to avoid clearing
+  // the dialog immediately (connected is still true when the handler first sets state).
+  const devSawDisconnect = useRef(false);
+  useEffect(() => {
+    if (devRebuilding && !connected) {
+      devSawDisconnect.current = true;
+    }
+    if (devRebuilding && connected && devSawDisconnect.current) {
+      devSawDisconnect.current = false;
+      setDevRebuilding(false);
+      setDevRebuildTarget(null);
+    }
+  }, [connected, devRebuilding]);
 
   // Helper to get sessionsById from workspaces
   function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
@@ -393,10 +449,15 @@ export default function AppShell() {
                   : workspace.branch;
               const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
 
+              // Dev mode: is this workspace eligible and is it the live one?
+              const isDevEligible =
+                isDevMode && !isRemote && (!devSourceRepo || workspace.repo === devSourceRepo);
+              const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
+
               return (
                 <div
                   key={workspace.id}
-                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}`}
+                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}`}
                 >
                   <div
                     className="nav-workspace__header"
@@ -433,6 +494,23 @@ export default function AppShell() {
                           </span>
                         )}
                       </span>
+                    )}
+                    {isDevEligible && (
+                      <button
+                        className="nav-workspace__dev-btn"
+                        title={
+                          isDevLive
+                            ? 'Rebuild backend and restart Vite'
+                            : 'Switch to this workspace (rebuild + restart)'
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDevRebuild(workspace.id, 'both');
+                        }}
+                        disabled={devRebuilding}
+                      >
+                        {isDevLive ? 'Rebuild' : 'Test'}
+                      </button>
                     )}
                   </div>
                   <div
@@ -552,7 +630,9 @@ export default function AppShell() {
                             </span>
                             <span className="nav-session__activity">{activityDisplay}</span>
                           </div>
-                          <div className="nav-session__row2">{nudgePreviewElement || '\u00A0'}</div>
+                          {nudgePreviewElement && (
+                            <div className="nav-session__row2">{nudgePreviewElement}</div>
+                          )}
                         </div>
                       );
                     })}
@@ -685,6 +765,27 @@ export default function AppShell() {
               setReconnectModal(null);
             }}
           />
+        )}
+
+        {devRebuilding && devRebuildTarget && (
+          <div className="modal-overlay">
+            <div className="modal dev-rebuild-dialog">
+              <div
+                className="modal__body"
+                style={{ textAlign: 'center', padding: 'var(--spacing-xl)' }}
+              >
+                <div className="dev-rebuild-dialog__spinner"></div>
+                <div className="dev-rebuild-dialog__phase">
+                  {devRebuildPhase === 'building' ? 'Building...' : 'Restarting...'}
+                </div>
+                <div className="dev-rebuild-dialog__detail">
+                  {devRebuildPhase === 'building'
+                    ? `Compiling from ${workspaces?.find((ws) => ws.id === devRebuildTarget)?.branch || devRebuildTarget}`
+                    : 'Waiting for daemon to restart'}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         <Outlet />

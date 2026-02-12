@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -12,14 +13,18 @@ import (
 )
 
 // parseDaemonRunFlags parses the flags for daemon-run command.
-// Returns (devProxy, background) flags.
-func parseDaemonRunFlags(args []string) (devProxy bool, background bool) {
+// Returns (devProxy, background, devMode) flags.
+// --dev-mode implies --dev-proxy.
+func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode bool) {
 	for _, arg := range args {
 		switch arg {
 		case "--dev-proxy":
 			devProxy = true
 		case "--background":
 			background = true
+		case "--dev-mode":
+			devMode = true
+			devProxy = true // dev-mode implies dev-proxy
 		}
 	}
 	return
@@ -59,8 +64,11 @@ func main() {
 			}
 			fmt.Println("schmux daemon started")
 		} else { // daemon-run
-			devProxy, background := parseDaemonRunFlags(os.Args[2:])
-			if err := daemon.Run(background, devProxy); err != nil {
+			devProxy, background, devMode := parseDaemonRunFlags(os.Args[2:])
+			if err := daemon.Run(background, devProxy, devMode); err != nil {
+				if errors.Is(err, daemon.ErrDevRestart) {
+					os.Exit(42)
+				}
 				fmt.Fprintf(os.Stderr, "Daemon error: %v\n", err)
 				os.Exit(1)
 			}
