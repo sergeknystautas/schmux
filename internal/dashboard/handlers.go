@@ -279,13 +279,24 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}
 
-	// Convert map to slice and sort workspaces by ID
+	// Convert map to slice and sort workspaces by repo name, then branch name
 	response := make([]WorkspaceResponseItem, 0, len(workspaceMap))
 	for _, ws := range workspaceMap {
 		response = append(response, *ws)
 	}
 	sort.Slice(response, func(i, j int) bool {
-		return response[i].ID < response[j].ID
+		repoI := response[i].Repo
+		repoJ := response[j].Repo
+		if r, found := s.config.FindRepoByURL(response[i].Repo); found {
+			repoI = r.Name
+		}
+		if r, found := s.config.FindRepoByURL(response[j].Repo); found {
+			repoJ = r.Name
+		}
+		if repoI != repoJ {
+			return repoI < repoJ
+		}
+		return response[i].Branch < response[j].Branch
 	})
 
 	// Sort sessions within each workspace by creation time (oldest first)
