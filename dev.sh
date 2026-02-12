@@ -37,7 +37,7 @@ json_field() {
     if command -v jq >/dev/null 2>&1; then
         jq -r ".$field // empty" "$file" 2>/dev/null
     else
-        python3 -c "import json,sys; d=json.load(open('$file')); print(d.get('$field',''))" 2>/dev/null
+        python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2],''))" "$file" "$field" 2>/dev/null
     fi
 }
 
