@@ -3167,16 +3167,22 @@ a:hover {
   background-color: var(--color-surface-alt);
 }
 
-.git-dag__file-row {
-  margin-left: var(--spacing-lg);
+.git-dag__commit-row {
+  padding-left: var(--spacing-xs);
 }
 
-.git-dag__commit-section {
+.git-dag__file-row {
+  display: flex;
+  align-items: center;
+  padding-left: calc(var(--spacing-lg) + var(--spacing-xs));
+  height: 100%;
+}
+
+.git-dag__commit-section-bg {
   background: var(--color-surface-alt);
   outline: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--spacing-xxs) var(--spacing-xs);
-  margin: var(--spacing-xs) 0;
+  pointer-events: none;
 }
 
 .git-dag__you-are-here {

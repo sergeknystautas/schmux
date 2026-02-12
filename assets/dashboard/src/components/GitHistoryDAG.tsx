@@ -175,7 +175,11 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     }
     if (ln.nodeType === 'commit-actions') {
       return (
-        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+        <div
+          key={ln.hash}
+          className="git-dag__row git-dag__commit-row"
+          style={{ height: lay.rowHeight }}
+        >
           <button
             className="git-dag__action-button"
             onClick={() =>
@@ -256,7 +260,11 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     if (ln.nodeType === 'commit-footer') {
       const canAmend = (ws?.git_ahead ?? 0) > 0;
       return (
-        <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
+        <div
+          key={ln.hash}
+          className="git-dag__row git-dag__commit-row"
+          style={{ height: lay.rowHeight }}
+        >
           <button
             className="git-dag__action-button"
             disabled={selectedFiles.size === 0 || isCommitting}
@@ -434,35 +442,47 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             ))}
           </svg>
 
-          {/* Row content */}
-          <div className="git-dag__rows" style={{ marginLeft: graphWidth }}>
+          {/* Row content — each row is absolutely positioned using the same y
+              coordinates as the SVG, so the two sides stay perfectly aligned
+              regardless of wrapper margins/padding. */}
+          <div
+            className="git-dag__rows"
+            style={{ marginLeft: graphWidth, position: 'relative', minHeight: totalHeight }}
+          >
+            {/* Commit section background (absolutely positioned behind the rows) */}
             {(() => {
               const commitTypes = new Set(['commit-actions', 'commit-file', 'commit-footer']);
-              const groups: { type: 'regular' | 'commit'; nodes: LayoutNode[] }[] = [];
-              let current: (typeof groups)[0] | null = null;
-
-              for (const ln of layout.nodes) {
-                const isCommit = commitTypes.has(ln.nodeType);
-                const groupType = isCommit ? 'commit' : 'regular';
-                if (!current || current.type !== groupType) {
-                  current = { type: groupType, nodes: [] };
-                  groups.push(current);
-                }
-                current.nodes.push(ln);
-              }
-
-              return groups.map((group, gi) => {
-                const rendered = group.nodes.map((ln) => renderNode(ln, layout));
-                if (group.type === 'commit') {
-                  return (
-                    <div key={`commit-section-${gi}`} className="git-dag__commit-section">
-                      {rendered}
-                    </div>
-                  );
-                }
-                return <>{rendered}</>;
-              });
+              const commitNodes = layout.nodes.filter((ln) => commitTypes.has(ln.nodeType));
+              if (commitNodes.length === 0) return null;
+              const topY = commitNodes[0].y;
+              const bottomY = commitNodes[commitNodes.length - 1].y + layout.rowHeight;
+              return (
+                <div
+                  className="git-dag__commit-section-bg"
+                  style={{
+                    position: 'absolute',
+                    top: topY,
+                    left: 0,
+                    right: 0,
+                    height: bottomY - topY,
+                  }}
+                />
+              );
             })()}
+            {layout.nodes.map((ln) => (
+              <div
+                key={ln.hash}
+                style={{
+                  position: 'absolute',
+                  top: ln.y,
+                  left: 0,
+                  right: 0,
+                  height: layout.rowHeight,
+                }}
+              >
+                {renderNode(ln, layout)}
+              </div>
+            ))}
           </div>
         </div>
       </div>
