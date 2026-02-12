@@ -187,7 +187,8 @@ type PrReviewConfig struct {
 
 // NotificationsConfig holds configuration for dashboard notifications.
 type NotificationsConfig struct {
-	SoundDisabled bool `json:"sound_disabled,omitempty"` // disable attention sounds (default: false = sounds enabled)
+	SoundDisabled      bool `json:"sound_disabled,omitempty"`       // disable attention sounds (default: false = sounds enabled)
+	ConfirmBeforeClose bool `json:"confirm_before_close,omitempty"` // show browser "Leave site?" dialog on tab close (default: false = no confirmation)
 }
 
 // RemoteWorkspaceConfig holds configuration for remote workspace operations.
@@ -540,6 +541,15 @@ func (c *Config) GetNotificationSoundEnabled() bool {
 		return true
 	}
 	return !c.Notifications.SoundDisabled
+}
+
+// GetConfirmBeforeClose returns whether the browser should show a "Leave site?" dialog on tab close.
+// Defaults to false (no confirmation).
+func (c *Config) GetConfirmBeforeClose() bool {
+	if c == nil || c.Notifications == nil {
+		return false
+	}
+	return c.Notifications.ConfirmBeforeClose
 }
 
 // GetDetectedRunTarget finds a detected run target by name.

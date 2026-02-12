@@ -85,6 +85,7 @@ type ConfigSnapshot = {
   authTlsCertPath: string;
   authTlsKeyPath: string;
   soundDisabled: boolean;
+  confirmBeforeClose: boolean;
   modelVersions: Record<string, string>;
 };
 
@@ -193,6 +194,7 @@ export default function ConfigPage() {
   const [authWarnings, setAuthWarnings] = useState<string[]>([]);
   const [apiNeedsRestart, setApiNeedsRestart] = useState(false);
   const [soundDisabled, setSoundDisabled] = useState(false);
+  const [confirmBeforeClose, setConfirmBeforeClose] = useState(false);
   const [modelVersions, setModelVersions] = useState<Record<string, string>>({});
 
   // Overlays state
@@ -243,6 +245,7 @@ export default function ConfigPage() {
       authTlsCertPath,
       authTlsKeyPath,
       soundDisabled,
+      confirmBeforeClose,
       modelVersions,
     };
 
@@ -287,6 +290,7 @@ export default function ConfigPage() {
       current.authTlsCertPath !== originalConfig.authTlsCertPath ||
       current.authTlsKeyPath !== originalConfig.authTlsKeyPath ||
       current.soundDisabled !== originalConfig.soundDisabled ||
+      current.confirmBeforeClose !== originalConfig.confirmBeforeClose ||
       JSON.stringify(current.modelVersions) !== JSON.stringify(originalConfig.modelVersions)
     );
   };
@@ -400,6 +404,7 @@ export default function ConfigPage() {
         setAuthWarnings([]);
         setApiNeedsRestart(data.needs_restart || false);
         setSoundDisabled(data.notifications?.sound_disabled || false);
+        setConfirmBeforeClose(data.notifications?.confirm_before_close || false);
         setModelVersions(data.model_versions || {});
 
         // Set original config for change detection (non-wizard mode)
@@ -443,6 +448,7 @@ export default function ConfigPage() {
             authTlsCertPath: data.network?.tls?.cert_path || '',
             authTlsKeyPath: data.network?.tls?.key_path || '',
             soundDisabled: data.notifications?.sound_disabled || false,
+            confirmBeforeClose: data.notifications?.confirm_before_close || false,
             modelVersions: data.model_versions || {},
           });
         }
@@ -638,6 +644,7 @@ export default function ConfigPage() {
         },
         notifications: {
           sound_disabled: soundDisabled,
+          confirm_before_close: confirmBeforeClose,
         },
         model_versions: modelVersions,
       };
@@ -690,6 +697,7 @@ export default function ConfigPage() {
           authTlsCertPath,
           authTlsKeyPath,
           soundDisabled,
+          confirmBeforeClose,
           modelVersions,
         });
       }
@@ -2535,6 +2543,27 @@ export default function ConfigPage() {
                     <p className="form-group__hint">
                       Plays an audio notification when an agent signals it needs input or encounters
                       an error.
+                    </p>
+                  </div>
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={confirmBeforeClose}
+                        onChange={(e) => setConfirmBeforeClose(e.target.checked)}
+                      />
+                      <span>Confirm before closing tab</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Shows a browser &ldquo;Leave site?&rdquo; dialog when closing or reloading the
+                      dashboard tab.
                     </p>
                   </div>
                 </div>

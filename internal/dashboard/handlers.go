@@ -1189,7 +1189,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target: s.config.GetPrReviewTarget(),
 		},
 		Notifications: contracts.Notifications{
-			SoundDisabled: !s.config.GetNotificationSoundEnabled(),
+			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
+			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
@@ -1477,6 +1478,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Notifications.SoundDisabled != nil {
 			cfg.Notifications.SoundDisabled = *req.Notifications.SoundDisabled
+		}
+		if req.Notifications.ConfirmBeforeClose != nil {
+			cfg.Notifications.ConfirmBeforeClose = *req.Notifications.ConfirmBeforeClose
 		}
 	}
 
