@@ -3199,7 +3199,7 @@ a:hover {
   white-space: nowrap;
 }
 
-.git-dag__action-button {
+.git-dag__btn {
   font-size: 0.65rem;
   font-weight: 500;
   color: var(--color-text);
@@ -3217,49 +3217,24 @@ a:hover {
   transition: all var(--duration-fast) var(--easing);
 }
 
-.git-dag__action-button:hover:not(:disabled) {
+.git-dag__btn:hover:not(:disabled) {
   background-color: var(--color-border);
   border-color: var(--color-text-muted);
 }
 
-.git-dag__action-button:disabled {
+.git-dag__btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.git-dag__ff-to-main-button {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--color-text);
-  background-color: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 2px 8px;
-  margin-left: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  cursor: pointer;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all var(--duration-fast) var(--easing);
-}
-
-.git-dag__ff-to-main-button:hover:not(:disabled) {
-  background-color: var(--color-border);
-  border-color: var(--color-text-muted);
-}
-
-.git-dag__ff-to-main-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.git-dag__ff-to-main-button .spinner {
+.git-dag__btn .spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
+}
+
+.git-dag__ff-to-main-button {
+  margin-left: 6px;
 }
 
 .git-dag__view-changes {
@@ -3278,40 +3253,6 @@ a:hover {
 
 .git-dag__view-changes:hover {
   background: color-mix(in srgb, var(--color-graph-lane-1) 24%, transparent);
-}
-
-.git-dag__sync-button {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--color-text);
-  background-color: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 2px 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  cursor: pointer;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all var(--duration-fast) var(--easing);
-}
-
-.git-dag__sync-button:hover:not(:disabled) {
-  background-color: var(--color-border);
-  border-color: var(--color-text-muted);
-}
-
-.git-dag__sync-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.git-dag__sync-button .spinner {
-  width: 10px;
-  height: 10px;
-  border-width: 1.5px;
 }
 
 .git-dag__sync-summary {
