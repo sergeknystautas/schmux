@@ -343,19 +343,6 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
-	// Start output trackers for running sessions restored from state.
-	for _, sess := range st.GetSessions() {
-		timeoutCtx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
-		exists := tmux.SessionExists(timeoutCtx, sess.TmuxSession)
-		cancel()
-		if !exists {
-			continue
-		}
-		if err := sm.EnsureTracker(sess.ID); err != nil {
-			fmt.Printf("[session] warning: failed to start tracker for %s: %v\n", sess.ID, err)
-		}
-	}
-
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
@@ -386,9 +373,23 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	sm.SetRemoteManager(remoteManager)
 
 	// Wire signal detection: tracker → session manager → dashboard server
+	// MUST happen before tracker creation so trackers capture a non-nil callback.
 	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
 		server.HandleAgentSignal(sessionID, sig)
 	})
+
+	// Start output trackers for running sessions restored from state.
+	for _, sess := range st.GetSessions() {
+		timeoutCtx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
+		exists := tmux.SessionExists(timeoutCtx, sess.TmuxSession)
+		cancel()
+		if !exists {
+			continue
+		}
+		if err := sm.EnsureTracker(sess.ID); err != nil {
+			fmt.Printf("[session] warning: failed to start tracker for %s: %v\n", sess.ID, err)
+		}
+	}
 
 	// Start signal monitors for existing remote sessions
 	for _, sess := range st.GetSessions() {
