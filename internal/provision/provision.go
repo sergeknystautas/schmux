@@ -219,9 +219,32 @@ func SupportsSystemPromptFlag(toolName string) bool {
 	switch toolName {
 	case "claude":
 		return true
+	case "codex":
+		return true
 	default:
 		return false
 	}
+}
+
+// SignalingInstructionsFilePath returns the canonical path for system prompt file injection.
+func SignalingInstructionsFilePath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".schmux", "signaling.md")
+	}
+	return filepath.Join(homeDir, ".schmux", "signaling.md")
+}
+
+// EnsureSignalingInstructionsFile writes signaling instructions to ~/.schmux/signaling.md.
+func EnsureSignalingInstructionsFile() error {
+	path := SignalingInstructionsFilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create signaling directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(SignalingInstructions), 0644); err != nil {
+		return fmt.Errorf("failed to write signaling instructions file: %w", err)
+	}
+	return nil
 }
 
 // HasSignalingInstructions checks if the instruction file for a target

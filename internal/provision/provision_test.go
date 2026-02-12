@@ -234,3 +234,22 @@ func TestHasSignalingInstructions(t *testing.T) {
 		t.Error("Should be true after adding instructions")
 	}
 }
+
+func TestEnsureSignalingInstructionsFile(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	if err := EnsureSignalingInstructionsFile(); err != nil {
+		t.Fatalf("EnsureSignalingInstructionsFile failed: %v", err)
+	}
+
+	path := filepath.Join(tmpHome, ".schmux", "signaling.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read signaling file: %v", err)
+	}
+
+	if string(content) != SignalingInstructions {
+		t.Fatal("signaling file content mismatch")
+	}
+}
