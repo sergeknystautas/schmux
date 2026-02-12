@@ -83,6 +83,7 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID string `json:"workspace_id"`
 		Type        string `json:"type"` // "frontend", "backend", or "both"
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
