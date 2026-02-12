@@ -227,7 +227,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		attachCmd, _ := s.session.GetAttachCommand(sess.ID)
 		lastOutputAt := ""
 		if !sess.LastOutputAt.IsZero() {
-			lastOutputAt = sess.LastOutputAt.Format("2006-01-02T15:04:05")
+			lastOutputAt = sess.LastOutputAt.Format(time.RFC3339)
 		}
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 		running := s.session.IsRunning(timeoutCtx, sess.ID)
@@ -265,7 +265,7 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			Branch:           wsResp.Branch,
 			BranchURL:        wsResp.BranchURL,
 			Nickname:         sess.Nickname,
-			CreatedAt:        sess.CreatedAt.Format("2006-01-02T15:04:05"),
+			CreatedAt:        sess.CreatedAt.Format(time.RFC3339),
 			LastOutputAt:     lastOutputAt,
 			Running:          running,
 			Status:           sess.Status, // Expose session status for remote sessions
