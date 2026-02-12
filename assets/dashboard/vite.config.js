@@ -11,14 +11,24 @@ function pauseWatchPlugin() {
   return {
     name: 'pause-watch',
     configureServer(server) {
-      server.middlewares.use('/__dev/pause-watch', (_req, res) => {
+      server.middlewares.use('/__dev/pause-watch', (req, res, next) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
         paused = true;
         pendingReload = false;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ paused: true }));
       });
 
-      server.middlewares.use('/__dev/resume-watch', (_req, res) => {
+      server.middlewares.use('/__dev/resume-watch', (req, res, next) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
         const hadPending = pendingReload;
         paused = false;
         pendingReload = false;
@@ -48,6 +58,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links'],
+        },
+      },
+    },
   },
 });

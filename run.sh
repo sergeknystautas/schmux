@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-# Navigate to project root (assumes script is in scripts/ subdir)
+# Navigate to project root
 cd "$(dirname "$0")"
 
 echo ""
@@ -22,7 +22,7 @@ echo "Starting fresh daemon..."
 ./schmux start
 
 echo ""
-echo "Schnux daemon is running."
+echo "schmux daemon is running."
 echo ""
 
 echo "----- Logs ----------------------------------------------------------"

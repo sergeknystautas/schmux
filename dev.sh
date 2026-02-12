@@ -127,7 +127,8 @@ build_binary() {
 
     mkdir -p "$(dirname "$BINARY")"
 
-    if (cd "$workspace_path" && go build -o "${SCRIPT_DIR}/${BINARY}" ./cmd/schmux) 2>&1; then
+    local build_output
+    if build_output=$(cd "$workspace_path" && go build -o "${SCRIPT_DIR}/${BINARY}" ./cmd/schmux 2>&1); then
         echo -e "${GREEN}[dev]${NC} Build succeeded"
         # Write build status
         cat > "$DEV_BUILD_STATUS_FILE" <<BEOF
@@ -135,7 +136,10 @@ build_binary() {
 BEOF
         return 0
     else
-        local err_msg="build failed"
+        echo "$build_output"
+        # Escape JSON special characters in error output
+        local err_msg
+        err_msg=$(echo "$build_output" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
         echo -e "${RED}[dev]${NC} Build failed from ${workspace_path}"
         cat > "$DEV_BUILD_STATUS_FILE" <<BEOF
 {"success":false,"workspace_path":"${workspace_path}","error":"${err_msg}","at":"${timestamp}"}
