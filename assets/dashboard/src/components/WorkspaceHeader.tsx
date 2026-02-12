@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { openVSCode, disposeWorkspace, disposeWorkspaceAll, getErrorMessage } from '../lib/api';
 import { useModal } from './ModalProvider';
@@ -22,15 +21,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const { linearSyncResolveConflictStates } = useSessions();
   const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
-
-  // Git status dropdown state
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [rebasing, setRebasing] = useState(false);
-  const [merging, setMerging] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
-  const [placementAbove, setPlacementAbove] = useState(false);
-  const gitStatusRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Check if resolve conflict is in progress for this workspace
   const crState = linearSyncResolveConflictStates[workspace.id];
@@ -90,74 +80,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
     }
   };
 
-  // Calculate menu position when dropdown opens
-  useEffect(() => {
-    if (isDropdownOpen && gitStatusRef.current) {
-      const rect = gitStatusRef.current.getBoundingClientRect();
-      const gap = 4;
-      const estimatedMenuHeight = 120; // Approximate height for single menu item
-
-      const spaceBelow = window.innerHeight - rect.bottom - gap;
-      const spaceAbove = rect.top - gap;
-
-      const shouldPlaceAbove = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
-      setPlacementAbove(shouldPlaceAbove);
-
-      if (shouldPlaceAbove) {
-        setMenuPosition({
-          top: rect.top - gap,
-          left: rect.right,
-        });
-      } else {
-        setMenuPosition({
-          top: rect.bottom + gap,
-          left: rect.right,
-        });
-      }
-    }
-  }, [isDropdownOpen]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (gitStatusRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      setIsDropdownOpen(false);
-    };
-
-    if (isDropdownOpen) {
-      document.addEventListener('click', handleClickOutside, true);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside, true);
-    };
-  }, [isDropdownOpen]);
-
-  const handleLinearSyncFromMainClick = async () => {
-    setIsDropdownOpen(false);
-    setRebasing(true);
-    await handleLinearSyncFromMain(workspace.id);
-    setRebasing(false);
-  };
-
-  const handleLinearSyncToMainClick = async () => {
-    setIsDropdownOpen(false);
-    setMerging(true);
-    await handleLinearSyncToMain(workspace.id, workspace.path);
-    setMerging(false);
-  };
-
-  const handleLinearSyncResolveConflictClick = async () => {
-    setIsDropdownOpen(false);
-    await startConflictResolution(workspace.id);
-  };
-
-  // Disable sync/dispose actions when conflict resolve is in progress
-  const actionsDisabled = resolveInProgress;
-
   // For remote workspaces, use hostname from sessions if branch matches repo (fallback case)
   const isRemote = workspace.sessions?.some((s) => s.remote_host_id);
   const remoteHostname = workspace.sessions?.find((s) => s.remote_hostname)?.remote_hostname;
@@ -201,20 +123,11 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               </span>
             )}
             {isGit && (
-              <div style={{ display: 'inline-flex' }} ref={gitStatusRef}>
-                <Tooltip content={`${behind} behind, ${ahead} ahead`}>
-                  <span
-                    className="app-header__git-status"
-                    onClick={() => !actionsDisabled && setIsDropdownOpen(!isDropdownOpen)}
-                    style={{
-                      cursor: actionsDisabled ? 'default' : 'pointer',
-                      opacity: actionsDisabled ? 0.5 : 1,
-                    }}
-                  >
-                    {behind} | {ahead}
-                  </span>
-                </Tooltip>
-              </div>
+              <Tooltip content={`${behind} behind, ${ahead} ahead`}>
+                <span className="app-header__git-status">
+                  {behind} | {ahead}
+                </span>
+              </Tooltip>
             )}
           </span>
           <span className="app-header__name">{displayName}</span>
@@ -249,7 +162,7 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"
               onClick={handleDisposeWorkspace}
-              disabled={actionsDisabled}
+              disabled={resolveInProgress}
               aria-label={`Dispose ${workspace.id}`}
             >
               <svg
@@ -267,66 +180,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
           </Tooltip>
         </div>
       </div>
-
-      {isGit &&
-        isDropdownOpen &&
-        !rebasing &&
-        !merging &&
-        !resolveInProgress &&
-        createPortal(
-          <div
-            ref={menuRef}
-            className={`spawn-dropdown__menu spawn-dropdown__menu--portal${placementAbove ? ' spawn-dropdown__menu--above' : ''}`}
-            role="menu"
-            style={{
-              position: 'fixed',
-              top: placementAbove ? 'auto' : `${menuPosition.top}px`,
-              bottom: placementAbove ? `${window.innerHeight - menuPosition.top}px` : 'auto',
-              right: `${window.innerWidth - menuPosition.left}px`,
-            }}
-          >
-            <button
-              className="spawn-dropdown__item"
-              onClick={handleLinearSyncFromMainClick}
-              role="menuitem"
-              disabled={behind === 0}
-              aria-disabled={behind === 0}
-            >
-              <span className="spawn-dropdown__item-label">sync from main clean</span>
-            </button>
-            <button
-              className="spawn-dropdown__item"
-              onClick={handleLinearSyncResolveConflictClick}
-              role="menuitem"
-              disabled={behind === 0 || !config.conflict_resolve?.target}
-              aria-disabled={behind === 0 || !config.conflict_resolve?.target}
-            >
-              <span className="spawn-dropdown__item-label">sync from main conflict</span>
-            </button>
-            <button
-              className="spawn-dropdown__item"
-              onClick={handleLinearSyncToMainClick}
-              role="menuitem"
-              disabled={
-                workspace.git_lines_added !== 0 ||
-                workspace.git_lines_removed !== 0 ||
-                workspace.git_files_changed !== 0 ||
-                behind !== 0 ||
-                ahead < 1
-              }
-              aria-disabled={
-                workspace.git_lines_added !== 0 ||
-                workspace.git_lines_removed !== 0 ||
-                workspace.git_files_changed !== 0 ||
-                behind !== 0 ||
-                ahead < 1
-              }
-            >
-              <span className="spawn-dropdown__item-label">sync to main</span>
-            </button>
-          </div>,
-          document.body
-        )}
     </>
   );
 }
