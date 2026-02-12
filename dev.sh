@@ -204,11 +204,8 @@ SEOF
 
     # Run the daemon
     set +e
-    "$BINARY" daemon-run --dev-mode 2>&1 | while IFS= read -r line; do
-        echo -e "${CYAN}[backend]${NC}  $line"
-    done
-    # Capture exit code from the daemon (first process in the pipeline)
-    EXIT_CODE=${PIPESTATUS[0]}
+    "$BINARY" daemon-run --dev-mode > >(while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done) 2>&1
+    EXIT_CODE=$?
     set -e
 
     if [[ "$EXIT_CODE" -eq 42 ]]; then
