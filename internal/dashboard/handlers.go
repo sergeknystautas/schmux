@@ -816,8 +816,8 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	start := time.Now()
 
 	var req struct {
-		Repo   string `json:"repo"`
-		Branch string `json:"branch"`
+		RepoName string `json:"repo_name"`
+		Branch   string `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -825,10 +825,19 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
 		return
 	}
-	if req.Repo == "" || req.Branch == "" {
+	if req.RepoName == "" || req.Branch == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "repo and branch are required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo_name and branch are required"})
+		return
+	}
+
+	// Look up repo URL from name
+	repo, found := s.config.FindRepo(req.RepoName)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found"})
 		return
 	}
 
@@ -836,7 +845,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Get commit subjects from bare clone
-	subjects, err := s.workspace.GetBranchCommitLog(ctx, req.Repo, req.Branch, 20)
+	subjects, err := s.workspace.GetBranchCommitLog(ctx, repo.URL, req.Branch, 20)
 	if err != nil {
 		fmt.Printf("[workspace] prepare-branch-spawn: failed to get commit log: %v\n", err)
 		// Non-fatal: proceed without commit log
@@ -881,7 +890,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"repo":     req.Repo,
+		"repo":     req.RepoName,
 		"branch":   req.Branch,
 		"prompt":   prompt,
 		"nickname": nickname,

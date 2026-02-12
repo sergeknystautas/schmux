@@ -142,13 +142,13 @@ export interface PrepareBranchSpawnResponse {
 }
 
 export async function prepareBranchSpawn(
-  repo: string,
+  repoName: string,
   branch: string
 ): Promise<PrepareBranchSpawnResponse> {
   const response = await fetch('/api/prepare-branch-spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo, branch }),
+    body: JSON.stringify({ repo_name: repoName, branch }),
   });
   if (!response.ok) {
     const err = await response.text();

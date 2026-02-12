@@ -20,10 +20,6 @@ export function formatRelativeTime(timestamp: string | number | Date): string {
   return date.toLocaleDateString();
 }
 
-export function extractRepoName(repoUrl) {
-  return repoUrl.split('/').pop().replace('.git', '');
-}
-
 export async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
