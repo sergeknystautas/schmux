@@ -392,7 +392,7 @@ func TestStripANSIStateMachine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := string(stripANSIBytes([]byte(tt.in)))
+			got := string(stripANSIBytes(nil, []byte(tt.in)))
 			if got != tt.want {
 				t.Errorf("stripANSIBytes(%q) =\n  %q\nwant:\n  %q", tt.in, got, tt.want)
 			}
