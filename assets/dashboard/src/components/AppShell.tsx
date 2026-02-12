@@ -209,31 +209,28 @@ export default function AppShell() {
       if (!e.metaKey && !e.ctrlKey) return;
       if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
 
-      // Cmd+Left: Previous session in workspace
-      if (e.key === 'ArrowLeft') {
-        if (!context.workspaceId || !context.sessionId) return;
+      // Build ordered list of tab routes for cycling: [sessions..., diff, git]
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (!context.workspaceId) return;
         const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
-        if (!workspace?.sessions?.length) return;
+        if (!workspace) return;
+        const isVCS = !workspace.vcs || workspace.vcs === 'git';
 
-        const currentIndex = workspace.sessions.findIndex((s) => s.id === context.sessionId);
-        if (currentIndex <= 0) return; // Already at first or not found
+        const tabs: string[] = (workspace.sessions || []).map((s) => `/sessions/${s.id}`);
+        if (isVCS) {
+          tabs.push(`/diff/${workspace.id}`);
+          tabs.push(`/git/${workspace.id}`);
+        }
+        if (tabs.length <= 1) return;
+
+        const currentIndex = tabs.indexOf(location.pathname);
+        if (currentIndex === -1) return;
+
+        const delta = e.key === 'ArrowRight' ? 1 : -1;
+        const nextIndex = (currentIndex + delta + tabs.length) % tabs.length;
 
         e.preventDefault();
-        navigate(`/sessions/${workspace.sessions[currentIndex - 1].id}`);
-        return;
-      }
-
-      // Cmd+Right: Next session in workspace
-      if (e.key === 'ArrowRight') {
-        if (!context.workspaceId || !context.sessionId) return;
-        const workspace = workspaces?.find((ws) => ws.id === context.workspaceId);
-        if (!workspace?.sessions?.length) return;
-
-        const currentIndex = workspace.sessions.findIndex((s) => s.id === context.sessionId);
-        if (currentIndex === -1 || currentIndex >= workspace.sessions.length - 1) return;
-
-        e.preventDefault();
-        navigate(`/sessions/${workspace.sessions[currentIndex + 1].id}`);
+        navigate(tabs[nextIndex]);
         return;
       }
 
@@ -276,7 +273,7 @@ export default function AppShell() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [workspaces, context.workspaceId, context.sessionId, navigate]);
+  }, [workspaces, context.workspaceId, context.sessionId, navigate, location.pathname]);
 
   // Register workspace-specific keyboard actions based on active context
   useEffect(() => {
