@@ -355,57 +355,21 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, files []GitChangedFile)
-func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, files []GitChangedFile) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool)
+func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
-	// Initialize files slice
-	files = []GitChangedFile{}
-
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
-	// Also get file-level status from --porcelain output
 	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	statusCmd.Dir = dir
 	output, err := statusCmd.CombinedOutput()
-	dirty = err == nil && len(strings.TrimSpace(string(output))) > 0
+	trimmedOutput := strings.TrimSpace(string(output))
+	dirty = err == nil && len(trimmedOutput) > 0
 
-	// Parse git status --porcelain output to get file status
-	// Format: XY filename where X is staged, Y is unstaged
-	// ?? = untracked, M = modified, A = added, D = deleted
-	if err == nil {
-		statusLines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		for _, line := range statusLines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-
-			// Parse status code
-			statusCode := line[:2]
-			filePath := strings.TrimPrefix(line[3:], "\"")
-
-			// Determine file status
-			var status string
-			if strings.HasPrefix(statusCode, "??") {
-				status = "untracked"
-			} else if strings.Contains(statusCode, "M") {
-				status = "modified"
-			} else if strings.Contains(statusCode, "A") {
-				status = "added"
-			} else if strings.Contains(statusCode, "D") {
-				status = "deleted"
-			} else {
-				status = "modified" // default fallback
-			}
-
-			files = append(files, GitChangedFile{
-				Path:         filePath,
-				Status:       status,
-				LinesAdded:   0,
-				LinesRemoved: 0,
-			})
-		}
+	// Count files changed from porcelain output
+	if err == nil && trimmedOutput != "" {
+		filesChanged = len(strings.Split(trimmedOutput, "\n"))
 	}
 
 	// Check ahead/behind counts using rev-list
@@ -430,10 +394,28 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 		}
 	}
 
+	// Check if local HEAD matches origin/{branch} (indicates commits are synced to remote branch)
+	// Get current branch name first
+	currentBranch, _ := m.gitCurrentBranch(ctx, dir)
+	if currentBranch != "" && currentBranch != "HEAD" {
+		// Check if origin/{branch} exists and compare with HEAD
+		remoteRef := "origin/" + currentBranch
+		mergeBaseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", remoteRef)
+		mergeBaseCmd.Dir = dir
+		isAncestor := mergeBaseCmd.Run() == nil
+
+		reverseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", remoteRef, "HEAD")
+		reverseCmd.Dir = dir
+		remoteIsAncestor := reverseCmd.Run() == nil
+
+		// Commits are synced if HEAD is an ancestor of remote AND remote is an ancestor of HEAD
+		// (meaning they point to the same commit)
+		commitsSyncedWithRemote = isAncestor && remoteIsAncestor
+	}
+
 	// Get line additions/deletions from uncommitted changes using diff --numstat HEAD
 	// Using HEAD includes both staged and unstaged changes
 	// Output format per line: "additions\tdeletions\tfilename"
-	// We sum across all changed files AND track per-file line counts
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--numstat", "HEAD")
 	diffCmd.Dir = dir
 	output, err = diffCmd.CombinedOutput()
@@ -444,25 +426,11 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 			for _, line := range lines {
 				parts := strings.Split(line, "\t")
 				if len(parts) >= 3 {
-					added := 0
-					removed := 0
 					if a, err := strconv.Atoi(parts[0]); err == nil {
-						added = a
-						linesAdded += added
+						linesAdded += a
 					}
 					if r, err := strconv.Atoi(parts[1]); err == nil && parts[1] != "-" {
-						removed = r
-						linesRemoved += removed
-					}
-					filePath := parts[2]
-
-					// Update the corresponding file in the files slice
-					for i, f := range files {
-						if f.Path == filePath {
-							files[i].LinesAdded = added
-							files[i].LinesRemoved = removed
-							break
-						}
+						linesRemoved += r
 					}
 				}
 			}
@@ -495,32 +463,10 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 				}
 			}
 			linesAdded += lineCount
-
-			// Update the corresponding file in the files slice
-			found := false
-			for i, f := range files {
-				if f.Path == filePath {
-					files[i].LinesAdded = lineCount
-					found = true
-					break
-				}
-			}
-			// If not found in files slice, add it (might happen if git status didn't catch it)
-			if !found {
-				files = append(files, GitChangedFile{
-					Path:         filePath,
-					Status:       "untracked",
-					LinesAdded:   lineCount,
-					LinesRemoved: 0,
-				})
-			}
 		}
 	}
 
-	// Calculate total files changed
-	filesChanged = len(files)
-
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, files
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.
@@ -608,25 +554,14 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*GitS
 		status.Safe = false
 	}
 
-	// Check ahead/behind counts using rev-list (only if there's an upstream)
-	revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
-	revListCmd.Dir = w.Path
-	output, err = revListCmd.CombinedOutput()
-	if err != nil {
-		// No upstream branch or other error - skip ahead/behind check
-		// A clean working tree with no upstream is safe to dispose
-		// (local-only commits are OK if there's no remote to push to)
-		fmt.Printf("[workspace] no upstream branch for %s, skipping ahead/behind check\n", workspaceID)
-	} else {
-		// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
-		parts := strings.Split(strings.TrimSpace(string(output)), "\t")
-		if len(parts) == 2 {
-			ahead, _ := strconv.Atoi(parts[0])
-			status.AheadCommits = ahead
-			if ahead > 0 {
-				status.Safe = false
-			}
-		}
+	// Use pre-computed values from gitStatus() - no independent git commands here
+	commitsSyncedWithRemote := w.CommitsSyncedWithRemote
+	ahead := w.GitAhead
+
+	status.AheadCommits = ahead
+	// Only unsafe if ahead AND not synced with remote branch
+	if ahead > 0 && !commitsSyncedWithRemote {
+		status.Safe = false
 	}
 
 	// Build reason string if not safe
