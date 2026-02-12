@@ -34,8 +34,8 @@ const modKey = isMac ? 'Cmd' : 'Ctrl';
 
 const directShortcuts = [
   { key: `${modKey}+K`, description: 'Toggle keyboard mode' },
-  { key: `${modKey}+←`, description: 'Previous session in workspace' },
-  { key: `${modKey}+→`, description: 'Next session in workspace' },
+  { key: `${modKey}+←`, description: 'Previous tab in workspace' },
+  { key: `${modKey}+→`, description: 'Next tab in workspace' },
   { key: `${modKey}+↑`, description: 'Previous workspace' },
   { key: `${modKey}+↓`, description: 'Next workspace' },
   { key: `${modKey}+Enter`, description: 'Submit spawn form' },
