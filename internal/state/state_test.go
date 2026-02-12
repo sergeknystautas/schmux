@@ -986,3 +986,69 @@ func TestUpdateSessionLastSignalNonexistentSession(t *testing.T) {
 	// Should not panic for non-existent session
 	s.UpdateSessionLastSignal("nonexistent", time.Now())
 }
+
+func TestUpdateSessionNudge(t *testing.T) {
+	s := New("")
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+
+	err := s.UpdateSessionNudge("sess-1", `{"state":"Completed","summary":"Done"}`)
+	if err != nil {
+		t.Fatalf("UpdateSessionNudge failed: %v", err)
+	}
+
+	sess, found := s.GetSession("sess-1")
+	if !found {
+		t.Fatal("session not found")
+	}
+	if sess.Nudge != `{"state":"Completed","summary":"Done"}` {
+		t.Errorf("Nudge = %q, want JSON payload", sess.Nudge)
+	}
+}
+
+func TestUpdateSessionNudgePreservesOtherFields(t *testing.T) {
+	s := New("")
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Target: "claude"})
+	s.IncrementNudgeSeq("sess-1") // NudgeSeq = 1
+
+	err := s.UpdateSessionNudge("sess-1", `{"state":"Error","summary":"oops"}`)
+	if err != nil {
+		t.Fatalf("UpdateSessionNudge failed: %v", err)
+	}
+
+	sess, _ := s.GetSession("sess-1")
+	if sess.Target != "claude" {
+		t.Errorf("Target was overwritten: %q", sess.Target)
+	}
+	if sess.NudgeSeq != 1 {
+		t.Errorf("NudgeSeq was overwritten: %d", sess.NudgeSeq)
+	}
+}
+
+func TestUpdateSessionNudgeNotFound(t *testing.T) {
+	s := New("")
+	err := s.UpdateSessionNudge("nonexistent", "payload")
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}
+
+func TestClearSessionNudge(t *testing.T) {
+	s := New("")
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Nudge: `{"state":"Error"}`})
+
+	cleared := s.ClearSessionNudge("sess-1")
+	if !cleared {
+		t.Error("expected cleared=true when nudge was non-empty")
+	}
+
+	sess, _ := s.GetSession("sess-1")
+	if sess.Nudge != "" {
+		t.Errorf("Nudge should be empty after clear, got %q", sess.Nudge)
+	}
+
+	// Second clear should return false (already empty)
+	cleared = s.ClearSessionNudge("sess-1")
+	if cleared {
+		t.Error("expected cleared=false when nudge was already empty")
+	}
+}
