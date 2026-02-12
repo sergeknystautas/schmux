@@ -423,3 +423,42 @@ func TestDetectorFlushOnStop(t *testing.T) {
 		t.Errorf("signal = {%q, %q}, want {error, Something broke}", got[0].State, got[0].Message)
 	}
 }
+
+func TestSignalDetectorSuppressBlocksCallback(t *testing.T) {
+	var signals []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test", func(sig Signal) {
+		mu.Lock()
+		signals = append(signals, sig)
+		mu.Unlock()
+	})
+
+	// Normal mode: callback fires
+	d.Feed([]byte("--<[schmux:completed:done]>--\n"))
+	mu.Lock()
+	if len(signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(signals))
+	}
+	mu.Unlock()
+
+	// Suppressed mode: callback does NOT fire
+	mu.Lock()
+	signals = nil
+	mu.Unlock()
+	d.Suppress(true)
+	d.Feed([]byte("--<[schmux:error:bad]>--\n"))
+	mu.Lock()
+	if len(signals) != 0 {
+		t.Fatalf("expected 0 signals while suppressed, got %d", len(signals))
+	}
+	mu.Unlock()
+
+	// Un-suppressed: callback fires again
+	d.Suppress(false)
+	d.Feed([]byte("--<[schmux:working:]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(signals) != 1 {
+		t.Fatalf("expected 1 signal after unsuppress, got %d", len(signals))
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,7 @@ type SignalDetector struct {
 	callback         func(Signal)
 	nearMissCallback func(string)
 	lastData         time.Time
+	suppressed       atomic.Bool
 }
 
 func NewSignalDetector(sessionID string, callback func(Signal)) *SignalDetector {
@@ -30,6 +32,14 @@ func NewSignalDetector(sessionID string, callback func(Signal)) *SignalDetector 
 
 func (d *SignalDetector) SetNearMissCallback(cb func(string)) {
 	d.nearMissCallback = cb
+}
+
+// Suppress enables/disables signal suppression. While suppressed, the detector
+// still parses signals (maintaining internal state like partial line buffers)
+// but does not invoke the callback. Used during scrollback parsing to avoid
+// re-emitting old signals.
+func (d *SignalDetector) Suppress(suppress bool) {
+	d.suppressed.Store(suppress)
 }
 
 func (d *SignalDetector) Feed(data []byte) {
@@ -78,7 +88,9 @@ func (d *SignalDetector) parseLines(data []byte) {
 	cleanData := d.stripBuf
 	signals := parseBracketSignals(cleanData, now)
 	for _, sig := range signals {
-		d.callback(sig)
+		if !d.suppressed.Load() {
+			d.callback(sig)
+		}
 	}
 	if d.nearMissCallback != nil && len(signals) == 0 {
 		for _, line := range strings.Split(string(cleanData), "\n") {

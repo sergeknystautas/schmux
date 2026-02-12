@@ -163,7 +163,9 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			}
 			m.mu.Unlock()
 
-			// Parse scrollback for missed signals
+			// Parse scrollback for missed signals — suppress callback to avoid
+			// re-emitting old signals from before the daemon restart.
+			detector.Suppress(true)
 			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			scrollback, err := conn.CapturePaneLines(capCtx, paneID, 200)
 			capCancel()
@@ -171,6 +173,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 				detector.Feed([]byte(scrollback))
 				detector.Flush()
 			}
+			detector.Suppress(false)
 
 			// Subscribe to output
 			outputCh := conn.SubscribeOutput(paneID)
