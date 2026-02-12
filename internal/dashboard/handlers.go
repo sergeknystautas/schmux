@@ -3547,7 +3547,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 func validateGitFilePaths(files []string) string {
 	for _, f := range files {
 		cleaned := filepath.Clean(f)
-		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		if cleaned == "." || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
 			return fmt.Sprintf("invalid file path: %q", f)
 		}
 	}
