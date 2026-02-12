@@ -91,16 +91,13 @@ func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)
 
 // StartRemoteSignalMonitor creates a signal detector for a remote session and starts
 // a goroutine that subscribes to the remote output channel.
+// The goroutine automatically reconnects when the output channel closes (e.g., due to
+// a dropped remote connection), retrying until explicitly stopped via StopRemoteSignalMonitor.
 func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	if m.remoteManager == nil || sess.RemotePaneID == "" || sess.RemoteHostID == "" {
 		return
 	}
 	if m.signalCallback == nil {
-		return
-	}
-
-	conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
 		return
 	}
 
@@ -111,53 +108,101 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	}
 
 	sessionID := sess.ID
+	hostID := sess.RemoteHostID
+	paneID := sess.RemotePaneID
 	signalCb := m.signalCallback
-	detector := signal.NewSignalDetector(sessionID, func(sig signal.Signal) {
-		signalCb(sessionID, sig)
-	})
-	detector.SetNearMissCallback(func(line string) {
-		fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", signal.ShortID(sessionID), line)
-	})
 	stopCh := make(chan struct{})
 	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
-		detector: detector,
+		detector: nil, // created fresh on each connection
 		stopCh:   stopCh,
 	}
 	m.mu.Unlock()
 
-	// Parse scrollback for missed signals
-	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	scrollback, err := conn.CapturePaneLines(capCtx, sess.RemotePaneID, 200)
-	capCancel()
-	if err == nil && scrollback != "" {
-		detector.Feed([]byte(scrollback))
-		detector.Flush()
-	}
-
-	// Start goroutine to monitor output
-	outputCh := conn.SubscribeOutput(sess.RemotePaneID)
 	go func() {
-		defer conn.UnsubscribeOutput(sess.RemotePaneID, outputCh)
+		defer func() {
+			m.mu.Lock()
+			delete(m.remoteDetectors, sessionID)
+			m.mu.Unlock()
+		}()
+
 		flushTicker := time.NewTicker(signal.FlushTimeout)
 		defer flushTicker.Stop()
 
 		for {
+			// Check for stop before attempting connection
 			select {
 			case <-stopCh:
-				detector.Flush()
 				return
-			case event, ok := <-outputCh:
-				if !ok {
-					detector.Flush()
+			default:
+			}
+
+			// Wait for connection to be available
+			conn := m.remoteManager.GetConnection(hostID)
+			if conn == nil || !conn.IsConnected() {
+				// Not connected yet — wait 2s and retry
+				select {
+				case <-stopCh:
 					return
+				case <-time.After(2 * time.Second):
+					continue
 				}
-				if event.Data != "" {
-					detector.Feed([]byte(event.Data))
-				}
-			case <-flushTicker.C:
-				if detector.ShouldFlush() {
+			}
+
+			// Create a fresh detector for this connection attempt
+			detector := signal.NewSignalDetector(sessionID, func(sig signal.Signal) {
+				signalCb(sessionID, sig)
+			})
+			detector.SetNearMissCallback(func(line string) {
+				fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", signal.ShortID(sessionID), line)
+			})
+
+			// Update the monitor's detector reference
+			m.mu.Lock()
+			if mon := m.remoteDetectors[sessionID]; mon != nil {
+				mon.detector = detector
+			}
+			m.mu.Unlock()
+
+			// Parse scrollback for missed signals
+			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			scrollback, err := conn.CapturePaneLines(capCtx, paneID, 200)
+			capCancel()
+			if err == nil && scrollback != "" {
+				detector.Feed([]byte(scrollback))
+				detector.Flush()
+			}
+
+			// Subscribe to output
+			outputCh := conn.SubscribeOutput(paneID)
+
+		inner:
+			for {
+				select {
+				case <-stopCh:
 					detector.Flush()
+					conn.UnsubscribeOutput(paneID, outputCh)
+					return
+				case event, ok := <-outputCh:
+					if !ok {
+						detector.Flush()
+						break inner
+					}
+					if event.Data != "" {
+						detector.Feed([]byte(event.Data))
+					}
+				case <-flushTicker.C:
+					if detector.ShouldFlush() {
+						detector.Flush()
+					}
 				}
+			}
+
+			// Channel closed (connection dropped) — wait 1s before retrying
+			select {
+			case <-stopCh:
+				return
+			case <-time.After(1 * time.Second):
+				// retry
 			}
 		}
 	}()
