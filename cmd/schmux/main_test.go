@@ -9,19 +9,22 @@ func TestParseDaemonRunFlags(t *testing.T) {
 		args      []string
 		wantProxy bool
 		wantBg    bool
+		wantDev   bool
 	}{
-		{[]string{}, false, false},
-		{[]string{"--dev-proxy"}, true, false},
-		{[]string{"--background"}, false, true},
-		{[]string{"--dev-proxy", "--background"}, true, true},
-		{[]string{"--background", "--dev-proxy"}, true, true},
+		{[]string{}, false, false, false},
+		{[]string{"--dev-proxy"}, true, false, false},
+		{[]string{"--background"}, false, true, false},
+		{[]string{"--dev-proxy", "--background"}, true, true, false},
+		{[]string{"--background", "--dev-proxy"}, true, true, false},
+		{[]string{"--dev-mode"}, true, false, true}, // --dev-mode implies --dev-proxy
+		{[]string{"--dev-mode", "--background"}, true, true, true},
 	}
 
 	for _, tt := range tests {
-		gotProxy, gotBg := parseDaemonRunFlags(tt.args)
-		if gotProxy != tt.wantProxy || gotBg != tt.wantBg {
-			t.Errorf("parseDaemonRunFlags(%v) = (%v, %v), want (%v, %v)",
-				tt.args, gotProxy, gotBg, tt.wantProxy, tt.wantBg)
+		gotProxy, gotBg, gotDev := parseDaemonRunFlags(tt.args)
+		if gotProxy != tt.wantProxy || gotBg != tt.wantBg || gotDev != tt.wantDev {
+			t.Errorf("parseDaemonRunFlags(%v) = (%v, %v, %v), want (%v, %v, %v)",
+				tt.args, gotProxy, gotBg, gotDev, tt.wantProxy, tt.wantBg, tt.wantDev)
 		}
 	}
 }

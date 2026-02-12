@@ -631,3 +631,40 @@ do not include the generated and co-authored lines. please keep the message focu
 
   return spawnSessions(spawnRequest);
 }
+
+// ============================================================================
+// Dev Mode API
+// ============================================================================
+
+export interface DevStatus {
+  active: boolean;
+  source_workspace?: string;
+  last_build?: {
+    success: boolean;
+    workspace_path: string;
+    error: string;
+    at: string;
+  };
+}
+
+export async function getDevStatus(): Promise<DevStatus> {
+  const response = await fetch('/api/dev/status');
+  if (!response.ok) throw new Error('Failed to fetch dev status');
+  return response.json();
+}
+
+export async function devRebuild(
+  workspaceId: string,
+  type: 'frontend' | 'backend' | 'both'
+): Promise<{ status: string }> {
+  const response = await fetch('/api/dev/rebuild', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId, type }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to trigger rebuild');
+  }
+  return response.json();
+}

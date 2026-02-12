@@ -360,6 +360,9 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		response["latest_version"] = v.Latest
 		response["update_available"] = v.UpdateAvailable
 	}
+	if s.devMode {
+		response["dev_mode"] = true
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

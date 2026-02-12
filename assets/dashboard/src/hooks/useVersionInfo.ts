@@ -5,6 +5,7 @@ export interface VersionInfo {
   latest_version?: string;
   update_available?: boolean;
   check_error?: string;
+  dev_mode?: boolean;
 }
 
 export default function useVersionInfo() {

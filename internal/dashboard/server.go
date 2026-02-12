@@ -83,7 +83,9 @@ type Server struct {
 	workspace  workspace.WorkspaceManager
 	httpServer *http.Server
 	shutdown   func() // Callback to trigger daemon shutdown
+	devRestart func() // Callback to trigger dev mode restart (exit code 42)
 	devProxy   bool   // When true, proxy non-API routes to Vite dev server
+	devMode    bool   // When true, dev mode API endpoints are enabled
 
 	// WebSocket connection registry: sessionID -> active connection (for terminal)
 	// Only one connection per session; new connections displace old ones.
@@ -134,7 +136,7 @@ type versionInfo struct {
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func(), devProxy bool) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, shutdown func(), devRestart func(), devProxy bool, devMode bool) *Server {
 	s := &Server{
 		config:                          cfg,
 		state:                           st,
@@ -143,7 +145,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:                       wm,
 		prDiscovery:                     prd,
 		shutdown:                        shutdown,
+		devRestart:                      devRestart,
 		devProxy:                        devProxy,
+		devMode:                         devMode,
 		wsConns:                         make(map[string]*wsConn),
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
@@ -260,6 +264,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
 	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
 	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
+
+	// Dev mode routes (only registered when --dev-mode is active)
+	if s.devMode {
+		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))
+		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuth(s.handleDevRebuild)))
+	}
 
 	// WebSocket for terminal streaming
 	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)

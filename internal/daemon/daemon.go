@@ -37,9 +37,14 @@ const (
 )
 
 var (
-	shutdownChan = make(chan struct{})
-	shutdownCtx  context.Context
-	cancelFunc   context.CancelFunc
+	shutdownChan   = make(chan struct{})
+	devRestartChan = make(chan struct{})
+	shutdownCtx    context.Context
+	cancelFunc     context.CancelFunc
+
+	// ErrDevRestart is returned by Run() when the daemon needs to restart
+	// for a dev mode workspace switch. The caller should exit with code 42.
+	ErrDevRestart = errors.New("dev restart requested")
 )
 
 func init() {
@@ -245,7 +250,9 @@ func Status() (running bool, url string, startedAt string, err error) {
 // Run runs the daemon (this is the entry point for the daemon process).
 // If background is true, SIGINT/SIGQUIT are ignored (for start command).
 // If devProxy is true, non-API requests are proxied to Vite dev server.
-func Run(background bool, devProxy bool) error {
+// If devMode is true, dev mode API endpoints are enabled and the daemon
+// can exit with ErrDevRestart (exit code 42) for workspace switching.
+func Run(background bool, devProxy bool, devMode bool) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -362,7 +369,7 @@ func Run(background bool, devProxy bool) error {
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown, devProxy)
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, Shutdown, DevRestart, devProxy, devMode)
 
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st)
@@ -483,13 +490,24 @@ func Run(background bool, devProxy bool) error {
 	}()
 
 	// Wait for shutdown signal or server error
+	var devRestart bool
 	select {
 	case sig := <-sigChan:
 		fmt.Printf("[daemon] received signal %v, shutting down\n", sig)
+		cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
 	case err := <-serverErrChan:
 		return fmt.Errorf("dashboard server error: %w", err)
 	case <-shutdownChan:
 		fmt.Println("[daemon] shutdown requested")
+	case <-devRestartChan:
+		fmt.Println("[daemon] dev restart requested")
+		devRestart = true
+	}
+
+	// Flush any pending batched state saves and do a final save
+	st.FlushPending()
+	if err := st.Save(); err != nil {
+		fmt.Printf("[daemon] warning: final state save failed: %v\n", err)
 	}
 
 	// Stop git watcher
@@ -502,12 +520,24 @@ func Run(background bool, devProxy bool) error {
 		return fmt.Errorf("failed to stop server: %w", err)
 	}
 
+	if devRestart {
+		return ErrDevRestart
+	}
 	return nil
 }
 
 // Shutdown triggers a graceful shutdown.
 func Shutdown() {
 	close(shutdownChan)
+	if cancelFunc != nil {
+		cancelFunc()
+	}
+}
+
+// DevRestart triggers a dev mode restart. The daemon will exit with
+// ErrDevRestart, which the caller should translate to exit code 42.
+func DevRestart() {
+	close(devRestartChan)
 	if cancelFunc != nil {
 		cancelFunc()
 	}

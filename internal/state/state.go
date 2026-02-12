@@ -179,6 +179,22 @@ func (s *State) SaveBatched() {
 	})
 }
 
+// FlushPending stops any pending SaveBatched timer and performs a synchronous
+// save if a batched save was pending. Called during shutdown to prevent data loss
+// from a timer firing after the daemon has exited Run().
+func (s *State) FlushPending() {
+	s.saveMu.Lock()
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+	}
+	s.saveMu.Unlock()
+	if s.savePending.Swap(false) {
+		if err := s.saveNow(); err != nil {
+			fmt.Printf("[state] flush pending save failed: %v\n", err)
+		}
+	}
+}
+
 // saveNow performs the actual save operation (internal implementation).
 func (s *State) saveNow() error {
 	s.mu.Lock()
