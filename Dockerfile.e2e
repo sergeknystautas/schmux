@@ -1,84 +1,28 @@
-# E2E Test Docker Image for schmux
-# This image provides an isolated environment for running end-to-end tests.
-# The container itself provides isolation - no need for HOME overrides.
+# E2E Test Thin Image for schmux
+# Uses schmux-e2e-base (pre-cached deps). Only copies code + pre-built binary.
+# Always rebuilt, but fast (~2-5s, just COPY ops).
+#
+# Prerequisites:
+#   docker build -f Dockerfile.e2e-base -t schmux-e2e-base .
+#   GOOS=linux CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux
+#
+# Build: docker build -f Dockerfile.e2e -t schmux-e2e .
+# Run:   docker run --rm schmux-e2e
 
-FROM golang:1.24-bookworm AS builder
+FROM schmux-e2e-base
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /src
-
-# Copy source code
-COPY . .
-
-# Build the schmux binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o schmux ./cmd/schmux
-
-# Build the dashboard (requires Node.js)
-FROM node:20-bookworm AS dashboard-builder
-
-WORKDIR /src
-COPY --from=builder /src /src
-COPY assets/dashboard/package*.json assets/dashboard/
-RUN cd assets/dashboard && npm ci
-RUN cd assets/dashboard && npm run build
-
-# Final E2E test image
-FROM golang:1.24-bookworm
-
-# Install runtime dependencies including SSH server for remote workspace tests
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux \
-    git \
-    curl \
-    bash \
-    openssh-server \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set up SSH server for localhost testing
-RUN mkdir -p /run/sshd && \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
-# Set up a non-root user for running tests
-RUN useradd -m -u 1000 e2e
-
-# Copy built assets from previous stages
-COPY --from=builder /src/schmux /usr/local/bin/schmux
-COPY --from=dashboard-builder /src/assets/dashboard/dist /usr/local/share/schmux/dashboard
+# Copy pre-built binary (cross-compiled locally)
+COPY build/schmux-linux /usr/local/bin/schmux
 
 # Copy source code for running tests (go.mod, internal/e2e, etc.)
-COPY --from=builder /src /tmp/src
-RUN chown -R e2e:e2e /tmp/src
-USER e2e
-WORKDIR /home/e2e
-RUN cp -r /tmp/src src && rm -rf /tmp/src
+COPY --chown=e2e:e2e . /home/e2e/src
 
 # Make test scripts executable
-RUN chmod +x src/test/mock-remote.sh
-
-# Set up SSH keys for e2e user (passwordless localhost SSH)
-RUN mkdir -p ~/.ssh && \
-    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" && \
-    cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && \
-    chmod 600 ~/.ssh/authorized_keys
-
-# Add schmux to PATH
-ENV PATH="/usr/local/bin:${PATH}"
-# Disable Go build cache to avoid permission issues in container
-ENV GOCACHE=/tmp/go-cache
-
-# Verify installation
-RUN tmux -V
+USER e2e
+RUN chmod +x /home/e2e/src/test/mock-remote.sh
+USER root
 
 # Start SSH server as root, then switch to e2e user for tests
-USER root
-# Create startup script that starts SSH and runs tests
 RUN echo '#!/bin/bash\n\
 set -e\n\
 # Start SSH server\n\
@@ -90,6 +34,5 @@ cd /home/e2e/src\n\
 su -c "go test -tags=e2e -v ./internal/e2e" e2e\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Default command runs E2E tests
 WORKDIR /home/e2e/src
 ENTRYPOINT ["/entrypoint.sh"]
