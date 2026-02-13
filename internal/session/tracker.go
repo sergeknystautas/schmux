@@ -454,7 +454,7 @@ func isMeaningfulTerminalChunk(chunk []byte) bool {
 		}
 	}
 
-	clean := stripTerminalControl(chunk)
+	clean := signal.StripANSIBytes(nil, chunk)
 	if len(clean) == 0 {
 		return false
 	}
@@ -464,79 +464,6 @@ func isMeaningfulTerminalChunk(chunk []byte) bool {
 		}
 	}
 	return false
-}
-
-func stripTerminalControl(data []byte) []byte {
-	const (
-		stNormal = iota
-		stEsc
-		stCSI
-		stOSC
-		stDCS
-	)
-
-	out := make([]byte, 0, len(data))
-	state := stNormal
-	oscEsc := false
-	dcsEsc := false
-
-	for _, b := range data {
-		switch state {
-		case stNormal:
-			if b == 0x1b {
-				state = stEsc
-				continue
-			}
-			if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
-				continue
-			}
-			if b == 0x7f {
-				continue
-			}
-			out = append(out, b)
-		case stEsc:
-			switch b {
-			case '[':
-				state = stCSI
-			case ']':
-				state = stOSC
-				oscEsc = false
-			case 'P':
-				state = stDCS
-				dcsEsc = false
-			default:
-				state = stNormal
-			}
-		case stCSI:
-			if b >= 0x40 && b <= 0x7e {
-				state = stNormal
-			}
-		case stOSC:
-			if oscEsc {
-				if b == '\\' {
-					state = stNormal
-				}
-				oscEsc = false
-				continue
-			}
-			if b == 0x07 {
-				state = stNormal
-				continue
-			}
-			oscEsc = b == 0x1b
-		case stDCS:
-			if dcsEsc {
-				if b == '\\' {
-					state = stNormal
-				}
-				dcsEsc = false
-				continue
-			}
-			dcsEsc = b == 0x1b
-		}
-	}
-
-	return out
 }
 
 func (t *SessionTracker) closePTY() {

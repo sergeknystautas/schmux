@@ -315,7 +315,10 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 
 	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
 	if sig.State == "working" {
-		s.state.UpdateSessionNudge(sessionID, "")
+		if err := s.state.UpdateSessionNudge(sessionID, ""); err != nil {
+			fmt.Printf("[signal] %s - failed to clear nudge: %v\n", sessionID, err)
+			return
+		}
 	} else {
 		payload, err := json.Marshal(nudgeResult)
 		if err != nil {

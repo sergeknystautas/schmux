@@ -32,12 +32,12 @@ type Signal struct {
 // This prevents matching signals in code blocks or documentation examples.
 var bracketPattern = regexp.MustCompile(`(?m)^[\x00-\x1f⏺•\-\*\s]*--<\[schmux:(\w+):([^\]]*)\]>--[ \t]*\r*$`)
 
-// stripANSIBytes removes ANSI escape sequences from a byte slice using a state machine.
+// StripANSIBytes removes ANSI escape sequences from a byte slice using a state machine.
 // Cursor forward sequences (\x1b[nC) are replaced with n spaces to preserve word boundaries.
 // Cursor down sequences (\x1b[nB) are replaced with n newlines to preserve line boundaries.
 // All other escape sequences (CSI, OSC, DCS, APC) are consumed entirely.
 // This follows ECMA-48 terminal protocol structure for complete coverage.
-func stripANSIBytes(dst, data []byte) []byte {
+func StripANSIBytes(dst, data []byte) []byte {
 	const (
 		stNormal = iota
 		stEsc
@@ -160,7 +160,7 @@ func parseCSICount(params []byte) int {
 
 // stripANSI removes ANSI escape sequences from a string.
 func stripANSI(s string) string {
-	return string(stripANSIBytes(nil, []byte(s)))
+	return string(StripANSIBytes(nil, []byte(s)))
 }
 
 // IsValidState checks if a state string is a recognized schmux signal state.
@@ -202,7 +202,7 @@ func parseBracketSignals(cleanData []byte, now time.Time) []Signal {
 // This is an internal helper used by tests to validate the core parsing logic.
 func parseSignals(data []byte) []Signal {
 	now := time.Now()
-	cleanData := stripANSIBytes(nil, data)
+	cleanData := StripANSIBytes(nil, data)
 	return parseBracketSignals(cleanData, now)
 }
 
