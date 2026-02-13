@@ -153,7 +153,11 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 
 	// A websocket can connect before the tracker finishes its first attach retry.
 	// Give it a short window to come up so early pane output is not missed.
-	attachDeadline := time.Now().Add(time.Duration(s.config.GetXtermOperationTimeoutMs()) * time.Millisecond)
+	// Use a short timeout (2s) rather than the full operation timeout — the bootstrap
+	// capture (tmux capture-pane) works independently of the tracker's PTY attachment,
+	// so blocking longer just delays sending the bootstrap to the client.
+	attachWait := 2 * time.Second
+	attachDeadline := time.Now().Add(attachWait)
 	for !tracker.IsAttached() && time.Now().Before(attachDeadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
