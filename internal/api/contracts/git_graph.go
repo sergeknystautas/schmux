@@ -2,10 +2,11 @@ package contracts
 
 // GitGraphResponse represents the API response for GET /api/workspaces/{workspaceId}/git-graph.
 type GitGraphResponse struct {
-	Repo       string                    `json:"repo"`
-	Nodes      []GitGraphNode            `json:"nodes"`
-	Branches   map[string]GitGraphBranch `json:"branches"`
-	DirtyState *GitGraphDirtyState       `json:"dirty_state,omitempty"`
+	Repo           string                    `json:"repo"`
+	Nodes          []GitGraphNode            `json:"nodes"`
+	Branches       map[string]GitGraphBranch `json:"branches"`
+	MainAheadCount int                       `json:"main_ahead_count"` // commits on origin/main ahead of HEAD
+	DirtyState     *GitGraphDirtyState       `json:"dirty_state,omitempty"`
 }
 
 // GitGraphDirtyState represents uncommitted changes in the workspace.

@@ -159,7 +159,9 @@ type WorkspaceManager interface {
 	CheckoutPR(ctx context.Context, pr contracts.PullRequest) (*state.Workspace, error)
 
 	// GetGitGraph returns the commit graph for a workspace showing local branch vs origin/main.
-	GetGitGraph(ctx context.Context, workspaceID string, maxCommits int, contextSize int) (*contracts.GitGraphResponse, error)
+	// maxTotal: Maximum total commits to display (applied after category limits)
+	// mainContext: Number of commits on main BEFORE fork point (historical context)
+	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.GitGraphResponse, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

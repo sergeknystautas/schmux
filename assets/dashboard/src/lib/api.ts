@@ -441,11 +441,21 @@ export async function getRecentBranches(limit: number = 10): Promise<RecentBranc
 
 export async function getGitGraph(
   workspaceId: string,
-  opts?: { maxCommits?: number; context?: number }
+  opts?: {
+    maxTotal?: number;
+    mainContext?: number;
+    /** @deprecated Use maxTotal instead */
+    maxCommits?: number;
+    /** @deprecated Use mainContext instead */
+    context?: number;
+  }
 ): Promise<GitGraphResponse> {
   const params = new URLSearchParams();
-  if (opts?.maxCommits) params.set('max_commits', String(opts.maxCommits));
-  if (opts?.context) params.set('context', String(opts.context));
+  if (opts?.maxTotal) params.set('max_total', String(opts.maxTotal));
+  if (opts?.mainContext) params.set('main_context', String(opts.mainContext));
+  // For backward compatibility, also accept old parameter names
+  if (opts?.maxCommits !== undefined) params.set('max_commits', String(opts.maxCommits));
+  if (opts?.context !== undefined) params.set('context', String(opts.context));
   const qs = params.toString();
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
   const response = await fetch(url);

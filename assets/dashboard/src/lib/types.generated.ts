@@ -107,6 +107,7 @@ export interface GitGraphResponse {
   repo: string;
   nodes: GitGraphNode[];
   branches: Record<string, GitGraphBranch>;
+  main_ahead_count: number;
   dirty_state?: GitGraphDirtyState;
 }
 

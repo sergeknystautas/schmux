@@ -28,4 +28,6 @@ type CommandBuilder interface {
 	// DetectDefaultBranch returns the command to detect the default branch name.
 	// The output should be just the branch name (e.g., "main").
 	DetectDefaultBranch() string
+	// RevListCount returns the command to count commits in a range (e.g., "HEAD..origin/main").
+	RevListCount(rangeSpec string) string
 }
