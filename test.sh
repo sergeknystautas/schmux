@@ -205,6 +205,10 @@ if [ "$RUN_SCENARIOS" = true ]; then
         echo -e "  ${BLUE}💡 Scenario tests require Docker${NC}"
         EXIT_CODE=1
     else
+        ARTIFACTS_DIR="test/scenarios/artifacts"
+        rm -rf "$ARTIFACTS_DIR"
+        mkdir -p "$ARTIFACTS_DIR"
+
         echo -e "  ${BLUE}🐳 Building scenario test Docker image...${NC}"
         if docker build -f Dockerfile.scenarios -t schmux-scenarios . > /dev/null 2>&1; then
             echo -e "  ${GREEN}✅ Docker image built${NC}"
@@ -212,12 +216,19 @@ if [ "$RUN_SCENARIOS" = true ]; then
             echo -e "  ${BLUE}🎭 Running Playwright scenario tests in container...${NC}"
             echo ""
 
-            if docker run --rm schmux-scenarios; then
+            if docker run --rm -v "$(pwd)/$ARTIFACTS_DIR:/artifacts" schmux-scenarios; then
                 echo ""
                 echo -e "${GREEN}✅ Scenario tests passed${NC}"
             else
                 echo ""
                 echo -e "${RED}❌ Scenario tests failed${NC}"
+                echo -e "  ${BLUE}📁 Test artifacts saved to: $ARTIFACTS_DIR/${NC}"
+                if [ -d "$ARTIFACTS_DIR/playwright-report" ]; then
+                    echo -e "  ${BLUE}🌐 View HTML report: npx playwright show-report $ARTIFACTS_DIR/playwright-report${NC}"
+                fi
+                if [ -d "$ARTIFACTS_DIR/test-results" ]; then
+                    echo -e "  ${BLUE}🎬 Videos/screenshots: $ARTIFACTS_DIR/test-results/${NC}"
+                fi
                 EXIT_CODE=1
             fi
         else
