@@ -22,18 +22,14 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
     workspace_path: opts.workspacePath || '/tmp/schmux-test-workspaces',
     source_code_management: opts.scm || 'git',
     repos: (opts.repos || []).map((r) => ({
-      name: r,
+      name: r.split('/').pop() || r,
       url: r,
-      default_branch: 'main',
     })),
-    run_targets: {
-      promptable: (opts.agents || [])
-        .filter((a) => a.promptable !== false)
-        .map((a) => ({ name: a.name, command: a.command })),
-      command: (opts.agents || [])
-        .filter((a) => a.promptable === false)
-        .map((a) => ({ name: a.name, command: a.command })),
-    },
+    run_targets: (opts.agents || []).map((a) => ({
+      name: a.name,
+      type: a.promptable !== false ? 'promptable' : 'command',
+      command: a.command,
+    })),
   };
 
   const res = await fetch(`${BASE_URL}/api/config`, {
@@ -106,22 +102,21 @@ export async function spawnSession(req: SpawnRequest): Promise<SpawnResult[]> {
   return apiPost<SpawnResult[]>('/api/spawn', req);
 }
 
-interface SessionsResponse {
-  workspaces: Array<{
-    workspace_id: string;
-    repo: string;
-    branch: string;
-    sessions: Array<{
-      session_id: string;
-      nickname: string;
-      target: string;
-      status: string;
-    }>;
+interface WorkspaceItem {
+  id: string;
+  repo: string;
+  branch: string;
+  sessions: Array<{
+    id: string;
+    nickname: string;
+    target: string;
+    running: boolean;
+    status?: string;
   }>;
 }
 
-export async function getSessions(): Promise<SessionsResponse> {
-  return apiGet<SessionsResponse>('/api/sessions');
+export async function getSessions(): Promise<WorkspaceItem[]> {
+  return apiGet<WorkspaceItem[]>('/api/sessions');
 }
 
 export async function disposeSession(sessionId: string): Promise<void> {
@@ -174,8 +169,10 @@ export async function createTestRepo(name: string): Promise<string> {
   const { execSync } = await import('child_process');
   const repoDir = `/tmp/schmux-test-repos/${name}`;
   execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
-  execSync(`git init ${repoDir}`);
-  execSync(`git -C ${repoDir} commit --allow-empty -m "initial"`);
+  execSync(`git init -b main ${repoDir}`);
+  execSync(`touch ${repoDir}/README.md`);
+  execSync(`git -C ${repoDir} add .`);
+  execSync(`git -C ${repoDir} commit -m "initial"`);
   return repoDir;
 }
 

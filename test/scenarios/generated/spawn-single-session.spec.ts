@@ -39,6 +39,9 @@ test.describe('Spawn a single session', () => {
     // Select the repository
     await page.locator('[data-testid="spawn-repo-select"]').selectOption(repoPath);
 
+    // Fill in the branch name (required when branch_suggest is not configured)
+    await page.locator('#branch').fill('test-branch');
+
     // Submit the form
     await page.locator('[data-testid="spawn-submit"]').click();
 
@@ -47,6 +50,9 @@ test.describe('Spawn a single session', () => {
 
     // Verify: URL matches /sessions/
     expect(page.url()).toMatch(/\/sessions\//);
+
+    // Wait for the session detail page to fully render
+    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15000 });
 
     // Verify: terminal viewport is visible
     await expect(page.locator('[data-testid="terminal-viewport"]')).toBeVisible();
@@ -61,12 +67,10 @@ test.describe('Spawn a single session', () => {
   });
 
   test('API confirms session was created', async () => {
-    const data = await getSessions();
+    const workspaces = await getSessions();
 
     // Find the workspace containing our echo-agent session
-    const workspace = data.workspaces.find((ws) =>
-      ws.sessions.some((s) => s.target === 'echo-agent')
-    );
+    const workspace = workspaces.find((ws) => ws.sessions.some((s) => s.target === 'echo-agent'));
     expect(workspace).toBeDefined();
     expect(workspace!.sessions.length).toBeGreaterThanOrEqual(1);
 
