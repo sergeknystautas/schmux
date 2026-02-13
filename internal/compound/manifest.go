@@ -23,6 +23,12 @@ func FileHash(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// HashBytes computes the SHA-256 hex digest of a byte slice.
+func HashBytes(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
 // IsBinary checks if a file appears to be binary by looking for null bytes
 // in the first 512 bytes.
 func IsBinary(path string) bool {
