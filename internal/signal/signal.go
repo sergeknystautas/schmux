@@ -32,6 +32,12 @@ type Signal struct {
 // This prevents matching signals in code blocks or documentation examples.
 var bracketPattern = regexp.MustCompile(`(?m)^[\x00-\x1f⏺•\-\*\s]*--<\[schmux:(\w+):([^\]]*)\]>--[ \t]*\r*$`)
 
+// bracketPatternLoose matches the signal marker anywhere in text, without requiring
+// it to be at the start of a line. Used as a fallback when ANSI stripping merges
+// visually separate terminal lines (e.g., cursor-up sequences consumed without
+// producing newlines), causing signals to appear mid-line.
+var bracketPatternLoose = regexp.MustCompile(`--<\[schmux:(\w+):([^\]]*)\]>--`)
+
 // StripANSIBytes removes ANSI escape sequences from a byte slice using a state machine.
 // Cursor forward sequences (\x1b[nC) are replaced with n spaces to preserve word boundaries.
 // Cursor down sequences (\x1b[nB) are replaced with n newlines to preserve line boundaries.
@@ -170,8 +176,13 @@ func IsValidState(state string) bool {
 
 // parseBracketSignals extracts signals from clean (ANSI-stripped) data using
 // bracket-based markers (--<[schmux:state:message]>--).
+// Tries the strict anchored pattern first, then falls back to the loose
+// unanchored pattern to catch signals buried in terminal rendering artifacts.
 func parseBracketSignals(cleanData []byte, now time.Time) []Signal {
 	matches := bracketPattern.FindAllSubmatch(cleanData, -1)
+	if len(matches) == 0 {
+		matches = bracketPatternLoose.FindAllSubmatch(cleanData, -1)
+	}
 	if len(matches) == 0 {
 		return nil
 	}

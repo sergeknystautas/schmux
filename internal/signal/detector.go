@@ -109,7 +109,7 @@ func (d *SignalDetector) parseLines(data []byte) {
 			if trimmed == "" {
 				continue
 			}
-			if strings.Contains(trimmed, "--<[schmux:") && !bracketPattern.MatchString(trimmed) {
+			if strings.Contains(trimmed, "--<[schmux:") && !bracketPatternLoose.MatchString(trimmed) {
 				d.nearMissCallback(trimmed)
 			}
 		}
