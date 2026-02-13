@@ -468,6 +468,14 @@ func (m *mockStateStore) RemoveWorkspacePreviews(workspaceID string) int {
 	return m.state.RemoveWorkspacePreviews(workspaceID)
 }
 
+func (m *mockStateStore) UpdateOverlayManifest(workspaceID string, manifest map[string]string) {
+	m.state.UpdateOverlayManifest(workspaceID, manifest)
+}
+
+func (m *mockStateStore) UpdateOverlayManifestEntry(workspaceID, relPath, hash string) {
+	m.state.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
+}
+
 func (m *mockStateStore) GetWorktreeBases() []state.WorktreeBase {
 	return m.state.GetWorktreeBases()
 }

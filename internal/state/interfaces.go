@@ -27,6 +27,8 @@ type StateStore interface {
 	AddWorkspace(ws Workspace) error
 	UpdateWorkspace(ws Workspace) error
 	RemoveWorkspace(id string) error
+	UpdateOverlayManifest(workspaceID string, manifest map[string]string)
+	UpdateOverlayManifestEntry(workspaceID, relPath, hash string)
 
 	// Preview operations
 	GetPreviews() []WorkspacePreview
