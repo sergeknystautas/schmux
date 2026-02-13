@@ -72,7 +72,7 @@ Expected JSON format:
 {
   "all_resolved": true,
   "confidence": "high",
-  "summary": "Brief description of what you did",
+  "summary": "Detailed explanation of what the conflict was, the approach taken to resolve it, and any concerns or trade-offs involved. Include specifics about what each side was trying to do and how you merged them.",
   "files": {
     "path/to/file.go": {"action": "modified", "description": "Merged both changes"},
     "path/to/obsolete.go": {"action": "deleted", "description": "File was removed by incoming commit"}
