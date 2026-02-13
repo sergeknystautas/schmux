@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSize } from './types';
+import { inputLatency } from './inputLatency';
 
 type TerminalStreamOptions = {
   followTail?: boolean;
@@ -148,8 +149,9 @@ export default class TerminalStream {
     });
 
     this.terminal.loadAddon(new WebLinksAddon());
-    this.terminal.loadAddon(new Unicode11Addon());
-    this.terminal.unicode.activeVersion = '11';
+    // Unicode11Addon disabled to test typing performance impact
+    // this.terminal.loadAddon(new Unicode11Addon());
+    // this.terminal.unicode.activeVersion = '11';
     this.terminal.open(this.containerElement);
     this.terminal.onData((data) => {
       this.sendInput(data);
@@ -358,16 +360,22 @@ export default class TerminalStream {
 
   sendInput(data: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      inputLatency.markSent();
       this.ws.send(JSON.stringify({ type: 'input', data }));
     }
   }
 
   handleOutput(data: string) {
+    const renderStart = performance.now();
     let msg: TerminalOutputMessage;
     try {
       msg = JSON.parse(data);
     } catch {
       msg = { type: 'full', content: data };
+    }
+
+    if (msg.type === 'append') {
+      inputLatency.markReceived();
     }
 
     switch (msg.type) {
@@ -385,6 +393,10 @@ export default class TerminalStream {
 
     if (this.followTail) {
       this.terminal.scrollToBottom();
+    }
+
+    if (msg.type === 'append') {
+      inputLatency.markRenderTime(performance.now() - renderStart);
     }
   }
 

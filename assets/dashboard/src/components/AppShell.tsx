@@ -5,6 +5,7 @@ import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage from '../hooks/useLocalStorage';
 import Tooltip from './Tooltip';
 import KeyboardModeIndicator from './KeyboardModeIndicator';
+import TypingPerformance from './TypingPerformance';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -12,7 +13,6 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
 import { formatRelativeTime } from '../lib/utils';
 import { navigateToWorkspace } from '../lib/navigation';
-import useOverheatIndicator from '../hooks/useOverheatIndicator';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import {
@@ -52,7 +52,6 @@ export default function AppShell() {
   const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
   const { workspaces, connected, linearSyncResolveConflictStates } = useSessions();
-  const overheating = useOverheatIndicator();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();
@@ -709,6 +708,7 @@ export default function AppShell() {
               <span>Remote Hosts</span>
             </NavLink>
           </div>
+          {isDevMode && <TypingPerformance />}
         </div>
 
         <div className="nav-bottom">
@@ -756,12 +756,6 @@ export default function AppShell() {
             </Tooltip>
             {mode === 'active' && (
               <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>
-            )}
-            {overheating && (
-              <div className="connection-pill connection-pill--sm connection-pill--overheating">
-                <span className="connection-pill__dot"></span>
-                <span>Hot</span>
-              </div>
             )}
           </div>
         </div>

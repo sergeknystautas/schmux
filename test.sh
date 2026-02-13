@@ -7,6 +7,7 @@
 #   --unit          Run unit tests only (default)
 #   --e2e           Run E2E tests only
 #   --scenarios     Run scenario tests only (Playwright)
+#   --bench         Run latency benchmarks only (requires tmux)
 #   --all           Run unit, E2E, and scenario tests
 #   --race          Run with race detector
 #   --verbose       Run with verbose output
@@ -15,6 +16,7 @@
 #   --help          Show this help message
 
 set -e  # Exit on error
+set -o pipefail  # Propagate errors through pipes
 
 # Colors for output
 RED='\033[0;31m'
@@ -27,6 +29,7 @@ NC='\033[0m' # No Color
 RUN_UNIT=true
 RUN_E2E=false
 RUN_SCENARIOS=false
+RUN_BENCH=false
 RUN_RACE=false
 RUN_VERBOSE=false
 RUN_COVERAGE=false
@@ -57,6 +60,13 @@ while [[ $# -gt 0 ]]; do
             RUN_SCENARIOS=true
             shift
             ;;
+        --bench)
+            RUN_UNIT=false
+            RUN_E2E=false
+            RUN_SCENARIOS=false
+            RUN_BENCH=true
+            shift
+            ;;
         --race)
             RUN_RACE=true
             shift
@@ -81,6 +91,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --unit          Run unit tests only (default)"
             echo "  --e2e           Run E2E tests only"
             echo "  --scenarios     Run scenario tests only (Playwright)"
+            echo "  --bench         Run latency benchmarks only (requires tmux)"
             echo "  --all           Run unit, E2E, and scenario tests"
             echo "  --race          Run with race detector"
             echo "  --verbose       Run with verbose output"
@@ -95,6 +106,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./test.sh --e2e              # Run E2E tests only"
             echo "  ./test.sh --coverage         # Run unit tests with coverage"
             echo "  ./test.sh --scenarios         # Run scenario tests only (Playwright)"
+            echo "  ./test.sh --bench            # Run latency benchmarks (requires tmux locally)"
             exit 0
             ;;
         *)
@@ -129,7 +141,7 @@ if [ "$RUN_UNIT" = true ]; then
     echo -e "${YELLOW}▶️  Running unit tests...${NC}"
 
     # Build test command
-    TEST_CMD="go test ./..."
+    TEST_CMD="go test -short ./..."
 
     if [ "$RUN_RACE" = true ]; then
         TEST_CMD="$TEST_CMD -race"
@@ -249,12 +261,162 @@ if [ "$RUN_SCENARIOS" = true ]; then
     echo ""
 fi
 
+# Run benchmarks
+if [ "$RUN_BENCH" = true ]; then
+    echo -e "${YELLOW}▶️  Running latency benchmarks...${NC}"
+    echo ""
+
+    # Check tmux is available
+    if ! command -v tmux &> /dev/null; then
+        echo -e "${RED}❌ tmux is not installed or not in PATH${NC}"
+        echo -e "  ${BLUE}💡 Benchmarks require tmux locally (no Docker)${NC}"
+        EXIT_CODE=1
+    else
+        BENCH_DIR="bench-results/$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$BENCH_DIR"
+        export BENCH_OUTPUT_DIR="$(cd "$BENCH_DIR" && pwd)"
+        echo -e "  ${BLUE}📁 Output directory: $BENCH_DIR${NC}"
+        echo ""
+
+        echo -e "  ${BLUE}📊 Running percentile tests...${NC}"
+        echo ""
+        if go test -run "TestLatency" -timeout 120s ./internal/session/ -v 2>&1 | tee "$BENCH_DIR/percentiles.log"; then
+            echo ""
+            echo -e "  ${GREEN}✅ Percentile tests passed${NC}"
+        else
+            echo ""
+            echo -e "  ${RED}❌ Percentile tests failed${NC}"
+            EXIT_CODE=1
+        fi
+        echo ""
+
+        echo -e "  ${BLUE}⏱️  Running Go benchmark...${NC}"
+        echo ""
+        if go test -run='^$' -bench "BenchmarkSendInput" -benchtime 5s -timeout 120s ./internal/session/ 2>&1 | tee "$BENCH_DIR/benchmark.log"; then
+            echo ""
+            echo -e "  ${GREEN}✅ Go benchmark passed${NC}"
+        else
+            echo ""
+            echo -e "  ${RED}❌ Go benchmark failed${NC}"
+            EXIT_CODE=1
+        fi
+
+        echo ""
+        echo -e "  ${BLUE}📁 Results saved to: $BENCH_DIR/${NC}"
+
+        # WebSocket benchmarks (require a running daemon)
+        echo ""
+        echo -e "  ${BLUE}🌐 Checking for running daemon (WebSocket benchmarks)...${NC}"
+        if curl -s --max-time 2 http://localhost:7337/api/healthz > /dev/null 2>&1; then
+            echo -e "  ${GREEN}✅ Daemon reachable${NC}"
+
+            # Spawn a temporary cat session for WS benchmarks
+            echo -e "  ${BLUE}🔧 Spawning temporary cat session...${NC}"
+
+            # Get the first workspace ID from the sessions list
+            WS_ID=$(curl -s http://localhost:7337/api/sessions | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data:
+    print(data[0].get('id', ''))
+" 2>/dev/null)
+
+            if [ -z "$WS_ID" ]; then
+                echo -e "  ${YELLOW}⚠️  No workspaces found — skipping WS benchmarks${NC}"
+            else
+                # Spawn idle cat session
+                SPAWN_RESP=$(curl -s -X POST http://localhost:7337/api/spawn \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"workspace_id\": \"$WS_ID\", \"command\": \"cat\", \"nickname\": \"ws-bench\"}")
+
+                BENCH_SID=$(echo "$SPAWN_RESP" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    print(data[0].get('session_id', ''))
+" 2>/dev/null)
+
+                # Spawn stressed session (background output flood + cat)
+                SPAWN_STRESSED_RESP=$(curl -s -X POST http://localhost:7337/api/spawn \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"workspace_id\": \"$WS_ID\", \"command\": \"sh -c 'while true; do seq 1 50; sleep 0.05; done & exec cat'\", \"nickname\": \"ws-bench-stressed\"}")
+
+                BENCH_SID_STRESSED=$(echo "$SPAWN_STRESSED_RESP" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list) and data:
+    print(data[0].get('session_id', ''))
+" 2>/dev/null)
+
+                if [ -z "$BENCH_SID" ]; then
+                    echo -e "  ${RED}❌ Failed to spawn cat session for WS benchmarks${NC}"
+                    echo -e "  ${BLUE}Response: $SPAWN_RESP${NC}"
+                else
+                    echo -e "  ${GREEN}✅ Spawned idle session $BENCH_SID${NC}"
+                    if [ -n "$BENCH_SID_STRESSED" ]; then
+                        echo -e "  ${GREEN}✅ Spawned stressed session $BENCH_SID_STRESSED${NC}"
+                    else
+                        echo -e "  ${YELLOW}⚠️  Failed to spawn stressed session — stressed WS benchmark will be skipped${NC}"
+                    fi
+                    # Give the sessions time to start and attach PTY
+                    sleep 2
+
+                    export BENCH_SESSION_ID="$BENCH_SID"
+                    if [ -n "$BENCH_SID_STRESSED" ]; then
+                        export BENCH_SESSION_ID_STRESSED="$BENCH_SID_STRESSED"
+                    fi
+
+                    echo ""
+                    echo -e "  ${BLUE}📊 Running WebSocket percentile tests...${NC}"
+                    echo ""
+                    if go test -run "TestWSLatency" -timeout 120s ./internal/dashboard/ -v 2>&1 | tee "$BENCH_DIR/ws_percentiles.log"; then
+                        echo ""
+                        echo -e "  ${GREEN}✅ WebSocket percentile tests passed${NC}"
+                    else
+                        echo ""
+                        echo -e "  ${RED}❌ WebSocket percentile tests failed${NC}"
+                        EXIT_CODE=1
+                    fi
+                    echo ""
+
+                    echo -e "  ${BLUE}⏱️  Running WebSocket Go benchmark...${NC}"
+                    echo ""
+                    if go test -run='^$' -bench "BenchmarkWSEcho" -benchtime 5s -timeout 120s ./internal/dashboard/ 2>&1 | tee "$BENCH_DIR/ws_benchmark.log"; then
+                        echo ""
+                        echo -e "  ${GREEN}✅ WebSocket Go benchmark passed${NC}"
+                    else
+                        echo ""
+                        echo -e "  ${RED}❌ WebSocket Go benchmark failed${NC}"
+                        EXIT_CODE=1
+                    fi
+
+                    # Dispose the temporary sessions
+                    echo ""
+                    echo -e "  ${BLUE}🧹 Disposing temporary sessions...${NC}"
+                    curl -s -X POST "http://localhost:7337/api/sessions/$BENCH_SID/dispose" > /dev/null 2>&1
+                    if [ -n "$BENCH_SID_STRESSED" ]; then
+                        curl -s -X POST "http://localhost:7337/api/sessions/$BENCH_SID_STRESSED/dispose" > /dev/null 2>&1
+                    fi
+                    echo -e "  ${GREEN}✅ Cleaned up${NC}"
+                fi
+            fi
+        else
+            echo -e "  ${YELLOW}⚠️  Daemon not running — skipping WebSocket benchmarks${NC}"
+            echo -e "  ${BLUE}💡 Start daemon with './schmux start' to include WS benchmarks${NC}"
+        fi
+
+        echo ""
+        echo -e "  ${BLUE}📁 All results saved to: $BENCH_DIR/${NC}"
+    fi
+    echo ""
+fi
+
 # Print summary
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
 if [ $EXIT_CODE -eq 0 ]; then
     echo -e "${BLUE}║${NC}  ${GREEN}🎉 All tests passed!${NC}                          ${BLUE}║${NC}"
 else
-    echo -e "${BLUE}║${NC}  ${RED}💥 Some tests failed${NC}                         ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}  ${RED}💥 Some tests failed${NC}                          ${BLUE}║${NC}"
 fi
 echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
 
