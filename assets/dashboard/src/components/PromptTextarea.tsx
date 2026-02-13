@@ -253,6 +253,7 @@ export default function PromptTextarea({
           border: 'none',
           borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
           resize: 'vertical',
+          boxShadow: 'none',
         }}
       />
       {showMenu && menuPos && (
