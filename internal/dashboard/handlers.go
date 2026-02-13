@@ -2268,7 +2268,7 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 }
 
 // handleRemoteGitGraph handles git graph requests for remote workspaces.
-func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxCommits, contextSize int) {
+func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
 	if s.remoteManager == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -2347,6 +2347,14 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		}
 	}
 
+	// Get main-ahead count (commits on origin/main that aren't on HEAD)
+	mainAheadCount := 0
+	if originMainHead != "" && localHead != originMainHead {
+		if out, err := conn.RunCommand(ctx, workdir, cb.RevListCount("HEAD.."+defaultBranchRef)); err == nil {
+			fmt.Sscanf(strings.TrimSpace(out), "%d", &mainAheadCount)
+		}
+	}
+
 	// Build workspace ID mapping for annotations
 	branchWorkspaces := make(map[string][]string)
 	for _, w := range s.state.GetWorkspaces() {
@@ -2358,7 +2366,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	// Get log output
 	var logOutput string
 	if originMainHead == "" || localHead == originMainHead {
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, contextSize+1))
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, mainContext+1))
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -2367,7 +2375,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		}
 		logOutput = out
 	} else if forkPoint == "" {
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxCommits))
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxTotal))
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -2376,23 +2384,20 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		}
 		logOutput = out
 	} else {
-		// Divergence region
-		out, err := conn.RunCommand(ctx, workdir, cb.LogRange([]string{"HEAD", defaultBranchRef}, forkPoint))
+		// Divergence: get local commits + context (no main-ahead data)
+		// Get local commits from HEAD
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, 50))
 		if err != nil {
-			// Fallback to simple log
-			out, err = conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxCommits))
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
-				return
-			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			return
 		}
 		logOutput = out
 
 		// Add context commits below fork point
-		if contextSize > 0 {
-			ctxOut, ctxErr := conn.RunCommand(ctx, workdir, cb.Log([]string{forkPoint}, contextSize))
+		if mainContext > 0 {
+			ctxOut, ctxErr := conn.RunCommand(ctx, workdir, cb.Log([]string{forkPoint}, mainContext))
 			if ctxErr == nil {
 				logOutput = logOutput + "\n" + ctxOut
 			}
@@ -2401,7 +2406,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 
 	rawNodes := workspace.ParseGitLogOutput(logOutput)
 
-	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxCommits)
+	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -3502,30 +3507,44 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Parse query params
-	maxCommits := 200
-	if mc := r.URL.Query().Get("max_commits"); mc != "" {
-		if parsed, err := strconv.Atoi(mc); err == nil && parsed > 0 {
-			maxCommits = parsed
+	// max_total: Maximum total commits to display (applied after category limits)
+	maxTotal := 200
+	if mt := r.URL.Query().Get("max_total"); mt != "" {
+		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
+			maxTotal = parsed
+		}
+	}
+	// For backward compatibility, also accept max_commits
+	if mt := r.URL.Query().Get("max_commits"); mt != "" && maxTotal == 200 {
+		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
+			maxTotal = parsed
 		}
 	}
 
-	contextSize := 5
-	if cs := r.URL.Query().Get("context"); cs != "" {
-		if parsed, err := strconv.Atoi(cs); err == nil && parsed > 0 {
-			contextSize = parsed
+	// main_context: Number of commits on main BEFORE fork point (historical context)
+	mainContext := 5
+	if mc := r.URL.Query().Get("main_context"); mc != "" {
+		if parsed, err := strconv.Atoi(mc); err == nil && parsed > 0 {
+			mainContext = parsed
+		}
+	}
+	// For backward compatibility, also accept context
+	if mc := r.URL.Query().Get("context"); mc != "" && mainContext == 5 {
+		if parsed, err := strconv.Atoi(mc); err == nil && parsed > 0 {
+			mainContext = parsed
 		}
 	}
 
 	// Delegate to remote handler if this is a remote workspace
 	if ws.RemoteHostID != "" {
-		s.handleRemoteGitGraph(w, r, ws, maxCommits, contextSize)
+		s.handleRemoteGitGraph(w, r, ws, maxTotal, mainContext)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.workspace.GetGitGraph(ctx, workspaceID, maxCommits, contextSize)
+	resp, err := s.workspace.GetGitGraph(ctx, workspaceID, maxTotal, mainContext)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

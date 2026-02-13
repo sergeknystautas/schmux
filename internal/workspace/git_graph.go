@@ -12,18 +12,24 @@ import (
 )
 
 const (
-	defaultMaxCommits  = 200
-	defaultContextSize = 5
+	defaultMaxTotal    = 200 // Total commits to display
+	defaultMainContext = 5   // Commits on main BEFORE fork point (historical context)
+	defaultMaxLocal    = 50  // Commits on local feature branch
 )
 
 // GetGitGraph returns the commit graph for a workspace, showing the local branch
 // vs origin/{defaultBranch} with the graph scoped to the divergence region.
-func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommits int, contextSize int) (*contracts.GitGraphResponse, error) {
-	if maxCommits <= 0 {
-		maxCommits = defaultMaxCommits
+//
+// Parameters:
+//   - maxTotal: Maximum total commits to display (applied after category limits).
+//     The actual result may be smaller than maxTotal if category limits are hit first.
+//   - mainContext: Number of commits on main BEFORE fork point (historical context).
+func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.GitGraphResponse, error) {
+	if maxTotal <= 0 {
+		maxTotal = defaultMaxTotal
 	}
-	if contextSize <= 0 {
-		contextSize = defaultContextSize
+	if mainContext <= 0 {
+		mainContext = defaultMainContext
 	}
 
 	// Look up workspace
@@ -61,35 +67,42 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxCommit
 		forkPoint = findMergeBase(ctx, gitDir, "HEAD", originMain)
 	}
 
+	// Get main-ahead count (commits on origin/main that aren't on HEAD)
+	mainAheadCount := 0
+	if originMainHead != "" && localHead != originMainHead {
+		mainAheadCount = getCommitCount(ctx, gitDir, "HEAD.."+originMain)
+	}
+
 	// Determine what to log
 	var rawNodes []RawNode
 	var err error
 
 	if originMainHead == "" || localHead == originMainHead {
 		// No divergence or no origin — just show recent commits from HEAD
-		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD"}, contextSize+1)
+		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD"}, mainContext+1)
 	} else if forkPoint == "" {
 		// No common ancestor — show both independently
-		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxCommits)
+		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxTotal)
 	} else {
-		// Normal divergence — get commits in the divergence region plus context
-		rawNodes, err = m.getGraphNodes(ctx, gitDir, forkPoint, originMain, maxCommits, contextSize)
+		// Normal divergence — get local commits + context (no main-ahead data)
+		rawNodes, err = m.getGraphNodes(ctx, gitDir, forkPoint, mainContext)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
 
-	return BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxCommits), nil
+	return BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount), nil
 }
 
 // BuildGraphResponse builds a GitGraphResponse from raw nodes and branch metadata.
 // This is used by both local and remote graph handlers.
-func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxCommits int) *contracts.GitGraphResponse {
+func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxTotal int, mainAheadCount int) *contracts.GitGraphResponse {
 	if len(nodes) == 0 {
 		return &contracts.GitGraphResponse{
-			Repo:     repo,
-			Nodes:    []contracts.GitGraphNode{},
-			Branches: map[string]contracts.GitGraphBranch{},
+			Repo:           repo,
+			Nodes:          []contracts.GitGraphNode{},
+			Branches:       map[string]contracts.GitGraphBranch{},
+			MainAheadCount: mainAheadCount,
 		}
 	}
 
@@ -103,7 +116,13 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	nodeBranches := make(map[string]map[string]bool, len(nodes))
 	WalkBranchMembership(nodes, nodeIndex, localHead, localBranch, nodeBranches)
 	if originMainHead != "" {
-		WalkBranchMembership(nodes, nodeIndex, originMainHead, defaultBranch, nodeBranches)
+		// If originMainHead is not in the graph (main-ahead commits excluded),
+		// walk from forkPoint instead - the context commits are on main.
+		mainWalkStart := originMainHead
+		if _, inGraph := nodeIndex[originMainHead]; !inGraph && forkPoint != "" {
+			mainWalkStart = forkPoint
+		}
+		WalkBranchMembership(nodes, nodeIndex, mainWalkStart, defaultBranch, nodeBranches)
 	}
 
 	// The two branch names
@@ -284,8 +303,9 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	for i := len(topoOrder) - 1; i >= 0; i-- {
 		resultNodes = append(resultNodes, annotatedNodes[topoOrder[i]])
 	}
-	if len(resultNodes) > maxCommits {
-		resultNodes = resultNodes[:maxCommits]
+	// Apply maxTotal limit as final cap (category limits are applied earlier in getGraphNodes)
+	if len(resultNodes) > maxTotal {
+		resultNodes = resultNodes[:maxTotal]
 	}
 
 	// Build branches map
@@ -304,63 +324,62 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 
 	return &contracts.GitGraphResponse{
-		Repo:     repo,
-		Nodes:    resultNodes,
-		Branches: branchesMap,
+		Repo:           repo,
+		Nodes:          resultNodes,
+		Branches:       branchesMap,
+		MainAheadCount: mainAheadCount,
 	}
 }
 
-// getGraphNodes fetches commits for the divergence region: local ahead, origin ahead, fork point, context.
-func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint, originMain string, maxCommits, contextSize int) ([]RawNode, error) {
-	// Get all commits reachable from HEAD or origin/main but not before fork point's parents,
-	// plus some context commits below the fork point.
-	// Strategy: log HEAD + origin/main with --ancestry-path from fork point, then add context.
+// getGraphNodes fetches commits for the graph: local commits + context (historical).
+// Main-ahead commits are NOT included - only their count is returned separately.
+func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, mainContext int) ([]RawNode, error) {
+	var allNodes []RawNode
+	seen := make(map[string]bool)
 
-	// Commits in the divergence region (HEAD and origin/main down to fork point)
-	args := []string{"log",
-		"--format=%H|%h|%s|%an|%aI|%P",
-		"--topo-order",
-		"HEAD", originMain,
-		"--not", forkPoint + "^",
-	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = gitDir
-	output, err := cmd.Output()
-	if err != nil {
-		// Fallback: try without --not (fork point might be root commit)
-		return runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxCommits)
-	}
-
-	nodes := ParseGitLogOutput(string(output))
-
-	// Add context commits below the fork point
-	if contextSize > 0 {
+	// 1. Fetch context commits: commits from forkPoint going back (historical context)
+	if mainContext > 0 {
 		contextArgs := []string{"log",
 			"--format=%H|%h|%s|%an|%aI|%P",
 			"--topo-order",
-			fmt.Sprintf("--max-count=%d", contextSize),
+			fmt.Sprintf("--max-count=%d", mainContext),
 			forkPoint,
 		}
-		ctxCmd := exec.CommandContext(ctx, "git", contextArgs...)
-		ctxCmd.Dir = gitDir
-		ctxOutput, ctxErr := ctxCmd.Output()
-		if ctxErr == nil {
-			contextNodes := ParseGitLogOutput(string(ctxOutput))
-			// Append context, deduplicating
-			seen := make(map[string]bool, len(nodes))
-			for _, n := range nodes {
-				seen[n.Hash] = true
-			}
+		contextCmd := exec.CommandContext(ctx, "git", contextArgs...)
+		contextCmd.Dir = gitDir
+		contextOutput, contextErr := contextCmd.Output()
+		if contextErr == nil {
+			contextNodes := ParseGitLogOutput(string(contextOutput))
 			for _, n := range contextNodes {
 				if !seen[n.Hash] {
 					seen[n.Hash] = true
-					nodes = append(nodes, n)
+					allNodes = append(allNodes, n)
 				}
 			}
 		}
 	}
 
-	return nodes, nil
+	// 2. Fetch local commits: all commits from HEAD that haven't been seen yet
+	localArgs := []string{"log",
+		"--format=%H|%h|%s|%an|%aI|%P",
+		"--topo-order",
+		fmt.Sprintf("--max-count=%d", defaultMaxLocal),
+		"HEAD",
+	}
+	localCmd := exec.CommandContext(ctx, "git", localArgs...)
+	localCmd.Dir = gitDir
+	localOutput, localErr := localCmd.Output()
+	if localErr == nil {
+		localNodes := ParseGitLogOutput(string(localOutput))
+		for _, n := range localNodes {
+			if !seen[n.Hash] {
+				seen[n.Hash] = true
+				allNodes = append(allNodes, n)
+			}
+		}
+	}
+
+	return allNodes, nil
 }
 
 // RawNode is an intermediate parsed commit before annotation.
@@ -393,6 +412,19 @@ func findMergeBase(ctx context.Context, repoPath, ref1, ref2 string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// getCommitCount returns the number of commits in a range (e.g., "HEAD..origin/main").
+func getCommitCount(ctx context.Context, repoPath, rangeSpec string) int {
+	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", rangeSpec)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	count := 0
+	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
+	return count
 }
 
 // runGitLog runs git log and parses the output into RawNode structs.

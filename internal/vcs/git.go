@@ -63,6 +63,10 @@ func (g *GitCommandBuilder) DetectDefaultBranch() string {
 	return "git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||'"
 }
 
+func (g *GitCommandBuilder) RevListCount(rangeSpec string) string {
+	return fmt.Sprintf("git rev-list --count %s", rangeSpec)
+}
+
 // shellQuote quotes a string for safe use in shell commands.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"

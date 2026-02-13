@@ -79,3 +79,18 @@ func (s *SaplingCommandBuilder) DetectDefaultBranch() string {
 	// Sapling: get the default remote bookmark name (e.g., "main"), fall back to "main"
 	return "sl config remotenames.selectivepulldefault 2>/dev/null || echo main"
 }
+
+func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {
+	// Convert git range notation to sapling revset
+	// "HEAD..origin/main" -> "only(origin/main, .)"
+	parts := strings.Split(rangeSpec, "..")
+	if len(parts) == 2 {
+		exclude, include := parts[0], parts[1]
+		if exclude == "HEAD" {
+			exclude = "."
+		}
+		return fmt.Sprintf("sl log -T '.' -r 'only(%s, %s)' | wc -l", include, exclude)
+	}
+	// Fallback for other range specs
+	return fmt.Sprintf("sl log -T '.' -r '%s' | wc -l", rangeSpec)
+}

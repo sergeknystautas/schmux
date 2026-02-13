@@ -152,9 +152,14 @@ func TestGitGraph_BranchBehind(t *testing.T) {
 		t.Error("expected main and local heads to differ (local is behind)")
 	}
 
-	// Should have nodes for the remote commits
-	if len(resp.Nodes) < 3 {
-		t.Fatalf("expected at least 3 nodes (2 remote + fork point), got %d", len(resp.Nodes))
+	// Should report main-ahead count (2 remote commits)
+	if resp.MainAheadCount != 2 {
+		t.Errorf("expected MainAheadCount=2, got %d", resp.MainAheadCount)
+	}
+
+	// Should have nodes for local branch (fork point + context)
+	if len(resp.Nodes) < 1 {
+		t.Fatalf("expected at least 1 node (fork point), got %d", len(resp.Nodes))
 	}
 }
 
@@ -180,26 +185,25 @@ func TestGitGraph_AheadAndBehind(t *testing.T) {
 		t.Error("expected different heads for diverged branches")
 	}
 
-	// Should have at least 3 nodes: local commit, remote commit, fork point
-	if len(resp.Nodes) < 3 {
-		t.Fatalf("expected at least 3 nodes, got %d", len(resp.Nodes))
+	// Should report main-ahead count (1 remote commit)
+	if resp.MainAheadCount != 1 {
+		t.Errorf("expected MainAheadCount=1, got %d", resp.MainAheadCount)
 	}
 
-	// Verify both heads are in nodes
-	foundLocal, foundRemote := false, false
+	// Should have at least 2 nodes: local commit, fork point
+	if len(resp.Nodes) < 2 {
+		t.Fatalf("expected at least 2 nodes (local + fork point), got %d", len(resp.Nodes))
+	}
+
+	// Verify local head is in nodes (main head is NOT in nodes - it's just a count)
+	foundLocal := false
 	for _, node := range resp.Nodes {
 		if node.Hash == localBranch.Head {
 			foundLocal = true
 		}
-		if node.Hash == mainBranch.Head {
-			foundRemote = true
-		}
 	}
 	if !foundLocal {
 		t.Error("local branch HEAD not found in nodes")
-	}
-	if !foundRemote {
-		t.Error("origin/main HEAD not found in nodes")
 	}
 }
 
@@ -230,8 +234,15 @@ func TestGitGraph_OrderMatchesISLSort(t *testing.T) {
 		t.Fatalf("GetGitGraph failed: %v", err)
 	}
 
-	if len(resp.Nodes) < 4 {
-		t.Fatalf("expected at least 4 nodes, got %d", len(resp.Nodes))
+	// Main-ahead count should be 2 (the public commits)
+	if resp.MainAheadCount != 2 {
+		t.Errorf("expected MainAheadCount=2, got %d", resp.MainAheadCount)
+	}
+
+	// Nodes should include local commits + context (fork point + ancestors)
+	// Not the main-ahead commits
+	if len(resp.Nodes) < 2 {
+		t.Fatalf("expected at least 2 nodes (local commits), got %d", len(resp.Nodes))
 	}
 
 	// ISL invariant: children never appear below their ancestors.
@@ -253,23 +264,18 @@ func TestGitGraph_OrderMatchesISLSort(t *testing.T) {
 		}
 	}
 
-	// Verify draft commits (local-only) and public commits (main) are both present.
-	var draftCount, publicCount int
+	// Verify draft commits (local-only) are present.
+	// Public commits (main-ahead) are NOT in nodes - they're just counted.
+	var draftCount int
 	for _, n := range resp.Nodes {
 		onMain := sliceContains(n.Branches, "main")
 		onLocal := sliceContains(n.Branches, "feature-order")
 		if onLocal && !onMain {
 			draftCount++
 		}
-		if onMain {
-			publicCount++
-		}
 	}
 	if draftCount < 2 {
 		t.Errorf("expected at least 2 draft nodes, got %d", draftCount)
-	}
-	if publicCount < 2 {
-		t.Errorf("expected at least 2 public nodes, got %d", publicCount)
 	}
 }
 
