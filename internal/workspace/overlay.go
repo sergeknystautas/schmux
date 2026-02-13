@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,6 +13,20 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 )
+
+// fileHash computes the SHA-256 hex digest of a file.
+func fileHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 // OverlayDir returns the overlay directory path for a given repo name.
 // Returns ~/.schmux/overlays/<repoName>/.
@@ -48,9 +64,12 @@ func EnsureOverlayDir(repoName string) error {
 // CopyOverlay copies overlay files from srcDir (overlay) to destDir (workspace).
 // Only copies files that are covered by .gitignore in the destination workspace.
 // Preserves directory structure, file permissions, and symlinks.
-func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
+// Returns a manifest mapping relative paths to SHA-256 hashes of copied files.
+func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string, error) {
+	manifest := make(map[string]string)
+
 	// Walk the overlay directory
-	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -113,10 +132,23 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) error {
 		if err := copyFile(path, destPath, info.Mode()); err != nil {
 			return fmt.Errorf("failed to copy %s to %s: %w", path, destPath, err)
 		}
+
+		// Compute SHA-256 hash of the copied file
+		hash, err := fileHash(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to hash %s: %w", destPath, err)
+		}
+		manifest[relPath] = hash
+
 		fmt.Printf("[workspace] copied overlay file: %s\n", relPath)
 
 		return nil
 	})
+
+	if err != nil {
+		return nil, err
+	}
+	return manifest, nil
 }
 
 // copyFile copies a single file from src to dst with the given mode.
@@ -166,25 +198,27 @@ func isIgnoredByGit(ctx context.Context, dir, filePath string) (bool, error) {
 
 // copyOverlayFiles copies overlay files from the overlay directory to the workspace.
 // If the overlay directory doesn't exist, this is a no-op.
-func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath string) error {
+// Returns a manifest mapping relative paths to SHA-256 hashes of copied files.
+func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath string) (map[string]string, error) {
 	overlayDir, err := OverlayDir(repoName)
 	if err != nil {
-		return fmt.Errorf("failed to get overlay directory: %w", err)
+		return nil, fmt.Errorf("failed to get overlay directory: %w", err)
 	}
 
 	// Check if overlay directory exists
 	if _, err := os.Stat(overlayDir); os.IsNotExist(err) {
 		fmt.Printf("[workspace] no overlay directory for repo %s, skipping\n", repoName)
-		return nil
+		return nil, nil
 	}
 
 	fmt.Printf("[workspace] copying overlay files: repo=%s to=%s\n", repoName, workspacePath)
-	if err := CopyOverlay(ctx, overlayDir, workspacePath); err != nil {
-		return fmt.Errorf("failed to copy overlay files: %w", err)
+	manifest, err := CopyOverlay(ctx, overlayDir, workspacePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy overlay files: %w", err)
 	}
 
 	fmt.Printf("[workspace] overlay files copied successfully\n")
-	return nil
+	return manifest, nil
 }
 
 // RefreshOverlay reapplies overlay files to an existing workspace.
@@ -202,8 +236,13 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 
 	fmt.Printf("[workspace] refreshing overlay: id=%s repo=%s\n", workspaceID, repoConfig.Name)
 
-	if err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path)
+	if err != nil {
 		return fmt.Errorf("failed to copy overlay files: %w", err)
+	}
+
+	if manifest != nil {
+		m.state.UpdateOverlayManifest(workspaceID, manifest)
 	}
 
 	fmt.Printf("[workspace] overlay refreshed successfully: %s\n", workspaceID)

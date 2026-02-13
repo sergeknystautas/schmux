@@ -303,7 +303,8 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	}
 
 	// Copy overlay files if they exist
-	if err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath); err != nil {
+	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath)
+	if err != nil {
 		fmt.Printf("[workspace] warning: failed to copy overlay files: %v\n", err)
 		// Don't fail workspace creation if overlay copy fails
 	}
@@ -321,6 +322,11 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	}
 	if err := m.state.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Store overlay manifest after workspace is persisted
+	if manifest != nil {
+		m.state.UpdateOverlayManifest(w.ID, manifest)
 	}
 
 	// State is persisted, workspace is valid

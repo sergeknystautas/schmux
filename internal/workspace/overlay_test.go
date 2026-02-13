@@ -246,3 +246,80 @@ func runGitCommand(ctx context.Context, dir string, args ...string) error {
 	cmd.Dir = dir
 	return cmd.Run()
 }
+
+func TestCopyOverlayReturnsManifest(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp overlay source directory with test files
+	overlayDir := t.TempDir()
+	testFiles := map[string]string{
+		".env":                 "SECRET=abc123\n",
+		"config/local.json":    `{"key": "value"}`,
+		"data/credentials.txt": "user:pass\n",
+	}
+	for relPath, content := range testFiles {
+		fullPath := filepath.Join(overlayDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("failed to create parent dir for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write overlay file %s: %v", relPath, err)
+		}
+	}
+
+	// Create temp workspace directory initialized as a git repo
+	workspaceDir := t.TempDir()
+	if err := runGitCommand(ctx, workspaceDir, "init"); err != nil {
+		t.Skipf("git not available: %v", err)
+		return
+	}
+
+	// Create .gitignore that covers the overlay files
+	gitignoreContent := ".env\nconfig/\ndata/\n"
+	if err := os.WriteFile(filepath.Join(workspaceDir, ".gitignore"), []byte(gitignoreContent), 0644); err != nil {
+		t.Fatalf("failed to create .gitignore: %v", err)
+	}
+
+	// Call CopyOverlay
+	manifest, err := CopyOverlay(ctx, overlayDir, workspaceDir)
+	if err != nil {
+		t.Fatalf("CopyOverlay() error = %v", err)
+	}
+
+	// Verify the manifest has entries for each copied file
+	if len(manifest) != len(testFiles) {
+		t.Errorf("manifest has %d entries, want %d", len(manifest), len(testFiles))
+	}
+
+	for relPath := range testFiles {
+		hash, ok := manifest[relPath]
+		if !ok {
+			t.Errorf("manifest missing entry for %s", relPath)
+			continue
+		}
+		// SHA-256 hex digest should be exactly 64 characters
+		if len(hash) != 64 {
+			t.Errorf("hash for %s has length %d, want 64", relPath, len(hash))
+		}
+		// Verify it's valid hex
+		for _, c := range hash {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				t.Errorf("hash for %s contains non-hex character: %c", relPath, c)
+				break
+			}
+		}
+	}
+
+	// Verify the files were actually copied
+	for relPath, content := range testFiles {
+		destPath := filepath.Join(workspaceDir, relPath)
+		gotContent, err := os.ReadFile(destPath)
+		if err != nil {
+			t.Errorf("failed to read copied file %s: %v", relPath, err)
+			continue
+		}
+		if string(gotContent) != content {
+			t.Errorf("copied file %s content mismatch: got %q, want %q", relPath, string(gotContent), content)
+		}
+	}
+}
