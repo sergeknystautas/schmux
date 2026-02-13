@@ -43,3 +43,6 @@ test/scenarios/generated/node_modules/
 test/scenarios/generated/test-results/
 test/scenarios/generated/playwright-report/
 test/scenarios/artifacts/
+
+# Cross-compiled build artifacts
+build/

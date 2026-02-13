@@ -1,0 +1,24 @@
+# Scenarios Base Image for schmux
+# Contains Node.js runtime, system deps, npm packages, and Playwright/Chromium.
+# Rebuilt only when package.json/package-lock.json change or with --force.
+#
+# Build: docker build -f Dockerfile.scenarios-base -t schmux-scenarios-base .
+
+FROM node:20-bookworm
+
+# Install runtime dependencies required by schmux
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    bash \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-install npm deps and Playwright browsers (most expensive steps)
+WORKDIR /app/test/scenarios/generated
+COPY test/scenarios/generated/package.json test/scenarios/generated/package-lock.json ./
+RUN npm ci
+RUN npx playwright install chromium --with-deps
+
+# Verify installation
+RUN tmux -V

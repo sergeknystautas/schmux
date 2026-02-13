@@ -1,77 +1,29 @@
-# Scenario Test Docker Image for schmux
-# Runs Playwright scenario tests against a live schmux daemon inside the container.
+# Scenario Test Thin Image for schmux
+# Uses schmux-scenarios-base (pre-cached deps + Playwright/Chromium).
+# Only copies code + pre-built binary + dashboard dist.
+# Always rebuilt, but fast (~2-5s, just COPY ops).
+#
+# Prerequisites:
+#   docker build -f Dockerfile.scenarios-base -t schmux-scenarios-base .
+#   GOOS=linux CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux
+#   go run ./cmd/build-dashboard
+#
 # Build: docker build -f Dockerfile.scenarios -t schmux-scenarios .
 # Run:   docker run --rm schmux-scenarios
 
-# ---------------------------------------------------------------------------
-# Stage 1: Go builder — compile the schmux binary
-# ---------------------------------------------------------------------------
-FROM golang:1.24-bookworm AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o schmux ./cmd/schmux
-
-# ---------------------------------------------------------------------------
-# Stage 2: Dashboard builder — build the React dashboard
-# ---------------------------------------------------------------------------
-FROM node:20-bookworm AS dashboard-builder
-
-WORKDIR /src
-COPY --from=builder /src /src
-COPY assets/dashboard/package*.json assets/dashboard/
-RUN cd assets/dashboard && npm ci
-RUN cd assets/dashboard && npm run build
-
-# ---------------------------------------------------------------------------
-# Stage 3: Playwright installer — install deps + Chromium
-# ---------------------------------------------------------------------------
-FROM node:20-bookworm AS playwright-installer
-
-WORKDIR /tests
-COPY test/scenarios/generated/package*.json ./
-RUN npm ci
-RUN npx playwright install chromium --with-deps
-
-# ---------------------------------------------------------------------------
-# Stage 4: Final runtime image
-# ---------------------------------------------------------------------------
-FROM node:20-bookworm
-
-# Install runtime dependencies required by schmux
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux \
-    git \
-    bash \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Playwright browser system dependencies (shared libs for Chromium)
-# We copy the browsers below, but the OS-level deps must be installed here.
-COPY --from=playwright-installer /tests/package*.json /tmp/pw-deps/
-COPY --from=playwright-installer /tests/node_modules /tmp/pw-deps/node_modules
-RUN cd /tmp/pw-deps && npx playwright install-deps chromium && rm -rf /tmp/pw-deps
+FROM schmux-scenarios-base
 
 WORKDIR /app
 
-# Copy schmux binary
-COPY --from=builder /src/schmux /usr/local/bin/schmux
+# Copy pre-built binary (cross-compiled locally)
+COPY build/schmux-linux /usr/local/bin/schmux
 
 # Copy dashboard dist (the binary looks for ./assets/dashboard/dist relative to cwd)
-COPY --from=dashboard-builder /src/assets/dashboard/dist ./assets/dashboard/dist
+COPY assets/dashboard/dist ./assets/dashboard/dist
 
-# Copy Playwright test files + node_modules
+# Copy Playwright test files (node_modules + browsers already in base image)
 COPY test/scenarios/generated/*.ts ./test/scenarios/generated/
-COPY test/scenarios/generated/package*.json ./test/scenarios/generated/
-COPY --from=playwright-installer /tests/node_modules ./test/scenarios/generated/node_modules
-
-# Copy Playwright browsers from the installer stage
-COPY --from=playwright-installer /root/.cache/ms-playwright /root/.cache/ms-playwright
+COPY test/scenarios/generated/tsconfig.json ./test/scenarios/generated/
 
 # Copy and install the entrypoint script
 COPY test/scenarios/generated/entrypoint.sh /entrypoint.sh
