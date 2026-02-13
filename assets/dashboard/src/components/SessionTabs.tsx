@@ -15,7 +15,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
-import { mergeQuickLaunchNames } from '../lib/quicklaunch';
+import { getQuickLaunchItems } from '../lib/quicklaunch';
 
 const nudgeStateEmoji: Record<string, string> = {
   'Needs Authorization': '\u26D4\uFE0F',
@@ -76,9 +76,9 @@ export default function SessionTabs({
   const crState = workspace ? linearSyncResolveConflictStates[workspace.id] : undefined;
   const resolveInProgress = crState?.status === 'in_progress';
 
-  const quickLaunch = React.useMemo<string[]>(() => {
+  const quickLaunch = React.useMemo(() => {
     const globalNames = (config?.quick_launch || []).map((item) => item.name);
-    return mergeQuickLaunchNames(globalNames, workspace?.quick_launch || []);
+    return getQuickLaunchItems(globalNames, workspace?.quick_launch || []);
   }, [config?.quick_launch, workspace?.quick_launch]);
 
   // VCS-specific UI should appear for workspaces with VCS support.
@@ -546,16 +546,26 @@ export default function SessionTabs({
             {quickLaunch.length > 0 && (
               <>
                 <div className="spawn-dropdown__separator" role="separator"></div>
-                {quickLaunch.map((name) => (
-                  <button
-                    key={name}
-                    className="spawn-dropdown__item"
-                    onClick={(e) => handleQuickLaunchSpawn(name, e)}
-                    role="menuitem"
-                  >
-                    <span className="spawn-dropdown__item-label">{name}</span>
-                  </button>
-                ))}
+                {quickLaunch.map((item, index) => {
+                  const showScopeSeparator =
+                    index > 0 &&
+                    quickLaunch[index - 1].scope === 'global' &&
+                    item.scope === 'workspace';
+                  return (
+                    <React.Fragment key={item.name}>
+                      {showScopeSeparator && (
+                        <div className="spawn-dropdown__scope-separator" role="separator"></div>
+                      )}
+                      <button
+                        className="spawn-dropdown__item"
+                        onClick={(e) => handleQuickLaunchSpawn(item.name, e)}
+                        role="menuitem"
+                      >
+                        <span className="spawn-dropdown__item-label">{item.name}</span>
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
               </>
             )}
 

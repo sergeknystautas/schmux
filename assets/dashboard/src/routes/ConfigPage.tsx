@@ -370,7 +370,7 @@ export default function ConfigPage() {
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
         setDetectedTargets(filteredDetectedItems);
-        setQuickLaunch(data.quick_launch || []);
+        setQuickLaunch((data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)));
         // External diff commands - add VS Code as a built-in default
         // Built-in commands are not editable/deletable in the UI
         const userDiffCommands = data.external_diff_commands || [];
@@ -921,7 +921,11 @@ export default function ConfigPage() {
       return;
     }
     const prompt = promptValue === '' ? null : promptValue;
-    setQuickLaunch([...quickLaunch, { name, target: targetName, prompt }]);
+    setQuickLaunch(
+      [...quickLaunch, { name, target: targetName, prompt }].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      )
+    );
     setNewQuickLaunchName('');
     setNewQuickLaunchTarget('');
     setNewQuickLaunchPrompt('');
@@ -1088,9 +1092,13 @@ export default function ConfigPage() {
 
     // Update the quick launch item
     setQuickLaunch(
-      quickLaunch.map((p) =>
-        p.name === item.name ? { name: item.name, target, prompt: isPromptable ? prompt : null } : p
-      )
+      quickLaunch
+        .map((p) =>
+          p.name === item.name
+            ? { name: item.name, target, prompt: isPromptable ? prompt : null }
+            : p
+        )
+        .sort((a, b) => a.name.localeCompare(b.name))
     );
     closeQuickLaunchEditModal();
   };
