@@ -68,7 +68,7 @@ Output this marker **on its own line** in your response:
 4. **Signal error** for failures that block progress
 5. **Signal working** when starting a new task to clear old status
 6. Keep messages concise (under 100 characters)
-7. The signal marker is stripped from terminal output, so users won't see it
+7. Do not use ` + "`]`" + ` in the message — it terminates the marker early
 `
 
 // EnsureAgentInstructions ensures the signaling instructions are present

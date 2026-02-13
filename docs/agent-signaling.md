@@ -6,7 +6,7 @@ Schmux provides a comprehensive system for agents to communicate their status to
 
 The agent signaling system has three components:
 
-1. **Direct Signaling** - Agents output OSC escape sequences to signal their state
+1. **Direct Signaling** - Agents output bracket-based markers to signal their state
 2. **Automatic Provisioning** - Schmux teaches agents about signaling via instruction files
 3. **NudgeNik Fallback** - LLM-based classification for agents that don't signal
 
@@ -26,8 +26,7 @@ The agent signaling system has three components:
 ├─────────────────────────────────────────────────────────────────┤
 │  Agent reads instruction file → learns signaling protocol       │
 │  Agent outputs: --<[schmux:completed:Done]>--                   │
-│  Schmux WebSocket detects signal → updates dashboard            │
-│  Signal stripped from terminal output (invisible to user)       │
+│  Schmux PTY tracker detects signal → updates dashboard          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -45,14 +44,7 @@ The agent signaling system has three components:
 
 ## Direct Signaling Protocol
 
-Schmux supports two signaling mechanisms:
-
-1. **Bracket-based markers** (recommended) - Text markers that agents output in their responses
-2. **OSC 777 escape sequences** - Terminal escape codes for agents with direct stdout access
-
-### Bracket-Based Markers (Recommended)
-
-For agents that generate text responses (like Claude Code, Codex, etc.), output the bracket marker **on its own line** in your response:
+Agents signal their state by outputting a bracket-based text marker **on its own line** in their response:
 
 ```
 --<[schmux:state:message]>--
@@ -82,45 +74,8 @@ For agents that generate text responses (like Claude Code, Codex, etc.), output 
 **Benefits:**
 
 - **Passes through markdown** - Unlike HTML comments, bracket markers are visible in rendered output
-- **Invisible to user** - Markers are stripped before showing to user in the dashboard
 - **Looks benign** - If not stripped, the marker looks like an innocuous code annotation
 - **Highly unique** - The format is extremely unlikely to appear naturally in agent output
-
-### OSC 777 Format
-
-For agents with direct terminal control, use the standard OSC 777 notification format:
-
-```
-ESC ] 777 ; notify ; <state> ; <message> BEL
-\x1b]777;notify;<state>;<message>\x07
-```
-
-The `notify` keyword is standard OSC 777. The "title" field contains the state, and "body" contains the optional message.
-
-**Examples:**
-
-```bash
-# Signal completion
-printf '\x1b]777;notify;completed;Implementation complete, ready for review\x07'
-
-# Signal needs input
-printf '\x1b]777;notify;needs_input;Waiting for permission to delete files\x07'
-
-# Signal error
-printf '\x1b]777;notify;error;Build failed with 3 errors\x07'
-
-# Signal needs testing
-printf '\x1b]777;notify;needs_testing;Please test the new feature\x07'
-
-# Clear signal (starting new work)
-printf '\x1b]777;notify;working;\x07'
-```
-
-**Benefits:**
-
-- **Standard format** - Already supported by terminals (VSCode, rxvt-unicode)
-- **May trigger native notifications** - Terminals that support OSC 777 could show desktop notifications
-- **Interoperable** - Other tools could produce compatible signals
 
 ### Valid States
 
@@ -134,21 +89,19 @@ printf '\x1b]777;notify;working;\x07'
 
 ### How Signals Flow
 
-1. Agent outputs signal (bracket marker or OSC 777 sequence)
-2. tmux captures output via pipe-pane to log file
-3. Schmux WebSocket reads log file, detects signal
+1. Agent outputs bracket marker on its own line
+2. Schmux PTY attachment reads terminal output
+3. ANSI escape sequences are stripped, signal regex is matched
 4. Signal is parsed and validated (must be a valid schmux state)
 5. Session nudge state is updated
-6. Signal is stripped from output before sending to browser terminal
-7. Dashboard broadcasts update to all connected clients
+6. Dashboard broadcasts update to all connected clients
 
-### Benefits of Dual-Format Support
+### Why Bracket Markers
 
-- **Bracket-based**: Works for any agent that generates text responses, passes through markdown
-- **OSC 777**: Works for agents with direct terminal access
-- **Invisible**: Both formats are stripped from terminal output before display
-- **Standard**: OSC 777 is recognized by many terminals
-- **Flexible**: Choose the format that works best for your agent
+- **Works for text-based agents**: Any agent that generates text responses can signal
+- **Passes through markdown**: Unlike HTML comments, visible in rendered output
+- **Highly unique**: Extremely unlikely to appear naturally in agent output
+- **Looks benign**: If displayed, appears as an innocuous annotation
 
 ---
 
@@ -228,25 +181,21 @@ Models are mapped to their base tools:
 ```bash
 if [ "$SCHMUX_ENABLED" = "1" ]; then
     # Running in schmux - use signaling
-    # Bracket-based (recommended for text-based agents):
     echo "--<[schmux:completed:Task done]>--"
-
-    # Or OSC 777 (for terminal control):
-    printf '\x1b]777;notify;completed;Task done\x07'
 fi
 ```
 
 ### Integration Examples
 
-**Bash (for AI agents like Claude Code):**
+**Bash / AI agents (Claude Code, etc.):**
 
-Output the signal marker on its own line in your response:
+Output the signal marker on its own line:
 
 ```
 --<[schmux:completed:Feature implemented successfully]>--
 ```
 
-Note: The signal must be on a separate line - do not embed it within other text.
+Note: The signal must be on a separate line — do not embed it within other text.
 
 **Python:**
 
@@ -285,6 +234,7 @@ signalSchmux('completed', 'Build successful');
 4. **Signal error** for failures that block progress
 5. **Signal working** when starting a new task to clear old status
 6. Keep messages concise (under 100 characters)
+7. Do not use `]` in the message — it terminates the marker early
 
 ---
 
@@ -323,9 +273,11 @@ The API indicates the signal source:
 
 ```
 internal/
-  signal/           # OSC 777 parsing
-    signal.go       # ParseSignals, ExtractAndStripSignals
+  signal/           # Signal parsing (bracket-based markers)
+    signal.go       # ANSI stripping, bracket regex, parseBracketSignals
+    detector.go     # Line accumulation, flush ticker, near-miss detection
     signal_test.go
+    detector_test.go
 
   provision/        # Agent instruction provisioning
     provision.go    # EnsureAgentInstructions, RemoveAgentInstructions
@@ -349,20 +301,20 @@ internal/
 
 ### Key Functions
 
-**Signal Detection** (`internal/signal/signal.go`):
+**Signal Detection** (`internal/signal/`):
 
 ```go
-// Parse signals from terminal output (both bracket-based and OSC 777)
-signals := signal.ParseSignals(data)
+// Low-level: parse signals from ANSI-stripped data
+signals := signal.parseBracketSignals(cleanData, now)
 
-// Extract signals and return cleaned data
-signals, cleanData := signal.ExtractAndStripSignals(data)
+// Line accumulator with chunked-read support
+detector := signal.NewSignalDetector(sessionID, callback)
+detector.Feed(chunk)   // accumulates lines, parses on newline
+detector.Flush()       // force-parse buffered data
+detector.ShouldFlush() // true if buffered data has aged past FlushTimeout
 ```
 
-The parser supports:
-
-- Bracket-based markers: `--<[schmux:state:message]>--`
-- OSC 777 escape sequences: `\x1b]777;notify;state;message\x07`
+The parser supports bracket-based markers: `--<[schmux:state:message]>--`
 
 **Provisioning** (`internal/provision/provision.go`):
 
@@ -392,9 +344,7 @@ path := detect.GetInstructionPathForTarget("claude-opus")
 ### Verify Signaling Works
 
 1. Spawn a session in schmux
-2. In the terminal, run either:
-   - Bracket-based: `echo "--<[schmux:completed:Test signal]>--"`
-   - OSC 777: `printf '\x1b]777;notify;completed;Test signal\x07'`
+2. In the terminal, run: `echo "--<[schmux:completed:Test signal]>--"`
 3. Check the dashboard - the session should show a completion status
 
 ### Check Environment Variables
@@ -422,10 +372,9 @@ cat .claude/CLAUDE.md       # Should contain SCHMUX:BEGIN marker
 
 ### Invalid Signals Are Preserved
 
-Only signals with valid schmux states are processed and stripped. Other content that looks similar passes through unchanged:
+Only signals with valid schmux states are processed. Other content that looks similar passes through unchanged:
 
-- **OSC 777 with invalid states**: Other OSC 777 notifications (from other tools) pass through
-- **Bracket markers with invalid states**: Markers like `--<[schmux:invalid_state:msg]>--` are preserved
+- **Bracket markers with invalid states**: Markers like `--<[schmux:invalid_state:msg]>--` are ignored
 
 Valid states: `needs_input`, `needs_testing`, `completed`, `error`, `working`
 
@@ -454,7 +403,5 @@ To add signaling support for a new agent:
 
 1. **Non-destructive**: Never modify user's existing instruction content
 2. **Automatic**: No manual setup required - works out of the box
-3. **Agent-agnostic**: Protocol works for any agent that can output to stdout
+3. **Agent-agnostic**: Protocol works for any agent that can output text to stdout
 4. **Graceful fallback**: NudgeNik handles agents that don't signal
-5. **Invisible**: Signals are stripped from terminal output
-6. **Standard format**: Uses OSC 777, a recognized terminal escape sequence
