@@ -307,15 +307,22 @@ func (t *SessionTracker) attachAndRead() error {
 				chunk := make([]byte, len(data))
 				copy(chunk, data)
 
+				// Fast path: skip expensive processing for tiny echo chunks.
+				// Single-character echoes (1-3 bytes: char, or char+ANSI) don't
+				// contain signals and don't need full ANSI stripping.
+				isSmallChunk := len(chunk) <= 8 && !bytes.Contains(chunk, []byte("\n"))
+
 				// Feed to signal detector (line accumulation handles chunk splits)
-				if t.signalDetector != nil {
+				if t.signalDetector != nil && !isSmallChunk {
 					t.signalDetector.Feed(chunk)
 				}
 
-				meaningful := isMeaningfulTerminalChunk(chunk)
 				now := time.Now()
 
 				t.mu.Lock()
+				// For small chunks (echo), always count as meaningful.
+				// For larger chunks, check if they contain printable content.
+				meaningful := isSmallChunk || isMeaningfulTerminalChunk(chunk)
 				shouldUpdate := meaningful && (t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce)
 				if shouldUpdate {
 					t.lastEvent = now

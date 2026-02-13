@@ -111,8 +111,8 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
 			if s.config.GetAuthEnabled() {
@@ -219,8 +219,27 @@ drained:
 		}
 	}()
 
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	// Run IsRunning checks in a background goroutine so they never block
+	// the main select loop (tmux has-session can take 50-250ms).
+	sessionDead := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
+				running := s.session.IsRunning(ctx, sessionID)
+				cancel()
+				if !running {
+					close(sessionDead)
+					return
+				}
+			case <-sessionDead:
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -235,14 +254,9 @@ drained:
 					return
 				}
 			}
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
-			running := s.session.IsRunning(ctx, sessionID)
-			cancel()
-			if !running {
-				sendOutput("append", "\n[Session ended]")
-				return
-			}
+		case <-sessionDead:
+			sendOutput("append", "\n[Session ended]")
+			return
 		case msg, ok := <-controlChan:
 			if !ok {
 				return
@@ -257,11 +271,13 @@ drained:
 				// Clear nudge atomically — avoid using stale sess pointer.
 				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") {
 					if s.state.ClearSessionNudge(sessionID) {
-						if err := s.state.Save(); err != nil {
-							fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
-						} else {
-							go s.BroadcastSessions()
-						}
+						go func() {
+							if err := s.state.Save(); err != nil {
+								fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+							} else {
+								s.BroadcastSessions()
+							}
+						}()
 					}
 				}
 				if err := tracker.SendInput(msg.Data); err != nil {
