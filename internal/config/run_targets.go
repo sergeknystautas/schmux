@@ -152,11 +152,33 @@ func validateQuickLaunchTargets(presets []QuickLaunch, targets []RunTarget) erro
 	return nil
 }
 
-func validateRunTargetDependencies(targets []RunTarget, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig) error {
+func validateCompoundConfig(compound *CompoundConfig, targets []RunTarget) error {
+	if compound == nil {
+		return nil
+	}
+	targetName := strings.TrimSpace(compound.Target)
+	if targetName == "" {
+		return nil
+	}
+
+	promptable, ok := quickLaunchTargetPromptable(targetName, targets)
+	if !ok {
+		return fmt.Errorf("%w: compound target not found: %s", ErrInvalidConfig, targetName)
+	}
+	if !promptable {
+		return fmt.Errorf("%w: compound target %s must be promptable", ErrInvalidConfig, targetName)
+	}
+	return nil
+}
+
+func validateRunTargetDependencies(targets []RunTarget, quickLaunch []QuickLaunch, nudgenik *NudgenikConfig, compound *CompoundConfig) error {
 	if err := validateQuickLaunchTargets(quickLaunch, targets); err != nil {
 		return err
 	}
 	if err := validateNudgenikConfig(nudgenik, targets); err != nil {
+		return err
+	}
+	if err := validateCompoundConfig(compound, targets); err != nil {
 		return err
 	}
 	return nil

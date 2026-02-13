@@ -73,6 +73,7 @@ type Config struct {
 	Nudgenik                   *NudgenikConfig        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
+	Compound                   *CompoundConfig        `json:"compound,omitempty"`
 	Sessions                   *SessionsConfig        `json:"sessions,omitempty"`
 	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
 	Network                    *NetworkConfig         `json:"network,omitempty"`
@@ -241,6 +242,13 @@ type BranchSuggestConfig struct {
 type ConflictResolveConfig struct {
 	Target    string `json:"target,omitempty"`
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
+}
+
+// CompoundConfig represents configuration for the overlay compounding loop.
+type CompoundConfig struct {
+	Target     string `json:"target,omitempty"`      // LLM target for merging (falls back to nudgenik target)
+	DebounceMs int    `json:"debounce_ms,omitempty"` // debounce interval in ms (default 2000)
+	Enabled    *bool  `json:"enabled,omitempty"`     // explicitly enable/disable (default: true)
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -415,7 +423,7 @@ func (c *Config) validate(strict bool) ([]string, error) {
 	if err := validateQuickLaunch(c.QuickLaunch, c.RunTargets); err != nil {
 		return nil, err
 	}
-	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik); err != nil {
+	if err := validateRunTargetDependencies(c.RunTargets, c.QuickLaunch, c.Nudgenik, c.Compound); err != nil {
 		return nil, err
 	}
 	warnings, err := c.validateAccessControl(strict)
@@ -521,6 +529,31 @@ func (c *Config) GetBranchSuggestTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.BranchSuggest.Target)
+}
+
+// GetCompoundTarget returns the configured compound target name.
+// Falls back to the nudgenik target if not explicitly configured.
+func (c *Config) GetCompoundTarget() string {
+	if c == nil || c.Compound == nil || strings.TrimSpace(c.Compound.Target) == "" {
+		return c.GetNudgenikTarget()
+	}
+	return strings.TrimSpace(c.Compound.Target)
+}
+
+// GetCompoundDebounceMs returns the compound debounce interval in milliseconds.
+func (c *Config) GetCompoundDebounceMs() int {
+	if c == nil || c.Compound == nil || c.Compound.DebounceMs <= 0 {
+		return 2000
+	}
+	return c.Compound.DebounceMs
+}
+
+// GetCompoundEnabled returns whether compounding is enabled.
+func (c *Config) GetCompoundEnabled() bool {
+	if c == nil || c.Compound == nil || c.Compound.Enabled == nil {
+		return true // enabled by default
+	}
+	return *c.Compound.Enabled
 }
 
 // GetConflictResolveTarget returns the configured conflict resolution target name, if any.
