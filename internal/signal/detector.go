@@ -3,6 +3,7 @@ package signal
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -14,12 +15,14 @@ const (
 
 type SignalDetector struct {
 	sessionID        string
-	buf              []byte
-	stripBuf         []byte // reusable buffer for stripANSIBytes
 	callback         func(Signal)
 	nearMissCallback func(string)
-	lastData         time.Time
 	suppressed       atomic.Bool
+
+	mu       sync.Mutex // protects buf, stripBuf, lastData
+	buf      []byte
+	stripBuf []byte // reusable buffer for StripANSIBytes
+	lastData time.Time
 }
 
 func NewSignalDetector(sessionID string, callback func(Signal)) *SignalDetector {
@@ -42,6 +45,9 @@ func (d *SignalDetector) Suppress(suppress bool) {
 }
 
 func (d *SignalDetector) Feed(data []byte) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	d.lastData = time.Now()
 	var combined []byte
 	if len(d.buf) > 0 {
@@ -69,6 +75,9 @@ func (d *SignalDetector) Feed(data []byte) {
 }
 
 func (d *SignalDetector) Flush() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if len(d.buf) == 0 {
 		return
 	}
@@ -78,12 +87,15 @@ func (d *SignalDetector) Flush() {
 }
 
 func (d *SignalDetector) ShouldFlush() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	return len(d.buf) > 0 && !d.lastData.IsZero() && time.Since(d.lastData) >= FlushTimeout
 }
 
 func (d *SignalDetector) parseLines(data []byte) {
 	now := time.Now()
-	d.stripBuf = stripANSIBytes(d.stripBuf, data)
+	d.stripBuf = StripANSIBytes(d.stripBuf, data)
 	cleanData := d.stripBuf
 	signals := parseBracketSignals(cleanData, now)
 	for _, sig := range signals {
