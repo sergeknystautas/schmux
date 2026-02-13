@@ -308,6 +308,82 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}, nil
 }
 
+// PushToBranch pushes the current branch to origin, creating it on origin if necessary.
+// Fails if the remote branch has commits that the local branch does not have.
+func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+
+	workspacePath := w.Path
+	branch := w.Branch
+
+	// 1. git fetch origin
+	fmt.Printf("[workspace] push-to-branch: workspace_id=%s fetching origin\n", workspaceID)
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
+	fetchCmd.Dir = workspacePath
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
+	}
+
+	// 2. Check if origin/branch exists
+	originRef := "origin/" + branch
+	refCheckCmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", originRef)
+	refCheckCmd.Dir = workspacePath
+	originExists := refCheckCmd.Run() == nil
+
+	if originExists {
+		// 3a. origin/branch exists - check if local is ahead (ok) or behind/diverged (fail)
+		// Check if origin/branch is an ancestor of HEAD (local has all commits from origin)
+		ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", originRef, "HEAD")
+		ancestorCmd.Dir = workspacePath
+		if err := ancestorCmd.Run(); err != nil {
+			// origin/branch is NOT an ancestor of HEAD - local doesn't have all origin commits
+			// Check if HEAD is an ancestor of origin/branch (local is behind)
+			reverseCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", originRef)
+			reverseCheckCmd.Dir = workspacePath
+			if err := reverseCheckCmd.Run(); err != nil {
+				// Branches have diverged
+				return &LinearSyncResult{
+					Success: false,
+					Branch:  branch,
+				}, nil
+			}
+			// Local is behind origin - fail
+			return &LinearSyncResult{
+				Success: false,
+				Branch:  branch,
+			}, nil
+		}
+		// origin/branch IS an ancestor of HEAD - local has all origin commits, can push
+	}
+
+	// 3. Check for local changes
+	dirty, _, _, linesAdded, linesRemoved, filesChanged, _ := m.gitStatus(ctx, workspacePath, w.Repo)
+	if dirty || linesAdded != 0 || linesRemoved != 0 || filesChanged != 0 {
+		return &LinearSyncResult{
+			Success: false,
+			Branch:  branch,
+		}, nil
+	}
+
+	// 4. Push to origin/branch
+	fmt.Printf("[workspace] push-to-branch: workspace_id=%s pushing to origin/%s\n", workspaceID, branch)
+	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "HEAD:"+branch)
+	pushCmd.Dir = workspacePath
+	if output, err := pushCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("git push origin HEAD:%s failed: %w: %s", branch, err, string(output))
+	}
+
+	fmt.Printf("[workspace] push-to-branch: workspace_id=%s success\n", workspaceID)
+	return &LinearSyncResult{
+		Success:      true,
+		SuccessCount: 0, // Not tracking specific commit count for branch push
+		Branch:       branch,
+	}, nil
+}
+
 // LinearSyncResolveConflict rebases exactly one commit from the default branch, handling conflicts.
 // When a conflict occurs during replay of local commits, it pauses the rebase, runs a non-interactive
 // one-shot LLM call to resolve the conflicted files, then continues. Repeats for each conflicting commit.

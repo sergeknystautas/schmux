@@ -404,6 +404,18 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
   return response.json();
 }
 
+export async function pushToBranch(workspaceId: string): Promise<LinearSyncResponse> {
+  const response = await fetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || err.error || 'Failed to push to branch');
+  }
+  return response.json();
+}
+
 export async function linearSyncResolveConflict(
   workspaceId: string
 ): Promise<LinearSyncResolveConflictResponse> {

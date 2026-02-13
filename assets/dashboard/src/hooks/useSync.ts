@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   linearSyncFromMain,
   linearSyncToMain,
+  pushToBranch,
   linearSyncResolveConflict,
   disposeWorkspaceAll,
   getErrorMessage,
@@ -80,11 +81,11 @@ export function useSync() {
   );
 
   const handleLinearSyncToMain = useCallback(
-    async (workspaceId: string, workspacePath?: string): Promise<void> => {
+    async (workspaceId: string, defaultBranch?: string, workspacePath?: string): Promise<void> => {
       try {
         const result = await linearSyncToMain(workspaceId);
         if (result.success) {
-          const branch = result.branch || 'main';
+          const branch = defaultBranch || result.branch || 'main';
           const count = result.success_count ?? 0;
 
           // Check if this workspace is the live dev workspace
@@ -123,6 +124,26 @@ export function useSync() {
     [alert, confirm, navigate]
   );
 
+  const handlePushToBranch = useCallback(
+    async (workspaceId: string, branchName?: string): Promise<void> => {
+      try {
+        const result = await pushToBranch(workspaceId);
+        if (result.success) {
+          const branch = branchName || 'current branch';
+          await alert('Success', `Pushed to origin/${branch}`);
+        } else {
+          await alert(
+            'Error',
+            'Push failed. The remote branch may have commits that are not in your local branch.'
+          );
+        }
+      } catch (err) {
+        await alert('Error', getErrorMessage(err, 'Failed to push to branch'));
+      }
+    },
+    [alert]
+  );
+
   // Smart sync: chooses clean or conflict resolution based on workspace state
   const handleSmartSync = useCallback(
     async (workspace: WorkspaceResponse): Promise<void> => {
@@ -144,6 +165,7 @@ export function useSync() {
     startConflictResolution,
     handleLinearSyncFromMain,
     handleLinearSyncToMain,
+    handlePushToBranch,
     handleSmartSync,
   };
 }
