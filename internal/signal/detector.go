@@ -20,11 +20,12 @@ type SignalDetector struct {
 	nearMissCallback func(string)
 	suppressed       atomic.Bool
 
-	mu         sync.Mutex // protects buf, stripBuf, lastData, lastSignal
-	buf        []byte
-	stripBuf   []byte // reusable buffer for StripANSIBytes
-	lastData   time.Time
-	lastSignal *Signal // most recent signal parsed (even during suppression)
+	mu                    sync.Mutex // protects buf, stripBuf, lastData, lastSignal, lastEmittedNonWorking
+	buf                   []byte
+	stripBuf              []byte // reusable buffer for StripANSIBytes
+	lastData              time.Time
+	lastSignal            *Signal // most recent signal parsed (even during suppression)
+	lastEmittedNonWorking *Signal // last non-working signal that fired the callback (for dedup)
 }
 
 func NewSignalDetector(sessionID string, callback func(Signal)) *SignalDetector {
@@ -103,9 +104,29 @@ func (d *SignalDetector) parseLines(data []byte) {
 	for _, sig := range signals {
 		sigCopy := sig
 		d.lastSignal = &sigCopy
-		if !d.suppressed.Load() {
-			d.callback(sig)
+
+		if d.suppressed.Load() {
+			continue
 		}
+
+		// Deduplicate non-working signals against the last emitted non-working
+		// signal. Terminal redraws can re-emit an old signal marker after a
+		// transient "working" signal has already cleared it:
+		//   needs_input(A) → working → [redraw] needs_input(A)
+		// Without this, the "working" would reset a simple lastSignal check,
+		// allowing the stale needs_input to re-fire and create a feedback loop.
+		// Working signals are idempotent clears, so they always pass through.
+		if sig.State != "working" {
+			isDuplicate := d.lastEmittedNonWorking != nil &&
+				d.lastEmittedNonWorking.State == sig.State &&
+				d.lastEmittedNonWorking.Message == sig.Message
+			if isDuplicate {
+				continue
+			}
+			d.lastEmittedNonWorking = &sigCopy
+		}
+
+		d.callback(sig)
 	}
 	if d.nearMissCallback != nil && len(signals) == 0 {
 		for _, line := range strings.Split(string(cleanData), "\n") {
