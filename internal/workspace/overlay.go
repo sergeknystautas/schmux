@@ -2,8 +2,6 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,22 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 )
-
-// fileHash computes the SHA-256 hex digest of a file.
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
 
 // OverlayDir returns the overlay directory path for a given repo name.
 // Returns ~/.schmux/overlays/<repoName>/.
@@ -134,7 +119,7 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 		}
 
 		// Compute SHA-256 hash of the copied file
-		hash, err := fileHash(destPath)
+		hash, err := compound.FileHash(destPath)
 		if err != nil {
 			return fmt.Errorf("failed to hash %s: %w", destPath, err)
 		}
