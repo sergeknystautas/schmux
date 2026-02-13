@@ -70,7 +70,7 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signa
 	if signalCallback != nil {
 		t.signalDetector = signal.NewSignalDetector(sessionID, signalCallback)
 		t.signalDetector.SetNearMissCallback(func(line string) {
-			fmt.Printf("[signal] %s - potential missed signal: %q\n", signal.ShortID(sessionID), line)
+			fmt.Printf("[signal] %s - potential missed signal: %q\n", sessionID, line)
 		})
 	}
 	return t

@@ -349,11 +349,10 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 		return
 	}
 
-	fmt.Printf("[signal] %s - received %s signal (seq=%d): %s\n", signal.ShortID(sessionID), sig.State, seq, sig.Message)
+	fmt.Printf("[signal] %s - received %s signal (seq=%d): %s\n", sessionID, sig.State, seq, sig.Message)
 
-	// Broadcast immediately — signals should not be delayed by the 500ms debounce.
-	// doBroadcast is thread-safe (state reads use RWMutex, client writes use per-conn mutex).
-	go s.doBroadcast()
+	// Broadcast via debouncer
+	go s.BroadcastSessions()
 }
 
 // handleRemoteTerminalWebSocket streams terminal output from a remote session via control mode.

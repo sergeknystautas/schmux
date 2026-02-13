@@ -148,7 +148,7 @@ func (d *SignalDetector) enforceBufLimit() {
 
 		// Check if the discarded portion contains a signal marker
 		if bytes.Contains(discarded, []byte("--<[schmux:")) {
-			fmt.Printf("[signal] %s - WARNING: buffer truncation discarded data containing a signal marker\n", ShortID(d.sessionID))
+			fmt.Printf("[signal] %s - WARNING: buffer truncation discarded data containing a signal marker\n", d.sessionID)
 			if d.nearMissCallback != nil {
 				d.nearMissCallback("buffer truncation discarded signal-like data")
 			}

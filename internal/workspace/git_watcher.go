@@ -35,6 +35,10 @@ type GitWatcher struct {
 	debounceTimers   map[string]*time.Timer
 	debounceTimersMu sync.Mutex
 
+	// lastStatusHash stores the last known git status hash per workspace
+	lastStatusHash   map[string]string
+	lastStatusHashMu sync.Mutex
+
 	// stopCh signals the event loop to exit.
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -61,6 +65,7 @@ func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func()) *GitWatch
 		broadcast:      broadcast,
 		watchedPaths:   make(map[string][]string),
 		debounceTimers: make(map[string]*time.Timer),
+		lastStatusHash: make(map[string]string),
 		stopCh:         make(chan struct{}),
 	}
 }
@@ -229,7 +234,8 @@ func (gw *GitWatcher) resetDebounce(workspaceID string) {
 	})
 }
 
-// refreshWorkspace runs a git status update for the workspace and broadcasts.
+// refreshWorkspace runs a git status update for the workspace and broadcasts
+// only if the git status actually changed.
 func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 	if gw.onRefresh != nil {
 		gw.onRefresh(workspaceID)
@@ -239,7 +245,8 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), gw.cfg.GitStatusTimeout())
 	defer cancel()
 
-	if _, err := gw.mgr.UpdateGitStatus(ctx, workspaceID); err != nil {
+	w, err := gw.mgr.UpdateGitStatus(ctx, workspaceID)
+	if err != nil {
 		if errors.Is(err, ErrWorkspaceLocked) {
 			return
 		}
@@ -247,8 +254,24 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 		return
 	}
 
-	if gw.broadcast != nil {
-		gw.broadcast()
+	// Hash the git status fields
+	newHash := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v",
+		w.GitDirty, w.GitAhead, w.GitBehind,
+		w.GitLinesAdded, w.GitLinesRemoved, w.GitFilesChanged, w.Branch)
+
+	// Check if changed
+	gw.lastStatusHashMu.Lock()
+	oldHash := gw.lastStatusHash[workspaceID]
+	changed := oldHash != newHash
+	if changed {
+		gw.lastStatusHash[workspaceID] = newHash
+	}
+	gw.lastStatusHashMu.Unlock()
+
+	if changed {
+		if gw.broadcast != nil {
+			gw.broadcast()
+		}
 	}
 }
 

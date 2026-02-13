@@ -611,7 +611,7 @@ func (s *Server) UnregisterDashboardConn(conn *wsConn) {
 }
 
 // BroadcastSessions sends the current sessions state to all connected WebSocket clients.
-// Uses trailing debounce: waits 500ms after the last call before broadcasting,
+// Uses trailing debounce: waits 100ms after the last call before broadcasting,
 // coalescing rapid changes into a single broadcast. No events are dropped.
 func (s *Server) BroadcastSessions() {
 	s.broadcastMu.Lock()
@@ -624,7 +624,7 @@ func (s *Server) BroadcastSessions() {
 
 	// Lazy initialization: create timer on first use
 	if s.broadcastTimer == nil {
-		s.broadcastTimer = time.NewTimer(500 * time.Millisecond)
+		s.broadcastTimer = time.NewTimer(100 * time.Millisecond)
 		close(s.broadcastReady)
 		return
 	}
@@ -636,8 +636,8 @@ func (s *Server) BroadcastSessions() {
 		default:
 		}
 	}
-	// Reset timer for 500ms from now
-	s.broadcastTimer.Reset(500 * time.Millisecond)
+	// Reset timer for 100ms from now
+	s.broadcastTimer.Reset(100 * time.Millisecond)
 }
 
 // broadcastLoop waits for the debounce timer to fire, then broadcasts to all clients.
