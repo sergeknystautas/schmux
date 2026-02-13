@@ -3039,6 +3039,12 @@ a:hover {
   margin: var(--spacing-xs) 0;
 }
 
+.spawn-dropdown__scope-separator {
+  height: 3px;
+  background-color: var(--color-border);
+  margin: var(--spacing-sm) 0;
+}
+
 .spawn-dropdown__empty {
   padding: var(--spacing-sm) var(--spacing-md);
   color: var(--color-text-muted);

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { spawnSessions, getErrorMessage } from '../lib/api';
 import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
-import { mergeQuickLaunchNames } from '../lib/quicklaunch';
+import { getQuickLaunchItems, type QuickLaunchItem } from '../lib/quicklaunch';
 import type { WorkspaceResponse } from '../lib/types';
 
 type SpawnDropdownProps = {
@@ -18,8 +18,8 @@ export default function SpawnDropdown({
   globalQuickLaunchNames,
   disabled,
 }: SpawnDropdownProps) {
-  const mergedQuickLaunch = useMemo<string[]>(() => {
-    return mergeQuickLaunchNames(globalQuickLaunchNames, workspace.quick_launch || []);
+  const mergedQuickLaunch = useMemo<QuickLaunchItem[]>(() => {
+    return getQuickLaunchItems(globalQuickLaunchNames, workspace.quick_launch || []);
   }, [globalQuickLaunchNames, workspace.quick_launch]);
   const { success, error: toastError } = useToast();
   const { waitForSession } = useSessions();
@@ -144,16 +144,26 @@ export default function SpawnDropdown({
       {hasQuickLaunch && (
         <>
           <div className="spawn-dropdown__separator" role="separator"></div>
-          {mergedQuickLaunch.map((name) => (
-            <button
-              key={name}
-              className="spawn-dropdown__item"
-              onClick={(e) => handleQuickLaunchSpawn(name, e)}
-              role="menuitem"
-            >
-              <span className="spawn-dropdown__item-label">{name}</span>
-            </button>
-          ))}
+          {mergedQuickLaunch.map((item, index) => {
+            const showScopeSeparator =
+              index > 0 &&
+              mergedQuickLaunch[index - 1].scope === 'global' &&
+              item.scope === 'workspace';
+            return (
+              <React.Fragment key={item.name}>
+                {showScopeSeparator && (
+                  <div className="spawn-dropdown__scope-separator" role="separator"></div>
+                )}
+                <button
+                  className="spawn-dropdown__item"
+                  onClick={(e) => handleQuickLaunchSpawn(item.name, e)}
+                  role="menuitem"
+                >
+                  <span className="spawn-dropdown__item-label">{item.name}</span>
+                </button>
+              </React.Fragment>
+            );
+          })}
         </>
       )}
 
