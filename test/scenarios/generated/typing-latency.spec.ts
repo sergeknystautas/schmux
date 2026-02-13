@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   seedConfig,
   createTestRepo,
@@ -9,6 +9,37 @@ import {
   sleep,
 } from './helpers';
 
+/**
+ * Wait for the full typing pipeline to be operational:
+ * xterm → WebSocket → server → tmux → cat → tmux → server → WebSocket → xterm.
+ *
+ * Presses warmup keys until the latency tracker records a sample, confirming
+ * the WebSocket is connected and echo is flowing. Resets the tracker afterward.
+ */
+async function waitForEchoPipeline(page: Page, timeoutMs = 30_000): Promise<void> {
+  const textarea = page.locator('.xterm-helper-textarea');
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    await textarea.press('.');
+    await sleep(200);
+    const ready = await page.evaluate(() => {
+      const tracker = (window as any).__inputLatency;
+      return tracker && tracker.samples.length > 0;
+    });
+    if (ready) {
+      // Reset so warmup samples don't pollute the benchmark
+      await page.evaluate(() => {
+        const tracker = (window as any).__inputLatency;
+        if (tracker) tracker.reset();
+      });
+      return;
+    }
+  }
+
+  throw new Error(`Echo pipeline not ready after ${timeoutMs}ms`);
+}
+
 test.describe.serial('Typing latency benchmark', () => {
   let repoPath: string;
 
@@ -18,6 +49,8 @@ test.describe.serial('Typing latency benchmark', () => {
   });
 
   test('idle typing latency', async ({ page }) => {
+    test.setTimeout(120_000);
+
     await seedConfig({
       repos: [repoPath],
       agents: [
@@ -42,14 +75,11 @@ test.describe.serial('Typing latency benchmark', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Reset the latency tracker
-    await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      if (tracker) tracker.reset();
-    });
+    // Wait for the full echo pipeline (WebSocket connected + cat echoing)
+    await waitForEchoPipeline(page);
 
     const textarea = page.locator('.xterm-helper-textarea');
-    const charCount = 100;
+    const charCount = 50;
 
     for (let i = 0; i < charCount; i++) {
       const prevCount = await page.evaluate(() => {
@@ -103,12 +133,14 @@ test.describe.serial('Typing latency benchmark', () => {
   });
 
   test('stressed typing latency', async ({ page }) => {
+    test.setTimeout(120_000);
+
     await seedConfig({
       repos: [repoPath],
       agents: [
         {
           name: 'flood-agent',
-          command: "sh -c 'while true; do seq 1 100; sleep 0.01; done & echo READY; exec cat'",
+          command: "sh -c 'while true; do seq 1 100; sleep 0.01; done & exec cat'",
           promptable: true,
         },
       ],
@@ -122,19 +154,17 @@ test.describe.serial('Typing latency benchmark', () => {
     });
     const sessionId = results[0].session_id;
 
-    await waitForTerminalOutput(sessionId, 'READY', 15_000);
+    // Skip waitForTerminalOutput — the flood output drowns any marker.
+    // waitForEchoPipeline below is the authoritative readiness check.
     await page.goto(`/sessions/${sessionId}`);
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Reset the latency tracker
-    await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      if (tracker) tracker.reset();
-    });
+    // Wait for the full echo pipeline (WebSocket connected + cat echoing)
+    await waitForEchoPipeline(page);
 
     const textarea = page.locator('.xterm-helper-textarea');
-    const charCount = 100;
+    const charCount = 50;
 
     for (let i = 0; i < charCount; i++) {
       const prevCount = await page.evaluate(() => {

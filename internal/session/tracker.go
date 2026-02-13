@@ -123,20 +123,30 @@ func (t *SessionTracker) DetachWebSocket(ch chan []byte) {
 }
 
 // SendInput writes terminal input bytes to the tracker PTY.
+// Falls back to tmux send-keys if the PTY is not currently attached,
+// avoiding a multi-second blocking wait during tracker reconnects.
 func (t *SessionTracker) SendInput(data string) error {
 	ptmx := t.currentPTY()
 	if ptmx == nil {
-		deadline := time.Now().Add(2 * time.Second)
+		// Brief wait for in-flight attachment (covers startup race).
+		deadline := time.Now().Add(100 * time.Millisecond)
 		for ptmx == nil && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 			ptmx = t.currentPTY()
 		}
 	}
-	if ptmx == nil {
-		return fmt.Errorf("terminal not attached")
+	if ptmx != nil {
+		_, err := io.WriteString(ptmx, data)
+		return err
 	}
-	_, err := io.WriteString(ptmx, data)
-	return err
+
+	// PTY unavailable — fall back to tmux send-keys so input is not lost.
+	t.mu.RLock()
+	target := t.tmuxSession
+	t.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return tmux.SendLiteral(ctx, target, data)
 }
 
 func (t *SessionTracker) currentPTY() *os.File {

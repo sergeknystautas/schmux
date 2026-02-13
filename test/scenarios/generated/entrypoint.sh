@@ -44,8 +44,10 @@ done
 
 # Run Playwright scenario tests
 cd /app/test/scenarios/generated
+set +e
 npx playwright test
 TEST_EXIT=$?
+set -e
 
 # Copy test artifacts (videos, screenshots, traces, report) to mounted volume
 if [ -d /artifacts ]; then
