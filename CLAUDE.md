@@ -60,7 +60,7 @@ go run ./cmd/gen-types
 # Build the React dashboard (see warning above)
 go run ./cmd/build-dashboard
 
-# Run all tests (unit + E2E) - RECOMMENDED
+# Run all tests (unit + E2E + scenarios) - RECOMMENDED
 ./test.sh --all
 
 # Run tests with various options
@@ -68,6 +68,7 @@ go run ./cmd/build-dashboard
 ./test.sh --race       # Unit tests with race detector
 ./test.sh --coverage   # Unit tests with coverage report
 ./test.sh --e2e        # E2E tests only (requires Docker)
+./test.sh --scenarios  # Scenario tests only (Playwright, requires Docker)
 ./test.sh --help       # See all options
 
 # Or run tests directly with go

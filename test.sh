@@ -6,7 +6,8 @@
 # Options:
 #   --unit          Run unit tests only (default)
 #   --e2e           Run E2E tests only
-#   --all           Run both unit and E2E tests
+#   --scenarios     Run scenario tests only (Playwright)
+#   --all           Run unit, E2E, and scenario tests
 #   --race          Run with race detector
 #   --verbose       Run with verbose output
 #   --coverage      Run with coverage report
@@ -25,6 +26,7 @@ NC='\033[0m' # No Color
 # Default options
 RUN_UNIT=true
 RUN_E2E=false
+RUN_SCENARIOS=false
 RUN_RACE=false
 RUN_VERBOSE=false
 RUN_COVERAGE=false
@@ -35,6 +37,7 @@ while [[ $# -gt 0 ]]; do
         --unit)
             RUN_UNIT=true
             RUN_E2E=false
+            RUN_SCENARIOS=false
             shift
             ;;
         --e2e)
@@ -42,9 +45,16 @@ while [[ $# -gt 0 ]]; do
             RUN_E2E=true
             shift
             ;;
+        --scenarios)
+            RUN_UNIT=false
+            RUN_E2E=false
+            RUN_SCENARIOS=true
+            shift
+            ;;
         --all)
             RUN_UNIT=true
             RUN_E2E=true
+            RUN_SCENARIOS=true
             shift
             ;;
         --race)
@@ -70,7 +80,8 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --unit          Run unit tests only (default)"
             echo "  --e2e           Run E2E tests only"
-            echo "  --all           Run both unit and E2E tests"
+            echo "  --scenarios     Run scenario tests only (Playwright)"
+            echo "  --all           Run unit, E2E, and scenario tests"
             echo "  --race          Run with race detector"
             echo "  --verbose       Run with verbose output"
             echo "  --coverage      Run with coverage report"
@@ -79,10 +90,11 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  ./test.sh                    # Run unit tests"
-            echo "  ./test.sh --all              # Run all tests (unit + E2E)"
+            echo "  ./test.sh --all              # Run all tests (unit + E2E + scenarios)"
             echo "  ./test.sh --race --verbose   # Run unit tests with race detector and verbose output"
             echo "  ./test.sh --e2e              # Run E2E tests only"
             echo "  ./test.sh --coverage         # Run unit tests with coverage"
+            echo "  ./test.sh --scenarios         # Run scenario tests only (Playwright)"
             exit 0
             ;;
         *)
@@ -176,6 +188,40 @@ if [ "$RUN_E2E" = true ]; then
             fi
         else
             echo -e "  ${RED}❌ Failed to build Docker image${NC}"
+            EXIT_CODE=1
+        fi
+    fi
+    echo ""
+fi
+
+# Run scenario tests
+if [ "$RUN_SCENARIOS" = true ]; then
+    echo -e "${YELLOW}▶️  Running scenario tests...${NC}"
+    echo ""
+
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
+        echo -e "  ${BLUE}💡 Scenario tests require Docker${NC}"
+        EXIT_CODE=1
+    else
+        echo -e "  ${BLUE}🐳 Building scenario test Docker image...${NC}"
+        if docker build -f Dockerfile.scenarios -t schmux-scenarios . > /dev/null 2>&1; then
+            echo -e "  ${GREEN}✅ Docker image built${NC}"
+            echo ""
+            echo -e "  ${BLUE}🎭 Running Playwright scenario tests in container...${NC}"
+            echo ""
+
+            if docker run --rm schmux-scenarios; then
+                echo ""
+                echo -e "${GREEN}✅ Scenario tests passed${NC}"
+            else
+                echo ""
+                echo -e "${RED}❌ Scenario tests failed${NC}"
+                EXIT_CODE=1
+            fi
+        else
+            echo -e "  ${RED}❌ Failed to build scenario test Docker image${NC}"
             EXIT_CODE=1
         fi
     fi
