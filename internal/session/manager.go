@@ -420,11 +420,12 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 // Spawn creates a new session.
 // If workspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
+// If workspaceID is provided with newBranch, create a new workspace branching from the source workspace's branch.
 // Otherwise, find or create a workspace by repoURL/branch.
 // nickname is an optional human-friendly name for the session.
 // prompt is only used if the target is promptable.
 // resume enables resume mode, which uses the agent's resume command instead of a prompt.
-func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool) (*state.Session, error) {
+func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool, newBranch string) (*state.Session, error) {
 	resolved, err := m.ResolveTarget(ctx, targetName)
 	if err != nil {
 		return nil, err
@@ -432,7 +433,13 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 
 	var w *state.Workspace
 
-	if workspaceID != "" {
+	if workspaceID != "" && newBranch != "" {
+		// Create new workspace branching from source workspace's branch
+		w, err = m.workspace.CreateFromWorkspace(ctx, workspaceID, newBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
+		}
+	} else if workspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
 		ws, found := m.workspace.GetByID(workspaceID)
 		if !found {
@@ -556,11 +563,17 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 
 // SpawnCommand spawns a session running a raw shell command.
 // Used for quick launch presets with a direct command (no target resolution).
-func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, nickname, workspaceID string) (*state.Session, error) {
+func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, nickname, workspaceID string, newBranch string) (*state.Session, error) {
 	var w *state.Workspace
 	var err error
 
-	if workspaceID != "" {
+	if workspaceID != "" && newBranch != "" {
+		// Create new workspace branching from source workspace's branch
+		w, err = m.workspace.CreateFromWorkspace(ctx, workspaceID, newBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
+		}
+	} else if workspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
 		ws, found := m.workspace.GetByID(workspaceID)
 		if !found {

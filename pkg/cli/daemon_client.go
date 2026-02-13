@@ -373,6 +373,9 @@ type SpawnRequest struct {
 	WorkspaceID     string         `json:"workspace_id,omitempty"`
 	Command         string         `json:"command,omitempty"`
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
+	Resume          bool           `json:"resume,omitempty"`
+	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"`
+	NewBranch       string         `json:"new_branch,omitempty"`
 }
 
 // SpawnResult represents the result of a spawn operation.

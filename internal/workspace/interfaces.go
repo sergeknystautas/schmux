@@ -126,6 +126,10 @@ type WorkspaceManager interface {
 	// CreateLocalRepo creates a new workspace with a fresh local git repository.
 	CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error)
 
+	// CreateFromWorkspace creates a new workspace with a new branch,
+	// branching from the source workspace's current branch/commit.
+	CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, newBranch string) (*state.Workspace, error)
+
 	// GetDefaultBranch returns the detected default branch for a repo URL.
 	GetDefaultBranch(ctx context.Context, repoURL string) (string, error)
 

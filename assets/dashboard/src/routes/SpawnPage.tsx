@@ -8,6 +8,7 @@ import { usePendingNavigation } from '../lib/navigation';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
+import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
 import type {
   Model,
@@ -33,6 +34,8 @@ interface SpawnDraft {
   // Only for fresh spawns (no workspace_id)
   repo?: string;
   newRepoName?: string;
+  // Only for workspace mode
+  createBranch?: boolean;
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {
@@ -162,6 +165,7 @@ export default function SpawnPage() {
     'idle'
   );
   const [showBranchInput, setShowBranchInput] = useState(false);
+  const [createBranch, setCreateBranch] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
@@ -342,6 +346,10 @@ export default function SpawnPage() {
       } else if (lastTargetCounts) {
         setTargetCounts(lastTargetCounts);
       }
+      // createBranch: draft → default (only for workspace mode)
+      if (mode === 'workspace') {
+        setCreateBranch(draft?.createBranch || false);
+      }
     } else if (mode === 'fresh') {
       // repo: draft → localStorage → default
       setRepo(draft?.repo || lastRepo || '');
@@ -448,6 +456,10 @@ export default function SpawnPage() {
       draft.repo = repo;
       draft.newRepoName = newRepoName;
     }
+    // Only save createBranch for workspace mode
+    if (urlWorkspaceId) {
+      draft.createBranch = createBranch;
+    }
     saveSpawnDraft(urlWorkspaceId, draft);
   }, [
     prompt,
@@ -457,6 +469,7 @@ export default function SpawnPage() {
     modelSelectionMode,
     repo,
     newRepoName,
+    createBranch,
     urlWorkspaceId,
     engagePhase,
   ]);
@@ -596,6 +609,7 @@ export default function SpawnPage() {
     const actualRepo = repo === '__new__' ? `local:${newRepoName.trim()}` : repo;
     let actualBranch = branch;
     let actualNickname = nickname;
+    let newBranch: string | undefined;
 
     // Fresh mode: need to determine branch
     if (mode === 'fresh') {
@@ -630,6 +644,28 @@ export default function SpawnPage() {
       }
     }
 
+    // Workspace mode with "Create new branch" checked
+    if (
+      mode === 'workspace' &&
+      createBranch &&
+      spawnMode === 'promptable' &&
+      prompt.trim() &&
+      branchSuggestTarget
+    ) {
+      // Call branch suggest API to get new branch name
+      setEngagePhase('naming');
+      const { result, error } = await generateBranchName(prompt);
+      if (!isMounted.current) return;
+      if (result && result.branch.trim()) {
+        newBranch = result.branch;
+        actualNickname = result.nickname || '';
+      } else {
+        setEngagePhase('idle');
+        toastError(`Branch suggestion failed: ${error}. Please try again.`);
+        return;
+      }
+    }
+
     if (spawnMode === 'command') {
       actualNickname = '';
     }
@@ -647,6 +683,7 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || '',
         resume: spawnMode === 'resume',
         remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+        new_branch: newBranch,
       });
       const hasSuccess = response.some((r) => !r.error);
       if (!hasSuccess) {
@@ -1083,6 +1120,52 @@ export default function SpawnPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Create new branch checkbox (only in workspace mode + promptable) */}
+            {mode === 'workspace' && spawnMode === 'promptable' && currentWorkspace && (
+              <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-start' }}>
+                {!currentWorkspace.commits_synced_with_remote ? (
+                  <Tooltip content="Branch must be pushed to origin first" variant="warning">
+                    <span style={{ display: 'inline-block' }}>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          cursor: 'not-allowed',
+                          opacity: 0.5,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={createBranch}
+                          onChange={() => {}}
+                          disabled
+                        />
+                        <span>Create new branch from here</span>
+                      </label>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 'var(--spacing-xs)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={createBranch}
+                      onChange={(e) => setCreateBranch(e.target.checked)}
+                      disabled={engagePhase !== 'idle'}
+                    />
+                    <span>Create new branch from here</span>
+                  </label>
+                )}
+              </div>
             )}
 
             {/* Repository (hidden when not editable or remote without provisioning) */}
