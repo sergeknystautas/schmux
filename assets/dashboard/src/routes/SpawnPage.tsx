@@ -821,7 +821,7 @@ export default function SpawnPage() {
         {spawnMode === 'promptable' ? (
           <>
             <div
-              className="card"
+              className="card card--prompt"
               style={{ marginBottom: 'var(--spacing-md)', padding: '0', overflow: 'visible' }}
             >
               <PromptTextarea
@@ -1122,52 +1122,6 @@ export default function SpawnPage() {
               </>
             )}
 
-            {/* Create new branch checkbox (only in workspace mode + promptable) */}
-            {mode === 'workspace' && spawnMode === 'promptable' && currentWorkspace && (
-              <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-start' }}>
-                {!currentWorkspace.commits_synced_with_remote ? (
-                  <Tooltip content="Branch must be pushed to origin first" variant="warning">
-                    <span style={{ display: 'inline-block' }}>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--spacing-xs)',
-                          cursor: 'not-allowed',
-                          opacity: 0.5,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={createBranch}
-                          onChange={() => {}}
-                          disabled
-                        />
-                        <span>Create new branch from here</span>
-                      </label>
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--spacing-xs)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={createBranch}
-                      onChange={(e) => setCreateBranch(e.target.checked)}
-                      disabled={engagePhase !== 'idle'}
-                    />
-                    <span>Create new branch from here</span>
-                  </label>
-                )}
-              </div>
-            )}
-
             {/* Repository (hidden when not editable or remote without provisioning) */}
             {mode === 'fresh' && !isRemoteWithoutProvisioning && (
               <>
@@ -1245,10 +1199,51 @@ export default function SpawnPage() {
           style={{
             marginTop: 'var(--spacing-lg)',
             display: 'flex',
+            alignItems: 'center',
             gap: 'var(--spacing-sm)',
             justifyContent: 'flex-end',
           }}
         >
+          {/* Create new branch checkbox (only in workspace mode + promptable) */}
+          {mode === 'workspace' && spawnMode === 'promptable' && currentWorkspace && (
+            <div style={{ marginRight: 'auto' }}>
+              {!currentWorkspace.commits_synced_with_remote ? (
+                <Tooltip content="Branch must be pushed to origin first" variant="warning">
+                  <span style={{ display: 'inline-block' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'not-allowed',
+                        opacity: 0.5,
+                      }}
+                    >
+                      <input type="checkbox" checked={createBranch} onChange={() => {}} disabled />
+                      <span>Create new branch from here</span>
+                    </label>
+                  </span>
+                </Tooltip>
+              ) : (
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--spacing-xs)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={createBranch}
+                    onChange={(e) => setCreateBranch(e.target.checked)}
+                    disabled={engagePhase !== 'idle'}
+                  />
+                  <span>Create new branch from here</span>
+                </label>
+              )}
+            </div>
+          )}
           {(spawnMode === 'command' || spawnMode === 'resume') && (
             <button
               className="btn"
