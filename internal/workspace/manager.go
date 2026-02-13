@@ -40,6 +40,7 @@ type Manager struct {
 	defaultBranchCache   map[string]string // repoURL -> defaultBranch or "unknown"
 	defaultBranchCacheMu sync.RWMutex
 	workspaceLockedFn    func(workspaceID string) bool
+	compoundReconcile    func(workspaceID string) // reconcile overlay before dispose
 }
 
 // New creates a new workspace manager.
@@ -68,6 +69,11 @@ func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 // SetWorkspaceLockedFn sets a predicate to skip workspace updates when locked.
 func (m *Manager) SetWorkspaceLockedFn(fn func(workspaceID string) bool) {
 	m.workspaceLockedFn = fn
+}
+
+// SetCompoundReconcile sets the callback for reconciling overlay files before workspace disposal.
+func (m *Manager) SetCompoundReconcile(fn func(workspaceID string)) {
+	m.compoundReconcile = fn
 }
 
 func (m *Manager) repoLock(repoURL string) *sync.Mutex {
@@ -682,6 +688,11 @@ func (m *Manager) Dispose(workspaceID string) error {
 		if !gitStatus.Safe {
 			return fmt.Errorf("workspace has unsaved changes: %s", gitStatus.Reason)
 		}
+	}
+
+	// Reconcile overlay files before disposal
+	if m.compoundReconcile != nil {
+		m.compoundReconcile(workspaceID)
 	}
 
 	// Remove filesystem watches before directory removal
