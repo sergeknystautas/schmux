@@ -36,15 +36,16 @@ const (
 
 // Manager manages sessions.
 type Manager struct {
-	config          *config.Config
-	state           state.StateStore
-	workspace       workspace.WorkspaceManager
-	remoteManager   *remote.Manager // Optional, for remote sessions
-	signalCallback  func(sessionID string, sig signal.Signal)
-	outputCallback  func(sessionID string, chunk []byte)
-	trackers        map[string]*SessionTracker
-	remoteDetectors map[string]*remoteSignalMonitor // signal detectors for remote sessions
-	mu              sync.RWMutex
+	config           *config.Config
+	state            state.StateStore
+	workspace        workspace.WorkspaceManager
+	remoteManager    *remote.Manager // Optional, for remote sessions
+	signalCallback   func(sessionID string, sig signal.Signal)
+	outputCallback   func(sessionID string, chunk []byte)
+	trackers         map[string]*SessionTracker
+	remoteDetectors  map[string]*remoteSignalMonitor // signal detectors for remote sessions
+	mu               sync.RWMutex
+	compoundCallback func(workspaceID string, isSpawn bool) // notify compounder on session spawn/dispose
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -96,6 +97,11 @@ func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)
 // SetOutputCallback sets callback for terminal output chunks from local trackers.
 func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
 	m.outputCallback = cb
+}
+
+// SetCompoundCallback sets the callback for notifying the compounder on session lifecycle events.
+func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool)) {
+	m.compoundCallback = cb
 }
 
 // StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
@@ -657,6 +663,14 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		return nil, fmt.Errorf("failed to save state: %w", err)
 	}
 
+	// Notify compounder about new session
+	if m.compoundCallback != nil {
+		w, found := m.state.GetWorkspace(sess.WorkspaceID)
+		if found {
+			m.compoundCallback(w.ID, true)
+		}
+	}
+
 	m.ensureTrackerFromSession(sess)
 
 	return &sess, nil
@@ -1148,6 +1162,20 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 
 	// Note: workspace is NOT cleaned up on session disposal.
 	// Workspaces persist and are only reset when reused for a new spawn.
+
+	// Notify compounder if this is the last session for the workspace
+	if m.compoundCallback != nil {
+		isLastSession := true
+		for _, s := range m.state.GetSessions() {
+			if s.WorkspaceID == sess.WorkspaceID && s.ID != sessionID {
+				isLastSession = false
+				break
+			}
+		}
+		if isLastSession {
+			m.compoundCallback(sess.WorkspaceID, false)
+		}
+	}
 
 	// Remove session from state
 	if err := m.state.RemoveSession(sessionID); err != nil {

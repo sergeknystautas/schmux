@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -435,6 +436,119 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		gitWatcher.Start()
 	}
 
+	// Create and start overlay compounder for bidirectional overlay sync
+	var compounder *compound.Compounder
+	if cfg.GetCompoundEnabled() {
+		// Build LLM executor for conflict merges
+		var llmExecutor compound.LLMExecutor
+		if target := cfg.GetCompoundTarget(); target != "" {
+			llmExecutor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+			}
+		}
+
+		// Build propagator that pushes overlay changes to sibling workspaces
+		propagator := func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
+			for _, w := range st.GetWorkspaces() {
+				if w.ID == sourceWorkspaceID || w.Repo != repoURL || w.RemoteHostID != "" {
+					continue
+				}
+				// Only propagate to workspaces with active sessions
+				hasSession := false
+				for _, s := range st.GetSessions() {
+					if s.WorkspaceID == w.ID {
+						hasSession = true
+						break
+					}
+				}
+				if !hasSession {
+					continue
+				}
+				destPath := filepath.Join(w.Path, relPath)
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					fmt.Printf("[compound] failed to create dir for propagation: %v\n", err)
+					continue
+				}
+				compounder.Suppress(w.ID, relPath)
+				if err := os.WriteFile(destPath, content, 0644); err != nil {
+					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
+					continue
+				}
+				// Update the target workspace's manifest hash
+				newHash, _ := compound.FileHash(destPath)
+				if newHash != "" {
+					st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
+				}
+				fmt.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
+			}
+		}
+
+		var err error
+		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), llmExecutor, propagator)
+		if err != nil {
+			fmt.Printf("[compound] warning: failed to create compounder: %v\n", err)
+		}
+	}
+
+	// Wire compounding callbacks
+	if compounder != nil {
+		sm.SetCompoundCallback(func(workspaceID string, isSpawn bool) {
+			w, found := st.GetWorkspace(workspaceID)
+			if !found || w.RemoteHostID != "" {
+				return
+			}
+			if isSpawn {
+				repoConfig, found := cfg.FindRepoByURL(w.Repo)
+				if !found {
+					return
+				}
+				overlayDir, err := workspace.OverlayDir(repoConfig.Name)
+				if err != nil {
+					return
+				}
+				manifest := w.OverlayManifest
+				if manifest == nil {
+					manifest = make(map[string]string)
+				}
+				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest)
+			} else {
+				compounder.RemoveWorkspace(workspaceID)
+			}
+		})
+
+		wm.SetCompoundReconcile(func(workspaceID string) {
+			compounder.Reconcile(workspaceID)
+			compounder.RemoveWorkspace(workspaceID)
+		})
+
+		// Start watches for existing active workspaces
+		activeWorkspaces := make(map[string]bool)
+		for _, s := range st.GetSessions() {
+			activeWorkspaces[s.WorkspaceID] = true
+		}
+		for wsID := range activeWorkspaces {
+			w, found := st.GetWorkspace(wsID)
+			if !found || w.RemoteHostID != "" {
+				continue
+			}
+			repoConfig, found := cfg.FindRepoByURL(w.Repo)
+			if !found {
+				continue
+			}
+			overlayDir, err := workspace.OverlayDir(repoConfig.Name)
+			if err != nil {
+				continue
+			}
+			manifest := w.OverlayManifest
+			if manifest == nil {
+				manifest = make(map[string]string)
+			}
+			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest)
+		}
+		compounder.Start()
+		fmt.Printf("[compound] started overlay compounding loop\n")
+	}
+
 	// Start background goroutine to update git status for all workspaces.
 	// Started after EnsureWorkspaceDir to avoid race with directory creation.
 	// Started after server creation so it can broadcast updates to WebSocket clients.
@@ -534,6 +648,11 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	// Stop git watcher
 	if gitWatcher != nil {
 		gitWatcher.Stop()
+	}
+
+	// Stop compounder
+	if compounder != nil {
+		compounder.Stop()
 	}
 
 	// Stop dashboard server
