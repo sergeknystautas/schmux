@@ -2,6 +2,7 @@ package signal
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -9,7 +10,7 @@ import (
 )
 
 const (
-	maxSignalBufSize = 4096
+	maxSignalBufSize = 32768
 	FlushTimeout     = 500 * time.Millisecond
 )
 
@@ -19,10 +20,11 @@ type SignalDetector struct {
 	nearMissCallback func(string)
 	suppressed       atomic.Bool
 
-	mu       sync.Mutex // protects buf, stripBuf, lastData
-	buf      []byte
-	stripBuf []byte // reusable buffer for StripANSIBytes
-	lastData time.Time
+	mu         sync.Mutex // protects buf, stripBuf, lastData, lastSignal
+	buf        []byte
+	stripBuf   []byte // reusable buffer for StripANSIBytes
+	lastData   time.Time
+	lastSignal *Signal // most recent signal parsed (even during suppression)
 }
 
 func NewSignalDetector(sessionID string, callback func(Signal)) *SignalDetector {
@@ -99,6 +101,8 @@ func (d *SignalDetector) parseLines(data []byte) {
 	cleanData := d.stripBuf
 	signals := parseBracketSignals(cleanData, now)
 	for _, sig := range signals {
+		sigCopy := sig
+		d.lastSignal = &sigCopy
 		if !d.suppressed.Load() {
 			d.callback(sig)
 		}
@@ -119,7 +123,39 @@ func (d *SignalDetector) parseLines(data []byte) {
 func (d *SignalDetector) enforceBufLimit() {
 	if len(d.buf) > maxSignalBufSize {
 		excess := len(d.buf) - maxSignalBufSize
+		discarded := d.buf[:excess]
+
+		// Check if the discarded portion contains a signal marker
+		if bytes.Contains(discarded, []byte("--<[schmux:")) {
+			fmt.Printf("[signal] %s - WARNING: buffer truncation discarded data containing a signal marker\n", ShortID(d.sessionID))
+			if d.nearMissCallback != nil {
+				d.nearMissCallback("buffer truncation discarded signal-like data")
+			}
+		}
+
 		copy(d.buf, d.buf[excess:])
 		d.buf = d.buf[:maxSignalBufSize]
+	}
+}
+
+// LastSignal returns the most recent signal parsed by this detector.
+// Returns nil if no signal has been parsed yet. This is updated even
+// during suppression, so it reflects the latest signal from scrollback.
+func (d *SignalDetector) LastSignal() *Signal {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastSignal == nil {
+		return nil
+	}
+	sig := *d.lastSignal
+	return &sig
+}
+
+// EmitSignal fires the callback for the given signal, provided the detector
+// is not suppressed and has a callback. Used by the tracker to re-emit a
+// signal recovered from scrollback that differs from stored state.
+func (d *SignalDetector) EmitSignal(sig Signal) {
+	if d.callback != nil && !d.suppressed.Load() {
+		d.callback(sig)
 	}
 }
