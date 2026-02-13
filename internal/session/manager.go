@@ -153,7 +153,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 				signalCb(sessionID, sig)
 			})
 			detector.SetNearMissCallback(func(line string) {
-				fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", signal.ShortID(sessionID), line)
+				fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", sessionID, line)
 			})
 
 			// Update the monitor's detector reference
