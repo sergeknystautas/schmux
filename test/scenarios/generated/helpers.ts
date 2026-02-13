@@ -1,4 +1,5 @@
 import { type Page, expect } from '@playwright/test';
+import WS from 'ws';
 
 const BASE_URL = 'http://localhost:7337';
 const SCHMUX_BIN = process.env.SCHMUX_BIN || 'schmux';
@@ -131,7 +132,7 @@ export async function waitForTerminalOutput(
   timeoutMs: number = 10_000
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:7337/ws/terminal/${sessionId}`);
+    const ws = new WS(`ws://localhost:7337/ws/terminal/${sessionId}`);
     let buffer = '';
     const timer = setTimeout(() => {
       ws.close();
@@ -142,20 +143,20 @@ export async function waitForTerminalOutput(
       );
     }, timeoutMs);
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+    ws.on('message', (data: WS.Data) => {
+      const msg = JSON.parse(data.toString());
       if (msg.content) buffer += msg.content;
       if (buffer.includes(substring)) {
         clearTimeout(timer);
         ws.close();
         resolve(buffer);
       }
-    };
+    });
 
-    ws.onerror = (err) => {
+    ws.on('error', (err: Error) => {
       clearTimeout(timer);
-      reject(new Error(`WebSocket error: ${err}`));
-    };
+      reject(new Error(`WebSocket error: ${err.message}`));
+    });
   });
 }
 
