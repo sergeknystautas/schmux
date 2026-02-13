@@ -329,6 +329,63 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 	}
 }
 
+func TestAPIContract_WorkspacePreviewCreateAndList(t *testing.T) {
+	server, _, st := newTestServer(t)
+	ws := state.Workspace{
+		ID:     "ws-preview",
+		Repo:   "repo-url",
+		Branch: "main",
+		Path:   t.TempDir(),
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"target_host":"127.0.0.1","target_port":5173}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-preview/previews", body)
+	rr := httptest.NewRecorder()
+	server.handleWorkspaceRoutes(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/workspaces/ws-preview/previews", nil)
+	rr = httptest.NewRecorder()
+	server.handleWorkspaceRoutes(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var previews []map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&previews); err != nil {
+		t.Fatalf("failed to decode previews: %v", err)
+	}
+	if len(previews) != 1 {
+		t.Fatalf("expected 1 preview, got %d", len(previews))
+	}
+}
+
+func TestAPIContract_WorkspacePreviewRemoteWorkspaceBlocked(t *testing.T) {
+	server, _, st := newTestServer(t)
+	ws := state.Workspace{
+		ID:           "ws-remote",
+		Repo:         "repo-url",
+		Branch:       "main",
+		Path:         t.TempDir(),
+		RemoteHostID: "rh-1",
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"target_host":"127.0.0.1","target_port":5173}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-remote/previews", body)
+	rr := httptest.NewRecorder()
+	server.handleWorkspaceRoutes(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", rr.Code)
+	}
+}
+
 func TestAPIContract_DetectTools(t *testing.T) {
 	server, _, _ := newTestServer(t)
 

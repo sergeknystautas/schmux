@@ -14,14 +14,15 @@ import (
 
 // State represents the application state.
 type State struct {
-	Workspaces    []Workspace             `json:"workspaces"`
-	Sessions      []Session               `json:"sessions"`
-	WorktreeBases []WorktreeBase          `json:"base_repos,omitempty"`    // bare clones that host worktrees
-	PullRequests  []contracts.PullRequest `json:"pull_requests,omitempty"` // cached GitHub PRs
-	PublicRepos   []string                `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
-	NeedsRestart  bool                    `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	RemoteHosts   []RemoteHost            `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
-	path          string                  // path to the state file
+	Workspaces    []Workspace                 `json:"workspaces"`
+	Sessions      []Session                   `json:"sessions"`
+	WorktreeBases []WorktreeBase              `json:"base_repos,omitempty"`    // bare clones that host worktrees
+	PullRequests  []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
+	PublicRepos   []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
+	NeedsRestart  bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
+	RemoteHosts   []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
+	Previews      map[string]WorkspacePreview `json:"-"`                       // ephemeral preview mappings (not persisted)
+	path          string                      // path to the state file
 	mu            sync.RWMutex
 
 	// Batched save support (Issue 6 fix)
@@ -71,6 +72,20 @@ type Workspace struct {
 	ConflictOnBranch        *string `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
 }
 
+// WorkspacePreview represents a workspace preview proxy mapping.
+type WorkspacePreview struct {
+	ID            string    `json:"id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	TargetHost    string    `json:"target_host"`
+	TargetPort    int       `json:"target_port"`
+	ProxyPort     int       `json:"proxy_port"`
+	Status        string    `json:"status,omitempty"` // "ready" | "degraded"
+	LastError     string    `json:"last_error,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	LastUsedAt    time.Time `json:"last_used_at"`
+	LastHealthyAt time.Time `json:"last_healthy_at,omitempty"`
+}
+
 // WorktreeBase tracks a bare clone that hosts worktrees.
 type WorktreeBase struct {
 	RepoURL string `json:"repo_url"` // e.g., "git@github.com:user/repo.git"
@@ -107,6 +122,7 @@ func New(path string) *State {
 		Sessions:      []Session{},
 		WorktreeBases: []WorktreeBase{},
 		RemoteHosts:   []RemoteHost{},
+		Previews:      map[string]WorkspacePreview{},
 		path:          path,
 	}
 }
@@ -136,6 +152,11 @@ func Load(path string) (*State, error) {
 	// Initialize RemoteHosts if nil (existing state files)
 	if st.RemoteHosts == nil {
 		st.RemoteHosts = []RemoteHost{}
+	}
+
+	// Initialize Previews if nil (existing state files)
+	if st.Previews == nil {
+		st.Previews = map[string]WorkspacePreview{}
 	}
 
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
@@ -425,10 +446,92 @@ func (s *State) RemoveWorkspace(id string) error {
 	for i, w := range s.Workspaces {
 		if w.ID == id {
 			s.Workspaces = append(s.Workspaces[:i], s.Workspaces[i+1:]...)
+			for previewID, preview := range s.Previews {
+				if preview.WorkspaceID == id {
+					delete(s.Previews, previewID)
+				}
+			}
 			return nil
 		}
 	}
 	return nil
+}
+
+// GetPreviews returns all stored preview mappings.
+func (s *State) GetPreviews() []WorkspacePreview {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]WorkspacePreview, 0, len(s.Previews))
+	for _, preview := range s.Previews {
+		result = append(result, preview)
+	}
+	return result
+}
+
+// GetWorkspacePreviews returns all previews for the given workspace.
+func (s *State) GetWorkspacePreviews(workspaceID string) []WorkspacePreview {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]WorkspacePreview, 0)
+	for _, preview := range s.Previews {
+		if preview.WorkspaceID == workspaceID {
+			result = append(result, preview)
+		}
+	}
+	return result
+}
+
+// GetPreview returns a preview by ID.
+func (s *State) GetPreview(id string) (WorkspacePreview, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	preview, ok := s.Previews[id]
+	return preview, ok
+}
+
+// FindPreview returns a preview for workspace+target tuple.
+func (s *State) FindPreview(workspaceID, targetHost string, targetPort int) (WorkspacePreview, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, preview := range s.Previews {
+		if preview.WorkspaceID == workspaceID && preview.TargetHost == targetHost && preview.TargetPort == targetPort {
+			return preview, true
+		}
+	}
+	return WorkspacePreview{}, false
+}
+
+// UpsertPreview inserts or updates a preview mapping.
+func (s *State) UpsertPreview(preview WorkspacePreview) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Previews == nil {
+		s.Previews = map[string]WorkspacePreview{}
+	}
+	s.Previews[preview.ID] = preview
+	return nil
+}
+
+// RemovePreview removes a preview by ID.
+func (s *State) RemovePreview(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.Previews, id)
+	return nil
+}
+
+// RemoveWorkspacePreviews removes all previews for a workspace.
+func (s *State) RemoveWorkspacePreviews(workspaceID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	for previewID, preview := range s.Previews {
+		if preview.WorkspaceID == workspaceID {
+			delete(s.Previews, previewID)
+			removed++
+		}
+	}
+	return removed
 }
 
 // GetWorktreeBases returns all worktree bases.

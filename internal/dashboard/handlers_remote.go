@@ -418,6 +418,11 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		}
 		for _, ws := range s.state.GetWorkspacesByRemoteHostID(failedHostID) {
 			s.state.RemoveWorkspace(ws.ID)
+			if s.previewManager != nil {
+				if err := s.previewManager.DeleteWorkspace(ws.ID); err != nil {
+					fmt.Printf("[preview] remote cleanup warning: workspace_id=%s error=%v\n", ws.ID, err)
+				}
+			}
 		}
 		s.state.RemoveRemoteHost(failedHostID)
 		if err := s.state.Save(); err != nil {

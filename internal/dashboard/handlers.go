@@ -133,6 +133,7 @@ type WorkspaceResponseItem struct {
 	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
 	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
 	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
+	Previews                []previewResponse     `json:"previews,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -226,6 +227,21 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			VCS:                     vcs,
 			ConflictOnBranch:        conflictOnBranch,
 			CommitsSyncedWithRemote: ws.CommitsSyncedWithRemote,
+			Previews:                []previewResponse{},
+		}
+		if s.previewManager != nil {
+			previews := s.state.GetWorkspacePreviews(ws.ID)
+			sort.Slice(previews, func(i, j int) bool {
+				if previews[i].TargetPort == previews[j].TargetPort {
+					return previews[i].ID < previews[j].ID
+				}
+				return previews[i].TargetPort < previews[j].TargetPort
+			})
+			items := make([]previewResponse, 0, len(previews))
+			for _, p := range previews {
+				items = append(items, toPreviewResponse(p))
+			}
+			workspaceMap[ws.ID].Previews = items
 		}
 	}
 
@@ -363,6 +379,13 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
 		return
+	}
+	if s.previewManager != nil {
+		for _, removed := range result.Removed {
+			if err := s.previewManager.DeleteWorkspace(removed.ID); err != nil {
+				fmt.Printf("[preview] scan cleanup warning: workspace_id=%s error=%v\n", removed.ID, err)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -880,6 +903,13 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get workspace ID before dispose for preview cleanup
+	sess, hasSess := s.state.GetSession(sessionID)
+	workspaceID := ""
+	if hasSess {
+		workspaceID = sess.WorkspaceID
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
@@ -889,6 +919,15 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	}
 	cancel()
 	fmt.Printf("[session] dispose success: session_id=%s\n", sessionID)
+
+	// Immediately reconcile previews for this workspace to clean up stale preview tabs
+	if s.previewManager != nil && workspaceID != "" {
+		go func() {
+			if changed, _ := s.previewManager.ReconcileWorkspace(workspaceID); changed {
+				s.BroadcastSessions()
+			}
+		}()
+	}
 
 	// Broadcast update to WebSocket clients
 	go s.BroadcastSessions()
@@ -918,6 +957,11 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+	if s.previewManager != nil {
+		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
+			fmt.Printf("[preview] dispose cleanup warning: workspace_id=%s error=%v\n", workspaceID, err)
+		}
 	}
 	fmt.Printf("[workspace] dispose success: workspace_id=%s\n", workspaceID)
 
@@ -967,6 +1011,11 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+	if s.previewManager != nil {
+		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
+			fmt.Printf("[preview] dispose-all cleanup warning: workspace_id=%s error=%v\n", workspaceID, err)
+		}
 	}
 	fmt.Printf("[workspace] dispose-all success: workspace_id=%s sessions_disposed=%d\n", workspaceID, len(sessionsDisposed))
 

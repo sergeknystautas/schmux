@@ -1052,3 +1052,59 @@ func TestClearSessionNudge(t *testing.T) {
 		t.Error("expected cleared=false when nudge was already empty")
 	}
 }
+
+func TestWorkspacePreviewCRUD(t *testing.T) {
+	s := New("")
+	preview := WorkspacePreview{
+		ID:          "prev_1",
+		WorkspaceID: "ws-1",
+		TargetHost:  "127.0.0.1",
+		TargetPort:  5173,
+		ProxyPort:   51853,
+		Status:      "ready",
+		CreatedAt:   time.Now(),
+		LastUsedAt:  time.Now(),
+	}
+	if err := s.UpsertPreview(preview); err != nil {
+		t.Fatalf("UpsertPreview() failed: %v", err)
+	}
+	got, found := s.GetPreview("prev_1")
+	if !found {
+		t.Fatal("GetPreview() did not find inserted preview")
+	}
+	if got.ProxyPort != 51853 {
+		t.Fatalf("ProxyPort = %d, want 51853", got.ProxyPort)
+	}
+	match, found := s.FindPreview("ws-1", "127.0.0.1", 5173)
+	if !found {
+		t.Fatal("FindPreview() did not find tuple")
+	}
+	if match.ID != "prev_1" {
+		t.Fatalf("FindPreview() ID = %s, want prev_1", match.ID)
+	}
+	if err := s.RemovePreview("prev_1"); err != nil {
+		t.Fatalf("RemovePreview() failed: %v", err)
+	}
+	if _, found := s.GetPreview("prev_1"); found {
+		t.Fatal("preview should be removed")
+	}
+}
+
+func TestRemoveWorkspaceRemovesPreviews(t *testing.T) {
+	s := New("")
+	if err := s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: "/tmp/ws-1"}); err != nil {
+		t.Fatalf("AddWorkspace() failed: %v", err)
+	}
+	_ = s.UpsertPreview(WorkspacePreview{ID: "prev_1", WorkspaceID: "ws-1", TargetHost: "127.0.0.1", TargetPort: 3000})
+	_ = s.UpsertPreview(WorkspacePreview{ID: "prev_2", WorkspaceID: "ws-2", TargetHost: "127.0.0.1", TargetPort: 3001})
+
+	if err := s.RemoveWorkspace("ws-1"); err != nil {
+		t.Fatalf("RemoveWorkspace() failed: %v", err)
+	}
+	if _, found := s.GetPreview("prev_1"); found {
+		t.Fatal("workspace preview should be removed when workspace is removed")
+	}
+	if _, found := s.GetPreview("prev_2"); !found {
+		t.Fatal("other workspace preview should remain")
+	}
+}
