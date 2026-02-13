@@ -105,6 +105,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Check and auto-install dependencies
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/scripts/check-deps.sh"
+
+DEPS=("go:brew:go")
+if [ "$RUN_E2E" = true ] || [ "$RUN_SCENARIOS" = true ]; then
+    DEPS+=("docker:brew-cask:docker")
+fi
+check_deps "${DEPS[@]}"
+
 # Print header
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║${NC}  🧪 Schmux Test Suite                          ${BLUE}║${NC}"

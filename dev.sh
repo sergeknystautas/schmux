@@ -15,6 +15,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 SCRIPT_DIR="$(pwd)"
 
+# Check and auto-install dependencies
+source "$SCRIPT_DIR/scripts/check-deps.sh"
+check_deps "go:brew:go" "node:brew:node" "tmux:brew:tmux"
+check_npm_deps "$SCRIPT_DIR/assets/dashboard"
+
 # Colors for output
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
