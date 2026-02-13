@@ -38,6 +38,7 @@ export interface WorkspaceResponse {
   remote_flavor?: string;
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
   conflict_on_branch?: string; // Branch where sync conflict was detected
+  commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
 }
 
 export interface SessionWithWorkspace extends SessionResponse {
@@ -101,6 +102,7 @@ export interface SpawnRequest {
   quick_launch_name?: string;
   resume?: boolean; // resume mode: use agent's resume command
   remote_flavor_id?: string; // optional: spawn on remote host
+  new_branch?: string; // create new workspace with this branch from source workspace
 }
 
 export interface SpawnResult {

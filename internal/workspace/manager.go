@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -726,5 +727,175 @@ func (m *Manager) Dispose(workspaceID string) error {
 	}
 
 	fmt.Printf("[workspace] disposed: id=%s\n", workspaceID)
+	return nil
+}
+
+// CreateFromWorkspace creates a new workspace with a new branch,
+// branching from the source workspace's branch on origin.
+func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, newBranch string) (*state.Workspace, error) {
+	// 1. Get source workspace
+	source, found := m.state.GetWorkspace(sourceWorkspaceID)
+	if !found {
+		return nil, fmt.Errorf("source workspace not found: %s", sourceWorkspaceID)
+	}
+
+	// 2. Validate branch name
+	if err := ValidateBranchName(newBranch); err != nil {
+		return nil, fmt.Errorf("invalid branch name: %w", err)
+	}
+
+	// 3. Get source workspace's current branch
+	currentBranch, err := m.gitCurrentBranch(ctx, source.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current branch: %w", err)
+	}
+	if currentBranch == "HEAD" {
+		return nil, fmt.Errorf("source workspace is on detached HEAD - please checkout a branch first")
+	}
+
+	fmt.Printf("[workspace] creating from workspace: source=%s branch=%s new_branch=%s\n",
+		sourceWorkspaceID, currentBranch, newBranch)
+
+	// 5. Find repo config by URL
+	repoConfig, found := m.findRepoByURL(source.Repo)
+	if !found {
+		return nil, fmt.Errorf("repo URL not found in config: %s", source.Repo)
+	}
+
+	// 6. Find the next available workspace number
+	workspaces := m.getWorkspacesForRepo(source.Repo)
+	nextNum := findNextWorkspaceNumber(workspaces)
+
+	// 7. Create workspace ID
+	workspaceID := fmt.Sprintf("%s-"+workspaceNumberFormat, repoConfig.Name, nextNum)
+
+	// 8. Create full path
+	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
+
+	// 9. Ensure base repo exists (creates bare clone if needed)
+	worktreeBasePath, err := m.ensureWorktreeBase(ctx, source.Repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
+	}
+
+	// 10. Fetch latest before creating worktree
+	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
+		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
+	}
+
+	// 11. Check if branch already exists
+	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
+		// Use unique branch with suffix
+		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
+		}
+		if uniqueBranch != newBranch {
+			fmt.Printf("[workspace] using unique branch: requested=%s actual=%s\n", newBranch, uniqueBranch)
+		}
+		newBranch = uniqueBranch
+		_ = wasCreated
+	}
+
+	// 12. Create branch from origin/<source-branch>
+	sourceRef := "origin/" + currentBranch
+	if err := m.createBranchFromRef(ctx, worktreeBasePath, newBranch, sourceRef); err != nil {
+		return nil, fmt.Errorf("failed to create branch from %s: %w", sourceRef, err)
+	}
+
+	// 13. Clean up worktree if creation fails
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			fmt.Printf("[workspace] cleaning up failed: %s\n", workspacePath)
+			// Try worktree remove first, fall back to rm -rf
+			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
+				os.RemoveAll(workspacePath)
+			}
+			// Delete the branch we created
+			if err := m.deleteBranch(ctx, worktreeBasePath, newBranch); err != nil {
+				fmt.Printf("[workspace] warning: failed to delete branch %s: %v\n", newBranch, err)
+			}
+		}
+	}()
+
+	// 14. Add worktree for the new branch
+	if m.config.UseWorktrees() {
+		if err := m.addWorktreeForBranch(ctx, worktreeBasePath, workspacePath, newBranch); err != nil {
+			return nil, fmt.Errorf("failed to add worktree: %w", err)
+		}
+	} else {
+		// Using full clones - clone and checkout branch
+		fmt.Printf("[workspace] source_code_manager=git, using full clone\n")
+		if err := m.cloneRepo(ctx, source.Repo, workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to clone repo: %w", err)
+		}
+		// Checkout the new branch
+		checkoutCmd := exec.CommandContext(ctx, "git", "checkout", newBranch)
+		checkoutCmd.Dir = workspacePath
+		if output, err := checkoutCmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("git checkout failed: %w: %s", err, string(output))
+		}
+	}
+
+	// 15. Copy overlay files if they exist
+	if err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath); err != nil {
+		fmt.Printf("[workspace] warning: failed to copy overlay files: %v\n", err)
+	}
+
+	// 16. Create workspace state
+	w := state.Workspace{
+		ID:     workspaceID,
+		Repo:   source.Repo,
+		Branch: newBranch,
+		Path:   workspacePath,
+	}
+
+	if err := m.state.AddWorkspace(w); err != nil {
+		return nil, fmt.Errorf("failed to add workspace to state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// 17. State is persisted, workspace is valid
+	cleanupNeeded = false
+
+	// 18. Add filesystem watches for git metadata
+	if m.gitWatcher != nil && w.RemoteHostID == "" {
+		m.gitWatcher.AddWorkspace(w.ID, w.Path)
+	}
+
+	fmt.Printf("[workspace] created from workspace: id=%s path=%s branch=%s source=%s\n",
+		w.ID, w.Path, newBranch, sourceWorkspaceID)
+
+	return &w, nil
+}
+
+// getWorkspaceHEAD returns the current commit hash for a workspace.
+func (m *Manager) getWorkspaceHEAD(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD failed: %w: %s", err, string(output))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// addWorktreeForBranch adds a worktree for an existing branch.
+func (m *Manager) addWorktreeForBranch(ctx context.Context, worktreeBasePath, workspacePath, branch string) error {
+	fmt.Printf("[workspace] adding worktree for branch: base=%s path=%s branch=%s\n",
+		worktreeBasePath, workspacePath, branch)
+
+	args := []string{"worktree", "add", workspacePath, branch}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = worktreeBasePath
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
+	}
+
+	fmt.Printf("[workspace] worktree added: path=%s\n", workspacePath)
 	return nil
 }

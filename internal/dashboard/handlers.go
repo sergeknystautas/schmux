@@ -111,25 +111,26 @@ type SessionResponseItem struct {
 
 // WorkspaceResponseItem represents a workspace in the API response.
 type WorkspaceResponseItem struct {
-	ID               string                `json:"id"`
-	Repo             string                `json:"repo"`
-	Branch           string                `json:"branch"`
-	BranchURL        string                `json:"branch_url,omitempty"`
-	Path             string                `json:"path"`
-	SessionCount     int                   `json:"session_count"`
-	Sessions         []SessionResponseItem `json:"sessions"`
-	QuickLaunch      []string              `json:"quick_launch,omitempty"`
-	GitAhead         int                   `json:"git_ahead"`
-	GitBehind        int                   `json:"git_behind"`
-	GitLinesAdded    int                   `json:"git_lines_added"`
-	GitLinesRemoved  int                   `json:"git_lines_removed"`
-	GitFilesChanged  int                   `json:"git_files_changed"`
-	RemoteHostID     string                `json:"remote_host_id,omitempty"`
-	RemoteHostStatus string                `json:"remote_host_status,omitempty"`
-	RemoteFlavorName string                `json:"remote_flavor_name,omitempty"`
-	RemoteFlavor     string                `json:"remote_flavor,omitempty"`
-	VCS              string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
-	ConflictOnBranch string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
+	ID                      string                `json:"id"`
+	Repo                    string                `json:"repo"`
+	Branch                  string                `json:"branch"`
+	BranchURL               string                `json:"branch_url,omitempty"`
+	Path                    string                `json:"path"`
+	SessionCount            int                   `json:"session_count"`
+	Sessions                []SessionResponseItem `json:"sessions"`
+	QuickLaunch             []string              `json:"quick_launch,omitempty"`
+	GitAhead                int                   `json:"git_ahead"`
+	GitBehind               int                   `json:"git_behind"`
+	GitLinesAdded           int                   `json:"git_lines_added"`
+	GitLinesRemoved         int                   `json:"git_lines_removed"`
+	GitFilesChanged         int                   `json:"git_files_changed"`
+	RemoteHostID            string                `json:"remote_host_id,omitempty"`
+	RemoteHostStatus        string                `json:"remote_host_status,omitempty"`
+	RemoteFlavorName        string                `json:"remote_flavor_name,omitempty"`
+	RemoteFlavor            string                `json:"remote_flavor,omitempty"`
+	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
+	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
+	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -196,25 +197,26 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
-			ID:               ws.ID,
-			Repo:             ws.Repo,
-			Branch:           branch,
-			BranchURL:        branchURL,
-			Path:             ws.Path,
-			SessionCount:     0,
-			Sessions:         []SessionResponseItem{},
-			QuickLaunch:      quickLaunchNames,
-			GitAhead:         ws.GitAhead,
-			GitBehind:        ws.GitBehind,
-			GitLinesAdded:    ws.GitLinesAdded,
-			GitLinesRemoved:  ws.GitLinesRemoved,
-			GitFilesChanged:  ws.GitFilesChanged,
-			RemoteHostID:     remoteHostID,
-			RemoteHostStatus: remoteHostStatus,
-			RemoteFlavorName: remoteFlavorName,
-			RemoteFlavor:     remoteFlavor,
-			VCS:              vcs,
-			ConflictOnBranch: conflictOnBranch,
+			ID:                      ws.ID,
+			Repo:                    ws.Repo,
+			Branch:                  branch,
+			BranchURL:               branchURL,
+			Path:                    ws.Path,
+			SessionCount:            0,
+			Sessions:                []SessionResponseItem{},
+			QuickLaunch:             quickLaunchNames,
+			GitAhead:                ws.GitAhead,
+			GitBehind:               ws.GitBehind,
+			GitLinesAdded:           ws.GitLinesAdded,
+			GitLinesRemoved:         ws.GitLinesRemoved,
+			GitFilesChanged:         ws.GitFilesChanged,
+			RemoteHostID:            remoteHostID,
+			RemoteHostStatus:        remoteHostStatus,
+			RemoteFlavorName:        remoteFlavorName,
+			RemoteFlavor:            remoteFlavor,
+			VCS:                     vcs,
+			ConflictOnBranch:        conflictOnBranch,
+			CommitsSyncedWithRemote: ws.CommitsSyncedWithRemote,
 		}
 	}
 
@@ -436,6 +438,7 @@ type SpawnRequest struct {
 	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
 	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
 	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
+	NewBranch       string         `json:"new_branch,omitempty"`       // create new workspace with this branch from source workspace
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -556,7 +559,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
-		sess, err := s.session.SpawnCommand(ctx, req.Repo, req.Branch, req.Command, req.Nickname, req.WorkspaceID)
+		sess, err := s.session.SpawnCommand(ctx, req.Repo, req.Branch, req.Command, req.Nickname, req.WorkspaceID, req.NewBranch)
 		cancel()
 
 		if err != nil {
@@ -664,7 +667,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
 			} else {
 				// Local spawn - use existing Spawn()
-				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume)
+				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume, req.NewBranch)
 			}
 
 			cancel()

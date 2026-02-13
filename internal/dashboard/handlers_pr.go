@@ -132,7 +132,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 
 	// Launch session
 	nickname := fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title)
-	sess, err := s.session.Spawn(ctx, pr.RepoURL, gh.PRBranchName(pr), target, prompt, nickname, ws.ID, false)
+	sess, err := s.session.Spawn(ctx, pr.RepoURL, gh.PRBranchName(pr), target, prompt, nickname, ws.ID, false, "")
 	if err != nil {
 		fmt.Printf("[pr] session launch failed: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
