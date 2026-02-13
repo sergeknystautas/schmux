@@ -23,6 +23,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
   const mountedRef = useRef(true);
+  const lastSessionsMsgRef = useRef<string>('');
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -53,10 +54,17 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
       try {
-        const data = JSON.parse(event.data);
+        const raw = event.data as string;
+        const data = JSON.parse(raw);
         // Handle different message types
         if (data.type === 'sessions' && data.workspaces) {
-          setWorkspaces(data.workspaces);
+          // Structural sharing: skip update if data hasn't changed.
+          // Raw string comparison avoids React re-render cascade when
+          // the WebSocket broadcasts identical state.
+          if (raw !== lastSessionsMsgRef.current) {
+            lastSessionsMsgRef.current = raw;
+            setWorkspaces(data.workspaces);
+          }
           setLoading(false);
         } else if (data.type === 'linear_sync_resolve_conflict' && data.workspace_id) {
           setLinearSyncResolveConflictStates((prev) => ({

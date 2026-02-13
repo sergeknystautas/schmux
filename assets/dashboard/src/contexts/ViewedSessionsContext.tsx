@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback } from 'react';
+import React, { createContext, useContext, useCallback, useMemo } from 'react';
 import { useConfig } from './ConfigContext';
 import useLocalStorage, { VIEWED_SESSIONS_KEY } from '../hooks/useLocalStorage';
 
@@ -22,11 +22,9 @@ export function ViewedSessionsProvider({ children }: { children: React.ReactNode
     setViewedSessions((prev) => ({ ...prev, [sessionId]: Date.now() + buffer }));
   }, []); // Empty deps - function is stable, reads config dynamically
 
-  return (
-    <ViewedSessionsContext.Provider value={{ viewedSessions, markAsViewed }}>
-      {children}
-    </ViewedSessionsContext.Provider>
-  );
+  const value = useMemo(() => ({ viewedSessions, markAsViewed }), [viewedSessions, markAsViewed]);
+
+  return <ViewedSessionsContext.Provider value={value}>{children}</ViewedSessionsContext.Provider>;
 }
 
 export function useViewedSessions() {

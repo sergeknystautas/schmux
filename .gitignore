@@ -35,6 +35,9 @@ Thumbs.db
 # Air hot-reload temp directory
 tmp/
 
+# Benchmark results
+bench-results/
+
 # Scenario test artifacts
 test/scenarios/generated/node_modules/
 test/scenarios/generated/test-results/

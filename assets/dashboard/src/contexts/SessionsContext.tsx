@@ -49,6 +49,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearLinearSyncResolveConflictState,
   } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+  const lastProcessedNudgeRef = useRef<Record<string, number>>({});
+  const lastCleanupRef = useRef(0);
 
   useEffect(() => {
     warmupAudioContext();
@@ -70,13 +72,17 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     return map;
   }, [workspaces]);
 
-  // Detect nudge state changes and play notification sound (localStorage-based deduplication)
+  // Detect nudge state changes and play notification sound
   useEffect(() => {
     let shouldPlaySound = false;
 
     Object.entries(sessionsById).forEach(([sessionId, session]) => {
       const nudgeSeq = session.nudge_seq ?? 0;
       if (nudgeSeq === 0) return;
+
+      // Skip if we already processed this exact seq in-memory
+      if (lastProcessedNudgeRef.current[sessionId] === nudgeSeq) return;
+      lastProcessedNudgeRef.current[sessionId] = nudgeSeq;
 
       const storageKey = `schmux:ack:${sessionId}`;
       const lastAckedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
@@ -87,15 +93,19 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Cleanup: remove localStorage entries for sessions that no longer exist
-    // Iterate backwards to avoid skipping entries when removeItem shifts indices.
-    const currentSessionIds = new Set(Object.keys(sessionsById));
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('schmux:ack:')) {
-        const sessionId = key.slice('schmux:ack:'.length);
-        if (!currentSessionIds.has(sessionId)) {
-          localStorage.removeItem(key);
+    // Cleanup: remove localStorage entries for sessions that no longer exist.
+    // Throttled to once per minute to avoid scanning all localStorage keys on every update.
+    const now = Date.now();
+    if (now - lastCleanupRef.current > 60_000) {
+      lastCleanupRef.current = now;
+      const currentSessionIds = new Set(Object.keys(sessionsById));
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('schmux:ack:')) {
+          const sessionId = key.slice('schmux:ack:'.length);
+          if (!currentSessionIds.has(sessionId)) {
+            localStorage.removeItem(key);
+          }
         }
       }
     }
