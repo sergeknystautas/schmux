@@ -133,12 +133,13 @@ export default function AppShell() {
 
   // Check if we're on a diff page for a specific workspace
   const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
-  const activeWorkspaceId = diffMatch ? diffMatch[1] : null;
+  const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
+  const activeWorkspaceId = diffMatch ? diffMatch[1] : previewMatch ? previewMatch[1] : null;
 
   // Check if we're on a session detail page and get workspace info
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
   const currentSession = sessionMatch && sessionId ? sessionsById(workspaces)[sessionId] : null;
-  const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId;
+  const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId || previewMatch?.[1];
   const currentWorkspace = currentWorkspaceId
     ? workspaces?.find((ws) => ws.id === currentWorkspaceId)
     : null;
@@ -231,6 +232,7 @@ export default function AppShell() {
         const isVCS = !workspace.vcs || workspace.vcs === 'git';
 
         const tabs: string[] = (workspace.sessions || []).map((s) => `/sessions/${s.id}`);
+        (workspace.previews || []).forEach((p) => tabs.push(`/preview/${workspace.id}/${p.id}`));
         if (isVCS) {
           tabs.push(`/diff/${workspace.id}`);
           tabs.push(`/git/${workspace.id}`);
@@ -447,7 +449,7 @@ export default function AppShell() {
               const linesRemoved = workspace.git_lines_removed ?? 0;
               const isGit = !workspace.vcs || workspace.vcs === 'git';
               const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
-              const isWorkspaceActive = workspace.id === activeWorkspaceId;
+              const isWorkspaceActive = workspace.id === (currentWorkspaceId || activeWorkspaceId);
 
               // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
               const isRemote = !!workspace.remote_host_id;

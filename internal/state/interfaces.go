@@ -28,6 +28,15 @@ type StateStore interface {
 	UpdateWorkspace(ws Workspace) error
 	RemoveWorkspace(id string) error
 
+	// Preview operations
+	GetPreviews() []WorkspacePreview
+	GetWorkspacePreviews(workspaceID string) []WorkspacePreview
+	GetPreview(id string) (WorkspacePreview, bool)
+	FindPreview(workspaceID, targetHost string, targetPort int) (WorkspacePreview, bool)
+	UpsertPreview(preview WorkspacePreview) error
+	RemovePreview(id string) error
+	RemoveWorkspacePreviews(workspaceID string) int
+
 	// Worktree base operations (for git worktrees)
 	GetWorktreeBases() []WorktreeBase
 	GetWorktreeBaseByURL(repoURL string) (WorktreeBase, bool)

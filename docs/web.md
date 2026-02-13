@@ -100,12 +100,24 @@ Watch terminal output and manage a session.
 - Copy attach command
 - Dispose session
 - Open diff, open workspace in VS Code
+- Open Preview (prompts for target port, opens a local ephemeral proxy URL)
+
+**Preview notes:**
+
+- Previews are ephemeral — not persisted, auto-detected from running dev servers
+- Tabs appear as `web:<port>` in the workspace tab bar
+- Auto-cleaned when upstream server dies or session is disposed
+- Clicking preview tab opens in-app; use modifier key (Cmd/Ctrl/Shift) for external browser
+- Remote-host workspaces are not supported yet
+- When running with `bind_address=0.0.0.0`, preview is only available to local clients on the daemon host
 
 **Keyboard shortcuts (dashboard):**
 
 - `Cmd+K` (or `Ctrl+K`) to enter keyboard mode
 - `1-9` jump to session by index (1 = first)
 - `K` then `1-9` jump to workspace by index (left nav order)
+- `Cmd+Left/Right` cycle through workspace tabs (sessions, previews, diff, git)
+- `Cmd+Up/Down` cycle through workspaces
 - `W` dispose session (session detail only)
 - `Shift+W` dispose workspace (workspace only)
 - `V` open workspace in VS Code (workspace only)

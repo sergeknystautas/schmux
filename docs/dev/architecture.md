@@ -26,6 +26,11 @@ schmux is a **multi-agent AI orchestration system** that runs multiple AI coding
 │  - Track workspace directories                          │
 │  - Overlay file copying                                │
 │                                                         │
+│  Preview Manager (internal/preview/manager.go)          │
+│  - Ephemeral proxy ports for workspace web servers      │
+│  - Auto-detect ports from tmux session output           │
+│  - Reconcile/cleanup stale previews                     │
+│                                                         │
 │  tmux Package (internal/tmux/tmux.go)                   │
 │  - tmux CLI wrapper (create, capture, list, kill)       │
 │                                                         │
@@ -100,6 +105,22 @@ Git repository management and workspace creation.
 - Create sequential workspace directories
 - Copy overlay files
 - Track workspace state (dirty, ahead, behind)
+
+### Preview (`internal/preview/`)
+
+Ephemeral proxy management for workspace web servers.
+
+**Responsibilities:**
+
+- Create proxy listeners on ephemeral ports (e.g., `127.0.0.1:51853`)
+- Forward requests to workspace-local servers (e.g., Vite on port 5173)
+- Auto-detect listening ports from tmux session output (via `ss` on Linux, `lsof` on macOS)
+- Reconcile and clean up stale previews when upstream servers die
+
+**Key files:**
+
+- `manager.go` - Preview lifecycle management
+- Auto-detection in `internal/dashboard/preview_autodetect.go`
 
 ### tmux (`internal/tmux/`)
 
@@ -176,6 +197,8 @@ Managed automatically by the daemon:
   "sessions": [...]
 }
 ```
+
+**Note:** Previews are ephemeral and not persisted. They are auto-detected from running tmux sessions on daemon startup and reconciled during runtime.
 
 ---
 

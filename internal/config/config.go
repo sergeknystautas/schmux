@@ -43,6 +43,9 @@ const (
 	DefaultXtermOperationTimeoutMs    = 10000   // 10 seconds
 	DefaultExternalDiffCleanupAfterMs = 3600000 // 1 hour
 	DefaultConflictResolveTimeoutMs   = 300000  // 5 minutes
+	DefaultPreviewMaxPerWorkspace     = 3
+	DefaultPreviewMaxGlobal           = 20
+	DefaultPreviewIdleTimeoutMs       = 3600000 // 60 minutes
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -254,10 +257,13 @@ type XtermConfig struct {
 
 // NetworkConfig controls server binding and TLS.
 type NetworkConfig struct {
-	BindAddress   string     `json:"bind_address,omitempty"`
-	Port          int        `json:"port,omitempty"`
-	PublicBaseURL string     `json:"public_base_url,omitempty"`
-	TLS           *TLSConfig `json:"tls,omitempty"`
+	BindAddress            string     `json:"bind_address,omitempty"`
+	Port                   int        `json:"port,omitempty"`
+	PublicBaseURL          string     `json:"public_base_url,omitempty"`
+	PreviewMaxPerWorkspace int        `json:"preview_max_per_workspace,omitempty"`
+	PreviewMaxGlobal       int        `json:"preview_max_global,omitempty"`
+	PreviewIdleTimeoutMs   int        `json:"preview_idle_timeout_ms,omitempty"`
+	TLS                    *TLSConfig `json:"tls,omitempty"`
 }
 
 // TLSConfig holds TLS certificate paths.
@@ -1035,6 +1041,30 @@ func (c *Config) GetPort() int {
 		return 7337
 	}
 	return c.Network.Port
+}
+
+// GetPreviewMaxPerWorkspace returns the per-workspace preview limit.
+func (c *Config) GetPreviewMaxPerWorkspace() int {
+	if c.Network == nil || c.Network.PreviewMaxPerWorkspace <= 0 {
+		return DefaultPreviewMaxPerWorkspace
+	}
+	return c.Network.PreviewMaxPerWorkspace
+}
+
+// GetPreviewMaxGlobal returns the global preview limit.
+func (c *Config) GetPreviewMaxGlobal() int {
+	if c.Network == nil || c.Network.PreviewMaxGlobal <= 0 {
+		return DefaultPreviewMaxGlobal
+	}
+	return c.Network.PreviewMaxGlobal
+}
+
+// GetPreviewIdleTimeoutMs returns preview idle timeout in milliseconds.
+func (c *Config) GetPreviewIdleTimeoutMs() int {
+	if c.Network == nil || c.Network.PreviewIdleTimeoutMs <= 0 {
+		return DefaultPreviewIdleTimeoutMs
+	}
+	return c.Network.PreviewIdleTimeoutMs
 }
 
 // GetPublicBaseURL returns the public base URL for the dashboard.

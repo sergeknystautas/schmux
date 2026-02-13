@@ -40,6 +40,7 @@ type Manager struct {
 	workspace       workspace.WorkspaceManager
 	remoteManager   *remote.Manager // Optional, for remote sessions
 	signalCallback  func(sessionID string, sig signal.Signal)
+	outputCallback  func(sessionID string, chunk []byte)
 	trackers        map[string]*SessionTracker
 	remoteDetectors map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu              sync.RWMutex
@@ -87,6 +88,11 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 // SetSignalCallback sets the callback for signal detection from session output.
 func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
 	m.signalCallback = cb
+}
+
+// SetOutputCallback sets callback for terminal output chunks from local trackers.
+func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
+	m.outputCallback = cb
 }
 
 // StartRemoteSignalMonitor creates a signal detector for a remote session and starts
@@ -1287,7 +1293,15 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			signalCb(sessionID, sig)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, cb)
+	var outputCb func([]byte)
+	if m.outputCallback != nil {
+		sessionID := sess.ID
+		handler := m.outputCallback
+		outputCb = func(chunk []byte) {
+			handler(sessionID, chunk)
+		}
+	}
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, cb, outputCb)
 	m.trackers[sess.ID] = tracker
 
 	m.mu.Unlock()

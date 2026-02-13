@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -130,6 +132,11 @@ type Server struct {
 	// Remote host manager
 	remoteManager *remote.Manager
 
+	// Workspace preview proxy manager
+	previewManager  *preview.Manager
+	previewDetect   map[string]time.Time // workspaceID:port -> last detect time
+	previewDetectMu sync.Mutex
+
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
 
@@ -171,7 +178,15 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastReady:                  make(chan struct{}),
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		previewDetect:                   make(map[string]time.Time),
 	}
+	s.previewManager = preview.NewManager(
+		st,
+		cfg.GetPreviewMaxPerWorkspace(),
+		cfg.GetPreviewMaxGlobal(),
+		time.Duration(cfg.GetPreviewIdleTimeoutMs())*time.Millisecond,
+	)
+	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 	if mgr, ok := wm.(*workspace.Manager); ok {
 		mgr.SetWorkspaceLockedFn(func(workspaceID string) bool {
 			state := s.getLinearSyncResolveConflictState(workspaceID)
@@ -179,8 +194,11 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		})
 	}
 	go s.broadcastLoop()
+	go s.previewReconcileLoop()
 	// Start rate limiter cleanup goroutine
 	go s.connectLimiter.startCleanup(10 * time.Minute)
+	// Scan existing sessions for web server ports
+	go s.scanExistingSessionsForPreviews()
 	return s
 }
 
@@ -251,7 +269,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
 	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
 	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuth(s.handleWorkspacesScan)))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleLinearSync)))
+	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleWorkspaceRoutes)))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
 	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
 	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
@@ -361,8 +379,20 @@ func (s *Server) Stop() error {
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("failed to shutdown server: %w", err)
 	}
+	if s.previewManager != nil {
+		s.previewManager.Stop()
+	}
 
 	return nil
+}
+
+func (s *Server) isLocalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil {
+		host = strings.TrimSpace(r.RemoteAddr)
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // withCORS wraps a handler with CORS headers and origin validation.

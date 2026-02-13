@@ -165,6 +165,17 @@ Response:
         "nudge_state": "optional",
         "nudge_summary": "optional"
       }
+    ],
+    "previews": [
+      {
+        "id": "prev_ab12cd34",
+        "workspace_id": "workspace-id",
+        "target_host": "127.0.0.1",
+        "target_port": 5173,
+        "proxy_port": 51853,
+        "url": "http://127.0.0.1:51853",
+        "status": "ready"
+      }
     ]
   }
 ]
@@ -206,6 +217,56 @@ Response:
 Errors:
 
 - 400 with JSON: `{"error":"..."}`
+
+### POST /api/workspaces/{workspaceId}/previews
+
+Create or reuse a workspace preview proxy.
+
+Request:
+
+```json
+{
+  "target_host": "127.0.0.1",
+  "target_port": 5173
+}
+```
+
+Response:
+
+```json
+{
+  "id": "prev_ab12cd34",
+  "workspace_id": "schmux-005",
+  "target_host": "127.0.0.1",
+  "target_port": 5173,
+  "proxy_port": 51853,
+  "url": "http://127.0.0.1:51853",
+  "status": "ready"
+}
+```
+
+Notes:
+
+- Target host must resolve only to loopback addresses (`127.0.0.1`, `::1`, `localhost`).
+- Remote workspaces are blocked in Phase 1 (422).
+- In network-access mode (`bind_address=0.0.0.0`), preview creation is local-client only.
+- `status` can be `degraded` when upstream target is not yet reachable.
+
+### GET /api/workspaces/{workspaceId}/previews
+
+List known previews for a workspace.
+
+Response: array of preview objects from the create endpoint.
+
+### DELETE /api/workspaces/{workspaceId}/previews/{previewId}
+
+Delete a preview mapping and stop its listener.
+
+Response:
+
+```json
+{ "status": "ok" }
+```
 
 ### POST /api/spawn
 

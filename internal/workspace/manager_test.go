@@ -440,6 +440,34 @@ func (m *mockStateStore) RemoveWorkspace(id string) error {
 	return m.state.RemoveWorkspace(id)
 }
 
+func (m *mockStateStore) GetPreviews() []state.WorkspacePreview {
+	return m.state.GetPreviews()
+}
+
+func (m *mockStateStore) GetWorkspacePreviews(workspaceID string) []state.WorkspacePreview {
+	return m.state.GetWorkspacePreviews(workspaceID)
+}
+
+func (m *mockStateStore) GetPreview(id string) (state.WorkspacePreview, bool) {
+	return m.state.GetPreview(id)
+}
+
+func (m *mockStateStore) FindPreview(workspaceID, targetHost string, targetPort int) (state.WorkspacePreview, bool) {
+	return m.state.FindPreview(workspaceID, targetHost, targetPort)
+}
+
+func (m *mockStateStore) UpsertPreview(preview state.WorkspacePreview) error {
+	return m.state.UpsertPreview(preview)
+}
+
+func (m *mockStateStore) RemovePreview(id string) error {
+	return m.state.RemovePreview(id)
+}
+
+func (m *mockStateStore) RemoveWorkspacePreviews(workspaceID string) int {
+	return m.state.RemoveWorkspacePreviews(workspaceID)
+}
+
 func (m *mockStateStore) GetWorktreeBases() []state.WorktreeBase {
 	return m.state.GetWorktreeBases()
 }

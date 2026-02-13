@@ -26,6 +26,7 @@ import type {
   SuggestBranchRequest,
   SuggestBranchResponse,
   WorkspaceResponse,
+  WorkspacePreview,
 } from './types';
 
 // Custom error types that preserve API response fields
@@ -199,6 +200,23 @@ export async function disposeWorkspaceAll(
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.error || 'Failed to dispose workspace and sessions');
+  }
+  return response.json();
+}
+
+export async function createWorkspacePreview(
+  workspaceId: string,
+  targetPort: number,
+  targetHost = '127.0.0.1'
+): Promise<WorkspacePreview> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/previews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_host: targetHost, target_port: targetPort }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to create preview');
   }
   return response.json();
 }

@@ -36,6 +36,7 @@ type SessionTracker struct {
 	tmuxSession    string
 	state          state.StateStore
 	signalDetector *signal.SignalDetector
+	outputCallback func([]byte)
 
 	mu               sync.RWMutex
 	clientCh         chan []byte
@@ -59,13 +60,14 @@ func (t *SessionTracker) IsAttached() bool {
 }
 
 // NewSessionTracker creates a tracker for a session.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalCallback func(signal.Signal)) *SessionTracker {
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalCallback func(signal.Signal), outputCallback func([]byte)) *SessionTracker {
 	t := &SessionTracker{
-		sessionID:   sessionID,
-		tmuxSession: tmuxSession,
-		state:       st,
-		stopCh:      make(chan struct{}),
-		doneCh:      make(chan struct{}),
+		sessionID:      sessionID,
+		tmuxSession:    tmuxSession,
+		state:          st,
+		outputCallback: outputCallback,
+		stopCh:         make(chan struct{}),
+		doneCh:         make(chan struct{}),
 	}
 	if signalCallback != nil {
 		t.signalDetector = signal.NewSignalDetector(sessionID, signalCallback)
@@ -329,6 +331,9 @@ func (t *SessionTracker) attachAndRead() error {
 					case clientCh <- chunk:
 					default:
 					}
+				}
+				if t.outputCallback != nil {
+					t.outputCallback(chunk)
 				}
 			}
 		}

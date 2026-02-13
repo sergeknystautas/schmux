@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
 import { playAttentionSound, isAttentionState, warmupAudioContext } from '../lib/notificationSound';
+import { removePreviewIframe } from '../lib/previewKeepAlive';
 import type {
   SessionWithWorkspace,
   WorkspaceResponse,
@@ -109,6 +110,24 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     sessionsByIdRef.current = sessionsById;
   }, [sessionsById]);
+
+  // Clean up preview iframes when previews disappear
+  const prevPreviewIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentPreviewIds = new Set<string>();
+    workspaces.forEach((ws) => {
+      (ws.previews || []).forEach((p) => currentPreviewIds.add(p.id));
+    });
+
+    // Remove iframes for previews that no longer exist
+    for (const id of prevPreviewIdsRef.current) {
+      if (!currentPreviewIds.has(id)) {
+        removePreviewIframe(id);
+      }
+    }
+
+    prevPreviewIdsRef.current = currentPreviewIds;
+  }, [workspaces]);
 
   // Check for pending navigation matches whenever workspaces update
   useEffect(() => {

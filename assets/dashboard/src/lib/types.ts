@@ -41,6 +41,18 @@ export interface WorkspaceResponse {
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
   conflict_on_branch?: string; // Branch where sync conflict was detected
   commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
+  previews?: WorkspacePreview[];
+}
+
+export interface WorkspacePreview {
+  id: string;
+  workspace_id: string;
+  target_host: string;
+  target_port: number;
+  proxy_port: number;
+  url: string;
+  status: 'ready' | 'degraded';
+  last_error?: string;
 }
 
 export interface SessionWithWorkspace extends SessionResponse {

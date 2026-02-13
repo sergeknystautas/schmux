@@ -45,6 +45,7 @@ type SessionTabsProps = {
   activeDiffTab?: boolean;
   activeSpawnTab?: boolean;
   activeGitTab?: boolean;
+  activePreviewId?: string;
   activeLinearSyncResolveConflictTab?: boolean;
 };
 
@@ -55,6 +56,7 @@ export default function SessionTabs({
   activeDiffTab,
   activeSpawnTab,
   activeGitTab,
+  activePreviewId,
   activeLinearSyncResolveConflictTab,
 }: SessionTabsProps) {
   const navigate = useNavigate();
@@ -192,6 +194,12 @@ export default function SessionTabs({
   const handleSpawnTabClick = () => {
     if (workspace) {
       navigate(`/spawn?workspace_id=${workspace.id}`);
+    }
+  };
+
+  const handlePreviewTabClick = (previewId: string) => {
+    if (workspace) {
+      navigate(`/preview/${workspace.id}/${previewId}`);
     }
   };
 
@@ -419,6 +427,47 @@ export default function SessionTabs({
     </div>
   );
 
+  const renderPreviewTab = (preview: NonNullable<WorkspaceResponse['previews']>[number]) => {
+    const isActive = activePreviewId === preview.id;
+    const disabled = resolveInProgress;
+    const statusTitle =
+      preview.status === 'degraded'
+        ? preview.last_error || 'Upstream server unavailable'
+        : `Preview ${preview.target_port}`;
+    return (
+      <div
+        key={preview.id}
+        className={`session-tab session-tab--diff${isActive ? ' session-tab--active' : ''}${disabled ? ' session-tab--disabled' : ''}`}
+        onClick={() => !disabled && handlePreviewTabClick(preview.id)}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        title={statusTitle}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            handlePreviewTabClick(preview.id);
+          }
+        }}
+        style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+      >
+        <div className="session-tab__row1">
+          <span className="session-tab__name">web:{preview.target_port}</span>
+          <span
+            style={{
+              marginLeft: 8,
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor:
+                preview.status === 'degraded' ? 'var(--color-warning)' : 'var(--color-success)',
+              flexShrink: 0,
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   // Helper to render the resolve conflict tab (only when state exists)
   const renderResolveConflictTab = () => {
     if (!crState && !activeLinearSyncResolveConflictTab) return null;
@@ -607,6 +656,8 @@ export default function SessionTabs({
       <div style={{ flex: 1 }} />
 
       {/* Right: accessory tabs */}
+      {(workspace?.previews || []).map((preview) => renderPreviewTab(preview))}
+
       {/* Resolve conflict tab — shown when state exists */}
       {isVCS && renderResolveConflictTab()}
 
