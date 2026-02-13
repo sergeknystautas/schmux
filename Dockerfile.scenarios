@@ -73,45 +73,8 @@ COPY --from=playwright-installer /tests/node_modules ./test/scenarios/generated/
 # Copy Playwright browsers from the installer stage
 COPY --from=playwright-installer /root/.cache/ms-playwright /root/.cache/ms-playwright
 
-# Create the entrypoint script
-RUN cat <<'ENTRYPOINT_SCRIPT' > /entrypoint.sh
-#!/bin/bash
-set -e
-
-# Git requires user config for schmux repo operations
-git config --global user.email "test@schmux.dev"
-git config --global user.name "Schmux Test"
-
-# Start the schmux daemon in the background
-cd /app
-schmux daemon-run &
-DAEMON_PID=$!
-
-# Wait for the daemon to become healthy
-echo "Waiting for schmux daemon to become healthy..."
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:7337/api/healthz > /dev/null 2>&1; then
-        echo "Daemon is healthy (attempt $i)"
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "ERROR: Daemon failed to become healthy after 30 attempts"
-        kill $DAEMON_PID 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
-
-# Run Playwright scenario tests
-cd /app/test/scenarios/generated
-npx playwright test
-TEST_EXIT=$?
-
-# Clean up
-kill $DAEMON_PID 2>/dev/null || true
-exit $TEST_EXIT
-ENTRYPOINT_SCRIPT
-
+# Copy and install the entrypoint script
+COPY test/scenarios/generated/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Verify key tools are available
