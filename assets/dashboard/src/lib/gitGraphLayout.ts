@@ -50,7 +50,7 @@ export interface GitGraphLayout {
   youAreHereColumn: number | null;
 }
 
-const ROW_HEIGHT = 28;
+export const ROW_HEIGHT = 28;
 
 /**
  * Compute a column-based layout from the GitGraphResponse.
