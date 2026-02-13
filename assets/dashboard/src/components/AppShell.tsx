@@ -383,35 +383,78 @@ export default function AppShell() {
       <nav className="app-shell__nav">
         <div className="nav-top">
           <div className="nav-header">
-            <NavLink to="/" className="logo">
-              schmux
-              {showUpdateBadge && (
+            <div className="nav-header__left">
+              <NavLink to="/" className="logo">
                 <span
-                  className="update-badge"
-                  title={`Update available: ${versionInfo.latest_version}`}
+                  className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
+                  title={connected ? 'Connected' : 'Offline'}
                 ></span>
-              )}
-            </NavLink>
-            <button
-              className="nav-collapse-btn"
-              onClick={() => setNavCollapsed(!navCollapsed)}
-              aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                {navCollapsed ? (
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                ) : (
-                  <polyline points="15 18 9 12 15 6"></polyline>
+                schmux
+                {showUpdateBadge && (
+                  <span
+                    className="update-badge"
+                    title={`Update available: ${versionInfo.latest_version}`}
+                  ></span>
                 )}
-              </svg>
-            </button>
+              </NavLink>
+              <span className="nav-header__version">
+                {versionInfo?.version
+                  ? versionInfo.version === 'dev'
+                    ? 'dev'
+                    : `v${versionInfo.version}`
+                  : ''}
+              </span>
+            </div>
+            <div className="nav-header__actions">
+              <Tooltip content="Toggle theme">
+                <button
+                  id="themeToggle"
+                  className="icon-btn icon-btn--sm"
+                  aria-label="Toggle theme"
+                  onClick={toggleTheme}
+                >
+                  <span className="icon-theme"></span>
+                </button>
+              </Tooltip>
+              <Tooltip content="View on GitHub">
+                <a
+                  href="https://github.com/sergeknystautas/schmux"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="icon-btn icon-btn--sm"
+                  aria-label="View on GitHub"
+                >
+                  <svg
+                    className="icon-github"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
+                </a>
+              </Tooltip>
+              <button
+                className="nav-collapse-btn"
+                onClick={() => setNavCollapsed(!navCollapsed)}
+                aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  {navCollapsed ? (
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  ) : (
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  )}
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div className="nav-workspaces">
@@ -711,54 +754,9 @@ export default function AppShell() {
           {isDevMode && <TypingPerformance />}
         </div>
 
-        <div className="nav-bottom">
-          <div className="nav-bottom__version">
-            {versionInfo?.version
-              ? versionInfo.version === 'dev'
-                ? 'Version dev'
-                : `Version ${versionInfo.version}`
-              : 'Loading...'}
-          </div>
-          <div className="nav-bottom__actions">
-            <div
-              className={`connection-pill connection-pill--sm ${connected ? 'connection-pill--connected' : 'connection-pill--offline'}`}
-            >
-              <span className="connection-pill__dot"></span>
-              <span>{connected ? 'Connected' : 'Offline'}</span>
-            </div>
-            <Tooltip content="Toggle theme">
-              <button
-                id="themeToggle"
-                className="icon-btn icon-btn--sm"
-                aria-label="Toggle theme"
-                onClick={toggleTheme}
-              >
-                <span className="icon-theme"></span>
-              </button>
-            </Tooltip>
-            <Tooltip content="View on GitHub">
-              <a
-                href="https://github.com/sergeknystautas/schmux"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="icon-btn icon-btn--sm"
-                aria-label="View on GitHub"
-              >
-                <svg
-                  className="icon-github"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                </svg>
-              </a>
-            </Tooltip>
-            {mode === 'active' && (
-              <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>
-            )}
-          </div>
-        </div>
+        {mode === 'active' && (
+          <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>
+        )}
       </nav>
 
       <main className="app-shell__content">
