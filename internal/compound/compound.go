@@ -143,14 +143,12 @@ func (c *Compounder) onFileChange(workspaceID, relPath string) {
 	}
 
 	// Update the manifest hash for this workspace
-	newHash, err := FileHash(overlayPath)
-	if err == nil {
-		c.mu.Lock()
-		if info, ok := c.workspaces[workspaceID]; ok {
-			info.Manifest[relPath] = newHash
-		}
-		c.mu.Unlock()
+	newHash := HashBytes(mergedContent)
+	c.mu.Lock()
+	if info, ok := c.workspaces[workspaceID]; ok {
+		info.Manifest[relPath] = newHash
 	}
+	c.mu.Unlock()
 
 	// Propagate to sibling workspaces
 	if c.propagate != nil && mergedContent != nil {

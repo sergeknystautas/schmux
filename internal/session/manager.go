@@ -1163,11 +1163,19 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	// Note: workspace is NOT cleaned up on session disposal.
 	// Workspaces persist and are only reset when reused for a new spawn.
 
-	// Notify compounder if this is the last session for the workspace
+	// Remove session from state
+	if err := m.state.RemoveSession(sessionID); err != nil {
+		return fmt.Errorf("failed to remove session from state: %w", err)
+	}
+	if err := m.state.Save(); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Notify compounder if this was the last session for the workspace
 	if m.compoundCallback != nil {
 		isLastSession := true
 		for _, s := range m.state.GetSessions() {
-			if s.WorkspaceID == sess.WorkspaceID && s.ID != sessionID {
+			if s.WorkspaceID == sess.WorkspaceID {
 				isLastSession = false
 				break
 			}
@@ -1175,14 +1183,6 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		if isLastSession {
 			m.compoundCallback(sess.WorkspaceID, false)
 		}
-	}
-
-	// Remove session from state
-	if err := m.state.RemoveSession(sessionID); err != nil {
-		return fmt.Errorf("failed to remove session from state: %w", err)
-	}
-	if err := m.state.Save(); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
 	}
 
 	// Print summary

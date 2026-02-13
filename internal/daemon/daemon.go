@@ -511,9 +511,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					manifest = make(map[string]string)
 				}
 				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest)
-			} else {
-				compounder.RemoveWorkspace(workspaceID)
 			}
+			// Note: workspace removal is handled by the workspace dispose reconcile callback,
+			// not here. This ensures the final reconciliation pass runs before cleanup.
 		})
 
 		wm.SetCompoundReconcile(func(workspaceID string) {

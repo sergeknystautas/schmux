@@ -119,6 +119,13 @@ func (w *Watcher) RemoveWorkspace(workspaceID string) {
 		}
 	}
 
+	// Clean up suppression entries for this workspace
+	for key := range w.suppressed {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(w.suppressed, key)
+		}
+	}
+
 	delete(w.workspacePaths, workspaceID)
 	delete(w.workspaceFiles, workspaceID)
 }
