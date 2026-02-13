@@ -222,6 +222,47 @@ body {
   gap: var(--spacing-xs);
 }
 
+/* Typing Performance pane (dev mode) */
+.typing-perf {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+}
+
+.typing-perf__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-xs);
+}
+
+.typing-perf__reset {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+}
+.typing-perf__reset:hover {
+  color: var(--color-text-secondary);
+}
+
+.typing-perf__empty {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  padding: var(--spacing-xs) 0;
+}
+
+.typing-perf__chart {
+  margin-top: 15px;
+}
+
+.app-shell--collapsed .typing-perf {
+  display: none;
+}
+
 /* Dev Mode: inline workspace decorations */
 .nav-workspace--dev-live {
   border-left: 2px solid var(--color-success, #22c55e);
@@ -711,25 +752,6 @@ body {
 
 .connection-pill--offline .connection-pill__dot {
   background-color: var(--color-danger);
-}
-
-.connection-pill--overheating {
-  color: #9a3412;
-  background-color: #ffedd5;
-  border: 1px solid #fdba74;
-  gap: 4px;
-  padding: 1px 6px;
-  font-size: 0.65rem;
-  line-height: 1.1;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.connection-pill--overheating .connection-pill__dot {
-  width: 6px;
-  height: 6px;
-  background-color: #ea580c;
-  animation: pulse 0.8s infinite;
 }
 
 @keyframes pulse {
