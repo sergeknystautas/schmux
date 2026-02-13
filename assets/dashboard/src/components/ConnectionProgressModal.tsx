@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import '@xterm/xterm/css/xterm.css';
 import { getRemoteHosts } from '../lib/api';
 import type { RemoteHost } from '../lib/types';
@@ -55,6 +56,8 @@ export default function ConnectionProgressModal({
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
     term.open(terminalRef.current);
     fitAddon.fit();
 

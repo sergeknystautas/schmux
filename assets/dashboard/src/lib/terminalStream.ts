@@ -1,4 +1,5 @@
 import { Terminal } from '@xterm/xterm';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { TerminalSize } from './types';
 
@@ -147,6 +148,8 @@ export default class TerminalStream {
     });
 
     this.terminal.loadAddon(new WebLinksAddon());
+    this.terminal.loadAddon(new Unicode11Addon());
+    this.terminal.unicode.activeVersion = '11';
     this.terminal.open(this.containerElement);
     this.terminal.onData((data) => {
       this.sendInput(data);
