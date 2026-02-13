@@ -413,6 +413,7 @@ func TestBuildCommand(t *testing.T) {
 		prompt           string
 		model            *detect.Model
 		resume           bool
+		remote           bool
 		wantErr          bool
 		errContains      string
 		shouldContain    []string
@@ -620,11 +621,86 @@ func TestBuildCommand(t *testing.T) {
 				shellQuote("model_instructions_file=" + signalingFilePath),
 			},
 		},
+		{
+			name: "remote mode claude uses inline system prompt",
+			target: ResolvedTarget{
+				Name:       "claude",
+				Kind:       TargetKindDetected,
+				Command:    "claude",
+				Promptable: true,
+				Env:        map[string]string{},
+			},
+			prompt:  "fix the bug",
+			model:   nil,
+			resume:  false,
+			remote:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"claude",
+				"--append-system-prompt",
+				"'fix the bug'",
+			},
+			shouldNotContain: []string{
+				"--append-system-prompt-file",
+				signalingFilePath,
+			},
+		},
+		{
+			name: "remote mode codex skips file-based injection",
+			target: ResolvedTarget{
+				Name:       "codex",
+				Kind:       TargetKindDetected,
+				Command:    "codex",
+				Promptable: true,
+				Env:        map[string]string{},
+			},
+			prompt:  "write tests",
+			model:   nil,
+			resume:  false,
+			remote:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"codex",
+				"'write tests'",
+			},
+			shouldNotContain: []string{
+				"model_instructions_file",
+				signalingFilePath,
+			},
+		},
+		{
+			name: "remote mode claude with env vars",
+			target: ResolvedTarget{
+				Name:       "claude-opus",
+				Kind:       TargetKindModel,
+				Command:    "claude",
+				Promptable: true,
+				Env: map[string]string{
+					"SCHMUX_ENABLED":    "1",
+					"SCHMUX_SESSION_ID": "remote-test-123",
+				},
+			},
+			prompt:  "deploy",
+			model:   nil,
+			resume:  false,
+			remote:  true,
+			wantErr: false,
+			shouldContain: []string{
+				"SCHMUX_ENABLED='1'",
+				"SCHMUX_SESSION_ID='remote-test-123'",
+				"claude",
+				"--append-system-prompt",
+				"'deploy'",
+			},
+			shouldNotContain: []string{
+				"--append-system-prompt-file",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume)
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remote)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildCommand() error = %v, wantErr %v", err, tt.wantErr)
 				return

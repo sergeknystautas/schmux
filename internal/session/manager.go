@@ -242,11 +242,6 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		return nil, err
 	}
 
-	command, err := buildCommand(resolved, prompt, nil, false)
-	if err != nil {
-		return nil, err
-	}
-
 	// Connect to or get existing connection for this flavor
 	conn, err := m.remoteManager.Connect(ctx, flavorID)
 	if err != nil {
@@ -258,18 +253,6 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 	// Create session ID
 	sessionID := fmt.Sprintf("remote-%s-%s", flavorID, uuid.New().String()[:8])
-
-	// Generate unique nickname if provided
-	uniqueNickname := nickname
-	if nickname != "" {
-		uniqueNickname = m.generateUniqueNickname(nickname)
-	}
-
-	// Use nickname as window name if provided, otherwise use sessionID
-	windowName := sessionID
-	if uniqueNickname != "" {
-		windowName = sanitizeNickname(uniqueNickname)
-	}
 
 	// Get or create a workspace for this remote host+flavor
 	// Use deterministic ID so all sessions on same host+flavor share a workspace
@@ -297,6 +280,31 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		// Update existing workspace that still has the old "remote" branch name
 		ws.Branch = host.Hostname
 		m.state.UpdateWorkspace(ws)
+	}
+
+	// Inject schmux signaling environment variables
+	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
+		"SCHMUX_ENABLED":      "1",
+		"SCHMUX_SESSION_ID":   sessionID,
+		"SCHMUX_WORKSPACE_ID": workspaceID,
+	})
+
+	// Build command with remote mode (uses inline content instead of local file paths)
+	command, err := buildCommand(resolved, prompt, nil, false, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate unique nickname if provided
+	uniqueNickname := nickname
+	if nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(nickname)
+	}
+
+	// Use nickname as window name if provided, otherwise use sessionID
+	windowName := sessionID
+	if uniqueNickname != "" {
+		windowName = sanitizeNickname(uniqueNickname)
 	}
 
 	// Check if connection is ready
@@ -701,8 +709,15 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool) (string, error) {
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode ...bool) (string, error) {
+	isRemote := len(remoteMode) > 0 && remoteMode[0]
 	trimmedPrompt := strings.TrimSpace(prompt)
+
+	// Resolve the base tool name for signaling injection
+	baseTool := detect.GetBaseToolName(target.Name)
+	if model != nil {
+		baseTool = model.BaseTool
+	}
 
 	// Handle resume mode
 	if resume {
@@ -718,20 +733,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		cmd := strings.Join(parts, " ")
 
 		// Inject signaling instructions via CLI flag for supported tools
-		baseTool := detect.GetBaseToolName(target.Name)
-		if model != nil {
-			baseTool = model.BaseTool
-		}
-		if provision.SupportsSystemPromptFlag(baseTool) {
-			switch baseTool {
-			case "claude":
-				cmd = fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellQuote(provision.SignalingInstructionsFilePath()))
-			case "codex":
-				cmd = fmt.Sprintf("%s -c %s", cmd, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
-			default:
-				cmd = fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
-			}
-		}
+		cmd = appendSignalingFlags(cmd, baseTool, isRemote)
 
 		// Resume mode still needs model env vars for third-party models
 		if len(target.Env) > 0 {
@@ -748,20 +750,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	}
 
 	// Inject signaling instructions via CLI flag for supported tools
-	baseTool := detect.GetBaseToolName(target.Name)
-	if model != nil {
-		baseTool = model.BaseTool
-	}
-	if provision.SupportsSystemPromptFlag(baseTool) {
-		switch baseTool {
-		case "claude":
-			baseCommand = fmt.Sprintf("%s --append-system-prompt-file %s", baseCommand, shellQuote(provision.SignalingInstructionsFilePath()))
-		case "codex":
-			baseCommand = fmt.Sprintf("%s -c %s", baseCommand, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
-		default:
-			baseCommand = fmt.Sprintf("%s --append-system-prompt %s", baseCommand, shellQuote(provision.SignalingInstructions))
-		}
-	}
+	baseCommand = appendSignalingFlags(baseCommand, baseTool, isRemote)
 
 	if target.Promptable {
 		if trimmedPrompt == "" {
@@ -781,6 +770,34 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), baseCommand), nil
 	}
 	return baseCommand, nil
+}
+
+// appendSignalingFlags appends CLI flags for signaling instruction injection.
+// In remote mode, uses inline content (--append-system-prompt) since local file
+// paths like ~/.schmux/signaling.md don't exist on the remote host.
+func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
+	if !provision.SupportsSystemPromptFlag(baseTool) {
+		return cmd
+	}
+	if isRemote {
+		// Remote mode: always use inline content (file paths are local-only)
+		switch baseTool {
+		case "claude":
+			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+		default:
+			// Codex and others: no reliable remote inline injection mechanism
+			return cmd
+		}
+	}
+	// Local mode: use file-based injection
+	switch baseTool {
+	case "claude":
+		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellQuote(provision.SignalingInstructionsFilePath()))
+	case "codex":
+		return fmt.Sprintf("%s -c %s", cmd, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+	default:
+		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+	}
 }
 
 func buildEnvPrefix(env map[string]string) string {
