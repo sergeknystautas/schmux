@@ -87,11 +87,11 @@ func TestParseSignals(t *testing.T) {
 			wantMsgs:   []string{"Please test the new feature"},
 		},
 		{
-			name:       "bracket signals inline with text - not matched",
+			name:       "bracket signals inline with text - matched by loose pattern",
 			data:       []byte("output--<[schmux:working:]>--more--<[schmux:completed:Done]>--end"),
-			wantCount:  0,
-			wantStates: nil,
-			wantMsgs:   nil,
+			wantCount:  2,
+			wantStates: []string{"working", "completed"},
+			wantMsgs:   []string{"", "Done"},
 		},
 		{
 			name:       "bracket signal with special characters on own line",
@@ -148,6 +148,27 @@ func TestParseSignals(t *testing.T) {
 			wantCount:  2,
 			wantStates: []string{"working", "completed"},
 			wantMsgs:   []string{"", "Done"},
+		},
+		{
+			name:       "signal after collapsed output text (real near-miss from logs)",
+			data:       []byte("… +2 lines (ctrl+o to expand)B                                                                                                                                                                                                                            ⏺ Committed as 979054f on feature/commit-graph-resizing.                                                                                                                                                                                                        --<[schmux:completed:Changes committed]>--"),
+			wantCount:  1,
+			wantStates: []string{"completed"},
+			wantMsgs:   []string{"Changes committed"},
+		},
+		{
+			name:       "signal embedded in spinner animation text (real near-miss from logs)",
+			data:       []byte("⏺ --<[schmux:working:]>--✶ SymbiotingB…B"),
+			wantCount:  1,
+			wantStates: []string{"working"},
+			wantMsgs:   []string{""},
+		},
+		{
+			name:       "signal after spinner frames (real near-miss from logs)",
+			data:       []byte("✻ BSBwBoB✶ S  BoBw  BpB✳   o  BiBo  BnBp  BgB✢      i  B…BnB·        gB…B✢B✳B✶B✻B✽B✻ BSBwBoB✶ S  BoBw  BpB✳   o  BiBo  BnBp  BgB✢      i  B…B·       ngB…B✢B✳B✶B✻B✽B✻ BSBSB✻ Swooping… B✻ SBwooBping… B✶B✳ BS  BoB✢BoB⏺ Committed as 979054f on feature/commit-graph-resizing.  --<[schmux:completed:Changes committed]>--"),
+			wantCount:  1,
+			wantStates: []string{"completed"},
+			wantMsgs:   []string{"Changes committed"},
 		},
 	}
 

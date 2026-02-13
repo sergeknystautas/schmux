@@ -326,6 +326,65 @@ func TestDetectorNearMissFiredInSeparateBatch(t *testing.T) {
 	}
 }
 
+func TestDetectorSignalAfterCollapsedOutput(t *testing.T) {
+	// Real-world pattern: signal appears after Claude Code's collapsed output text
+	// on the same line due to cursor movement ANSI sequences being stripped.
+	var got []Signal
+	var nearMisses []string
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+	d.SetNearMissCallback(func(line string) {
+		mu.Lock()
+		nearMisses = append(nearMisses, line)
+		mu.Unlock()
+	})
+	d.Feed([]byte("… +2 lines (ctrl+o to expand)B                                                                                                                            --<[schmux:completed:Changes committed]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal from collapsed output line, got %d", len(got))
+	}
+	if got[0].State != "completed" || got[0].Message != "Changes committed" {
+		t.Errorf("signal = {%q, %q}, want {completed, Changes committed}", got[0].State, got[0].Message)
+	}
+	if len(nearMisses) != 0 {
+		t.Errorf("expected 0 near-misses, got %d: %v", len(nearMisses), nearMisses)
+	}
+}
+
+func TestDetectorSignalInSpinnerAnimation(t *testing.T) {
+	// Real-world pattern: signal appears inline with spinner animation residue.
+	var got []Signal
+	var nearMisses []string
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+	d.SetNearMissCallback(func(line string) {
+		mu.Lock()
+		nearMisses = append(nearMisses, line)
+		mu.Unlock()
+	})
+	d.Feed([]byte("⏺ --<[schmux:working:]>--✶ SymbiotingB…B\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal from spinner line, got %d", len(got))
+	}
+	if got[0].State != "working" {
+		t.Errorf("state = %q, want %q", got[0].State, "working")
+	}
+	if len(nearMisses) != 0 {
+		t.Errorf("expected 0 near-misses, got %d: %v", len(nearMisses), nearMisses)
+	}
+}
+
 func TestDetectorCarriageReturnLineEndings(t *testing.T) {
 	var got []Signal
 	var mu sync.Mutex
