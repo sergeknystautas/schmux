@@ -113,6 +113,8 @@ type SessionResponseItem struct {
 type WorkspaceResponseItem struct {
 	ID                      string                `json:"id"`
 	Repo                    string                `json:"repo"`
+	RepoName                string                `json:"repo_name,omitempty"`
+	DefaultBranch           string                `json:"default_branch,omitempty"`
 	Branch                  string                `json:"branch"`
 	BranchURL               string                `json:"branch_url,omitempty"`
 	Path                    string                `json:"path"`
@@ -196,9 +198,16 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			conflictOnBranch = *ws.ConflictOnBranch
 		}
 
+		// Get default branch from workspace manager
+		defaultBranch := ""
+		if db, err := s.workspace.GetDefaultBranch(ctx, ws.Repo); err == nil {
+			defaultBranch = db
+		}
+
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:                      ws.ID,
 			Repo:                    ws.Repo,
+			DefaultBranch:           defaultBranch,
 			Branch:                  branch,
 			BranchURL:               branchURL,
 			Path:                    ws.Path,

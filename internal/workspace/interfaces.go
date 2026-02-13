@@ -143,6 +143,10 @@ type WorkspaceManager interface {
 	// The optional onStep callback is called at each progress step (may be nil).
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
 
+	// PushToBranch pushes the current branch to origin, creating it on origin if necessary.
+	// Fails if the remote branch has commits that the local branch does not have.
+	PushToBranch(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+
 	// EnsureOriginQueries ensures origin query repos exist for all configured repos.
 	EnsureOriginQueries(ctx context.Context) error
 

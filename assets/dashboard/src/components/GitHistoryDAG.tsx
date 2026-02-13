@@ -7,6 +7,7 @@ import {
   gitAmend,
   gitDiscard,
   spawnCommitSession,
+  pushToBranch,
 } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
@@ -51,12 +52,13 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
+  const [pushToBranchSyncing, setPushToBranchSyncing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const knownFilesRef = useRef<Set<string>>(new Set());
   const [isCommitting, setIsCommitting] = useState(false);
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
-  const { handleSmartSync, handleLinearSyncToMain } = useSync();
+  const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState(0);
 
@@ -181,45 +183,115 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   const renderNode = (ln: LayoutNode, lay: GitGraphLayout) => {
     if (ln.nodeType === 'you-are-here') {
-      const showFfToMain = (ws?.git_ahead ?? 0) > 0;
-      const ffDisabled = (ws?.git_behind ?? 0) > 0 || (ws?.git_files_changed ?? 0) > 0;
-      const ffTooltip =
-        (ws?.git_files_changed ?? 0) > 0
-          ? 'Commit local changes first'
-          : ffDisabled
-            ? 'Main is ahead — sync from main first'
-            : 'Sends your local branch commits to main with history';
+      const defaultBranch = ws?.default_branch || 'main';
+      const branchName = ws?.branch || 'current branch';
+      const aheadCount = ws?.git_ahead ?? 0;
+      const behindCount = ws?.git_behind ?? 0;
+      const filesChanged = ws?.git_files_changed ?? 0;
+      const commitsSynced = ws?.commits_synced_with_remote ?? false;
+      const showPushToDefault = aheadCount > 0;
+      // Show push-to-branch whenever the branch is not yet synced with origin.
+      // This also covers the "0 commits ahead of default but no remote branch yet" case.
+      const showPushToBranch = !commitsSynced;
+      const hasLocalChanges = filesChanged > 0;
+      const isBehind = behindCount > 0;
+      const pushToDefaultDisabled = isBehind || hasLocalChanges;
+      const pushToBranchDisabled = hasLocalChanges || commitsSynced; // Disabled if local changes or already pushed
 
-      const onFfToMainClick = async () => {
-        if (!ws || ffDisabled || ffToMainSyncing) return;
+      // Determine tooltip based on why it's disabled
+      let pushToDefaultTooltip: string;
+      if (pushToDefaultDisabled) {
+        if (hasLocalChanges) {
+          pushToDefaultTooltip = `You cannot push to ${defaultBranch} with local changes. Please commit or discard them before pushing.`;
+        } else {
+          pushToDefaultTooltip = `You cannot push to ${defaultBranch} until you have pulled the latest from ${defaultBranch}.`;
+        }
+      } else {
+        pushToDefaultTooltip = `Merge fast forwards ${aheadCount} commit${aheadCount === 1 ? '' : 's'} to origin/${defaultBranch}`;
+      }
+
+      let pushToBranchTooltip: string;
+      if (pushToBranchDisabled) {
+        if (hasLocalChanges) {
+          pushToBranchTooltip = `You cannot push with local changes. Please commit or discard them before pushing.`;
+        } else {
+          pushToBranchTooltip = `Branch is already synced with origin/${branchName}.`;
+        }
+      } else {
+        pushToBranchTooltip = `Push commits to origin/${branchName}`;
+      }
+
+      const onPushToDefaultClick = async () => {
+        if (!ws || pushToDefaultDisabled || ffToMainSyncing) return;
         setFfToMainSyncing(true);
         try {
-          await handleLinearSyncToMain(ws.id, ws.path);
+          await handleLinearSyncToMain(ws.id, defaultBranch, ws.path);
         } finally {
           setFfToMainSyncing(false);
         }
       };
 
+      const onPushToBranchClick = async () => {
+        if (!ws || pushToBranchSyncing) return;
+        setPushToBranchSyncing(true);
+        try {
+          await handlePushToBranch(ws.id, branchName);
+        } finally {
+          setPushToBranchSyncing(false);
+        }
+      };
+
+      const pushToDefaultButton = (
+        <button
+          className="git-dag__ff-to-main-button"
+          onClick={onPushToDefaultClick}
+          disabled={pushToDefaultDisabled || ffToMainSyncing}
+        >
+          {ffToMainSyncing ? (
+            <>
+              <span className="spinner" /> Pushing to {defaultBranch}
+            </>
+          ) : (
+            <>Push to {defaultBranch}</>
+          )}
+        </button>
+      );
+
+      const pushToBranchButton = (
+        <button
+          className="git-dag__push-to-branch-button"
+          onClick={onPushToBranchClick}
+          disabled={pushToBranchDisabled || pushToBranchSyncing}
+        >
+          {pushToBranchSyncing ? (
+            <>
+              <span className="spinner" /> Pushing
+            </>
+          ) : (
+            <>Push to branch</>
+          )}
+        </button>
+      );
+
       return (
         <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
           <span className="git-dag__you-are-here">You are here</span>
-          {showFfToMain && (
-            <Tooltip content={ffTooltip}>
-              <button
-                className="git-dag__btn git-dag__ff-to-main-button"
-                onClick={onFfToMainClick}
-                disabled={ffDisabled || ffToMainSyncing}
-              >
-                {ffToMainSyncing ? (
-                  <>
-                    <span className="spinner" /> FF'ing to main
-                  </>
-                ) : (
-                  <>FF to main</>
-                )}
-              </button>
-            </Tooltip>
-          )}
+          {showPushToDefault &&
+            (pushToDefaultDisabled ? (
+              <Tooltip content={pushToDefaultTooltip}>
+                <span style={{ display: 'inline-flex' }}>{pushToDefaultButton}</span>
+              </Tooltip>
+            ) : (
+              pushToDefaultButton
+            ))}
+          {showPushToBranch &&
+            (pushToBranchDisabled ? (
+              <Tooltip content={pushToBranchTooltip}>
+                <span style={{ display: 'inline-flex' }}>{pushToBranchButton}</span>
+              </Tooltip>
+            ) : (
+              pushToBranchButton
+            ))}
         </div>
       );
     }
@@ -384,6 +456,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     if (ln.nodeType === 'sync-summary' && ln.syncSummary) {
       const hasKnownConflict = ws?.conflict_on_branch && ws.conflict_on_branch === ws.branch;
       const syncIndicator = hasKnownConflict ? '🟡' : '🟢';
+      const defaultBranch = ws?.default_branch || 'main';
 
       const onSyncClick = async () => {
         if (!ws || syncing) return;
@@ -397,14 +470,20 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
       return (
         <div key={ln.hash} className="git-dag__row" style={{ height: lay.rowHeight }}>
-          <Tooltip content="Iteratively rebases this branch to origin/HEAD">
-            <button className="git-dag__btn" onClick={onSyncClick} disabled={syncing || !ws}>
+          <Tooltip content={`Iteratively rebases this branch to origin/${defaultBranch}`}>
+            <button
+              className="git-dag__sync-button"
+              onClick={onSyncClick}
+              disabled={syncing || !ws}
+            >
               {syncing ? (
                 <>
-                  <span className="spinner" /> Rebase'ing
+                  <span className="spinner" /> Pulling
                 </>
               ) : (
-                <>{syncIndicator} Rebase to HEAD</>
+                <>
+                  {syncIndicator} Pull from {defaultBranch}
+                </>
               )}
             </button>
           </Tooltip>

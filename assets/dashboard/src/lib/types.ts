@@ -21,6 +21,8 @@ export interface SessionResponse {
 export interface WorkspaceResponse {
   id: string;
   repo: string;
+  repo_name?: string;
+  default_branch?: string;
   branch: string;
   branch_url?: string;
   path: string;
