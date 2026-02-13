@@ -175,6 +175,19 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			}
 			detector.Suppress(false)
 
+			// Recover signals emitted during daemon downtime: if the most recent
+			// signal from scrollback differs from the stored nudge, fire the
+			// callback so the dashboard reflects the agent's actual state.
+			if lastSig := detector.LastSignal(); lastSig != nil {
+				storedSess, ok := m.state.GetSession(sessionID)
+				if ok {
+					nudgeState := signal.MapStateToNudge(lastSig.State)
+					if storedSess.Nudge != nudgeState {
+						detector.EmitSignal(*lastSig)
+					}
+				}
+			}
+
 			// Subscribe to output
 			outputCh := conn.SubscribeOutput(paneID)
 

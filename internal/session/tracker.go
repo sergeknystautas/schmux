@@ -222,6 +222,19 @@ func (t *SessionTracker) attachAndRead() error {
 			t.signalDetector.Flush()
 		}
 		t.signalDetector.Suppress(false)
+
+		// Recover signals emitted during daemon downtime: if the most recent
+		// signal from scrollback differs from the stored nudge, fire the
+		// callback so the dashboard reflects the agent's actual state.
+		if lastSig := t.signalDetector.LastSignal(); lastSig != nil {
+			storedSess, ok := t.state.GetSession(t.sessionID)
+			if ok {
+				nudgeState := signal.MapStateToNudge(lastSig.State)
+				if storedSess.Nudge != nudgeState {
+					t.signalDetector.EmitSignal(*lastSig)
+				}
+			}
+		}
 	}
 
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)

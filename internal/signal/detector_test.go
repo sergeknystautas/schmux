@@ -77,7 +77,7 @@ func TestDetectorFlush(t *testing.T) {
 
 func TestDetectorBufferLimit(t *testing.T) {
 	d := NewSignalDetector("test-session", func(sig Signal) {})
-	bigChunk := make([]byte, 5000)
+	bigChunk := make([]byte, maxSignalBufSize+1000)
 	for i := range bigChunk {
 		bigChunk[i] = 'A'
 	}
@@ -560,5 +560,108 @@ func TestDetectorFlushTickerScenario(t *testing.T) {
 	}
 	if got[0].State != "completed" {
 		t.Errorf("state = %q, want completed", got[0].State)
+	}
+}
+
+func TestDetectorBufferTruncationWarnsOnSignalLoss(t *testing.T) {
+	var nearMisses []string
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {})
+	d.SetNearMissCallback(func(line string) {
+		mu.Lock()
+		nearMisses = append(nearMisses, line)
+		mu.Unlock()
+	})
+
+	// Create a chunk large enough to trigger truncation, with a signal in the
+	// portion that will be discarded (near the start).
+	filler := make([]byte, maxSignalBufSize+5000)
+	for i := range filler {
+		filler[i] = 'X'
+	}
+	// Embed a signal marker near the beginning — it will be in the truncated portion
+	sig := []byte("--<[schmux:completed:Lost signal]>--")
+	copy(filler[100:], sig)
+
+	d.Feed(filler) // No newlines, triggers enforceBufLimit
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(nearMisses) != 1 {
+		t.Fatalf("expected 1 near-miss warning from buffer truncation, got %d: %v", len(nearMisses), nearMisses)
+	}
+	if nearMisses[0] != "buffer truncation discarded signal-like data" {
+		t.Errorf("near-miss = %q, want %q", nearMisses[0], "buffer truncation discarded signal-like data")
+	}
+}
+
+func TestDetectorLastSignalTracking(t *testing.T) {
+	d := NewSignalDetector("test-session", func(sig Signal) {})
+
+	// Initially nil
+	if got := d.LastSignal(); got != nil {
+		t.Fatalf("expected nil LastSignal initially, got %+v", got)
+	}
+
+	// Feed a signal
+	d.Feed([]byte("--<[schmux:completed:Task done]>--\n"))
+	got := d.LastSignal()
+	if got == nil {
+		t.Fatal("expected non-nil LastSignal after feed")
+	}
+	if got.State != "completed" || got.Message != "Task done" {
+		t.Errorf("LastSignal = {%q, %q}, want {completed, Task done}", got.State, got.Message)
+	}
+
+	// Feed another signal — lastSignal should update
+	d.Feed([]byte("--<[schmux:error:Something broke]>--\n"))
+	got = d.LastSignal()
+	if got == nil {
+		t.Fatal("expected non-nil LastSignal after second feed")
+	}
+	if got.State != "error" || got.Message != "Something broke" {
+		t.Errorf("LastSignal = {%q, %q}, want {error, Something broke}", got.State, got.Message)
+	}
+}
+
+func TestDetectorLastSignalDuringSuppression(t *testing.T) {
+	var signals []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		signals = append(signals, sig)
+		mu.Unlock()
+	})
+
+	// Suppress and feed a signal
+	d.Suppress(true)
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+
+	// Callback should NOT have fired
+	mu.Lock()
+	if len(signals) != 0 {
+		t.Fatalf("expected 0 callbacks while suppressed, got %d", len(signals))
+	}
+	mu.Unlock()
+
+	// But LastSignal should be set
+	got := d.LastSignal()
+	if got == nil {
+		t.Fatal("expected non-nil LastSignal during suppression")
+	}
+	if got.State != "needs_input" || got.Message != "Please help" {
+		t.Errorf("LastSignal = {%q, %q}, want {needs_input, Please help}", got.State, got.Message)
+	}
+
+	// Un-suppress and verify callback fires for new signals
+	d.Suppress(false)
+	d.Feed([]byte("--<[schmux:completed:Done]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(signals) != 1 {
+		t.Fatalf("expected 1 callback after unsuppress, got %d", len(signals))
+	}
+	if signals[0].State != "completed" {
+		t.Errorf("callback signal state = %q, want completed", signals[0].State)
 	}
 }
