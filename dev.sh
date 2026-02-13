@@ -27,6 +27,7 @@ SCHMUX_DIR="${HOME}/.schmux"
 DEV_STATE_FILE="${SCHMUX_DIR}/dev-state.json"
 DEV_RESTART_FILE="${SCHMUX_DIR}/dev-restart.json"
 DEV_BUILD_STATUS_FILE="${SCHMUX_DIR}/dev-build-status.json"
+DEV_LOG_FILE="${SCHMUX_DIR}/dev.log"
 BINARY="./tmp/schmux"
 VITE_PID=""
 
@@ -51,7 +52,7 @@ cleanup() {
         wait "$VITE_PID" 2>/dev/null || true
     fi
 
-    # Clean up dev mode temp files
+    # Clean up dev mode temp files (keep dev.log for post-mortem)
     rm -f "$DEV_STATE_FILE" "$DEV_RESTART_FILE" "$DEV_BUILD_STATUS_FILE"
 
     echo -e "${CYAN}[dev]${NC} Development mode stopped."
@@ -195,6 +196,7 @@ echo ""
 echo -e "  ${CYAN}Backend:${NC}   ${BINARY} (loop-based restart)"
 echo -e "  ${MAGENTA}Frontend:${NC}  Vite (React HMR) → proxied through backend"
 echo -e "  ${GREEN}Dashboard:${NC} http://localhost:7337"
+echo -e "  ${YELLOW}Log file:${NC}  ${DEV_LOG_FILE}"
 echo ""
 echo "Press Ctrl+C to stop"
 echo ""
@@ -208,10 +210,11 @@ while true; do
 {"source_workspace":"${CURRENT_WORKSPACE}"}
 SEOF
 
-    # Run the daemon
+    # Run the daemon (output to terminal with color prefixes + raw log on disk)
+    : > "$DEV_LOG_FILE"  # truncate log on each daemon restart
     set +e
-    "$BINARY" daemon-run --dev-mode > >(while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done) 2>&1
-    EXIT_CODE=$?
+    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
+    EXIT_CODE=${PIPESTATUS[0]}
     set -e
 
     if [[ "$EXIT_CODE" -eq 42 ]]; then
