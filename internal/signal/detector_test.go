@@ -624,6 +624,148 @@ func TestDetectorLastSignalTracking(t *testing.T) {
 	}
 }
 
+func TestDetectorDeduplicatesIdenticalSignals(t *testing.T) {
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// First signal fires
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	mu.Lock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Same signal again — should be deduplicated
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	mu.Lock()
+	if len(got) != 1 {
+		t.Fatalf("expected still 1 signal after duplicate, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Different state — should fire
+	d.Feed([]byte("--<[schmux:completed:Done]>--\n"))
+	mu.Lock()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 signals after different state, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Same different state again — should be deduplicated
+	d.Feed([]byte("--<[schmux:completed:Done]>--\n"))
+	mu.Lock()
+	if len(got) != 2 {
+		t.Fatalf("expected still 2 signals after second duplicate, got %d", len(got))
+	}
+	mu.Unlock()
+}
+
+func TestDetectorDeduplicatesWithinSameBatch(t *testing.T) {
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// Two identical signals in the same chunk — only first should fire
+	d.Feed([]byte("--<[schmux:needs_input:Help]>--\n--<[schmux:needs_input:Help]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal from 2 identical in same batch, got %d", len(got))
+	}
+}
+
+func TestDetectorDeduplicatesDifferentMessage(t *testing.T) {
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// Same state, different message — should fire
+	d.Feed([]byte("--<[schmux:needs_input:Help with A]>--\n"))
+	d.Feed([]byte("--<[schmux:needs_input:Help with B]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 signals for same state different message, got %d", len(got))
+	}
+}
+
+func TestDetectorDeduplicateSurvivesWorkingSignal(t *testing.T) {
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// Initial needs_input
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	mu.Lock()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Working clears — should fire
+	d.Feed([]byte("--<[schmux:working:]>--\n"))
+	mu.Lock()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 signals after working, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Same needs_input again (e.g., from terminal redraw) — should be deduplicated.
+	// Working is a transient clear, not a state change that should reset dedup.
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	mu.Lock()
+	if len(got) != 2 {
+		t.Fatalf("expected still 2 signals after working+same needs_input, got %d", len(got))
+	}
+	mu.Unlock()
+}
+
+func TestDetectorDeduplicateResetsOnDifferentNonWorkingState(t *testing.T) {
+	var got []Signal
+	var mu sync.Mutex
+	d := NewSignalDetector("test-session", func(sig Signal) {
+		mu.Lock()
+		got = append(got, sig)
+		mu.Unlock()
+	})
+
+	// needs_input → working → completed → needs_input(same) should fire the second needs_input
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	d.Feed([]byte("--<[schmux:working:]>--\n"))
+	d.Feed([]byte("--<[schmux:completed:Done]>--\n"))
+	mu.Lock()
+	if len(got) != 3 {
+		t.Fatalf("expected 3 signals, got %d", len(got))
+	}
+	mu.Unlock()
+
+	// Same needs_input as before — should fire because completed(Done) reset the dedup
+	d.Feed([]byte("--<[schmux:needs_input:Please help]>--\n"))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 4 {
+		t.Fatalf("expected 4 signals after completed+same needs_input, got %d", len(got))
+	}
+}
+
 func TestDetectorLastSignalDuringSuppression(t *testing.T) {
 	var signals []Signal
 	var mu sync.Mutex
