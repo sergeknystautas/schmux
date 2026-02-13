@@ -8,7 +8,7 @@ import {
   gitDiscard,
   spawnCommitSession,
 } from '../lib/api';
-import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR } from '../lib/gitGraphLayout';
+import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse, FileDiff } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
@@ -57,11 +57,34 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain } = useSync();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerHeight, setContainerHeight] = useState(0);
+
+  // Measure container height so we can request the right number of commits
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Reserve rows for virtual nodes (you-are-here, commit-actions, commit-footer)
+  const VIRTUAL_ROW_OVERHEAD = 3;
+  const maxCommits =
+    containerHeight > 0
+      ? Math.max(5, Math.floor(containerHeight / ROW_HEIGHT) - VIRTUAL_ROW_OVERHEAD)
+      : 0;
 
   const fetchData = useCallback(async () => {
+    if (maxCommits <= 0) return; // wait for container measurement
     try {
       const [graphResp, diffResp] = await Promise.all([
-        getGitGraph(workspaceId, { maxCommits: 15, context: 14 }),
+        getGitGraph(workspaceId, { maxCommits, context: maxCommits - 1 }),
         getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
@@ -92,7 +115,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, maxCommits]);
 
   useEffect(() => {
     fetchData();
@@ -121,23 +144,33 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     });
   }, []);
 
-  if (loading) {
+  if (loading || maxCommits <= 0) {
     return (
-      <div className="loading-state">
-        <div className="spinner" /> Loading commit graph...
+      <div className="git-dag" ref={containerRef}>
+        <div className="loading-state">
+          <div className="spinner" /> Loading commit graph...
+        </div>
       </div>
     );
   }
 
   if (error) {
-    return <div className="banner banner--error">{error}</div>;
+    return (
+      <div className="git-dag" ref={containerRef}>
+        <div className="banner banner--error">{error}</div>
+      </div>
+    );
   }
 
   if (!data || !layout || layout.nodes.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-state__title">No commits</div>
-        <div className="empty-state__description">No commit history found for this workspace.</div>
+      <div className="git-dag" ref={containerRef}>
+        <div className="empty-state">
+          <div className="empty-state__title">No commits</div>
+          <div className="empty-state__description">
+            No commit history found for this workspace.
+          </div>
+        </div>
       </div>
     );
   }
@@ -417,7 +450,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   };
 
   return (
-    <div className="git-dag">
+    <div className="git-dag" ref={containerRef}>
       <div className="git-dag__scroll" style={{ overflow: 'auto', flex: 1 }}>
         <div
           className="git-dag__container"
