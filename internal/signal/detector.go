@@ -2,7 +2,6 @@ package signal
 
 import (
 	"bytes"
-	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -110,6 +109,5 @@ func (d *SignalDetector) enforceBufLimit() {
 		excess := len(d.buf) - maxSignalBufSize
 		copy(d.buf, d.buf[excess:])
 		d.buf = d.buf[:maxSignalBufSize]
-		fmt.Printf("[signal] %s - line accumulator truncated (%d bytes exceeded limit)\n", ShortID(d.sessionID), excess)
 	}
 }
