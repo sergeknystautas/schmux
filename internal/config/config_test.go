@@ -1509,6 +1509,66 @@ func TestGetOverlayPaths_Deduplication(t *testing.T) {
 	}
 }
 
+func TestGetLoreEnabled_Default(t *testing.T) {
+	c := &Config{}
+	if !c.GetLoreEnabled() {
+		t.Error("expected lore enabled by default")
+	}
+}
+
+func TestGetLoreEnabled_Explicit(t *testing.T) {
+	enabled := false
+	c := &Config{Lore: &LoreConfig{Enabled: &enabled}}
+	if c.GetLoreEnabled() {
+		t.Error("expected lore disabled when explicitly set to false")
+	}
+}
+
+func TestGetLoreTarget_FallsBackToCompound(t *testing.T) {
+	c := &Config{Compound: &CompoundConfig{Target: "claude-haiku"}}
+	if got := c.GetLoreTarget(); got != "claude-haiku" {
+		t.Errorf("expected fallback to compound target, got %q", got)
+	}
+}
+
+func TestGetLoreTarget_OwnTarget(t *testing.T) {
+	c := &Config{
+		Compound: &CompoundConfig{Target: "claude-haiku"},
+		Lore:     &LoreConfig{Target: "claude-sonnet"},
+	}
+	if got := c.GetLoreTarget(); got != "claude-sonnet" {
+		t.Errorf("expected lore-specific target, got %q", got)
+	}
+}
+
+func TestGetLoreInstructionFiles_Defaults(t *testing.T) {
+	c := &Config{}
+	files := c.GetLoreInstructionFiles()
+	expected := []string{"CLAUDE.md", "AGENTS.md", ".cursorrules", ".github/copilot-instructions.md"}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files, got %d", len(expected), len(files))
+	}
+	for i, f := range expected {
+		if files[i] != f {
+			t.Errorf("expected files[%d]=%q, got %q", i, f, files[i])
+		}
+	}
+}
+
+func TestGetLoreCurateDebounceMs_Default(t *testing.T) {
+	c := &Config{}
+	if got := c.GetLoreCurateDebounceMs(); got != 30000 {
+		t.Errorf("expected 30000, got %d", got)
+	}
+}
+
+func TestGetLoreAutoPR_Default(t *testing.T) {
+	c := &Config{}
+	if c.GetLoreAutoPR() {
+		t.Error("expected auto_pr false by default")
+	}
+}
+
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
