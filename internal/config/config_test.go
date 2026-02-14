@@ -1444,6 +1444,71 @@ func TestPopulateBarePaths_NewRepo(t *testing.T) {
 	}
 }
 
+func TestGetOverlayPaths_DefaultsOnly(t *testing.T) {
+	cfg := &Config{}
+	paths := cfg.GetOverlayPaths("myrepo")
+	// Should include hardcoded defaults
+	if len(paths) < 2 {
+		t.Fatalf("expected at least 2 default paths, got %d", len(paths))
+	}
+	found := make(map[string]bool)
+	for _, p := range paths {
+		found[p] = true
+	}
+	if !found[".claude/settings.json"] {
+		t.Error("missing .claude/settings.json from defaults")
+	}
+	if !found[".claude/settings.local.json"] {
+		t.Error("missing .claude/settings.local.json from defaults")
+	}
+}
+
+func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
+	cfg := &Config{
+		Overlay: &OverlayConfig{
+			Paths: []string{".tool-versions"},
+		},
+		Repos: []Repo{
+			{Name: "myrepo", URL: "git@github.com:org/myrepo.git", OverlayPaths: []string{".env"}},
+		},
+	}
+	paths := cfg.GetOverlayPaths("myrepo")
+	found := make(map[string]bool)
+	for _, p := range paths {
+		found[p] = true
+	}
+	if !found[".claude/settings.json"] {
+		t.Error("missing hardcoded default")
+	}
+	if !found[".tool-versions"] {
+		t.Error("missing global config path")
+	}
+	if !found[".env"] {
+		t.Error("missing repo-specific path")
+	}
+}
+
+func TestGetOverlayPaths_Deduplication(t *testing.T) {
+	cfg := &Config{
+		Overlay: &OverlayConfig{
+			Paths: []string{".claude/settings.json"}, // duplicate of default
+		},
+		Repos: []Repo{
+			{Name: "myrepo", URL: "url", OverlayPaths: []string{".claude/settings.json"}},
+		},
+	}
+	paths := cfg.GetOverlayPaths("myrepo")
+	count := 0
+	for _, p := range paths {
+		if p == ".claude/settings.json" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 occurrence of .claude/settings.json, got %d", count)
+	}
+}
+
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")

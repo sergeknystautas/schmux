@@ -74,6 +74,7 @@ type Config struct {
 	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
 	Compound                   *CompoundConfig        `json:"compound,omitempty"`
+	Overlay                    *OverlayConfig         `json:"overlay,omitempty"`
 	Sessions                   *SessionsConfig        `json:"sessions,omitempty"`
 	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
 	Network                    *NetworkConfig         `json:"network,omitempty"`
@@ -251,6 +252,11 @@ type CompoundConfig struct {
 	Enabled    *bool  `json:"enabled,omitempty"`     // explicitly enable/disable (default: true)
 }
 
+// OverlayConfig represents global overlay path configuration.
+type OverlayConfig struct {
+	Paths []string `json:"paths,omitempty"` // additional global overlay paths
+}
+
 // SessionsConfig represents session and git-related timing configuration.
 type SessionsConfig struct {
 	DashboardPollIntervalMs  int   `json:"dashboard_poll_interval_ms"`
@@ -296,9 +302,10 @@ type AccessControlConfig struct {
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name     string `json:"name"`
-	URL      string `json:"url"`
-	BarePath string `json:"bare_path,omitempty"` // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
+	Name         string   `json:"name"`
+	URL          string   `json:"url"`
+	BarePath     string   `json:"bare_path,omitempty"`     // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
+	OverlayPaths []string `json:"overlay_paths,omitempty"` // repo-specific overlay paths
 }
 
 // RunTarget represents a user-supplied run target.
@@ -554,6 +561,46 @@ func (c *Config) GetCompoundEnabled() bool {
 		return true // enabled by default
 	}
 	return *c.Compound.Enabled
+}
+
+// DefaultOverlayPaths are always watched for all repos.
+var DefaultOverlayPaths = []string{
+	".claude/settings.json",
+	".claude/settings.local.json",
+}
+
+// GetOverlayPaths returns the deduplicated union of hardcoded defaults,
+// global config paths, and repo-specific paths for the given repo name.
+func (c *Config) GetOverlayPaths(repoName string) []string {
+	seen := make(map[string]bool)
+	var paths []string
+
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+
+	for _, p := range DefaultOverlayPaths {
+		add(p)
+	}
+	if c != nil && c.Overlay != nil {
+		for _, p := range c.Overlay.Paths {
+			add(p)
+		}
+	}
+	if c != nil {
+		for _, repo := range c.Repos {
+			if repo.Name == repoName {
+				for _, p := range repo.OverlayPaths {
+					add(p)
+				}
+				break
+			}
+		}
+	}
+	return paths
 }
 
 // GetConflictResolveTarget returns the configured conflict resolution target name, if any.
