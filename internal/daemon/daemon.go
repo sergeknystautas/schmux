@@ -574,6 +574,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		loreProposalDir := filepath.Join(homeDir, ".schmux", "lore-proposals")
 		loreStore := lore.NewProposalStore(loreProposalDir)
 
+		// Wire lore store into dashboard server for API endpoints
+		server.SetLoreStore(loreStore)
+
 		loreCurator := &lore.Curator{
 			InstructionFiles: cfg.GetLoreInstructionFiles(),
 			BareRepo:         true,

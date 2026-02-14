@@ -19,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -143,6 +144,9 @@ type Server struct {
 	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
+
+	// Lore proposal storage
+	loreStore *lore.ProposalStore
 }
 
 // versionInfo holds version information.
@@ -207,6 +211,11 @@ func (s *Server) SetRemoteManager(rm *remote.Manager) {
 	s.remoteManager = rm
 	// Also set it on the session manager
 	s.session.SetRemoteManager(rm)
+}
+
+// SetLoreStore sets the lore proposal store for the dashboard API.
+func (s *Server) SetLoreStore(store *lore.ProposalStore) {
+	s.loreStore = store
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
@@ -295,6 +304,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))
+
+	// Lore routes
+	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuth(s.handleLoreRouter)))
 
 	// Remote workspace routes
 	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuth(s.handleRemoteFlavors)))
