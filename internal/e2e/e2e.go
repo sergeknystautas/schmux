@@ -39,6 +39,9 @@ type APISession struct {
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
 	AttachCmd    string `json:"attach_cmd"`
+	NudgeState   string `json:"nudge_state,omitempty"`
+	NudgeSummary string `json:"nudge_summary,omitempty"`
+	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
 }
 
 // APIWorkspace represents a workspace from the API response.
@@ -373,6 +376,31 @@ func (e *Env) WaitForDashboardSessionGone(conn *websocket.Conn, sessionID string
 		}
 	}
 	return nil, fmt.Errorf("timed out waiting for session %s to be gone", sessionID)
+}
+
+// WaitForSessionNudgeState waits for a session to have the expected nudge state
+// in dashboard WebSocket messages. Pass empty string to wait for nudge to be cleared.
+func (e *Env) WaitForSessionNudgeState(conn *websocket.Conn, sessionID, expectedNudgeState string, timeout time.Duration) (*APISession, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		msg, err := e.ReadDashboardMessage(conn, time.Until(deadline))
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				return nil, fmt.Errorf("timed out waiting for nudge state %q on session %s", expectedNudgeState, sessionID)
+			}
+			return nil, err
+		}
+		if msg.Type == "sessions" {
+			for _, ws := range msg.Workspaces {
+				for _, sess := range ws.Sessions {
+					if sess.ID == sessionID && sess.NudgeState == expectedNudgeState {
+						return &sess, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("timed out waiting for nudge state %q on session %s", expectedNudgeState, sessionID)
 }
 
 // WaitForWebSocketContent reads websocket output until it finds the substring or times out.
