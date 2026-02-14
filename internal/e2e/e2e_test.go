@@ -2206,3 +2206,104 @@ func TestE2EOverlayWorkspaceReuse(t *testing.T) {
 		env.DisposeSession(sessionID)
 	})
 }
+
+func TestE2EOverlayReconcileOnDispose(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-overlay-reconcile-test"
+	const repoName = "reconcile-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	// Setup
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Reconcile Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		// Use a very long debounce so normal debounce won't fire before dispose
+		env.SetCompoundConfig(30000) // 30 seconds
+		env.CreateOverlayFile(repoName, ".env", "BEFORE=change\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Spawn session, modify overlay file, immediately dispose
+	t.Run("03_SpawnAndModify", func(t *testing.T) {
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "reconcile-test")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		wsPath := env.GetWorkspacePath(sessionID)
+
+		// Verify overlay was copied
+		data, err := os.ReadFile(filepath.Join(wsPath, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay .env not copied: %v", err)
+		}
+		if string(data) != "BEFORE=change\n" {
+			t.Errorf("Expected original overlay content, got %q", string(data))
+		}
+
+		// Modify the overlay file in the workspace
+		newContent := "AFTER=change\nRECONCILED=true\n"
+		if err := os.WriteFile(filepath.Join(wsPath, ".env"), []byte(newContent), 0644); err != nil {
+			t.Fatalf("Failed to modify .env: %v", err)
+		}
+		t.Log("Modified .env in workspace — debounce is 30s, so normal sync won't fire")
+
+		// Immediately dispose — reconcile should run and catch the change
+		env.DisposeSession(sessionID)
+		t.Log("Session disposed — reconcile should have run")
+	})
+
+	// Verify the overlay directory has the updated content
+	t.Run("04_VerifyReconcileUpdatedOverlay", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		// Give a brief moment for the reconcile to complete (it runs synchronously during dispose)
+		time.Sleep(2 * time.Second)
+
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay .env: %v", err)
+		}
+
+		expected := "AFTER=change\nRECONCILED=true\n"
+		if string(data) != expected {
+			t.Errorf("Reconcile did not update overlay.\nGot: %q\nWant: %q", string(data), expected)
+		}
+	})
+}
