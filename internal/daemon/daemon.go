@@ -587,6 +587,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			}
 		}
 
+		// Wire lore curator into dashboard server for manual curation endpoint
+		server.SetLoreCurator(loreCurator)
+
 		var loreCurateTimer *time.Timer
 		var loreCurateMu sync.Mutex
 
@@ -629,6 +632,11 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					return
 				}
 				fmt.Printf("[lore] proposal %s created for %s: %s\n", proposal.ID, repoName, proposal.DiffSummary)
+
+				// Mark source entries as "proposed" in the lore JSONL
+				if err := lore.MarkEntriesByText(lorePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+					fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+				}
 			})
 			loreCurateMu.Unlock()
 		})

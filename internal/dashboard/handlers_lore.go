@@ -178,6 +178,15 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	// Update proposal status
 	s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied)
 
+	// Mark source entries as "applied" in the lore JSONL
+	overlayDir, err := workspace.OverlayDir(repoName)
+	if err == nil {
+		lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+		if err := lore.MarkEntriesByText(lorePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
+			fmt.Printf("[lore] warning: failed to mark entries as applied: %v\n", err)
+		}
+	}
+
 	resp := map[string]interface{}{
 		"status": "applied",
 		"branch": result.Branch,
@@ -207,9 +216,25 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load the proposal first to get EntriesUsed for marking
+	proposal, err := s.loreStore.Get(repoName, proposalID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
 	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalDismissed); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Mark source entries as "dismissed" in the lore JSONL
+	overlayDir, err := workspace.OverlayDir(repoName)
+	if err == nil {
+		lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+		if err := lore.MarkEntriesByText(lorePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
+			fmt.Printf("[lore] warning: failed to mark entries as dismissed: %v\n", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -244,11 +269,75 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLoreCurate handles manual curation requests (not yet implemented).
+// handleLoreCurate handles manual curation requests.
 func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	http.Error(w, "manual curation not yet implemented", http.StatusNotImplemented)
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		http.Error(w, "missing repo name", http.StatusBadRequest)
+		return
+	}
+	repoName := parts[0]
+
+	if s.loreCurator == nil || s.loreCurator.Executor == nil {
+		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)
+		return
+	}
+	if s.loreStore == nil {
+		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Find the repo config by name
+	var barePath string
+	found := false
+	for _, repoConfig := range s.config.Repos {
+		if repoConfig.Name == repoName {
+			barePath = repoConfig.BarePath
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "repo not found", http.StatusNotFound)
+		return
+	}
+	bareDir := filepath.Join(s.config.GetWorktreeBasePath(), barePath)
+
+	overlayDir, err := workspace.OverlayDir(repoName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+
+	proposal, err := s.loreCurator.Curate(r.Context(), repoName, bareDir, lorePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("curation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if proposal == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
+		return
+	}
+
+	if err := s.loreStore.Save(proposal); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Mark source entries as "proposed" in the lore JSONL
+	if err := lore.MarkEntriesByText(lorePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+		fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "curated",
+		"proposal_id": proposal.ID,
+	})
 }

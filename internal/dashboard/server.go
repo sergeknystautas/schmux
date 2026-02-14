@@ -147,6 +147,9 @@ type Server struct {
 
 	// Lore proposal storage
 	loreStore *lore.ProposalStore
+
+	// Lore curator for manual curation
+	loreCurator *lore.Curator
 }
 
 // versionInfo holds version information.
@@ -216,6 +219,11 @@ func (s *Server) SetRemoteManager(rm *remote.Manager) {
 // SetLoreStore sets the lore proposal store for the dashboard API.
 func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 	s.loreStore = store
+}
+
+// SetLoreCurator sets the lore curator for manual curation requests.
+func (s *Server) SetLoreCurator(c *lore.Curator) {
+	s.loreCurator = c
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.

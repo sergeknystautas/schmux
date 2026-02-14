@@ -124,3 +124,28 @@ func AppendStateChange(path, stateChange, entryTS, proposalID string) error {
 		ProposalID:  proposalID,
 	})
 }
+
+// MarkEntriesByText finds entries whose Text matches the given texts and appends
+// state-change records for them. The entries_used from the curator contain entry
+// text strings, so we match by text and use the entry's timestamp as the reference.
+func MarkEntriesByText(path string, stateChange string, entryTexts []string, proposalID string) error {
+	entries, err := ReadEntries(path, nil)
+	if err != nil {
+		return err
+	}
+	textSet := make(map[string]bool, len(entryTexts))
+	for _, t := range entryTexts {
+		textSet[t] = true
+	}
+	for _, e := range entries {
+		if e.StateChange != "" {
+			continue
+		}
+		if textSet[e.Text] {
+			if err := AppendStateChange(path, stateChange, e.Timestamp.Format(time.RFC3339), proposalID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
