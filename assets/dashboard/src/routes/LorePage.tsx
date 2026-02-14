@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   getLoreProposals,
   getLoreEntries,
   applyLoreProposal,
   dismissLoreProposal,
+  triggerLoreCuration,
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
@@ -28,6 +29,20 @@ export default function LorePage() {
   const [applying, setApplying] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
 
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [editedFiles, setEditedFiles] = useState<Record<string, string>>({});
+
+  // Re-curate state
+  const [curating, setCurating] = useState(false);
+
+  // Entry filter state
+  const [entryFilters, setEntryFilters] = useState<{
+    state?: string;
+    agent?: string;
+    type?: string;
+  }>({});
+
   const loadData = useCallback(async () => {
     if (!repoName) return;
     try {
@@ -35,7 +50,7 @@ export default function LorePage() {
       setError('');
       const [proposalData, entryData] = await Promise.all([
         getLoreProposals(repoName),
-        getLoreEntries(repoName),
+        getLoreEntries(repoName, entryFilters),
       ]);
       setProposals(proposalData.proposals || []);
       setEntries(entryData.entries || []);
@@ -44,18 +59,20 @@ export default function LorePage() {
     } finally {
       setLoading(false);
     }
-  }, [repoName]);
+  }, [repoName, entryFilters]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const handleApply = async (proposal: LoreProposal) => {
+  const handleApply = async (proposal: LoreProposal, overrides?: Record<string, string>) => {
     if (!repoName) return;
     setApplying(true);
     try {
-      const result = await applyLoreProposal(repoName, proposal.id);
+      const result = await applyLoreProposal(repoName, proposal.id, overrides);
       toastSuccess(`Applied! Branch: ${result.branch}`);
+      setEditing(false);
+      setEditedFiles({});
       loadData();
       setSelected(null);
     } catch (err) {
@@ -77,6 +94,36 @@ export default function LorePage() {
     }
   };
 
+  const handleReCurate = async () => {
+    if (!repoName) return;
+    setCurating(true);
+    try {
+      await triggerLoreCuration(repoName);
+      toastSuccess('Re-curation triggered');
+      loadData();
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to trigger curation'));
+    } finally {
+      setCurating(false);
+    }
+  };
+
+  const handleEditAndApply = () => {
+    if (!selected) return;
+    setEditing(true);
+    setEditedFiles({ ...selected.proposal.proposed_files });
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+    setEditedFiles({});
+  };
+
+  const handleSaveAndApply = () => {
+    if (!selected) return;
+    handleApply(selected.proposal, editedFiles);
+  };
+
   const statusBadge = (status: string) => {
     const cls =
       status === 'pending'
@@ -88,6 +135,23 @@ export default function LorePage() {
             : styles.badgeStale;
     return <span className={cls}>{status}</span>;
   };
+
+  // Derive unique agents and types from entries for filter dropdowns
+  const uniqueAgents = useMemo(() => {
+    const agents = new Set<string>();
+    for (const e of entries) {
+      if (e.agent) agents.add(e.agent);
+    }
+    return Array.from(agents).sort();
+  }, [entries]);
+
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const e of entries) {
+      if (e.type) types.add(e.type);
+    }
+    return Array.from(types).sort();
+  }, [entries]);
 
   if (loading) {
     return <div className="page-loading">Loading lore...</div>;
@@ -104,6 +168,30 @@ export default function LorePage() {
 
   const pendingCount = proposals.filter((p) => p.status === 'pending').length;
   const rawEntries = entries.filter((e) => !e.state_change);
+
+  // Render file content with line numbers and diff-style highlighting
+  const renderFileContent = (content: string) => {
+    const lines = content.split('\n');
+    return (
+      <div className={styles.codeBlock}>
+        <div className={styles.lineNumbers}>
+          {lines.map((_, i) => (
+            <span key={i} className={styles.lineNumber}>
+              {i + 1}
+            </span>
+          ))}
+        </div>
+        <pre className={styles.codeLines}>
+          {lines.map((line, i) => (
+            <span key={i} className={styles.codeLine}>
+              {line}
+              {'\n'}
+            </span>
+          ))}
+        </pre>
+      </div>
+    );
+  };
 
   return (
     <div className={styles.container}>
@@ -129,12 +217,14 @@ export default function LorePage() {
               <div
                 key={p.id}
                 className={`${styles.proposalCard} ${selected?.proposal.id === p.id ? styles.selected : ''}`}
-                onClick={() =>
+                onClick={() => {
+                  setEditing(false);
+                  setEditedFiles({});
                   setSelected({
                     proposal: p,
                     activeFile: Object.keys(p.proposed_files)[0] || '',
-                  })
-                }
+                  });
+                }}
               >
                 <div className={styles.proposalHeader}>
                   {statusBadge(p.status)}
@@ -160,6 +250,12 @@ export default function LorePage() {
       {selected && (
         <section className={styles.section}>
           <h3>Proposal Detail</h3>
+
+          {/* Diff summary banner */}
+          {selected.proposal.diff_summary && (
+            <div className={styles.diffSummaryBanner}>{selected.proposal.diff_summary}</div>
+          )}
+
           <div className={styles.fileTabs}>
             {Object.keys(selected.proposal.proposed_files).map((file) => (
               <button
@@ -171,26 +267,74 @@ export default function LorePage() {
               </button>
             ))}
           </div>
-          <pre className={styles.fileContent}>
-            {selected.proposal.proposed_files[selected.activeFile]}
-          </pre>
-          {selected.proposal.status === 'pending' && (
-            <div className={styles.actions}>
-              <button
-                className={styles.applyButton}
-                onClick={() => handleApply(selected.proposal)}
-                disabled={applying}
-              >
-                {applying ? 'Applying...' : 'Apply'}
-              </button>
-              <button
-                className={styles.dismissButton}
-                onClick={() => handleDismiss(selected.proposal)}
-              >
-                Dismiss
-              </button>
-            </div>
+
+          {editing ? (
+            <textarea
+              className={styles.editTextarea}
+              value={editedFiles[selected.activeFile] || ''}
+              onChange={(e) =>
+                setEditedFiles({ ...editedFiles, [selected.activeFile]: e.target.value })
+              }
+              spellCheck={false}
+            />
+          ) : (
+            renderFileContent(selected.proposal.proposed_files[selected.activeFile] || '')
           )}
+
+          <div className={styles.actions}>
+            {selected.proposal.status === 'pending' && !editing && (
+              <>
+                <button
+                  className={styles.applyButton}
+                  onClick={() => handleApply(selected.proposal)}
+                  disabled={applying}
+                >
+                  {applying ? 'Applying...' : 'Apply'}
+                </button>
+                <button className={styles.editApplyButton} onClick={handleEditAndApply}>
+                  Edit & Apply
+                </button>
+                <button
+                  className={styles.dismissButton}
+                  onClick={() => handleDismiss(selected.proposal)}
+                >
+                  Dismiss
+                </button>
+              </>
+            )}
+            {selected.proposal.status === 'pending' && editing && (
+              <>
+                <button
+                  className={styles.applyButton}
+                  onClick={handleSaveAndApply}
+                  disabled={applying}
+                >
+                  {applying ? 'Applying...' : 'Save & Apply'}
+                </button>
+                <button className={styles.dismissButton} onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+              </>
+            )}
+            {selected.proposal.status === 'stale' && (
+              <>
+                <button
+                  className={styles.reCurateButton}
+                  onClick={handleReCurate}
+                  disabled={curating}
+                >
+                  {curating ? 'Re-curating...' : 'Re-curate'}
+                </button>
+                <button
+                  className={styles.dismissButton}
+                  onClick={() => handleDismiss(selected.proposal)}
+                >
+                  Dismiss
+                </button>
+              </>
+            )}
+          </div>
+
           {selected.proposal.entries_used?.length > 0 && (
             <div className={styles.entriesUsed}>
               <h4>Entries Used</h4>
@@ -208,27 +352,72 @@ export default function LorePage() {
       <section className={styles.section}>
         <h3>
           <button className={styles.toggleButton} onClick={() => setShowEntries(!showEntries)}>
-            {showEntries ? '▼' : '▶'} Raw Entries ({rawEntries.length})
+            {showEntries ? '\u25BC' : '\u25B6'} Raw Entries ({rawEntries.length})
           </button>
         </h3>
         {showEntries && (
-          <div className={styles.entriesList}>
-            {rawEntries.length === 0 ? (
-              <p className={styles.empty}>No raw lore entries yet.</p>
-            ) : (
-              rawEntries.map((e, i) => (
-                <div key={i} className={styles.entryCard}>
-                  <div className={styles.entryMeta}>
-                    <span className={styles.entryAgent}>{e.agent}</span>
-                    <span className={styles.entryType}>{e.type}</span>
-                    <span className={styles.entryWs}>{e.ws}</span>
-                    <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+          <>
+            <div className={styles.filterBar}>
+              <select
+                className={styles.filterSelect}
+                value={entryFilters.state || ''}
+                onChange={(e) =>
+                  setEntryFilters({ ...entryFilters, state: e.target.value || undefined })
+                }
+              >
+                <option value="">All states</option>
+                <option value="raw">raw</option>
+                <option value="proposed">proposed</option>
+                <option value="applied">applied</option>
+                <option value="dismissed">dismissed</option>
+              </select>
+              <select
+                className={styles.filterSelect}
+                value={entryFilters.agent || ''}
+                onChange={(e) =>
+                  setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
+                }
+              >
+                <option value="">All agents</option>
+                {uniqueAgents.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={styles.filterSelect}
+                value={entryFilters.type || ''}
+                onChange={(e) =>
+                  setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
+                }
+              >
+                <option value="">All types</option>
+                {uniqueTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.entriesList}>
+              {rawEntries.length === 0 ? (
+                <p className={styles.empty}>No raw lore entries yet.</p>
+              ) : (
+                rawEntries.map((e, i) => (
+                  <div key={i} className={styles.entryCard}>
+                    <div className={styles.entryMeta}>
+                      <span className={styles.entryAgent}>{e.agent}</span>
+                      <span className={styles.entryType}>{e.type}</span>
+                      <span className={styles.entryWs}>{e.ws}</span>
+                      <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+                    </div>
+                    <div className={styles.entryText}>{e.text}</div>
                   </div>
-                  <div className={styles.entryText}>{e.text}</div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          </>
         )}
       </section>
     </div>

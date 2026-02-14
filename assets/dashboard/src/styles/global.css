@@ -706,6 +706,23 @@ body {
   flex-shrink: 0;
 }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: var(--color-accent, #4fc3f7);
+  color: #000;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 /* Tabs */
 .tabs {
   display: flex;

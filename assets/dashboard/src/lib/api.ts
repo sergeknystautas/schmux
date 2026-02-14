@@ -855,8 +855,17 @@ export async function dismissLoreProposal(repoName: string, id: string): Promise
   if (!res.ok) throw new Error(await res.text());
 }
 
-export async function getLoreEntries(repoName: string): Promise<LoreEntriesResponse> {
-  const res = await fetch(`/api/lore/${repoName}/entries`);
+export async function getLoreEntries(
+  repoName: string,
+  filters?: { state?: string; agent?: string; type?: string; limit?: number }
+): Promise<LoreEntriesResponse> {
+  const params = new URLSearchParams();
+  if (filters?.state) params.set('state', filters.state);
+  if (filters?.agent) params.set('agent', filters.agent);
+  if (filters?.type) params.set('type', filters.type);
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  const qs = params.toString();
+  const res = await fetch(`/api/lore/${repoName}/entries${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
