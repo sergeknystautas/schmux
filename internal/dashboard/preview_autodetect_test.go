@@ -69,8 +69,8 @@ func TestFilterProxyPorts_IgnoresKnownProxyPorts(t *testing.T) {
 		ProxyPort:   51853,
 	})
 	srv := &Server{state: st}
-	got := srv.filterProxyPorts([]int{3000, 51853})
-	if len(got) != 1 || got[0] != 3000 {
+	got := srv.filterProxyPorts([]ListeningPort{{Host: "127.0.0.1", Port: 3000}, {Host: "127.0.0.1", Port: 51853}})
+	if len(got) != 1 || got[0].Port != 3000 {
 		t.Fatalf("expected [3000], got %#v", got)
 	}
 }
@@ -86,24 +86,61 @@ func TestFilterExistingPreviews(t *testing.T) {
 	})
 	srv := &Server{state: st}
 
-	ports := []int{5173, 3000} // 5173 already exists, 3000 is new
+	ports := []ListeningPort{{Host: "127.0.0.1", Port: 5173}, {Host: "127.0.0.1", Port: 3000}} // 5173 already exists, 3000 is new
 
 	filtered := srv.filterExistingPreviews("ws-1", ports)
-	if len(filtered) != 1 || filtered[0] != 3000 {
+	if len(filtered) != 1 || filtered[0].Port != 3000 {
 		t.Fatalf("expected only port 3000, got %#v", filtered)
 	}
 }
 
 func TestIntersectPorts(t *testing.T) {
 	candidates := []int{3000, 5173, 8080}
-	listening := []int{5173, 8080, 9000} // 3000 not listening, 9000 not in candidates
+	listening := []ListeningPort{
+		{Host: "127.0.0.1", Port: 5173},
+		{Host: "127.0.0.1", Port: 8080},
+		{Host: "127.0.0.1", Port: 9000},
+	} // 3000 not listening, 9000 not in candidates
 
 	ports := intersectPorts(candidates, listening)
 	if len(ports) != 2 {
 		t.Fatalf("expected 2 ports, got %#v", ports)
 	}
 	// Should be sorted
-	if ports[0] != 5173 || ports[1] != 8080 {
+	if ports[0].Port != 5173 || ports[1].Port != 8080 {
 		t.Fatalf("expected [5173, 8080], got %#v", ports)
+	}
+}
+
+func TestIntersectPorts_PrefersIPv4(t *testing.T) {
+	candidates := []int{5173}
+	// Both IPv4 and IPv6 listening on same port
+	listening := []ListeningPort{
+		{Host: "::1", Port: 5173},
+		{Host: "127.0.0.1", Port: 5173},
+	}
+
+	ports := intersectPorts(candidates, listening)
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 port, got %#v", ports)
+	}
+	// Should prefer IPv4
+	if ports[0].Host != "127.0.0.1" {
+		t.Fatalf("expected IPv4 (127.0.0.1), got %s", ports[0].Host)
+	}
+}
+
+func TestIntersectPorts_IPv6Only(t *testing.T) {
+	candidates := []int{5173}
+	listening := []ListeningPort{
+		{Host: "::1", Port: 5173},
+	}
+
+	ports := intersectPorts(candidates, listening)
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 port, got %#v", ports)
+	}
+	if ports[0].Host != "::1" || ports[0].Port != 5173 {
+		t.Fatalf("expected [::1:5173], got %#v", ports)
 	}
 }
