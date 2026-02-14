@@ -27,6 +27,7 @@ func TestFindModel(t *testing.T) {
 		{"glm-4.5-air", "glm-4.5-air", true},
 		{"glm-5", "glm-5", true},
 		{"minimax", "minimax", true},
+		{"minimax-2.5", "minimax-2.5", true},
 		{"qwen3-coder-plus", "qwen3-coder-plus", true},
 
 		// Codex models
@@ -72,6 +73,7 @@ func TestIsModelID(t *testing.T) {
 		{"glm-4.5-air", true},
 		{"glm-5", true},
 		{"minimax", true},
+		{"minimax-2.5", true},
 		{"qwen3-coder-plus", true},
 		{"gpt-5.2-codex", true},
 		{"gpt-5.3-codex", true},
@@ -204,8 +206,8 @@ func TestGetAvailableModels(t *testing.T) {
 		{
 			name:          "only claude detected",
 			detected:      []Tool{{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true}},
-			expectedCount: 10,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "qwen3-coder-plus"},
+			expectedCount: 11,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus"},
 		},
 		{
 			name: "claude and codex detected",
@@ -213,8 +215,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 14,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			expectedCount: 15,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
 		},
 		{
 			name: "all detected tools",
@@ -222,8 +224,8 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 14,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			expectedCount: 15,
+			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
 		},
 	}
 
@@ -270,9 +272,9 @@ func TestGetAvailableModels(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 14 models total (10 Claude-based + 4 Codex)
-	if len(models) != 14 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 14", len(models))
+	// Should have 15 models total (11 Claude-based + 4 Codex)
+	if len(models) != 15 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 15", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -288,7 +290,7 @@ func TestGetBuiltinModels(t *testing.T) {
 
 	expectedModels := []string{
 		"claude-opus", "claude-sonnet", "claude-haiku",
-		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "qwen3-coder-plus",
+		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus",
 		"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
 	}
 	for _, id := range expectedModels {
