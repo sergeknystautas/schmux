@@ -302,10 +302,11 @@ type AccessControlConfig struct {
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name         string   `json:"name"`
-	URL          string   `json:"url"`
-	BarePath     string   `json:"bare_path,omitempty"`     // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
-	OverlayPaths []string `json:"overlay_paths,omitempty"` // repo-specific overlay paths
+	Name                  string   `json:"name"`
+	URL                   string   `json:"url"`
+	BarePath              string   `json:"bare_path,omitempty"`               // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
+	OverlayPaths          []string `json:"overlay_paths,omitempty"`           // repo-specific overlay paths
+	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"` // whether the overlay nudge banner has been dismissed
 }
 
 // RunTarget represents a user-supplied run target.
