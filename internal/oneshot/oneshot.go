@@ -13,22 +13,18 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 // ErrTargetNotFound is returned when a target name cannot be resolved.
 var ErrTargetNotFound = errors.New("target not found")
 
+// Schema labels - re-exported from schema package for backwards compatibility.
 const (
-	SchemaConflictResolve = "conflict-resolve"
-	SchemaNudgeNik        = "nudgenik"
-	SchemaBranchSuggest   = "branch-suggest"
+	SchemaConflictResolve = schema.LabelConflictResolve
+	SchemaNudgeNik        = schema.LabelNudgeNik
+	SchemaBranchSuggest   = schema.LabelBranchSuggest
 )
-
-var schemaRegistry = map[string]string{
-	SchemaConflictResolve: `{"type":"object","properties":{"all_resolved":{"type":"boolean"},"confidence":{"type":"string"},"summary":{"type":"string"},"files":{"type":"object","properties":{},"additionalProperties":{"type":"object","properties":{"action":{"type":"string"},"description":{"type":"string"}},"required":["action","description"],"additionalProperties":false}}},"required":["all_resolved","confidence","summary","files"],"additionalProperties":false}`,
-	SchemaNudgeNik:        `{"type":"object","properties":{"state":{"type":"string"},"confidence":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["state","confidence","evidence","summary"],"additionalProperties":false}`,
-	SchemaBranchSuggest:   `{"type":"object","properties":{"branch":{"type":"string"},"nickname":{"type":"string"}},"required":["branch","nickname"],"additionalProperties":false}`,
-}
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
@@ -264,8 +260,9 @@ func parseCodexJSONLOutput(output string) string {
 }
 
 func resolveSchema(label string) (string, error) {
-	if _, ok := schemaRegistry[label]; !ok {
-		return "", fmt.Errorf("unknown schema label: %s", label)
+	// Validate that the schema exists by attempting to get it
+	if _, err := schema.Get(label); err != nil {
+		return "", err
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -297,9 +294,13 @@ func WriteAllSchemas() error {
 		return fmt.Errorf("failed to create schema directory: %w", err)
 	}
 
-	for label, schema := range schemaRegistry {
+	for _, label := range schema.Labels() {
+		schemaJSON, err := schema.Get(label)
+		if err != nil {
+			return fmt.Errorf("failed to get schema %s: %w", label, err)
+		}
 		path := filepath.Join(dir, label+".json")
-		if err := os.WriteFile(path, []byte(schema), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(schemaJSON), 0644); err != nil {
 			return fmt.Errorf("failed to write schema file %s: %w", label, err)
 		}
 	}

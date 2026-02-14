@@ -10,8 +10,14 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+func init() {
+	// Register the Result type for JSON schema generation.
+	schema.Register(schema.LabelBranchSuggest, Result{})
+}
 
 const (
 	// Prompt is the branch suggestion prompt.
@@ -68,9 +74,11 @@ func IsEnabled(cfg *config.Config) bool {
 }
 
 // Result is the parsed branch suggestion response.
+// Struct tags control JSON schema generation via swaggest/jsonschema-go.
 type Result struct {
-	Branch   string `json:"branch"`
-	Nickname string `json:"nickname"`
+	Branch   string   `json:"branch" required:"true"`
+	Nickname string   `json:"nickname" required:"true"`
+	_        struct{} `additionalProperties:"false"`
 }
 
 // AskForPrompt generates a branch name and nickname from a user prompt.
@@ -91,7 +99,7 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	input := strings.ReplaceAll(Prompt, "{{USER_PROMPT}}", userPrompt)
 
-	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, oneshot.SchemaBranchSuggest, branchSuggestTimeout, "")
+	response, err := oneshot.ExecuteTarget(ctx, cfg, targetName, input, schema.LabelBranchSuggest, branchSuggestTimeout, "")
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return Result{}, ErrTargetNotFound
