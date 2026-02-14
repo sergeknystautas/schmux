@@ -84,6 +84,34 @@ func PushBranch(ctx context.Context, bareDir, branch string) error {
 	return runGit(ctx, bareDir, "push", "origin", branch)
 }
 
+// CreatePR creates a pull request using the gh CLI.
+// It returns the PR URL on success. If gh is not installed, it returns an error
+// that the caller can handle gracefully (e.g., log a warning instead of failing).
+func CreatePR(ctx context.Context, bareDir, branch, title, body string) (string, error) {
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return "", fmt.Errorf("gh CLI not found: %w", err)
+	}
+
+	defaultBranch, err := getDefaultBranch(ctx, bareDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get default branch for PR base: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, ghPath, "pr", "create",
+		"--head", branch,
+		"--base", defaultBranch,
+		"--title", title,
+		"--body", body,
+	)
+	cmd.Dir = bareDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr create failed: %w: %s", err, string(output))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func getDefaultBranch(ctx context.Context, bareDir string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "HEAD")
 	cmd.Dir = bareDir
