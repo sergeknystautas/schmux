@@ -210,3 +210,14 @@ Routes:
 - [`docs/dev/react.md`](docs/dev/react.md) - React architecture
 - [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
 - [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)
+
+## Lore Capture
+
+As you work, append discoveries to `.claude/lore.jsonl` — things you learned
+that aren't already documented in this file. One JSON line per entry:
+
+```
+{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"claude-code","type":"operational|codebase","text":"<what you learned>"}
+```
+
+Don't evaluate importance. Don't read the file first. Just append.

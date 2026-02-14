@@ -122,3 +122,14 @@ Hot-reload development mode:
 
 - Local config/state are user-scoped: `~/.schmux/config.json` and `~/.schmux/state.json`; never commit secrets.
 - Local dev artifacts are ignored via `.gitignore` (notably `.schmux/` and the `schmux` binary).
+
+## Lore Capture
+
+As you work, append discoveries to `.claude/lore.jsonl` — things you learned
+that aren't already documented in this file. One JSON line per entry:
+
+```
+{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<agent-name>","type":"operational|codebase","text":"<what you learned>"}
+```
+
+Don't evaluate importance. Don't read the file first. Just append.
