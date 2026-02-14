@@ -2,6 +2,7 @@ package compound
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ type Watcher struct {
 	debounceTimers map[string]*time.Timer
 	// suppress key (workspaceID:relPath) → expiry
 	suppressed map[string]time.Time
+	// workspace root path → []absolute dir paths that couldn't be watched yet
+	pendingDirs map[string][]string
 
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -50,6 +53,7 @@ func NewWatcher(debounceMs int, onChange OnChangeFunc) (*Watcher, error) {
 		watchedDirs:    make(map[string][]string),
 		debounceTimers: make(map[string]*time.Timer),
 		suppressed:     make(map[string]time.Time),
+		pendingDirs:    make(map[string][]string),
 		stopCh:         make(chan struct{}),
 	}, nil
 }
@@ -72,6 +76,47 @@ func (w *Watcher) AddWorkspace(workspaceID, workspacePath string, manifest map[s
 	for dir := range dirsToWatch {
 		if err := w.watcher.Add(dir); err != nil {
 			fmt.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
+			continue
+		}
+		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
+	}
+
+	return nil
+}
+
+// AddWorkspaceWithDeclaredPaths registers a workspace's overlay-managed files for watching,
+// including declared paths that may not exist yet (e.g., agent-generated config files).
+// When a directory for a declared path doesn't exist, it is tracked as pending and the
+// workspace root is watched instead to detect directory creation.
+func (w *Watcher) AddWorkspaceWithDeclaredPaths(workspaceID, workspacePath string, manifest map[string]string, declaredPaths []string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.workspacePaths[workspaceID] = workspacePath
+	w.workspaceFiles[workspaceID] = make(map[string]bool)
+
+	dirsToWatch := make(map[string]bool)
+
+	// Register manifest files (existing)
+	for relPath := range manifest {
+		w.workspaceFiles[workspaceID][relPath] = true
+		absDir := filepath.Join(workspacePath, filepath.Dir(relPath))
+		dirsToWatch[absDir] = true
+	}
+
+	// Register declared paths (may not exist yet)
+	for _, relPath := range declaredPaths {
+		w.workspaceFiles[workspaceID][relPath] = true
+		absDir := filepath.Join(workspacePath, filepath.Dir(relPath))
+		dirsToWatch[absDir] = true
+	}
+
+	for dir := range dirsToWatch {
+		if err := w.watcher.Add(dir); err != nil {
+			// Directory doesn't exist yet — track as pending
+			w.pendingDirs[workspacePath] = append(w.pendingDirs[workspacePath], dir)
+			// Watch workspace root to detect new directory creation
+			w.watcher.Add(workspacePath)
 			continue
 		}
 		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
@@ -126,6 +171,11 @@ func (w *Watcher) RemoveWorkspace(workspaceID string) {
 		}
 	}
 
+	// Clean up pending dirs for this workspace
+	if wsPath != "" {
+		delete(w.pendingDirs, wsPath)
+	}
+
 	delete(w.workspacePaths, workspaceID)
 	delete(w.workspaceFiles, workspaceID)
 }
@@ -164,6 +214,12 @@ func (w *Watcher) eventLoop() {
 		case event, ok := <-w.watcher.Events:
 			if !ok {
 				return
+			}
+			if event.Op&fsnotify.Create != 0 {
+				// Check if a directory was created — may resolve pending watches
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					w.retryPendingDirs(event.Name)
+				}
 			}
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
 				w.handleEvent(event)
@@ -212,6 +268,38 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		}
 
 		w.resetDebounce(wsID, relPath)
+	}
+}
+
+// retryPendingDirs attempts to watch directories that were previously pending
+// because they didn't exist when AddWorkspaceWithDeclaredPaths was called.
+func (w *Watcher) retryPendingDirs(createdDir string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for wsRoot, pendingDirs := range w.pendingDirs {
+		var remaining []string
+		for _, dir := range pendingDirs {
+			if dir == createdDir || filepath.Dir(dir) == createdDir {
+				if err := w.watcher.Add(dir); err != nil {
+					remaining = append(remaining, dir)
+					continue
+				}
+				// Find workspace IDs for this root
+				for wsID, wsPath := range w.workspacePaths {
+					if wsPath == wsRoot {
+						w.watchedDirs[dir] = append(w.watchedDirs[dir], wsID)
+					}
+				}
+			} else {
+				remaining = append(remaining, dir)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(w.pendingDirs, wsRoot)
+		} else {
+			w.pendingDirs[wsRoot] = remaining
+		}
 	}
 }
 
