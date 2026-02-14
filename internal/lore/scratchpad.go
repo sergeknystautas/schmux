@@ -149,3 +149,145 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 	}
 	return nil
 }
+
+// PruneEntries removes applied/dismissed entries older than maxAge from the JSONL file.
+// It rewrites the file in-place, keeping only entries that should be retained.
+// Returns the number of pruned lines and any error encountered.
+func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer f.Close()
+
+	// Read all raw lines (to preserve original JSON formatting)
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-maxAge)
+
+	// Build map: entry_ts -> latest state-change record (applied/dismissed) with its timestamp.
+	// We only care about "applied" or "dismissed" states for pruning.
+	type stateInfo struct {
+		state     string
+		timestamp time.Time
+	}
+	stateMap := make(map[string]stateInfo)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {
+			continue // skip malformed, will keep the line
+		}
+		if e.StateChange == "applied" || e.StateChange == "dismissed" {
+			if e.EntryTS != "" {
+				// Keep the latest state change for each entry_ts
+				existing, found := stateMap[e.EntryTS]
+				if !found || e.Timestamp.After(existing.timestamp) {
+					stateMap[e.EntryTS] = stateInfo{
+						state:     e.StateChange,
+						timestamp: e.Timestamp,
+					}
+				}
+			}
+		}
+	}
+
+	// Build set of entry_ts values to prune: those in applied/dismissed state
+	// whose state-change timestamp is older than cutoff
+	pruneSet := make(map[string]bool)
+	for entryTS, info := range stateMap {
+		if info.timestamp.Before(cutoff) {
+			pruneSet[entryTS] = true
+		}
+	}
+
+	if len(pruneSet) == 0 {
+		return 0, nil
+	}
+
+	// Filter lines: keep those not in pruneSet
+	var kept []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			kept = append(kept, line)
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {
+			kept = append(kept, line) // keep malformed lines
+			continue
+		}
+
+		// Check if this is a lore entry that should be pruned
+		if e.StateChange == "" {
+			tsStr := e.Timestamp.Format(time.RFC3339)
+			if pruneSet[tsStr] {
+				pruned++
+				continue // prune this lore entry
+			}
+		}
+
+		// Check if this is a state-change record referencing a pruned entry
+		if e.StateChange != "" && e.EntryTS != "" {
+			if pruneSet[e.EntryTS] {
+				pruned++
+				continue // prune this state-change record
+			}
+		}
+
+		kept = append(kept, line)
+	}
+
+	if pruned == 0 {
+		return 0, nil
+	}
+
+	// Write remaining lines to a temp file, then rename (atomic)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "lore-prune-*.tmp")
+	if err != nil {
+		return 0, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	w := bufio.NewWriter(tmp)
+	for _, line := range kept {
+		if _, err := w.WriteString(line + "\n"); err != nil {
+			tmp.Close()
+			os.Remove(tmpPath)
+			return 0, fmt.Errorf("failed to write temp file: %w", err)
+		}
+	}
+	if err := w.Flush(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("failed to flush temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	return pruned, nil
+}

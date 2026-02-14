@@ -641,6 +641,24 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			loreCurateMu.Unlock()
 		})
 		fmt.Printf("[lore] system enabled, will curate on session dispose\n")
+
+		// Prune old lore entries on startup
+		go func() {
+			maxAge := time.Duration(cfg.GetLorePruneAfterDays()) * 24 * time.Hour
+			for _, repo := range cfg.GetRepos() {
+				overlayDir, err := workspace.OverlayDir(repo.Name)
+				if err != nil {
+					continue
+				}
+				lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+				pruned, err := lore.PruneEntries(lorePath, maxAge)
+				if err != nil {
+					fmt.Printf("[lore] warning: prune failed for %s: %v\n", repo.Name, err)
+				} else if pruned > 0 {
+					fmt.Printf("[lore] pruned %d old entries for %s\n", pruned, repo.Name)
+				}
+			}
+		}()
 	}
 
 	// Start background goroutine to update git status for all workspaces.
