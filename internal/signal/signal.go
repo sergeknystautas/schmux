@@ -244,3 +244,35 @@ func ShortID(id string) string {
 	}
 	return id[:8]
 }
+
+// ParseSignalFile parses the content of a signal file.
+// Format: "STATE MESSAGE" on the first line.
+// Returns nil if the content is empty or the state is invalid.
+func ParseSignalFile(content string) *Signal {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	// Use first line only
+	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
+		content = content[:idx]
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	parts := strings.SplitN(content, " ", 2)
+	state := parts[0]
+	if !IsValidState(state) {
+		return nil
+	}
+	msg := ""
+	if len(parts) > 1 {
+		msg = parts[1]
+	}
+	return &Signal{
+		State:     state,
+		Message:   msg,
+		Timestamp: time.Now(),
+	}
+}
