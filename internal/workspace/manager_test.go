@@ -334,7 +334,7 @@ func TestDispose_Integration(t *testing.T) {
 		WorkspacePath:    tmpDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	m := New(cfg, st, statePath)
@@ -575,15 +575,20 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	workspaceBaseDir := filepath.Join(tmpDir, "workspaces")
+	reposDir := filepath.Join(tmpDir, "repos")
 	if err := os.MkdirAll(workspaceBaseDir, 0755); err != nil {
 		t.Fatalf("failed to create workspace base dir: %v", err)
 	}
 
+	// Create a real test repo
+	repoDir := gitTestWorkTree(t)
+
 	// Create a minimal config
 	cfg := &config.Config{
-		WorkspacePath: workspaceBaseDir,
+		WorkspacePath:    workspaceBaseDir,
+		WorktreeBasePath: reposDir,
 		Repos: []config.Repo{
-			{Name: "test-repo", URL: "local:test-repo"},
+			testRepoWithBarePath("test-repo", repoDir),
 		},
 	}
 
@@ -596,7 +601,7 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Attempt to create a workspace - should fail during state.Save
-	_, err := mgr.create(ctx, "local:test-repo", "main")
+	_, err := mgr.create(ctx, repoDir, "main")
 	if err == nil {
 		t.Fatal("expected error from create, got nil")
 	}
@@ -636,7 +641,7 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 		WorkspacePath:    workspaceBaseDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			{Name: "test-repo", URL: repoDir},
+			testRepoWithBarePath("test-repo", repoDir),
 		},
 	}
 

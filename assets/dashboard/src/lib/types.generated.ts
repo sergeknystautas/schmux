@@ -200,6 +200,7 @@ export interface QuickLaunch {
 export interface Repo {
   name: string;
   url: string;
+  bare_path?: string;
 }
 
 export interface RepoConfig {

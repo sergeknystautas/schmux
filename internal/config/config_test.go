@@ -1350,3 +1350,107 @@ func TestValidateCommandTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractRepoNameFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"git@github.com:user/myrepo.git", "myrepo"},
+		{"git@github.com:user/myrepo", "myrepo"},
+		{"https://github.com/user/myrepo.git", "myrepo"},
+		{"https://github.com/user/myrepo", "myrepo"},
+		{"https://gitlab.com/org/subgroup/project.git", "project"},
+		{"file:///tmp/test-repo", "test-repo"},
+		{"repo.git", "repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := extractRepoNameFromURL(tt.url)
+			if got != tt.want {
+				t.Errorf("extractRepoNameFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseGitHubURL(t *testing.T) {
+	tests := []struct {
+		url       string
+		wantOwner string
+		wantRepo  string
+	}{
+		{"git@github.com:facebook/react.git", "facebook", "react"},
+		{"git@github.com:myfork/schmux", "myfork", "schmux"},
+		{"https://github.com/user/myrepo.git", "user", "myrepo"},
+		{"https://github.com/user/myrepo", "user", "myrepo"},
+		{"https://gitlab.com/org/project.git", "", ""},
+		{"file:///tmp/test-repo", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			owner, repo := parseGitHubURL(tt.url)
+			if owner != tt.wantOwner || repo != tt.wantRepo {
+				t.Errorf("parseGitHubURL(%q) = (%q, %q), want (%q, %q)", tt.url, owner, repo, tt.wantOwner, tt.wantRepo)
+			}
+		})
+	}
+}
+
+func TestDetectExistingBarePath_NewRepo(t *testing.T) {
+	// For a new repo with nothing on disk, should return {name}.git
+	tmpDir := t.TempDir()
+
+	got := detectExistingBarePath([]string{tmpDir}, "https://github.com/user/myrepo.git", "myrepo")
+	want := "myrepo.git"
+	if got != want {
+		t.Errorf("detectExistingBarePath() = %q, want %q", got, want)
+	}
+}
+
+func TestDetectExistingBarePath_NewRepoWithNamespace(t *testing.T) {
+	// For a new GitHub repo with nothing on disk, should still return {name}.git (not owner/repo.git)
+	tmpDir := t.TempDir()
+
+	got := detectExistingBarePath([]string{tmpDir}, "https://github.com/facebook/react.git", "react")
+	want := "react.git"
+	if got != want {
+		t.Errorf("detectExistingBarePath() = %q, want %q", got, want)
+	}
+}
+
+func TestPopulateBarePaths_NewRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := CreateDefault(configPath)
+	cfg.Repos = []Repo{
+		{Name: "myrepo", URL: "https://github.com/user/myrepo.git"},
+	}
+
+	// populateBarePaths should set bare_path for new repos
+	cfg.populateBarePaths()
+
+	if cfg.Repos[0].BarePath != "myrepo.git" {
+		t.Errorf("BarePath = %q, want %q", cfg.Repos[0].BarePath, "myrepo.git")
+	}
+}
+
+func TestPopulateBarePaths_AlreadySet(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := CreateDefault(configPath)
+	cfg.Repos = []Repo{
+		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "custom/path.git"},
+	}
+
+	// populateBarePaths should NOT overwrite existing bare_path
+	cfg.populateBarePaths()
+
+	if cfg.Repos[0].BarePath != "custom/path.git" {
+		t.Errorf("BarePath = %q, want %q (should not be overwritten)", cfg.Repos[0].BarePath, "custom/path.git")
+	}
+}

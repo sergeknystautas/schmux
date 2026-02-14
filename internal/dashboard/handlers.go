@@ -1335,7 +1335,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.Repos = make([]config.Repo, len(req.Repos))
 		for i, r := range req.Repos {
-			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL}
+			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: r.Name + ".git"}
 		}
 	}
 

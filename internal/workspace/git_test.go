@@ -52,6 +52,15 @@ func gitTestBranch(t *testing.T, repoDir, branchName string) {
 	runGit(t, repoDir, "checkout", "-") // return to previous branch
 }
 
+// testRepoWithBarePath returns a config.Repo with BarePath set to <name>.git.
+func testRepoWithBarePath(name, url string) config.Repo {
+	return config.Repo{
+		Name:     name,
+		URL:      url,
+		BarePath: name + ".git",
+	}
+}
+
 // writeFile creates a file with content for testing.
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
@@ -120,128 +129,6 @@ func TestValidateBranchName(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestExtractRepoName(t *testing.T) {
-	tests := []struct {
-		url  string
-		want string
-	}{
-		// SSH URLs
-		{"git@github.com:user/myrepo.git", "myrepo"},
-		{"git@github.com:user/myrepo", "myrepo"},
-		{"git@gitlab.com:org/project.git", "project"},
-
-		// HTTPS URLs
-		{"https://github.com/user/myrepo.git", "myrepo"},
-		{"https://github.com/user/myrepo", "myrepo"},
-		{"https://gitlab.com/org/subgroup/project.git", "project"},
-
-		// File URLs (used in tests)
-		{"file:///tmp/test-repo", "test-repo"},
-		{"/tmp/local-repo", "local-repo"},
-
-		// Edge cases
-		{"repo.git", "repo"},
-		{"repo", "repo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			got := extractRepoName(tt.url)
-			if got != tt.want {
-				t.Errorf("extractRepoName(%q) = %q, want %q", tt.url, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExtractRepoPath(t *testing.T) {
-	tests := []struct {
-		url  string
-		want string
-	}{
-		// GitHub SSH URLs - should return owner/repo
-		{"git@github.com:facebook/react.git", "facebook/react"},
-		{"git@github.com:myfork/react.git", "myfork/react"},
-		{"git@github.com:user/myrepo.git", "user/myrepo"},
-		{"git@github.com:user/myrepo", "user/myrepo"},
-
-		// GitHub HTTPS URLs - should return owner/repo
-		{"https://github.com/facebook/react.git", "facebook/react"},
-		{"https://github.com/user/myrepo.git", "user/myrepo"},
-		{"https://github.com/user/myrepo", "user/myrepo"},
-
-		// Non-GitHub URLs - should fall back to just repo name
-		{"git@gitlab.com:org/project.git", "project"},
-		{"https://gitlab.com/org/subgroup/project.git", "project"},
-		{"https://bitbucket.org/user/repo.git", "repo"},
-
-		// File URLs (used in tests) - should return just name
-		{"file:///tmp/test-repo", "test-repo"},
-		{"/tmp/local-repo", "local-repo"},
-
-		// Edge cases
-		{"repo.git", "repo"},
-		{"repo", "repo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			got := extractRepoPath(tt.url)
-			if got != tt.want {
-				t.Errorf("extractRepoPath(%q) = %q, want %q", tt.url, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestLegacyBareRepoPath(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	t.Run("returns empty for non-existent path", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		result := legacyBareRepoPath(tmpDir, "git@github.com:user/myrepo.git")
-		if result != "" {
-			t.Errorf("legacyBareRepoPath() = %q, want empty string", result)
-		}
-	})
-
-	t.Run("returns legacy path when URL matches", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		repoURL := "git@github.com:user/myrepo.git"
-
-		// Create a bare repo at the legacy flat path
-		legacyPath := filepath.Join(tmpDir, "myrepo.git")
-		runGit(t, tmpDir, "init", "--bare", "myrepo.git")
-
-		// Configure origin remote to match the URL
-		runGit(t, legacyPath, "remote", "add", "origin", repoURL)
-
-		result := legacyBareRepoPath(tmpDir, repoURL)
-		if result != legacyPath {
-			t.Errorf("legacyBareRepoPath() = %q, want %q", result, legacyPath)
-		}
-	})
-
-	t.Run("returns empty when URL doesn't match", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		originalURL := "git@github.com:original/myrepo.git"
-		differentURL := "git@github.com:different/myrepo.git"
-
-		// Create a bare repo at the legacy path with original URL
-		legacyPath := filepath.Join(tmpDir, "myrepo.git")
-		runGit(t, tmpDir, "init", "--bare", "myrepo.git")
-		runGit(t, legacyPath, "remote", "add", "origin", originalURL)
-
-		// Query with different URL should return empty
-		result := legacyBareRepoPath(tmpDir, differentURL)
-		if result != "" {
-			t.Errorf("legacyBareRepoPath() = %q, want empty string (URL mismatch)", result)
-		}
-	})
 }
 
 func TestIsWorktree(t *testing.T) {

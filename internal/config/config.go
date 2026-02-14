@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -281,8 +282,9 @@ type AccessControlConfig struct {
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	BarePath string `json:"bare_path,omitempty"` // path relative to repos/query dirs (e.g., "schmux.git" or "owner/repo.git")
 }
 
 // RunTarget represents a user-supplied run target.
@@ -758,6 +760,9 @@ func Load(configPath string) (*Config, error) {
 		cfg.WorktreeBasePath = filepath.Join(homeDir, cfg.WorktreeBasePath[1:])
 	}
 	cfg.expandNetworkPaths(homeDir)
+
+	// Populate bare_path for repos that don't have it (migration)
+	cfg.populateBarePaths()
 
 	return &cfg, nil
 }
@@ -1489,6 +1494,141 @@ func (c *Config) GetModelVersions() map[string]string {
 		return nil
 	}
 	return c.Models.Versions
+}
+
+// populateBarePaths detects and populates bare_path for repos that don't have it.
+// This is a one-time migration for existing repos - new repos get bare_path set on creation.
+// Detection order:
+//  1. Check worktree base dir (repos/) for legacy flat path (repo.git) that matches URL
+//  2. Check query dir (query/) for legacy flat path that matches URL
+//  3. Check worktree base dir for namespaced path (owner/repo.git) that matches URL
+//  4. Check query dir for namespaced path that matches URL
+//  5. Fall back to {name}.git if nothing exists on disk
+func (c *Config) populateBarePaths() {
+	var changed bool
+	reposPath := c.GetWorktreeBasePath()
+	queryPath := c.GetQueryRepoPath()
+
+	for i := range c.Repos {
+		if c.Repos[i].BarePath != "" {
+			continue // Already has bare_path
+		}
+
+		repo := &c.Repos[i]
+		barePath := detectExistingBarePath([]string{reposPath, queryPath}, repo.URL, repo.Name)
+		if barePath != "" {
+			repo.BarePath = barePath
+			changed = true
+			fmt.Fprintf(os.Stderr, "[config] migrated bare_path for repo %q: %s\n", repo.Name, barePath)
+		}
+	}
+
+	if changed {
+		// Best-effort save
+		if err := c.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "[config] warning: could not save migrated bare_paths: %v\n", err)
+		}
+	}
+}
+
+// detectExistingBarePath detects the bare path for a repo by checking what's on disk.
+// Checks multiple base paths (repos/, query/) in order.
+// Returns the relative path (e.g., "schmux.git" or "owner/repo.git").
+func detectExistingBarePath(basePaths []string, repoURL, repoName string) string {
+	legacyName := extractRepoNameFromURL(repoURL)
+	owner, repo := parseGitHubURL(repoURL)
+
+	for _, basePath := range basePaths {
+		// 1. Check for legacy flat path (repo.git)
+		if legacyName != "" {
+			legacyPath := filepath.Join(basePath, legacyName+".git")
+			if bareRepoMatchesURL(legacyPath, repoURL) {
+				return legacyName + ".git"
+			}
+		}
+
+		// 2. Check for namespaced GitHub path (owner/repo.git)
+		if owner != "" && repo != "" {
+			namespacedPath := filepath.Join(basePath, owner, repo+".git")
+			if bareRepoMatchesURL(namespacedPath, repoURL) {
+				return filepath.Join(owner, repo+".git")
+			}
+		}
+	}
+
+	// 3. Fall back to {name}.git for new repos or if nothing on disk
+	if repoName != "" {
+		return repoName + ".git"
+	}
+
+	// Last resort: use URL-derived name
+	if legacyName != "" {
+		return legacyName + ".git"
+	}
+
+	return ""
+}
+
+// extractRepoNameFromURL extracts the repository name from a URL.
+// Handles: git@github.com:user/myrepo.git, https://github.com/user/myrepo.git, etc.
+func extractRepoNameFromURL(repoURL string) string {
+	// Strip .git suffix
+	name := strings.TrimSuffix(repoURL, ".git")
+
+	// Get last path component (handle both / and : separators)
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, ":"); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	return name
+}
+
+// parseGitHubURL extracts owner and repo from a GitHub URL.
+// Returns empty strings if not a GitHub URL.
+func parseGitHubURL(repoURL string) (owner, repo string) {
+	// Handle git@github.com:owner/repo.git
+	if strings.HasPrefix(repoURL, "git@github.com:") {
+		path := strings.TrimPrefix(repoURL, "git@github.com:")
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+		return "", ""
+	}
+
+	// Handle https://github.com/owner/repo.git
+	if strings.HasPrefix(repoURL, "https://github.com/") {
+		path := strings.TrimPrefix(repoURL, "https://github.com/")
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+		return "", ""
+	}
+
+	return "", ""
+}
+
+// bareRepoMatchesURL checks if a bare repo at the given path has the expected origin URL.
+func bareRepoMatchesURL(repoPath, expectedURL string) bool {
+	if _, err := os.Stat(repoPath); err != nil {
+		return false // Doesn't exist
+	}
+
+	// Check git remote origin URL
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return false // Can't verify
+	}
+
+	return strings.TrimSpace(string(output)) == expectedURL
 }
 
 // SetModelVersions sets the model version overrides.
