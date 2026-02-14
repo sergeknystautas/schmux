@@ -392,6 +392,16 @@ export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAd
   return response.json();
 }
 
+export async function dismissOverlayNudge(repoName: string): Promise<{ status: string }> {
+  const response = await fetch('/api/overlays/dismiss-nudge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repo_name: repoName }),
+  });
+  if (!response.ok) throw new Error('Failed to dismiss overlay nudge');
+  return response.json();
+}
+
 /**
  * Fetches the list of built-in quick launch presets.
  * Returns a list of preset templates with names, targets, and prompts.

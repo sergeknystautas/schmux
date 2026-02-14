@@ -10,10 +10,12 @@ import {
   getPRs,
   refreshPRs,
   checkoutPR,
+  getOverlays,
+  dismissOverlayNudge,
   getErrorMessage,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
-import type { WorkspaceResponse, RecentBranch, PullRequest } from '../lib/types';
+import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -215,10 +217,33 @@ export default function HomePage() {
   const [heroDismissed, setHeroDismissed] = useState(() => {
     return localStorage.getItem('home-hero-dismissed') === 'true';
   });
+  const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
+  const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
 
   const handleDismissHero = () => {
     setHeroDismissed(true);
     localStorage.setItem('home-hero-dismissed', 'true');
+  };
+
+  // Fetch overlay info for nudge banners
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getOverlays();
+        setOverlays(data.overlays || []);
+      } catch {
+        // silently ignore — nudge is non-critical
+      }
+    })();
+  }, []);
+
+  const handleDismissNudge = async (repoName: string) => {
+    setDismissedNudges((prev) => new Set(prev).add(repoName));
+    try {
+      await dismissOverlayNudge(repoName);
+    } catch {
+      // ignore — banner is already hidden locally
+    }
   };
 
   // Fetch recent branches on mount
@@ -609,6 +634,59 @@ export default function HomePage() {
             )}
           </div>
         </div>
+
+        {/* Overlay Nudge Banners */}
+        {overlays
+          .filter((o) => {
+            if (o.nudge_dismissed || dismissedNudges.has(o.repo_name)) return false;
+            // Show only when the repo has no repo-specific overlay files (only builtins)
+            const hasRepoSpecific = o.declared_paths.some((p) => p.source !== 'builtin');
+            return !hasRepoSpecific;
+          })
+          .map((o) => (
+            <div
+              key={o.repo_name}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 'var(--spacing-sm)',
+                padding: 'var(--spacing-sm) var(--spacing-md)',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.8rem',
+                lineHeight: 1.5,
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              <span style={{ flex: 1 }}>
+                Overlay is active for <strong>{o.repo_name}</strong>. Agent config files
+                (.claude/settings.json, .claude/settings.local.json) are automatically synced across
+                workspaces.{' '}
+                <Link
+                  to={`/overlays/${encodeURIComponent(o.repo_name)}`}
+                  style={{ color: 'var(--color-accent)', textDecoration: 'none' }}
+                >
+                  Manage overlays &rarr;
+                </Link>
+              </span>
+              <button
+                onClick={() => handleDismissNudge(o.repo_name)}
+                title="Dismiss"
+                style={{
+                  flexShrink: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-faint)',
+                  padding: '2px',
+                  lineHeight: 1,
+                }}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          ))}
 
         {/* Connection Status */}
         {!loading && (

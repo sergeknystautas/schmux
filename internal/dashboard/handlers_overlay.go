@@ -308,3 +308,46 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		"registered": allNewPaths,
 	})
 }
+
+// handleDismissNudge handles POST requests to dismiss the overlay nudge banner for a repo.
+func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		RepoName string `json:"repo_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.RepoName == "" {
+		http.Error(w, "repo_name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Find the repo and set OverlayNudgeDismissed
+	found := false
+	for i := range s.config.Repos {
+		if s.config.Repos[i].Name == req.RepoName {
+			s.config.Repos[i].OverlayNudgeDismissed = true
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "Unknown repo", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.config.Save(); err != nil {
+		fmt.Printf("[overlay] failed to save config after dismiss-nudge: %v\n", err)
+		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
