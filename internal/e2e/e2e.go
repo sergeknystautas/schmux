@@ -934,6 +934,38 @@ type BranchConflictResult struct {
 	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
+// OverlayAPIResponse represents the GET /api/overlays response.
+type OverlayAPIResponse struct {
+	Overlays []OverlayAPIInfo `json:"overlays"`
+}
+
+type OverlayAPIInfo struct {
+	RepoName       string            `json:"repo_name"`
+	Path           string            `json:"path"`
+	Exists         bool              `json:"exists"`
+	FileCount      int               `json:"file_count"`
+	DeclaredPaths  []OverlayPathInfo `json:"declared_paths"`
+	NudgeDismissed bool              `json:"nudge_dismissed"`
+}
+
+type OverlayPathInfo struct {
+	Path   string `json:"path"`
+	Source string `json:"source"` // "builtin", "global", "repo"
+	Status string `json:"status"` // "synced", "pending"
+}
+
+type OverlayScanCandidate struct {
+	Path     string `json:"path"`
+	Size     int64  `json:"size"`
+	Detected bool   `json:"detected"`
+}
+
+type OverlayAddResult struct {
+	Success    bool     `json:"success"`
+	Copied     []string `json:"copied"`
+	Registered []string `json:"registered"`
+}
+
 // CheckBranchConflict calls the /api/check-branch-conflict endpoint.
 func (e *Env) CheckBranchConflict(repo, branch string) BranchConflictResult {
 	e.T.Helper()
@@ -1305,5 +1337,151 @@ func (e *Env) GetWorkspacePath(sessionID string) string {
 	}
 
 	e.T.Fatalf("Could not find workspace path for session %s", sessionID)
+	return ""
+}
+
+// SetRepoOverlayPaths sets overlay_paths on a repo in the config.
+func (e *Env) SetRepoOverlayPaths(repoName string, paths []string) {
+	e.T.Helper()
+	e.T.Logf("Setting overlay paths for repo %s: %v", repoName, paths)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Name == repoName {
+			cfg.Repos[i].OverlayPaths = paths
+			break
+		}
+	}
+
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
+// GetOverlayAPI calls GET /api/overlays and returns the parsed response.
+func (e *Env) GetOverlayAPI() OverlayAPIResponse {
+	e.T.Helper()
+
+	resp, err := http.Get(e.DaemonURL + "/api/overlays")
+	if err != nil {
+		e.T.Fatalf("Failed to GET /api/overlays: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("GET /api/overlays returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result OverlayAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		e.T.Fatalf("Failed to decode overlay response: %v", err)
+	}
+
+	return result
+}
+
+// PostOverlayScan calls POST /api/overlays/scan and returns the scan candidates.
+func (e *Env) PostOverlayScan(workspaceID, repoName string) []OverlayScanCandidate {
+	e.T.Helper()
+
+	reqBody, _ := json.Marshal(map[string]string{
+		"workspace_id": workspaceID,
+		"repo_name":    repoName,
+	})
+
+	resp, err := http.Post(e.DaemonURL+"/api/overlays/scan", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		e.T.Fatalf("Failed to POST /api/overlays/scan: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("POST /api/overlays/scan returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Candidates []OverlayScanCandidate `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		e.T.Fatalf("Failed to decode scan response: %v", err)
+	}
+
+	return result.Candidates
+}
+
+// PostOverlayAdd calls POST /api/overlays/add and returns the result.
+func (e *Env) PostOverlayAdd(workspaceID, repoName string, paths, customPaths []string) OverlayAddResult {
+	e.T.Helper()
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"workspace_id": workspaceID,
+		"repo_name":    repoName,
+		"paths":        paths,
+		"custom_paths": customPaths,
+	})
+
+	resp, err := http.Post(e.DaemonURL+"/api/overlays/add", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		e.T.Fatalf("Failed to POST /api/overlays/add: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("POST /api/overlays/add returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result OverlayAddResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		e.T.Fatalf("Failed to decode add response: %v", err)
+	}
+
+	return result
+}
+
+// PostDismissNudge calls POST /api/overlays/dismiss-nudge.
+func (e *Env) PostDismissNudge(repoName string) {
+	e.T.Helper()
+
+	reqBody, _ := json.Marshal(map[string]string{"repo_name": repoName})
+
+	resp, err := http.Post(e.DaemonURL+"/api/overlays/dismiss-nudge", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		e.T.Fatalf("Failed to POST /api/overlays/dismiss-nudge: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("POST /api/overlays/dismiss-nudge returned %d: %s", resp.StatusCode, body)
+	}
+}
+
+// GetWorkspaceIDForSession returns the workspace ID for a session.
+func (e *Env) GetWorkspaceIDForSession(sessionID string) string {
+	e.T.Helper()
+
+	workspaces := e.GetAPIWorkspaces()
+	for _, ws := range workspaces {
+		for _, sess := range ws.Sessions {
+			if sess.ID == sessionID {
+				return ws.ID
+			}
+		}
+	}
+
+	e.T.Fatalf("Could not find workspace ID for session %s", sessionID)
 	return ""
 }
