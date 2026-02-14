@@ -46,6 +46,7 @@ type Manager struct {
 	remoteDetectors  map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu               sync.RWMutex
 	compoundCallback func(workspaceID string, isSpawn bool) // notify compounder on session spawn/dispose
+	loreCallback     func(repoName, repoURL string)         // notify lore curator on session dispose
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -102,6 +103,11 @@ func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
 // SetCompoundCallback sets the callback for notifying the compounder on session lifecycle events.
 func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool)) {
 	m.compoundCallback = cb
+}
+
+// SetLoreCallback sets the callback for notifying the lore system on session dispose.
+func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string)) {
+	m.loreCallback = cb
 }
 
 // StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
@@ -1172,16 +1178,26 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	}
 
 	// Notify compounder if this was the last session for the workspace
-	if m.compoundCallback != nil {
-		isLastSession := true
-		for _, s := range m.state.GetSessions() {
-			if s.WorkspaceID == sess.WorkspaceID {
-				isLastSession = false
-				break
-			}
+	isLastSession := true
+	for _, s := range m.state.GetSessions() {
+		if s.WorkspaceID == sess.WorkspaceID {
+			isLastSession = false
+			break
 		}
-		if isLastSession {
-			m.compoundCallback(sess.WorkspaceID, false)
+	}
+	if m.compoundCallback != nil && isLastSession {
+		m.compoundCallback(sess.WorkspaceID, false)
+	}
+
+	// Notify lore system on session dispose
+	if m.loreCallback != nil && isLastSession {
+		w, found := m.state.GetWorkspace(sess.WorkspaceID)
+		if found {
+			// Find repo name from URL
+			repoConfig, repoFound := m.config.FindRepoByURL(w.Repo)
+			if repoFound {
+				go m.loreCallback(repoConfig.Name, w.Repo)
+			}
 		}
 	}
 

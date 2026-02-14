@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -566,6 +567,69 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		}
 		compounder.Start()
 		fmt.Printf("[compound] started overlay compounding loop\n")
+	}
+
+	// Lore system: trigger curator on session dispose
+	if cfg.GetLoreEnabled() {
+		loreProposalDir := filepath.Join(homeDir, ".schmux", "lore-proposals")
+		loreStore := lore.NewProposalStore(loreProposalDir)
+
+		loreCurator := &lore.Curator{
+			InstructionFiles: cfg.GetLoreInstructionFiles(),
+			BareRepo:         true,
+		}
+		if target := cfg.GetLoreTarget(); target != "" {
+			loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+			}
+		}
+
+		var loreCurateTimer *time.Timer
+		var loreCurateMu sync.Mutex
+
+		sm.SetLoreCallback(func(repoName, repoURL string) {
+			if !cfg.GetLoreCurateOnDispose() || loreCurator.Executor == nil {
+				return
+			}
+			loreCurateMu.Lock()
+			if loreCurateTimer != nil {
+				loreCurateTimer.Stop()
+			}
+			debounce := time.Duration(cfg.GetLoreCurateDebounceMs()) * time.Millisecond
+			loreCurateTimer = time.AfterFunc(debounce, func() {
+				overlayDir, err := workspace.OverlayDir(repoName)
+				if err != nil {
+					fmt.Printf("[lore] failed to get overlay dir: %v\n", err)
+					return
+				}
+				lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+
+				repo, found := cfg.FindRepoByURL(repoURL)
+				if !found {
+					fmt.Printf("[lore] repo not found for URL: %s\n", repoURL)
+					return
+				}
+				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
+
+				proposal, err := loreCurator.Curate(context.Background(), repoName, bareDir, lorePath)
+				if err != nil {
+					fmt.Printf("[lore] curation failed: %v\n", err)
+					return
+				}
+				if proposal == nil {
+					fmt.Printf("[lore] no raw entries to curate for %s\n", repoName)
+					return
+				}
+
+				if err := loreStore.Save(proposal); err != nil {
+					fmt.Printf("[lore] failed to save proposal: %v\n", err)
+					return
+				}
+				fmt.Printf("[lore] proposal %s created for %s: %s\n", proposal.ID, repoName, proposal.DiffSummary)
+			})
+			loreCurateMu.Unlock()
+		})
+		fmt.Printf("[lore] system enabled, will curate on session dispose\n")
 	}
 
 	// Start background goroutine to update git status for all workspaces.
