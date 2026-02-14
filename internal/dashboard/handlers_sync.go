@@ -29,6 +29,7 @@ type linearSyncResponse struct {
 // - POST /api/workspaces/{id}/git-commit-stage - stage files for commit
 // - POST /api/workspaces/{id}/git-amend - amend last commit
 // - POST /api/workspaces/{id}/git-discard - discard all changes
+// - POST /api/workspaces/{id}/git-uncommit - reset HEAD commit, keep changes unstaged
 // - POST /api/workspaces/{id}/refresh-overlay - reapply overlay files to workspace
 func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
@@ -70,6 +71,8 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 		s.handleGitAmend(w, r)
 	} else if strings.HasSuffix(path, "/git-discard") {
 		s.handleGitDiscard(w, r)
+	} else if strings.HasSuffix(path, "/git-uncommit") {
+		s.handleGitUncommit(w, r)
 	} else if strings.HasSuffix(path, "/refresh-overlay") {
 		s.handleRefreshOverlay(w, r)
 	} else if strings.HasSuffix(path, "/dispose") {

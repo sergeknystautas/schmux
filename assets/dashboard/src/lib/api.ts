@@ -654,6 +654,21 @@ export async function gitDiscard(
   return response.json();
 }
 
+export async function gitUncommit(
+  workspaceId: string,
+  hash: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-uncommit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hash }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to uncommit');
+  }
+  return response.json();
+}
+
 const COMMIT_PROMPT_INSTRUCTIONS = [
   'Please create a thorough git commit for these staged files:',
   '',

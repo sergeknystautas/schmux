@@ -3215,6 +3215,38 @@ a:hover {
   background-color: var(--color-surface-alt);
 }
 
+.git-dag__uncommit-btn {
+  display: none;
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    color var(--duration-fast) var(--easing),
+    border-color var(--duration-fast) var(--easing);
+}
+
+.git-dag__row:hover .git-dag__uncommit-btn {
+  display: inline-block;
+}
+
+.git-dag__uncommit-btn:hover {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.git-dag__uncommit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .git-dag__commit-row {
   padding-left: var(--spacing-xs);
 }
@@ -3430,10 +3462,17 @@ a:hover {
 .git-dag__message {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  overflow: hidden;
+  color: var(--color-text);
+}
+
+.git-dag__message-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-text);
 }
 
 .git-dag__head-labels {

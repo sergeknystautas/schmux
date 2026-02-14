@@ -3918,6 +3918,99 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"})
 }
 
+// handleGitUncommit handles POST /api/workspaces/{id}/git-uncommit.
+// Resets the HEAD commit, keeping changes as unstaged.
+// Requires hash parameter to verify we're uncommitting the expected commit.
+func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/git-uncommit")
+	if workspaceID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		return
+	}
+
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		return
+	}
+
+	if ws.GitAhead <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No commits to uncommit"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Hash == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "hash is required"})
+		return
+	}
+
+	ctx := context.Background()
+
+	// Verify the current HEAD matches the expected hash
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd.Dir = ws.Path
+	output, err := cmd.Output()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get current HEAD"})
+		return
+	}
+
+	currentHead := strings.TrimSpace(string(output))
+	if currentHead != req.Hash {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "HEAD has changed, please refresh and try again"})
+		return
+	}
+
+	// Reset HEAD~1, keeping changes unstaged
+	cmd = exec.CommandContext(ctx, "git", "reset", "HEAD~1")
+	cmd.Dir = ws.Path
+	if output, err := cmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git reset failed: %s", string(output))})
+		return
+	}
+
+	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
+		fmt.Printf("[dashboard] failed to update git status after uncommit: %v\n", err)
+	}
+	s.BroadcastSessions()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit undone, changes are now unstaged"})
+}
+
 // shellSplit splits a command line string into arguments, respecting quotes.
 // Handles single quotes, double quotes, and backslash escaping.
 // This prevents breakage when workspace paths contain spaces.
