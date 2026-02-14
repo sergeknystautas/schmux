@@ -1904,3 +1904,204 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 		env.DisposeSession(session2ID)
 	})
 }
+
+func TestE2EOverlayAPI(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-overlay-api-test"
+	const repoName = "overlay-api-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	// Setup: config, repo, overlays, daemon
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# API Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n.claude/\n.secret\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.CreateOverlayFile(repoName, ".claude/settings.json", `{"model":"sonnet"}`)
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Spawn a session to get a workspace
+	var sessionID, workspaceID string
+	t.Run("03_SpawnSession", func(t *testing.T) {
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "api-test")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		workspaceID = env.GetWorkspaceIDForSession(sessionID)
+		t.Logf("Session: %s, Workspace: %s", sessionID, workspaceID)
+	})
+
+	// Test GET /api/overlays — verify declared paths with source and status
+	t.Run("04_GetOverlays", func(t *testing.T) {
+		result := env.GetOverlayAPI()
+
+		var repoOverlay *OverlayAPIInfo
+		for i := range result.Overlays {
+			if result.Overlays[i].RepoName == repoName {
+				repoOverlay = &result.Overlays[i]
+				break
+			}
+		}
+		if repoOverlay == nil {
+			t.Fatalf("Expected overlay info for repo %q, got repos: %v", repoName, result.Overlays)
+		}
+
+		if !repoOverlay.Exists {
+			t.Error("Expected overlay directory to exist")
+		}
+
+		// Check that builtin defaults are present
+		foundBuiltin := false
+		for _, dp := range repoOverlay.DeclaredPaths {
+			if dp.Path == ".claude/settings.json" && dp.Source == "builtin" {
+				foundBuiltin = true
+				if dp.Status != "synced" {
+					t.Errorf("Expected .claude/settings.json status=synced, got %q", dp.Status)
+				}
+			}
+		}
+		if !foundBuiltin {
+			t.Error("Expected .claude/settings.json as a builtin declared path")
+		}
+
+		// Nudge should not be dismissed yet
+		if repoOverlay.NudgeDismissed {
+			t.Error("Expected nudge_dismissed=false initially")
+		}
+	})
+
+	// Test POST /api/overlays/scan — scan workspace for gitignored files
+	t.Run("05_ScanWorkspace", func(t *testing.T) {
+		// First, create a gitignored file in the workspace to be discovered
+		wsPath := env.GetWorkspacePath(sessionID)
+		secretFile := filepath.Join(wsPath, ".secret")
+		if err := os.WriteFile(secretFile, []byte("top-secret"), 0644); err != nil {
+			t.Fatalf("Failed to create .secret: %v", err)
+		}
+
+		candidates := env.PostOverlayScan(workspaceID, repoName)
+
+		// .secret should appear in the scan results
+		foundSecret := false
+		for _, c := range candidates {
+			if c.Path == ".secret" {
+				foundSecret = true
+				break
+			}
+		}
+		if !foundSecret {
+			t.Errorf("Expected .secret in scan candidates, got: %v", candidates)
+		}
+	})
+
+	// Test POST /api/overlays/add — add scanned file to overlay
+	t.Run("06_AddOverlayFiles", func(t *testing.T) {
+		result := env.PostOverlayAdd(workspaceID, repoName, []string{".secret"}, nil)
+
+		if !result.Success {
+			t.Error("Expected success=true from add")
+		}
+
+		found := false
+		for _, p := range result.Copied {
+			if p == ".secret" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected .secret in copied list, got: %v", result.Copied)
+		}
+
+		// Verify file was actually copied to overlay dir
+		homeDir, _ := os.UserHomeDir()
+		overlaySecret := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".secret")
+		data, err := os.ReadFile(overlaySecret)
+		if err != nil {
+			t.Fatalf("Overlay .secret was not created: %v", err)
+		}
+		if string(data) != "top-secret" {
+			t.Errorf("Overlay .secret content mismatch: got %q", string(data))
+		}
+	})
+
+	// Test GET /api/overlays again — verify newly added path appears
+	t.Run("07_VerifyAddedPathInOverlays", func(t *testing.T) {
+		result := env.GetOverlayAPI()
+
+		var repoOverlay *OverlayAPIInfo
+		for i := range result.Overlays {
+			if result.Overlays[i].RepoName == repoName {
+				repoOverlay = &result.Overlays[i]
+				break
+			}
+		}
+		if repoOverlay == nil {
+			t.Fatal("Expected overlay info for repo")
+		}
+
+		foundSecret := false
+		for _, dp := range repoOverlay.DeclaredPaths {
+			if dp.Path == ".secret" && dp.Source == "repo" && dp.Status == "synced" {
+				foundSecret = true
+				break
+			}
+		}
+		if !foundSecret {
+			t.Error("Expected .secret as a repo declared path with status synced")
+		}
+	})
+
+	// Test POST /api/overlays/dismiss-nudge
+	t.Run("08_DismissNudge", func(t *testing.T) {
+		env.PostDismissNudge(repoName)
+
+		result := env.GetOverlayAPI()
+		for _, o := range result.Overlays {
+			if o.RepoName == repoName {
+				if !o.NudgeDismissed {
+					t.Error("Expected nudge_dismissed=true after dismiss")
+				}
+				return
+			}
+		}
+		t.Fatal("Repo not found in overlay response after dismiss")
+	})
+
+	// Cleanup
+	t.Run("09_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(sessionID)
+	})
+}
