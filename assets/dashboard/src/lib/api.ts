@@ -10,6 +10,9 @@ import type {
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
   OpenVSCodeResponse,
+  OverlayAddRequest,
+  OverlayAddResponse,
+  OverlayScanResponse,
   OverlaysResponse,
   PRCheckoutResponse,
   PRRefreshResponse,
@@ -363,6 +366,29 @@ export async function refreshOverlay(workspaceId: string): Promise<{ status: str
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to refresh overlay');
   }
+  return response.json();
+}
+
+export async function scanOverlayFiles(
+  workspaceId: string,
+  repoName: string
+): Promise<OverlayScanResponse> {
+  const response = await fetch('/api/overlays/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId, repo_name: repoName }),
+  });
+  if (!response.ok) throw new Error('Failed to scan overlay files');
+  return response.json();
+}
+
+export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAddResponse> {
+  const response = await fetch('/api/overlays/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) throw new Error('Failed to add overlay files');
   return response.json();
 }
 
