@@ -1528,3 +1528,213 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 		t.Logf("Command session signal works: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
 	})
 }
+
+// TestE2EOverlayCompounding validates the full overlay compounding loop:
+// overlay files are copied into workspaces at spawn time, modifications by agents
+// propagate back to the overlay directory, and changes propagate to sibling workspaces.
+func TestE2EOverlayCompounding(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-compound-test"
+	const repoName = "compound-test-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	// Step 1: Create config
+	t.Run("01_CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	// Step 2: Create git repo with .gitignore covering overlay-managed files
+	t.Run("02_CreateGitRepo", func(t *testing.T) {
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		// Create README
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Compound Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+
+		// Create .gitignore covering overlay-managed files
+		gitignore := ".env\n.claude/\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+	})
+
+	// Step 3: Enable git SCM (so each session gets its own workspace)
+	t.Run("03_EnableGitSCM", func(t *testing.T) {
+		env.SetSourceCodeManagement("git")
+	})
+
+	// Step 4: Enable compounding with fast debounce
+	t.Run("04_SetCompoundConfig", func(t *testing.T) {
+		env.SetCompoundConfig(500)
+	})
+
+	// Step 5: Create overlay files
+	t.Run("05_CreateOverlayFiles", func(t *testing.T) {
+		env.CreateOverlayFile(repoName, ".env", "DB_HOST=localhost\nDB_PORT=5432\n")
+		env.CreateOverlayFile(repoName, ".claude/settings.json", `{"model":"sonnet"}`)
+	})
+
+	// Step 6: Start daemon
+	t.Run("06_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Step 7: Spawn first session
+	var session1ID string
+	var workspace1Path string
+	t.Run("07_SpawnSession1", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		workspace1Path = env.GetWorkspacePath(session1ID)
+		t.Logf("Session 1: %s at %s", session1ID, workspace1Path)
+	})
+
+	// Step 8: Verify overlay was copied to workspace1
+	t.Run("08_VerifyOverlayCopied", func(t *testing.T) {
+		envFile := filepath.Join(workspace1Path, ".env")
+		data, err := os.ReadFile(envFile)
+		if err != nil {
+			t.Fatalf("Overlay .env was not copied to workspace1: %v", err)
+		}
+		expected := "DB_HOST=localhost\nDB_PORT=5432\n"
+		if string(data) != expected {
+			t.Errorf("Overlay .env content mismatch: got %q, want %q", string(data), expected)
+		}
+
+		settingsFile := filepath.Join(workspace1Path, ".claude", "settings.json")
+		data, err = os.ReadFile(settingsFile)
+		if err != nil {
+			t.Fatalf("Overlay .claude/settings.json was not copied to workspace1: %v", err)
+		}
+		if string(data) != `{"model":"sonnet"}` {
+			t.Errorf("Overlay settings content mismatch: got %q", string(data))
+		}
+	})
+
+	// Step 9: Spawn second session (gets its own workspace via git SCM)
+	var session2ID string
+	var workspace2Path string
+	t.Run("09_SpawnSession2", func(t *testing.T) {
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		workspace2Path = env.GetWorkspacePath(session2ID)
+		if workspace2Path == workspace1Path {
+			t.Fatalf("Session 2 should have a different workspace, got same path: %s", workspace2Path)
+		}
+		t.Logf("Session 2: %s at %s", session2ID, workspace2Path)
+	})
+
+	// Step 10: Verify overlay was also copied to workspace2
+	t.Run("10_VerifyOverlayCopiedToWorkspace2", func(t *testing.T) {
+		envFile := filepath.Join(workspace2Path, ".env")
+		data, err := os.ReadFile(envFile)
+		if err != nil {
+			t.Fatalf("Overlay .env was not copied to workspace2: %v", err)
+		}
+		expected := "DB_HOST=localhost\nDB_PORT=5432\n"
+		if string(data) != expected {
+			t.Errorf("Overlay .env content mismatch in workspace2: got %q, want %q", string(data), expected)
+		}
+	})
+
+	// Step 11: Simulate agent modifying .env in workspace1
+	newContent := "DB_HOST=production.example.com\nDB_PORT=5432\nREDIS_URL=redis://cache:6379\n"
+	t.Run("11_ModifyFileInWorkspace1", func(t *testing.T) {
+		envFile := filepath.Join(workspace1Path, ".env")
+		if err := os.WriteFile(envFile, []byte(newContent), 0644); err != nil {
+			t.Fatalf("Failed to write modified .env: %v", err)
+		}
+		t.Logf("Modified .env in workspace1")
+	})
+
+	// Step 12: Wait for propagation to overlay dir and workspace2
+	t.Run("12_WaitForPropagation", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		overlayEnvPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		workspace2EnvPath := filepath.Join(workspace2Path, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			overlayData, err1 := os.ReadFile(overlayEnvPath)
+			ws2Data, err2 := os.ReadFile(workspace2EnvPath)
+
+			overlayMatch := err1 == nil && string(overlayData) == newContent
+			ws2Match := err2 == nil && string(ws2Data) == newContent
+
+			if overlayMatch && ws2Match {
+				t.Logf("Propagation complete: overlay and workspace2 both have new content")
+				return
+			}
+
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		// If we get here, propagation timed out — log what we have for debugging
+		overlayData, _ := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		ws2Data, _ := os.ReadFile(filepath.Join(workspace2Path, ".env"))
+		t.Fatalf("Propagation timed out.\nOverlay .env: %q\nWorkspace2 .env: %q\nExpected: %q",
+			string(overlayData), string(ws2Data), newContent)
+	})
+
+	// Step 13: Verify overlay dir has the updated content
+	t.Run("13_VerifyOverlayUpdated", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		overlayEnvPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		data, err := os.ReadFile(overlayEnvPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay .env: %v", err)
+		}
+		if string(data) != newContent {
+			t.Errorf("Overlay .env not updated: got %q, want %q", string(data), newContent)
+		}
+	})
+
+	// Step 14: Verify sibling workspace has the propagated content
+	t.Run("14_VerifySiblingPropagated", func(t *testing.T) {
+		ws2EnvPath := filepath.Join(workspace2Path, ".env")
+		data, err := os.ReadFile(ws2EnvPath)
+		if err != nil {
+			t.Fatalf("Failed to read workspace2 .env: %v", err)
+		}
+		if string(data) != newContent {
+			t.Errorf("Workspace2 .env not propagated: got %q, want %q", string(data), newContent)
+		}
+	})
+
+	// Step 15: Dispose sessions
+	t.Run("15_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}

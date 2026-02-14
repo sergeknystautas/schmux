@@ -1242,3 +1242,68 @@ func (e *Env) ReloadConfig() {
 		e.T.Fatalf("Config reload failed (status %d): %s", resp.StatusCode, string(body))
 	}
 }
+
+// SetCompoundConfig enables compounding in the config with a fast debounce for testing.
+func (e *Env) SetCompoundConfig(debounceMs int) {
+	e.T.Helper()
+	e.T.Logf("Setting compound config: enabled=true debounce_ms=%d", debounceMs)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	schmuxDir := filepath.Join(homeDir, ".schmux")
+	configPath := filepath.Join(schmuxDir, "config.json")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	enabled := true
+	cfg.Compound = &config.CompoundConfig{
+		Enabled:    &enabled,
+		DebounceMs: debounceMs,
+	}
+
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
+// CreateOverlayFile writes a file into ~/.schmux/overlays/<repoName>/<relPath>.
+func (e *Env) CreateOverlayFile(repoName, relPath, content string) {
+	e.T.Helper()
+	e.T.Logf("Creating overlay file: repo=%s path=%s", repoName, relPath)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, relPath)
+	if err := os.MkdirAll(filepath.Dir(overlayPath), 0755); err != nil {
+		e.T.Fatalf("Failed to create overlay directory: %v", err)
+	}
+	if err := os.WriteFile(overlayPath, []byte(content), 0644); err != nil {
+		e.T.Fatalf("Failed to write overlay file: %v", err)
+	}
+}
+
+// GetWorkspacePath returns the filesystem path for a workspace by session ID.
+func (e *Env) GetWorkspacePath(sessionID string) string {
+	e.T.Helper()
+
+	workspaces := e.GetAPIWorkspaces()
+	for _, ws := range workspaces {
+		for _, sess := range ws.Sessions {
+			if sess.ID == sessionID {
+				return ws.Path
+			}
+		}
+	}
+
+	e.T.Fatalf("Could not find workspace path for session %s", sessionID)
+	return ""
+}

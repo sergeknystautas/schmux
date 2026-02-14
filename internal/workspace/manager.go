@@ -184,6 +184,14 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 				}
+				// Re-copy overlay files (git clean deletes untracked overlay files)
+				if repoConfig, found := m.findRepoByURL(repoURL); found {
+					if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+						fmt.Printf("[workspace] warning: failed to re-copy overlay files: %v\n", err)
+					} else if manifest != nil {
+						m.state.UpdateOverlayManifest(w.ID, manifest)
+					}
+				}
 				return &w, nil
 			}
 		}
@@ -209,6 +217,14 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
+				}
+				// Re-copy overlay files (git clean deletes untracked overlay files)
+				if repoConfig, found := m.findRepoByURL(repoURL); found {
+					if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
+						fmt.Printf("[workspace] warning: failed to re-copy overlay files: %v\n", err)
+					} else if manifest != nil {
+						m.state.UpdateOverlayManifest(w.ID, manifest)
+					}
 				}
 				// Update branch in state only after successful prepare
 				w.Branch = branch

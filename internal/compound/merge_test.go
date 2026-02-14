@@ -22,16 +22,10 @@ func writeFile(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-// hashOf returns the SHA-256 hex digest of content written to a temp file.
+// hashOf returns the SHA-256 hex digest of the given content.
 func hashOf(t *testing.T, content string) string {
 	t.Helper()
-	tmp := t.TempDir()
-	p := writeFile(t, tmp, "hashme", content)
-	h, err := FileHash(p)
-	if err != nil {
-		t.Fatalf("hashOf: %v", err)
-	}
-	return h
+	return HashBytes([]byte(content))
 }
 
 // mockExecutor returns an LLMExecutor that returns a canned response.
