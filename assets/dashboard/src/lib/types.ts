@@ -148,11 +148,42 @@ export interface DetectToolsResponse {
   tools: DetectTool[];
 }
 
+export interface OverlayPathInfo {
+  path: string;
+  source: 'builtin' | 'global' | 'repo';
+  status: 'synced' | 'pending';
+}
+
+export interface OverlayScanCandidate {
+  path: string;
+  size: number;
+  detected: boolean;
+}
+
+export interface OverlayScanResponse {
+  candidates: OverlayScanCandidate[];
+}
+
+export interface OverlayAddRequest {
+  workspace_id: string;
+  repo_name: string;
+  paths: string[];
+  custom_paths: string[];
+}
+
+export interface OverlayAddResponse {
+  success: boolean;
+  copied: string[];
+  registered: string[];
+}
+
 export interface OverlayInfo {
   repo_name: string;
   path: string;
   exists: boolean;
   file_count: number;
+  declared_paths: OverlayPathInfo[];
+  nudge_dismissed: boolean;
 }
 
 export interface OverlaysResponse {
