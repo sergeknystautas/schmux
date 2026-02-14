@@ -263,7 +263,8 @@ if [ "$RUN_UNIT" = true ]; then
     echo ""
 
     # Run tests
-    if eval $TEST_CMD; then
+    UNIT_OUTPUT_FILE=$(mktemp)
+    if eval $TEST_CMD 2>&1 | tee "$UNIT_OUTPUT_FILE"; then
         echo ""
         echo -e "${GREEN}✅ Unit tests passed${NC}"
 
@@ -279,8 +280,20 @@ if [ "$RUN_UNIT" = true ]; then
     else
         echo ""
         echo -e "${RED}❌ Unit tests failed${NC}"
+
+        # Show failure summary with re-run commands
+        FAILED_TESTS=$(grep '^--- FAIL:' "$UNIT_OUTPUT_FILE" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
+        if [ -n "$FAILED_TESTS" ]; then
+            echo ""
+            echo -e "${BLUE}Re-run individually with:${NC}"
+            while IFS= read -r test_name; do
+                echo -e "  go test -run ${test_name} ./..."
+            done <<< "$FAILED_TESTS"
+        fi
+
         EXIT_CODE=1
     fi
+    rm -f "$UNIT_OUTPUT_FILE"
 
     echo ""
 fi
@@ -353,16 +366,16 @@ if [ "$RUN_E2E" = true ]; then
                         echo ""
                         echo -e "${RED}❌ E2E tests failed${NC}"
 
-                        # Show failure summary
-                        FAILED_TESTS=$(grep '^--- FAIL:' "$E2E_OUTPUT_FILE" | sed 's/--- FAIL: /  /;s/ (.*//')
+                        # Show failure summary with re-run commands
+                        FAILED_TESTS=$(grep '^--- FAIL:' "$E2E_OUTPUT_FILE" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
                         if [ -n "$FAILED_TESTS" ]; then
                             echo ""
                             echo -e "${RED}Failed tests:${NC}"
-                            echo "$FAILED_TESTS"
                             echo ""
-                            echo -e "${BLUE}Re-run a single test with:${NC}"
-                            FIRST_FAILED=$(echo "$FAILED_TESTS" | head -1 | sed 's/^ *//' | cut -d/ -f1)
-                            echo -e "  ./test.sh --e2e --run ${FIRST_FAILED}"
+                            echo -e "${BLUE}Re-run individually with:${NC}"
+                            while IFS= read -r test_name; do
+                                echo -e "  ./test.sh --e2e --run ${test_name}"
+                            done <<< "$FAILED_TESTS"
                         fi
 
                         EXIT_CODE=1
