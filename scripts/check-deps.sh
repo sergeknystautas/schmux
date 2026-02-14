@@ -86,7 +86,8 @@ check_deps() {
 }
 
 # Check that npm packages are installed in a given directory.
-# If node_modules is missing or stale (package.json newer), prompt to install.
+# If node_modules is missing, prompt to install.
+# If node_modules exists but package files are newer, silently sync.
 #
 # Usage: check_npm_deps "/path/to/dir-with-package.json"
 check_npm_deps() {
@@ -96,36 +97,28 @@ check_npm_deps() {
         return 0
     fi
 
-    # Already installed and up-to-date
-    if [[ -d "$dir/node_modules" ]] && [[ "$dir/node_modules" -nt "$dir/package.json" ]]; then
-        return 0
-    fi
-
     if ! command -v npm >/dev/null 2>&1; then
         echo -e "\033[0;31mnpm is not installed. Cannot install node packages.\033[0m"
         exit 1
     fi
 
-    local reason="missing"
-    if [[ -d "$dir/node_modules" ]]; then
-        reason="out of date"
+    # No node_modules at all — install automatically
+    if [[ ! -d "$dir/node_modules" ]]; then
+        echo -e "\033[0;36mInstalling npm packages in ${dir}...\033[0m"
+        (cd "$dir" && npm install)
+        return 0
     fi
 
-    echo ""
-    echo -e "\033[1;33mNode packages ${reason} in ${dir}\033[0m"
-    echo ""
-    echo "Will run:"
-    echo "  npm install (in $dir)"
-    echo ""
-
-    read -p "Install now? [y/N] " answer
-    if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
-        echo "Aborting. Run 'npm install' in $dir manually and re-run."
-        exit 1
+    # node_modules exists — silently sync if package files changed
+    local needs_sync=false
+    if [[ "$dir/package.json" -nt "$dir/node_modules" ]]; then
+        needs_sync=true
+    elif [[ -f "$dir/package-lock.json" ]] && [[ "$dir/package-lock.json" -nt "$dir/node_modules" ]]; then
+        needs_sync=true
     fi
 
-    echo ""
-    echo -e "\033[0;36mInstalling npm packages...\033[0m"
-    (cd "$dir" && npm install)
-    echo ""
+    if [[ "$needs_sync" == "true" ]]; then
+        (cd "$dir" && npm install --silent)
+        touch "$dir/node_modules"
+    fi
 }
