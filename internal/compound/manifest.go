@@ -3,8 +3,12 @@ package compound
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 const maxBinaryCheckSize = 512
@@ -40,7 +44,7 @@ func IsBinary(path string) bool {
 
 	buf := make([]byte, maxBinaryCheckSize)
 	n, err := f.Read(buf)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return false
 	}
 	for i := 0; i < n; i++ {
@@ -49,4 +53,21 @@ func IsBinary(path string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateRelPath checks that a relative path does not escape the base directory
+// via ".." traversal. Returns an error if the path is unsafe.
+func ValidateRelPath(relPath string) error {
+	if relPath == "" {
+		return fmt.Errorf("empty relative path")
+	}
+	// Clean the path and check for traversal
+	cleaned := filepath.Clean(relPath)
+	if filepath.IsAbs(cleaned) {
+		return fmt.Errorf("absolute path not allowed: %s", relPath)
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path traversal not allowed: %s", relPath)
+	}
+	return nil
 }

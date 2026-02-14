@@ -449,6 +449,11 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 		// Build propagator that pushes overlay changes to sibling workspaces
 		propagator := func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
+			// Validate relPath to prevent path traversal
+			if err := compound.ValidateRelPath(relPath); err != nil {
+				fmt.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
+				return
+			}
 			for _, w := range st.GetWorkspaces() {
 				if w.ID == sourceWorkspaceID || w.Repo != repoURL || w.RemoteHostID != "" {
 					continue
@@ -474,17 +479,17 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
 					continue
 				}
-				// Update the target workspace's manifest hash
-				newHash, _ := compound.FileHash(destPath)
-				if newHash != "" {
-					st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
-				}
+				// Update the target workspace's manifest hash (content already in memory)
+				newHash := compound.HashBytes(content)
+				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
 				fmt.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
 			}
 		}
 
 		var err error
-		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), llmExecutor, propagator)
+		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), llmExecutor, propagator, func(workspaceID, relPath, hash string) {
+			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
+		})
 		if err != nil {
 			fmt.Printf("[compound] warning: failed to create compounder: %v\n", err)
 		}
@@ -517,7 +522,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		})
 
 		wm.SetCompoundReconcile(func(workspaceID string) {
-			compounder.Reconcile(workspaceID)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			compounder.Reconcile(ctx, workspaceID)
 			compounder.RemoveWorkspace(workspaceID)
 		})
 

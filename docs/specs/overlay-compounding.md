@@ -205,13 +205,13 @@ New optional config field in `~/.schmux/config.json`:
 {
   "compound": {
     "enabled": true,
-    "debounce_seconds": 2,
+    "debounce_ms": 2000,
     "llm_target": "claude-haiku"
   }
 }
 ```
 
-Defaults: enabled=true (if overlays exist), debounce=2s, llm_target falls back to nudgenik target.
+Defaults: enabled=true (if overlays exist), debounce=2000ms, llm_target falls back to nudgenik target.
 
 ## Implementation Steps
 
