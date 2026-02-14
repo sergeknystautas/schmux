@@ -9,6 +9,10 @@ import type {
   GitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
+  LoreApplyResponse,
+  LoreEntriesResponse,
+  LoreProposal,
+  LoreProposalsResponse,
   OpenVSCodeResponse,
   OverlayAddRequest,
   OverlayAddResponse,
@@ -814,4 +818,50 @@ export async function devRebuild(
     throw new Error(text || 'Failed to trigger rebuild');
   }
   return response.json();
+}
+
+// ============================================================================
+// Lore API
+// ============================================================================
+
+export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
+  const res = await fetch(`/api/lore/${repoName}/proposals`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
+  const res = await fetch(`/api/lore/${repoName}/proposals/${id}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function applyLoreProposal(
+  repoName: string,
+  id: string,
+  overrides?: Record<string, string>
+): Promise<LoreApplyResponse> {
+  const res = await fetch(`/api/lore/${repoName}/proposals/${id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: overrides ? JSON.stringify({ overrides }) : undefined,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
+  const res = await fetch(`/api/lore/${repoName}/proposals/${id}/dismiss`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function getLoreEntries(repoName: string): Promise<LoreEntriesResponse> {
+  const res = await fetch(`/api/lore/${repoName}/entries`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function triggerLoreCuration(repoName: string): Promise<void> {
+  const res = await fetch(`/api/lore/${repoName}/curate`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
 }

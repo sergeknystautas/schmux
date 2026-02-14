@@ -370,3 +370,41 @@ export interface RemoteSpawnRequest {
   prompt: string;
   nickname: string;
 }
+
+export interface LoreEntry {
+  ts: string;
+  ws?: string;
+  agent?: string;
+  type?: string;
+  text?: string;
+  state_change?: string;
+  entry_ts?: string;
+  proposal_id?: string;
+}
+
+export interface LoreProposal {
+  id: string;
+  repo: string;
+  created_at: string;
+  status: 'pending' | 'stale' | 'applied' | 'dismissed';
+  source_count: number;
+  sources: string[];
+  file_hashes: Record<string, string>;
+  proposed_files: Record<string, string>;
+  diff_summary: string;
+  entries_used: string[];
+  entries_discarded?: Record<string, string>;
+}
+
+export interface LoreProposalsResponse {
+  proposals: LoreProposal[];
+}
+
+export interface LoreEntriesResponse {
+  entries: LoreEntry[];
+}
+
+export interface LoreApplyResponse {
+  status: string;
+  branch: string;
+}
