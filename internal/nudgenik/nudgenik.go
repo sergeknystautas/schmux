@@ -10,9 +10,16 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
+
+func init() {
+	// Register the Result type for JSON schema generation.
+	// The "source" field is excluded as it's set by code, not the LLM.
+	schema.Register(schema.LabelNudgeNik, Result{}, "source")
+}
 
 const (
 	// Prompt is the NudgeNik prompt prefix.
@@ -71,12 +78,15 @@ func IsEnabled(cfg *config.Config) bool {
 }
 
 // Result is the parsed NudgeNik response.
+// Struct tags control JSON schema generation via swaggest/jsonschema-go.
+// Note: Source is internal (not in schema), set by code after parsing.
 type Result struct {
-	State      string   `json:"state"`
-	Confidence string   `json:"confidence,omitempty"`
-	Evidence   []string `json:"evidence,omitempty"`
-	Summary    string   `json:"summary"`
-	Source     string   `json:"source,omitempty"` // "agent" for direct signal, "llm" for nudgenik
+	State      string   `json:"state" required:"true"`
+	Confidence string   `json:"confidence,omitempty" required:"true"`
+	Evidence   []string `json:"evidence,omitempty" required:"true" nullable:"false"`
+	Summary    string   `json:"summary" required:"true"`
+	Source     string   `json:"source,omitempty"`
+	_          struct{} `additionalProperties:"false"`
 }
 
 // AskForSession captures the latest session output and asks NudgeNik for feedback.
@@ -121,7 +131,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()
 
-	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, oneshot.SchemaNudgeNik, nudgenikTimeout, "")
+	response, err := oneshot.ExecuteTarget(timeoutCtx, cfg, targetName, input, schema.LabelNudgeNik, nudgenikTimeout, "")
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return Result{}, ErrTargetNotFound

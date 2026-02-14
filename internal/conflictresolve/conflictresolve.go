@@ -11,7 +11,13 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
+
+func init() {
+	// Register the OneshotResult type for JSON schema generation.
+	schema.Register(schema.LabelConflictResolve, OneshotResult{})
+}
 
 var (
 	ErrDisabled        = errors.New("conflict resolve is disabled")
@@ -23,17 +29,21 @@ var (
 var executorFunc = oneshot.ExecuteTarget
 
 // FileAction describes what the LLM did to resolve a single conflicted file.
+// Struct tags control JSON schema generation via swaggest/jsonschema-go.
 type FileAction struct {
-	Action      string `json:"action"`                // "modified" or "deleted"
-	Description string `json:"description,omitempty"` // optional per-file explanation
+	Action      string   `json:"action" required:"true"`      // "modified" or "deleted"
+	Description string   `json:"description" required:"true"` // per-file explanation
+	_           struct{} `additionalProperties:"false"`
 }
 
 // OneshotResult is the parsed response from a conflict resolution one-shot call.
+// Struct tags control JSON schema generation via swaggest/jsonschema-go.
 type OneshotResult struct {
-	AllResolved bool                  `json:"all_resolved"`
-	Confidence  string                `json:"confidence"`
-	Summary     string                `json:"summary"`
-	Files       map[string]FileAction `json:"files"`
+	AllResolved bool                  `json:"all_resolved" required:"true"`
+	Confidence  string                `json:"confidence" required:"true"`
+	Summary     string                `json:"summary" required:"true"`
+	Files       map[string]FileAction `json:"files" required:"true" nullable:"false"`
+	_           struct{}              `additionalProperties:"false"`
 }
 
 // BuildPrompt constructs the prompt for a conflict resolution one-shot call.
@@ -109,7 +119,7 @@ func Execute(ctx context.Context, cfg *config.Config, prompt string, workspacePa
 
 	timeout := time.Duration(cfg.GetConflictResolveTimeoutMs()) * time.Millisecond
 
-	response, err := executorFunc(ctx, cfg, targetName, prompt, oneshot.SchemaConflictResolve, timeout, workspacePath)
+	response, err := executorFunc(ctx, cfg, targetName, prompt, schema.LabelConflictResolve, timeout, workspacePath)
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return OneshotResult{}, "", ErrTargetNotFound
