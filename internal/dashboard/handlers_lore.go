@@ -92,7 +92,8 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(proposal)
 }
 
-// handleLoreApply applies a proposal: creates a worktree, commits changes, and optionally pushes.
+// handleLoreApply applies a proposal: creates a worktree, commits changes, pushes the branch,
+// and optionally creates a PR when auto_pr is enabled.
 func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -151,22 +152,41 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Push if configured
+	// Always push the branch after a successful commit
+	if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
+		http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Optionally create a PR when auto_pr is enabled
+	var prURL string
 	if s.config.GetLoreAutoPR() {
-		if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
-			http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
-			return
+		title := "chore: update instruction files with agent lore"
+		body := proposal.DiffSummary
+		if body == "" {
+			body = fmt.Sprintf("Automated lore update — %d file(s) changed.", len(proposal.ProposedFiles))
+		}
+		url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, title, body)
+		if err != nil {
+			// Log but don't fail — the commit and push already succeeded
+			fmt.Fprintf(os.Stderr, "schmux: auto-PR creation failed (branch %s pushed): %v\n", result.Branch, err)
+		} else {
+			prURL = url
 		}
 	}
 
 	// Update proposal status
 	s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"status": "applied",
 		"branch": result.Branch,
-	})
+	}
+	if prURL != "" {
+		resp["pr_url"] = prURL
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleLoreDismiss marks a proposal as dismissed.
