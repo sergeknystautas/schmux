@@ -75,6 +75,7 @@ type Config struct {
 	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
 	Compound                   *CompoundConfig        `json:"compound,omitempty"`
 	Overlay                    *OverlayConfig         `json:"overlay,omitempty"`
+	Lore                       *LoreConfig            `json:"lore,omitempty"`
 	Sessions                   *SessionsConfig        `json:"sessions,omitempty"`
 	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
 	Network                    *NetworkConfig         `json:"network,omitempty"`
@@ -255,6 +256,17 @@ type CompoundConfig struct {
 // OverlayConfig represents global overlay path configuration.
 type OverlayConfig struct {
 	Paths []string `json:"paths,omitempty"` // additional global overlay paths
+}
+
+// LoreConfig represents configuration for the lore (continual learning) system.
+type LoreConfig struct {
+	Enabled          *bool    `json:"enabled,omitempty"`            // explicitly enable/disable (default: true)
+	Target           string   `json:"llm_target,omitempty"`         // LLM target for curator (falls back to compound target)
+	AutoPR           *bool    `json:"auto_pr,omitempty"`            // auto-create PR after pushing lore branch (default: false)
+	CurateOnDispose  *bool    `json:"curate_on_dispose,omitempty"`  // trigger curator on session dispose (default: true)
+	CurateDebounceMs int      `json:"curate_debounce_ms,omitempty"` // debounce for auto-curation (default 30000)
+	PruneAfterDays   int      `json:"prune_after_days,omitempty"`   // days before pruning applied/dismissed entries (default 30)
+	InstructionFiles []string `json:"instruction_files,omitempty"`  // instruction file patterns to manage
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -562,6 +574,77 @@ func (c *Config) GetCompoundEnabled() bool {
 		return true // enabled by default
 	}
 	return *c.Compound.Enabled
+}
+
+// DefaultInstructionFiles are the instruction file patterns checked by the lore curator.
+var DefaultInstructionFiles = []string{
+	"CLAUDE.md",
+	"AGENTS.md",
+	".cursorrules",
+	".github/copilot-instructions.md",
+}
+
+// GetLoreEnabled returns whether the lore system is enabled.
+// Defaults to true if not explicitly configured.
+func (c *Config) GetLoreEnabled() bool {
+	if c == nil || c.Lore == nil || c.Lore.Enabled == nil {
+		return true
+	}
+	return *c.Lore.Enabled
+}
+
+// GetLoreTarget returns the configured lore curator LLM target.
+// Falls back to the compound target if not explicitly configured.
+func (c *Config) GetLoreTarget() string {
+	if c != nil && c.Lore != nil && c.Lore.Target != "" {
+		return c.Lore.Target
+	}
+	return c.GetCompoundTarget()
+}
+
+// GetLoreAutoPR returns whether to auto-create a PR after pushing a lore branch.
+// Defaults to false.
+func (c *Config) GetLoreAutoPR() bool {
+	if c == nil || c.Lore == nil || c.Lore.AutoPR == nil {
+		return false
+	}
+	return *c.Lore.AutoPR
+}
+
+// GetLoreCurateOnDispose returns whether to trigger the curator on session dispose.
+// Defaults to true.
+func (c *Config) GetLoreCurateOnDispose() bool {
+	if c == nil || c.Lore == nil || c.Lore.CurateOnDispose == nil {
+		return true
+	}
+	return *c.Lore.CurateOnDispose
+}
+
+// GetLoreCurateDebounceMs returns the debounce interval for auto-curation in milliseconds.
+// Defaults to 30000 (30 seconds).
+func (c *Config) GetLoreCurateDebounceMs() int {
+	if c == nil || c.Lore == nil || c.Lore.CurateDebounceMs <= 0 {
+		return 30000
+	}
+	return c.Lore.CurateDebounceMs
+}
+
+// GetLorePruneAfterDays returns the number of days before pruning applied/dismissed entries.
+// Defaults to 30.
+func (c *Config) GetLorePruneAfterDays() int {
+	if c == nil || c.Lore == nil || c.Lore.PruneAfterDays <= 0 {
+		return 30
+	}
+	return c.Lore.PruneAfterDays
+}
+
+// GetLoreInstructionFiles returns the instruction file patterns managed by the lore curator.
+// Defaults to DefaultInstructionFiles if not configured.
+func (c *Config) GetLoreInstructionFiles() []string {
+	if c != nil && c.Lore != nil && len(c.Lore.InstructionFiles) > 0 {
+		return c.Lore.InstructionFiles
+	}
+	return DefaultInstructionFiles
 }
 
 // DefaultOverlayPaths are always watched for all repos.
