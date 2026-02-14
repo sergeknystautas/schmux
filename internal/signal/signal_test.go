@@ -463,3 +463,43 @@ func TestParseSignalsWhitespaceOnlyMessage(t *testing.T) {
 		t.Errorf("message = %q, want %q", signals[0].Message, " ")
 	}
 }
+
+func TestParseSignalFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    *Signal
+	}{
+		{"completed with message", "completed Implemented login\n", &Signal{State: "completed", Message: "Implemented login"}},
+		{"completed no trailing newline", "completed Implemented login", &Signal{State: "completed", Message: "Implemented login"}},
+		{"needs_input", "needs_input Should I delete these files?", &Signal{State: "needs_input", Message: "Should I delete these files?"}},
+		{"working no message", "working", &Signal{State: "working", Message: ""}},
+		{"working with trailing newline", "working\n", &Signal{State: "working", Message: ""}},
+		{"error with message", "error Build failed", &Signal{State: "error", Message: "Build failed"}},
+		{"invalid state", "banana something", nil},
+		{"empty string", "", nil},
+		{"whitespace only", "  \n  ", nil},
+		{"multiple lines uses first", "completed Done\nneeds_input Wait", &Signal{State: "completed", Message: "Done"}},
+		{"message with spaces", "completed This is a long message with spaces", &Signal{State: "completed", Message: "This is a long message with spaces"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseSignalFile(tt.content)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("ParseSignalFile(%q) = %+v, want nil", tt.content, got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("ParseSignalFile(%q) = nil, want %+v", tt.content, tt.want)
+			}
+			if got.State != tt.want.State {
+				t.Errorf("State = %q, want %q", got.State, tt.want.State)
+			}
+			if got.Message != tt.want.Message {
+				t.Errorf("Message = %q, want %q", got.Message, tt.want.Message)
+			}
+		})
+	}
+}
