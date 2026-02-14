@@ -651,6 +651,7 @@ func (c *Config) GetLoreInstructionFiles() []string {
 var DefaultOverlayPaths = []string{
 	".claude/settings.json",
 	".claude/settings.local.json",
+	".claude/lore.jsonl",
 }
 
 // GetOverlayPaths returns the deduplicated union of hardcoded defaults,

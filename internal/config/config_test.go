@@ -1569,6 +1569,19 @@ func TestGetLoreAutoPR_Default(t *testing.T) {
 	}
 }
 
+func TestDefaultOverlayPaths_IncludesLore(t *testing.T) {
+	found := false
+	for _, p := range DefaultOverlayPaths {
+		if p == ".claude/lore.jsonl" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("DefaultOverlayPaths should include .claude/lore.jsonl")
+	}
+}
+
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
