@@ -67,8 +67,13 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 		return "", err
 	}
 
-	// Build exec command with prompt as final argument (safe from shell injection)
-	execCmd := exec.CommandContext(ctx, cmdParts[0], append(cmdParts[1:], prompt)...)
+	// Build exec command - prompt passed via stdin
+	execCmd := exec.CommandContext(ctx, cmdParts[0], cmdParts[1:]...)
+	// For Codex, add "-" placeholder to indicate stdin; Claude/Gemini read from stdin automatically
+	if agentName == "codex" {
+		execCmd.Args = append(execCmd.Args, "-")
+	}
+	execCmd.Stdin = strings.NewReader(prompt)
 	if len(env) > 0 {
 		execCmd.Env = mergeEnv(env)
 	}
@@ -102,7 +107,8 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 		return "", fmt.Errorf("command cannot be empty")
 	}
 
-	execCmd := exec.CommandContext(ctx, parts[0], append(parts[1:], prompt)...)
+	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	execCmd.Stdin = strings.NewReader(prompt)
 	if len(env) > 0 {
 		execCmd.Env = mergeEnv(env)
 	}
