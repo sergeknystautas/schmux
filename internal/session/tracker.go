@@ -35,15 +35,14 @@ type SessionTracker struct {
 	sessionID      string
 	tmuxSession    string
 	state          state.StateStore
-	signalDetector *signal.SignalDetector
+	fileWatcher    *signal.FileWatcher
 	outputCallback func([]byte)
 
-	mu               sync.RWMutex
-	clientCh         chan []byte
-	ptmx             *os.File
-	attachCmd        *exec.Cmd
-	lastEvent        time.Time
-	scrollbackParsed bool // true after first scrollback parse (prevents re-parsing on PTY reconnect)
+	mu        sync.RWMutex
+	clientCh  chan []byte
+	ptmx      *os.File
+	attachCmd *exec.Cmd
+	lastEvent time.Time
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -60,7 +59,9 @@ func (t *SessionTracker) IsAttached() bool {
 }
 
 // NewSessionTracker creates a tracker for a session.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalCallback func(signal.Signal), outputCallback func([]byte)) *SessionTracker {
+// If signalFilePath is non-empty and signalCallback is non-nil, a FileWatcher
+// is created to detect signal changes via filesystem notifications.
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalFilePath string, signalCallback func(signal.Signal), outputCallback func([]byte)) *SessionTracker {
 	t := &SessionTracker{
 		sessionID:      sessionID,
 		tmuxSession:    tmuxSession,
@@ -69,11 +70,13 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signa
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 	}
-	if signalCallback != nil {
-		t.signalDetector = signal.NewSignalDetector(sessionID, signalCallback)
-		t.signalDetector.SetNearMissCallback(func(line string) {
-			fmt.Printf("[signal] %s - potential missed signal: %q\n", sessionID, line)
-		})
+	if signalFilePath != "" && signalCallback != nil {
+		fw, err := signal.NewFileWatcher(sessionID, signalFilePath, signalCallback)
+		if err != nil {
+			fmt.Printf("[tracker] %s - failed to create file watcher: %v\n", sessionID, err)
+		} else {
+			t.fileWatcher = fw
+		}
 	}
 	return t
 }
@@ -88,6 +91,9 @@ func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
 		t.closePTY()
+		if t.fileWatcher != nil {
+			t.fileWatcher.Stop()
+		}
 		<-t.doneCh
 	})
 }
@@ -188,11 +194,6 @@ func (t *SessionTracker) run() {
 			}
 		}
 
-		// Flush any buffered signal data on disconnect
-		if t.signalDetector != nil {
-			t.signalDetector.Flush()
-		}
-
 		if t.waitOrStop(trackerRestartDelay) {
 			return
 		}
@@ -219,36 +220,6 @@ func (t *SessionTracker) attachAndRead() error {
 		return fmt.Errorf("failed to get window size: %w", err)
 	}
 
-	// Parse scrollback for signals missed while daemon was down (first attach only).
-	// Suppress the callback during scrollback parsing — signals detected here are
-	// from before the daemon restart. The agent's current state is already persisted
-	// in sess.Nudge, so re-firing would cause duplicate notifications.
-	if t.signalDetector != nil && !t.scrollbackParsed {
-		t.scrollbackParsed = true
-		t.signalDetector.Suppress(true)
-		capCtx, capCancel := context.WithTimeout(ctx, 2*time.Second)
-		scrollback, capErr := tmux.CaptureLastLines(capCtx, target, 200, false)
-		capCancel()
-		if capErr == nil && scrollback != "" {
-			t.signalDetector.Feed([]byte(scrollback))
-			t.signalDetector.Flush()
-		}
-		t.signalDetector.Suppress(false)
-
-		// Recover signals emitted during daemon downtime: if the most recent
-		// signal from scrollback differs from the stored nudge, fire the
-		// callback so the dashboard reflects the agent's actual state.
-		if lastSig := t.signalDetector.LastSignal(); lastSig != nil {
-			storedSess, ok := t.state.GetSession(t.sessionID)
-			if ok {
-				nudgeState := signal.MapStateToNudge(lastSig.State)
-				if storedSess.Nudge != nudgeState {
-					t.signalDetector.EmitSignal(*lastSig)
-				}
-			}
-		}
-	}
-
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
 	ptmx, err := pty.StartWithSize(attachCmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 	if err != nil {
@@ -259,29 +230,6 @@ func (t *SessionTracker) attachAndRead() error {
 	t.ptmx = ptmx
 	t.attachCmd = attachCmd
 	t.mu.Unlock()
-
-	// Start a periodic flush ticker to detect signals that arrive without
-	// a trailing newline (e.g., the last thing an agent writes before going silent).
-	// Without this, ShouldFlush() is only checked after PTY reads, which blocks
-	// when no data is flowing.
-	flushDone := make(chan struct{})
-	if t.signalDetector != nil {
-		go func() {
-			ticker := time.NewTicker(signal.FlushTimeout)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if t.signalDetector.ShouldFlush() {
-						t.signalDetector.Flush()
-					}
-				case <-flushDone:
-					return
-				}
-			}
-		}()
-	}
-	defer close(flushDone)
 
 	defer t.closePTY()
 
@@ -317,21 +265,12 @@ func (t *SessionTracker) attachAndRead() error {
 				chunk := make([]byte, len(data))
 				copy(chunk, data)
 
-				// Fast path: skip expensive processing for tiny echo chunks.
-				// Single-character echoes (1-3 bytes: char, or char+ANSI) don't
-				// contain signals and don't need full ANSI stripping.
-				isSmallChunk := len(chunk) <= 8 && !bytes.Contains(chunk, []byte("\n"))
-
-				// Feed to signal detector (line accumulation handles chunk splits)
-				if t.signalDetector != nil && !isSmallChunk {
-					t.signalDetector.Feed(chunk)
-				}
-
 				now := time.Now()
 
 				t.mu.Lock()
-				// For small chunks (echo), always count as meaningful.
-				// For larger chunks, check if they contain printable content.
+				// Small chunks (echo, <=8 bytes without newline) are always meaningful.
+				// Larger chunks need ANSI stripping to check for printable content.
+				isSmallChunk := len(chunk) <= 8 && !bytes.Contains(chunk, []byte("\n"))
 				meaningful := isSmallChunk || isMeaningfulTerminalChunk(chunk)
 				shouldUpdate := meaningful && (t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce)
 				if shouldUpdate {
@@ -373,9 +312,6 @@ func (t *SessionTracker) attachAndRead() error {
 
 		select {
 		case <-t.stopCh:
-			if t.signalDetector != nil {
-				t.signalDetector.Flush()
-			}
 			return io.EOF
 		default:
 		}
