@@ -95,3 +95,114 @@ func TestAppendEntry(t *testing.T) {
 		t.Errorf("expected 'test fact', got %s", entries[0].Text)
 	}
 }
+
+func TestMarkEntriesByText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lore.jsonl")
+
+	// Write two raw entries
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T14:33:00Z","ws":"ws-abc","agent":"claude-code","type":"codebase","text":"fact two"}
+{"ts":"2026-02-13T14:34:00Z","ws":"ws-def","agent":"codex","type":"operational","text":"fact three"}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark "fact one" and "fact three" as proposed
+	err := MarkEntriesByText(path, "proposed", []string{"fact one", "fact three"}, "prop-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only "fact two" should remain as raw
+	raw, err := ReadEntries(path, FilterRaw())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(raw) != 1 {
+		t.Fatalf("expected 1 raw entry, got %d", len(raw))
+	}
+	if raw[0].Text != "fact two" {
+		t.Errorf("expected 'fact two', got %s", raw[0].Text)
+	}
+
+	// All entries (including state changes) should be readable
+	all, err := ReadEntries(path, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 3 original entries + 2 state-change records = 5
+	if len(all) != 5 {
+		t.Fatalf("expected 5 total entries, got %d", len(all))
+	}
+
+	// Verify state-change records have correct proposal ID
+	stateChanges := 0
+	for _, e := range all {
+		if e.StateChange == "proposed" {
+			stateChanges++
+			if e.ProposalID != "prop-test" {
+				t.Errorf("expected proposal_id 'prop-test', got %s", e.ProposalID)
+			}
+		}
+	}
+	if stateChanges != 2 {
+		t.Errorf("expected 2 state changes, got %d", stateChanges)
+	}
+}
+
+func TestMarkEntriesByText_NoMatchingEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lore.jsonl")
+
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark non-existent text — should not error
+	err := MarkEntriesByText(path, "proposed", []string{"nonexistent fact"}, "prop-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// "fact one" should remain raw (no state change added)
+	raw, err := ReadEntries(path, FilterRaw())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(raw) != 1 {
+		t.Fatalf("expected 1 raw entry, got %d", len(raw))
+	}
+}
+
+func TestMarkEntriesByText_SkipsAlreadyChanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lore.jsonl")
+
+	// Entry with existing state change
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T15:00:00Z","state_change":"proposed","entry_ts":"2026-02-13T14:32:00Z","proposal_id":"prop-old"}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to mark "fact one" as applied — should still append since MarkEntriesByText
+	// only skips state-change records themselves, not already-changed entries
+	err := MarkEntriesByText(path, "applied", []string{"fact one"}, "prop-new")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	all, err := ReadEntries(path, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Original entry + old state change + new state change = 3
+	if len(all) != 3 {
+		t.Fatalf("expected 3 total entries, got %d", len(all))
+	}
+}
