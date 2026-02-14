@@ -517,9 +517,14 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
 				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
+			} else {
+				// Last session disposed — reconcile overlay files before the workspace goes dormant.
+				// This catches any changes the debounce timer hasn't processed yet.
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				compounder.Reconcile(ctx, workspaceID)
+				compounder.RemoveWorkspace(workspaceID)
 			}
-			// Note: workspace removal is handled by the workspace dispose reconcile callback,
-			// not here. This ensures the final reconciliation pass runs before cleanup.
 		})
 
 		wm.SetCompoundReconcile(func(workspaceID string) {

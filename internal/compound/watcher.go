@@ -273,6 +273,8 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 
 // retryPendingDirs attempts to watch directories that were previously pending
 // because they didn't exist when AddWorkspaceWithDeclaredPaths was called.
+// After successfully watching a directory, it scans for files that were created
+// before the watch was established (closing the race between mkdir and file write).
 func (w *Watcher) retryPendingDirs(createdDir string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -285,10 +287,12 @@ func (w *Watcher) retryPendingDirs(createdDir string) {
 					remaining = append(remaining, dir)
 					continue
 				}
-				// Find workspace IDs for this root
+				// Find workspace IDs for this root and scan for existing files
 				for wsID, wsPath := range w.workspacePaths {
 					if wsPath == wsRoot {
 						w.watchedDirs[dir] = append(w.watchedDirs[dir], wsID)
+						// Scan for files that were created before the watch was established
+						w.scanDirForExistingFiles(wsID, wsPath, dir)
 					}
 				}
 			} else {
@@ -299,6 +303,37 @@ func (w *Watcher) retryPendingDirs(createdDir string) {
 			delete(w.pendingDirs, wsRoot)
 		} else {
 			w.pendingDirs[wsRoot] = remaining
+		}
+	}
+}
+
+// scanDirForExistingFiles checks a newly-watched directory for files that already exist
+// and match the workspace's overlay file set. This closes the race between directory
+// creation and watch establishment — files written before the watch starts would otherwise
+// be missed.
+// Must be called with w.mu held.
+func (w *Watcher) scanDirForExistingFiles(workspaceID, workspacePath, dir string) {
+	files := w.workspaceFiles[workspaceID]
+	if files == nil {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		absPath := filepath.Join(dir, entry.Name())
+		relPath, err := filepath.Rel(workspacePath, absPath)
+		if err != nil {
+			continue
+		}
+		if files[relPath] {
+			w.resetDebounce(workspaceID, relPath)
 		}
 	}
 }
