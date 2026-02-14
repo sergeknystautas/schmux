@@ -25,8 +25,8 @@ The agent signaling system has three components:
 │                      During Session Runtime                     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Agent reads instruction file → learns signaling protocol       │
-│  Agent outputs: --<[schmux:completed:Done]>--                   │
-│  Schmux PTY tracker detects signal → updates dashboard          │
+│  Agent writes: echo "completed Done" > $SCHMUX_STATUS_FILE      │
+│  Schmux file watcher detects change → updates dashboard         │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -44,38 +44,39 @@ The agent signaling system has three components:
 
 ## Direct Signaling Protocol
 
-Agents signal their state by outputting a bracket-based text marker **on its own line** in their response:
+Agents signal their state by writing to a status file provided by schmux:
 
-```
---<[schmux:state:message]>--
+```bash
+echo "STATE message" > $SCHMUX_STATUS_FILE
 ```
 
-**Important:** The signal must be on a separate line by itself. Signals embedded within other text are ignored.
+The `SCHMUX_STATUS_FILE` environment variable contains the path to the status file (typically `$WORKSPACE/.schmux/signal`).
 
 **Examples:**
 
-```
+```bash
 # Signal completion
---<[schmux:completed:Implementation complete, ready for review]>--
+echo "completed Implementation complete, ready for review" > $SCHMUX_STATUS_FILE
 
 # Signal needs input
---<[schmux:needs_input:Waiting for permission to delete files]>--
+echo "needs_input Waiting for permission to delete files" > $SCHMUX_STATUS_FILE
 
 # Signal error
---<[schmux:error:Build failed with 3 errors]>--
+echo "error Build failed with 3 errors" > $SCHMUX_STATUS_FILE
 
 # Signal needs testing
---<[schmux:needs_testing:Please test the new feature]>--
+echo "needs_testing Please test the new feature" > $SCHMUX_STATUS_FILE
 
 # Clear signal (starting new work)
---<[schmux:working:]>--
+echo "working" > $SCHMUX_STATUS_FILE
 ```
 
 **Benefits:**
 
-- **Passes through markdown** - Unlike HTML comments, bracket markers are visible in rendered output
-- **Looks benign** - If not stripped, the marker looks like an innocuous code annotation
-- **Highly unique** - The format is extremely unlikely to appear naturally in agent output
+- **Simple and reliable** - Plain file writes are universally supported
+- **No parsing complexity** - No ANSI stripping or regex matching needed
+- **Idempotent** - File content represents current state
+- **Easy to debug** - Just read the file to see current status
 
 ### Valid States
 
@@ -89,54 +90,38 @@ Agents signal their state by outputting a bracket-based text marker **on its own
 
 ### How Signals Flow
 
-The signal pipeline spans the full stack, from agent terminal output to browser notification sound. Here is the complete data flow with code references:
+The signal pipeline spans the full stack, from agent file writes to browser notification sound. Here is the complete data flow with code references:
 
 ```
  Agent (in tmux session)
  │
- │  Outputs: --<[schmux:completed:Done]>--
- │
- ▼
- tmux captures output in terminal buffer
+ │  Writes: echo "completed Done" > $SCHMUX_STATUS_FILE
  │
  ▼
  ┌──────────────────────────────────────────────────────────┐
- │  SessionTracker.attachAndRead()                          │
- │  internal/session/tracker.go:190                         │
+ │  LOCAL SESSIONS:                                         │
+ │  FileWatcher.watch() goroutine                           │
+ │  internal/signal/filewatcher.go:82                       │
  │                                                          │
- │  PTY read loop reads 8KB chunks from tmux attach-session │
- │  Splits on UTF-8 boundaries (findValidUTF8Boundary)      │
- │  Feeds each chunk to SignalDetector                      │
+ │  fsnotify watcher receives Write event                   │
+ │  Reads file content                                      │
+ │  Compares with last-read content (string comparison)     │
+ │  If changed: parses STATE MESSAGE format                 │
+ │  Invokes callback with Signal                            │
  └──────────────────────────────────┬───────────────────────┘
                                     │
-                                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │  SignalDetector.Feed(chunk)                              │
- │  internal/signal/detector.go:47                          │
+ ┌──────────────────────────────────┴───────────────────────┐
+ │  REMOTE SESSIONS:                                        │
+ │  Watcher pane in tmux (shell script)                     │
+ │  internal/session/manager.go:1116                        │
  │                                                          │
- │  Appends chunk to internal line buffer                   │
- │  Splits on last newline:                                 │
- │    - Complete lines → parseLines()                       │
- │    - Remainder → buffered for next Feed()                │
- │  If no newline at all → buffer + enforceBufLimit()       │
- └──────────────────────────────────┬───────────────────────┘
-                                    │
-                                    ▼
- ┌──────────────────────────────────────────────────────────┐
- │  SignalDetector.parseLines(data)                         │
- │  internal/signal/detector.go:96                          │
- │                                                          │
- │  1. StripANSIBytes() - removes ANSI escape sequences     │
- │     internal/signal/signal.go:40                         │
- │  2. parseBracketSignals() - matches regex against data   │
- │     internal/signal/signal.go:173                        │
- │     Regex: ^[prefix]*--<\[schmux:(\w+):([^\]]*)\]>--$    │
- │     internal/signal/signal.go:33                         │
- │  3. For each valid Signal → invoke callback              │
- │  4. If no signals found → near-miss detection            │
+ │  inotifywait or polling detects file change              │
+ │  Emits: __SCHMUX_SIGNAL__completed Done__END__           │
+ │  Received via %output event in control mode              │
+ │  Parsed by RemoteMonitor.handleControlOutput()           │
+ │  internal/session/remote.go:196                          │
  └──────────────────────────────────┬───────────────────────┘
                                     │  callback(Signal)
-                                    │  (unless suppressed)
                                     ▼
  ┌──────────────────────────────────────────────────────────┐
  │  Manager.signalCallback(sessionID, sig)                  │
@@ -191,26 +176,37 @@ The signal pipeline spans the full stack, from agent terminal output to browser 
  └──────────────────────────────────────────────────────────┘
 ```
 
-#### Flush Ticker (signals without trailing newlines)
+#### Daemon Restart Recovery
 
-Agents may emit a signal as the last thing before going silent (no trailing newline). Without intervention, the signal sits in the detector's line buffer indefinitely. A flush ticker goroutine handles this:
+When the daemon restarts, existing sessions recover by simply reading the current status file:
 
 ```
- ┌───────────────────────────────────────────────────────────┐
- │  Flush ticker goroutine                                   │
- │  internal/session/tracker.go:244                          │
- │                                                           │
- │  Ticks every 500ms (signal.FlushTimeout)                  │
- │  If SignalDetector.ShouldFlush() == true:                 │
- │    → SignalDetector.Flush()                               │
- │    → Forces parseLines() on buffered data                 │
- │                                                           │
- │  ShouldFlush() returns true when:                         │
- │    - Buffer is non-empty                                  │
- │    - No data received for >= 500ms                        │
- │    internal/signal/detector.go:89                         │
- └───────────────────────────────────────────────────────────┘
+ Daemon starts → restores sessions
+ internal/daemon/daemon.go:382
+ │
+ ▼
+ For local sessions:
+ FileWatcher.watch() reads current file content
+ internal/signal/filewatcher.go:82
+ │
+ │  If file exists and has content:
+ │    Parse and invoke callback once
+ │    Continue watching for changes
+ │
+ └──────────────────────────────────────────────
+
+ For remote sessions:
+ Watcher pane script reads current file
+ internal/session/manager.go:1116
+ │
+ │  Initial check() call reads file content
+ │  Emits current state if file exists
+ │  Continues watching for changes
+ │
+ └──────────────────────────────────────────────
 ```
+
+The file content represents the current state, so no scrollback parsing is needed.
 
 #### Nudge Clearing (user interaction)
 
@@ -235,49 +231,20 @@ When the user types in a terminal WebSocket session, the nudge is automatically 
  internal/dashboard/server.go:616
 ```
 
-#### Scrollback Recovery (daemon restart)
-
-When the daemon restarts, existing sessions may have emitted signals while the daemon was down. The tracker recovers by parsing scrollback with suppression enabled:
-
-```
- Daemon starts → restores trackers for existing sessions
- internal/daemon/daemon.go:382
- │
- ▼
- SessionTracker.attachAndRead() (first attach)
- internal/session/tracker.go:214
- │
- │  1. signalDetector.Suppress(true)
- │  2. tmux.CaptureLastLines(200 lines)
- │  3. signalDetector.Feed(scrollback) + Flush()
- │  4. signalDetector.Suppress(false)
- │
- │  This initializes internal detector state without
- │  re-firing callbacks (which would cause duplicate
- │  notifications for already-seen signals).
- └──────────────────────────────────────────────────
-```
-
-### Why Bracket Markers
-
-- **Works for text-based agents**: Any agent that generates text responses can signal
-- **Passes through markdown**: Unlike HTML comments, visible in rendered output
-- **Highly unique**: Extremely unlikely to appear naturally in agent output
-- **Looks benign**: If displayed, appears as an innocuous annotation
-
 ---
 
 ## Environment Variables
 
 Every spawned session receives these environment variables:
 
-| Variable              | Example               | Purpose                     |
-| --------------------- | --------------------- | --------------------------- |
-| `SCHMUX_ENABLED`      | `1`                   | Indicates running in schmux |
-| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345` | Unique session identifier   |
-| `SCHMUX_WORKSPACE_ID` | `myproj-abc`          | Workspace identifier        |
+| Variable              | Example                             | Purpose                        |
+| --------------------- | ----------------------------------- | ------------------------------ |
+| `SCHMUX_ENABLED`      | `1`                                 | Indicates running in schmux    |
+| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345`               | Unique session identifier      |
+| `SCHMUX_WORKSPACE_ID` | `myproj-abc`                        | Workspace identifier           |
+| `SCHMUX_STATUS_FILE`  | `/path/to/workspace/.schmux/signal` | Status file path for signaling |
 
-Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling.
+Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling. The `SCHMUX_STATUS_FILE` variable provides the path where agents should write status updates.
 
 Environment variables are injected during spawn by `Manager.Spawn()` (`internal/session/manager.go:414`).
 
@@ -380,7 +347,7 @@ Models are mapped to their base tools via `GetBaseToolName()` (`internal/detect/
 ```bash
 if [ "$SCHMUX_ENABLED" = "1" ]; then
     # Running in schmux - use signaling
-    echo "--<[schmux:completed:Task done]>--"
+    echo "completed Task done" > "$SCHMUX_STATUS_FILE"
 fi
 ```
 
@@ -388,13 +355,11 @@ fi
 
 **Bash / AI agents (Claude Code, etc.):**
 
-Output the signal marker on its own line:
+Write status to the file:
 
+```bash
+echo "completed Feature implemented successfully" > "$SCHMUX_STATUS_FILE"
 ```
---<[schmux:completed:Feature implemented successfully]>--
-```
-
-Note: The signal must be on a separate line — do not embed it within other text.
 
 **Python:**
 
@@ -403,8 +368,13 @@ import os
 
 def signal_schmux(state: str, message: str = ""):
     if os.environ.get("SCHMUX_ENABLED") == "1":
-        # Output the signal marker
-        print(f"--<[schmux:{state}:{message}]>--")
+        status_file = os.environ.get("SCHMUX_STATUS_FILE")
+        if status_file:
+            with open(status_file, "w") as f:
+                if message:
+                    f.write(f"{state} {message}\n")
+                else:
+                    f.write(f"{state}\n")
 
 # Usage
 signal_schmux("completed", "Implementation finished")
@@ -414,10 +384,15 @@ signal_schmux("needs_input", "Approve the changes?")
 **Node.js:**
 
 ```javascript
+const fs = require('fs');
+
 function signalSchmux(state, message = '') {
   if (process.env.SCHMUX_ENABLED === '1') {
-    // Output the signal marker
-    console.log(`--<[schmux:${state}:${message}]>--`);
+    const statusFile = process.env.SCHMUX_STATUS_FILE;
+    if (statusFile) {
+      const content = message ? `${state} ${message}\n` : `${state}\n`;
+      fs.writeFileSync(statusFile, content);
+    }
   }
 }
 
@@ -427,13 +402,13 @@ signalSchmux('completed', 'Build successful');
 
 ### Best Practices
 
-1. **Signal on its own line** - signals embedded in text are ignored
-2. **Signal completion** when you finish the user's request
-3. **Signal needs_input** when waiting for user decisions (don't just ask in text)
-4. **Signal error** for failures that block progress
-5. **Signal working** when starting a new task to clear old status
-6. Keep messages concise (under 100 characters)
-7. Do not use `]` in the message — it terminates the marker early
+1. **Signal completion** when you finish the user's request
+2. **Signal needs_input** when waiting for user decisions (don't just ask in text)
+3. **Signal error** for failures that block progress
+4. **Signal working** when starting a new task to clear old status
+5. Keep messages concise (under 100 characters)
+6. Always check `SCHMUX_ENABLED` before signaling
+7. Use the `SCHMUX_STATUS_FILE` environment variable, don't hardcode paths
 
 ---
 
@@ -506,11 +481,11 @@ The API indicates the signal source:
 
 ```
 internal/
-  signal/               # Signal parsing and detection
-    signal.go           # Signal struct, regex, ANSI stripping, state validation
-    detector.go         # Line-buffered detector with flush ticker
+  signal/               # Signal parsing and file watching
+    signal.go           # Signal struct, state validation, state-to-display mapping
+    filewatcher.go      # File-based signal watching for local sessions
     signal_test.go
-    detector_test.go
+    filewatcher_test.go
 
   provision/            # Agent instruction provisioning
     provision.go        # File-based and CLI-flag provisioning
@@ -519,9 +494,10 @@ internal/
   detect/               # Agent/tool detection
     tools.go            # Instruction configs, target-to-tool mapping
 
-  session/              # Session lifecycle and PTY tracking
-    tracker.go          # PTY read loop, signal detection wiring
+  session/              # Session lifecycle and signal monitoring
+    tracker.go          # Session tracking for local sessions
     manager.go          # Spawn, signal callback, remote monitors
+    remote.go           # Remote session signal monitoring via watcher pane
 
   dashboard/            # HTTP API and WebSocket handlers
     websocket.go        # HandleAgentSignal, terminal WebSocket, nudge clearing
@@ -550,18 +526,16 @@ type Signal struct {
 }
 ```
 
-**`signal.SignalDetector`** (`internal/signal/detector.go:16`)
+**`signal.FileWatcher`** (`internal/signal/filewatcher.go:21`)
 
 ```go
-type SignalDetector struct {
-    sessionID        string
-    callback         func(Signal)       // Invoked for each parsed signal
-    nearMissCallback func(string)       // Invoked for malformed signals
-    suppressed       atomic.Bool        // Disables callback during scrollback
-    mu               sync.Mutex
-    buf              []byte             // Partial line buffer
-    stripBuf         []byte             // Reusable ANSI strip buffer
-    lastData         time.Time          // For ShouldFlush() staleness check
+type FileWatcher struct {
+    sessionID    string
+    filePath     string
+    callback     func(Signal)
+    watcher      *fsnotify.Watcher
+    lastContent  string          // For deduplication
+    mu           sync.Mutex
 }
 ```
 
@@ -602,36 +576,32 @@ type AgentInstructionConfig struct {
 
 #### Signal Parsing (`internal/signal/`)
 
-| Function                         | Location        | Purpose                                                                                                                                     |
-| -------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `StripANSIBytes(dst, data)`      | `signal.go:40`  | State-machine ANSI escape stripper. Converts cursor-forward to spaces, cursor-down to newlines, strips all other CSI/OSC/DCS/APC sequences. |
-| `parseBracketSignals(data, now)` | `signal.go:173` | Matches `bracketPattern` regex against ANSI-stripped data. Returns `[]Signal` for valid states only.                                        |
-| `IsValidState(state)`            | `signal.go:167` | Checks state against `ValidStates` map.                                                                                                     |
-| `MapStateToNudge(state)`         | `signal.go:211` | Maps raw states to display strings (e.g., `"needs_input"` → `"Needs Authorization"`).                                                       |
+| Function                 | Location       | Purpose                                                                               |
+| ------------------------ | -------------- | ------------------------------------------------------------------------------------- |
+| `ParseSignalFile(data)`  | `signal.go:40` | Parses "STATE MESSAGE" format from file content. Returns Signal or error.             |
+| `IsValidState(state)`    | `signal.go:67` | Checks state against `ValidStates` map.                                               |
+| `MapStateToNudge(state)` | `signal.go:85` | Maps raw states to display strings (e.g., `"needs_input"` → `"Needs Authorization"`). |
 
-#### Signal Detection (`internal/signal/`)
+#### File Watching (`internal/signal/`)
 
-| Function                    | Location          | Purpose                                                             |
-| --------------------------- | ----------------- | ------------------------------------------------------------------- |
-| `NewSignalDetector(id, cb)` | `detector.go:28`  | Constructor. Created per-session by tracker or remote monitor.      |
-| `Feed(data)`                | `detector.go:47`  | Ingests PTY chunks. Accumulates lines, parses on newline.           |
-| `Flush()`                   | `detector.go:77`  | Force-parses buffered data. Used by flush ticker and on disconnect. |
-| `ShouldFlush()`             | `detector.go:89`  | True if buffer is non-empty and stale (>= 500ms since last data).   |
-| `Suppress(bool)`            | `detector.go:43`  | Enables/disables callback suppression (for scrollback parsing).     |
-| `parseLines(data)`          | `detector.go:96`  | Internal: strips ANSI, matches regex, invokes callbacks.            |
-| `enforceBufLimit()`         | `detector.go:119` | Trims buffer to 4096 bytes max, discarding oldest bytes.            |
+| Function                       | Location            | Purpose                                                      |
+| ------------------------------ | ------------------- | ------------------------------------------------------------ |
+| `NewFileWatcher(id, path, cb)` | `filewatcher.go:36` | Constructor. Created per local session.                      |
+| `Start()`                      | `filewatcher.go:58` | Starts fsnotify watcher and monitoring goroutine.            |
+| `Stop()`                       | `filewatcher.go:77` | Stops watcher and cleanup.                                   |
+| `watch()`                      | `filewatcher.go:82` | Internal goroutine: reads file on changes, invokes callback. |
 
 #### Session Tracking (`internal/session/`)
 
-| Function                                 | Location          | Purpose                                                                                       |
-| ---------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `NewSessionTracker(id, tmux, state, cb)` | `tracker.go:62`   | Creates tracker with signal detector. Sets near-miss callback.                                |
-| `attachAndRead()`                        | `tracker.go:190`  | Core I/O loop: scrollback recovery, PTY attach, flush ticker, 8KB read loop feeding detector. |
-| `run()`                                  | `tracker.go:162`  | Outer loop: calls `attachAndRead()` with retry on disconnect.                                 |
-| `SetSignalCallback(cb)`                  | `manager.go:88`   | Sets the manager-level callback. Must be called before tracker creation.                      |
-| `ensureTrackerFromSession(sess)`         | `manager.go:1248` | Creates or returns existing tracker. Wraps callback with session ID binding.                  |
-| `Spawn(...)`                             | `manager.go:414`  | Full spawn flow: workspace, provisioning, env vars, tmux, tracker.                            |
-| `StartRemoteSignalMonitor(sess)`         | `manager.go:96`   | Creates detector + goroutine for remote sessions via SSH/ET output channel.                   |
+| Function                                 | Location          | Purpose                                                                              |
+| ---------------------------------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `NewSessionTracker(id, tmux, state, cb)` | `tracker.go:62`   | Creates tracker with file watcher for local sessions.                                |
+| `run()`                                  | `tracker.go:162`  | Main loop: starts file watcher, waits for session exit.                              |
+| `SetSignalCallback(cb)`                  | `manager.go:88`   | Sets the manager-level callback. Must be called before tracker creation.             |
+| `ensureTrackerFromSession(sess)`         | `manager.go:1248` | Creates or returns existing tracker. Wraps callback with session ID binding.         |
+| `Spawn(...)`                             | `manager.go:414`  | Full spawn flow: workspace, provisioning, env vars, tmux, tracker.                   |
+| `StartRemoteSignalMonitor(sess)`         | `manager.go:96`   | Creates watcher pane for remote sessions, monitors %output events for signals.       |
+| `createSignalWatcherPane(sess)`          | `manager.go:1116` | Creates hidden tmux pane that watches status file and emits sentinel-wrapped output. |
 
 #### State Management (`internal/state/`)
 
@@ -758,7 +728,7 @@ This wiring MUST happen before any tracker creation (`daemon.go:376` comment). I
 ### Verify Signaling Works
 
 1. Spawn a session in schmux
-2. In the terminal, run: `echo "--<[schmux:completed:Test signal]>--"`
+2. In the terminal, run: `echo "completed Test signal" > $SCHMUX_STATUS_FILE`
 3. Check the dashboard - the session should show a completion status
 
 ### Check Environment Variables
@@ -769,6 +739,14 @@ In a schmux session:
 echo $SCHMUX_ENABLED        # Should be "1"
 echo $SCHMUX_SESSION_ID     # Should show session ID
 echo $SCHMUX_WORKSPACE_ID   # Should show workspace ID
+echo $SCHMUX_STATUS_FILE    # Should show path to status file
+```
+
+### Check Status File
+
+```bash
+ls -la $SCHMUX_STATUS_FILE  # Should exist in .schmux directory
+cat $SCHMUX_STATUS_FILE     # Shows current status (if agent has signaled)
 ```
 
 ### Check Instruction File Was Created
@@ -782,13 +760,12 @@ cat .claude/CLAUDE.md       # Should contain SCHMUX:BEGIN marker
 
 1. **Agent doesn't read instruction files** - Some agents may not read from the expected location
 2. **Agent ignores instructions** - The agent may not follow the signaling protocol
-3. **Signaling works, display doesn't** - Check browser console for WebSocket errors
+3. **Status file not writable** - Check `.schmux/` directory permissions
+4. **Signaling works, display doesn't** - Check browser console for WebSocket errors
 
-### Invalid Signals Are Preserved
+### Invalid Signals
 
-Only signals with valid schmux states are processed. Other content that looks similar passes through unchanged:
-
-- **Bracket markers with invalid states**: Markers like `--<[schmux:invalid_state:msg]>--` are ignored
+Only signals with valid schmux states are processed. Invalid states are logged but ignored.
 
 Valid states: `needs_input`, `needs_testing`, `completed`, `error`, `working`
 
@@ -817,5 +794,6 @@ To add signaling support for a new agent:
 
 1. **Non-destructive**: Never modify user's existing instruction content
 2. **Automatic**: No manual setup required - works out of the box
-3. **Agent-agnostic**: Protocol works for any agent that can output text to stdout
+3. **Agent-agnostic**: Protocol works for any agent that can write to a file
 4. **Graceful fallback**: NudgeNik handles agents that don't signal
+5. **Simple and reliable**: Plain file writes instead of terminal output parsing
