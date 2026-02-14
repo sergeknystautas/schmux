@@ -24,12 +24,11 @@ This workspace is managed by schmux. Signal your status to help the user monitor
 
 ### How to Signal
 
-Output this marker **on its own line** in your response:
-` + "```" + `
---<[schmux:state:message]>--
-` + "```" + `
+Write your status to the file at $SCHMUX_STATUS_FILE (set in your environment). Write a single line:
 
-**Important:** The signal must be on a separate line by itself. Do not embed it within other text.
+` + "```" + `
+echo "STATE message" > $SCHMUX_STATUS_FILE
+` + "```" + `
 
 ### Available States
 
@@ -45,30 +44,25 @@ Output this marker **on its own line** in your response:
 
 ` + "```" + `
 # After finishing a task
---<[schmux:completed:Implemented the login feature]>--
+echo "completed Implemented the login feature" > $SCHMUX_STATUS_FILE
 
 # When you need user approval
---<[schmux:needs_input:Should I delete these 5 files?]>--
-
-# When ready for testing
---<[schmux:needs_testing:Please try the new search functionality]>--
+echo "needs_input Should I delete these 5 files?" > $SCHMUX_STATUS_FILE
 
 # When encountering an error
---<[schmux:error:Build failed - missing dependency]>--
+echo "error Build failed - missing dependency" > $SCHMUX_STATUS_FILE
 
 # When starting new work
---<[schmux:working:]>--
+echo "working" > $SCHMUX_STATUS_FILE
 ` + "```" + `
 
 ### Best Practices
 
-1. **Signal on its own line** - signals embedded in text are ignored
-2. **Signal completion** when you finish the user's request
-3. **Signal needs_input** when waiting for user decisions (don't just ask in text)
-4. **Signal error** for failures that block progress
-5. **Signal working** when starting a new task to clear old status
-6. Keep messages concise (under 100 characters)
-7. Do not use ` + "`]`" + ` in the message — it terminates the marker early
+1. **Signal completion** when you finish the user's request
+2. **Signal needs_input** when waiting for user decisions (don't just ask in text)
+3. **Signal error** for failures that block progress
+4. **Signal working** when starting a new task to clear old status
+5. Keep messages concise (under 100 characters)
 `
 
 // EnsureAgentInstructions ensures the signaling instructions are present
