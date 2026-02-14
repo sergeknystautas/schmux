@@ -1738,3 +1738,169 @@ func TestE2EOverlayCompounding(t *testing.T) {
 		env.DisposeSession(session2ID)
 	})
 }
+
+func TestE2EOverlayDeclaredPaths(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-declared-paths-test"
+	const repoName = "declared-paths-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	// Step 1: Create config
+	t.Run("01_CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	// Step 2: Create git repo with .gitignore covering declared paths
+	t.Run("02_CreateGitRepo", func(t *testing.T) {
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Declared Paths Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+
+		// .gitignore covers both existing overlay files and future declared paths
+		gitignore := ".env\n.claude/\n.agent/\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+	})
+
+	// Step 3: Configure declared overlay paths on the repo
+	t.Run("03_ConfigureDeclaredPaths", func(t *testing.T) {
+		// .agent/config.json is declared but has no overlay file — it will be
+		// created by an "agent" later
+		env.SetRepoOverlayPaths(repoName, []string{".agent/config.json"})
+	})
+
+	// Step 4: Enable git SCM and compounding with fast debounce
+	t.Run("04_EnableSCMAndCompound", func(t *testing.T) {
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+	})
+
+	// Step 5: Create an overlay file that already exists (for comparison)
+	t.Run("05_CreateExistingOverlay", func(t *testing.T) {
+		env.CreateOverlayFile(repoName, ".env", "SECRET=abc123\n")
+	})
+
+	// Step 6: Start daemon
+	t.Run("06_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Step 7: Spawn two sessions (two separate workspaces)
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+	t.Run("07_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID from spawn")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID from spawn")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+
+		if ws1Path == ws2Path {
+			t.Fatalf("Expected different workspaces, both at: %s", ws1Path)
+		}
+		t.Logf("Workspace 1: %s", ws1Path)
+		t.Logf("Workspace 2: %s", ws2Path)
+	})
+
+	// Step 8: Verify existing overlay (.env) was copied to both workspaces
+	t.Run("08_VerifyExistingOverlayCopied", func(t *testing.T) {
+		for _, wsPath := range []string{ws1Path, ws2Path} {
+			data, err := os.ReadFile(filepath.Join(wsPath, ".env"))
+			if err != nil {
+				t.Fatalf("Overlay .env not copied to %s: %v", wsPath, err)
+			}
+			if string(data) != "SECRET=abc123\n" {
+				t.Errorf("Overlay .env content mismatch in %s: got %q", wsPath, string(data))
+			}
+		}
+	})
+
+	// Step 9: Verify declared path (.agent/config.json) does NOT exist yet
+	t.Run("09_VerifyDeclaredPathNotYetCreated", func(t *testing.T) {
+		for _, wsPath := range []string{ws1Path, ws2Path} {
+			agentFile := filepath.Join(wsPath, ".agent", "config.json")
+			if _, err := os.Stat(agentFile); !os.IsNotExist(err) {
+				t.Errorf("Expected .agent/config.json to not exist in %s, but it does", wsPath)
+			}
+		}
+	})
+
+	// Step 10: Simulate an agent creating the file at the declared path in workspace 1
+	agentContent := `{"agent_model": "sonnet", "auto_approve": true}`
+	t.Run("10_AgentCreatesFile", func(t *testing.T) {
+		agentDir := filepath.Join(ws1Path, ".agent")
+		if err := os.MkdirAll(agentDir, 0755); err != nil {
+			t.Fatalf("Failed to create .agent dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(agentDir, "config.json"), []byte(agentContent), 0644); err != nil {
+			t.Fatalf("Failed to write agent config: %v", err)
+		}
+		t.Log("Agent created .agent/config.json in workspace 1")
+	})
+
+	// Step 11: Wait for propagation to overlay dir and workspace 2
+	t.Run("11_WaitForPropagation", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".agent", "config.json")
+		ws2AgentPath := filepath.Join(ws2Path, ".agent", "config.json")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			overlayData, err1 := os.ReadFile(overlayPath)
+			ws2Data, err2 := os.ReadFile(ws2AgentPath)
+
+			overlayMatch := err1 == nil && string(overlayData) == agentContent
+			ws2Match := err2 == nil && string(ws2Data) == agentContent
+
+			if overlayMatch && ws2Match {
+				t.Log("Propagation complete: overlay and workspace 2 both have agent config")
+				return
+			}
+
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		overlayData, _ := os.ReadFile(overlayPath)
+		ws2Data, _ := os.ReadFile(ws2AgentPath)
+		t.Fatalf("Propagation timed out.\nOverlay: %q\nWorkspace2: %q\nExpected: %q",
+			string(overlayData), string(ws2Data), agentContent)
+	})
+
+	// Step 12: Dispose sessions
+	t.Run("12_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
