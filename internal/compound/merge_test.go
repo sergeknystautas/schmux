@@ -353,6 +353,55 @@ func TestBuildMergePrompt_ContainsMergeRules(t *testing.T) {
 	}
 }
 
+// --- JSONL line-union merge ---
+
+func TestExecuteMerge_JSONLLineUnion(t *testing.T) {
+	dir := t.TempDir()
+	wsDir := filepath.Join(dir, "ws", ".claude")
+	overlayDir := filepath.Join(dir, "overlay", ".claude")
+	if err := os.MkdirAll(wsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(overlayDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wsPath := filepath.Join(wsDir, "lore.jsonl")
+	overlayPath := filepath.Join(overlayDir, "lore.jsonl")
+
+	// Workspace has lines A and C
+	if err := os.WriteFile(wsPath, []byte("{\"ts\":\"1\",\"text\":\"A\"}\n{\"ts\":\"3\",\"text\":\"C\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Overlay has lines A and B
+	if err := os.WriteFile(overlayPath, []byte("{\"ts\":\"1\",\"text\":\"A\"}\n{\"ts\":\"2\",\"text\":\"B\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both diverged from manifest, so this is LLMMerge action.
+	// But for .jsonl, it should use line-union instead of LLM.
+	content, err := ExecuteMerge(context.Background(), MergeActionLLMMerge, wsPath, overlayPath, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result := string(content)
+	if !strings.Contains(result, `"text":"A"`) {
+		t.Error("merged content should contain A")
+	}
+	if !strings.Contains(result, `"text":"B"`) {
+		t.Error("merged content should contain B")
+	}
+	if !strings.Contains(result, `"text":"C"`) {
+		t.Error("merged content should contain C")
+	}
+
+	// Verify A appears only once
+	if strings.Count(result, `"text":"A"`) != 1 {
+		t.Error("A should appear exactly once (deduped)")
+	}
+}
+
 // --- DetermineMergeAction table-driven ---
 
 func TestDetermineMergeAction_TableDriven(t *testing.T) {
