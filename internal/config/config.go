@@ -582,6 +582,7 @@ var DefaultInstructionFiles = []string{
 	"AGENTS.md",
 	".cursorrules",
 	".github/copilot-instructions.md",
+	"CONVENTIONS.md",
 }
 
 // GetLoreEnabled returns whether the lore system is enabled.

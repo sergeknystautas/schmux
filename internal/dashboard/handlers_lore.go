@@ -242,6 +242,7 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLoreEntries returns the lore JSONL entries for a repo from its overlay directory.
+// Supports query parameters: state, agent, type, limit.
 func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 2 {
@@ -257,7 +258,22 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	}
 	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
 
-	entries, err := lore.ReadEntries(lorePath, nil)
+	// Parse query params for filtering
+	q := r.URL.Query()
+	state := q.Get("state")
+	agent := q.Get("agent")
+	entryType := q.Get("type")
+	var limit int
+	if limitStr := q.Get("limit"); limitStr != "" {
+		fmt.Sscanf(limitStr, "%d", &limit)
+	}
+
+	var filter lore.EntryFilter
+	if state != "" || agent != "" || entryType != "" || limit > 0 {
+		filter = lore.FilterByParams(state, agent, entryType, limit)
+	}
+
+	entries, err := lore.ReadEntries(lorePath, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -1544,7 +1544,7 @@ func TestGetLoreTarget_OwnTarget(t *testing.T) {
 func TestGetLoreInstructionFiles_Defaults(t *testing.T) {
 	c := &Config{}
 	files := c.GetLoreInstructionFiles()
-	expected := []string{"CLAUDE.md", "AGENTS.md", ".cursorrules", ".github/copilot-instructions.md"}
+	expected := []string{"CLAUDE.md", "AGENTS.md", ".cursorrules", ".github/copilot-instructions.md", "CONVENTIONS.md"}
 	if len(files) != len(expected) {
 		t.Fatalf("expected %d files, got %d", len(expected), len(files))
 	}

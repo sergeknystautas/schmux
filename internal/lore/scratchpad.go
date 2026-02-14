@@ -150,6 +150,57 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 	return nil
 }
 
+// ResolveEntryState returns the effective state of a lore entry given all state-change records.
+// Returns "raw" if no state-change record exists for this entry.
+func ResolveEntryState(entry Entry, allEntries []Entry) string {
+	if entry.StateChange != "" {
+		return "" // this is a state-change record, not a lore entry
+	}
+	tsStr := entry.Timestamp.Format(time.RFC3339)
+	latestState := "raw"
+	var latestTS time.Time
+	for _, e := range allEntries {
+		if e.StateChange != "" && e.EntryTS == tsStr {
+			if e.Timestamp.After(latestTS) {
+				latestState = e.StateChange
+				latestTS = e.Timestamp
+			}
+		}
+	}
+	return latestState
+}
+
+// FilterByParams returns a filter that applies query parameter filters.
+// Supported filters: state (raw/proposed/applied/dismissed), agent, type, limit.
+// State resolution requires the full entry list to check state-change records.
+func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
+	return func(entries []Entry) []Entry {
+		var result []Entry
+		for _, e := range entries {
+			if e.StateChange != "" {
+				continue // skip state-change records from output
+			}
+			if agent != "" && e.Agent != agent {
+				continue
+			}
+			if entryType != "" && e.Type != entryType {
+				continue
+			}
+			if state != "" {
+				resolved := ResolveEntryState(e, entries)
+				if resolved != state {
+					continue
+				}
+			}
+			result = append(result, e)
+			if limit > 0 && len(result) >= limit {
+				break
+			}
+		}
+		return result
+	}
+}
+
 // PruneEntries removes applied/dismissed entries older than maxAge from the JSONL file.
 // It rewrites the file in-place, keeping only entries that should be retained.
 // Returns the number of pruned lines and any error encountered.
