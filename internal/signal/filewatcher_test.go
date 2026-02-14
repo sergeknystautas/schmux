@@ -111,8 +111,9 @@ func TestFileWatcherDifferentSignals(t *testing.T) {
 		select {
 		case <-deadline:
 			mu.Lock()
-			t.Fatalf("timed out, got %d signals", len(got))
+			n := len(got)
 			mu.Unlock()
+			t.Fatalf("timed out, got %d signals", n)
 		default:
 			time.Sleep(50 * time.Millisecond)
 		}

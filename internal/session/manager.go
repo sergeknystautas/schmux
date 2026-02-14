@@ -294,19 +294,6 @@ func (m *Manager) StopRemoteSignalMonitor(sessionID string) {
 			}
 		}
 	}
-
-	// Unsubscribe from output if we have a connection and pane
-	if mon.watcherPaneID != "" && m.remoteManager != nil {
-		sess, ok := m.state.GetSession(sessionID)
-		if ok {
-			conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-			if conn != nil {
-				// Note: output channel is already closed or will be closed
-				// when the window is killed, so no explicit unsubscribe needed
-				_ = conn
-			}
-		}
-	}
 }
 
 // GetRemoteManager returns the remote manager (may be nil).
@@ -397,7 +384,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 	// Check if connection is ready
 	if !conn.IsConnected() {
-		// Queue the session creation
+		// Queue the session creation (directory will be created when connection is ready)
 		resultCh := conn.QueueSession(ctx, sessionID, windowName, flavor.WorkspacePath, command)
 
 		// Create session with status="provisioning"
@@ -450,6 +437,15 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
 				}
 				if current.Status == "running" {
+					// Ensure .schmux directory exists on remote host for file-based signaling
+					qConn := m.remoteManager.GetConnection(host.ID)
+					if qConn != nil && qConn.IsConnected() {
+						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux"); mkErr != nil {
+							fmt.Printf("[session] queued session %s: warning: failed to create .schmux directory: %v\n", sessionID, mkErr)
+						}
+						mkCancel()
+					}
 					m.StartRemoteSignalMonitor(current)
 				}
 			case <-ctx.Done():
@@ -461,6 +457,14 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	}
 
 	// Connected - create immediately (existing code path)
+
+	// Ensure .schmux directory exists on remote host for file-based signaling
+	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
+	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux"); err != nil {
+		fmt.Printf("[session] warning: failed to create .schmux directory on remote host: %v\n", err)
+	}
+	mkdirCancel()
+
 	windowID, paneID, err := conn.CreateSession(ctx, windowName, flavor.WorkspacePath, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create remote session: %w", err)
@@ -673,11 +677,18 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
+	// Ensure .schmux directory exists for file-based signaling
+	schmuxDir := filepath.Join(w.Path, ".schmux")
+	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		fmt.Printf("[session] warning: failed to create .schmux directory: %v\n", err)
+	}
+
 	// Inject schmux signaling environment variables into the command
 	schmuxEnv := map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
+		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal"),
 	}
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), command)
 

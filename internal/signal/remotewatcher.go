@@ -26,17 +26,18 @@ func shellQuote(s string) string {
 
 // ParseSentinelOutput extracts the signal content from a sentinel-wrapped line.
 // Returns empty string if the line doesn't contain a valid sentinel.
+// Uses LastIndex for the end marker so that __END__ in agent messages doesn't truncate.
 func ParseSentinelOutput(data string) string {
 	idx := strings.Index(data, signalSentinelPrefix)
 	if idx < 0 {
 		return ""
 	}
 	start := idx + len(signalSentinelPrefix)
-	endIdx := strings.Index(data[start:], signalSentinelSuffix)
-	if endIdx < 0 {
+	endIdx := strings.LastIndex(data, signalSentinelSuffix)
+	if endIdx < 0 || endIdx <= start {
 		return ""
 	}
-	return data[start : start+endIdx]
+	return data[start:endIdx]
 }
 
 // RemoteSignalWatcher processes output events from a remote watcher pane.
