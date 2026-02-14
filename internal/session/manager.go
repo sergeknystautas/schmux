@@ -46,10 +46,12 @@ type Manager struct {
 	mu              sync.RWMutex
 }
 
-// remoteSignalMonitor holds a signal detector and its stop channel for a remote session.
+// remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
 type remoteSignalMonitor struct {
-	detector *signal.SignalDetector
-	stopCh   chan struct{}
+	watcher         *signal.RemoteSignalWatcher
+	watcherWindowID string
+	watcherPaneID   string
+	stopCh          chan struct{}
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -95,8 +97,9 @@ func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
 	m.outputCallback = cb
 }
 
-// StartRemoteSignalMonitor creates a signal detector for a remote session and starts
-// a goroutine that subscribes to the remote output channel.
+// StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
+// the signal file and emits sentinel-wrapped output. A goroutine subscribes to the
+// watcher pane's output and invokes the signal callback on changes.
 // The goroutine automatically reconnects when the output channel closes (e.g., due to
 // a dropped remote connection), retrying until explicitly stopped via StopRemoteSignalMonitor.
 func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
@@ -115,14 +118,30 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 	sessionID := sess.ID
 	hostID := sess.RemoteHostID
-	paneID := sess.RemotePaneID
 	signalCb := m.signalCallback
 	stopCh := make(chan struct{})
 	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
-		detector: nil, // created fresh on each connection
-		stopCh:   stopCh,
+		stopCh: stopCh,
 	}
 	m.mu.Unlock()
+
+	// Determine workspace path for the signal file
+	workspacePath := ""
+	if ws, ok := m.state.GetWorkspace(sess.WorkspaceID); ok {
+		if ws.RemotePath != "" {
+			workspacePath = ws.RemotePath
+		} else {
+			workspacePath = ws.Path
+		}
+	}
+	if workspacePath == "" {
+		fmt.Printf("[signal] %s - cannot start remote watcher: no workspace path\n", sessionID)
+		m.mu.Lock()
+		delete(m.remoteDetectors, sessionID)
+		m.mu.Unlock()
+		return
+	}
+	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal")
 
 	go func() {
 		defer func() {
@@ -130,9 +149,6 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			delete(m.remoteDetectors, sessionID)
 			m.mu.Unlock()
 		}()
-
-		flushTicker := time.NewTicker(signal.FlushTimeout)
-		defer flushTicker.Stop()
 
 		for {
 			// Check for stop before attempting connection
@@ -145,7 +161,6 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			// Wait for connection to be available
 			conn := m.remoteManager.GetConnection(hostID)
 			if conn == nil || !conn.IsConnected() {
-				// Not connected yet — wait 2s and retry
 				select {
 				case <-stopCh:
 					return
@@ -154,67 +169,93 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 				}
 			}
 
-			// Create a fresh detector for this connection attempt
-			detector := signal.NewSignalDetector(sessionID, func(sig signal.Signal) {
+			// Create watcher pane: a hidden tmux window running the file watcher script
+			shortID := sessionID
+			if len(shortID) > 8 {
+				shortID = shortID[:8]
+			}
+			windowName := "schmux-signal-" + shortID
+
+			ctx := context.Background()
+			windowID, paneID, err := conn.CreateSession(ctx, windowName, workspacePath, "")
+			if err != nil {
+				fmt.Printf("[signal] %s - failed to create watcher window: %v\n", sessionID, err)
+				select {
+				case <-stopCh:
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+
+			// Wait briefly for shell init
+			select {
+			case <-stopCh:
+				// Clean up watcher window before returning
+				conn.KillSession(ctx, windowID)
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+
+			// Type the watcher script into the pane
+			watcherScript := signal.WatcherScript(statusFilePath)
+			if err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
+				fmt.Printf("[signal] %s - failed to send watcher script: %v\n", sessionID, err)
+				conn.KillSession(ctx, windowID)
+				select {
+				case <-stopCh:
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+
+			// Create the watcher and subscribe to output
+			watcher := signal.NewRemoteSignalWatcher(sessionID, func(sig signal.Signal) {
 				signalCb(sessionID, sig)
 			})
-			detector.SetNearMissCallback(func(line string) {
-				fmt.Printf("[signal] %s - potential missed signal (remote): %q\n", sessionID, line)
-			})
 
-			// Update the monitor's detector reference
+			// Update the monitor reference
 			m.mu.Lock()
 			if mon := m.remoteDetectors[sessionID]; mon != nil {
-				mon.detector = detector
+				mon.watcher = watcher
+				mon.watcherWindowID = windowID
+				mon.watcherPaneID = paneID
 			}
 			m.mu.Unlock()
 
-			// Parse scrollback for missed signals — suppress callback to avoid
-			// re-emitting old signals from before the daemon restart.
-			detector.Suppress(true)
-			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			scrollback, err := conn.CapturePaneLines(capCtx, paneID, 200)
-			capCancel()
-			if err == nil && scrollback != "" {
-				detector.Feed([]byte(scrollback))
-				detector.Flush()
-			}
-			detector.Suppress(false)
-
-			// Recover signals emitted during daemon downtime: if the most recent
-			// signal from scrollback differs from the stored nudge, fire the
-			// callback so the dashboard reflects the agent's actual state.
-			if lastSig := detector.LastSignal(); lastSig != nil {
-				storedSess, ok := m.state.GetSession(sessionID)
-				if ok {
-					nudgeState := signal.MapStateToNudge(lastSig.State)
-					if storedSess.Nudge != nudgeState {
-						detector.EmitSignal(*lastSig)
+			// Initial state recovery: read current signal file content
+			catCtx, catCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			output, err := conn.RunCommand(catCtx, workspacePath, "cat .schmux/signal 2>/dev/null")
+			catCancel()
+			if err == nil && strings.TrimSpace(output) != "" {
+				if lastSig := signal.ParseSignalFile(output); lastSig != nil {
+					storedSess, ok := m.state.GetSession(sessionID)
+					if ok {
+						nudgeState := signal.MapStateToNudge(lastSig.State)
+						if storedSess.Nudge != nudgeState {
+							signalCb(sessionID, *lastSig)
+						}
 					}
 				}
 			}
 
-			// Subscribe to output
+			// Subscribe to output from the watcher pane
 			outputCh := conn.SubscribeOutput(paneID)
 
 		inner:
 			for {
 				select {
 				case <-stopCh:
-					detector.Flush()
 					conn.UnsubscribeOutput(paneID, outputCh)
+					conn.KillSession(ctx, windowID)
 					return
 				case event, ok := <-outputCh:
 					if !ok {
-						detector.Flush()
 						break inner
 					}
 					if event.Data != "" {
-						detector.Feed([]byte(event.Data))
-					}
-				case <-flushTicker.C:
-					if detector.ShouldFlush() {
-						detector.Flush()
+						watcher.ProcessOutput(event.Data)
 					}
 				}
 			}
@@ -230,14 +271,41 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	}()
 }
 
-// StopRemoteSignalMonitor stops the signal detector goroutine for a remote session.
+// StopRemoteSignalMonitor stops the watcher pane and goroutine for a remote session.
 func (m *Manager) StopRemoteSignalMonitor(sessionID string) {
 	m.mu.Lock()
 	mon := m.remoteDetectors[sessionID]
 	delete(m.remoteDetectors, sessionID)
 	m.mu.Unlock()
-	if mon != nil {
-		close(mon.stopCh)
+	if mon == nil {
+		return
+	}
+	close(mon.stopCh)
+
+	// Kill the watcher window if we have a connection
+	if mon.watcherWindowID != "" && m.remoteManager != nil {
+		sess, ok := m.state.GetSession(sessionID)
+		if ok {
+			conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+			if conn != nil && conn.IsConnected() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				conn.KillSession(ctx, mon.watcherWindowID)
+				cancel()
+			}
+		}
+	}
+
+	// Unsubscribe from output if we have a connection and pane
+	if mon.watcherPaneID != "" && m.remoteManager != nil {
+		sess, ok := m.state.GetSession(sessionID)
+		if ok {
+			conn := m.remoteManager.GetConnection(sess.RemoteHostID)
+			if conn != nil {
+				// Note: output channel is already closed or will be closed
+				// when the window is killed, so no explicit unsubscribe needed
+				_ = conn
+			}
+		}
 	}
 }
 
