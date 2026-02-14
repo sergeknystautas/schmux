@@ -37,7 +37,7 @@ func TestCompounder_EndToEnd(t *testing.T) {
 	}
 	defer c.Stop()
 
-	c.AddWorkspace("ws-001", wsDir, overlayDir, "git@github.com:test/repo.git", manifest)
+	c.AddWorkspace("ws-001", wsDir, overlayDir, "git@github.com:test/repo.git", manifest, nil)
 	c.Start()
 
 	// Simulate agent modifying the settings file
@@ -89,7 +89,7 @@ func TestCompounder_Reconcile(t *testing.T) {
 	}
 	defer c.Stop()
 
-	c.AddWorkspace("ws-001", wsDir, overlayDir, "git@github.com:test/repo.git", manifest)
+	c.AddWorkspace("ws-001", wsDir, overlayDir, "git@github.com:test/repo.git", manifest, nil)
 
 	// Run reconciliation (without starting watcher — we test reconcile directly)
 	c.Reconcile(context.Background(), "ws-001")
@@ -131,7 +131,7 @@ func TestCompounder_Reconcile_RespectsContext(t *testing.T) {
 	}
 	defer c.Stop()
 
-	c.AddWorkspace("ws-001", wsDir, overlayDir, "repo", manifest)
+	c.AddWorkspace("ws-001", wsDir, overlayDir, "repo", manifest, nil)
 
 	// Cancel context immediately
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,5 +166,51 @@ func TestValidateRelPath(t *testing.T) {
 				t.Errorf("ValidateRelPath(%q) error = %v, wantErr %v", tt.relPath, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestCompounder_DetectsNewFileAtDeclaredPath(t *testing.T) {
+	overlayDir := t.TempDir()
+	wsDir := t.TempDir()
+	os.MkdirAll(filepath.Join(wsDir, ".claude"), 0755)
+
+	manifest := map[string]string{} // empty — no files exist yet
+	declaredPaths := []string{filepath.Join(".claude", "settings.local.json")}
+
+	var propagateCount atomic.Int32
+
+	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
+		propagateCount.Add(1)
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewCompounder() error = %v", err)
+	}
+	defer c.Stop()
+
+	c.AddWorkspace("ws-001", wsDir, overlayDir, "repo", manifest, declaredPaths)
+	c.Start()
+
+	// Agent creates the file
+	os.MkdirAll(filepath.Join(overlayDir, ".claude"), 0755)
+	newContent := `{"local_setting": true}`
+	os.WriteFile(filepath.Join(wsDir, ".claude", "settings.local.json"), []byte(newContent), 0644)
+
+	// Wait for debounce + processing
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		overlayContent, _ := os.ReadFile(filepath.Join(overlayDir, ".claude", "settings.local.json"))
+		if string(overlayContent) == newContent {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify overlay was created
+	overlayContent, err := os.ReadFile(filepath.Join(overlayDir, ".claude", "settings.local.json"))
+	if err != nil {
+		t.Fatalf("overlay file not created: %v", err)
+	}
+	if string(overlayContent) != newContent {
+		t.Errorf("overlay content = %q, want %q", string(overlayContent), newContent)
 	}
 }

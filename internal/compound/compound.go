@@ -53,7 +53,7 @@ func NewCompounder(debounceMs int, executor LLMExecutor, propagate PropagateFunc
 }
 
 // AddWorkspace registers a workspace for overlay compounding.
-func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoURL string, manifest map[string]string) {
+func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoURL string, manifest map[string]string, declaredPaths []string) {
 	// Defensive copy to prevent shared reference bugs
 	manifestCopy := make(map[string]string, len(manifest))
 	for k, v := range manifest {
@@ -69,7 +69,7 @@ func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoUR
 	}
 	c.mu.Unlock()
 
-	if err := c.watcher.AddWorkspace(workspaceID, workspacePath, manifest); err != nil {
+	if err := c.watcher.AddWorkspaceWithDeclaredPaths(workspaceID, workspacePath, manifestCopy, declaredPaths); err != nil {
 		fmt.Printf("[compound] warning: failed to add workspace watch: %v\n", err)
 	}
 }
