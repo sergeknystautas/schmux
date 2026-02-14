@@ -29,9 +29,14 @@ set -e\n\
 /usr/sbin/sshd\n\
 # Wait for SSH to be ready\n\
 sleep 1\n\
+# Build test command with optional -run filter\n\
+TEST_CMD="go test -tags=e2e -v ./internal/e2e"\n\
+if [ -n "${TEST_RUN:-}" ]; then\n\
+    TEST_CMD="$TEST_CMD -run $TEST_RUN"\n\
+fi\n\
 # Run tests as e2e user\n\
 cd /home/e2e/src\n\
-su -c "go test -tags=e2e -v ./internal/e2e" e2e\n\
+su -c "$TEST_CMD" e2e\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 WORKDIR /home/e2e/src

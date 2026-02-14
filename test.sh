@@ -15,6 +15,7 @@
 #   --coverage      Run with coverage report
 #   --quick         Run without race detector or coverage (fast)
 #   --force         Force rebuild Docker images (skip cache)
+#   --run PATTERN   Run only tests matching PATTERN (passed to go test -run)
 #   --help          Show this help message
 
 set -e  # Exit on error
@@ -37,6 +38,7 @@ RUN_RACE=false
 RUN_VERBOSE=false
 RUN_COVERAGE=false
 FORCE_BUILD=false
+TEST_RUN_PATTERN=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -99,6 +101,14 @@ while [[ $# -gt 0 ]]; do
             FORCE_BUILD=true
             shift
             ;;
+        --run)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}--run requires a test pattern argument${NC}"
+                exit 1
+            fi
+            TEST_RUN_PATTERN="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: ./test.sh [OPTIONS]"
             echo ""
@@ -114,6 +124,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --coverage      Run with coverage report"
             echo "  --quick         Run without race detector or coverage (fast)"
             echo "  --force         Force rebuild Docker base images (skip cache)"
+            echo "  --run PATTERN   Run only tests matching PATTERN (passed to go test -run)"
             echo "  --help          Show this help message"
             echo ""
             echo "Examples:"
@@ -121,6 +132,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./test.sh --all              # Run all tests (unit + E2E + scenarios)"
             echo "  ./test.sh --race --verbose   # Run unit tests with race detector and verbose output"
             echo "  ./test.sh --e2e              # Run E2E tests only"
+            echo "  ./test.sh --e2e --run TestE2EOverlayCompounding  # Run a single E2E test"
             echo "  ./test.sh --coverage         # Run unit tests with coverage"
             echo "  ./test.sh --scenarios        # Run scenario tests only (Playwright)"
             echo "  ./test.sh --react            # Run React dashboard tests only"
@@ -243,6 +255,11 @@ if [ "$RUN_UNIT" = true ]; then
         echo -e "  ${BLUE}📊 Coverage enabled${NC}"
     fi
 
+    if [ -n "$TEST_RUN_PATTERN" ]; then
+        TEST_CMD="$TEST_CMD -run $TEST_RUN_PATTERN"
+        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
+    fi
+
     echo ""
 
     # Run tests
@@ -315,16 +332,42 @@ if [ "$RUN_E2E" = true ]; then
                     echo -e "  ${GREEN}✅ E2E test image built${NC}"
                     echo ""
                     echo -e "  ${BLUE}🚀 Running E2E tests in container...${NC}"
+                    if [ -n "$TEST_RUN_PATTERN" ]; then
+                        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
+                    fi
                     echo ""
 
-                    if docker run --rm schmux-e2e; then
+                    # Build docker run command with optional test filter
+                    DOCKER_RUN_CMD="docker run --rm"
+                    if [ -n "$TEST_RUN_PATTERN" ]; then
+                        DOCKER_RUN_CMD="$DOCKER_RUN_CMD -e TEST_RUN=$TEST_RUN_PATTERN"
+                    fi
+                    DOCKER_RUN_CMD="$DOCKER_RUN_CMD schmux-e2e"
+
+                    # Capture output to show failure summary
+                    E2E_OUTPUT_FILE=$(mktemp)
+                    if eval $DOCKER_RUN_CMD 2>&1 | tee "$E2E_OUTPUT_FILE"; then
                         echo ""
                         echo -e "${GREEN}✅ E2E tests passed${NC}"
                     else
                         echo ""
                         echo -e "${RED}❌ E2E tests failed${NC}"
+
+                        # Show failure summary
+                        FAILED_TESTS=$(grep '^--- FAIL:' "$E2E_OUTPUT_FILE" | sed 's/--- FAIL: /  /;s/ (.*//')
+                        if [ -n "$FAILED_TESTS" ]; then
+                            echo ""
+                            echo -e "${RED}Failed tests:${NC}"
+                            echo "$FAILED_TESTS"
+                            echo ""
+                            echo -e "${BLUE}Re-run a single test with:${NC}"
+                            FIRST_FAILED=$(echo "$FAILED_TESTS" | head -1 | sed 's/^ *//' | cut -d/ -f1)
+                            echo -e "  ./test.sh --e2e --run ${FIRST_FAILED}"
+                        fi
+
                         EXIT_CODE=1
                     fi
+                    rm -f "$E2E_OUTPUT_FILE"
 
                     # Clean up ephemeral thin image
                     docker rmi schmux-e2e > /dev/null 2>&1 || true
