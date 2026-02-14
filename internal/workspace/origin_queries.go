@@ -53,23 +53,19 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 		return "", fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
-	// Check for legacy flat path first (backward compatibility)
-	if legacyPath := legacyBareRepoPath(queryRepoDir, repoURL); legacyPath != "" {
-		// Use existing legacy repo
-		if m.originQueryRepoNeedsRepair(ctx, legacyPath) {
-			if err := m.prepareOriginQueryRepo(ctx, legacyPath, repoURL); err != nil {
-				return "", fmt.Errorf("failed to repair origin query repo: %w", err)
-			}
-		}
-		return legacyPath, nil
+	// Get BarePath from config
+	repo, found := m.config.FindRepoByURL(repoURL)
+	if !found {
+		return "", fmt.Errorf("repo not found in config: %s", repoURL)
+	}
+	if repo.BarePath == "" {
+		return "", fmt.Errorf("repo %s has no bare_path set", repo.Name)
 	}
 
-	// Use namespaced path for new repos (owner/repo.git for GitHub, repo.git for others)
-	repoPath := extractRepoPath(repoURL)
-	queryRepoPath := filepath.Join(queryRepoDir, repoPath+".git")
+	queryRepoPath := filepath.Join(queryRepoDir, repo.BarePath)
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
-		fmt.Printf("[workspace] creating origin query repo: %s\n", repoPath)
+		fmt.Printf("[workspace] creating origin query repo: %s\n", repo.BarePath)
 		// Create parent directory (e.g., ~/.schmux/query/facebook/)
 		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0755); err != nil {
 			return "", fmt.Errorf("failed to create query repo directory: %w", err)
@@ -178,19 +174,15 @@ func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath 
 	return strings.TrimSpace(string(output)) == ""
 }
 
-// getQueryRepoPath returns the path to the query repo, checking legacy path first.
-// For backward compatibility, checks if a legacy flat path exists before using namespaced path.
+// getQueryRepoPath returns the path to the query repo using BarePath from config.
 func (m *Manager) getQueryRepoPath(repoURL string) string {
 	queryRepoDir := m.config.GetQueryRepoPath()
 
-	// Check legacy path first
-	if legacyPath := legacyBareRepoPath(queryRepoDir, repoURL); legacyPath != "" {
-		return legacyPath
+	if repo, found := m.config.FindRepoByURL(repoURL); found && repo.BarePath != "" {
+		return filepath.Join(queryRepoDir, repo.BarePath)
 	}
 
-	// Use namespaced path
-	repoPath := extractRepoPath(repoURL)
-	return filepath.Join(queryRepoDir, repoPath+".git")
+	return "" // Repo not in config or has no bare_path
 }
 
 // FetchOriginQueries fetches updates for all origin query repos.

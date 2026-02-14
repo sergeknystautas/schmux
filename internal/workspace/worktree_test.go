@@ -166,6 +166,9 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
 
+	// Add repo to config with BarePath
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", repoDir)}
+
 	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
 		t.Fatalf("ensureWorktreeBase() failed: %v", err)
@@ -205,6 +208,9 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature")
+
+	// Add repo to config with BarePath
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", repoDir)}
 
 	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
@@ -313,100 +319,5 @@ func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
 	// Verify the workspace directory still exists
 	if _, err := os.Stat(w.Path); os.IsNotExist(err) {
 		t.Errorf("workspace directory was cleaned up on success, path: %s", w.Path)
-	}
-}
-
-// TestEnsureWorktreeBaseNamespacedPath verifies that new GitHub repos use namespaced paths (owner/repo.git).
-func TestEnsureWorktreeBaseNamespacedPath(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	configPath := filepath.Join(tmpDir, "config.json")
-	reposDir := filepath.Join(tmpDir, "repos")
-
-	cfg := config.CreateDefault(configPath)
-	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.WorktreeBasePath = reposDir
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
-
-	ctx := context.Background()
-
-	// Create a test repo to use as the "remote"
-	remoteDir := gitTestWorkTree(t)
-
-	// Simulate a GitHub-style URL by using the test repo path
-	// Since it's a file path, extractRepoPath will fall back to just the repo name
-	// Let's verify the namespaced path logic by checking the directory structure
-
-	// First, test with a non-GitHub URL (file path) - should use flat structure
-	basePath, err := m.ensureWorktreeBase(ctx, remoteDir)
-	if err != nil {
-		t.Fatalf("ensureWorktreeBase() failed: %v", err)
-	}
-
-	// For non-GitHub URLs, should use the repo name only
-	repoName := extractRepoName(remoteDir)
-	expectedPath := filepath.Join(reposDir, repoName+".git")
-	if basePath != expectedPath {
-		t.Errorf("ensureWorktreeBase() = %q, want %q", basePath, expectedPath)
-	}
-
-	// Verify directory was created
-	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		t.Errorf("worktree base directory was not created: %s", basePath)
-	}
-}
-
-// TestEnsureWorktreeBaseLegacyFallback verifies that existing legacy repos are reused.
-func TestEnsureWorktreeBaseLegacyFallback(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	configPath := filepath.Join(tmpDir, "config.json")
-	reposDir := filepath.Join(tmpDir, "repos")
-
-	cfg := config.CreateDefault(configPath)
-	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.WorktreeBasePath = reposDir
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
-
-	ctx := context.Background()
-
-	// Create a test repo to use as the "remote"
-	remoteDir := gitTestWorkTree(t)
-	repoName := extractRepoName(remoteDir)
-
-	// Pre-create a legacy bare repo at the flat path
-	if err := os.MkdirAll(reposDir, 0755); err != nil {
-		t.Fatalf("failed to create repos dir: %v", err)
-	}
-	legacyPath := filepath.Join(reposDir, repoName+".git")
-	runGit(t, reposDir, "clone", "--bare", remoteDir, repoName+".git")
-
-	// ensureWorktreeBase should find and reuse the legacy path
-	basePath, err := m.ensureWorktreeBase(ctx, remoteDir)
-	if err != nil {
-		t.Fatalf("ensureWorktreeBase() failed: %v", err)
-	}
-
-	if basePath != legacyPath {
-		t.Errorf("ensureWorktreeBase() = %q, want legacy path %q", basePath, legacyPath)
-	}
-
-	// Verify it was tracked in state
-	wb, found := st.GetWorktreeBaseByURL(remoteDir)
-	if !found {
-		t.Error("legacy worktree base was not tracked in state")
-	}
-	if wb.Path != legacyPath {
-		t.Errorf("state tracked path = %q, want %q", wb.Path, legacyPath)
 	}
 }

@@ -2,8 +2,9 @@ package contracts
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	BarePath string `json:"bare_path,omitempty"` // path relative to repos/query dirs
 }
 
 // RepoConfig represents repository-specific configuration from .schmux/config.json.

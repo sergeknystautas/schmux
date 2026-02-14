@@ -398,8 +398,9 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 
 	// Add the new local repository to config so it appears in the spawn wizard dropdown
 	m.config.Repos = append(m.config.Repos, config.Repo{
-		Name: repoName,
-		URL:  repoURL,
+		Name:     repoName,
+		URL:      repoURL,
+		BarePath: repoName + ".git",
 	})
 	if err := m.config.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)

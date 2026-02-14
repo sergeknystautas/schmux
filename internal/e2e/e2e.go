@@ -470,7 +470,7 @@ func (e *Env) AddRepoToConfig(name, url string) {
 		e.T.Fatalf("Failed to load config: %v", err)
 	}
 
-	cfg.Repos = append(cfg.Repos, config.Repo{Name: name, URL: url})
+	cfg.Repos = append(cfg.Repos, config.Repo{Name: name, URL: url, BarePath: name + ".git"})
 	if err := cfg.Save(); err != nil {
 		e.T.Fatalf("Failed to save config: %v", err)
 	}

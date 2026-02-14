@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/difftool"
-	"github.com/sergeknystautas/schmux/internal/github"
 )
 
 var branchNamePattern = regexp.MustCompile(`^[a-z0-9_]+(?:[._/-][a-z0-9_]+)*$`)
@@ -45,58 +44,6 @@ func ValidateBranchName(branch string) error {
 		}
 	}
 	return nil
-}
-
-// extractRepoName extracts the repository name from various URL formats.
-// Handles: git@github.com:user/myrepo.git, https://github.com/user/myrepo.git, etc.
-func extractRepoName(repoURL string) string {
-	// Strip .git suffix
-	name := strings.TrimSuffix(repoURL, ".git")
-
-	// Get last path component (handle both / and : separators)
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	if idx := strings.LastIndex(name, ":"); idx >= 0 {
-		name = name[idx+1:]
-	}
-
-	return name
-}
-
-// extractRepoPath returns "owner/repo" for GitHub URLs, or just "repo" for others.
-// This creates namespaced directories to avoid collisions between forks.
-func extractRepoPath(repoURL string) string {
-	info, err := github.ParseRepoURL(repoURL)
-	if err == nil && info.Owner != "" {
-		return filepath.Join(info.Owner, info.Repo)
-	}
-	// Fallback for non-GitHub URLs
-	return extractRepoName(repoURL)
-}
-
-// legacyBareRepoPath checks if a bare repo exists at the old flat path and matches the URL.
-// Returns the legacy path if found and matching, empty string otherwise.
-func legacyBareRepoPath(basePath, repoURL string) string {
-	repoName := extractRepoName(repoURL)
-	legacyPath := filepath.Join(basePath, repoName+".git")
-
-	if _, err := os.Stat(legacyPath); err != nil {
-		return "" // Doesn't exist
-	}
-
-	// Verify it's for the same URL by checking git remote
-	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
-	cmd.Dir = legacyPath
-	output, err := cmd.Output()
-	if err != nil {
-		return "" // Can't verify
-	}
-
-	if strings.TrimSpace(string(output)) == repoURL {
-		return legacyPath
-	}
-	return ""
 }
 
 // isWorktree checks if a path is a worktree (has .git file) vs full clone (.git dir).

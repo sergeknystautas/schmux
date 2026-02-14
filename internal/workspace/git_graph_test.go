@@ -40,7 +40,7 @@ func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteD
 	// Config + state
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
-	cfg.Repos = []config.Repo{{Name: "testrepo", URL: remoteDir}}
+	cfg.Repos = []config.Repo{testRepoWithBarePath("testrepo", remoteDir)}
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)

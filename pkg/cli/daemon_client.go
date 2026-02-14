@@ -286,8 +286,9 @@ type Config struct {
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	BarePath string `json:"bare_path,omitempty"`
 }
 
 // RunTarget represents a user-supplied run target.

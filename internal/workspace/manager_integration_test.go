@@ -32,7 +32,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -81,7 +81,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -130,7 +130,7 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -193,7 +193,7 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 		WorktreeBasePath:     t.TempDir(),
 		SourceCodeManagement: config.SourceCodeManagementGit,
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -258,7 +258,7 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -316,7 +316,7 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			{Name: "test", URL: repoDir},
+			testRepoWithBarePath("test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
