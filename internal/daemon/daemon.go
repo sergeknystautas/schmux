@@ -515,7 +515,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				if manifest == nil {
 					manifest = make(map[string]string)
 				}
-				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest)
+				declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 			}
 			// Note: workspace removal is handled by the workspace dispose reconcile callback,
 			// not here. This ensures the final reconciliation pass runs before cleanup.
@@ -550,7 +551,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			if manifest == nil {
 				manifest = make(map[string]string)
 			}
-			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest)
+			declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 		}
 		compounder.Start()
 		fmt.Printf("[compound] started overlay compounding loop\n")
