@@ -22,6 +22,7 @@ import {
   reconnectRemoteHost,
   getDevStatus,
   devRebuild,
+  getLoreProposals,
   type DevStatus,
 } from '../lib/api';
 
@@ -82,6 +83,28 @@ export default function AppShell() {
       .then(setDevStatus)
       .catch(() => {});
   }, [isDevMode, connected]);
+
+  // Lore pending proposal counts
+  const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!config?.repos?.length) return;
+    const fetchCounts = async () => {
+      const counts: Record<string, number> = {};
+      for (const repo of config.repos) {
+        try {
+          const data = await getLoreProposals(repo.name);
+          counts[repo.name] = (data.proposals || []).filter((p) => p.status === 'pending').length;
+        } catch {
+          /* ignore */
+        }
+      }
+      setLoreCounts(counts);
+    };
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 30000);
+    return () => clearInterval(interval);
+  }, [config?.repos]);
 
   // Identify which workspaces are dev-eligible (same repo as source)
   const devSourceWorkspace = workspaces?.find((ws) => ws.path === devStatus?.source_workspace);
@@ -814,7 +837,12 @@ export default function AppShell() {
                     <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
                     <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
                   </svg>
-                  <span>{config.repos.length === 1 ? 'Lore' : `Lore: ${repo.name}`}</span>
+                  <span>
+                    {config.repos.length === 1 ? 'Lore' : `Lore: ${repo.name}`}
+                    {(loreCounts[repo.name] || 0) > 0 && (
+                      <span className="nav-badge">{loreCounts[repo.name]}</span>
+                    )}
+                  </span>
                 </NavLink>
               ))}
           </div>
