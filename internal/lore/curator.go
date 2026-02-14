@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 type Curator struct {
 	InstructionFiles []string
 	Executor         func(ctx context.Context, prompt string, timeout time.Duration) (string, error)
+	BareRepo         bool // if true, read instruction files from bare repo via git show
 }
 
 // CuratorResponse is the expected JSON output from the curator LLM.
@@ -42,16 +44,25 @@ func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string
 	instrFiles := make(map[string]string)
 	fileHashes := make(map[string]string)
 	for _, name := range c.InstructionFiles {
-		fullPath := filepath.Join(repoDir, name)
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
+		var contentBytes []byte
+		if c.BareRepo {
+			contentStr, err := ReadFileFromRepo(ctx, repoDir, name)
+			if err != nil {
+				continue // file not in repo
 			}
-			return nil, fmt.Errorf("failed to read %s: %w", name, err)
+			contentBytes = []byte(contentStr)
+		} else {
+			var err error
+			contentBytes, err = os.ReadFile(filepath.Join(repoDir, name))
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, fmt.Errorf("failed to read %s: %w", name, err)
+			}
 		}
-		instrFiles[name] = string(content)
-		hash := sha256.Sum256(content)
+		instrFiles[name] = string(contentBytes)
+		hash := sha256.Sum256(contentBytes)
 		fileHashes[name] = "sha256:" + hex.EncodeToString(hash[:])
 	}
 
@@ -166,4 +177,15 @@ func ParseCuratorResponse(response string) (*CuratorResponse, error) {
 		return nil, fmt.Errorf("invalid curator JSON: %w", err)
 	}
 	return &result, nil
+}
+
+// ReadFileFromRepo reads a file from HEAD in a git repo (works with bare repos).
+func ReadFileFromRepo(ctx context.Context, repoDir, relPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "show", "HEAD:"+relPath)
+	cmd.Dir = repoDir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git show HEAD:%s failed: %w", relPath, err)
+	}
+	return string(output), nil
 }
