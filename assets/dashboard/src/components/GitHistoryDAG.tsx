@@ -6,6 +6,7 @@ import {
   gitCommitStage,
   gitAmend,
   gitDiscard,
+  gitUncommit,
   spawnCommitSession,
   pushToBranch,
 } from '../lib/api';
@@ -58,6 +59,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [isCommitting, setIsCommitting] = useState(false);
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
+  const [isUncommitting, setIsUncommitting] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState(0);
@@ -496,6 +498,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         </div>
       );
     }
+    const isHeadCommit = ln.node.is_head.includes(ws?.branch || '');
+    const canUncommit = isHeadCommit && (ws?.git_ahead ?? 0) > 0;
+
     return (
       <div
         key={ln.hash}
@@ -520,7 +525,32 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
               ))}
             </span>
           )}
-          {ln.node.message}
+          <span className="git-dag__message-text">{ln.node.message}</span>
+          {canUncommit && (
+            <Tooltip content="Keep these changes and make them unstaged locally">
+              <button
+                className="git-dag__uncommit-btn"
+                disabled={isUncommitting}
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  setIsUncommitting(true);
+                  try {
+                    await gitUncommit(workspaceId, ln.node.hash);
+                    fetchData();
+                  } catch (err) {
+                    await alert(
+                      'Uncommit Failed',
+                      err instanceof Error ? err.message : 'Unknown error'
+                    );
+                  } finally {
+                    setIsUncommitting(false);
+                  }
+                }}
+              >
+                {isUncommitting ? 'Uncommitting...' : 'Uncommit'}
+              </button>
+            </Tooltip>
+          )}
         </span>
         <span className="git-dag__author">{ln.node.author}</span>
         <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
