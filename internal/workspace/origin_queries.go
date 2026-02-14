@@ -76,9 +76,12 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
 			return "", fmt.Errorf("failed to initialize origin query repo: %w", err)
 		}
-	} else if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
-		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
-			return "", fmt.Errorf("failed to repair origin query repo: %w", err)
+	} else {
+		m.ensureCorrectOriginURL(ctx, queryRepoPath, repoURL)
+		if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
+			if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
+				return "", fmt.Errorf("failed to repair origin query repo: %w", err)
+			}
 		}
 	}
 
@@ -158,6 +161,29 @@ func (m *Manager) originHeadExists(ctx context.Context, queryRepoPath string) bo
 	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/HEAD")
 	cmd.Dir = queryRepoPath
 	return cmd.Run() == nil
+}
+
+// ensureCorrectOriginURL checks that the bare repo's origin URL matches the
+// expected URL from config, and corrects it if mismatched. This handles cases
+// where a repo was cloned with a different protocol (e.g., SSH vs HTTPS).
+func (m *Manager) ensureCorrectOriginURL(ctx context.Context, repoPath, expectedURL string) {
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	currentURL := strings.TrimSpace(string(output))
+	if currentURL == expectedURL {
+		return
+	}
+	fmt.Printf("[workspace] fixing origin URL mismatch in %s: %s -> %s\n",
+		filepath.Base(repoPath), currentURL, expectedURL)
+	fix := exec.CommandContext(ctx, "git", "remote", "set-url", "origin", expectedURL)
+	fix.Dir = repoPath
+	if out, err := fix.CombinedOutput(); err != nil {
+		fmt.Printf("[workspace] warning: failed to fix origin URL: %v: %s\n", err, string(out))
+	}
 }
 
 func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath string) bool {
