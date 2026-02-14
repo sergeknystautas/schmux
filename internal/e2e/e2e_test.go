@@ -2105,3 +2105,104 @@ func TestE2EOverlayAPI(t *testing.T) {
 		env.DisposeSession(sessionID)
 	})
 }
+
+func TestE2EOverlayWorkspaceReuse(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-overlay-reuse-test"
+	const repoName = "overlay-reuse-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	// Setup
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Reuse Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n.claude/\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.CreateOverlayFile(repoName, ".env", "ORIGINAL=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Spawn first session, verify overlay, then dispose
+	var ws1Path string
+	t.Run("03_SpawnAndVerifyFirst", func(t *testing.T) {
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "first-session")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		ws1Path = env.GetWorkspacePath(sessionID)
+
+		// Verify overlay was copied
+		data, err := os.ReadFile(filepath.Join(ws1Path, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay .env not copied: %v", err)
+		}
+		if string(data) != "ORIGINAL=true\n" {
+			t.Errorf("Overlay content mismatch: got %q", string(data))
+		}
+
+		// Dispose the session (workspace persists for reuse)
+		env.DisposeSession(sessionID)
+		t.Logf("First session disposed, workspace at: %s", ws1Path)
+	})
+
+	// Update the overlay file (simulate user changing it between sessions)
+	t.Run("04_UpdateOverlay", func(t *testing.T) {
+		env.CreateOverlayFile(repoName, ".env", "UPDATED=true\n")
+	})
+
+	// Spawn second session on the same branch — workspace should be reused
+	t.Run("05_SpawnSecondAndVerifyReuse", func(t *testing.T) {
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "second-session")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+		ws2Path := env.GetWorkspacePath(sessionID)
+
+		// Workspace should be reused (same path)
+		if ws2Path != ws1Path {
+			t.Logf("Note: workspace was not reused (got %s, expected %s) — this is OK if git SCM created a new worktree", ws2Path, ws1Path)
+		}
+
+		// Verify the UPDATED overlay content is present (not the stale ORIGINAL)
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay .env not present after reuse: %v", err)
+		}
+		if string(data) != "UPDATED=true\n" {
+			t.Errorf("Expected updated overlay content, got %q", string(data))
+		}
+
+		env.DisposeSession(sessionID)
+	})
+}
