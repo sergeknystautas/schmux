@@ -289,6 +289,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
+	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuth(s.handleOverlayScan)))
+	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuth(s.handleOverlayAdd)))
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))

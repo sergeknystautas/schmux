@@ -1733,3 +1733,22 @@ func (c *Config) SetModelVersions(versions map[string]string) {
 	}
 	c.Models.Versions = versions
 }
+
+// AddRepoOverlayPaths adds overlay paths to a repo's config, deduplicating against existing paths.
+func (c *Config) AddRepoOverlayPaths(repoName string, paths []string) {
+	for i := range c.Repos {
+		if c.Repos[i].Name == repoName {
+			existing := make(map[string]bool)
+			for _, p := range c.Repos[i].OverlayPaths {
+				existing[p] = true
+			}
+			for _, p := range paths {
+				if !existing[p] {
+					c.Repos[i].OverlayPaths = append(c.Repos[i].OverlayPaths, p)
+					existing[p] = true
+				}
+			}
+			return
+		}
+	}
+}
