@@ -544,7 +544,7 @@ export default function HomePage() {
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>
               <FolderIcon />
-              Active Workspaces
+              Active Workspaces ({workspaces.length})
             </h2>
             <button
               className={styles.scanButton}
