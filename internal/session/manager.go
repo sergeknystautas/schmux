@@ -374,6 +374,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
+		"SCHMUX_STATUS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "signal"),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -543,6 +544,12 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		}
 	}
 
+	// Ensure .schmux directory exists for file-based signaling
+	schmuxDir := filepath.Join(w.Path, ".schmux")
+	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		fmt.Printf("[session] warning: failed to create .schmux directory: %v\n", err)
+	}
+
 	// Resolve model if target is a model kind
 	var model *detect.Model
 	if resolved.Kind == TargetKindModel {
@@ -559,6 +566,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
+		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal"),
 	})
 
 	command, err := buildCommand(resolved, prompt, model, resume)
