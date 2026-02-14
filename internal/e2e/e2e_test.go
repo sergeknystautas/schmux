@@ -2307,3 +2307,1238 @@ func TestE2EOverlayReconcileOnDispose(t *testing.T) {
 		}
 	})
 }
+
+func TestE2EOverlayConcurrentModification(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-concurrent-mod-test"
+	const repoName = "concurrent-mod-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Concurrent Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500) // fast debounce
+		env.CreateOverlayFile(repoName, ".env", "SHARED=original\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-a")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-b")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+
+		if ws1Path == ws2Path {
+			t.Fatalf("Expected different workspaces, both at: %s", ws1Path)
+		}
+	})
+
+	// Both agents modify .env with different content
+	// Agent A writes first, wait for propagation, then Agent B writes
+	t.Run("04_AgentAModifies", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte("SHARED=from_agent_a\nAGENT_A=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to write agent A change: %v", err)
+		}
+	})
+
+	// Wait for Agent A's change to propagate to overlay and workspace 2
+	t.Run("05_WaitForAgentAPropagation", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(overlayPath)
+			if err == nil && strings.Contains(string(data), "AGENT_A=true") {
+				t.Log("Agent A's change propagated to overlay")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatal("Agent A's change did not propagate to overlay within 15s")
+	})
+
+	// Now Agent B modifies (overlay has Agent A's content, manifest is updated)
+	// This creates a divergence: overlay has Agent A's version, workspace has Agent B's version
+	t.Run("06_AgentBModifies", func(t *testing.T) {
+		// Wait for suppression window to expire (5s) before Agent B writes
+		// so that Agent B's write is not suppressed
+		time.Sleep(6 * time.Second)
+
+		if err := os.WriteFile(filepath.Join(ws2Path, ".env"), []byte("SHARED=from_agent_b\nAGENT_B=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to write agent B change: %v", err)
+		}
+	})
+
+	// Wait for Agent B's change to propagate — since there's no LLM executor,
+	// the merge falls back to last-write-wins (Agent B's content)
+	t.Run("07_WaitForAgentBPropagation", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(overlayPath)
+			if err == nil && strings.Contains(string(data), "AGENT_B=true") {
+				t.Log("Agent B's change propagated to overlay (last-write-wins)")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		overlayData, _ := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".schmux", "overlays", repoName, ".env"))
+		t.Fatalf("Agent B's change did not propagate. Overlay: %q", string(overlayData))
+	})
+
+	// Verify the overlay has Agent B's content (LWW)
+	t.Run("08_VerifyOverlayContent", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		content := string(data)
+		if !strings.Contains(content, "AGENT_B=true") {
+			t.Errorf("Expected overlay to contain Agent B's content, got: %q", content)
+		}
+	})
+
+	t.Run("09_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-multi-repo-test"
+	const repoAName = "repo-alpha"
+	const repoBName = "repo-beta"
+	repoAPath := workspaceRoot + "/" + repoAName
+	repoBPath := workspaceRoot + "/" + repoBName
+	repoAURL := "file://" + repoAPath
+	repoBURL := "file://" + repoBPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		// Create repo A
+		for _, rp := range []struct {
+			name, path string
+		}{
+			{repoAName, repoAPath},
+			{repoBName, repoBPath},
+		} {
+			if err := os.MkdirAll(rp.path, 0755); err != nil {
+				t.Fatalf("Failed to create repo dir %s: %v", rp.name, err)
+			}
+			RunCmd(t, rp.path, "git", "init", "-b", "main")
+			RunCmd(t, rp.path, "git", "config", "user.email", "e2e@test.local")
+			RunCmd(t, rp.path, "git", "config", "user.name", "E2E Test")
+
+			if err := os.WriteFile(filepath.Join(rp.path, "README.md"), []byte("# "+rp.name+"\n"), 0644); err != nil {
+				t.Fatalf("Failed to create README: %v", err)
+			}
+			gitignore := ".env\n"
+			if err := os.WriteFile(filepath.Join(rp.path, ".gitignore"), []byte(gitignore), 0644); err != nil {
+				t.Fatalf("Failed to create .gitignore: %v", err)
+			}
+
+			RunCmd(t, rp.path, "git", "add", ".")
+			RunCmd(t, rp.path, "git", "commit", "-m", "Initial commit")
+
+			env.AddRepoToConfig(rp.name, "file://"+rp.path)
+		}
+
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+
+		// Different overlay content for each repo
+		env.CreateOverlayFile(repoAName, ".env", "REPO=alpha\n")
+		env.CreateOverlayFile(repoBName, ".env", "REPO=beta\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var sessionA, sessionB string
+	var wsAPath, wsBPath string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		sessionA = env.SpawnSession(repoAURL, "main", "echo", "", "alpha-agent")
+		if sessionA == "" {
+			t.Fatal("Expected session A ID")
+		}
+		wsAPath = env.GetWorkspacePath(sessionA)
+
+		sessionB = env.SpawnSession(repoBURL, "main", "echo", "", "beta-agent")
+		if sessionB == "" {
+			t.Fatal("Expected session B ID")
+		}
+		wsBPath = env.GetWorkspacePath(sessionB)
+	})
+
+	// Verify each workspace got the correct overlay
+	t.Run("04_VerifyInitialOverlays", func(t *testing.T) {
+		dataA, err := os.ReadFile(filepath.Join(wsAPath, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay .env not copied to repo A workspace: %v", err)
+		}
+		if string(dataA) != "REPO=alpha\n" {
+			t.Errorf("Repo A workspace got wrong overlay: %q", string(dataA))
+		}
+
+		dataB, err := os.ReadFile(filepath.Join(wsBPath, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay .env not copied to repo B workspace: %v", err)
+		}
+		if string(dataB) != "REPO=beta\n" {
+			t.Errorf("Repo B workspace got wrong overlay: %q", string(dataB))
+		}
+	})
+
+	// Modify .env in repo A's workspace
+	t.Run("05_ModifyRepoA", func(t *testing.T) {
+		newContent := "REPO=alpha\nMODIFIED_BY=alpha_agent\n"
+		if err := os.WriteFile(filepath.Join(wsAPath, ".env"), []byte(newContent), 0644); err != nil {
+			t.Fatalf("Failed to modify repo A .env: %v", err)
+		}
+	})
+
+	// Wait for propagation to repo A's overlay dir
+	t.Run("06_WaitForRepoAPropagation", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoAName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(overlayPath)
+			if err == nil && strings.Contains(string(data), "MODIFIED_BY=alpha_agent") {
+				t.Log("Repo A overlay updated")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatal("Repo A overlay not updated within 15s")
+	})
+
+	// Verify repo B's workspace was NOT modified
+	t.Run("07_VerifyRepoBUnchanged", func(t *testing.T) {
+		dataB, err := os.ReadFile(filepath.Join(wsBPath, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read repo B .env: %v", err)
+		}
+		if string(dataB) != "REPO=beta\n" {
+			t.Errorf("Repo B workspace was contaminated! Got: %q, want: %q", string(dataB), "REPO=beta\n")
+		}
+
+		// Also verify repo B's overlay dir was not modified
+		homeDir, _ := os.UserHomeDir()
+		overlayB := filepath.Join(homeDir, ".schmux", "overlays", repoBName, ".env")
+		dataOvB, err := os.ReadFile(overlayB)
+		if err != nil {
+			t.Fatalf("Failed to read repo B overlay: %v", err)
+		}
+		if string(dataOvB) != "REPO=beta\n" {
+			t.Errorf("Repo B overlay was contaminated! Got: %q", string(dataOvB))
+		}
+	})
+
+	t.Run("08_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(sessionA)
+		env.DisposeSession(sessionB)
+	})
+}
+
+func TestE2EOverlayDormantWorkspaceSkipped(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-dormant-ws-test"
+	const repoName = "dormant-ws-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Dormant Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+		env.CreateOverlayFile(repoName, ".env", "INITIAL=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnTwoSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "active-agent")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "dormant-agent")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Dispose session 2, making its workspace dormant
+	t.Run("04_DisposeSession2", func(t *testing.T) {
+		env.DisposeSession(session2ID)
+		t.Logf("Session 2 disposed, workspace at %s is now dormant", ws2Path)
+	})
+
+	// Record workspace 2's current .env content
+	t.Run("05_RecordDormantContent", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read dormant workspace .env: %v", err)
+		}
+		// After reconcile-on-dispose, the content should still be INITIAL=true
+		if string(data) != "INITIAL=true\n" {
+			t.Logf("Note: dormant workspace .env is %q (expected INITIAL=true)", string(data))
+		}
+	})
+
+	// Modify .env in the active workspace (session 1)
+	t.Run("06_ModifyActiveWorkspace", func(t *testing.T) {
+		newContent := "INITIAL=true\nACTIVE_CHANGE=true\n"
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte(newContent), 0644); err != nil {
+			t.Fatalf("Failed to modify active workspace .env: %v", err)
+		}
+	})
+
+	// Wait for propagation to overlay dir
+	t.Run("07_WaitForOverlayUpdate", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(overlayPath)
+			if err == nil && strings.Contains(string(data), "ACTIVE_CHANGE=true") {
+				t.Log("Overlay updated with active workspace's change")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatal("Overlay not updated within 15s")
+	})
+
+	// Verify the dormant workspace was NOT updated
+	t.Run("08_VerifyDormantUnchanged", func(t *testing.T) {
+		// Give a moment for any incorrect propagation to land
+		time.Sleep(2 * time.Second)
+
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read dormant workspace .env: %v", err)
+		}
+
+		if strings.Contains(string(data), "ACTIVE_CHANGE") {
+			t.Errorf("Dormant workspace received propagation! Got: %q", string(data))
+		}
+	})
+
+	t.Run("09_DisposeActiveSession", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+	})
+}
+
+func TestE2EOverlayEmptyFile(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-empty-file-test"
+	const repoName = "empty-file-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Empty File Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+		env.CreateOverlayFile(repoName, ".env", "HAS_CONTENT=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Agent truncates .env to empty
+	t.Run("04_TruncateFile", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte(""), 0644); err != nil {
+			t.Fatalf("Failed to truncate .env: %v", err)
+		}
+		t.Log("Truncated .env to 0 bytes in workspace 1")
+	})
+
+	// Wait for empty content to propagate to overlay dir and workspace 2
+	t.Run("05_WaitForPropagation", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			overlayData, err1 := os.ReadFile(overlayPath)
+			ws2Data, err2 := os.ReadFile(filepath.Join(ws2Path, ".env"))
+
+			overlayEmpty := err1 == nil && len(overlayData) == 0
+			ws2Empty := err2 == nil && len(ws2Data) == 0
+
+			if overlayEmpty && ws2Empty {
+				t.Log("Empty file propagated to overlay and workspace 2")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		overlayData, _ := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".schmux", "overlays", repoName, ".env"))
+		ws2Data, _ := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		t.Fatalf("Empty file propagation timed out.\nOverlay: %q (len=%d)\nWS2: %q (len=%d)",
+			string(overlayData), len(overlayData), string(ws2Data), len(ws2Data))
+	})
+
+	t.Run("06_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlayFilePermissions(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-permissions-test"
+	const repoName = "permissions-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Permissions Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+
+		// Create overlay file with restrictive permissions (0600)
+		env.CreateOverlayFile(repoName, ".env", "SECRET_KEY=very-secret\n")
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		if err := os.Chmod(overlayPath, 0600); err != nil {
+			t.Fatalf("Failed to set overlay permissions: %v", err)
+		}
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Verify permissions were preserved during initial copy
+	t.Run("04_VerifyInitialPermissions", func(t *testing.T) {
+		info, err := os.Stat(filepath.Join(ws1Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to stat .env in ws1: %v", err)
+		}
+		perm := info.Mode().Perm()
+		if perm != 0600 {
+			t.Errorf("Expected ws1 .env permissions 0600, got %04o", perm)
+		}
+	})
+
+	// Modify .env in workspace 1 (keeping restrictive permissions)
+	t.Run("05_ModifyFile", func(t *testing.T) {
+		newContent := "SECRET_KEY=updated-secret\nADDED=true\n"
+		envPath := filepath.Join(ws1Path, ".env")
+		if err := os.WriteFile(envPath, []byte(newContent), 0600); err != nil {
+			t.Fatalf("Failed to modify .env: %v", err)
+		}
+	})
+
+	// Wait for propagation
+	t.Run("06_WaitForPropagation", func(t *testing.T) {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+			if err == nil && strings.Contains(string(data), "ADDED=true") {
+				t.Log("Propagation complete")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatal("Propagation timed out")
+	})
+
+	// Verify permissions were preserved after propagation
+	t.Run("07_VerifyPropagatedPermissions", func(t *testing.T) {
+		info, err := os.Stat(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to stat propagated .env: %v", err)
+		}
+		perm := info.Mode().Perm()
+		if perm != 0600 {
+			t.Errorf("Expected propagated .env permissions 0600, got %04o", perm)
+		}
+	})
+
+	t.Run("08_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlayNotInGitignore(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-no-gitignore-test"
+	const repoName = "no-gitignore-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# No Gitignore Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+
+		// .gitignore only covers .env, NOT .tracked-config
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+
+		// Create two overlay files: one gitignored, one NOT
+		env.CreateOverlayFile(repoName, ".env", "IGNORED=true\n")
+		env.CreateOverlayFile(repoName, "tracked-config.json", `{"tracked": true}`)
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var sessionID string
+	var wsPath string
+
+	t.Run("03_SpawnSession", func(t *testing.T) {
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "test-agent")
+		if sessionID == "" {
+			t.Fatal("Expected session ID")
+		}
+		wsPath = env.GetWorkspacePath(sessionID)
+	})
+
+	// Verify gitignored file WAS copied
+	t.Run("04_VerifyGitignoredFileCopied", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join(wsPath, ".env"))
+		if err != nil {
+			t.Fatalf("Gitignored overlay .env was not copied: %v", err)
+		}
+		if string(data) != "IGNORED=true\n" {
+			t.Errorf("Wrong content: %q", string(data))
+		}
+	})
+
+	// Verify NON-gitignored file was NOT copied (silently skipped)
+	t.Run("05_VerifyTrackedFileNotCopied", func(t *testing.T) {
+		_, err := os.Stat(filepath.Join(wsPath, "tracked-config.json"))
+		if err == nil {
+			t.Error("Non-gitignored overlay file was incorrectly copied to workspace")
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("Unexpected error checking for tracked file: %v", err)
+		}
+	})
+
+	t.Run("06_DisposeSession", func(t *testing.T) {
+		env.DisposeSession(sessionID)
+	})
+}
+
+func TestE2EOverlayCompoundDisabled(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-compound-disabled-test"
+	const repoName = "disabled-compound-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Disabled Compound Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundDisabled() // explicitly disable compounding
+		env.CreateOverlayFile(repoName, ".env", "ORIGINAL=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Verify overlay was still copied at spawn time (copy is independent of compounding)
+	t.Run("04_VerifyOverlayCopied", func(t *testing.T) {
+		for _, wsPath := range []string{ws1Path, ws2Path} {
+			data, err := os.ReadFile(filepath.Join(wsPath, ".env"))
+			if err != nil {
+				t.Fatalf("Overlay .env not copied to %s: %v", wsPath, err)
+			}
+			if string(data) != "ORIGINAL=true\n" {
+				t.Errorf("Wrong overlay content in %s: %q", wsPath, string(data))
+			}
+		}
+	})
+
+	// Modify .env in workspace 1
+	t.Run("05_ModifyFile", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte("MODIFIED=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to modify .env: %v", err)
+		}
+	})
+
+	// Wait a generous amount of time — propagation should NOT happen
+	t.Run("06_VerifyNoPropagation", func(t *testing.T) {
+		time.Sleep(5 * time.Second)
+
+		// Workspace 2 should still have the original content
+		data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read ws2 .env: %v", err)
+		}
+		if string(data) != "ORIGINAL=true\n" {
+			t.Errorf("Workspace 2 was modified despite compounding being disabled! Got: %q", string(data))
+		}
+
+		// Overlay dir should also be unchanged
+		homeDir, _ := os.UserHomeDir()
+		overlayData, err := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		if err != nil {
+			t.Fatalf("Failed to read overlay: %v", err)
+		}
+		if string(overlayData) != "ORIGINAL=true\n" {
+			t.Errorf("Overlay was modified despite compounding being disabled! Got: %q", string(overlayData))
+		}
+	})
+
+	t.Run("07_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlayFileDeletion(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-file-deletion-test"
+	const repoName = "deletion-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Deletion Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+		env.CreateOverlayFile(repoName, ".env", "WILL_BE_DELETED=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Delete .env from workspace 1
+	t.Run("04_DeleteFile", func(t *testing.T) {
+		envPath := filepath.Join(ws1Path, ".env")
+		if err := os.Remove(envPath); err != nil {
+			t.Fatalf("Failed to delete .env: %v", err)
+		}
+		t.Log("Deleted .env from workspace 1")
+	})
+
+	// Wait — deletion should NOT propagate (watcher ignores Remove events)
+	t.Run("05_VerifyDeletionNotPropagated", func(t *testing.T) {
+		time.Sleep(5 * time.Second)
+
+		// Overlay should still have the file
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		data, err := os.ReadFile(overlayPath)
+		if err != nil {
+			t.Fatalf("Overlay .env was deleted (should be preserved): %v", err)
+		}
+		if string(data) != "WILL_BE_DELETED=true\n" {
+			t.Errorf("Overlay .env content changed: %q", string(data))
+		}
+
+		// Workspace 2 should still have the file
+		data2, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		if err != nil {
+			t.Fatalf("Workspace 2 .env was deleted (should be preserved): %v", err)
+		}
+		if string(data2) != "WILL_BE_DELETED=true\n" {
+			t.Errorf("Workspace 2 .env content changed: %q", string(data2))
+		}
+	})
+
+	t.Run("06_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlayDaemonRestart(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-daemon-restart-test"
+	const repoName = "restart-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Restart Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500)
+		env.CreateOverlayFile(repoName, ".env", "BEFORE_RESTART=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	// We'll stop and restart manually, so don't auto-stop in defer
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Verify overlay was copied before restart
+	t.Run("04_VerifyBeforeRestart", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join(ws1Path, ".env"))
+		if err != nil {
+			t.Fatalf("Overlay not copied: %v", err)
+		}
+		if string(data) != "BEFORE_RESTART=true\n" {
+			t.Errorf("Wrong content: %q", string(data))
+		}
+	})
+
+	// Stop daemon
+	t.Run("05_StopDaemon", func(t *testing.T) {
+		env.DaemonStop()
+	})
+
+	// Restart daemon — it should re-register active workspaces with the compounder
+	t.Run("06_RestartDaemon", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	// Verify sessions are still present after restart
+	t.Run("07_VerifySessionsSurvived", func(t *testing.T) {
+		sessions := env.GetAPISessions()
+		found1, found2 := false, false
+		for _, s := range sessions {
+			if s.ID == session1ID {
+				found1 = true
+			}
+			if s.ID == session2ID {
+				found2 = true
+			}
+		}
+		if !found1 {
+			t.Error("Session 1 not found after restart")
+		}
+		if !found2 {
+			t.Error("Session 2 not found after restart")
+		}
+	})
+
+	// Modify .env in workspace 1 AFTER restart
+	t.Run("08_ModifyAfterRestart", func(t *testing.T) {
+		newContent := "AFTER_RESTART=true\n"
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte(newContent), 0644); err != nil {
+			t.Fatalf("Failed to modify .env: %v", err)
+		}
+	})
+
+	// Wait for propagation — compounding should work after restart
+	t.Run("09_WaitForPropagation", func(t *testing.T) {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+			if err == nil && strings.Contains(string(data), "AFTER_RESTART=true") {
+				t.Log("Propagation works after daemon restart")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		ws2Data, _ := os.ReadFile(filepath.Join(ws2Path, ".env"))
+		t.Fatalf("Propagation after restart timed out. WS2: %q", string(ws2Data))
+	})
+
+	t.Run("10_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
+
+func TestE2EOverlaySuppressionWindow(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-suppression-test"
+	const repoName = "suppression-repo"
+	repoPath := workspaceRoot + "/" + repoName
+	repoURL := "file://" + repoPath
+
+	t.Run("01_Setup", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Suppression Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create README: %v", err)
+		}
+		gitignore := ".env\n"
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
+			t.Fatalf("Failed to create .gitignore: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig(repoName, repoURL)
+		env.SetSourceCodeManagement("git")
+		env.SetCompoundConfig(500) // fast debounce
+		env.CreateOverlayFile(repoName, ".env", "INITIAL=true\n")
+	})
+
+	t.Run("02_DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var ws1Path, ws2Path string
+
+	t.Run("03_SpawnSessions", func(t *testing.T) {
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		if session1ID == "" {
+			t.Fatal("Expected session1 ID")
+		}
+		ws1Path = env.GetWorkspacePath(session1ID)
+
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		if session2ID == "" {
+			t.Fatal("Expected session2 ID")
+		}
+		ws2Path = env.GetWorkspacePath(session2ID)
+	})
+
+	// Agent A modifies .env — triggers propagation to workspace B (which suppresses B's watcher)
+	t.Run("04_AgentAModifies", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws1Path, ".env"), []byte("FROM_AGENT_A=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+	})
+
+	// Wait for propagation to workspace B
+	t.Run("05_WaitForPropagationToB", func(t *testing.T) {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(filepath.Join(ws2Path, ".env"))
+			if err == nil && strings.Contains(string(data), "FROM_AGENT_A=true") {
+				t.Log("Agent A's change propagated to workspace B (suppression window started)")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Fatal("Propagation to workspace B timed out")
+	})
+
+	// Immediately: Agent B writes during suppression window
+	// This write should be SWALLOWED by suppression
+	t.Run("06_AgentBWritesDuringSuppression", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws2Path, ".env"), []byte("FROM_AGENT_B_SUPPRESSED=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+		t.Log("Agent B wrote during suppression window")
+	})
+
+	// Wait 3 seconds — the suppressed write should NOT propagate back
+	t.Run("07_VerifySuppressedWriteNotPropagated", func(t *testing.T) {
+		time.Sleep(3 * time.Second)
+
+		homeDir, _ := os.UserHomeDir()
+		data, _ := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		if strings.Contains(string(data), "FROM_AGENT_B_SUPPRESSED") {
+			t.Error("Suppressed write was propagated to overlay — suppression failed!")
+		} else {
+			t.Log("Suppressed write was correctly ignored")
+		}
+	})
+
+	// Wait for suppression window to expire (5s total, we already waited 3s)
+	t.Run("08_WaitForSuppressionExpiry", func(t *testing.T) {
+		time.Sleep(4 * time.Second) // extra margin
+	})
+
+	// Agent B writes AFTER suppression expires — this should propagate
+	t.Run("09_AgentBWritesAfterSuppression", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(ws2Path, ".env"), []byte("FROM_AGENT_B_AFTER=true\n"), 0644); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+		t.Log("Agent B wrote after suppression window expired")
+	})
+
+	// Wait for propagation
+	t.Run("10_WaitForPostSuppressionPropagation", func(t *testing.T) {
+		homeDir, _ := os.UserHomeDir()
+		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			data, err := os.ReadFile(overlayPath)
+			if err == nil && strings.Contains(string(data), "FROM_AGENT_B_AFTER=true") {
+				t.Log("Post-suppression write propagated correctly")
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		data, _ := os.ReadFile(overlayPath)
+		t.Fatalf("Post-suppression write did not propagate. Overlay: %q", string(data))
+	})
+
+	t.Run("11_DisposeSessions", func(t *testing.T) {
+		env.DisposeSession(session1ID)
+		env.DisposeSession(session2ID)
+	})
+}
