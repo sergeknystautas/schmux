@@ -475,7 +475,12 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					continue
 				}
 				compounder.Suppress(w.ID, relPath)
-				if err := os.WriteFile(destPath, content, 0644); err != nil {
+				// Preserve existing file permissions if the file already exists
+				writeMode := os.FileMode(0644)
+				if info, statErr := os.Stat(destPath); statErr == nil {
+					writeMode = info.Mode().Perm()
+				}
+				if err := os.WriteFile(destPath, content, writeMode); err != nil {
 					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
 					continue
 				}

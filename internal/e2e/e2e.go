@@ -1304,6 +1304,32 @@ func (e *Env) SetCompoundConfig(debounceMs int) {
 	}
 }
 
+// SetCompoundDisabled explicitly disables compounding in the config.
+func (e *Env) SetCompoundDisabled() {
+	e.T.Helper()
+	e.T.Log("Setting compound config: enabled=false")
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	enabled := false
+	cfg.Compound = &config.CompoundConfig{
+		Enabled: &enabled,
+	}
+
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
 // CreateOverlayFile writes a file into ~/.schmux/overlays/<repoName>/<relPath>.
 func (e *Env) CreateOverlayFile(repoName, relPath, content string) {
 	e.T.Helper()
