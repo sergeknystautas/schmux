@@ -5,8 +5,6 @@ package dashboard_test
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"runtime"
@@ -24,24 +22,14 @@ type wsOutputMessage struct {
 	Content string `json:"content"`
 }
 
-// sessionResponseItem is the minimal subset of the /api/sessions response
-// needed to auto-discover a running session.
-type sessionResponseItem struct {
-	ID      string `json:"id"`
-	Running bool   `json:"running"`
-}
-
-type workspaceResponseItem struct {
-	Sessions []sessionResponseItem `json:"sessions"`
-}
-
 // wsBenchSetup connects to a running schmux daemon via WebSocket, matching
 // the same path the browser takes. It returns the WebSocket connection and
 // a cleanup function.
 //
 // Environment variables:
 //   - BENCH_DAEMON_URL: daemon base URL (default http://localhost:7337)
-//   - BENCH_SESSION_ID: target session ID (auto-discovered if unset)
+//   - BENCH_SESSION_ID: target session ID (required — must be a dedicated
+//     benchmark session, not a user's active session)
 func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 	tb.Helper()
 
@@ -52,7 +40,7 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 
 	sessionID := os.Getenv("BENCH_SESSION_ID")
 	if sessionID == "" {
-		sessionID = discoverRunningSession(tb, baseURL)
+		tb.Skip("BENCH_SESSION_ID not set — refusing to auto-discover sessions to avoid hijacking active user sessions. Use ./test.sh --bench which spawns dedicated benchmark sessions.")
 	}
 
 	// Convert http(s) URL to ws(s) URL.
@@ -88,39 +76,6 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 		c.Close()
 	}
 	return c, cleanup
-}
-
-// discoverRunningSession calls GET /api/sessions and returns the first
-// running session ID.
-func discoverRunningSession(tb testing.TB, baseURL string) string {
-	tb.Helper()
-
-	resp, err := http.Get(baseURL + "/api/sessions")
-	if err != nil {
-		tb.Fatalf("failed to reach daemon at %s/api/sessions: %v", baseURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		tb.Fatalf("GET /api/sessions returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var workspaces []workspaceResponseItem
-	if err := json.NewDecoder(resp.Body).Decode(&workspaces); err != nil {
-		tb.Fatalf("failed to decode sessions response: %v", err)
-	}
-
-	for _, ws := range workspaces {
-		for _, sess := range ws.Sessions {
-			if sess.Running {
-				return sess.ID
-			}
-		}
-	}
-
-	tb.Fatal("no running sessions found — start a session running 'cat' before running this benchmark")
-	return "" // unreachable
 }
 
 // sendInputAndWaitForAppend sends a keystroke over WebSocket and waits for
