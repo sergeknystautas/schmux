@@ -119,3 +119,22 @@ func TestCurate_WithEntries(t *testing.T) {
 		t.Errorf("expected repo=myrepo, got %s", proposal.Repo)
 	}
 }
+
+func TestReadFileFromBareRepo(t *testing.T) {
+	bareDir := initBareRepo(t) // reuse helper from apply_test.go
+	content, err := ReadFileFromRepo(context.Background(), bareDir, "CLAUDE.md")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "# Project\n" {
+		t.Errorf("unexpected content: %q", content)
+	}
+}
+
+func TestReadFileFromBareRepo_NotFound(t *testing.T) {
+	bareDir := initBareRepo(t)
+	_, err := ReadFileFromRepo(context.Background(), bareDir, "NONEXISTENT.md")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
