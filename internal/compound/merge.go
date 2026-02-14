@@ -86,6 +86,11 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 		return nil, fmt.Errorf("failed to read overlay file: %w", err)
 	}
 
+	// JSONL files: line-level union (no LLM needed)
+	if strings.HasSuffix(wsPath, ".jsonl") {
+		return mergeJSONLLines(wsContent, overlayContent, overlayPath)
+	}
+
 	// Safety: binary files -> last-write-wins
 	if IsBinary(wsPath) || IsBinary(overlayPath) {
 		fmt.Printf("[compound] binary file detected, using last-write-wins: %s\n", wsPath)
@@ -147,4 +152,42 @@ VERSION A (current overlay):
 
 VERSION B (workspace modification):
 %s`, overlayContent, workspaceContent)
+}
+
+// mergeJSONLLines performs a line-level union of two JSONL files.
+// Deduplicates by exact line content. Preserves order: overlay lines first, then new workspace lines.
+func mergeJSONLLines(wsContent, overlayContent []byte, overlayPath string) ([]byte, error) {
+	seen := make(map[string]bool)
+	var merged []string
+
+	// Add overlay lines first (preserves existing order)
+	for _, line := range strings.Split(strings.TrimSpace(string(overlayContent)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			merged = append(merged, line)
+		}
+	}
+
+	// Add workspace-only lines
+	for _, line := range strings.Split(strings.TrimSpace(string(wsContent)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			merged = append(merged, line)
+		}
+	}
+
+	result := []byte(strings.Join(merged, "\n") + "\n")
+	if err := os.WriteFile(overlayPath, result, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write merged JSONL: %w", err)
+	}
+	fmt.Printf("[compound] JSONL line-union merge: %d unique lines\n", len(merged))
+	return result, nil
 }
