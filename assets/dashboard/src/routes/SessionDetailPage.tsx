@@ -137,7 +137,13 @@ export default function SessionDetailPage() {
     return () => {
       terminalStream.disconnect();
     };
-  }, [sessionData?.id, configLoading, config?.terminal, remoteDisconnected]);
+  }, [
+    sessionData?.id,
+    configLoading,
+    config?.terminal?.width,
+    config?.terminal?.height,
+    remoteDisconnected,
+  ]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
