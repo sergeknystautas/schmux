@@ -217,3 +217,66 @@ func TestCompounder_DetectsNewFileAtDeclaredPath(t *testing.T) {
 		t.Error("expected propagation callback to be called for new file at declared path")
 	}
 }
+
+func TestCompounder_DeclaredPath_FullFlow(t *testing.T) {
+	overlayDir := t.TempDir()
+	ws1Dir := t.TempDir()
+	ws2Dir := t.TempDir()
+
+	// Create parent dirs for declared paths
+	os.MkdirAll(filepath.Join(ws1Dir, ".claude"), 0755)
+	os.MkdirAll(filepath.Join(ws2Dir, ".claude"), 0755)
+	os.MkdirAll(filepath.Join(overlayDir, ".claude"), 0755)
+
+	relPath := filepath.Join(".claude", "settings.local.json")
+	manifest := map[string]string{}
+	declaredPaths := []string{relPath}
+
+	var ws2Written atomic.Int32
+
+	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, rp string, content []byte) {
+		// Simulate propagation to ws2
+		destPath := filepath.Join(ws2Dir, rp)
+		os.MkdirAll(filepath.Dir(destPath), 0755)
+		os.WriteFile(destPath, content, 0644)
+		ws2Written.Add(1)
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewCompounder() error = %v", err)
+	}
+	defer c.Stop()
+
+	c.AddWorkspace("ws-001", ws1Dir, overlayDir, "repo", manifest, declaredPaths)
+	c.Start()
+
+	// Agent creates the file in ws1
+	fileContent := `{"setting": "from_agent"}`
+	os.WriteFile(filepath.Join(ws1Dir, relPath), []byte(fileContent), 0644)
+
+	// Wait for propagation
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if ws2Written.Load() > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify overlay was written
+	overlayContent, err := os.ReadFile(filepath.Join(overlayDir, relPath))
+	if err != nil {
+		t.Fatalf("overlay file not created: %v", err)
+	}
+	if string(overlayContent) != fileContent {
+		t.Errorf("overlay = %q, want %q", string(overlayContent), fileContent)
+	}
+
+	// Verify propagation
+	if ws2Written.Load() == 0 {
+		t.Error("expected propagation to ws2")
+	}
+	ws2Content, _ := os.ReadFile(filepath.Join(ws2Dir, relPath))
+	if string(ws2Content) != fileContent {
+		t.Errorf("ws2 = %q, want %q", string(ws2Content), fileContent)
+	}
+}
