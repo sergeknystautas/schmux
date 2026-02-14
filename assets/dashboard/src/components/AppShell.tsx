@@ -776,6 +776,27 @@ export default function AppShell() {
               </svg>
               <span>Remote Hosts</span>
             </NavLink>
+            {config?.repos?.length > 0 &&
+              config.repos.map((repo) => (
+                <NavLink
+                  key={repo.name}
+                  to={`/overlays/${encodeURIComponent(repo.name)}`}
+                  className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+                >
+                  <svg
+                    className="nav-link__icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                    <polyline points="2 17 12 22 22 17"></polyline>
+                    <polyline points="2 12 12 17 22 12"></polyline>
+                  </svg>
+                  <span>{config.repos.length === 1 ? 'Overlays' : `Overlays: ${repo.name}`}</span>
+                </NavLink>
+              ))}
           </div>
           {isDevMode && <TypingPerformance />}
         </div>
