@@ -573,6 +573,134 @@ func (e *Env) SpawnSession(repoURL, branch, target, prompt, nickname string) str
 	return ""
 }
 
+// SpawnSessionInWorkspace spawns a session into an existing workspace via the daemon API.
+// This uses the workspace_id field to target a specific workspace, avoiding branch conflict checks.
+func (e *Env) SpawnSessionInWorkspace(workspaceID, target, prompt, nickname string) string {
+	e.T.Helper()
+	e.T.Logf("Spawning session via API into workspace: workspace_id=%s target=%s nickname=%s", workspaceID, target, nickname)
+
+	type SpawnRequest struct {
+		WorkspaceID string         `json:"workspace_id"`
+		Prompt      string         `json:"prompt"`
+		Nickname    string         `json:"nickname,omitempty"`
+		Targets     map[string]int `json:"targets"`
+	}
+
+	spawnReqBody := SpawnRequest{
+		WorkspaceID: workspaceID,
+		Prompt:      prompt,
+		Nickname:    nickname,
+		Targets:     map[string]int{target: 1},
+	}
+
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+	spawnResp, err := http.DefaultClient.Do(spawnReq)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to spawn: %v", err)
+	}
+	defer spawnResp.Body.Close()
+
+	if spawnResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(spawnResp.Body)
+		e.T.Fatalf("Spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, body)
+	}
+
+	type SpawnResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	var results []SpawnResult
+	if err := json.NewDecoder(spawnResp.Body).Decode(&results); err != nil {
+		e.T.Logf("Failed to decode spawn response: %v", err)
+		return ""
+	}
+
+	if len(results) > 0 && results[0].Error != "" {
+		e.T.Fatalf("Spawn failed: %s", results[0].Error)
+	}
+
+	if len(results) > 0 {
+		return results[0].SessionID
+	}
+
+	return ""
+}
+
+// SpawnCommandSession spawns a session using the command field (SpawnCommand code path).
+// This exercises a different code path than target-based spawning.
+func (e *Env) SpawnCommandSession(repoURL, branch, command, nickname, workspaceID string) string {
+	e.T.Helper()
+	e.T.Logf("Spawning command session via API: command=%q workspace_id=%s nickname=%s", command, workspaceID, nickname)
+
+	type SpawnRequest struct {
+		Repo        string `json:"repo,omitempty"`
+		Branch      string `json:"branch,omitempty"`
+		Command     string `json:"command"`
+		Nickname    string `json:"nickname,omitempty"`
+		WorkspaceID string `json:"workspace_id,omitempty"`
+	}
+
+	spawnReqBody := SpawnRequest{
+		Repo:        repoURL,
+		Branch:      branch,
+		Command:     command,
+		Nickname:    nickname,
+		WorkspaceID: workspaceID,
+	}
+
+	reqBody, err := json.Marshal(spawnReqBody)
+	if err != nil {
+		e.T.Fatalf("Failed to marshal spawn request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+	spawnResp, err := http.DefaultClient.Do(spawnReq)
+	cancel()
+	if err != nil {
+		e.T.Fatalf("Failed to spawn: %v", err)
+	}
+	defer spawnResp.Body.Close()
+
+	if spawnResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(spawnResp.Body)
+		e.T.Fatalf("Spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, body)
+	}
+
+	type SpawnResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	var results []SpawnResult
+	if err := json.NewDecoder(spawnResp.Body).Decode(&results); err != nil {
+		e.T.Logf("Failed to decode spawn response: %v", err)
+		return ""
+	}
+
+	if len(results) > 0 && results[0].Error != "" {
+		e.T.Fatalf("Spawn failed: %s", results[0].Error)
+	}
+
+	if len(results) > 0 {
+		return results[0].SessionID
+	}
+
+	return ""
+}
+
 // SpawnQuickLaunchWithoutWorkspace posts a quick_launch_name spawn request without a workspace_id.
 // Returns the HTTP status code.
 func (e *Env) SpawnQuickLaunchWithoutWorkspace(repoURL, branch, name string) int {

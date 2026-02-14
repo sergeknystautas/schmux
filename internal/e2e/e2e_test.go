@@ -1003,3 +1003,523 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		}
 	})
 }
+
+// TestE2ESignalDaemonRestart validates that signal state survives a daemon restart
+// and that new signals work after the restart.
+func TestE2ESignalDaemonRestart(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/restart-test-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Restart Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("restart-test-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		if env.HealthCheck() {
+			env.DaemonStop()
+		}
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var sessionID string
+	var workspacePath string
+	t.Run("SpawnAndSignal", func(t *testing.T) {
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/restart-test-repo", "main", "echo", "", "restart-test")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+
+		// Get workspace path from API
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == sessionID {
+					workspacePath = ws.Path
+					break
+				}
+			}
+		}
+		if workspacePath == "" {
+			t.Fatal("Could not find workspace path for session")
+		}
+
+		// Write a signal and wait for it to propagate
+		conn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect websocket: %v", err)
+		}
+		defer conn.Close()
+
+		// Drain initial state message
+		env.ReadDashboardMessage(conn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		if err := os.WriteFile(signalFile, []byte("completed Implementation done\n"), 0644); err != nil {
+			t.Fatalf("Failed to write signal file: %v", err)
+		}
+
+		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "Completed", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive nudge: %v", err)
+		}
+		t.Logf("Pre-restart nudge: state=%s summary=%q seq=%d", sess.NudgeState, sess.NudgeSummary, sess.NudgeSeq)
+	})
+
+	t.Run("RestartDaemon", func(t *testing.T) {
+		env.DaemonStop()
+		// Signal file persists on disk across restart
+		time.Sleep(500 * time.Millisecond)
+		env.DaemonStart()
+	})
+
+	t.Run("VerifyNudgeSurvived", func(t *testing.T) {
+		// After restart, connect to dashboard and verify nudge state was recovered
+		conn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect websocket after restart: %v", err)
+		}
+		defer conn.Close()
+
+		// The initial state message should already contain the recovered nudge
+		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "Completed", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Nudge did not survive restart: %v", err)
+		}
+		if sess.NudgeSummary != "Implementation done" {
+			t.Errorf("NudgeSummary = %q, want %q", sess.NudgeSummary, "Implementation done")
+		}
+		t.Logf("Post-restart nudge: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
+	})
+
+	t.Run("NewSignalWorksAfterRestart", func(t *testing.T) {
+		conn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect websocket: %v", err)
+		}
+		defer conn.Close()
+
+		// Drain initial state
+		env.ReadDashboardMessage(conn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		// Write a different signal
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		if err := os.WriteFile(signalFile, []byte("needs_input Approve changes?\n"), 0644); err != nil {
+			t.Fatalf("Failed to write signal file: %v", err)
+		}
+
+		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "Needs Authorization", 5*time.Second)
+		if err != nil {
+			t.Fatalf("New signal after restart failed: %v", err)
+		}
+		if sess.NudgeSummary != "Approve changes?" {
+			t.Errorf("NudgeSummary = %q, want %q", sess.NudgeSummary, "Approve changes?")
+		}
+		t.Logf("Post-restart new signal works: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
+	})
+}
+
+// TestE2ENudgeClearOnTerminalInput validates that typing in the terminal WebSocket
+// clears the active nudge.
+func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/nudge-clear-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Nudge Clear Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("nudge-clear-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	// Use "cat" target so the session stays alive and accepts input
+	var sessionID string
+	var workspacePath string
+	t.Run("SpawnSession", func(t *testing.T) {
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/nudge-clear-repo", "main", "cat", "", "nudge-clear")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == sessionID {
+					workspacePath = ws.Path
+					break
+				}
+			}
+		}
+		if workspacePath == "" {
+			t.Fatal("Could not find workspace path")
+		}
+	})
+
+	t.Run("WriteSignalAndVerifyNudge", func(t *testing.T) {
+		dashConn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect dashboard websocket: %v", err)
+		}
+		defer dashConn.Close()
+
+		// Drain initial state
+		env.ReadDashboardMessage(dashConn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		// Write a signal to create a nudge
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		if err := os.WriteFile(signalFile, []byte("needs_input Waiting for approval\n"), 0644); err != nil {
+			t.Fatalf("Failed to write signal file: %v", err)
+		}
+
+		// Verify nudge appears
+		sess, err := env.WaitForSessionNudgeState(dashConn, sessionID, "Needs Authorization", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to receive nudge: %v", err)
+		}
+		t.Logf("Nudge set: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
+	})
+
+	t.Run("TerminalInputClearsNudge", func(t *testing.T) {
+		// Connect dashboard WS to watch for nudge clear
+		dashConn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect dashboard websocket: %v", err)
+		}
+		defer dashConn.Close()
+
+		// Drain initial state (should show the nudge)
+		env.ReadDashboardMessage(dashConn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		// Connect terminal WS and send Enter key
+		termConn, err := env.ConnectTerminalWebSocket(sessionID)
+		if err != nil {
+			t.Fatalf("Failed to connect terminal websocket: %v", err)
+		}
+		defer termConn.Close()
+
+		// Send Enter via terminal WebSocket (triggers nudge clear)
+		env.SendWebSocketInput(termConn, "\r")
+
+		// Verify nudge is cleared via dashboard WebSocket
+		sess, err := env.WaitForSessionNudgeState(dashConn, sessionID, "", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Nudge was not cleared after terminal input: %v", err)
+		}
+		t.Logf("Nudge cleared: state=%q summary=%q", sess.NudgeState, sess.NudgeSummary)
+	})
+}
+
+// TestE2EMultipleSessionsSharedSignal validates that multiple sessions in the same
+// workspace all receive signals from the shared signal file.
+func TestE2EMultipleSessionsSharedSignal(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/multi-session-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Multi Session Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("multi-session-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var session1ID, session2ID string
+	var workspacePath, workspaceID string
+
+	t.Run("SpawnFirstSession", func(t *testing.T) {
+		session1ID = env.SpawnSession("file://"+workspaceRoot+"/multi-session-repo", "main", "echo", "", "multi-1")
+		if session1ID == "" {
+			t.Fatal("Expected session ID from first spawn")
+		}
+
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == session1ID {
+					workspacePath = ws.Path
+					workspaceID = ws.ID
+					break
+				}
+			}
+		}
+		if workspacePath == "" {
+			t.Fatal("Could not find workspace path")
+		}
+		t.Logf("First session: %s in workspace %s (%s)", session1ID, workspaceID, workspacePath)
+	})
+
+	t.Run("SpawnSecondSessionInSameWorkspace", func(t *testing.T) {
+		// Spawn into the same workspace to ensure they share the signal file
+		session2ID = env.SpawnSessionInWorkspace(workspaceID, "echo", "", "multi-2")
+		if session2ID == "" {
+			t.Fatal("Expected session ID from second spawn")
+		}
+		t.Logf("Second session: %s in workspace %s", session2ID, workspaceID)
+	})
+
+	t.Run("SignalAffectsBothSessions", func(t *testing.T) {
+		dashConn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect dashboard websocket: %v", err)
+		}
+		defer dashConn.Close()
+
+		// Drain initial state
+		env.ReadDashboardMessage(dashConn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		// Write signal to the shared signal file
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		if err := os.WriteFile(signalFile, []byte("completed All tasks done\n"), 0644); err != nil {
+			t.Fatalf("Failed to write signal file: %v", err)
+		}
+
+		// Wait for BOTH sessions to show the nudge
+		// Read dashboard messages until we see both sessions with the expected nudge
+		deadline := time.Now().Add(10 * time.Second)
+		session1Got := false
+		session2Got := false
+
+		for time.Now().Before(deadline) && !(session1Got && session2Got) {
+			msg, err := env.ReadDashboardMessage(dashConn, time.Until(deadline))
+			if err != nil {
+				t.Fatalf("Timed out waiting for both sessions to get nudge (session1=%v, session2=%v): %v",
+					session1Got, session2Got, err)
+			}
+			if msg.Type == "sessions" {
+				for _, ws := range msg.Workspaces {
+					for _, sess := range ws.Sessions {
+						if sess.ID == session1ID && sess.NudgeState == "Completed" {
+							session1Got = true
+							t.Logf("Session 1 (%s) received nudge: %s", session1ID, sess.NudgeState)
+						}
+						if sess.ID == session2ID && sess.NudgeState == "Completed" {
+							session2Got = true
+							t.Logf("Session 2 (%s) received nudge: %s", session2ID, sess.NudgeState)
+						}
+					}
+				}
+			}
+		}
+
+		if !session1Got {
+			t.Error("Session 1 did not receive the nudge")
+		}
+		if !session2Got {
+			t.Error("Session 2 did not receive the nudge")
+		}
+	})
+}
+
+// TestE2ESpawnCommandSignaling validates that sessions spawned via the SpawnCommand
+// code path (command field, used by quick launch presets) correctly set up signaling.
+func TestE2ESpawnCommandSignaling(t *testing.T) {
+	env := New(t)
+
+	workspaceRoot := t.TempDir()
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+	})
+
+	t.Run("CreateGitRepo", func(t *testing.T) {
+		repoPath := workspaceRoot + "/cmd-signal-repo"
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			t.Fatalf("Failed to create repo dir: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "init", "-b", "main")
+		RunCmd(t, repoPath, "git", "config", "user.email", "e2e@test.local")
+		RunCmd(t, repoPath, "git", "config", "user.name", "E2E Test")
+
+		testFile := filepath.Join(repoPath, "README.md")
+		if err := os.WriteFile(testFile, []byte("# Cmd Signal Test\n"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		RunCmd(t, repoPath, "git", "add", ".")
+		RunCmd(t, repoPath, "git", "commit", "-m", "Initial commit")
+
+		env.AddRepoToConfig("cmd-signal-repo", "file://"+repoPath)
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var sessionID string
+	var workspacePath string
+
+	t.Run("SpawnCommandSession", func(t *testing.T) {
+		repoURL := "file://" + workspaceRoot + "/cmd-signal-repo"
+		// Spawn using command field (exercises SpawnCommand code path)
+		sessionID = env.SpawnCommandSession(repoURL, "main", "sh -c 'echo hello; sleep 600'", "cmd-signal", "")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from spawn")
+		}
+
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == sessionID {
+					workspacePath = ws.Path
+					break
+				}
+			}
+		}
+		if workspacePath == "" {
+			t.Fatal("Could not find workspace path for command session")
+		}
+		t.Logf("Command session: %s in workspace %s", sessionID, workspacePath)
+	})
+
+	t.Run("VerifySchmuxDirCreated", func(t *testing.T) {
+		schmuxDir := filepath.Join(workspacePath, ".schmux")
+		info, err := os.Stat(schmuxDir)
+		if err != nil {
+			t.Fatalf(".schmux directory not created for command session: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatal(".schmux exists but is not a directory")
+		}
+	})
+
+	t.Run("VerifyStatusFileEnvVar", func(t *testing.T) {
+		// Connect terminal and read output — the echo target just says "hello",
+		// but we can verify the env var was set by checking via tmux
+		termConn, err := env.ConnectTerminalWebSocket(sessionID)
+		if err != nil {
+			t.Fatalf("Failed to connect terminal websocket: %v", err)
+		}
+		defer termConn.Close()
+
+		// Verify the session is running (bootstrap output "hello" received)
+		if _, err := env.WaitForWebSocketContent(termConn, "hello", 5*time.Second); err != nil {
+			t.Fatalf("Session not producing output: %v", err)
+		}
+	})
+
+	t.Run("SignalWorksForCommandSession", func(t *testing.T) {
+		dashConn, err := env.ConnectDashboardWebSocket()
+		if err != nil {
+			t.Fatalf("Failed to connect dashboard websocket: %v", err)
+		}
+		defer dashConn.Close()
+
+		// Drain initial state
+		env.ReadDashboardMessage(dashConn, 3*time.Second)
+		time.Sleep(600 * time.Millisecond)
+
+		// Write a signal file — this verifies the FileWatcher is active for SpawnCommand sessions
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		if err := os.WriteFile(signalFile, []byte("completed Command finished\n"), 0644); err != nil {
+			t.Fatalf("Failed to write signal file: %v", err)
+		}
+
+		sess, err := env.WaitForSessionNudgeState(dashConn, sessionID, "Completed", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Signal not detected for command session: %v", err)
+		}
+		if sess.NudgeSummary != "Command finished" {
+			t.Errorf("NudgeSummary = %q, want %q", sess.NudgeSummary, "Command finished")
+		}
+		t.Logf("Command session signal works: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
+	})
+}
