@@ -2,7 +2,6 @@
 package signal
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,20 +22,6 @@ type Signal struct {
 	Message   string    // Optional message from the agent
 	Timestamp time.Time // When the signal was detected
 }
-
-// bracketPattern matches bracket-based signal markers on their own line: --<[schmux:state:message]>--
-// Format: --<[schmux:<state>:<message>]>--
-// Groups: 1=state, 2=message
-// Requires signals to be on their own line (with optional leading/trailing whitespace).
-// Also allows common line prefixes like bullets (⏺) used by Claude Code.
-// This prevents matching signals in code blocks or documentation examples.
-var bracketPattern = regexp.MustCompile(`(?m)^[\x00-\x1f⏺•\-\*\s]*--<\[schmux:(\w+):([^\]]*)\]>--[ \t]*\r*$`)
-
-// bracketPatternLoose matches the signal marker anywhere in text, without requiring
-// it to be at the start of a line. Used as a fallback when ANSI stripping merges
-// visually separate terminal lines (e.g., cursor-up sequences consumed without
-// producing newlines), causing signals to appear mid-line.
-var bracketPatternLoose = regexp.MustCompile(`--<\[schmux:(\w+):([^\]]*)\]>--`)
 
 // StripANSIBytes removes ANSI escape sequences from a byte slice using a state machine.
 // Cursor forward sequences (\x1b[nC) are replaced with n spaces to preserve word boundaries.
@@ -164,57 +149,9 @@ func parseCSICount(params []byte) int {
 	return n
 }
 
-// stripANSI removes ANSI escape sequences from a string.
-func stripANSI(s string) string {
-	return string(StripANSIBytes(nil, []byte(s)))
-}
-
 // IsValidState checks if a state string is a recognized schmux signal state.
 func IsValidState(state string) bool {
 	return ValidStates[state]
-}
-
-// parseBracketSignals extracts signals from clean (ANSI-stripped) data using
-// bracket-based markers (--<[schmux:state:message]>--).
-// Tries the strict anchored pattern first, then falls back to the loose
-// unanchored pattern to catch signals buried in terminal rendering artifacts.
-func parseBracketSignals(cleanData []byte, now time.Time) []Signal {
-	matches := bracketPattern.FindAllSubmatch(cleanData, -1)
-	if len(matches) == 0 {
-		matches = bracketPatternLoose.FindAllSubmatch(cleanData, -1)
-	}
-	if len(matches) == 0 {
-		return nil
-	}
-
-	var signals []Signal
-	for _, match := range matches {
-		state := string(match[1])
-		message := string(match[2])
-
-		// Only include signals with valid schmux states
-		if !IsValidState(state) {
-			continue
-		}
-
-		signals = append(signals, Signal{
-			State:     state,
-			Message:   message,
-			Timestamp: now,
-		})
-	}
-
-	return signals
-}
-
-// parseSignals extracts all valid schmux signals from the given data.
-// Recognizes bracket-based markers (--<[schmux:state:message]>--).
-// Only returns signals where the state matches a valid schmux state.
-// This is an internal helper used by tests to validate the core parsing logic.
-func parseSignals(data []byte) []Signal {
-	now := time.Now()
-	cleanData := StripANSIBytes(nil, data)
-	return parseBracketSignals(cleanData, now)
 }
 
 // MapStateToNudge maps a signal state to the corresponding nudge display state.
