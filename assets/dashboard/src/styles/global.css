@@ -610,6 +610,13 @@ body {
   font-size: 14px;
 }
 
+.icon-theme {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 /* Logo */
 .logo {
   display: inline-flex;
