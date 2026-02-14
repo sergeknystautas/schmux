@@ -18,6 +18,7 @@ func TestParseSentinelOutput(t *testing.T) {
 		{"no end", "__SCHMUX_SIGNAL__completed", ""},
 		{"empty content", "__SCHMUX_SIGNAL____END__", ""},
 		{"working", "__SCHMUX_SIGNAL__working__END__", "working"},
+		{"end in message", "__SCHMUX_SIGNAL__completed Contains __END__ in text__END__", "completed Contains __END__ in text"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

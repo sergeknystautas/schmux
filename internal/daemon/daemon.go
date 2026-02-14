@@ -372,7 +372,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
 
-	// Wire signal detection: tracker → session manager → dashboard server
+	// Wire signal detection: file watcher → session manager → dashboard server
 	// MUST happen before tracker creation so trackers capture a non-nil callback.
 	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
 		server.HandleAgentSignal(sessionID, sig)

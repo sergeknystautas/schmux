@@ -6,7 +6,7 @@ Schmux provides a comprehensive system for agents to communicate their status to
 
 The agent signaling system has three components:
 
-1. **Direct Signaling** - Agents output bracket-based markers to signal their state
+1. **Direct Signaling** - Agents write status to a file to signal their state
 2. **Automatic Provisioning** - Schmux teaches agents about signaling via instruction files
 3. **NudgeNik Fallback** - LLM-based classification for agents that don't signal
 
@@ -711,12 +711,12 @@ The signal callback is wired at daemon startup and flows through three layers:
  │  }
  │
  ▼
- tracker.go:62 — NewSessionTracker receives per-session callback:
+ tracker.go:62 — NewSessionTracker creates FileWatcher:
  │
- │  signalDetector = NewSignalDetector(sessionID, signalCB)
+ │  fileWatcher = NewFileWatcher(sessionID, signalFilePath, signalCB)
  │
  ▼
- detector.go:28 — Stores as d.callback, invoked from parseLines()
+ filewatcher.go:82 — watch() goroutine reads file on fsnotify events, invokes callback
 ```
 
 This wiring MUST happen before any tracker creation (`daemon.go:376` comment). If `SetSignalCallback` is called after trackers exist, those trackers will have a nil callback and silently drop signals.
