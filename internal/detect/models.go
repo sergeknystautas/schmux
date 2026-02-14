@@ -134,6 +134,17 @@ var builtinModels = []Model{
 		Category:        "third-party",
 	},
 	{
+		ID:              "minimax-2.5",
+		DisplayName:     "minimax m2.5",
+		BaseTool:        "claude",
+		Provider:        "minimax",
+		Endpoint:        "https://api.minimax.io/anthropic",
+		ModelValue:      "minimax-2.5",
+		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+		UsageURL:        "https://platform.minimax.io/user-center/payment/coding-plan",
+		Category:        "third-party",
+	},
+	{
 		ID:              "qwen3-coder-plus",
 		DisplayName:     "qwen 3 coder plus",
 		BaseTool:        "claude",

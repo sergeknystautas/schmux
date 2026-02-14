@@ -79,6 +79,7 @@ Third-party models require API secrets to be configured.
 | `glm-4.5-air`      | glm 4.5 air       | Z.AI        |
 | `glm-5`            | glm 5             | Z.AI        |
 | `minimax`          | minimax m2.1      | MiniMax     |
+| `minimax-2.5`      | minimax m2.5      | MiniMax     |
 | `qwen3-coder-plus` | qwen 3 coder plus | DashScope   |
 
 > **Note:** For backward compatibility, `minimax-m2.1` is also accepted as an alias for the `minimax` model.
@@ -103,6 +104,9 @@ Third-party models require API secrets. Create `~/.schmux/secrets.json`:
       "ANTHROPIC_AUTH_TOKEN": "..."
     },
     "minimax": {
+      "ANTHROPIC_AUTH_TOKEN": "..."
+    },
+    "minimax-2.5": {
       "ANTHROPIC_AUTH_TOKEN": "..."
     },
     "qwen3-coder-plus": {
