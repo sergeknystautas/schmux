@@ -1,0 +1,265 @@
+.container {
+  padding: 1.5rem;
+  max-width: 900px;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.header h2 {
+  margin: 0;
+}
+
+.summary {
+  color: var(--text-secondary, #888);
+  font-size: 0.875rem;
+}
+
+.section {
+  margin-bottom: 2rem;
+}
+
+.section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-primary, #ddd);
+}
+
+.empty {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+}
+
+.proposalList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.proposalCard {
+  padding: 0.75rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--surface, #1a1a2e);
+}
+
+.proposalCard:hover {
+  border-color: var(--border-hover, #555);
+}
+
+.proposalCard.selected {
+  border-color: var(--accent, #4fc3f7);
+}
+
+.proposalHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.proposalDate {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+.proposalSummary {
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.proposalMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+.badgePending {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  background: #2c3e50;
+  color: #f39c12;
+}
+
+.badgeApplied {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  background: #1a3a2a;
+  color: #2ecc71;
+}
+
+.badgeDismissed {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  background: #2c2c2c;
+  color: #888;
+}
+
+.badgeStale {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  background: #3a2a1a;
+  color: #e74c3c;
+}
+
+.fileTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.fileTab {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--border, #333);
+  border-bottom: none;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  font-size: 0.8rem;
+  border-radius: 4px 4px 0 0;
+}
+
+.fileTab:hover {
+  color: var(--text-primary, #ddd);
+}
+
+.activeTab {
+  background: var(--surface, #1a1a2e);
+  color: var(--text-primary, #ddd);
+  border-color: var(--accent, #4fc3f7);
+}
+
+.fileContent {
+  padding: 1rem;
+  border: 1px solid var(--border, #333);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  background: var(--surface-dark, #111);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.applyButton {
+  padding: 0.375rem 1rem;
+  background: #2ecc71;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.applyButton:hover {
+  background: #27ae60;
+}
+
+.applyButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dismissButton {
+  padding: 0.375rem 1rem;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.dismissButton:hover {
+  color: var(--text-primary, #ddd);
+  border-color: var(--border-hover, #555);
+}
+
+.entriesUsed {
+  margin-top: 1rem;
+}
+
+.entriesUsed h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #888);
+}
+
+.entriesUsed ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+}
+
+.toggleButton {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.toggleButton:hover {
+  color: var(--accent, #4fc3f7);
+}
+
+.entriesList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.entryCard {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  background: var(--surface, #1a1a2e);
+}
+
+.entryMeta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  margin-bottom: 0.25rem;
+}
+
+.entryAgent {
+  color: var(--accent, #4fc3f7);
+}
+
+.entryType {
+  color: #f39c12;
+}
+
+.entryWs {
+  color: var(--text-secondary, #888);
+}
+
+.entryTs {
+  color: var(--text-secondary, #888);
+  margin-left: auto;
+}
+
+.entryText {
+  font-size: 0.8rem;
+  color: var(--text-primary, #ddd);
+}
