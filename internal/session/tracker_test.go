@@ -9,7 +9,7 @@ import (
 
 func TestSessionTrackerAttachDetach(t *testing.T) {
 	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, nil, nil)
+	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
 
 	ch1 := tracker.AttachWebSocket()
 	if ch1 == nil {
@@ -46,7 +46,7 @@ func TestSessionTrackerAttachDetach(t *testing.T) {
 
 func TestSessionTrackerInputResizeWithoutPTY(t *testing.T) {
 	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, nil, nil)
+	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
 
 	if err := tracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when PTY is not attached")

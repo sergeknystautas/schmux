@@ -26,7 +26,7 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh chan []byte, t
 	}
 
 	st := state.New("")
-	tracker = NewSessionTracker("bench-session", tmuxName, st, nil, nil)
+	tracker = NewSessionTracker("bench-session", tmuxName, st, "", nil, nil)
 	tracker.Start()
 	outputCh = tracker.AttachWebSocket()
 
@@ -73,7 +73,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh chan [
 	}
 
 	st := state.New("")
-	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, nil, nil)
+	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, "", nil, nil)
 	tracker.Start()
 	outputCh = tracker.AttachWebSocket()
 

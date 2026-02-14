@@ -1285,6 +1285,12 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		return existing
 	}
 
+	// Build signal file path from workspace path
+	var signalFilePath string
+	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
+		signalFilePath = filepath.Join(ws.Path, ".schmux", "signal")
+	}
+
 	var cb func(signal.Signal)
 	if m.signalCallback != nil {
 		sessionID := sess.ID
@@ -1301,8 +1307,21 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			handler(sessionID, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, cb, outputCb)
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb)
 	m.trackers[sess.ID] = tracker
+
+	// Recover signal state from file (replaces scrollback recovery)
+	if fw := tracker.fileWatcher; fw != nil {
+		if lastSig := fw.ReadCurrent(); lastSig != nil {
+			storedSess, ok := m.state.GetSession(sess.ID)
+			if ok {
+				nudgeState := signal.MapStateToNudge(lastSig.State)
+				if storedSess.Nudge != nudgeState && cb != nil {
+					cb(*lastSig)
+				}
+			}
+		}
+	}
 
 	m.mu.Unlock()
 	tracker.Start()
