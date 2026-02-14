@@ -448,6 +448,7 @@ The temporary worktree is short-lived — it exists only for the duration of the
 ### Merge Path
 
 The pushed branch is available for the team to merge through their normal workflow:
+
 - GitHub/GitLab: create a PR via `gh pr create` or equivalent
 - Direct merge: `git merge schmux/lore-<timestamp>` in any worktree
 - Schmux could optionally auto-create a PR (configurable, see below)
@@ -500,38 +501,38 @@ New config fields in `~/.schmux/config.json`:
 }
 ```
 
-| Field                | Default         | Description                                                |
-| -------------------- | --------------- | ---------------------------------------------------------- |
-| `enabled`            | `true`          | Enable/disable the lore system                             |
-| `llm_target`         | compound target | LLM for curator calls                                      |
-| `auto_pr`            | `false`         | Auto-create a PR after pushing the lore branch             |
-| `curate_on_dispose`  | `true`          | Auto-trigger curator on session dispose                    |
-| `curate_debounce_ms` | `30000`         | Debounce window for auto-curation                          |
-| `prune_after_days`   | `30`            | Days before applied/dismissed entries are pruned           |
-| `instruction_files`  | see above       | Instruction file patterns to manage                        |
+| Field                | Default         | Description                                      |
+| -------------------- | --------------- | ------------------------------------------------ |
+| `enabled`            | `true`          | Enable/disable the lore system                   |
+| `llm_target`         | compound target | LLM for curator calls                            |
+| `auto_pr`            | `false`         | Auto-create a PR after pushing the lore branch   |
+| `curate_on_dispose`  | `true`          | Auto-trigger curator on session dispose          |
+| `curate_debounce_ms` | `30000`         | Debounce window for auto-curation                |
+| `prune_after_days`   | `30`            | Days before applied/dismissed entries are pruned |
+| `instruction_files`  | see above       | Instruction file patterns to manage              |
 
 ## Architecture
 
 ### New Package: `internal/lore/`
 
-| File            | Responsibility                                             |
-| --------------- | ---------------------------------------------------------- |
-| `scratchpad.go` | Parse, append, query, prune scratchpad entries             |
-| `curator.go`    | Headless LLM call that produces proposals                  |
-| `proposals.go`  | Read, write, list, update proposals on disk                |
-| `apply.go`      | Spawn temp worktree, commit, push, dispose                 |
+| File            | Responsibility                                 |
+| --------------- | ---------------------------------------------- |
+| `scratchpad.go` | Parse, append, query, prune scratchpad entries |
+| `curator.go`    | Headless LLM call that produces proposals      |
+| `proposals.go`  | Read, write, list, update proposals on disk    |
+| `apply.go`      | Spawn temp worktree, commit, push, dispose     |
 
 ### Integration Points
 
-| Component                                      | Change                                                 |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| `internal/config/`                             | Add `LoreConfig` struct, `GetInstructionFiles()`       |
-| `internal/workspace/overlay.go`                | Add `.claude/lore.jsonl` to default overlay paths      |
-| `internal/compound/merge.go`                   | Add JSONL line-union fast path for `.jsonl` files      |
-| `internal/daemon/daemon.go`                    | Trigger curator on session dispose, wire lore API      |
-| `internal/dashboard/handlers_lore.go`          | REST endpoints for proposals and entries               |
-| `assets/dashboard/src/pages/LorePage.tsx`      | Review UI with diff view and tabs                      |
-| `assets/dashboard/src/components/Sidebar.tsx`  | Badge count for pending proposals                      |
+| Component                                     | Change                                            |
+| --------------------------------------------- | ------------------------------------------------- |
+| `internal/config/`                            | Add `LoreConfig` struct, `GetInstructionFiles()`  |
+| `internal/workspace/overlay.go`               | Add `.claude/lore.jsonl` to default overlay paths |
+| `internal/compound/merge.go`                  | Add JSONL line-union fast path for `.jsonl` files |
+| `internal/daemon/daemon.go`                   | Trigger curator on session dispose, wire lore API |
+| `internal/dashboard/handlers_lore.go`         | REST endpoints for proposals and entries          |
+| `assets/dashboard/src/pages/LorePage.tsx`     | Review UI with diff view and tabs                 |
+| `assets/dashboard/src/components/Sidebar.tsx` | Badge count for pending proposals                 |
 
 ### Data Flow
 
