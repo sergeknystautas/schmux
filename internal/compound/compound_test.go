@@ -213,4 +213,7 @@ func TestCompounder_DetectsNewFileAtDeclaredPath(t *testing.T) {
 	if string(overlayContent) != newContent {
 		t.Errorf("overlay content = %q, want %q", string(overlayContent), newContent)
 	}
+	if propagateCount.Load() == 0 {
+		t.Error("expected propagation callback to be called for new file at declared path")
+	}
 }
