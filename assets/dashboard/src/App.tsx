@@ -20,6 +20,7 @@ import LinearSyncResolveConflictPage from './routes/LinearSyncResolveConflictPag
 import LegacyTerminalPage from './routes/LegacyTerminalPage';
 import NotFoundPage from './routes/NotFoundPage';
 import OverlayPage from './routes/OverlayPage';
+import LorePage from './routes/LorePage';
 
 export default function App() {
   const location = useLocation();
@@ -47,6 +48,7 @@ export default function App() {
                       <Route path="/config" element={<ConfigPage />} />
                       <Route path="/settings/remote" element={<RemoteSettingsPage />} />
                       <Route path="/overlays/:repoName" element={<OverlayPage />} />
+                      <Route path="/lore/:repoName" element={<LorePage />} />
                       <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
