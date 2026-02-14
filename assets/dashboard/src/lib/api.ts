@@ -204,23 +204,6 @@ export async function disposeWorkspaceAll(
   return response.json();
 }
 
-export async function createWorkspacePreview(
-  workspaceId: string,
-  targetPort: number,
-  targetHost = '127.0.0.1'
-): Promise<WorkspacePreview> {
-  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/previews`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target_host: targetHost, target_port: targetPort }),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to create preview');
-  }
-  return response.json();
-}
-
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   const response = await fetch(`/api/diff/${workspaceId}`);
   if (!response.ok) throw new Error('Failed to fetch diff');

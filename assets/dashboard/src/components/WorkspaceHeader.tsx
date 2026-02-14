@@ -1,12 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  openVSCode,
-  disposeWorkspace,
-  disposeWorkspaceAll,
-  createWorkspacePreview,
-  getErrorMessage,
-} from '../lib/api';
+import { openVSCode, disposeWorkspace, disposeWorkspaceAll, getErrorMessage } from '../lib/api';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
@@ -21,13 +15,12 @@ type WorkspaceHeaderProps = {
 
 export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const navigate = useNavigate();
-  const { alert, confirm, prompt } = useModal();
+  const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
   const { linearSyncResolveConflictStates } = useSessions();
   const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
-  const [openingPreview, setOpeningPreview] = useState(false);
 
   // Check if resolve conflict is in progress for this workspace
   const crState = linearSyncResolveConflictStates[workspace.id];
@@ -84,43 +77,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
       navigate('/');
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dispose workspace'));
-    }
-  };
-
-  const handleOpenPreview = async (openExternal = false) => {
-    const storageKey = `preview-port:${workspace.id}`;
-    const defaultPort = window.localStorage.getItem(storageKey) || '5173';
-    const value = await prompt('Open Preview', {
-      defaultValue: defaultPort,
-      placeholder: 'Target port (e.g. 5173)',
-      confirmText: 'Open',
-      errorMessage: 'Run your dev server first, then open preview.',
-    });
-    if (value === null) return;
-    const targetPort = Number.parseInt(value.trim(), 10);
-    if (!Number.isFinite(targetPort) || targetPort <= 0 || targetPort > 65535) {
-      await alert('Invalid port', 'Please enter a valid TCP port (1-65535).');
-      return;
-    }
-
-    setOpeningPreview(true);
-    try {
-      const preview = await createWorkspacePreview(workspace.id, targetPort);
-      window.localStorage.setItem(storageKey, String(targetPort));
-      if (openExternal) {
-        window.open(preview.url, '_blank', 'noopener,noreferrer');
-      } else {
-        navigate(`/preview/${workspace.id}/${preview.id}`);
-      }
-      if (preview.status === 'degraded') {
-        toastError(
-          preview.last_error || 'Preview proxy started, but upstream server is not reachable yet.'
-        );
-      }
-    } catch (err) {
-      await alert('Unable to open preview', getErrorMessage(err, 'Failed to open preview'));
-    } finally {
-      setOpeningPreview(false);
     }
   };
 
@@ -198,30 +154,6 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
                     d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"
                     fill="#007ACC"
                   />
-                </svg>
-              )}
-            </button>
-          </Tooltip>
-          <Tooltip content="Open workspace preview">
-            <button
-              className="btn btn--sm btn--ghost btn--bordered"
-              disabled={openingPreview}
-              onClick={(e) => handleOpenPreview(e.metaKey || e.ctrlKey || e.shiftKey)}
-              aria-label={`Open preview for ${workspace.id}`}
-            >
-              {openingPreview ? (
-                <div className="spinner spinner--small"></div>
-              ) : (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
                 </svg>
               )}
             </button>
