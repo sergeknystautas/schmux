@@ -3012,7 +3012,7 @@ func TestE2EOverlayNotInGitignore(t *testing.T) {
 	var wsPath string
 
 	t.Run("03_SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "test-agent")
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "gitignore-agent")
 		if sessionID == "" {
 			t.Fatal("Expected session ID")
 		}
