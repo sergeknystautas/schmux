@@ -29,7 +29,7 @@ func TestEnsureAgentInstructions_CreatesNewFile(t *testing.T) {
 	if !strings.Contains(string(content), schmuxMarkerEnd) {
 		t.Error("File should contain SCHMUX:END marker")
 	}
-	if !strings.Contains(string(content), "--<[schmux:") {
+	if !strings.Contains(string(content), "$SCHMUX_STATUS_FILE") {
 		t.Error("File should contain signaling instructions")
 	}
 }
@@ -102,7 +102,7 @@ func TestEnsureAgentInstructions_UpdatesExisting(t *testing.T) {
 	}
 
 	// Check that new content is present
-	if !strings.Contains(string(content), "--<[schmux:") {
+	if !strings.Contains(string(content), "$SCHMUX_STATUS_FILE") {
 		t.Error("New signaling instructions should be present")
 	}
 
