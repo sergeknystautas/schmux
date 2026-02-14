@@ -797,6 +797,26 @@ export default function AppShell() {
                   <span>{config.repos.length === 1 ? 'Overlays' : `Overlays: ${repo.name}`}</span>
                 </NavLink>
               ))}
+            {config?.repos?.length > 0 &&
+              config.repos.map((repo) => (
+                <NavLink
+                  key={`lore-${repo.name}`}
+                  to={`/lore/${encodeURIComponent(repo.name)}`}
+                  className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+                >
+                  <svg
+                    className="nav-link__icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                  </svg>
+                  <span>{config.repos.length === 1 ? 'Lore' : `Lore: ${repo.name}`}</span>
+                </NavLink>
+              ))}
           </div>
           {isDevMode && <TypingPerformance />}
         </div>
