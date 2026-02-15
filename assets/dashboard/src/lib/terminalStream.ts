@@ -45,6 +45,7 @@ export default class TerminalStream {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private maxReconnectAttempt = 10;
+  private disposed = false;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -319,7 +320,7 @@ export default class TerminalStream {
   }
 
   connect() {
-    if (!this.terminal) return;
+    if (!this.terminal || this.disposed) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${this.sessionId}`;
 
@@ -346,6 +347,7 @@ export default class TerminalStream {
 
     this.ws.onclose = () => {
       this.connected = false;
+      if (this.disposed) return;
       this.onStatusChange('disconnected');
       if (this.reconnectAttempt < this.maxReconnectAttempt) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
@@ -375,6 +377,7 @@ export default class TerminalStream {
   }
 
   disconnect() {
+    this.disposed = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
