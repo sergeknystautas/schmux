@@ -617,3 +617,38 @@ func TestGitGraph_MainAheadNewestTimestamp(t *testing.T) {
 		t.Error("expected MainAheadNewestTimestamp to be populated when main is ahead")
 	}
 }
+
+func TestGitGraph_ManyMergeCommits(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-merges")
+	ctx := context.Background()
+
+	// Create pattern: local commit, then merge from main, repeat
+	for i := 0; i < 5; i++ {
+		commitOnWorkspace(t, wsDir, fmt.Sprintf("local%d.txt", i), fmt.Sprintf("local %d", i))
+		commitOnRemote(t, remoteDir, wsDir, fmt.Sprintf("remote%d.txt", i), fmt.Sprintf("remote %d", i))
+		runGit(t, wsDir, "merge", "origin/main", "-m", fmt.Sprintf("merge %d", i))
+	}
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	// ISL invariant: children never appear below their ancestors
+	pos := make(map[string]int, len(resp.Nodes))
+	for i, n := range resp.Nodes {
+		pos[n.Hash] = i
+	}
+	for i, n := range resp.Nodes {
+		for _, parentHash := range n.Parents {
+			parentPos, ok := pos[parentHash]
+			if !ok {
+				continue
+			}
+			if i >= parentPos {
+				t.Errorf("child %s (pos %d) appears at or below parent %s (pos %d)",
+					n.ShortHash, i, resp.Nodes[parentPos].ShortHash, parentPos)
+			}
+		}
+	}
+}

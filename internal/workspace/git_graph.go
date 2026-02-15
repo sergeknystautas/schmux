@@ -276,16 +276,24 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 	}
 
 	// DFS walk (ISL sortImpl pattern).
-	// toVisit is a deque: pop from back (stack), unshift to front for deferred merges.
-	toVisit := make([]string, len(roots))
-	copy(toVisit, roots)
+	// Uses a deque with a front index to avoid O(n) prepend operations.
+	// Elements before frontIdx are "front of deque" (deferred merges).
+	// Elements at frontIdx..end are the stack (pop from back).
+	toVisit := make([]string, 0, len(nodes))
+	toVisit = append(toVisit, roots...)
+	frontIdx := 0
 	visited := make(map[string]bool, len(nodes))
 	var topoOrder []string
 
-	for len(toVisit) > 0 {
+	for frontIdx < len(toVisit) {
 		// Pop from back (stack behavior).
 		next := toVisit[len(toVisit)-1]
 		toVisit = toVisit[:len(toVisit)-1]
+
+		// If we've consumed past the front section, reset
+		if len(toVisit) < frontIdx {
+			frontIdx = len(toVisit)
+		}
 
 		if visited[next] {
 			continue
@@ -293,7 +301,11 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 
 		// If this node still has unvisited parents, defer it to the front.
 		if remaining[next] > 0 {
-			toVisit = append([]string{next}, toVisit...)
+			// Insert at frontIdx position
+			toVisit = append(toVisit, "")
+			copy(toVisit[frontIdx+1:], toVisit[frontIdx:])
+			toVisit[frontIdx] = next
+			frontIdx++
 			continue
 		}
 
