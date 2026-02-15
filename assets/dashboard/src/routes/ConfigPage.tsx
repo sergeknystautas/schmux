@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getConfig,
   updateConfig,
@@ -1369,9 +1369,16 @@ export default function ConfigPage() {
                         <div className="item-list__item-primary">
                           <span className="item-list__item-name">{repo.name}</span>
                           <span className="item-list__item-detail">{repo.url}</span>
-                          <span
+                          <Link
+                            to="/overlays"
                             className="item-list__item-detail"
-                            style={{ fontSize: '0.85em', opacity: 0.8 }}
+                            style={{
+                              fontSize: '0.85em',
+                              opacity: 0.8,
+                              textDecoration: 'none',
+                              color: 'inherit',
+                            }}
+                            title="Open Overlay manager"
                           >
                             Overlay: {overlayPath}{' '}
                             {overlay?.exists ? (
@@ -1380,8 +1387,11 @@ export default function ConfigPage() {
                               </span>
                             ) : (
                               <span style={{ color: 'var(--color-text-muted)' }}>(empty)</span>
-                            )}
-                          </span>
+                            )}{' '}
+                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.9em' }}>
+                              → Manage
+                            </span>
+                          </Link>
                         </div>
                         <button
                           className="btn btn--sm btn--danger"
