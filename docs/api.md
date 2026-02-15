@@ -611,6 +611,14 @@ Response:
   },
   "telemetry_enabled": true,
   "installation_id": "uuid-string",
+  "remote_access": {
+    "disabled": false,
+    "timeout_minutes": 0,
+    "notify": {
+      "ntfy_topic": "",
+      "command": ""
+    }
+  },
   "needs_restart": false
 }
 ```
@@ -674,6 +682,14 @@ Request:
     "curate_debounce_ms": 30000,
     "prune_after_days": 30,
     "instruction_files": ["CLAUDE.md", "AGENTS.md"]
+  },
+  "remote_access": {
+    "disabled": false,
+    "timeout_minutes": 30,
+    "notify": {
+      "ntfy_topic": "my-schmux-topic",
+      "command": ""
+    }
   }
 }
 ```
@@ -1459,6 +1475,66 @@ Errors:
 
 - 503: "lore curator not configured (no LLM target)" or "lore system not enabled"
 
+## Remote Access
+
+### POST /api/remote-access/on
+
+Start a Cloudflare quick tunnel for remote access.
+
+Response (200):
+
+```json
+{ "state": "starting" }
+```
+
+Errors:
+
+- 403: "remote access is disabled in config"
+- 400: "remote access requires auth to be enabled (access_control.enabled = true)" / "remote access requires a non-empty allowed_users list" / other precondition failures
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
+Notes:
+
+- Requires auth and a non-empty allowed_users list as preconditions
+- The tunnel URL is broadcast via WebSocket once connected
+
+### POST /api/remote-access/off
+
+Stop the remote access tunnel.
+
+Response (200):
+
+```json
+{ "state": "off" }
+```
+
+Errors:
+
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
+### GET /api/remote-access/status
+
+Get the current remote access tunnel status.
+
+Response:
+
+```json
+{
+  "state": "connected",
+  "url": "https://abc123.trycloudflare.com",
+  "error": ""
+}
+```
+
+`state` can be: `"off"`, `"starting"`, `"connected"`, or `"error"`.
+
+Errors:
+
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
 ## WebSocket
 
 ### WS /ws/terminal/{sessionId}
@@ -1537,6 +1613,19 @@ Notes:
 
 - Uses trailing debounce (100ms) to coalesce rapid changes into single broadcasts
 - No client-to-server messages expected; the connection is kept alive by reading
+
+Remote access status update:
+
+```json
+{
+  "type": "remote_access_status",
+  "data": {
+    "state": "connected",
+    "url": "https://abc123.trycloudflare.com",
+    "error": ""
+  }
+}
+```
 
 ### WS /ws/provision/{provisionId}
 
