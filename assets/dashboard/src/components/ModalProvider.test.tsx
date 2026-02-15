@@ -10,12 +10,16 @@ function ModalTrigger({ action }: { action: (modal: ReturnType<typeof useModal>)
 
 describe('ModalProvider', () => {
   // Suppress React console warnings for act() boundaries in keyboard tests
+  // and jsdom error events from intentional throws
   const originalConsoleError = console.error;
+  const suppressError = (e: Event) => e.preventDefault();
   beforeEach(() => {
     console.error = vi.fn();
+    window.addEventListener('error', suppressError);
   });
   afterEach(() => {
     console.error = originalConsoleError;
+    window.removeEventListener('error', suppressError);
   });
 
   it('alert() renders modal with title, message, OK button (no Cancel)', async () => {

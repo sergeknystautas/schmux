@@ -8,6 +8,7 @@
 #   --e2e           Run E2E tests only
 #   --scenarios     Run scenario tests only (Playwright)
 #   --bench         Run latency benchmarks only (requires tmux)
+#   --react         Run React dashboard tests only
 #   --all           Run unit, E2E, and scenario tests
 #   --race          Run with race detector
 #   --verbose       Run with verbose output
@@ -31,6 +32,7 @@ RUN_UNIT=true
 RUN_E2E=false
 RUN_SCENARIOS=false
 RUN_BENCH=false
+RUN_REACT=false
 RUN_RACE=false
 RUN_VERBOSE=false
 RUN_COVERAGE=false
@@ -54,6 +56,13 @@ while [[ $# -gt 0 ]]; do
             RUN_UNIT=false
             RUN_E2E=false
             RUN_SCENARIOS=true
+            shift
+            ;;
+        --react)
+            RUN_UNIT=false
+            RUN_E2E=false
+            RUN_SCENARIOS=false
+            RUN_REACT=true
             shift
             ;;
         --all)
@@ -97,6 +106,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --unit          Run unit tests only (default)"
             echo "  --e2e           Run E2E tests only"
             echo "  --scenarios     Run scenario tests only (Playwright)"
+            echo "  --react         Run React dashboard tests only"
             echo "  --bench         Run latency benchmarks only (requires tmux)"
             echo "  --all           Run unit, E2E, and scenario tests"
             echo "  --race          Run with race detector"
@@ -113,6 +123,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./test.sh --e2e              # Run E2E tests only"
             echo "  ./test.sh --coverage         # Run unit tests with coverage"
             echo "  ./test.sh --scenarios        # Run scenario tests only (Playwright)"
+            echo "  ./test.sh --react            # Run React dashboard tests only"
             echo "  ./test.sh --e2e --force      # Rebuild base image and run E2E tests"
             echo "  ./test.sh --bench            # Run latency benchmarks (requires tmux locally)"
             exit 0
@@ -253,10 +264,13 @@ if [ "$RUN_UNIT" = true ]; then
         EXIT_CODE=1
     fi
 
-    # Run React dashboard unit tests
     echo ""
+fi
+
+# Run React dashboard tests (standalone or as part of unit tests)
+if [ "$RUN_UNIT" = true ] || [ "$RUN_REACT" = true ]; then
     echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
-    if (cd assets/dashboard && npm ci --silent && npx vitest run); then
+    if (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent && npx vitest run); then
         echo ""
         echo -e "${GREEN}✅ React dashboard tests passed${NC}"
     else

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import useLocalStorage from './useLocalStorage';
 
@@ -69,9 +69,11 @@ describe('useLocalStorage', () => {
   });
 
   it('falls back to initial value when localStorage has invalid JSON', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     localStorage.setItem('schmux:test-key', 'not valid json{{{');
     const { result } = renderHook(() => useLocalStorage('test-key', 'fallback'));
     expect(result.current[0]).toBe('fallback');
+    spy.mockRestore();
   });
 
   it('works with complex objects', () => {

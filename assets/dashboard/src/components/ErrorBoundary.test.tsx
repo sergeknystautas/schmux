@@ -7,13 +7,17 @@ function ThrowingComponent({ message }: { message: string }) {
 }
 
 describe('ErrorBoundary', () => {
-  // Suppress React's console.error for expected error boundary triggers
+  // Suppress React's console.error and jsdom's window error events
+  // for expected error boundary triggers
   const originalConsoleError = console.error;
+  const suppressError = (e: Event) => e.preventDefault();
   beforeEach(() => {
     console.error = vi.fn();
+    window.addEventListener('error', suppressError);
   });
   afterEach(() => {
     console.error = originalConsoleError;
+    window.removeEventListener('error', suppressError);
   });
 
   it('renders children when no error', () => {
