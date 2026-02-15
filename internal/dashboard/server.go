@@ -24,6 +24,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -139,6 +140,9 @@ type Server struct {
 	previewDetect   map[string]time.Time // workspaceID:port -> last detect time
 	previewDetectMu sync.Mutex
 
+	// Tunnel manager for remote access
+	tunnelManager *tunnel.Manager
+
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
 
@@ -232,6 +236,11 @@ func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 // SetLoreCurator sets the lore curator for manual curation requests.
 func (s *Server) SetLoreCurator(c *lore.Curator) {
 	s.loreCurator = c
+}
+
+// SetTunnelManager sets the tunnel manager for remote access.
+func (s *Server) SetTunnelManager(tm *tunnel.Manager) {
+	s.tunnelManager = tm
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
@@ -334,6 +343,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
 	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
 	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
+
+	// Remote access routes
+	mux.HandleFunc("/api/remote-access/on", s.withCORS(s.withAuth(s.handleRemoteAccessOn)))
+	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuth(s.handleRemoteAccessOff)))
+	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
 
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {
