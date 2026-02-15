@@ -142,6 +142,25 @@ For faster iteration during development:
 
 **Key entry point**: `cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`.
 
+## ⚠️ TypeScript Type Generation — Never Edit `.generated.ts` Files
+
+API types shared between Go and TypeScript are defined in `internal/api/contracts/` and auto-generated into `assets/dashboard/src/lib/types.generated.ts`.
+
+❌ **WRONG**: Edit `types.generated.ts` directly
+✅ **RIGHT**: Edit Go structs in `internal/api/contracts/*.go`, then run `go run ./cmd/gen-types`
+
+When to regenerate:
+
+- Adding or modifying structs in `internal/api/contracts/`
+- Changing JSON field names or `omitempty` tags
+- Adding new API response types
+
+Manual TypeScript types go in `assets/dashboard/src/lib/types.ts` (not the generated file).
+
+## ⚠️ API Documentation — CI-Enforced
+
+Changes to API-related packages (`internal/dashboard/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, `internal/tmux/`) **must** include a corresponding update to `docs/api.md`. CI runs `scripts/check-api-docs.sh` to enforce this.
+
 ## Code Conventions
 
 - Go: keep changes `gofmt`-clean (`go fmt ./...`)
@@ -159,6 +178,14 @@ See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns
 - **Destructive actions slow**: "Dispose" always requires confirmation
 - **URLs idempotent**: routes bookmarkable, survive reload
 - **Real-time updates**: connection indicator, preserve scroll position
+
+Key technical patterns:
+
+- **State via WebSocket, not polling**: `SessionsContext` receives real-time updates from `/ws/dashboard`. Do not add polling for session/workspace state.
+- **Pending navigation**: After spawning a session, use the pending navigation system (not polling) to navigate once the session appears via WebSocket.
+- **Two WebSocket endpoints**: `/ws/dashboard` (server→client session/workspace broadcasts) and `/ws/terminal/{id}` (bidirectional terminal I/O).
+- **WebSocket write safety**: Always use the `wsConn` wrapper (which has a mutex) — gorilla WebSocket is not concurrent-safe for writes.
+- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh` (included in unit test suite).
 
 Routes:
 
