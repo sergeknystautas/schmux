@@ -955,6 +955,100 @@ func TestEnsureClaudeHooks_MalformedExistingHooks(t *testing.T) {
 	}
 }
 
+func TestSignalCommandWithContext(t *testing.T) {
+	cmd := signalCommandWithContext("needs_input", "message")
+
+	// Should contain the state
+	if !strings.Contains(cmd, "needs_input") {
+		t.Error("Command should contain the signal state")
+	}
+
+	// Should reference SCHMUX_STATUS_FILE
+	if !strings.Contains(cmd, "SCHMUX_STATUS_FILE") {
+		t.Error("Command should reference SCHMUX_STATUS_FILE")
+	}
+
+	// Should use jq to extract the field
+	if !strings.Contains(cmd, "jq") {
+		t.Error("Command should use jq for JSON extraction")
+	}
+	if !strings.Contains(cmd, ".message") {
+		t.Error("Command should extract the specified JSON field")
+	}
+
+	// Should truncate to 100 chars
+	if !strings.Contains(cmd, "cut -c1-100") {
+		t.Error("Command should truncate message to 100 chars")
+	}
+
+	// Should not contain single quotes (safe for JSON/shell wrapping)
+	if strings.Contains(cmd, "'") {
+		t.Error("Command should not contain single quotes")
+	}
+
+	// Should fall back gracefully (|| true)
+	if !strings.Contains(cmd, "|| true") {
+		t.Error("Command should fall back gracefully when jq is unavailable")
+	}
+}
+
+func TestSignalCommandWithContext_DifferentFields(t *testing.T) {
+	tests := []struct {
+		state  string
+		field  string
+		wantJq string
+	}{
+		{"working", "prompt", ".prompt"},
+		{"needs_input", "message", ".message"},
+		{"error", "error", ".error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state+"_"+tt.field, func(t *testing.T) {
+			cmd := signalCommandWithContext(tt.state, tt.field)
+			if !strings.Contains(cmd, tt.state) {
+				t.Errorf("Command should contain state %q", tt.state)
+			}
+			if !strings.Contains(cmd, tt.wantJq) {
+				t.Errorf("Command should contain jq field %q", tt.wantJq)
+			}
+		})
+	}
+}
+
+func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
+	hooks := buildClaudeHooksMap()
+
+	// Notification hook should extract .message from stdin
+	notifGroups := hooks["Notification"]
+	if len(notifGroups) == 0 {
+		t.Fatal("Notification hook should exist")
+	}
+	notifCmd := notifGroups[0].Hooks[0].Command
+	if !strings.Contains(notifCmd, "jq") || !strings.Contains(notifCmd, ".message") {
+		t.Error("Notification hook should extract .message from stdin JSON")
+	}
+
+	// UserPromptSubmit hook should extract .prompt from stdin
+	promptGroups := hooks["UserPromptSubmit"]
+	if len(promptGroups) == 0 {
+		t.Fatal("UserPromptSubmit hook should exist")
+	}
+	promptCmd := promptGroups[0].Hooks[0].Command
+	if !strings.Contains(promptCmd, "jq") || !strings.Contains(promptCmd, ".prompt") {
+		t.Error("UserPromptSubmit hook should extract .prompt from stdin JSON")
+	}
+
+	// SessionStart and Stop should NOT use context extraction (no useful fields)
+	startCmd := hooks["SessionStart"][0].Hooks[0].Command
+	if strings.Contains(startCmd, "jq") {
+		t.Error("SessionStart hook should not use jq (no useful context field)")
+	}
+	stopCmd := hooks["Stop"][0].Hooks[0].Command
+	if strings.Contains(stopCmd, "jq") {
+		t.Error("Stop hook should not use jq (no useful context field)")
+	}
+}
+
 func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 	tmpDir := t.TempDir()
 

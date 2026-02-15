@@ -286,6 +286,16 @@ func signalCommand(state string) string {
 	return fmt.Sprintf(`[ -n "$SCHMUX_STATUS_FILE" ] && echo "%s" > "$SCHMUX_STATUS_FILE" || true`, state)
 }
 
+// signalCommandWithContext returns a shell command that extracts a JSON field
+// from the hook's stdin input and includes it as the signal message.
+// Requires jq; falls back to state-only signal if jq is unavailable.
+func signalCommandWithContext(state, jqField string) string {
+	return fmt.Sprintf(
+		`[ -n "$SCHMUX_STATUS_FILE" ] && { MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" | cut -c1-100 || true); echo "%s${MSG:+ $MSG}" > "$SCHMUX_STATUS_FILE"; } || true`,
+		jqField, state,
+	)
+}
+
 // buildClaudeHooksMap returns the hooks configuration map for Claude Code signaling.
 func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 	return map[string][]claudeHookMatcherGroup{
@@ -305,7 +315,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommand("working"),
+						Command:       signalCommandWithContext("working", "prompt"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -328,7 +338,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommand("needs_input"),
+						Command:       signalCommandWithContext("needs_input", "message"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
