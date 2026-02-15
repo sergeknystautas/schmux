@@ -45,7 +45,11 @@ done
 # Run Playwright scenario tests
 cd /app/test/scenarios/generated
 set +e
-npx playwright test
+PLAYWRIGHT_ARGS=()
+if [ -n "${TEST_GREP:-}" ]; then
+    PLAYWRIGHT_ARGS+=(--grep "$TEST_GREP")
+fi
+npx playwright test "${PLAYWRIGHT_ARGS[@]}"
 TEST_EXIT=$?
 set -e
 

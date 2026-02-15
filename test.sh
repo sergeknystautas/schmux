@@ -15,7 +15,7 @@
 #   --coverage      Run with coverage report
 #   --quick         Run without race detector or coverage (fast)
 #   --force         Force rebuild Docker images (skip cache)
-#   --run PATTERN   Run only tests matching PATTERN (passed to go test -run)
+#   --run PATTERN   Run only tests matching PATTERN (go test -run / playwright --grep)
 #   --help          Show this help message
 
 set -e  # Exit on error
@@ -125,7 +125,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --coverage      Run with coverage report"
             echo "  --quick         Run without race detector or coverage (fast)"
             echo "  --force         Force rebuild Docker base images (skip cache)"
-            echo "  --run PATTERN   Run only tests matching PATTERN (passed to go test -run)"
+            echo "  --run PATTERN   Run only tests matching PATTERN (go test -run / playwright --grep)"
             echo "  --help          Show this help message"
             echo ""
             echo "Examples:"
@@ -136,6 +136,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./test.sh --e2e --run TestE2EOverlayCompounding  # Run a single E2E test"
             echo "  ./test.sh --coverage         # Run unit tests with coverage"
             echo "  ./test.sh --scenarios        # Run scenario tests only (Playwright)"
+            echo "  ./test.sh --scenarios --run 'dispose'  # Run scenario tests matching 'dispose'"
             echo "  ./test.sh --react            # Run React dashboard tests only"
             echo "  ./test.sh --e2e --force      # Rebuild base image and run E2E tests"
             echo "  ./test.sh --bench            # Run latency benchmarks (requires tmux locally)"
@@ -438,14 +439,39 @@ if [ "$RUN_SCENARIOS" = true ]; then
                     echo -e "  ${GREEN}✅ Scenario test image built${NC}"
                     echo ""
                     echo -e "  ${BLUE}🎭 Running Playwright scenario tests in container...${NC}"
+                    if [ -n "$TEST_RUN_PATTERN" ]; then
+                        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
+                    fi
                     echo ""
 
-                    if docker run --rm -v "$(pwd)/$ARTIFACTS_DIR:/artifacts" schmux-scenarios; then
+                    # Build docker run command as array
+                    SCENARIO_RUN_ARGS=(docker run --rm -v "$(pwd)/$ARTIFACTS_DIR:/artifacts")
+                    if [ -n "$TEST_RUN_PATTERN" ]; then
+                        SCENARIO_RUN_ARGS+=(-e "TEST_GREP=$TEST_RUN_PATTERN")
+                    fi
+                    SCENARIO_RUN_ARGS+=(schmux-scenarios)
+
+                    # Capture output to show failure summary
+                    SCENARIO_OUTPUT_FILE=$(mktemp)
+                    if "${SCENARIO_RUN_ARGS[@]}" 2>&1 | tee "$SCENARIO_OUTPUT_FILE"; then
                         echo ""
                         echo -e "${GREEN}✅ Scenario tests passed${NC}"
                     else
                         echo ""
                         echo -e "${RED}❌ Scenario tests failed${NC}"
+
+                        # Extract failed scenario names from Playwright output
+                        # Playwright list reporter shows: [chromium] › file.spec.ts:L:C › Describe Name › test name ──
+                        FAILED_SCENARIOS=$(sed -n 's/.*\.spec\.ts:[0-9]*:[0-9]* › \([^›─]*\).*/\1/p' "$SCENARIO_OUTPUT_FILE" | sed 's/ *$//' | sort -u)
+                        if [ -n "$FAILED_SCENARIOS" ]; then
+                            echo ""
+                            echo -e "${BLUE}Re-run individually with:${NC}"
+                            while IFS= read -r scenario_name; do
+                                echo -e "  ./test.sh --scenarios --run '${scenario_name}'"
+                            done <<< "$FAILED_SCENARIOS"
+                        fi
+
+                        echo ""
                         echo -e "  ${BLUE}📁 Test artifacts saved to: $ARTIFACTS_DIR/${NC}"
                         if [ -d "$ARTIFACTS_DIR/playwright-report" ]; then
                             echo -e "  ${BLUE}🌐 View HTML report: npx playwright show-report $ARTIFACTS_DIR/playwright-report${NC}"
@@ -455,6 +481,7 @@ if [ "$RUN_SCENARIOS" = true ]; then
                         fi
                         EXIT_CODE=1
                     fi
+                    rm -f "$SCENARIO_OUTPUT_FILE"
 
                     # Clean up ephemeral thin image
                     docker rmi schmux-scenarios > /dev/null 2>&1 || true
