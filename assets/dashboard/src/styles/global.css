@@ -4387,3 +4387,60 @@ body.keyboard-mode-active::after {
   justify-content: flex-end;
   margin-bottom: var(--spacing-sm);
 }
+
+/* Mobile responsive layout for remote access from phone */
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .app-shell--collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .app-shell__nav {
+    order: 2;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: auto;
+    max-height: 50vh;
+    overflow-y: auto;
+    border-right: none;
+    border-top: 1px solid var(--color-border);
+    z-index: 100;
+  }
+
+  .app-shell__content {
+    order: 1;
+    padding: var(--spacing-md);
+    padding-bottom: 80px; /* Space for bottom nav */
+  }
+
+  /* Hide sidebar elements that don't work well on mobile */
+  .nav-collapse-btn,
+  .nav-header__subtitle {
+    display: none;
+  }
+
+  /* Make workspace cards full width */
+  .workspace-card {
+    width: 100% !important;
+  }
+
+  /* Remote access panel: hide QR code on mobile (when added later) */
+  .remote-access-panel__qr {
+    display: none;
+  }
+
+  /* Terminal: make it fill the screen */
+  .terminal-container {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    border-radius: 0;
+  }
+}
