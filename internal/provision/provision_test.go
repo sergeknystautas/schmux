@@ -458,3 +458,155 @@ func TestClaudeHooksNotificationMatcher(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureClaudeHooks_MergesWithExistingHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create existing settings with user-defined hooks
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{
+		"hooks": {
+			"Stop": [
+				{
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo user-stop-hook",
+							"statusMessage": "user: my stop hook"
+						}
+					]
+				}
+			],
+			"PostToolUse": [
+				{
+					"matcher": "Write|Edit",
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo lint-check"
+						}
+					]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	}
+
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(content, &settings); err != nil {
+		t.Fatalf("Invalid JSON: %v", err)
+	}
+
+	var hooks map[string][]claudeHookMatcherGroup
+	if err := json.Unmarshal(settings["hooks"], &hooks); err != nil {
+		t.Fatalf("Invalid hooks JSON: %v", err)
+	}
+
+	// User's Stop hook should be preserved alongside schmux's
+	stopGroups := hooks["Stop"]
+	if len(stopGroups) != 2 {
+		t.Fatalf("Stop should have 2 matcher groups (user + schmux), got %d", len(stopGroups))
+	}
+	// First should be the user's hook (preserved order)
+	if stopGroups[0].Hooks[0].Command != "echo user-stop-hook" {
+		t.Error("User's Stop hook should be preserved")
+	}
+	// Second should be schmux's
+	if !strings.HasPrefix(stopGroups[1].Hooks[0].StatusMessage, "schmux:") {
+		t.Error("Schmux Stop hook should be appended")
+	}
+
+	// User's PostToolUse hook (event not managed by schmux) should be preserved
+	postToolGroups := hooks["PostToolUse"]
+	if len(postToolGroups) != 1 {
+		t.Fatalf("PostToolUse should have 1 matcher group, got %d", len(postToolGroups))
+	}
+	if postToolGroups[0].Hooks[0].Command != "echo lint-check" {
+		t.Error("User's PostToolUse hook should be preserved")
+	}
+
+	// Schmux events should all be present
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification"} {
+		if _, ok := hooks[event]; !ok {
+			t.Errorf("Missing schmux hook event: %s", event)
+		}
+	}
+}
+
+func TestEnsureClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// First provisioning
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Manually add a user hook to the Stop event alongside the schmux one
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
+	content, _ := os.ReadFile(settingsPath)
+
+	var settings map[string]json.RawMessage
+	json.Unmarshal(content, &settings)
+
+	var hooks map[string][]claudeHookMatcherGroup
+	json.Unmarshal(settings["hooks"], &hooks)
+
+	// Add user hook to Stop
+	hooks["Stop"] = append([]claudeHookMatcherGroup{
+		{
+			Hooks: []claudeHookHandler{
+				{Type: "command", Command: "echo user-hook", StatusMessage: "user: custom"},
+			},
+		},
+	}, hooks["Stop"]...)
+
+	hooksJSON, _ := json.Marshal(hooks)
+	settings["hooks"] = json.RawMessage(hooksJSON)
+	data, _ := json.MarshalIndent(settings, "", "  ")
+	os.WriteFile(settingsPath, data, 0644)
+
+	// Second provisioning should replace schmux hooks but keep user hook
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ = os.ReadFile(settingsPath)
+	json.Unmarshal(content, &settings)
+	json.Unmarshal(settings["hooks"], &hooks)
+
+	stopGroups := hooks["Stop"]
+	if len(stopGroups) != 2 {
+		t.Fatalf("Stop should have 2 groups (user + schmux), got %d", len(stopGroups))
+	}
+
+	// User hook preserved
+	if stopGroups[0].Hooks[0].Command != "echo user-hook" {
+		t.Errorf("User hook should be preserved, got %q", stopGroups[0].Hooks[0].Command)
+	}
+
+	// Schmux hook present (not duplicated)
+	schmuxCount := 0
+	for _, g := range stopGroups {
+		if isSchmuxMatcherGroup(g) {
+			schmuxCount++
+		}
+	}
+	if schmuxCount != 1 {
+		t.Errorf("Should have exactly 1 schmux Stop group, got %d", schmuxCount)
+	}
+}
