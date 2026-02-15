@@ -461,14 +461,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex-shrink: 1;
+  flex: 1;
 }
 
 .nav-workspace__changes {
   font-size: 0.7rem;
   font-family: var(--font-mono);
   padding-left: var(--spacing-sm);
-  margin-right: auto;
   flex-shrink: 0;
   white-space: nowrap;
 }
