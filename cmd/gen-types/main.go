@@ -28,6 +28,7 @@ func main() {
 		reflect.TypeOf(contracts.ConfigResponse{}),
 		reflect.TypeOf(contracts.ConfigUpdateRequest{}),
 		reflect.TypeOf(contracts.GitGraphResponse{}),
+		reflect.TypeOf(contracts.GitCommitDetailResponse{}),
 		reflect.TypeOf(contracts.PRsResponse{}),
 	}
 

@@ -1010,6 +1010,55 @@ Notes:
 - `dirty_state` is only included when there are uncommitted changes
 - Delegates to remote handler for remote workspaces
 
+### GET /api/workspaces/{workspaceId}/git-commit/{commitHash}
+
+Returns detailed information about a specific commit, including file diffs.
+
+Path Parameters:
+
+- `commitHash`: Short (7-char) or full (40-char) commit hash
+
+Response:
+
+```json
+{
+  "hash": "abc1234567890abcdef...",
+  "short_hash": "abc1234",
+  "author_name": "John Doe",
+  "author_email": "john@example.com",
+  "timestamp": "2026-02-12T15:45:00-08:00",
+  "message": "Add new feature\n\nThis is the commit body.",
+  "parents": ["def5678..."],
+  "is_merge": false,
+  "files": [
+    {
+      "old_path": "src/file.ts",
+      "new_path": "src/file.ts",
+      "old_content": "old file content...",
+      "new_content": "new file content...",
+      "status": "modified",
+      "lines_added": 10,
+      "lines_removed": 2,
+      "is_binary": false
+    }
+  ]
+}
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"invalid path: ..."}` / `{"error":"invalid commit hash: ..."}`
+- 404 with JSON: `{"error":"workspace not found: {id}"}` / `{"error":"commit not found: {hash}"}`
+- 501 with JSON: `{"error":"commit detail not yet supported for remote workspaces"}`
+- 500 with JSON: `{"error":"..."}`
+
+Notes:
+
+- For merge commits, `is_merge` is true and diff is against first parent only
+- Binary files have `is_binary: true` with empty `old_content`/`new_content`
+- File content is truncated at 1MB per file
+- Commit hash is validated for security (hex chars only, 4-40 characters)
+
 ### POST /api/workspaces/{workspaceId}/git-commit-stage
 
 Stages the specified files (runs `git add` for each file).

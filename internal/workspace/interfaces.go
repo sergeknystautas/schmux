@@ -166,6 +166,9 @@ type WorkspaceManager interface {
 	// maxTotal: Maximum total commits to display (applied after category limits)
 	// mainContext: Number of commits on main BEFORE fork point (historical context)
 	GetGitGraph(ctx context.Context, workspaceID string, maxTotal int, mainContext int) (*contracts.GitGraphResponse, error)
+
+	// GetCommitDetail returns detailed information about a specific commit.
+	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.GitCommitDetailResponse, error)
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.
