@@ -245,6 +245,15 @@ func SetOption(ctx context.Context, sessionName, option, value string) error {
 	return nil
 }
 
+// ConfigureStatusBar sets the standard schmux status bar on a tmux session:
+// process name on left, empty center, empty right.
+func ConfigureStatusBar(ctx context.Context, sessionName string) {
+	_ = SetOption(ctx, sessionName, "status-left", "#{pane_current_command} ")
+	_ = SetOption(ctx, sessionName, "window-status-format", "")
+	_ = SetOption(ctx, sessionName, "window-status-current-format", "")
+	_ = SetOption(ctx, sessionName, "status-right", "")
+}
+
 // GetWindowSize returns the current tmux window size for the session.
 func GetWindowSize(ctx context.Context, sessionName string) (width, height int, err error) {
 	args := []string{

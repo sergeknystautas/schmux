@@ -120,13 +120,9 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	sessionID := sess.ID
 	hostID := sess.RemoteHostID
 	signalCb := m.signalCallback
-	stopCh := make(chan struct{})
-	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
-		stopCh: stopCh,
-	}
-	m.mu.Unlock()
 
-	// Determine workspace path for the signal file
+	// Determine workspace path for the signal file before inserting into the map,
+	// so we never create a dangling entry with an unclosed stopCh.
 	workspacePath := ""
 	if ws, ok := m.state.GetWorkspace(sess.WorkspaceID); ok {
 		if ws.RemotePath != "" {
@@ -136,13 +132,17 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 		}
 	}
 	if workspacePath == "" {
-		fmt.Printf("[signal] %s - cannot start remote watcher: no workspace path\n", sessionID)
-		m.mu.Lock()
-		delete(m.remoteDetectors, sessionID)
 		m.mu.Unlock()
+		fmt.Printf("[signal] %s - cannot start remote watcher: no workspace path\n", sessionID)
 		return
 	}
 	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
+
+	stopCh := make(chan struct{})
+	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
+		stopCh: stopCh,
+	}
+	m.mu.Unlock()
 
 	go func() {
 		defer func() {
@@ -619,18 +619,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	if err := tmux.SetOption(ctx, tmuxSession, "status-left", "#{pane_current_command} "); err != nil {
-		fmt.Printf("[session] warning: failed to set status-left: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "window-status-format", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set window-status-format: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "status-right", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
-	}
+	tmux.ConfigureStatusBar(ctx, tmuxSession)
 
 	// Get the PID of the agent process from tmux pane
 	pid, err := tmux.GetPanePID(ctx, tmuxSession)
@@ -733,18 +722,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Configure status bar: process on left, time on right, clear center
-	if err := tmux.SetOption(ctx, tmuxSession, "status-left", "#{pane_current_command} "); err != nil {
-		fmt.Printf("[session] warning: failed to set status-left: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "window-status-format", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set window-status-format: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "window-status-current-format", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set window-status-current-format: %v\n", err)
-	}
-	if err := tmux.SetOption(ctx, tmuxSession, "status-right", ""); err != nil {
-		fmt.Printf("[session] warning: failed to set status-right: %v\n", err)
-	}
+	tmux.ConfigureStatusBar(ctx, tmuxSession)
 
 	// Get the PID of the process from tmux pane
 	pid, err := tmux.GetPanePID(ctx, tmuxSession)
@@ -1404,20 +1382,29 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb)
 	m.trackers[sess.ID] = tracker
 
-	// Recover signal state from file (replaces scrollback recovery)
+	// Recover signal state from file (replaces scrollback recovery).
+	// Collect the signal to fire AFTER releasing the lock to avoid
+	// invoking the callback (which acquires state.mu) under m.mu.
+	var pendingSignal *signal.Signal
 	if fw := tracker.fileWatcher; fw != nil {
 		if lastSig := fw.ReadCurrent(); lastSig != nil {
 			storedSess, ok := m.state.GetSession(sess.ID)
 			if ok {
 				nudgeState := signal.MapStateToNudge(lastSig.State)
 				if storedSess.Nudge != nudgeState && cb != nil {
-					cb(*lastSig)
+					pendingSignal = lastSig
 				}
 			}
 		}
 	}
 
 	m.mu.Unlock()
+
+	// Fire recovered signal callback outside the lock.
+	if pendingSignal != nil {
+		cb(*pendingSignal)
+	}
+
 	tracker.Start()
 	return tracker
 }

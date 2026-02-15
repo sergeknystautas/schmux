@@ -21,6 +21,7 @@ type FileWatcher struct {
 	watcher     *fsnotify.Watcher
 	mu          sync.Mutex
 	lastContent string
+	stopOnce    sync.Once
 	stopCh      chan struct{}
 	doneCh      chan struct{}
 }
@@ -52,15 +53,12 @@ func NewFileWatcher(sessionID, filePath string, callback func(Signal)) (*FileWat
 	return fw, nil
 }
 
-// Stop terminates the file watcher.
+// Stop terminates the file watcher. Safe to call concurrently.
 func (fw *FileWatcher) Stop() {
-	select {
-	case <-fw.stopCh:
-		return
-	default:
+	fw.stopOnce.Do(func() {
 		close(fw.stopCh)
-	}
-	fw.watcher.Close()
+		fw.watcher.Close()
+	})
 	<-fw.doneCh
 }
 
