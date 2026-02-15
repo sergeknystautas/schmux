@@ -39,11 +39,11 @@ func TestHandleAgentSignalIntegration(t *testing.T) {
 			wantSeqDelta:   1,
 		},
 		{
-			name:           "working clears nudge without incrementing seq",
+			name:           "working increments seq and sets nudge",
 			signalState:    "working",
-			message:        "",
-			wantNudgeEmpty: true,
-			wantSeqDelta:   0,
+			message:        "Implementing feature",
+			wantNudgeEmpty: false,
+			wantSeqDelta:   1,
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestHandleAgentSignalIntegration(t *testing.T) {
 			srv, _, st := newTestServer(t)
 			st.AddSession(state.Session{ID: "s1", TmuxSession: "test"})
 
-			// Pre-set a nudge so we can verify working clears it
+			// Pre-set a nudge so we can verify signals overwrite it
 			st.UpdateSessionNudge("s1", `{"state":"Error","summary":"old"}`)
 			seqBefore := st.GetNudgeSeq("s1")
 
@@ -97,8 +97,8 @@ func TestHandleAgentSignalRapidSignals(t *testing.T) {
 		srv.HandleAgentSignal("s1", sig)
 	}
 
-	// 4 non-working signals: completed, error, needs_input, completed
-	expectedSeq := uint64(4)
+	// All 6 signals increment seq (including working)
+	expectedSeq := uint64(6)
 	gotSeq := st.GetNudgeSeq("s1")
 	if gotSeq != expectedSeq {
 		t.Errorf("NudgeSeq = %d, want %d", gotSeq, expectedSeq)

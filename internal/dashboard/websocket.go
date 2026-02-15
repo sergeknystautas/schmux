@@ -330,35 +330,20 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	}
 
 	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
-	if sig.State == "working" {
-		if err := s.state.UpdateSessionNudge(sessionID, ""); err != nil {
-			fmt.Printf("[signal] %s - failed to clear nudge: %v\n", sessionID, err)
-			return
-		}
-	} else {
-		payload, err := json.Marshal(nudgeResult)
-		if err != nil {
-			fmt.Printf("[signal] %s - failed to serialize nudge: %v\n", sessionID, err)
-			return
-		}
-		if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
-			fmt.Printf("[signal] %s - failed to update nudge: %v\n", sessionID, err)
-			return
-		}
+	payload, err := json.Marshal(nudgeResult)
+	if err != nil {
+		fmt.Printf("[signal] %s - failed to serialize nudge: %v\n", sessionID, err)
+		return
+	}
+	if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
+		fmt.Printf("[signal] %s - failed to update nudge: %v\n", sessionID, err)
+		return
 	}
 
 	// Update last signal time
 	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
 
-	// Only increment NudgeSeq for non-working signals.
-	// "working" is a clear operation, not a notification — incrementing would
-	// wastefully advance the sequence and confuse frontend dedup.
-	var seq uint64
-	if sig.State != "working" {
-		seq = s.state.IncrementNudgeSeq(sessionID)
-	} else {
-		seq = s.state.GetNudgeSeq(sessionID)
-	}
+	seq := s.state.IncrementNudgeSeq(sessionID)
 
 	if err := s.state.Save(); err != nil {
 		fmt.Printf("[signal] %s - failed to save state: %v\n", sessionID, err)
