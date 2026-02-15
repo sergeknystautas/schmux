@@ -190,6 +190,16 @@ export interface OverlaysResponse {
   overlays: OverlayInfo[];
 }
 
+export interface OverlayChangeEvent {
+  type: 'overlay_change';
+  rel_path: string;
+  source_workspace_id: string;
+  source_branch: string;
+  target_workspace_ids: string[];
+  timestamp: number;
+  unified_diff: string;
+}
+
 export interface FileDiff {
   old_path?: string;
   new_path?: string;

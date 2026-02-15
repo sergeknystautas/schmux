@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { WorkspaceResponse, LinearSyncResolveConflictStatePayload } from '../lib/types';
+import type {
+  WorkspaceResponse,
+  LinearSyncResolveConflictStatePayload,
+  OverlayChangeEvent,
+} from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -11,6 +15,8 @@ type SessionsWebSocketState = {
   stale: boolean;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
+  overlayEvents: OverlayChangeEvent[];
+  clearOverlayEvents: () => void;
 };
 
 export default function useSessionsWebSocket(): SessionsWebSocketState {
@@ -21,6 +27,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<
     Record<string, LinearSyncResolveConflictStatePayload>
   >({});
+  const [overlayEvents, setOverlayEvents] = useState<OverlayChangeEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -74,6 +81,8 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
             ...prev,
             [data.workspace_id]: data,
           }));
+        } else if (data.type === 'overlay_change') {
+          setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -123,6 +132,10 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     });
   }, []);
 
+  const clearOverlayEvents = useCallback(() => {
+    setOverlayEvents([]);
+  }, []);
+
   return {
     workspaces,
     connected,
@@ -130,5 +143,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     stale,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
+    overlayEvents,
+    clearOverlayEvents,
   };
 }
