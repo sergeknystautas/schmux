@@ -18,6 +18,7 @@ import type {
   LinearSyncResolveConflictStatePayload,
   PendingNavigation,
   OverlayChangeEvent,
+  RemoteAccessStatus,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -37,6 +38,7 @@ type SessionsContextValue = {
   overlayUnreadCount: number;
   clearOverlayEvents: () => void;
   markOverlaysRead: () => void;
+  remoteAccessStatus: RemoteAccessStatus;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -52,6 +54,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearLinearSyncResolveConflictState,
     overlayEvents,
     clearOverlayEvents,
+    remoteAccessStatus,
   } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
   const [overlayReadCount, setOverlayReadCount] = useState(0);
@@ -250,6 +253,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       overlayEvents,
       overlayUnreadCount,
       clearOverlayEvents,
+      remoteAccessStatus,
       markOverlaysRead,
     }),
     [
@@ -267,6 +271,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       overlayEvents,
       overlayUnreadCount,
       clearOverlayEvents,
+      remoteAccessStatus,
       markOverlaysRead,
     ]
   );

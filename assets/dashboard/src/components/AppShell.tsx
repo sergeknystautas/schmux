@@ -31,6 +31,7 @@ import {
   type DevStatus,
 } from '../lib/api';
 import type { WorkspaceResponse, SessionWithWorkspace } from '../lib/types';
+import RemoteAccessPanel from './RemoteAccessPanel';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -761,6 +762,8 @@ export default function AppShell() {
               );
             })}
           </div>
+
+          <RemoteAccessPanel />
 
           <div className="nav-links">
             {config?.repos?.length > 0 && (
