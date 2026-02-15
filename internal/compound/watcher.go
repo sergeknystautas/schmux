@@ -277,11 +277,13 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		key := wsID + ":" + relPath
 		if expiry, suppressed := w.suppressed[key]; suppressed {
 			if time.Now().Before(expiry) {
+				log.Printf("[overlay] change suppressed (echo prevention): %s in workspace %s\n", relPath, wsID)
 				continue
 			}
 			delete(w.suppressed, key)
 		}
 
+		log.Printf("[overlay] file change detected: %s in workspace %s (event=%s)\n", relPath, wsID, event.Op)
 		w.resetDebounce(wsID, relPath)
 	}
 }

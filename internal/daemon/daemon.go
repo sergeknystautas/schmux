@@ -530,6 +530,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 			// Broadcast overlay change event to dashboard
 			if len(targetWorkspaceIDs) > 0 {
+				log.Printf("[overlay] broadcasting change: %s from workspace %s (branch=%s) to %d workspace(s) %v\n",
+					relPath, sourceWorkspaceID, sourceBranch, len(targetWorkspaceIDs), targetWorkspaceIDs)
 				diff := difftool.UnifiedDiff(relPath, firstOldContent, content)
 				server.BroadcastOverlayChange(dashboard.OverlayChangeEvent{
 					RelPath:            relPath,
@@ -539,6 +541,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					Timestamp:          time.Now().Unix(),
 					UnifiedDiff:        diff,
 				})
+			} else {
+				log.Printf("[overlay] no active sibling workspaces to propagate %s to (source=%s)\n", relPath, sourceWorkspaceID)
 			}
 		}
 
