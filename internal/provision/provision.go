@@ -337,6 +337,10 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 	}
 }
 
+// schmuxStatusMessagePrefix identifies hook handlers managed by schmux.
+// Used to distinguish schmux hooks from user-defined hooks during merge.
+const schmuxStatusMessagePrefix = "schmux:"
+
 // ClaudeHooksJSON returns the complete .claude/settings.local.json content
 // with hooks configuration for schmux signaling, as compact JSON bytes.
 func ClaudeHooksJSON() ([]byte, error) {
@@ -346,9 +350,37 @@ func ClaudeHooksJSON() ([]byte, error) {
 	return json.Marshal(config)
 }
 
+// isSchmuxMatcherGroup returns true if any handler in the group has a
+// statusMessage starting with the schmux prefix.
+func isSchmuxMatcherGroup(group claudeHookMatcherGroup) bool {
+	for _, h := range group.Hooks {
+		if strings.HasPrefix(h.StatusMessage, schmuxStatusMessagePrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeHooksForEvent takes existing matcher groups for a hook event and
+// schmux matcher groups, removes old schmux groups from existing, and
+// appends the new schmux groups.
+func mergeHooksForEvent(existing, schmux []claudeHookMatcherGroup) []claudeHookMatcherGroup {
+	// Keep non-schmux groups from existing
+	var merged []claudeHookMatcherGroup
+	for _, g := range existing {
+		if !isSchmuxMatcherGroup(g) {
+			merged = append(merged, g)
+		}
+	}
+	// Append schmux groups
+	merged = append(merged, schmux...)
+	return merged
+}
+
 // EnsureClaudeHooks creates or updates .claude/settings.local.json in the
 // workspace with Claude Code hooks for automatic schmux signaling.
-// Preserves any non-hooks settings already in the file.
+// Preserves all non-hooks settings and merges with existing user hooks
+// (schmux hooks are identified by statusMessage prefix and replaced in-place).
 func EnsureClaudeHooks(workspacePath string) error {
 	settingsDir := filepath.Join(workspacePath, ".claude")
 	settingsPath := filepath.Join(settingsDir, "settings.local.json")
@@ -365,8 +397,48 @@ func EnsureClaudeHooks(workspacePath string) error {
 		settings = make(map[string]json.RawMessage)
 	}
 
-	// Build hooks config and set it (replaces existing hooks in this file)
-	hooksJSON, err := json.Marshal(buildClaudeHooksMap())
+	// Parse existing hooks (if any) into typed structure for merging
+	existingHooks := make(map[string][]claudeHookMatcherGroup)
+	if raw, ok := settings["hooks"]; ok {
+		if err := json.Unmarshal(raw, &existingHooks); err != nil {
+			// Existing hooks malformed, start fresh for hooks only
+			existingHooks = make(map[string][]claudeHookMatcherGroup)
+		}
+	}
+
+	// Merge: for each event, remove old schmux groups and add new ones
+	schmuxHooks := buildClaudeHooksMap()
+	mergedHooks := make(map[string][]claudeHookMatcherGroup)
+
+	// Copy all existing events (with schmux groups filtered out per-event)
+	for event, groups := range existingHooks {
+		if schmuxGroups, hasSchmux := schmuxHooks[event]; hasSchmux {
+			mergedHooks[event] = mergeHooksForEvent(groups, schmuxGroups)
+		} else {
+			// Event not managed by schmux, preserve as-is
+			var filtered []claudeHookMatcherGroup
+			for _, g := range groups {
+				if !isSchmuxMatcherGroup(g) {
+					filtered = append(filtered, g)
+				} else {
+					// Remove stale schmux hooks from events we no longer use
+				}
+			}
+			if len(filtered) > 0 {
+				mergedHooks[event] = filtered
+			}
+		}
+	}
+
+	// Add schmux events that didn't exist yet
+	for event, groups := range schmuxHooks {
+		if _, exists := mergedHooks[event]; !exists {
+			mergedHooks[event] = groups
+		}
+	}
+
+	// Serialize merged hooks back into settings
+	hooksJSON, err := json.Marshal(mergedHooks)
 	if err != nil {
 		return fmt.Errorf("failed to marshal hooks config: %w", err)
 	}
