@@ -32,19 +32,22 @@ func (s *SaplingCommandBuilder) UntrackedFiles() string {
 }
 
 func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
-	// Sapling log with parseable template
+	// Sapling log with parseable template.
+	// Use {p1node} {p2node} instead of {parents} — the {parents} keyword outputs
+	// "rev:shorthash" format, not full hex hashes like git's %P.
 	revset := "ancestors(.)"
 	if len(refs) > 1 {
 		revset = fmt.Sprintf("ancestors(%s)", strings.Join(refs, "+"))
 	} else if len(refs) == 1 && refs[0] != "HEAD" {
 		revset = fmt.Sprintf("ancestors(%s)", refs[0])
 	}
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{parents}\\n' -r '%s' --limit %d",
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r '%s' --limit %d",
 		revset, maxCount)
 }
 
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
-	// Commits reachable from refs but not before forkPoint's parents
+	// Commits reachable from refs but not before forkPoint's parents.
+	// Use {p1node} {p2node} instead of {parents} — see Log() for explanation.
 	refExprs := make([]string, len(refs))
 	for i, ref := range refs {
 		if ref == "HEAD" {
@@ -54,7 +57,7 @@ func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string
 		}
 	}
 	revset := fmt.Sprintf("(%s)::%s", forkPoint, strings.Join(refExprs, "+"))
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{parents}\\n' -r '%s'", revset)
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r '%s'", revset)
 }
 
 func (s *SaplingCommandBuilder) ResolveRef(ref string) string {

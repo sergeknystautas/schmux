@@ -652,3 +652,227 @@ func TestGitGraph_ManyMergeCommits(t *testing.T) {
 		}
 	}
 }
+
+func TestGitGraph_ManyAheadBranchMembership(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "features/compounding")
+	ctx := context.Background()
+
+	// Create 15 local commits (simulating many-ahead scenario)
+	for i := 0; i < 15; i++ {
+		commitOnWorkspace(t, wsDir, fmt.Sprintf("feature%d.txt", i), fmt.Sprintf("feature commit %d", i))
+	}
+
+	// Create 1 commit on remote main (1 behind)
+	commitOnRemote(t, remoteDir, wsDir, "remote-ahead.txt", "remote ahead of fork")
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	// Should report 1 commit ahead on main
+	if resp.MainAheadCount != 1 {
+		t.Errorf("expected MainAheadCount=1, got %d", resp.MainAheadCount)
+	}
+
+	// Both branches should be in the map
+	featureBranch, ok := resp.Branches["features/compounding"]
+	if !ok {
+		t.Fatal("expected features/compounding in branches")
+	}
+	mainBranch, ok := resp.Branches["main"]
+	if !ok {
+		t.Fatal("expected main in branches")
+	}
+	if !mainBranch.IsMain {
+		t.Error("expected main.is_main to be true")
+	}
+	if featureBranch.IsMain {
+		t.Error("expected features/compounding.is_main to be false")
+	}
+
+	// Feature HEAD should be the first node (topo sort puts heads first)
+	if len(resp.Nodes) == 0 {
+		t.Fatal("expected non-empty graph")
+	}
+	if resp.Nodes[0].Hash != featureBranch.Head {
+		t.Errorf("expected first node to be feature HEAD %s, got %s (%s)",
+			featureBranch.Head[:8], resp.Nodes[0].Hash[:8], resp.Nodes[0].Message)
+	}
+
+	// Check branch membership: feature-only commits should NOT be on main
+	featureOnlyCount := 0
+	bothBranchesCount := 0
+	emptyBranchesCount := 0
+	for _, n := range resp.Nodes {
+		onMain := sliceContains(n.Branches, "main")
+		onFeature := sliceContains(n.Branches, "features/compounding")
+
+		if !onMain && !onFeature {
+			emptyBranchesCount++
+			t.Errorf("node %s (%s) has no branch membership: %v", n.ShortHash, n.Message, n.Branches)
+		}
+		if onFeature && !onMain {
+			featureOnlyCount++
+		}
+		if onFeature && onMain {
+			bothBranchesCount++
+		}
+	}
+
+	// Should have exactly 15 feature-only commits
+	if featureOnlyCount != 15 {
+		t.Errorf("expected 15 feature-only commits, got %d", featureOnlyCount)
+	}
+
+	// No commits should have empty branch membership
+	if emptyBranchesCount > 0 {
+		t.Errorf("found %d nodes with empty branch membership", emptyBranchesCount)
+	}
+
+	// Fork point and context should be on both branches
+	if bothBranchesCount == 0 {
+		t.Error("expected at least 1 commit on both branches (fork point)")
+	}
+
+	t.Logf("Graph: %d nodes, %d feature-only, %d both, %d empty",
+		len(resp.Nodes), featureOnlyCount, bothBranchesCount, emptyBranchesCount)
+	for i, n := range resp.Nodes {
+		t.Logf("  [%d] %s %s branches=%v", i, n.ShortHash, n.Message, n.Branches)
+	}
+}
+
+func TestParseGitLogOutput_GitFormat(t *testing.T) {
+	// Standard git format: parents are space-separated full hashes
+	output := "aaa111|aaa111|first commit|author|2024-01-01T00:00:00Z|bbb222 ccc333\nbbb222|bbb222|second commit|author|2024-01-01T00:00:00Z|ccc333\nccc333|ccc333|root commit|author|2024-01-01T00:00:00Z|"
+	nodes := ParseGitLogOutput(output)
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(nodes))
+	}
+
+	// Merge commit with 2 parents
+	if len(nodes[0].Parents) != 2 {
+		t.Errorf("expected 2 parents for merge, got %d: %v", len(nodes[0].Parents), nodes[0].Parents)
+	}
+
+	// Normal commit with 1 parent
+	if len(nodes[1].Parents) != 1 {
+		t.Errorf("expected 1 parent, got %d: %v", len(nodes[1].Parents), nodes[1].Parents)
+	}
+
+	// Root commit with no parents
+	if len(nodes[2].Parents) != 0 {
+		t.Errorf("expected 0 parents for root, got %d: %v", len(nodes[2].Parents), nodes[2].Parents)
+	}
+}
+
+func TestParseGitLogOutput_SaplingFormat(t *testing.T) {
+	// Sapling format with p1node p2node: null parent is all-zeros
+	nullHash := "0000000000000000000000000000000000000000"
+
+	// Non-merge commit: p1 is valid, p2 is null
+	output := fmt.Sprintf("aaa111|aaa111|normal commit|author|2024-01-01T00:00:00Z|bbb222 %s\n", nullHash)
+	// Root commit: both p1 and p2 are null
+	output += fmt.Sprintf("bbb222|bbb222|root commit|author|2024-01-01T00:00:00Z|%s %s\n", nullHash, nullHash)
+	// Merge commit: both p1 and p2 are valid
+	output += "ccc333|ccc333|merge commit|author|2024-01-01T00:00:00Z|aaa111 bbb222\n"
+
+	nodes := ParseGitLogOutput(output)
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(nodes))
+	}
+
+	// Non-merge: null parent should be filtered out
+	if len(nodes[0].Parents) != 1 {
+		t.Errorf("expected 1 parent (null filtered), got %d: %v", len(nodes[0].Parents), nodes[0].Parents)
+	}
+	if nodes[0].Parents[0] != "bbb222" {
+		t.Errorf("expected parent bbb222, got %s", nodes[0].Parents[0])
+	}
+
+	// Root: both null parents filtered out
+	if len(nodes[1].Parents) != 0 {
+		t.Errorf("expected 0 parents (both null), got %d: %v", len(nodes[1].Parents), nodes[1].Parents)
+	}
+
+	// Merge: both parents valid
+	if len(nodes[2].Parents) != 2 {
+		t.Errorf("expected 2 parents for merge, got %d: %v", len(nodes[2].Parents), nodes[2].Parents)
+	}
+}
+
+func TestBuildGraphResponse_BranchMembershipWithSaplingNodes(t *testing.T) {
+	// Simulate what Sapling p1node/p2node output looks like after parsing:
+	// 5 feature commits + fork point + 2 context commits
+	// This tests that BuildGraphResponse correctly assigns branch membership
+	// even when nodes are provided in a mixed order (context first, then local).
+	nullHash := "0000000000000000000000000000000000000000"
+	_ = nullHash
+
+	nodes := []RawNode{
+		// Context commits (fetched from forkPoint backwards)
+		{Hash: "fork000", ShortHash: "fork000", Message: "fork point", Author: "a", Timestamp: "2024-01-01T00:00:00Z", Parents: []string{"ctx0001"}},
+		{Hash: "ctx0001", ShortHash: "ctx0001", Message: "context 1", Author: "a", Timestamp: "2024-01-01T00:00:00Z", Parents: []string{"ctx0002"}},
+		{Hash: "ctx0002", ShortHash: "ctx0002", Message: "context 2", Author: "a", Timestamp: "2024-01-01T00:00:00Z", Parents: nil},
+		// Local commits (fetched from HEAD backwards, fork point already seen)
+		{Hash: "feat005", ShortHash: "feat005", Message: "feature 5", Author: "a", Timestamp: "2024-01-05T00:00:00Z", Parents: []string{"feat004"}},
+		{Hash: "feat004", ShortHash: "feat004", Message: "feature 4", Author: "a", Timestamp: "2024-01-04T00:00:00Z", Parents: []string{"feat003"}},
+		{Hash: "feat003", ShortHash: "feat003", Message: "feature 3", Author: "a", Timestamp: "2024-01-03T00:00:00Z", Parents: []string{"feat002"}},
+		{Hash: "feat002", ShortHash: "feat002", Message: "feature 2", Author: "a", Timestamp: "2024-01-02T00:00:00Z", Parents: []string{"feat001"}},
+		{Hash: "feat001", ShortHash: "feat001", Message: "feature 1", Author: "a", Timestamp: "2024-01-01T12:00:00Z", Parents: []string{"fork000"}},
+	}
+
+	resp := BuildGraphResponse(
+		nodes,
+		"my-feature", // localBranch
+		"main",       // defaultBranch
+		"feat005",    // localHead
+		"main-ahead", // originMainHead (not in graph)
+		"fork000",    // forkPoint
+		nil,          // branchWorkspaces
+		"test-repo",  // repo
+		200,          // maxTotal
+		1,            // mainAheadCount
+	)
+
+	// Feature HEAD should be first node
+	if resp.Nodes[0].Hash != "feat005" {
+		t.Errorf("expected feature HEAD first, got %s (%s)", resp.Nodes[0].ShortHash, resp.Nodes[0].Message)
+	}
+
+	// Check branch membership
+	for _, n := range resp.Nodes {
+		onMain := sliceContains(n.Branches, "main")
+		onFeature := sliceContains(n.Branches, "my-feature")
+
+		switch {
+		case n.Hash == "feat005", n.Hash == "feat004", n.Hash == "feat003",
+			n.Hash == "feat002", n.Hash == "feat001":
+			// Feature-only commits should NOT be on main
+			if onMain {
+				t.Errorf("feature commit %s should not be on main, branches=%v", n.ShortHash, n.Branches)
+			}
+			if !onFeature {
+				t.Errorf("feature commit %s should be on my-feature, branches=%v", n.ShortHash, n.Branches)
+			}
+		case n.Hash == "fork000", n.Hash == "ctx0001", n.Hash == "ctx0002":
+			// Fork point and context should be on both branches
+			if !onMain {
+				t.Errorf("shared commit %s should be on main, branches=%v", n.ShortHash, n.Branches)
+			}
+			if !onFeature {
+				t.Errorf("shared commit %s should be on my-feature, branches=%v", n.ShortHash, n.Branches)
+			}
+		}
+	}
+
+	// Branches map should have both
+	if !resp.Branches["main"].IsMain {
+		t.Error("expected main branch to have IsMain=true")
+	}
+	if resp.Branches["my-feature"].IsMain {
+		t.Error("expected my-feature to have IsMain=false")
+	}
+}
