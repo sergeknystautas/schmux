@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install npm deps and Playwright browsers (most expensive steps)
+# Use a shared path so browsers are accessible when running as non-root testuser
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 WORKDIR /app/test/scenarios/generated
 COPY test/scenarios/generated/package.json test/scenarios/generated/package-lock.json ./
 RUN npm ci
