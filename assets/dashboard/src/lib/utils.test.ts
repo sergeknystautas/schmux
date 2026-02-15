@@ -31,12 +31,9 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(twoDaysAgo)).toBe('2d ago');
   });
 
-  it('returns date string for >= 7 days', () => {
+  it('returns days ago for < 30 days', () => {
     const eightDaysAgo = new Date('2024-06-07T12:00:00Z');
-    const result = formatRelativeTime(eightDaysAgo);
-    // Should be a locale date string, not a relative time
-    expect(result).not.toMatch(/ago$/);
-    expect(result).not.toBe('just now');
+    expect(formatRelativeTime(eightDaysAgo)).toBe('8d ago');
   });
 
   it('boundary: exactly 60 seconds → "1m ago"', () => {
@@ -54,9 +51,14 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(exactlyOneDay)).toBe('1d ago');
   });
 
-  it('boundary: exactly 7 days → date string', () => {
+  it('boundary: exactly 7 days → days ago', () => {
     const exactlySevenDays = new Date('2024-06-08T12:00:00Z');
-    const result = formatRelativeTime(exactlySevenDays);
+    expect(formatRelativeTime(exactlySevenDays)).toBe('7d ago');
+  });
+
+  it('boundary: exactly 30 days → date string', () => {
+    const exactlyThirtyDays = new Date('2024-05-16T12:00:00Z');
+    const result = formatRelativeTime(exactlyThirtyDays);
     expect(result).not.toMatch(/ago$/);
   });
 
