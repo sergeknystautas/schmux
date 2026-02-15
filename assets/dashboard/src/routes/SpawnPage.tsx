@@ -590,6 +590,7 @@ export default function SpawnPage() {
   // Handle slash command selection - switches to command mode
   const handleSlashCommandSelect = (command: string) => {
     if (command === '/resume') {
+      setModelSelectionMode('single'); // Resume only supports single agent
       setSpawnMode('resume');
       setPrompt('');
       setNickname('');
