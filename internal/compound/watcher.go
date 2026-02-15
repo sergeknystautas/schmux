@@ -2,7 +2,6 @@ package compound
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -79,7 +78,7 @@ func (w *Watcher) AddWorkspace(workspaceID, workspacePath string, manifest map[s
 
 	for dir := range dirsToWatch {
 		if err := w.watcher.Add(dir); err != nil {
-			log.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
+			fmt.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
 			continue
 		}
 		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
@@ -243,7 +242,7 @@ func (w *Watcher) eventLoop() {
 			if !ok {
 				return
 			}
-			log.Printf("[compound] watcher error: %v\n", err)
+			fmt.Printf("[compound] watcher error: %v\n", err)
 		}
 	}
 }
@@ -277,13 +276,13 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		key := wsID + ":" + relPath
 		if expiry, suppressed := w.suppressed[key]; suppressed {
 			if time.Now().Before(expiry) {
-				log.Printf("[overlay] change suppressed (echo prevention): %s in workspace %s\n", relPath, wsID)
+				fmt.Printf("[overlay] change suppressed (echo prevention): %s in workspace %s\n", relPath, wsID)
 				continue
 			}
 			delete(w.suppressed, key)
 		}
 
-		log.Printf("[overlay] file change detected: %s in workspace %s (event=%s)\n", relPath, wsID, event.Op)
+		fmt.Printf("[overlay] file change detected: %s in workspace %s (event=%s)\n", relPath, wsID, event.Op)
 		w.resetDebounce(wsID, relPath)
 	}
 }

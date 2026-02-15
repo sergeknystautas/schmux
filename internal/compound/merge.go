@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -105,7 +104,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	// JSONL files: line-level union (no LLM needed)
 	if strings.HasSuffix(wsPath, ".jsonl") {
 		if len(wsContent)+len(overlayContent) > maxLLMMergeFileSize {
-			log.Printf("[compound] JSONL file too large for merge (%d bytes), using last-write-wins: %s\n", len(wsContent)+len(overlayContent), wsPath)
+			fmt.Printf("[compound] JSONL file too large for merge (%d bytes), using last-write-wins: %s\n", len(wsContent)+len(overlayContent), wsPath)
 			if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write overlay file: %w", err)
 			}
@@ -116,7 +115,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 
 	// Safety: binary files -> last-write-wins
 	if isBinaryContent(wsContent) || isBinaryContent(overlayContent) {
-		log.Printf("[compound] binary file detected, using last-write-wins: %s\n", wsPath)
+		fmt.Printf("[compound] binary file detected, using last-write-wins: %s\n", wsPath)
 		if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
@@ -125,7 +124,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 
 	// Safety: large files -> last-write-wins
 	if len(wsContent) > maxLLMMergeFileSize {
-		log.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", len(wsContent), wsPath)
+		fmt.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", len(wsContent), wsPath)
 		if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
@@ -141,13 +140,13 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 			if err := os.WriteFile(overlayPath, merged, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write merged overlay file: %w", err)
 			}
-			log.Printf("[compound] LLM merge successful: %s\n", wsPath)
+			fmt.Printf("[compound] LLM merge successful: %s\n", wsPath)
 			return merged, nil
 		}
 		if err != nil {
-			log.Printf("[compound] LLM merge failed, falling back to last-write-wins: %v\n", err)
+			fmt.Printf("[compound] LLM merge failed, falling back to last-write-wins: %v\n", err)
 		} else {
-			log.Printf("[compound] LLM returned empty response, falling back to last-write-wins\n")
+			fmt.Printf("[compound] LLM returned empty response, falling back to last-write-wins\n")
 		}
 	}
 
@@ -214,7 +213,7 @@ func mergeJSONLLines(wsContent, overlayContent []byte, overlayPath string) ([]by
 	if err := os.WriteFile(overlayPath, result, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write merged JSONL: %w", err)
 	}
-	log.Printf("[compound] JSONL line-union merge: %d unique lines\n", len(merged))
+	fmt.Printf("[compound] JSONL line-union merge: %d unique lines\n", len(merged))
 	return result, nil
 }
 

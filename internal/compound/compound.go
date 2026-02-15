@@ -2,7 +2,7 @@ package compound
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -70,7 +70,7 @@ func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoUR
 	c.mu.Unlock()
 
 	if err := c.watcher.AddWorkspaceWithDeclaredPaths(workspaceID, workspacePath, manifestCopy, declaredPaths); err != nil {
-		log.Printf("[compound] warning: failed to add workspace watch: %v\n", err)
+		fmt.Printf("[compound] warning: failed to add workspace watch: %v\n", err)
 	}
 }
 
@@ -115,7 +115,7 @@ func (c *Compounder) Reconcile(ctx context.Context, workspaceID string) {
 
 	for _, relPath := range relPaths {
 		if ctx.Err() != nil {
-			log.Printf("[compound] reconciliation cancelled for %s: %v\n", workspaceID, ctx.Err())
+			fmt.Printf("[compound] reconciliation cancelled for %s: %v\n", workspaceID, ctx.Err())
 			return
 		}
 		c.processFileChange(ctx, workspaceID, relPath)
@@ -131,7 +131,7 @@ func (c *Compounder) onFileChange(workspaceID, relPath string) {
 func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath string) {
 	// Validate relPath to prevent path traversal
 	if err := ValidateRelPath(relPath); err != nil {
-		log.Printf("[compound] rejecting unsafe relPath %q: %v\n", relPath, err)
+		fmt.Printf("[compound] rejecting unsafe relPath %q: %v\n", relPath, err)
 		return
 	}
 
@@ -150,7 +150,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 	// Determine merge action
 	action, err := DetermineMergeAction(wsPath, overlayPath, manifestHash)
 	if err != nil {
-		log.Printf("[compound] failed to determine merge action for %s in %s: %v\n", relPath, workspaceID, err)
+		fmt.Printf("[compound] failed to determine merge action for %s in %s: %v\n", relPath, workspaceID, err)
 		return
 	}
 
@@ -158,18 +158,18 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 		return
 	}
 
-	log.Printf("[overlay] syncing %s from workspace %s (action=%s)\n", relPath, workspaceID, action)
+	fmt.Printf("[overlay] syncing %s from workspace %s (action=%s)\n", relPath, workspaceID, action)
 
 	// Ensure overlay parent directory exists
 	if err := os.MkdirAll(filepath.Dir(overlayPath), 0755); err != nil {
-		log.Printf("[compound] failed to create overlay directory: %v\n", err)
+		fmt.Printf("[compound] failed to create overlay directory: %v\n", err)
 		return
 	}
 
 	// Execute merge
 	mergedContent, err := ExecuteMerge(ctx, action, wsPath, overlayPath, c.executor)
 	if err != nil {
-		log.Printf("[compound] merge failed for %s in %s: %v\n", relPath, workspaceID, err)
+		fmt.Printf("[compound] merge failed for %s in %s: %v\n", relPath, workspaceID, err)
 		return
 	}
 
@@ -188,7 +188,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 
 	// Propagate to sibling workspaces
 	if c.propagate != nil && mergedContent != nil {
-		log.Printf("[overlay] propagating %s from workspace %s to siblings\n", relPath, workspaceID)
+		fmt.Printf("[overlay] propagating %s from workspace %s to siblings\n", relPath, workspaceID)
 		c.propagate(workspaceID, repoURL, relPath, mergedContent)
 	}
 }
