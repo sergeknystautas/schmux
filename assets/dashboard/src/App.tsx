@@ -14,6 +14,7 @@ import ConfigPage from './routes/ConfigPage';
 import RemoteSettingsPage from './routes/RemoteSettingsPage';
 import SessionDetailPage from './routes/SessionDetailPage';
 import DiffPage from './routes/DiffPage';
+import MarkdownPreviewPage from './routes/MarkdownPreviewPage';
 import PreviewPage from './routes/PreviewPage';
 import GitGraphPage from './routes/GitGraphPage';
 import LinearSyncResolveConflictPage from './routes/LinearSyncResolveConflictPage';
@@ -37,6 +38,10 @@ export default function App() {
                       <Route path="/" element={<HomePage />} />
                       <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
                       <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                      <Route
+                        path="/diff/:workspaceId/md/:filepath"
+                        element={<MarkdownPreviewPage />}
+                      />
                       <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
                       <Route path="/git/:workspaceId" element={<GitGraphPage />} />
                       <Route
