@@ -326,4 +326,45 @@ describe('computeLayout', () => {
     const truncNode = layout.nodes.find((n) => n.nodeType === 'truncation');
     expect(truncNode).toBeUndefined();
   });
+
+  it('handles a branch with many commits ahead correctly', () => {
+    // Build 20 feature-only commits in a chain
+    const nodes = [];
+    for (let i = 0; i < 20; i++) {
+      const hash = `feat${String(i).padStart(3, '0')}`;
+      const parent = i < 19 ? `feat${String(i + 1).padStart(3, '0')}` : 'shared';
+      const isHead = i === 0 ? ['feature'] : [];
+      nodes.push(makeNode(hash, ['feature'], [parent], isHead));
+    }
+    nodes.push(makeNode('shared', ['main', 'feature'], [], ['main']));
+
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat000', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // All feature-only commits should be in column 1
+    const featureCommits = layout.nodes.filter(
+      (n) => n.nodeType === 'commit' && n.hash.startsWith('feat')
+    );
+    expect(featureCommits).toHaveLength(20);
+    expect(featureCommits.every((n) => n.column === 1)).toBe(true);
+
+    // Shared commit should be in column 0
+    const sharedNode = layout.nodes.find((n) => n.hash === 'shared');
+    expect(sharedNode?.column).toBe(0);
+
+    // Lane lines should span the full extent
+    const col1Lane = layout.laneLines.find((l) => l.column === 1);
+    expect(col1Lane).toBeDefined();
+    expect(col1Lane!.fromY).toBeLessThan(col1Lane!.toY);
+
+    // Every commit should have an edge to its parent
+    for (const commit of featureCommits) {
+      const parentHash = commit.node.parents[0];
+      const edge = layout.edges.find((e) => e.fromHash === commit.hash && e.toHash === parentHash);
+      expect(edge).toBeDefined();
+    }
+  });
 });
