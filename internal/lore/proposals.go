@@ -81,14 +81,25 @@ func (s *ProposalStore) proposalPath(repo, id string) string {
 
 // validateProposalID rejects IDs containing path separators or directory traversal components.
 func validateProposalID(id string) error {
-	if strings.ContainsAny(id, "/\\") || id == ".." || id == "." || strings.Contains(id, "..") {
+	if strings.ContainsAny(id, "/\\") || strings.Contains(id, "..") {
 		return fmt.Errorf("invalid proposal ID: %s", id)
+	}
+	return nil
+}
+
+// validateRepoName rejects repo names containing path traversal components.
+func validateRepoName(repo string) error {
+	if strings.Contains(repo, "..") || strings.HasPrefix(repo, "/") || strings.HasPrefix(repo, "\\") {
+		return fmt.Errorf("invalid repo name: %s", repo)
 	}
 	return nil
 }
 
 // Save writes a proposal to disk as a JSON file.
 func (s *ProposalStore) Save(p *Proposal) error {
+	if err := validateRepoName(p.Repo); err != nil {
+		return err
+	}
 	if err := validateProposalID(p.ID); err != nil {
 		return err
 	}
@@ -105,6 +116,9 @@ func (s *ProposalStore) Save(p *Proposal) error {
 
 // Get reads a proposal from disk by repo and ID.
 func (s *ProposalStore) Get(repo, id string) (*Proposal, error) {
+	if err := validateRepoName(repo); err != nil {
+		return nil, err
+	}
 	if err := validateProposalID(id); err != nil {
 		return nil, err
 	}
@@ -121,6 +135,9 @@ func (s *ProposalStore) Get(repo, id string) (*Proposal, error) {
 
 // List returns all proposals for a given repo, sorted newest first.
 func (s *ProposalStore) List(repo string) ([]*Proposal, error) {
+	if err := validateRepoName(repo); err != nil {
+		return nil, err
+	}
 	dir := s.repoDir(repo)
 	entries, err := os.ReadDir(dir)
 	if err != nil {

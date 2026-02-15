@@ -54,10 +54,7 @@ function ensurePreviewIframe(previewId: string, url: string): HTMLIFrameElement 
     // Create new iframe
     const iframe = document.createElement('iframe');
     iframe.src = url;
-    iframe.setAttribute(
-      'sandbox',
-      'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads'
-    );
+    iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-downloads');
     iframe.style.position = 'absolute';
     iframe.style.inset = '0';
     iframe.style.width = '100%';
