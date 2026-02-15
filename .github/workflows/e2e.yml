@@ -15,24 +15,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build E2E Docker image
-        run: docker build -f Dockerfile.e2e -t schmux-e2e .
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Run E2E tests
-        id: run-tests
-        run: |
-          docker run --rm \
-            --name schmux-e2e-run \
-            -v /tmp/schmux-e2e-artifacts:/home/e2e/internal/e2e/testdata/failures \
-            schmux-e2e
-
-      - name: Upload failure artifacts
-        if: failure() && steps.run-tests.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-failure-artifacts
-          path: /tmp/schmux-e2e-artifacts/
-          if-no-files-found: ignore
+        run: ./test.sh --e2e --verbose
 
       - name: Clean up dangling images
         if: always()
