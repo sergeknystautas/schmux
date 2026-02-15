@@ -24,6 +24,7 @@ export default function SessionDetailPage() {
     workspaces,
     loading: sessionsLoading,
     error: sessionsError,
+    ackSession,
   } = useSessions();
   const navigate = useNavigate();
   const [wsStatus, setWsStatus] = useState<
@@ -103,8 +104,9 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (sessionData?.id) {
       markAsViewed(sessionData.id);
+      ackSession(sessionData.id);
     }
-  }, [sessionData?.id, markAsViewed]);
+  }, [sessionData?.id, markAsViewed, ackSession]);
 
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
