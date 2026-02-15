@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -434,5 +435,161 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 
 	t.Run("FinalCleanup", func(t *testing.T) {
 		env.DaemonStop()
+	})
+}
+
+// TestE2ERemoteHooksProvisioning tests that Claude Code hooks are provisioned
+// correctly for remote sessions. When spawning a Claude target remotely, the
+// command should be wrapped so that .claude/settings.local.json is created in
+// the workspace before the agent starts.
+func TestE2ERemoteHooksProvisioning(t *testing.T) {
+	env := New(t)
+
+	const workspaceRoot = "/tmp/schmux-e2e-remote-hooks"
+
+	// Remote workspace path where the command runs (tmux -c sets cwd to this)
+	const remoteWorkspacePath = "/tmp/schmux-e2e-remote-hooks-ws"
+
+	// Ensure workspace directory exists so the command can write files
+	if err := os.MkdirAll(remoteWorkspacePath, 0755); err != nil {
+		t.Fatalf("Failed to create remote workspace dir: %v", err)
+	}
+	defer os.RemoveAll(remoteWorkspacePath)
+
+	// Clean up any stale hooks file from previous runs
+	os.RemoveAll(filepath.Join(remoteWorkspacePath, ".claude"))
+
+	t.Run("CreateConfig", func(t *testing.T) {
+		env.CreateConfig(workspaceRoot)
+		// Add "claude" as a detected target with a simple command.
+		// The command sleeps so the session stays alive long enough to verify files.
+		env.AddDetectedTargetToConfig("claude", "sh -c 'echo hello; sleep 600'")
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	mockScriptPath := filepath.Join(cwd, "..", "..", "test", "mock-remote.sh")
+
+	var flavorID string
+	t.Run("AddRemoteFlavor", func(t *testing.T) {
+		flavorID = env.AddRemoteFlavorToConfig(
+			"mock-remote-hooks",
+			"Mock Remote Hooks (E2E Test)",
+			remoteWorkspacePath,
+			mockScriptPath,
+		)
+		if flavorID == "" {
+			t.Fatal("Expected flavor ID, got empty")
+		}
+	})
+
+	t.Run("DaemonStart", func(t *testing.T) {
+		env.DaemonStart()
+	})
+
+	defer func() {
+		env.DaemonStop()
+		if t.Failed() {
+			env.CaptureArtifacts()
+		}
+	}()
+
+	var sessionID string
+	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
+		// Target "claude" triggers hooks provisioning (SupportsHooks returns true)
+		sessionID = env.SpawnRemoteSession(flavorID, "claude", "do something", "hooks-test")
+		if sessionID == "" {
+			t.Fatal("Expected session ID from remote spawn")
+		}
+		t.Logf("Remote Claude session spawned: %s", sessionID)
+	})
+
+	t.Run("WaitForConnection", func(t *testing.T) {
+		host := env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
+		if host == nil {
+			t.Fatal("Remote host did not connect")
+		}
+	})
+
+	t.Run("WaitForSessionRunning", func(t *testing.T) {
+		sess := env.WaitForSessionRunning(sessionID, 10*time.Second)
+		if sess == nil {
+			t.Fatal("Session did not become running")
+		}
+	})
+
+	t.Run("VerifyHooksFileCreated", func(t *testing.T) {
+		settingsPath := filepath.Join(remoteWorkspacePath, ".claude", "settings.local.json")
+
+		// Wait briefly for the file to be written (the mkdir+printf runs before the command)
+		var data []byte
+		var readErr error
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			data, readErr = os.ReadFile(settingsPath)
+			if readErr == nil {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if readErr != nil {
+			t.Fatalf("Hooks file not created at %s: %v", settingsPath, readErr)
+		}
+
+		t.Logf("Hooks file content: %s", string(data))
+
+		// Parse as JSON
+		var settings map[string]json.RawMessage
+		if err := json.Unmarshal(data, &settings); err != nil {
+			t.Fatalf("Hooks file is not valid JSON: %v", err)
+		}
+
+		// Verify "hooks" key exists
+		hooksRaw, ok := settings["hooks"]
+		if !ok {
+			t.Fatal("Hooks file missing 'hooks' key")
+		}
+
+		// Parse hooks into event map
+		var hooks map[string]json.RawMessage
+		if err := json.Unmarshal(hooksRaw, &hooks); err != nil {
+			t.Fatalf("Failed to parse hooks: %v", err)
+		}
+
+		// Verify all expected events are present
+		expectedEvents := []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification"}
+		for _, event := range expectedEvents {
+			if _, ok := hooks[event]; !ok {
+				t.Errorf("Missing hook event: %s", event)
+			}
+		}
+
+		// Verify hooks reference SCHMUX_STATUS_FILE
+		hooksStr := string(hooksRaw)
+		if !strings.Contains(hooksStr, "SCHMUX_STATUS_FILE") {
+			t.Error("Hooks do not reference SCHMUX_STATUS_FILE")
+		}
+
+		// Verify state values are present in the commands
+		for _, state := range []string{"working", "completed", "needs_input"} {
+			if !strings.Contains(hooksStr, state) {
+				t.Errorf("Hooks missing state value: %s", state)
+			}
+		}
+
+		// Verify the Notification hook has the correct matcher for permission prompts
+		notificationStr := string(hooks["Notification"])
+		if !strings.Contains(notificationStr, "permission_prompt") {
+			t.Error("Notification hook missing permission_prompt matcher")
+		}
+		if !strings.Contains(notificationStr, "idle_prompt") {
+			t.Error("Notification hook missing idle_prompt matcher")
+		}
+	})
+
+	t.Run("DisposeSession", func(t *testing.T) {
+		env.DisposeSession(sessionID)
 	})
 }
