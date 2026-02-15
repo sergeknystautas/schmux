@@ -49,6 +49,7 @@ export interface ConfigResponse {
   commit_message: CommitMessage;
   notifications: Notifications;
   lore: Lore;
+  remote_access: RemoteAccess;
   needs_restart: boolean;
 }
 
@@ -71,6 +72,7 @@ export interface ConfigUpdateRequest {
   commit_message?: CommitMessageUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
+  remote_access?: RemoteAccessUpdate;
   model_versions?: Record<string, string>;
 }
 
@@ -244,6 +246,28 @@ export interface QuickLaunch {
   command?: string;
   target?: string;
   prompt?: string;
+}
+
+export interface RemoteAccess {
+  disabled: boolean;
+  timeout_minutes: number;
+  notify: RemoteAccessNotify;
+}
+
+export interface RemoteAccessNotify {
+  ntfy_topic: string;
+  command: string;
+}
+
+export interface RemoteAccessNotifyUpdate {
+  ntfy_topic?: string;
+  command?: string;
+}
+
+export interface RemoteAccessUpdate {
+  disabled?: boolean;
+  timeout_minutes?: number;
+  notify?: RemoteAccessNotifyUpdate;
 }
 
 export interface Repo {
