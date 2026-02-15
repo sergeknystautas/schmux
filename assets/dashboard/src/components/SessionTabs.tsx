@@ -278,10 +278,10 @@ export default function SessionTabs({
       const nudgeEmoji = sess.nudge_state
         ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
         : null;
-      const nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
-
-      if (nudgePreview) {
-        nudgePreviewElement = nudgePreview;
+      if (nudgeEmoji) {
+        nudgePreviewElement = nudgeSummary
+          ? `${nudgeEmoji} ${nudgeSummary}`
+          : `${nudgeEmoji} ${sess.nudge_state}`;
       }
     }
 

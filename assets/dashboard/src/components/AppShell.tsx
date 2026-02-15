@@ -695,8 +695,10 @@ export default function AppShell() {
                         const nudgeEmoji = sess.nudge_state
                           ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
                           : null;
-                        if (nudgeEmoji && nudgeSummary) {
-                          nudgePreviewElement = `${nudgeEmoji} ${nudgeSummary}`;
+                        if (nudgeEmoji) {
+                          nudgePreviewElement = nudgeSummary
+                            ? `${nudgeEmoji} ${nudgeSummary}`
+                            : `${nudgeEmoji} ${sess.nudge_state}`;
                         }
                       }
 
