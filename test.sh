@@ -256,7 +256,7 @@ if [ "$RUN_UNIT" = true ]; then
     # Run React dashboard unit tests
     echo ""
     echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
-    if (cd assets/dashboard && npx vitest run); then
+    if (cd assets/dashboard && npm ci --silent && npx vitest run); then
         echo ""
         echo -e "${GREEN}✅ React dashboard tests passed${NC}"
     else
