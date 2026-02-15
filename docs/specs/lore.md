@@ -40,7 +40,7 @@ Agent Work Session           Curator Process            Human Review
 **Key properties:**
 
 - Zero-cost capture — agents append raw text, no evaluation overhead
-- Immediate sharing — overlay compounding syncs raw lore to sibling agents in real-time
+- One-directional flow — agents write to workspace scratchpads, backend reads and aggregates
 - Multi-file aware — curator routes lore to the correct instruction file(s)
 - Human control — nothing touches git without explicit approval
 
@@ -97,27 +97,19 @@ Append only. Do not read or parse the file.
 
 The agent performs one file append per lore entry. No reading the file, no diffing against existing instructions, no formatting, no evaluation of importance. The separation of recording from evaluating is deliberate — it avoids context-switching during focused work and avoids information loss from context compression in long sessions.
 
-### Overlay Integration
+### Data Architecture
 
-`.schmux/lore.jsonl` is added to the default overlay paths:
+Lore uses a **one-directional** data flow: agents write raw entries to their workspace, the backend reads from all workspaces.
 
-```go
-var DefaultOverlayPaths = []string{
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-    ".schmux/lore.jsonl",     // new
-}
-```
+- **Raw entries** (written by agents): `<workspace>/.schmux/lore.jsonl` — each workspace has its own append-only JSONL file
+- **State-change records** (written by backend): `~/.schmux/lore/<repoName>/state.jsonl` — a central file tracking proposed/applied/dismissed markers
 
-This means:
+This separation means:
 
-- The file is copied to new workspaces from the overlay
-- Changes are synced to sibling workspaces via the existing compounding loop
-- All agents across all workspaces see each other's raw lore immediately
-
-### Merge Strategy for Lore
-
-The lore file is append-only JSONL, so the existing LLM merge in the compounding loop handles it naturally — the merge instruction to "union arrays / keep all entries / never remove" produces the correct result (concatenation of unique entries). However, a simpler optimization: since entries have unique `ts`+`ws` keys, the compounder can use a line-level union (deduplicate by full line content) without needing LLM involvement. This is a fast-path optimization.
+- Raw entries are never broadcast between workspaces (no overlay compounding for lore)
+- The backend aggregates entries from all workspace directories using `ReadEntriesMulti`
+- State-change records live in a shared location so the curator can see which entries have already been processed regardless of which workspace they came from
+- Workspace lore files are pure append-only logs that never need pruning; only the central state file is pruned
 
 ## Stage 2: Curator Agent
 
@@ -527,8 +519,7 @@ New config fields in `~/.schmux/config.json`:
 | Component                                     | Change                                            |
 | --------------------------------------------- | ------------------------------------------------- |
 | `internal/config/`                            | Add `LoreConfig` struct, `GetInstructionFiles()`  |
-| `internal/workspace/overlay.go`               | Add `.schmux/lore.jsonl` to default overlay paths |
-| `internal/compound/merge.go`                  | Add JSONL line-union fast path for `.jsonl` files |
+| `internal/lore/scratchpad.go`                 | `ReadEntriesMulti` for workspace aggregation      |
 | `internal/daemon/daemon.go`                   | Trigger curator on session dispose, wire lore API |
 | `internal/dashboard/handlers_lore.go`         | REST endpoints for proposals and entries          |
 | `assets/dashboard/src/pages/LorePage.tsx`     | Review UI with diff view and tabs                 |
@@ -546,19 +537,24 @@ New config fields in `~/.schmux/config.json`:
  appends to                           appends to
  ws-abc/.schmux/lore.jsonl            ws-def/.schmux/lore.jsonl
       │                                    │
-      ▼                                    ▼
+      └──────────────┬─────────────────────┘
+                     │
+                     ▼  (session dispose or manual trigger)
  ┌──────────────────────────────────────────────┐
- │  Overlay Compounder (existing system)        │
- │  merges both into:                           │
- │  ~/.schmux/overlays/<repo>/                  │
- │      .schmux/lore.jsonl                      │
- │  and propagates to sibling workspaces        │
+ │  Backend aggregates from all workspaces      │
+ │  ReadEntriesMulti([                          │
+ │    ws-abc/.schmux/lore.jsonl,                │
+ │    ws-def/.schmux/lore.jsonl,                │
+ │    ~/.schmux/lore/<repo>/state.jsonl         │
+ │  ])                                          │
+ │  deduplicates by ts+ws+text                  │
+ │  filters to raw entries only                 │
  └──────────────────────────────────────────────┘
       │
-      ▼  (session dispose or manual trigger)
+      ▼
  ┌──────────────────────────────────────────────┐
  │  Curator (headless LLM call)                 │
- │  reads: overlay lore.jsonl (raw only)        │
+ │  reads: aggregated raw entries               │
  │  reads: CLAUDE.md from bare repo             │
  │  reads: AGENTS.md from bare repo             │
  │  deduplicates: both --race entries → one     │
@@ -569,6 +565,9 @@ New config fields in `~/.schmux/config.json`:
       ▼
  ~/.schmux/lore-proposals/<repo>/
      prop-20260213-143200.json
+
+ State changes written to:
+ ~/.schmux/lore/<repo>/state.jsonl
       │
       ▼  (dashboard badge appears)
  ┌──────────────────────────────────────────────┐
@@ -582,15 +581,16 @@ New config fields in `~/.schmux/config.json`:
  Worktree disposed
       │
       ▼
- Scratchpad entries marked "applied"
+ State-change records appended to
+ ~/.schmux/lore/<repo>/state.jsonl
  (kept for audit trail, pruned after 30 days)
 ```
 
 ## Implementation Steps
 
-1. **Scratchpad package** — `internal/lore/scratchpad.go`: JSONL parser, append function, state-change tracking, entry queries with filters, pruning logic. Unit tests for all operations.
+1. **Scratchpad package** — `internal/lore/scratchpad.go`: JSONL parser, append function, state-change tracking, entry queries with filters, pruning logic, multi-path reading with dedup. Unit tests for all operations.
 
-2. **Overlay integration** — Add `.schmux/lore.jsonl` to `DefaultOverlayPaths`. Add JSONL line-union fast path to `internal/compound/merge.go` (deduplicate by full line content, no LLM needed for append-only JSONL).
+2. **Workspace aggregation** — Backend reads raw entries from all workspace directories and state-change records from `~/.schmux/lore/<repoName>/state.jsonl`. No overlay integration needed — lore is one-directional.
 
 3. **Curator** — `internal/lore/curator.go`: instruction file discovery, LLM prompt construction, response parsing. Unit tests with mocked LLM.
 

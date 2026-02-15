@@ -174,6 +174,47 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 	return nil
 }
 
+// MarkEntriesByTextMulti reads entries from multiple source paths to find timestamps,
+// then writes state-change records to a separate destination path.
+// This supports the architecture where raw entries live in workspace directories
+// but state-change records are stored in a central state file.
+func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange string, entryTexts []string, proposalID string) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
+	textSet := make(map[string]bool, len(entryTexts))
+	for _, t := range entryTexts {
+		textSet[t] = true
+	}
+
+	// Read entries from all source paths to find matching timestamps
+	// Track which texts we've already marked to avoid duplicates across files
+	marked := make(map[string]bool)
+	for _, srcPath := range sourcePaths {
+		entries, err := ReadEntries(srcPath, nil)
+		if err != nil {
+			continue // skip unreadable files
+		}
+		for _, e := range entries {
+			if e.StateChange != "" {
+				continue
+			}
+			if textSet[e.Text] && !marked[e.Text] {
+				marked[e.Text] = true
+				if err := appendEntryToFile(destPath, Entry{
+					Timestamp:   time.Now().UTC(),
+					StateChange: stateChange,
+					EntryTS:     e.Timestamp.Format(time.RFC3339),
+					ProposalID:  proposalID,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // ResolveEntryState returns the effective state of a lore entry given all state-change records.
 // Returns "raw" if no state-change record exists for this entry.
 func ResolveEntryState(entry Entry, allEntries []Entry) string {
@@ -400,4 +441,67 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	}
 
 	return pruned, nil
+}
+
+// ReadEntriesMulti reads entries from multiple JSONL files, concatenates them,
+// deduplicates by ts+ws+text, then applies the optional filter.
+// Files that don't exist are silently skipped.
+func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
+	type dedupKey struct {
+		ts   string
+		ws   string
+		text string
+	}
+	seen := make(map[dedupKey]bool)
+	var all []Entry
+
+	for _, p := range paths {
+		entries, err := ReadEntries(p, nil)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", p, err)
+		}
+		for _, e := range entries {
+			key := dedupKey{
+				ts:   e.Timestamp.Format(time.RFC3339),
+				ws:   e.Workspace,
+				text: e.Text,
+			}
+			// State-change records (no text, have StateChange) are always included
+			// since they reference entries by EntryTS and don't have a text-based key.
+			if e.StateChange != "" || !seen[key] {
+				seen[key] = true
+				all = append(all, e)
+			}
+		}
+	}
+
+	if filter != nil {
+		all = filter(all)
+	}
+	return all, nil
+}
+
+// LoreStateDir returns the central lore state directory for a repo: ~/.schmux/lore/<repoName>/.
+// Creates the directory if it doesn't exist.
+func LoreStateDir(repoName string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	dir := filepath.Join(homeDir, ".schmux", "lore", repoName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create lore state dir: %w", err)
+	}
+	return dir, nil
+}
+
+// LoreStatePath returns the path to the central state JSONL file for a repo:
+// ~/.schmux/lore/<repoName>/state.jsonl.
+// Creates the parent directory if it doesn't exist.
+func LoreStatePath(repoName string) (string, error) {
+	dir, err := LoreStateDir(repoName)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "state.jsonl"), nil
 }

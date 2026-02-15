@@ -1579,16 +1579,11 @@ func TestDefaultOverlayPaths_IncludesSettingsLocal(t *testing.T) {
 	}
 }
 
-func TestDefaultOverlayPaths_IncludesLoreJsonl(t *testing.T) {
-	found := false
+func TestDefaultOverlayPaths_ExcludesLoreJsonl(t *testing.T) {
 	for _, p := range DefaultOverlayPaths {
 		if p == ".schmux/lore.jsonl" {
-			found = true
-			break
+			t.Error("DefaultOverlayPaths should NOT include .schmux/lore.jsonl (lore is one-directional, not overlay-synced)")
 		}
-	}
-	if !found {
-		t.Error("DefaultOverlayPaths should include .schmux/lore.jsonl")
 	}
 }
 

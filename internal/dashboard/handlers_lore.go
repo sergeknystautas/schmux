@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/lore"
-	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // handleLoreRouter dispatches lore API requests based on the URL path.
@@ -51,6 +50,34 @@ func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+// getLoreWorkspacePaths returns the .schmux/lore.jsonl paths for all workspaces
+// belonging to the given repo name.
+func (s *Server) getLoreWorkspacePaths(repoName string) []string {
+	// Find the repo URL by name
+	repo, found := s.config.FindRepo(repoName)
+	if !found {
+		return nil
+	}
+
+	var paths []string
+	for _, ws := range s.state.GetWorkspaces() {
+		if ws.Repo == repo.URL {
+			paths = append(paths, filepath.Join(ws.Path, ".schmux", "lore.jsonl"))
+		}
+	}
+	return paths
+}
+
+// getLoreReadPaths returns all paths to read lore from: workspace JSONL files + central state file.
+func (s *Server) getLoreReadPaths(repoName string) []string {
+	paths := s.getLoreWorkspacePaths(repoName)
+	statePath, err := lore.LoreStatePath(repoName)
+	if err == nil {
+		paths = append(paths, statePath)
+	}
+	return paths
 }
 
 // handleLoreProposals lists all proposals for a repo.
@@ -214,11 +241,11 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(os.Stderr, "schmux: failed to update proposal status: %v\n", err)
 	}
 
-	// Mark source entries as "applied" in the lore JSONL
-	overlayDir, err := workspace.OverlayDir(repoName)
+	// Mark source entries as "applied" in the central state JSONL
+	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
-		if err := lore.MarkEntriesByText(lorePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
+		wsPaths := s.getLoreWorkspacePaths(repoName)
+		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
 			fmt.Printf("[lore] warning: failed to mark entries as applied: %v\n", err)
 		}
 	}
@@ -270,11 +297,11 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark source entries as "dismissed" in the lore JSONL
-	overlayDir, err := workspace.OverlayDir(repoName)
+	// Mark source entries as "dismissed" in the central state JSONL
+	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
-		if err := lore.MarkEntriesByText(lorePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
+		wsPaths := s.getLoreWorkspacePaths(repoName)
+		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
 			fmt.Printf("[lore] warning: failed to mark entries as dismissed: %v\n", err)
 		}
 	}
@@ -283,8 +310,8 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "dismissed"})
 }
 
-// handleLoreEntries returns the lore JSONL entries for a repo from its overlay directory.
-// Supports query parameters: state, agent, type, limit.
+// handleLoreEntries returns the lore JSONL entries for a repo, aggregated from all workspace directories
+// and the central state file. Supports query parameters: state, agent, type, limit.
 func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -297,13 +324,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	}
 	repoName := parts[0]
 
-	overlayDir, err := workspace.OverlayDir(repoName)
-	if err != nil {
-		fmt.Printf("[lore] resolve overlay dir error: %v\n", err)
-		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
-		return
-	}
-	lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
+	readPaths := s.getLoreReadPaths(repoName)
 
 	// Parse query params for filtering
 	q := r.URL.Query()
@@ -320,7 +341,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 		filter = lore.FilterByParams(state, agent, entryType, limit)
 	}
 
-	entries, err := lore.ReadEntries(lorePath, filter)
+	entries, err := lore.ReadEntriesMulti(readPaths, filter)
 	if err != nil {
 		fmt.Printf("[lore] read entries error: %v\n", err)
 		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
@@ -372,15 +393,23 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	}
 	bareDir := filepath.Join(s.config.GetWorktreeBasePath(), barePath)
 
-	overlayDir, err := workspace.OverlayDir(repoName)
+	// Read raw entries from all workspace directories + central state
+	readPaths := s.getLoreReadPaths(repoName)
+	rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
 	if err != nil {
-		fmt.Printf("[lore] resolve overlay dir error: %v\n", err)
-		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
+		fmt.Printf("[lore] read entries error: %v\n", err)
+		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
 		return
 	}
-	lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 
-	proposal, err := s.loreCurator.Curate(r.Context(), repoName, bareDir, lorePath)
+	if len(rawEntries) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
+		return
+	}
+
+	// Use CurateWithEntries so we pass the pre-aggregated entries
+	proposal, err := s.loreCurator.CurateWithEntries(r.Context(), repoName, bareDir, rawEntries)
 	if err != nil {
 		fmt.Printf("[lore] curation failed: %v\n", err)
 		http.Error(w, "curation failed", http.StatusInternalServerError)
@@ -398,9 +427,13 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark source entries as "proposed" in the lore JSONL
-	if err := lore.MarkEntriesByText(lorePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
-		fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+	// Mark source entries as "proposed" in the central state JSONL
+	statePath, err := lore.LoreStatePath(repoName)
+	if err == nil {
+		wsPaths := s.getLoreWorkspacePaths(repoName)
+		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+			fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

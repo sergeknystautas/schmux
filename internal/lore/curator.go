@@ -42,6 +42,16 @@ func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string
 		return nil, nil
 	}
 
+	return c.CurateWithEntries(ctx, repoName, repoDir, entries)
+}
+
+// CurateWithEntries takes pre-read entries and instruction files, calls the LLM, and returns a Proposal.
+// Returns nil if entries is empty.
+func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir string, entries []Entry) (*Proposal, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
 	// Read instruction files that exist
 	instrFiles := make(map[string]string)
 	fileHashes := make(map[string]string)
