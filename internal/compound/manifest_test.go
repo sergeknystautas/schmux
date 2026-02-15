@@ -95,7 +95,8 @@ func TestIsBinary(t *testing.T) {
 }
 
 func TestIsBinary_MissingFile(t *testing.T) {
-	if IsBinary("/nonexistent") {
-		t.Error("IsBinary() = true for missing file, want false")
+	// Missing/unreadable files are treated as binary to prevent text merge on unknown data
+	if !IsBinary("/nonexistent") {
+		t.Error("IsBinary() = false for missing file, want true")
 	}
 }

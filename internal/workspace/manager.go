@@ -790,34 +790,34 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	fmt.Printf("[workspace] creating from workspace: source=%s branch=%s new_branch=%s\n",
 		sourceWorkspaceID, currentBranch, newBranch)
 
-	// 5. Find repo config by URL
+	// 4. Find repo config by URL
 	repoConfig, found := m.findRepoByURL(source.Repo)
 	if !found {
 		return nil, fmt.Errorf("repo URL not found in config: %s", source.Repo)
 	}
 
-	// 6. Find the next available workspace number
+	// 5. Find the next available workspace number
 	workspaces := m.getWorkspacesForRepo(source.Repo)
 	nextNum := findNextWorkspaceNumber(workspaces)
 
-	// 7. Create workspace ID
+	// 6. Create workspace ID
 	workspaceID := fmt.Sprintf("%s-"+workspaceNumberFormat, repoConfig.Name, nextNum)
 
-	// 8. Create full path
+	// 7. Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
-	// 9. Ensure base repo exists (creates bare clone if needed)
+	// 8. Ensure base repo exists (creates bare clone if needed)
 	worktreeBasePath, err := m.ensureWorktreeBase(ctx, source.Repo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
 	}
 
-	// 10. Fetch latest before creating worktree
+	// 9. Fetch latest before creating worktree
 	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
 		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
 	}
 
-	// 11. Check if branch already exists
+	// 10. Check if branch already exists
 	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
 		// Use unique branch with suffix
 		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, newBranch)
@@ -831,13 +831,13 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		_ = wasCreated
 	}
 
-	// 12. Create branch from origin/<source-branch>
+	// 11. Create branch from origin/<source-branch>
 	sourceRef := "origin/" + currentBranch
 	if err := m.createBranchFromRef(ctx, worktreeBasePath, newBranch, sourceRef); err != nil {
 		return nil, fmt.Errorf("failed to create branch from %s: %w", sourceRef, err)
 	}
 
-	// 13. Clean up worktree if creation fails
+	// 12. Clean up worktree if creation fails
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
@@ -853,7 +853,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		}
 	}()
 
-	// 14. Add worktree for the new branch
+	// 13. Add worktree for the new branch
 	if m.config.UseWorktrees() {
 		if err := m.addWorktreeForBranch(ctx, worktreeBasePath, workspacePath, newBranch); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
@@ -872,13 +872,13 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		}
 	}
 
-	// 15. Copy overlay files if they exist
+	// 14. Copy overlay files if they exist
 	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath)
 	if err != nil {
 		fmt.Printf("[workspace] warning: failed to copy overlay files: %v\n", err)
 	}
 
-	// 16. Create workspace state
+	// 15. Create workspace state
 	w := state.Workspace{
 		ID:     workspaceID,
 		Repo:   source.Repo,
@@ -898,10 +898,10 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		m.state.UpdateOverlayManifest(w.ID, manifest)
 	}
 
-	// 17. State is persisted, workspace is valid
+	// 16. State is persisted, workspace is valid
 	cleanupNeeded = false
 
-	// 18. Add filesystem watches for git metadata
+	// 17. Add filesystem watches for git metadata
 	if m.gitWatcher != nil && w.RemoteHostID == "" {
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}

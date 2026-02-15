@@ -394,7 +394,9 @@ func (m *Manager) cleanupIdle() {
 		if now.Sub(preview.LastUsedAt) < m.idleTimeout {
 			continue
 		}
-		_ = m.Delete(preview.WorkspaceID, preview.ID)
+		if err := m.Delete(preview.WorkspaceID, preview.ID); err != nil {
+			fmt.Printf("[preview] failed to delete idle preview %s: %v\n", preview.ID, err)
+		}
 	}
 }
 

@@ -95,8 +95,6 @@ export default function AppShell() {
       setLoreCounts(counts);
     };
     fetchCounts();
-    const interval = setInterval(fetchCounts, 30000);
-    return () => clearInterval(interval);
   }, [repoNamesKey]);
 
   // Identify which workspaces are dev-eligible (same repo as source)

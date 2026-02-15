@@ -101,9 +101,9 @@ type Session struct {
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
 	TmuxSession  string    `json:"tmux_session"`
 	CreatedAt    time.Time `json:"created_at"`
-	Pid          int       `json:"pid"`                      // PID of the target process from tmux pane
-	LastOutputAt time.Time `json:"-"`                        // Last time terminal had new output (in-memory only, not persisted)
-	LastSignalAt time.Time `json:"last_signal_at,omitempty"` // Last time agent sent a direct signal
+	Pid          int       `json:"pid"` // PID of the target process from tmux pane
+	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
+	LastSignalAt time.Time `json:"-"`   // Last time agent sent a direct signal (in-memory only, not persisted)
 	// NudgeSeq is a monotonic counter for frontend notification dedup.
 	// Only incremented by direct agent signals (HandleAgentSignal), NOT by
 	// nudgenik polls or manual nudge clears — the UI notification sound
@@ -215,8 +215,9 @@ func (s *State) FlushPending() {
 	if s.saveTimer != nil {
 		s.saveTimer.Stop()
 	}
+	pending := s.savePending.Swap(false)
 	s.saveMu.Unlock()
-	if s.savePending.Swap(false) {
+	if pending {
 		if err := s.saveNow(); err != nil {
 			fmt.Printf("[state] flush pending save failed: %v\n", err)
 		}

@@ -32,4 +32,9 @@ RUN chmod +x /entrypoint.sh
 # Verify key tools are available
 RUN tmux -V && schmux --help > /dev/null 2>&1 || true
 
+# Run as non-root to catch permission bugs
+RUN useradd -m -s /bin/bash testuser && \
+    chown -R testuser:testuser /app /tmp/schmux-test-workspaces 2>/dev/null || true
+USER testuser
+
 ENTRYPOINT ["/entrypoint.sh"]

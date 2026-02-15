@@ -110,9 +110,8 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	}
 
 	// Safety: large files -> last-write-wins
-	info, _ := os.Stat(wsPath)
-	if info != nil && info.Size() > maxLLMMergeFileSize {
-		log.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", info.Size(), wsPath)
+	if len(wsContent) > maxLLMMergeFileSize {
+		log.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", len(wsContent), wsPath)
 		if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}

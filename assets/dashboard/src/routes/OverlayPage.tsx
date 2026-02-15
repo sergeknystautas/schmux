@@ -119,6 +119,11 @@ export default function OverlayPage() {
     if (addFlow.step !== 'results') return;
     const trimmed = addFlow.customPath.trim();
     if (!trimmed) return;
+    // Validate: reject absolute paths, path traversal, and backslashes
+    if (trimmed.startsWith('/') || trimmed.startsWith('\\') || trimmed.includes('..')) {
+      toastError('Invalid path: must be relative without ".." traversal');
+      return;
+    }
     if (addFlow.customPaths.includes(trimmed)) {
       toastError('Path already added');
       return;
