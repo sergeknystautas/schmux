@@ -416,7 +416,7 @@ if [ "$RUN_BENCH" = true ]; then
 
         echo -e "  ${BLUE}📊 Running percentile tests...${NC}"
         echo ""
-        if go test -run "TestLatency" -timeout 120s ./internal/session/ -v 2>&1 | tee "$BENCH_DIR/percentiles.log"; then
+        if go test -tags bench -run "TestLatency" -timeout 120s ./internal/session/ -v 2>&1 | tee "$BENCH_DIR/percentiles.log"; then
             echo ""
             echo -e "  ${GREEN}✅ Percentile tests passed${NC}"
         else
@@ -428,7 +428,7 @@ if [ "$RUN_BENCH" = true ]; then
 
         echo -e "  ${BLUE}⏱️  Running Go benchmark...${NC}"
         echo ""
-        if go test -run='^$' -bench "BenchmarkSendInput" -benchtime 5s -timeout 120s ./internal/session/ 2>&1 | tee "$BENCH_DIR/benchmark.log"; then
+        if go test -tags bench -run='^$' -bench "BenchmarkSendInput" -benchtime 5s -timeout 120s ./internal/session/ 2>&1 | tee "$BENCH_DIR/benchmark.log"; then
             echo ""
             echo -e "  ${GREEN}✅ Go benchmark passed${NC}"
         else
@@ -505,7 +505,7 @@ if isinstance(data, list) and data:
                     echo ""
                     echo -e "  ${BLUE}📊 Running WebSocket percentile tests...${NC}"
                     echo ""
-                    if go test -run "TestWSLatency" -timeout 120s ./internal/dashboard/ -v 2>&1 | tee "$BENCH_DIR/ws_percentiles.log"; then
+                    if go test -tags bench -run "TestWSLatency" -timeout 120s ./internal/dashboard/ -v 2>&1 | tee "$BENCH_DIR/ws_percentiles.log"; then
                         echo ""
                         echo -e "  ${GREEN}✅ WebSocket percentile tests passed${NC}"
                     else
@@ -517,7 +517,7 @@ if isinstance(data, list) and data:
 
                     echo -e "  ${BLUE}⏱️  Running WebSocket Go benchmark...${NC}"
                     echo ""
-                    if go test -run='^$' -bench "BenchmarkWSEcho" -benchtime 5s -timeout 120s ./internal/dashboard/ 2>&1 | tee "$BENCH_DIR/ws_benchmark.log"; then
+                    if go test -tags bench -run='^$' -bench "BenchmarkWSEcho" -benchtime 5s -timeout 120s ./internal/dashboard/ 2>&1 | tee "$BENCH_DIR/ws_benchmark.log"; then
                         echo ""
                         echo -e "  ${GREEN}✅ WebSocket Go benchmark passed${NC}"
                     else
