@@ -916,3 +916,23 @@ export async function getLoreStatus(): Promise<LoreStatusResponse> {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// ============================================================================
+// Remote Access API
+// ============================================================================
+
+export async function remoteAccessOn(): Promise<void> {
+  const response = await fetch('/api/remote-access/on', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to start remote access');
+  }
+}
+
+export async function remoteAccessOff(): Promise<void> {
+  const response = await fetch('/api/remote-access/off', { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to stop remote access');
+  }
+}
