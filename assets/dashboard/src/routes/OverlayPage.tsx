@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import {
   getOverlays,
   getSessions,
@@ -75,10 +74,12 @@ export default function OverlayPage() {
   // --- Add flow handlers ---
 
   const handleStartAdd = async () => {
+    const activeRepoConfig = repos.find((r) => r.name === activeRepo);
+    const activeRepoUrl = activeRepoConfig?.url || '';
     try {
       const sessions = await getSessions();
       const workspaces = sessions.filter(
-        (ws) => ws.repo_name === activeRepo || ws.repo === activeRepo
+        (ws) => ws.repo === activeRepoUrl || ws.repo_name === activeRepo
       );
       if (workspaces.length === 0) {
         toastError('No workspaces found for this repo. Spawn a workspace first.');
@@ -99,13 +100,13 @@ export default function OverlayPage() {
     setAddFlow({ step: 'scanning' });
     try {
       const result = await scanOverlayFiles(workspaceId, activeRepo);
-      const selected = new Set<string>(
-        result.candidates.filter((c) => c.detected).map((c) => c.path)
-      );
+      const builtinPathSet = new Set(builtinPaths.map((p) => p.path));
+      const filtered = result.candidates.filter((c) => !builtinPathSet.has(c.path));
+      const selected = new Set<string>(filtered.filter((c) => c.detected).map((c) => c.path));
       setAddFlow({
         step: 'results',
         workspaceId,
-        candidates: result.candidates,
+        candidates: filtered,
         selected,
         customPath: '',
         customPaths: [],
@@ -222,11 +223,6 @@ export default function OverlayPage() {
       <div className="app-header">
         <div className="app-header__info">
           <h1 className="app-header__meta">Overlay Files</h1>
-        </div>
-        <div className="app-header__actions">
-          <Link to="/" className="btn">
-            Back
-          </Link>
         </div>
       </div>
 
