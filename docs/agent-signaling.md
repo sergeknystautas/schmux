@@ -50,7 +50,7 @@ Agents signal their state by writing to a status file provided by schmux:
 echo "STATE message" > $SCHMUX_STATUS_FILE
 ```
 
-The `SCHMUX_STATUS_FILE` environment variable contains the path to the status file (typically `$WORKSPACE/.schmux/signal`).
+The `SCHMUX_STATUS_FILE` environment variable contains the path to the status file (typically `$WORKSPACE/.schmux/signal/<session-id>`).
 
 **Examples:**
 
@@ -237,12 +237,12 @@ When the user types in a terminal WebSocket session, the nudge is automatically 
 
 Every spawned session receives these environment variables:
 
-| Variable              | Example                             | Purpose                        |
-| --------------------- | ----------------------------------- | ------------------------------ |
-| `SCHMUX_ENABLED`      | `1`                                 | Indicates running in schmux    |
-| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345`               | Unique session identifier      |
-| `SCHMUX_WORKSPACE_ID` | `myproj-abc`                        | Workspace identifier           |
-| `SCHMUX_STATUS_FILE`  | `/path/to/workspace/.schmux/signal` | Status file path for signaling |
+| Variable              | Example                                          | Purpose                        |
+| --------------------- | ------------------------------------------------ | ------------------------------ |
+| `SCHMUX_ENABLED`      | `1`                                              | Indicates running in schmux    |
+| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345`                            | Unique session identifier      |
+| `SCHMUX_WORKSPACE_ID` | `myproj-abc`                                     | Workspace identifier           |
+| `SCHMUX_STATUS_FILE`  | `/path/to/workspace/.schmux/signal/<session-id>` | Status file path for signaling |
 
 Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling. The `SCHMUX_STATUS_FILE` variable provides the path where agents should write status updates.
 

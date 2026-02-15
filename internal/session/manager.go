@@ -22,6 +22,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 const (
@@ -87,7 +88,7 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
 }
 
-// SetSignalCallback sets the callback for signal detection from session output.
+// SetSignalCallback sets the callback for signal detection from file watchers.
 func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
 	m.signalCallback = cb
 }
@@ -141,7 +142,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 		m.mu.Unlock()
 		return
 	}
-	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal")
+	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 
 	go func() {
 		defer func() {
@@ -226,7 +227,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 			// Initial state recovery: read current signal file content
 			catCtx, catCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			output, err := conn.RunCommand(catCtx, workspacePath, "cat .schmux/signal 2>/dev/null")
+			output, err := conn.RunCommand(catCtx, workspacePath, fmt.Sprintf("cat .schmux/signal/%s 2>/dev/null", sessionID))
 			catCancel()
 			if err == nil && strings.TrimSpace(output) != "" {
 				if lastSig := signal.ParseSignalFile(output); lastSig != nil {
@@ -361,7 +362,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "signal"),
+		"SCHMUX_STATUS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "signal", sessionID),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -437,12 +438,12 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
 				}
 				if current.Status == "running" {
-					// Ensure .schmux directory exists on remote host for file-based signaling
+					// Ensure .schmux/signal directory exists on remote host for file-based signaling
 					qConn := m.remoteManager.GetConnection(host.ID)
 					if qConn != nil && qConn.IsConnected() {
 						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux"); mkErr != nil {
-							fmt.Printf("[session] queued session %s: warning: failed to create .schmux directory: %v\n", sessionID, mkErr)
+						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); mkErr != nil {
+							fmt.Printf("[session] queued session %s: warning: failed to create .schmux/signal directory: %v\n", sessionID, mkErr)
 						}
 						mkCancel()
 					}
@@ -458,10 +459,10 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 	// Connected - create immediately (existing code path)
 
-	// Ensure .schmux directory exists on remote host for file-based signaling
+	// Ensure .schmux/signal directory exists on remote host for file-based signaling
 	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
-	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux"); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux directory on remote host: %v\n", err)
+	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); err != nil {
+		fmt.Printf("[session] warning: failed to create .schmux/signal directory on remote host: %v\n", err)
 	}
 	mkdirCancel()
 
@@ -497,37 +498,50 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	return &sess, nil
 }
 
+// SpawnOptions holds parameters for Spawn and SpawnCommand.
+type SpawnOptions struct {
+	RepoURL     string
+	Branch      string
+	TargetName  string
+	Prompt      string
+	Command     string
+	Nickname    string
+	WorkspaceID string
+	Resume      bool
+	NewBranch   string
+}
+
 // Spawn creates a new session.
-// If workspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
-// If workspaceID is provided with newBranch, create a new workspace branching from the source workspace's branch.
-// Otherwise, find or create a workspace by repoURL/branch.
-// nickname is an optional human-friendly name for the session.
-// prompt is only used if the target is promptable.
-// resume enables resume mode, which uses the agent's resume command instead of a prompt.
-func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt, nickname string, workspaceID string, resume bool, newBranch string) (*state.Session, error) {
-	resolved, err := m.ResolveTarget(ctx, targetName)
+// If WorkspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
+// If WorkspaceID is provided with NewBranch, create a new workspace branching from the source workspace's branch.
+// Otherwise, find or create a workspace by RepoURL/Branch.
+// Nickname is an optional human-friendly name for the session.
+// Prompt is only used if the target is promptable.
+// Resume enables resume mode, which uses the agent's resume command instead of a prompt.
+func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session, error) {
+	resolved, err := m.ResolveTarget(ctx, opts.TargetName)
 	if err != nil {
 		return nil, err
 	}
 
 	var w *state.Workspace
 
-	if workspaceID != "" && newBranch != "" {
+	if opts.WorkspaceID != "" && opts.NewBranch != "" {
 		// Create new workspace branching from source workspace's branch
-		w, err = m.workspace.CreateFromWorkspace(ctx, workspaceID, newBranch)
+		w, err = m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
 		}
-	} else if workspaceID != "" {
+	} else if opts.WorkspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
-		ws, found := m.workspace.GetByID(workspaceID)
+		ws, found := m.workspace.GetByID(opts.WorkspaceID)
 		if !found {
-			return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+			return nil, fmt.Errorf("workspace not found: %s", opts.WorkspaceID)
 		}
 		w = ws
 	} else {
 		// Get or create workspace (includes fetch/pull/clean)
-		w, err = m.workspace.GetOrCreate(ctx, repoURL, branch)
+		w, err = m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get workspace: %w", err)
 		}
@@ -535,23 +549,23 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 
 	// Provision agent instruction files with signaling instructions
 	// Only for agents that don't support CLI-based instruction injection
-	baseTool := detect.GetBaseToolName(targetName)
+	baseTool := detect.GetBaseToolName(opts.TargetName)
 	if provision.SupportsSystemPromptFlag(baseTool) {
 		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
 			// Log warning but don't fail spawn - signaling is optional
 			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
 		}
 	} else {
-		if err := provision.EnsureAgentInstructions(w.Path, targetName); err != nil {
+		if err := provision.EnsureAgentInstructions(w.Path, opts.TargetName); err != nil {
 			// Log warning but don't fail spawn - signaling is optional
 			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
 		}
 	}
 
-	// Ensure .schmux directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux")
+	// Ensure .schmux/signal directory exists for file-based signaling
+	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux directory: %v\n", err)
+		fmt.Printf("[session] warning: failed to create .schmux/signal directory: %v\n", err)
 	}
 
 	// Resolve model if target is a model kind
@@ -570,18 +584,18 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal"),
+		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
 	})
 
-	command, err := buildCommand(resolved, prompt, model, resume)
+	command, err := buildCommand(resolved, opts.Prompt, model, opts.Resume, false)
 	if err != nil {
 		return nil, err
 	}
 
 	// Generate unique nickname if provided (auto-suffix if duplicate)
-	uniqueNickname := nickname
-	if nickname != "" {
-		uniqueNickname = m.generateUniqueNickname(nickname)
+	uniqueNickname := opts.Nickname
+	if opts.Nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(opts.Nickname)
 	}
 
 	// Use sanitized unique nickname for tmux session name if provided, otherwise use sessionID
@@ -628,7 +642,7 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 	sess := state.Session{
 		ID:          sessionID,
 		WorkspaceID: w.ID,
-		Target:      targetName,
+		Target:      opts.TargetName,
 		Nickname:    uniqueNickname,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),
@@ -649,26 +663,26 @@ func (m *Manager) Spawn(ctx context.Context, repoURL, branch, targetName, prompt
 
 // SpawnCommand spawns a session running a raw shell command.
 // Used for quick launch presets with a direct command (no target resolution).
-func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, nickname, workspaceID string, newBranch string) (*state.Session, error) {
+func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.Session, error) {
 	var w *state.Workspace
 	var err error
 
-	if workspaceID != "" && newBranch != "" {
+	if opts.WorkspaceID != "" && opts.NewBranch != "" {
 		// Create new workspace branching from source workspace's branch
-		w, err = m.workspace.CreateFromWorkspace(ctx, workspaceID, newBranch)
+		w, err = m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
 		}
-	} else if workspaceID != "" {
+	} else if opts.WorkspaceID != "" {
 		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
-		ws, found := m.workspace.GetByID(workspaceID)
+		ws, found := m.workspace.GetByID(opts.WorkspaceID)
 		if !found {
-			return nil, fmt.Errorf("workspace not found: %s", workspaceID)
+			return nil, fmt.Errorf("workspace not found: %s", opts.WorkspaceID)
 		}
 		w = ws
 	} else {
 		// Get or create workspace (includes fetch/pull/clean)
-		w, err = m.workspace.GetOrCreate(ctx, repoURL, branch)
+		w, err = m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get workspace: %w", err)
 		}
@@ -677,10 +691,10 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Ensure .schmux directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux")
+	// Ensure .schmux/signal directory exists for file-based signaling
+	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux directory: %v\n", err)
+		fmt.Printf("[session] warning: failed to create .schmux/signal directory: %v\n", err)
 	}
 
 	// Inject schmux signaling environment variables into the command
@@ -688,14 +702,14 @@ func (m *Manager) SpawnCommand(ctx context.Context, repoURL, branch, command, ni
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal"),
+		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
 	}
-	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), command)
+	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 
 	// Generate unique nickname if provided (auto-suffix if duplicate)
-	uniqueNickname := nickname
-	if nickname != "" {
-		uniqueNickname = m.generateUniqueNickname(nickname)
+	uniqueNickname := opts.Nickname
+	if opts.Nickname != "" {
+		uniqueNickname = m.generateUniqueNickname(opts.Nickname)
 	}
 
 	// Use sanitized unique nickname for tmux session name if provided, otherwise use sessionID
@@ -821,15 +835,8 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
-// shellQuote quotes a string for safe use in shell commands using single quotes.
-// Single quotes preserve everything literally, including newlines.
-// Embedded single quotes are handled with the '\” trick.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode ...bool) (string, error) {
-	isRemote := len(remoteMode) > 0 && remoteMode[0]
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool) (string, error) {
+	isRemote := remoteMode
 	trimmedPrompt := strings.TrimSpace(prompt)
 
 	// Resolve the base tool name for signaling injection
@@ -865,7 +872,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	baseCommand := target.Command
 	if model != nil && model.ModelFlag != "" {
 		// Inject model flag for tools like Codex that use CLI flags instead of env vars
-		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, model.ModelFlag, shellQuote(model.ModelValue))
+		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, model.ModelFlag, shellutil.Quote(model.ModelValue))
 	}
 
 	// Inject signaling instructions via CLI flag for supported tools
@@ -875,7 +882,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		if trimmedPrompt == "" {
 			return "", fmt.Errorf("prompt is required for target %s", target.Name)
 		}
-		command := fmt.Sprintf("%s %s", baseCommand, shellQuote(prompt))
+		command := fmt.Sprintf("%s %s", baseCommand, shellutil.Quote(prompt))
 		if len(target.Env) > 0 {
 			return fmt.Sprintf("%s %s", buildEnvPrefix(target.Env), command), nil
 		}
@@ -902,7 +909,7 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 		// Remote mode: always use inline content (file paths are local-only)
 		switch baseTool {
 		case "claude":
-			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
 		default:
 			// Codex and others: no reliable remote inline injection mechanism
 			return cmd
@@ -911,11 +918,11 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	// Local mode: use file-based injection
 	switch baseTool {
 	case "claude":
-		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellQuote(provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(provision.SignalingInstructionsFilePath()))
 	case "codex":
-		return fmt.Sprintf("%s -c %s", cmd, shellQuote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
 	default:
-		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellQuote(provision.SignalingInstructions))
+		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
 	}
 }
 
@@ -928,7 +935,7 @@ func buildEnvPrefix(env map[string]string) string {
 
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, shellQuote(env[k])))
+		parts = append(parts, fmt.Sprintf("%s=%s", k, shellutil.Quote(env[k])))
 	}
 	return strings.Join(parts, " ")
 }
@@ -1375,7 +1382,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	// Build signal file path from workspace path
 	var signalFilePath string
 	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-		signalFilePath = filepath.Join(ws.Path, ".schmux", "signal")
+		signalFilePath = filepath.Join(ws.Path, ".schmux", "signal", sess.ID)
 	}
 
 	var cb func(signal.Signal)
