@@ -110,7 +110,6 @@ export function useSync() {
             );
             if (disposeConfirmed) {
               await disposeWorkspaceAll(workspaceId);
-              await alert('Success', 'Workspace and sessions disposed');
               navigate('/');
             }
           }
