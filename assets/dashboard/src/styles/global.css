@@ -546,6 +546,17 @@ body {
   flex-shrink: 0;
 }
 
+.nav-links__divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--spacing-xs) 0;
+}
+
+.nav-links__row {
+  display: flex;
+  justify-content: space-between;
+}
+
 .nav-header__actions {
   display: flex;
   gap: var(--spacing-xs);
