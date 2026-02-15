@@ -33,6 +33,10 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
   const mountedRef = useRef(true);
   const lastSessionsMsgRef = useRef<string>('');
+  // Track workspace IDs whose conflict state has been locally dismissed.
+  // Prevents WS broadcasts from re-adding stale completed/failed states
+  // before the DELETE request is processed by the backend.
+  const dismissedCrStatesRef = useRef<Set<string>>(new Set());
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -77,9 +81,20 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
           }
           setLoading(false);
         } else if (data.type === 'linear_sync_resolve_conflict' && data.workspace_id) {
+          const wsId = data.workspace_id as string;
+          if (dismissedCrStatesRef.current.has(wsId)) {
+            // A new in_progress state means a genuinely new conflict resolution —
+            // clear the dismissal so the tab reappears.
+            if (data.status === 'in_progress') {
+              dismissedCrStatesRef.current.delete(wsId);
+            } else {
+              // Stale completed/failed state re-broadcast; ignore it.
+              return;
+            }
+          }
           setLinearSyncResolveConflictStates((prev) => ({
             ...prev,
-            [data.workspace_id]: data,
+            [wsId]: data,
           }));
         } else if (data.type === 'overlay_change') {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
@@ -124,6 +139,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   }, [connect]);
 
   const clearLinearSyncResolveConflictState = useCallback((workspaceId: string) => {
+    dismissedCrStatesRef.current.add(workspaceId);
     setLinearSyncResolveConflictStates((prev) => {
       if (!prev[workspaceId]) return prev;
       const next = { ...prev };
