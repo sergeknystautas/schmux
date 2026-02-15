@@ -509,9 +509,13 @@ func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits i
 	return ParseGitLogOutput(string(output)), nil
 }
 
-// ParseGitLogOutput parses null-byte-delimited git log output into RawNode structs.
-// Uses \x00 (null byte, via %x00 in git format) as the field delimiter to avoid
-// collisions with pipe characters that may appear in commit messages.
+// nullHash is the all-zeros hash used by Sapling for absent parents (e.g., p2node on non-merge commits).
+const nullHash = "0000000000000000000000000000000000000000"
+
+// ParseGitLogOutput parses git log output into RawNode structs.
+// Supports both null-byte (\x00) and pipe (|) field delimiters:
+// - Local handler uses \x00 (via %x00 in git format) to avoid pipe collisions
+// - Remote handler VCS command builders use | (pipe) for shell compatibility
 func ParseGitLogOutput(output string) []RawNode {
 	var nodes []RawNode
 	seen := make(map[string]bool)
@@ -519,7 +523,13 @@ func ParseGitLogOutput(output string) []RawNode {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 6)
+		// Auto-detect delimiter: try null byte first, fall back to pipe
+		delimiter := "\x00"
+		parts := strings.SplitN(line, delimiter, 6)
+		if len(parts) < 6 {
+			delimiter = "|"
+			parts = strings.SplitN(line, delimiter, 6)
+		}
 		if len(parts) < 6 {
 			continue
 		}
@@ -531,7 +541,12 @@ func ParseGitLogOutput(output string) []RawNode {
 
 		var parents []string
 		if parts[5] != "" {
-			parents = strings.Fields(parts[5])
+			for _, p := range strings.Fields(parts[5]) {
+				// Filter out Sapling's null hash for absent parents
+				if p != nullHash {
+					parents = append(parents, p)
+				}
+			}
 		}
 
 		nodes = append(nodes, RawNode{

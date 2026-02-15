@@ -96,7 +96,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     if (maxCommits <= 0) return; // wait for container measurement
     try {
       const [graphResp, diffResp] = await Promise.all([
-        getGitGraph(workspaceId, { maxTotal: maxCommits, mainContext: maxCommits - 1 }),
+        getGitGraph(workspaceId, { maxTotal: maxCommits }),
         getDiff(workspaceId).catch(() => ({ files: [] as FileDiff[] })),
       ]);
       setData(graphResp);
