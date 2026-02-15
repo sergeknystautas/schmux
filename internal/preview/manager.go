@@ -344,7 +344,7 @@ func (m *Manager) touch(previewID string) {
 		}
 	}
 	_ = m.state.UpsertPreview(preview)
-	_ = m.state.Save()
+	// No Save() needed — previews are ephemeral (json:"-") and not persisted to disk.
 }
 
 func (m *Manager) cleanupLoop() {

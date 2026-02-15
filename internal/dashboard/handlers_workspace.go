@@ -31,11 +31,37 @@ type previewResponse struct {
 
 func (s *Server) handleWorkspaceRoutes(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+
+	// Extract and validate workspace ID from URL.
+	// Path format: /api/workspaces/{id}/...
+	trimmed := strings.TrimPrefix(path, "/api/workspaces/")
+	slashIdx := strings.Index(trimmed, "/")
+	workspaceID := trimmed
+	if slashIdx > 0 {
+		workspaceID = trimmed[:slashIdx]
+	}
+	if !isValidResourceID(workspaceID) {
+		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+		return
+	}
+
 	if strings.HasSuffix(path, "/previews") || strings.Contains(path, "/previews/") {
 		s.handleWorkspacePreviews(w, r)
 		return
 	}
 	s.handleLinearSync(w, r)
+}
+
+// isValidResourceID checks that an ID extracted from a URL path is safe:
+// non-empty, no path separators, no null bytes, reasonable length.
+func isValidResourceID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	if strings.ContainsAny(id, "/\\.\x00") {
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request) {

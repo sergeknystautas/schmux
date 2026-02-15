@@ -177,10 +177,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 
 	// Configure status bar on connect (for existing sessions or future config changes)
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-left", "#{pane_current_command} ")
-	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-format", "")
-	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "window-status-current-format", "")
-	_ = tmux.SetOption(statusCtx, sess.TmuxSession, "status-right", "")
+	tmux.ConfigureStatusBar(statusCtx, sess.TmuxSession)
 	statusCancel()
 
 	// Flush any output that arrived while bootstrap/status setup was running.
