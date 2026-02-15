@@ -1335,6 +1335,14 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
+		RemoteAccess: contracts.RemoteAccess{
+			Disabled:       s.config.GetRemoteAccessDisabled(),
+			TimeoutMinutes: s.config.GetRemoteAccessTimeoutMinutes(),
+			Notify: contracts.RemoteAccessNotify{
+				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
+				Command:   s.config.GetRemoteAccessNotifyCommand(),
+			},
+		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
 
@@ -1636,6 +1644,30 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.ModelVersions != nil {
 		cfg.SetModelVersions(*req.ModelVersions)
+	}
+
+	if req.RemoteAccess != nil {
+		if cfg.RemoteAccess == nil {
+			cfg.RemoteAccess = &config.RemoteAccessConfig{}
+		}
+		if req.RemoteAccess.Disabled != nil {
+			disabled := *req.RemoteAccess.Disabled
+			cfg.RemoteAccess.Disabled = &disabled
+		}
+		if req.RemoteAccess.TimeoutMinutes != nil {
+			cfg.RemoteAccess.TimeoutMinutes = *req.RemoteAccess.TimeoutMinutes
+		}
+		if req.RemoteAccess.Notify != nil {
+			if cfg.RemoteAccess.Notify == nil {
+				cfg.RemoteAccess.Notify = &config.RemoteAccessNotifyConfig{}
+			}
+			if req.RemoteAccess.Notify.NtfyTopic != nil {
+				cfg.RemoteAccess.Notify.NtfyTopic = strings.TrimSpace(*req.RemoteAccess.Notify.NtfyTopic)
+			}
+			if req.RemoteAccess.Notify.Command != nil {
+				cfg.RemoteAccess.Notify.Command = strings.TrimSpace(*req.RemoteAccess.Notify.Command)
+			}
+		}
 	}
 
 	warnings, err := cfg.ValidateForSave()

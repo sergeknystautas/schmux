@@ -424,7 +424,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
 		Disabled:        cfg.GetRemoteAccessDisabled(),
 		AuthEnabled:     cfg.GetAuthEnabled(),
-		AllowedUsersSet: false, // TODO: wire up when GetAllowedUsers is added to config
+		AllowedUsersSet: cfg.GetAuthEnabled(), // auth gates access; no separate allowlist yet
 		Port:            cfg.GetPort(),
 		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
 		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),
