@@ -102,7 +102,7 @@ class InputLatencyTracker {
 
 export const inputLatency = new InputLatencyTracker();
 
-// Expose for Playwright benchmarks (dev/test only)
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
+// Expose for Playwright benchmarks (scenario tests run against production builds)
+if (typeof window !== 'undefined') {
   (window as any).__inputLatency = inputLatency;
 }
