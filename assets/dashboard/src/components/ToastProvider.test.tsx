@@ -128,11 +128,18 @@ describe('ToastProvider', () => {
   });
 
   it('useToast outside provider throws', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const suppressError = (e: Event) => e.preventDefault();
+    window.addEventListener('error', suppressError);
+
     function Orphan() {
       useToast();
       return null;
     }
 
     expect(() => render(<Orphan />)).toThrow('useToast must be used within ToastProvider');
+
+    window.removeEventListener('error', suppressError);
+    spy.mockRestore();
   });
 });
