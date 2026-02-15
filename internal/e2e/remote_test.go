@@ -461,9 +461,6 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
-		// Add "claude" as a detected target with a simple command.
-		// The command sleeps so the session stays alive long enough to verify files.
-		env.AddDetectedTargetToConfig("claude", "sh -c 'echo hello; sleep 600'")
 	})
 
 	cwd, err := os.Getwd()
@@ -495,6 +492,14 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 			env.CaptureArtifacts()
 		}
 	}()
+
+	// Add "claude" as a detected target AFTER daemon starts, then reload.
+	// The daemon's startup tool detection replaces all detected-source targets,
+	// so we must inject the mock target after that and trigger a config reload.
+	t.Run("InjectClaudeTarget", func(t *testing.T) {
+		env.AddDetectedTargetToConfig("claude", "sh -c 'echo hello; sleep 600'")
+		env.ReloadConfig()
+	})
 
 	var sessionID string
 	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
