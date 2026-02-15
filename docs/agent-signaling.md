@@ -80,13 +80,13 @@ echo "working" > $SCHMUX_STATUS_FILE
 
 ### Valid States
 
-| State           | Meaning                                   | Dashboard Display     |
-| --------------- | ----------------------------------------- | --------------------- |
-| `completed`     | Task finished successfully                | ✓ Completed           |
-| `needs_input`   | Waiting for user authorization/input      | ⚠ Needs Authorization |
-| `needs_testing` | Ready for user testing                    | 🧪 Needs User Testing |
-| `error`         | Error occurred, needs intervention        | ❌ Error              |
-| `working`       | Actively working (clears previous signal) | (clears status)       |
+| State           | Meaning                              | Dashboard Display     |
+| --------------- | ------------------------------------ | --------------------- |
+| `completed`     | Task finished successfully           | ✓ Completed           |
+| `needs_input`   | Waiting for user authorization/input | ⚠ Needs Authorization |
+| `needs_testing` | Ready for user testing               | 🧪 Needs User Testing |
+| `error`         | Error occurred, needs intervention   | ❌ Error              |
+| `working`       | Actively working on a task           | ⏳ Working            |
 
 ### How Signals Flow
 
@@ -547,7 +547,7 @@ NudgeSeq     uint64    `json:"nudge_seq,omitempty"`      // Monotonic notificati
 Nudge        string    `json:"nudge,omitempty"`           // JSON-serialized nudgenik.Result
 ```
 
-`NudgeSeq` is only incremented by direct agent signals (non-"working"), not by NudgeNik polls or manual clears. This prevents spurious frontend notifications.
+`NudgeSeq` is incremented by all direct agent signals, but not by NudgeNik polls or manual clears. This prevents spurious frontend notifications.
 
 **`nudgenik.Result`** (`internal/nudgenik/nudgenik.go:74`)
 
