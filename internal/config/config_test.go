@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/version"
 )
@@ -377,6 +378,99 @@ func TestGetGitStatusTimeoutMs(t *testing.T) {
 			t.Errorf("got %d, want %d", got, DefaultGitStatusTimeoutMs)
 		}
 	})
+}
+
+func TestGetDisposeGracePeriodMs(t *testing.T) {
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: &SessionsConfig{DisposeGracePeriodMs: 60000},
+		}
+		got := cfg.GetDisposeGracePeriodMs()
+		if got != 60000 {
+			t.Errorf("got %d, want 60000", got)
+		}
+	})
+
+	t.Run("returns default when not configured", func(t *testing.T) {
+		cfg := &Config{}
+		got := cfg.GetDisposeGracePeriodMs()
+		if got != DefaultDisposeGracePeriodMs {
+			t.Errorf("got %d, want %d", got, DefaultDisposeGracePeriodMs)
+		}
+	})
+
+	t.Run("returns default when sessions nil", func(t *testing.T) {
+		cfg := &Config{Sessions: nil}
+		got := cfg.GetDisposeGracePeriodMs()
+		if got != DefaultDisposeGracePeriodMs {
+			t.Errorf("got %d, want %d", got, DefaultDisposeGracePeriodMs)
+		}
+	})
+
+	t.Run("returns default when zero", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: &SessionsConfig{DisposeGracePeriodMs: 0},
+		}
+		got := cfg.GetDisposeGracePeriodMs()
+		if got != DefaultDisposeGracePeriodMs {
+			t.Errorf("got %d, want %d", got, DefaultDisposeGracePeriodMs)
+		}
+	})
+
+	t.Run("DisposeGracePeriod returns duration", func(t *testing.T) {
+		cfg := &Config{
+			Sessions: &SessionsConfig{DisposeGracePeriodMs: 15000},
+		}
+		got := cfg.DisposeGracePeriod()
+		want := 15 * time.Second
+		if got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}
+
+func TestDisposeGracePeriodMs_JSONRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Write config with dispose_grace_period_ms set (include required fields)
+	raw := `{
+		"workspace_path": "` + tmpDir + `",
+		"repos": [],
+		"run_targets": [],
+		"terminal": { "width": 120, "height": 30, "seed_lines": 1000 },
+		"sessions": {
+			"dispose_grace_period_ms": 45000
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(raw), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	got := cfg.GetDisposeGracePeriodMs()
+	if got != 45000 {
+		t.Errorf("GetDisposeGracePeriodMs() = %d, want 45000", got)
+	}
+
+	// Save and reload to verify round-trip
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	cfg2, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() after save failed: %v", err)
+	}
+
+	got2 := cfg2.GetDisposeGracePeriodMs()
+	if got2 != 45000 {
+		t.Errorf("After round-trip: GetDisposeGracePeriodMs() = %d, want 45000", got2)
+	}
 }
 
 func TestGetXtermQueryTimeoutMs(t *testing.T) {

@@ -307,7 +307,7 @@ func TestEnsureClaudeHooks_CreatesNewFile(t *testing.T) {
 	}
 
 	// Verify all expected events are present
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification"} {
 		if _, ok := hooks[event]; !ok {
 			t.Errorf("Missing hook event: %s", event)
 		}
@@ -547,7 +547,7 @@ func TestEnsureClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 	}
 
 	// Schmux events should all be present
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification"} {
 		if _, ok := hooks[event]; !ok {
 			t.Errorf("Missing schmux hook event: %s", event)
 		}
@@ -1044,14 +1044,88 @@ func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
 		t.Error("UserPromptSubmit hook should extract .prompt from stdin JSON")
 	}
 
-	// SessionStart and Stop should NOT use context extraction (no useful fields)
+	// SessionStart, SessionEnd, and Stop should NOT use context extraction (no useful fields)
 	startCmd := hooks["SessionStart"][0].Hooks[0].Command
 	if strings.Contains(startCmd, "jq") {
 		t.Error("SessionStart hook should not use jq (no useful context field)")
 	}
+	endCmd := hooks["SessionEnd"][0].Hooks[0].Command
+	if strings.Contains(endCmd, "jq") {
+		t.Error("SessionEnd hook should not use jq (no useful context field)")
+	}
 	stopCmd := hooks["Stop"][0].Hooks[0].Command
 	if strings.Contains(stopCmd, "jq") {
 		t.Error("Stop hook should not use jq (no useful context field)")
+	}
+}
+
+func TestBuildClaudeHooksMap_SessionEndHook(t *testing.T) {
+	hooks := buildClaudeHooksMap()
+
+	// SessionEnd hook should exist and signal "completed"
+	endGroups, ok := hooks["SessionEnd"]
+	if !ok {
+		t.Fatal("SessionEnd hook should exist")
+	}
+	if len(endGroups) != 1 {
+		t.Fatalf("SessionEnd should have 1 matcher group, got %d", len(endGroups))
+	}
+	endCmd := endGroups[0].Hooks[0].Command
+	if !strings.Contains(endCmd, "completed") {
+		t.Error("SessionEnd hook should signal 'completed'")
+	}
+	if !strings.Contains(endCmd, "SCHMUX_STATUS_FILE") {
+		t.Error("SessionEnd hook should reference SCHMUX_STATUS_FILE")
+	}
+}
+
+func TestEnsureClaudeHooks_SessionEndOnDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	}
+
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("Failed to read settings file: %v", err)
+	}
+
+	// Parse and verify SessionEnd is present in the written file
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(content, &settings); err != nil {
+		t.Fatalf("Invalid JSON: %v", err)
+	}
+
+	var hooks map[string][]claudeHookMatcherGroup
+	if err := json.Unmarshal(settings["hooks"], &hooks); err != nil {
+		t.Fatalf("Invalid hooks JSON: %v", err)
+	}
+
+	endGroups, ok := hooks["SessionEnd"]
+	if !ok {
+		t.Fatal("SessionEnd should be present in the written settings file")
+	}
+	if len(endGroups) != 1 {
+		t.Fatalf("SessionEnd should have 1 matcher group on disk, got %d", len(endGroups))
+	}
+
+	// Verify the command signals completed
+	cmd := endGroups[0].Hooks[0].Command
+	if !strings.Contains(cmd, "completed") {
+		t.Error("SessionEnd hook on disk should signal 'completed'")
+	}
+}
+
+func TestWrapCommandWithHooksProvisioning_IncludesSessionEnd(t *testing.T) {
+	wrapped, err := WrapCommandWithHooksProvisioning("claude test")
+	if err != nil {
+		t.Fatalf("WrapCommandWithHooksProvisioning failed: %v", err)
+	}
+
+	if !strings.Contains(wrapped, "SessionEnd") {
+		t.Error("Wrapped command should include SessionEnd hook in the inline JSON")
 	}
 }
 

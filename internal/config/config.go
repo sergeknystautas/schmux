@@ -48,6 +48,7 @@ const (
 	DefaultPreviewMaxPerWorkspace     = 3
 	DefaultPreviewMaxGlobal           = 20
 	DefaultPreviewIdleTimeoutMs       = 3600000 // 60 minutes
+	DefaultDisposeGracePeriodMs       = 30000   // 30 seconds
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -280,6 +281,7 @@ type SessionsConfig struct {
 	GitStatusTimeoutMs       int   `json:"git_status_timeout_ms"`
 	GitStatusWatchEnabled    *bool `json:"git_status_watch_enabled,omitempty"`
 	GitStatusWatchDebounceMs int   `json:"git_status_watch_debounce_ms,omitempty"`
+	DisposeGracePeriodMs     int   `json:"dispose_grace_period_ms,omitempty"`
 }
 
 // XtermConfig represents terminal capture, timeouts, and log rotation settings.
@@ -1189,6 +1191,19 @@ func (c *Config) GetGitStatusTimeoutMs() int {
 		return DefaultGitStatusTimeoutMs
 	}
 	return c.Sessions.GitStatusTimeoutMs
+}
+
+// GetDisposeGracePeriodMs returns the dispose grace period in ms. Defaults to 30000 (30s).
+func (c *Config) GetDisposeGracePeriodMs() int {
+	if c.Sessions == nil || c.Sessions.DisposeGracePeriodMs <= 0 {
+		return DefaultDisposeGracePeriodMs
+	}
+	return c.Sessions.DisposeGracePeriodMs
+}
+
+// DisposeGracePeriod returns the dispose grace period as a time.Duration.
+func (c *Config) DisposeGracePeriod() time.Duration {
+	return time.Duration(c.GetDisposeGracePeriodMs()) * time.Millisecond
 }
 
 // GetXtermQueryTimeoutMs returns the xterm query timeout in ms. Defaults to 5000.

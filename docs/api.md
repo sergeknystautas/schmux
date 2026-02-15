@@ -561,7 +561,8 @@ Response:
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,
     "git_clone_timeout_ms": 0,
-    "git_status_timeout_ms": 0
+    "git_status_timeout_ms": 0,
+    "dispose_grace_period_ms": 0
   },
   "xterm": {
     "mtime_poll_interval_ms": 0,
@@ -619,7 +620,8 @@ Request:
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,
     "git_clone_timeout_ms": 0,
-    "git_status_timeout_ms": 0
+    "git_status_timeout_ms": 0,
+    "dispose_grace_period_ms": 0
   },
   "xterm": {
     "mtime_poll_interval_ms": 0,

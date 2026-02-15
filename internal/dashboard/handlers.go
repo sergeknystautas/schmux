@@ -948,7 +948,7 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		workspaceID = sess.WorkspaceID
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
 		fmt.Printf("[session] dispose error: session_id=%s error=%v\n", sessionID, err)
@@ -1048,7 +1048,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	var sessionsDisposed []string
 	for _, sess := range sessions {
 		if sess.WorkspaceID == workspaceID {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
 			if err := s.session.Dispose(ctx, sess.ID); err != nil {
 				cancel()
 				fmt.Printf("[workspace] dispose-all error: failed to dispose session %s: %v\n", sess.ID, err)
