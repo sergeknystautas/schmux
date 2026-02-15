@@ -663,7 +663,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					fmt.Printf("[lore] failed to get overlay dir: %v\n", err)
 					return
 				}
-				lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+				lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 
 				repo, found := cfg.FindRepoByURL(repoURL)
 				if !found {
@@ -705,7 +705,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				if err != nil {
 					continue
 				}
-				lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+				lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 				pruned, err := lore.PruneEntries(lorePath, maxAge)
 				if err != nil {
 					fmt.Printf("[lore] warning: prune failed for %s: %v\n", repo.Name, err)

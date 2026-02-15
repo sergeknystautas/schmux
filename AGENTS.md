@@ -125,7 +125,7 @@ Hot-reload development mode:
 
 ## Lore Capture
 
-As you work, append discoveries to `.claude/lore.jsonl` — things you learned
+As you work, append discoveries to `.schmux/lore.jsonl` — things you learned
 that aren't already documented in this file. One JSON line per entry:
 
 ```
