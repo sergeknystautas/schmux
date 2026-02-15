@@ -3471,6 +3471,17 @@ a:hover {
   flex-shrink: 0;
 }
 
+.git-dag__truncation-row {
+  display: flex;
+  align-items: center;
+}
+
+.git-dag__truncation-text {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 .git-dag__hash {
   font-family: var(--font-mono);
   font-size: 0.7rem;
