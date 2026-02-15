@@ -610,3 +610,414 @@ func TestEnsureClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 		t.Errorf("Should have exactly 1 schmux Stop group, got %d", schmuxCount)
 	}
 }
+
+func TestIsSchmuxMatcherGroup(t *testing.T) {
+	tests := []struct {
+		name     string
+		group    claudeHookMatcherGroup
+		expected bool
+	}{
+		{
+			name: "schmux hook identified by prefix",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo test", StatusMessage: "schmux: signaling"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "user hook without schmux prefix",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo test", StatusMessage: "user: my hook"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "hook with empty statusMessage",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo test", StatusMessage: ""},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "hook with no statusMessage field",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo test"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "multiple handlers one is schmux",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo first", StatusMessage: "user: hook"},
+					{Type: "command", Command: "echo second", StatusMessage: "schmux: signaling"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "empty hooks array",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{},
+			},
+			expected: false,
+		},
+		{
+			name: "statusMessage contains schmux but not as prefix",
+			group: claudeHookMatcherGroup{
+				Hooks: []claudeHookHandler{
+					{Type: "command", Command: "echo test", StatusMessage: "not schmux: foo"},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSchmuxMatcherGroup(tt.group); got != tt.expected {
+				t.Errorf("isSchmuxMatcherGroup() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMergeHooksForEvent(t *testing.T) {
+	schmuxGroup := claudeHookMatcherGroup{
+		Hooks: []claudeHookHandler{
+			{Type: "command", Command: "echo completed", StatusMessage: "schmux: signaling"},
+		},
+	}
+	userGroup := claudeHookMatcherGroup{
+		Hooks: []claudeHookHandler{
+			{Type: "command", Command: "echo user-stop", StatusMessage: "user: custom"},
+		},
+	}
+	userGroupNoStatus := claudeHookMatcherGroup{
+		Matcher: "Write",
+		Hooks: []claudeHookHandler{
+			{Type: "command", Command: "echo lint"},
+		},
+	}
+	oldSchmuxGroup := claudeHookMatcherGroup{
+		Hooks: []claudeHookHandler{
+			{Type: "command", Command: "echo old-schmux", StatusMessage: "schmux: old"},
+		},
+	}
+
+	t.Run("empty existing adds schmux", func(t *testing.T) {
+		result := mergeHooksForEvent(nil, []claudeHookMatcherGroup{schmuxGroup})
+		if len(result) != 1 {
+			t.Fatalf("expected 1 group, got %d", len(result))
+		}
+		if result[0].Hooks[0].Command != "echo completed" {
+			t.Error("should contain schmux group")
+		}
+	})
+
+	t.Run("user hooks preserved alongside schmux", func(t *testing.T) {
+		result := mergeHooksForEvent(
+			[]claudeHookMatcherGroup{userGroup},
+			[]claudeHookMatcherGroup{schmuxGroup},
+		)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 groups, got %d", len(result))
+		}
+		if result[0].Hooks[0].Command != "echo user-stop" {
+			t.Error("user hook should come first")
+		}
+		if result[1].Hooks[0].Command != "echo completed" {
+			t.Error("schmux hook should come second")
+		}
+	})
+
+	t.Run("old schmux hooks replaced by new", func(t *testing.T) {
+		result := mergeHooksForEvent(
+			[]claudeHookMatcherGroup{oldSchmuxGroup},
+			[]claudeHookMatcherGroup{schmuxGroup},
+		)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 group (old removed, new added), got %d", len(result))
+		}
+		if result[0].Hooks[0].Command != "echo completed" {
+			t.Errorf("should have new schmux command, got %q", result[0].Hooks[0].Command)
+		}
+	})
+
+	t.Run("user + old schmux replaced correctly", func(t *testing.T) {
+		result := mergeHooksForEvent(
+			[]claudeHookMatcherGroup{userGroup, oldSchmuxGroup, userGroupNoStatus},
+			[]claudeHookMatcherGroup{schmuxGroup},
+		)
+		if len(result) != 3 {
+			t.Fatalf("expected 3 groups (2 user + 1 schmux), got %d", len(result))
+		}
+		// User hooks preserved in order
+		if result[0].Hooks[0].Command != "echo user-stop" {
+			t.Error("first user hook should be preserved")
+		}
+		if result[1].Hooks[0].Command != "echo lint" {
+			t.Error("second user hook should be preserved")
+		}
+		// Schmux hook appended
+		if result[2].Hooks[0].Command != "echo completed" {
+			t.Error("schmux hook should be appended at end")
+		}
+	})
+
+	t.Run("multiple old schmux groups all removed", func(t *testing.T) {
+		anotherOldSchmux := claudeHookMatcherGroup{
+			Hooks: []claudeHookHandler{
+				{Type: "command", Command: "echo also-old", StatusMessage: "schmux: another"},
+			},
+		}
+		result := mergeHooksForEvent(
+			[]claudeHookMatcherGroup{oldSchmuxGroup, userGroup, anotherOldSchmux},
+			[]claudeHookMatcherGroup{schmuxGroup},
+		)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 groups (1 user + 1 new schmux), got %d", len(result))
+		}
+		schmuxCount := 0
+		for _, g := range result {
+			if isSchmuxMatcherGroup(g) {
+				schmuxCount++
+			}
+		}
+		if schmuxCount != 1 {
+			t.Errorf("should have exactly 1 schmux group, got %d", schmuxCount)
+		}
+	})
+
+	t.Run("empty schmux input just filters old schmux", func(t *testing.T) {
+		result := mergeHooksForEvent(
+			[]claudeHookMatcherGroup{userGroup, oldSchmuxGroup},
+			nil,
+		)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 group (user only), got %d", len(result))
+		}
+		if result[0].Hooks[0].Command != "echo user-stop" {
+			t.Error("only user hook should remain")
+		}
+	})
+}
+
+func TestEnsureClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create settings with a schmux hook on an event that schmux no longer manages
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{
+		"hooks": {
+			"PreToolUse": [
+				{
+					"matcher": "Bash",
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo stale-schmux",
+							"statusMessage": "schmux: old stale hook"
+						}
+					]
+				},
+				{
+					"matcher": "Write",
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo user-pretool"
+						}
+					]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(settingsPath)
+	var settings map[string]json.RawMessage
+	json.Unmarshal(content, &settings)
+
+	var hooks map[string][]claudeHookMatcherGroup
+	json.Unmarshal(settings["hooks"], &hooks)
+
+	// Stale schmux hook on PreToolUse should be removed
+	preToolGroups := hooks["PreToolUse"]
+	if len(preToolGroups) != 1 {
+		t.Fatalf("PreToolUse should have 1 group (user only, stale schmux removed), got %d", len(preToolGroups))
+	}
+	if preToolGroups[0].Hooks[0].Command != "echo user-pretool" {
+		t.Error("User's PreToolUse hook should be preserved")
+	}
+}
+
+func TestEnsureClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create settings with a schmux-only hook on an event schmux no longer manages
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{
+		"hooks": {
+			"PreToolUse": [
+				{
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo stale",
+							"statusMessage": "schmux: stale"
+						}
+					]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(settingsPath)
+	var settings map[string]json.RawMessage
+	json.Unmarshal(content, &settings)
+
+	var hooks map[string][]claudeHookMatcherGroup
+	json.Unmarshal(settings["hooks"], &hooks)
+
+	// PreToolUse should be gone entirely (only had stale schmux hooks)
+	if groups, ok := hooks["PreToolUse"]; ok {
+		t.Errorf("PreToolUse should be removed when only stale schmux hooks, got %d groups", len(groups))
+	}
+}
+
+func TestEnsureClaudeHooks_MalformedExistingHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create settings with malformed hooks value
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{"hooks": "not-an-object", "other": "preserved"}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not error, just start fresh for hooks
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("EnsureClaudeHooks should handle malformed hooks: %v", err)
+	}
+
+	content, _ := os.ReadFile(settingsPath)
+	var settings map[string]json.RawMessage
+	json.Unmarshal(content, &settings)
+
+	// Hooks should now be valid
+	var hooks map[string][]claudeHookMatcherGroup
+	if err := json.Unmarshal(settings["hooks"], &hooks); err != nil {
+		t.Fatalf("hooks should be valid JSON after recovery: %v", err)
+	}
+
+	// Schmux hooks should be present
+	if _, ok := hooks["Stop"]; !ok {
+		t.Error("Stop hook should be present after recovery")
+	}
+
+	// Other settings preserved
+	if _, ok := settings["other"]; !ok {
+		t.Error("Other settings should be preserved")
+	}
+}
+
+func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{
+		"hooks": {
+			"Notification": [
+				{
+					"matcher": "permission_prompt",
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo perm-alert",
+							"statusMessage": "user: permission alert"
+						}
+					]
+				},
+				{
+					"matcher": "idle_prompt",
+					"hooks": [
+						{
+							"type": "command",
+							"command": "echo idle-alert",
+							"statusMessage": "user: idle alert"
+						}
+					]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(settingsPath)
+	var settings map[string]json.RawMessage
+	json.Unmarshal(content, &settings)
+
+	var hooks map[string][]claudeHookMatcherGroup
+	json.Unmarshal(settings["hooks"], &hooks)
+
+	notifGroups := hooks["Notification"]
+	// Should have 2 user groups + 1 schmux group = 3
+	if len(notifGroups) != 3 {
+		t.Fatalf("Notification should have 3 groups (2 user + 1 schmux), got %d", len(notifGroups))
+	}
+
+	// Verify ordering: user hooks first, then schmux
+	if notifGroups[0].Hooks[0].Command != "echo perm-alert" {
+		t.Error("First user notification hook should be preserved")
+	}
+	if notifGroups[1].Hooks[0].Command != "echo idle-alert" {
+		t.Error("Second user notification hook should be preserved")
+	}
+	if !isSchmuxMatcherGroup(notifGroups[2]) {
+		t.Error("Schmux notification hook should be appended last")
+	}
+}
