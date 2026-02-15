@@ -640,24 +640,24 @@ export default function AppShell() {
                       );
                       const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-                      const nudgeEmoji = sess.nudge_state
-                        ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
-                        : null;
                       const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
+
+                      // "Working" is an operational state — show spinner inline
+                      // in row1 to avoid reflow from row2 appearing/disappearing.
+                      const isWorkingState =
+                        sess.nudge_state === 'Working' ||
+                        (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
 
                       // Determine what to show in row2
                       // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
                       let nudgePreviewElement: React.ReactNode = null;
-                      if (nudgeEmoji && nudgeSummary) {
-                        nudgePreviewElement = `${nudgeEmoji} ${nudgeSummary}`;
-                      } else if (nudgenikEnabled && isPromptable && sess.running) {
-                        // Only show "Working..." spinner if nudgenik LLM is configured
-                        nudgePreviewElement = (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <WorkingSpinner />
-                            <span>Working...</span>
-                          </span>
-                        );
+                      if (!isWorkingState) {
+                        const nudgeEmoji = sess.nudge_state
+                          ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+                          : null;
+                        if (nudgeEmoji && nudgeSummary) {
+                          nudgePreviewElement = `${nudgeEmoji} ${nudgeSummary}`;
+                        }
                       }
 
                       return (
@@ -675,6 +675,7 @@ export default function AppShell() {
                           }}
                         >
                           <div className="nav-session__row1">
+                            {isWorkingState && <WorkingSpinner />}
                             <span className="nav-session__name">
                               {sess.remote_host_id && (
                                 <svg

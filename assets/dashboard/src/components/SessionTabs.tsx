@@ -279,31 +279,25 @@ export default function SessionTabs({
     const runTarget = (config?.run_targets || []).find((t) => t.name === sess.target);
     const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-    const nudgeEmoji = sess.nudge_state
-      ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
-      : null;
     const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 
-    // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
-    let nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
-    let nudgePreviewElement: React.ReactNode = null;
+    // "Working" is an operational state, not an attention signal — show spinner
+    // inline in row1 (left of name) to avoid reflow from row2 appearing/disappearing.
+    const isWorkingState =
+      sess.nudge_state === 'Working' ||
+      (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
 
-    // Only show "Working..." spinner if nudgenik LLM is configured
-    if (nudgenikEnabled && !nudgePreview && isPromptable && sess.running) {
-      nudgePreviewElement = (
-        <span
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--spacing-xs)',
-          }}
-        >
-          <WorkingSpinner />
-          <span>Working...</span>
-        </span>
-      );
-    } else if (nudgePreview) {
-      nudgePreviewElement = nudgePreview;
+    // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+    let nudgePreviewElement: React.ReactNode = null;
+    if (!isWorkingState) {
+      const nudgeEmoji = sess.nudge_state
+        ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+        : null;
+      const nudgePreview = nudgeEmoji && nudgeSummary ? `${nudgeEmoji} ${nudgeSummary}` : null;
+
+      if (nudgePreview) {
+        nudgePreviewElement = nudgePreview;
+      }
     }
 
     // Show "Stopped" for stopped sessions, otherwise show last activity time
@@ -329,6 +323,7 @@ export default function SessionTabs({
         style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         <div className="session-tab__row1">
+          {isWorkingState && <WorkingSpinner />}
           <span className="session-tab__name">{displayName}</span>
           <Tooltip
             content={
