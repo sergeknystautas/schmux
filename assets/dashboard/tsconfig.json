@@ -12,7 +12,7 @@
     "jsx": "react-jsx",
     "strict": false,
     "noImplicitAny": false,
-    "types": ["vite/client"]
+    "types": ["vite/client", "vitest/globals"]
   },
   "include": ["src"],
   "exclude": ["src/**/*.examples.tsx"]

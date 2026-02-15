@@ -252,6 +252,19 @@ if [ "$RUN_UNIT" = true ]; then
         echo -e "${RED}❌ Unit tests failed${NC}"
         EXIT_CODE=1
     fi
+
+    # Run React dashboard unit tests
+    echo ""
+    echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
+    if (cd assets/dashboard && npx vitest run); then
+        echo ""
+        echo -e "${GREEN}✅ React dashboard tests passed${NC}"
+    else
+        echo ""
+        echo -e "${RED}❌ React dashboard tests failed${NC}"
+        EXIT_CODE=1
+    fi
+
     echo ""
 fi
 
