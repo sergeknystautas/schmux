@@ -435,7 +435,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-sm) var(--spacing-sm) 0 var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xxs) var(--spacing-lg);
   cursor: pointer;
   transition: background-color var(--duration-fast) var(--easing);
 }
@@ -458,6 +458,7 @@ body {
   font-size: 0.7rem;
   font-family: var(--font-mono);
   padding-left: var(--spacing-sm);
+  margin-right: auto;
 }
 
 .nav-workspace__repo {
