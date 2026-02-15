@@ -1579,6 +1579,19 @@ func TestDefaultOverlayPaths_IncludesSettingsLocal(t *testing.T) {
 	}
 }
 
+func TestDefaultOverlayPaths_IncludesLoreJsonl(t *testing.T) {
+	found := false
+	for _, p := range DefaultOverlayPaths {
+		if p == ".schmux/lore.jsonl" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("DefaultOverlayPaths should include .schmux/lore.jsonl")
+	}
+}
+
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")

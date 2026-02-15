@@ -48,7 +48,7 @@ Agent Work Session           Curator Process            Human Review
 
 ### File Format
 
-Each workspace gets `.claude/lore.jsonl` — a gitignored, append-only JSONL file. Each line is one lore entry:
+Each workspace gets `.schmux/lore.jsonl` — a gitignored, append-only JSONL file. Each line is one lore entry:
 
 ```jsonl
 {"ts":"2026-02-13T14:32:00Z","ws":"ws-abc123","agent":"claude-code","type":"operational","text":"Must run go run ./cmd/build-dashboard instead of npm directly — the Go wrapper handles deps and output paths"}
@@ -75,7 +75,7 @@ The instruction to capture lore is self-bootstrapping — it lives in the instru
 ```markdown
 ## Lore Capture
 
-As you work, append discoveries to `.claude/lore.jsonl` — things you learned
+As you work, append discoveries to `.schmux/lore.jsonl` — things you learned
 that aren't already documented in this file. One JSON line per entry:
 {"ts":"<ISO8601>","ws":"<workspace-id>","agent":"claude-code","type":"operational|codebase","text":"<what you learned>"}
 
@@ -87,7 +87,7 @@ Don't evaluate importance. Don't read the file first. Just append.
 ```markdown
 ## Lore Capture
 
-Append discoveries to `.claude/lore.jsonl` as you work. One JSON line per entry:
+Append discoveries to `.schmux/lore.jsonl` as you work. One JSON line per entry:
 {"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<your-agent-type>","type":"operational|codebase","text":"<what you learned>"}
 
 Append only. Do not read or parse the file.
@@ -99,13 +99,13 @@ The agent performs one file append per lore entry. No reading the file, no diffi
 
 ### Overlay Integration
 
-`.claude/lore.jsonl` is added to the default overlay paths:
+`.schmux/lore.jsonl` is added to the default overlay paths:
 
 ```go
 var DefaultOverlayPaths = []string{
     ".claude/settings.json",
     ".claude/settings.local.json",
-    ".claude/lore.jsonl",     // new
+    ".schmux/lore.jsonl",     // new
 }
 ```
 
@@ -132,7 +132,7 @@ The curator runs as a headless LLM call (no tmux session, no workspace needed). 
 
 The curator receives:
 
-1. **Raw scratchpad entries** — from `~/.schmux/overlays/<repo>/.claude/lore.jsonl`, filtered to entries in `raw` state only
+1. **Raw scratchpad entries** — from `~/.schmux/overlays/<repo>/.schmux/lore.jsonl`, filtered to entries in `raw` state only
 2. **All instruction files** — read from the repo directory configured in `~/.schmux/config.json`
 
 ### Instruction File Discovery
@@ -527,7 +527,7 @@ New config fields in `~/.schmux/config.json`:
 | Component                                     | Change                                            |
 | --------------------------------------------- | ------------------------------------------------- |
 | `internal/config/`                            | Add `LoreConfig` struct, `GetInstructionFiles()`  |
-| `internal/workspace/overlay.go`               | Add `.claude/lore.jsonl` to default overlay paths |
+| `internal/workspace/overlay.go`               | Add `.schmux/lore.jsonl` to default overlay paths |
 | `internal/compound/merge.go`                  | Add JSONL line-union fast path for `.jsonl` files |
 | `internal/daemon/daemon.go`                   | Trigger curator on session dispose, wire lore API |
 | `internal/dashboard/handlers_lore.go`         | REST endpoints for proposals and entries          |
@@ -544,14 +544,14 @@ New config fields in `~/.schmux/config.json`:
       │                                    │
       ▼                                    ▼
  appends to                           appends to
- ws-abc/.claude/lore.jsonl            ws-def/.claude/lore.jsonl
+ ws-abc/.schmux/lore.jsonl            ws-def/.schmux/lore.jsonl
       │                                    │
       ▼                                    ▼
  ┌──────────────────────────────────────────────┐
  │  Overlay Compounder (existing system)        │
  │  merges both into:                           │
  │  ~/.schmux/overlays/<repo>/                  │
- │      .claude/lore.jsonl                      │
+ │      .schmux/lore.jsonl                      │
  │  and propagates to sibling workspaces        │
  └──────────────────────────────────────────────┘
       │
@@ -590,7 +590,7 @@ New config fields in `~/.schmux/config.json`:
 
 1. **Scratchpad package** — `internal/lore/scratchpad.go`: JSONL parser, append function, state-change tracking, entry queries with filters, pruning logic. Unit tests for all operations.
 
-2. **Overlay integration** — Add `.claude/lore.jsonl` to `DefaultOverlayPaths`. Add JSONL line-union fast path to `internal/compound/merge.go` (deduplicate by full line content, no LLM needed for append-only JSONL).
+2. **Overlay integration** — Add `.schmux/lore.jsonl` to `DefaultOverlayPaths`. Add JSONL line-union fast path to `internal/compound/merge.go` (deduplicate by full line content, no LLM needed for append-only JSONL).
 
 3. **Curator** — `internal/lore/curator.go`: instruction file discovery, LLM prompt construction, response parsing. Unit tests with mocked LLM.
 

@@ -217,7 +217,7 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	// Mark source entries as "applied" in the lore JSONL
 	overlayDir, err := workspace.OverlayDir(repoName)
 	if err == nil {
-		lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+		lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 		if err := lore.MarkEntriesByText(lorePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
 			fmt.Printf("[lore] warning: failed to mark entries as applied: %v\n", err)
 		}
@@ -273,7 +273,7 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	// Mark source entries as "dismissed" in the lore JSONL
 	overlayDir, err := workspace.OverlayDir(repoName)
 	if err == nil {
-		lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+		lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 		if err := lore.MarkEntriesByText(lorePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
 			fmt.Printf("[lore] warning: failed to mark entries as dismissed: %v\n", err)
 		}
@@ -303,7 +303,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
 		return
 	}
-	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+	lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 
 	// Parse query params for filtering
 	q := r.URL.Query()
@@ -378,7 +378,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
 		return
 	}
-	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
+	lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
 
 	proposal, err := s.loreCurator.Curate(r.Context(), repoName, bareDir, lorePath)
 	if err != nil {
