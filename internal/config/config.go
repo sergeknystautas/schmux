@@ -76,6 +76,7 @@ type Config struct {
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
+	RemoteAccess               *RemoteAccessConfig    `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
 
 	// Telemetry settings
@@ -217,6 +218,18 @@ type RemoteWorkspaceConfig struct {
 	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
 }
 
+// RemoteAccessNotifyConfig configures push notifications for remote access.
+type RemoteAccessNotifyConfig struct {
+	NtfyTopic string `json:"ntfy_topic,omitempty"`
+	Command   string `json:"command,omitempty"`
+}
+
+// RemoteAccessConfig configures remote access via Cloudflare tunnel.
+type RemoteAccessConfig struct {
+	Disabled       *bool                     `json:"disabled,omitempty"`
+	TimeoutMinutes int                       `json:"timeout_minutes,omitempty"`
+	Notify         *RemoteAccessNotifyConfig `json:"notify,omitempty"`
+}
 // NudgenikConfig represents configuration for the NudgeNik assistant.
 type NudgenikConfig struct {
 	Target         string `json:"target,omitempty"`
@@ -1433,6 +1446,38 @@ func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// GetRemoteAccessDisabled returns whether remote access is disabled entirely.
+func (c *Config) GetRemoteAccessDisabled() bool {
+	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Disabled == nil {
+		return false
+	}
+	return *c.RemoteAccess.Disabled
+}
+
+// GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout. 0 = no timeout.
+func (c *Config) GetRemoteAccessTimeoutMinutes() int {
+	if c == nil || c.RemoteAccess == nil {
+		return 0
+	}
+	return c.RemoteAccess.TimeoutMinutes
+}
+
+// GetRemoteAccessNtfyTopic returns the ntfy.sh topic for push notifications.
+func (c *Config) GetRemoteAccessNtfyTopic() string {
+	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.RemoteAccess.Notify.NtfyTopic)
+}
+
+// GetRemoteAccessNotifyCommand returns the custom notification command.
+func (c *Config) GetRemoteAccessNotifyCommand() string {
+	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.RemoteAccess.Notify.Command)
 }
 
 // GetRemoteFlavors returns the list of remote flavors.
