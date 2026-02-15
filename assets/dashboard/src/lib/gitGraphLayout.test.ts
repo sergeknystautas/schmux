@@ -367,4 +367,327 @@ describe('computeLayout', () => {
       expect(edge).toBeDefined();
     }
   });
+
+  it('creates cross-column edges for merge commits', () => {
+    // feature merges from main: merge has parents on both columns
+    const nodes = [
+      makeNode('merge1', ['feature'], ['feat1', 'main1'], ['feature']),
+      makeNode('feat1', ['feature'], ['shared']),
+      makeNode('main1', ['main'], ['shared'], ['main']),
+      makeNode('shared', ['main', 'feature'], []),
+    ];
+    const branches = {
+      main: { head: 'main1', is_main: true, workspace_ids: [] },
+      feature: { head: 'merge1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // merge1 should have edges to both parents
+    const edgeToFeat = layout.edges.find((e) => e.fromHash === 'merge1' && e.toHash === 'feat1');
+    const edgeToMain = layout.edges.find((e) => e.fromHash === 'merge1' && e.toHash === 'main1');
+    expect(edgeToFeat).toBeDefined();
+    expect(edgeToMain).toBeDefined();
+
+    // Cross-column edge should have different from/to columns
+    expect(edgeToMain!.fromColumn).toBe(1); // merge1 is on feature (col 1)
+    expect(edgeToMain!.toColumn).toBe(0); // main1 is on main (col 0)
+  });
+
+  it('truncation node uses column 0 when on main branch', () => {
+    const nodes = [makeNode('aaa', ['main'], ['bbb'], ['main']), makeNode('bbb', ['main'], [])];
+    const branches = { main: { head: 'aaa', is_main: true, workspace_ids: [] } };
+    const layout = computeLayout(makeResponse(nodes, branches, { local_truncated: true }));
+
+    const truncNode = layout.nodes.find((n) => n.nodeType === 'truncation');
+    expect(truncNode).toBeDefined();
+    expect(truncNode!.column).toBe(0);
+  });
+
+  it('renders sync summary and truncation together', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], ['feat2'], ['feature']),
+      makeNode('feat2', ['feature'], ['shared']),
+      makeNode('shared', ['main', 'feature'], [], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(
+      makeResponse(nodes, branches, {
+        main_ahead_count: 5,
+        local_truncated: true,
+      })
+    );
+
+    const syncNode = layout.nodes.find((n) => n.nodeType === 'sync-summary');
+    const truncNode = layout.nodes.find((n) => n.nodeType === 'truncation');
+    expect(syncNode).toBeDefined();
+    expect(truncNode).toBeDefined();
+
+    // Sync summary is first, truncation is last
+    expect(layout.nodes[0]).toBe(syncNode);
+    expect(layout.nodes[layout.nodes.length - 1]).toBe(truncNode);
+
+    // Sync summary in column 0, truncation in column 1 (feature)
+    expect(syncNode!.column).toBe(0);
+    expect(truncNode!.column).toBe(1);
+  });
+
+  it('renders sync summary and commit workflow together', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const files: FileDiff[] = [
+      { lines_added: 10, lines_removed: 2, is_binary: false, new_path: 'app.ts' },
+    ];
+    const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 2 }), files);
+
+    const nodeTypes = layout.nodes.map((n) => n.nodeType);
+    expect(nodeTypes[0]).toBe('sync-summary');
+    expect(nodeTypes).toContain('you-are-here');
+    expect(nodeTypes).toContain('commit-actions');
+    expect(nodeTypes).toContain('commit-file');
+    expect(nodeTypes).toContain('commit-footer');
+
+    // Sync summary should be before you-are-here
+    const syncIdx = nodeTypes.indexOf('sync-summary');
+    const yahIdx = nodeTypes.indexOf('you-are-here');
+    expect(syncIdx).toBeLessThan(yahIdx);
+  });
+
+  it('places commit workflow nodes in feature branch column', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const layout = computeLayout(makeResponse(nodes, branches), files);
+
+    const workflowNodes = layout.nodes.filter(
+      (n) =>
+        n.nodeType === 'you-are-here' ||
+        n.nodeType === 'commit-actions' ||
+        n.nodeType === 'commit-file' ||
+        n.nodeType === 'commit-footer'
+    );
+    // All workflow nodes should be in column 1 (feature branch)
+    expect(workflowNodes.every((n) => n.column === 1)).toBe(true);
+  });
+
+  it('handles many dirty files without breaking layout', () => {
+    const nodes = [makeNode('head1', ['main'], [], ['main'])];
+    const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
+    const files: FileDiff[] = Array.from({ length: 50 }, (_, i) => ({
+      lines_added: i + 1,
+      lines_removed: 0,
+      is_binary: false,
+      new_path: `src/components/Component${i}.tsx`,
+    }));
+    const layout = computeLayout(makeResponse(nodes, branches), files);
+
+    const fileNodes = layout.nodes.filter((n) => n.nodeType === 'commit-file');
+    expect(fileNodes).toHaveLength(50);
+
+    // Each file node should have its own unique y position
+    const yValues = fileNodes.map((n) => n.y);
+    const uniqueYs = new Set(yValues);
+    expect(uniqueYs.size).toBe(50);
+
+    // File nodes should be monotonically increasing in y
+    for (let i = 1; i < fileNodes.length; i++) {
+      expect(fileNodes[i].y).toBeGreaterThan(fileNodes[i - 1].y);
+    }
+  });
+
+  it('y values are monotonically increasing across all nodes', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], ['feat2'], ['feature']),
+      makeNode('feat2', ['feature'], ['shared']),
+      makeNode('shared', ['main', 'feature'], [], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const files: FileDiff[] = [{ lines_added: 1, lines_removed: 0, is_binary: false }];
+    const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 2 }), files);
+
+    for (let i = 1; i < layout.nodes.length; i++) {
+      expect(layout.nodes[i].y).toBeGreaterThan(layout.nodes[i - 1].y);
+    }
+  });
+
+  it('does not insert commit-actions or commit-footer when no files', () => {
+    const nodes = [makeNode('head1', ['main'], [], ['main'])];
+    const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const actionsNode = layout.nodes.find((n) => n.nodeType === 'commit-actions');
+    const footerNode = layout.nodes.find((n) => n.nodeType === 'commit-footer');
+    const fileNode = layout.nodes.find((n) => n.nodeType === 'commit-file');
+    expect(actionsNode).toBeUndefined();
+    expect(footerNode).toBeUndefined();
+    expect(fileNode).toBeUndefined();
+  });
+
+  it('drops edges when parent hash is not in node list (truncated)', () => {
+    // Simulate truncated graph — child's parent is missing
+    const nodes = [makeNode('child', ['feature'], ['missing-parent'], ['feature'])];
+    const branches = {
+      feature: { head: 'child', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // Edge to missing-parent should NOT exist (silently dropped)
+    const danglingEdge = layout.edges.find((e) => e.toHash === 'missing-parent');
+    expect(danglingEdge).toBeUndefined();
+
+    // The node itself should still be in the layout
+    const childNode = layout.nodes.find((n) => n.hash === 'child');
+    expect(childNode).toBeDefined();
+  });
+
+  it('handles root commit with no parents', () => {
+    const nodes = [makeNode('root', ['main'], [], ['main'])];
+    const branches = { main: { head: 'root', is_main: true, workspace_ids: [] } };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const commitEdges = layout.edges.filter((e) => e.fromHash === 'root' || e.toHash === 'root');
+    // Only edge should be you-are-here → root, no parent edges from root
+    expect(commitEdges.every((e) => e.toHash === 'root')).toBe(true);
+    // No parent edges originating from root
+    const rootParentEdges = layout.edges.filter((e) => e.fromHash === 'root');
+    expect(rootParentEdges).toHaveLength(0);
+  });
+
+  it('preserves workspace_ids on layout nodes', () => {
+    const node = makeNode('head1', ['main'], [], ['main']);
+    node.workspace_ids = ['ws-123', 'ws-456'];
+    const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
+    const layout = computeLayout(makeResponse([node], branches));
+
+    const commitNode = layout.nodes.find((n) => n.hash === 'head1');
+    expect(commitNode?.node.workspace_ids).toEqual(['ws-123', 'ws-456']);
+  });
+
+  it('edge coordinates match the from/to node positions exactly', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], ['shared'], ['feature']),
+      makeNode('shared', ['main', 'feature'], [], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    for (const edge of layout.edges) {
+      const fromNode = layout.nodes.find((n) => n.hash === edge.fromHash);
+      const toNode = layout.nodes.find((n) => n.hash === edge.toHash);
+      if (fromNode && toNode) {
+        expect(edge.fromY).toBe(fromNode.y);
+        expect(edge.toY).toBe(toNode.y);
+        expect(edge.fromColumn).toBe(fromNode.column);
+        expect(edge.toColumn).toBe(toNode.column);
+      }
+    }
+  });
+
+  it('uses non-main branch name as default when no is_main flag set', () => {
+    // Both branches claim to not be main — first one alphabetically should be treated as main
+    const nodes = [
+      makeNode('aaa', ['alpha'], [], ['alpha']),
+      makeNode('bbb', ['beta'], ['aaa'], ['beta']),
+    ];
+    const branches = {
+      alpha: { head: 'aaa', is_main: false, workspace_ids: [] },
+      beta: { head: 'bbb', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // Should not crash, localBranch should be set
+    expect(layout.nodes.length).toBeGreaterThan(0);
+  });
+
+  it('commit file nodes reference the correct file data', () => {
+    const nodes = [makeNode('head1', ['main'], [], ['main'])];
+    const branches = { main: { head: 'head1', is_main: true, workspace_ids: [] } };
+    const files: FileDiff[] = [
+      { lines_added: 10, lines_removed: 5, is_binary: false, new_path: 'src/index.ts' },
+      {
+        lines_added: 0,
+        lines_removed: 20,
+        is_binary: false,
+        new_path: 'src/old.ts',
+        old_path: 'src/old.ts',
+      },
+      { lines_added: 0, lines_removed: 0, is_binary: true, new_path: 'logo.png' },
+    ];
+    const layout = computeLayout(makeResponse(nodes, branches), files);
+
+    const fileNodes = layout.nodes.filter((n) => n.nodeType === 'commit-file');
+    expect(fileNodes).toHaveLength(3);
+    expect(fileNodes[0].file?.new_path).toBe('src/index.ts');
+    expect(fileNodes[0].file?.lines_added).toBe(10);
+    expect(fileNodes[1].file?.new_path).toBe('src/old.ts');
+    expect(fileNodes[1].file?.lines_removed).toBe(20);
+    expect(fileNodes[2].file?.is_binary).toBe(true);
+  });
+
+  it('main_ahead_count of 0 does not insert sync summary even on feature branch', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 0 }));
+
+    const syncNode = layout.nodes.find((n) => n.nodeType === 'sync-summary');
+    expect(syncNode).toBeUndefined();
+  });
+
+  it('truncation + files + sync summary produces correct total row count', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const files: FileDiff[] = [
+      { lines_added: 1, lines_removed: 0, is_binary: false, new_path: 'a.ts' },
+      { lines_added: 2, lines_removed: 1, is_binary: false, new_path: 'b.ts' },
+    ];
+    const layout = computeLayout(
+      makeResponse(nodes, branches, {
+        main_ahead_count: 3,
+        local_truncated: true,
+      }),
+      files
+    );
+
+    // Expected nodes:
+    // sync-summary (1) + you-are-here (1) + commit-actions (1) + 2 files (2)
+    // + commit-footer (1) + feat1 commit (1) + shared commit (1) + truncation (1)
+    expect(layout.nodes).toHaveLength(9);
+
+    // Verify all y values are unique and contiguous multiples of ROW_HEIGHT
+    for (let i = 0; i < layout.nodes.length; i++) {
+      expect(layout.nodes[i].y).toBe(i * ROW_HEIGHT);
+    }
+  });
 });
