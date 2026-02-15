@@ -11,7 +11,8 @@ export interface LayoutNode {
     | 'commit-actions'
     | 'commit-file'
     | 'commit-footer'
-    | 'sync-summary';
+    | 'sync-summary'
+    | 'truncation';
   /** Dirty working copy state (only on commit-actions nodes) */
   dirtyState?: {
     files_changed: number;
@@ -142,7 +143,10 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
         y: rowIndex * ROW_HEIGHT,
         node: refNode,
         nodeType: 'sync-summary',
-        syncSummary: { count: mainAheadCount, newestTimestamp: '' },
+        syncSummary: {
+          count: mainAheadCount,
+          newestTimestamp: response.main_ahead_newest_timestamp ?? '',
+        },
       });
       rowIndex++;
     }
@@ -210,6 +214,20 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
       y: rowIndex * ROW_HEIGHT,
       node,
       nodeType: 'commit',
+    });
+    rowIndex++;
+  }
+
+  // Truncation indicator when local commits exceeded the limit
+  if (response.local_truncated) {
+    const lastNode = nodes[nodes.length - 1];
+    const truncColumn = localBranch !== mainBranch ? (branchColumns.get(localBranch!) ?? 1) : 0;
+    layoutNodes.push({
+      hash: '__truncation__',
+      column: truncColumn,
+      y: rowIndex * ROW_HEIGHT,
+      node: lastNode,
+      nodeType: 'truncation',
     });
     rowIndex++;
   }
