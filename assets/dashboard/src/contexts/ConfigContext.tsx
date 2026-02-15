@@ -63,6 +63,9 @@ const DEFAULT_CONFIG: ConfigResponse = {
   pr_review: {
     target: '',
   },
+  commit_message: {
+    target: '',
+  },
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,

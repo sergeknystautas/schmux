@@ -13,6 +13,7 @@ import (
 
 // Schema labels for registered schemas.
 const (
+	LabelCommitMessage   = "commit-message"
 	LabelConflictResolve = "conflict-resolve"
 	LabelNudgeNik        = "nudgenik"
 	LabelBranchSuggest   = "branch-suggest"

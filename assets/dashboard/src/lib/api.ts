@@ -670,19 +670,46 @@ export async function gitUncommit(
   return response.json();
 }
 
-const COMMIT_PROMPT_INSTRUCTIONS = [
-  'Please create a thorough git commit for these staged files:',
-  '',
-  '{{FILE_LIST}}',
-  '',
-  'Do the necessary precommit steps first.',
-  'Do not include the generated and co-authored lines.',
-  'Keep the message focused on features, not just code changes.',
-].join('\n');
-
-function buildCommitPrompt(fileList: string): string {
-  return COMMIT_PROMPT_INSTRUCTIONS.replace('{{FILE_LIST}}', fileList);
+export interface CommitPromptResponse {
+  prompt: string;
 }
+
+export interface CommitFile {
+  path: string;
+  added: number;
+  deleted: number;
+}
+
+export interface CommitMessageResponse {
+  message: string;
+  files: CommitFile[];
+}
+
+// Fetch the commit prompt template from the backend.
+export async function getCommitPrompt(): Promise<string> {
+  const response = await fetch('/api/commit/prompt');
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to fetch commit prompt');
+  }
+  const data: CommitPromptResponse = await response.json();
+  return data.prompt;
+}
+
+// Generate a commit message using oneshot.
+export async function generateCommitMessage(workspaceId: string): Promise<CommitMessageResponse> {
+  const response = await fetch('/api/commit/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to generate commit message');
+  }
+  return response.json();
+}
+
+const PRE_COMMIT_INSTRUCTIONS =
+  'Do the necessary precommit steps first (e.g., run linters, formatters, tests).';
 
 export async function spawnCommitSession(
   workspaceId: string,
@@ -690,15 +717,26 @@ export async function spawnCommitSession(
   branch: string,
   selectedFiles: string[]
 ): Promise<SpawnResult[]> {
+  // Fetch config to get the configured commit message target
+  const config = await getConfig();
+  const target = config.commit_message?.target;
+  if (!target) {
+    throw new Error('No commit message target configured');
+  }
+
+  // Fetch the base prompt template from the backend
+  const promptTemplate = await getCommitPrompt();
   const fileList = selectedFiles.join('\n');
-  const prompt = buildCommitPrompt(fileList);
+
+  // Build prompt: base template + pre-commit instructions + file list
+  const prompt = promptTemplate + '\n\n' + PRE_COMMIT_INSTRUCTIONS + '\n\nFiles:\n' + fileList;
 
   const spawnRequest: SpawnRequest = {
     repo,
     branch,
     nickname: 'git commit',
     prompt,
-    targets: { claude: 1 },
+    targets: { [target]: 1 },
     workspace_id: workspaceId,
   };
 
