@@ -930,7 +930,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		t.Logf("Received nudge: state=%s summary=%q", sess.NudgeState, sess.NudgeSummary)
 	})
 
-	t.Run("WriteWorkingClearsNudge", func(t *testing.T) {
+	t.Run("WriteWorkingSignal", func(t *testing.T) {
 		// Wait for debounce window to pass
 		time.Sleep(600 * time.Millisecond)
 
@@ -939,12 +939,12 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
 
-		// "working" clears the nudge — wait for empty nudge state
-		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "", 5*time.Second)
+		// "working" is a visible dashboard state (spinner + message)
+		sess, err := env.WaitForSessionNudgeState(conn, sessionID, "Working", 5*time.Second)
 		if err != nil {
-			t.Fatalf("Failed to receive cleared nudge: %v", err)
+			t.Fatalf("Failed to receive working nudge: %v", err)
 		}
-		t.Logf("Nudge cleared: state=%q summary=%q", sess.NudgeState, sess.NudgeSummary)
+		t.Logf("Received working nudge: state=%q summary=%q", sess.NudgeState, sess.NudgeSummary)
 	})
 
 	t.Run("WriteErrorSignal", func(t *testing.T) {
