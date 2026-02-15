@@ -877,13 +877,13 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	})
 
 	t.Run("VerifySchmuxDirCreated", func(t *testing.T) {
-		schmuxDir := filepath.Join(workspacePath, ".schmux")
+		schmuxDir := filepath.Join(workspacePath, ".schmux", "signal")
 		info, err := os.Stat(schmuxDir)
 		if err != nil {
-			t.Fatalf(".schmux directory not created: %v", err)
+			t.Fatalf(".schmux/signal directory not created: %v", err)
 		}
 		if !info.IsDir() {
-			t.Fatal(".schmux exists but is not a directory")
+			t.Fatal(".schmux/signal exists but is not a directory")
 		}
 	})
 
@@ -891,7 +891,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		// Wait for debounce window to pass from spawn broadcast
 		time.Sleep(600 * time.Millisecond)
 
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("completed Implementation done\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -915,7 +915,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		// Wait for debounce window to pass
 		time.Sleep(600 * time.Millisecond)
 
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("needs_input Should I proceed?\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -934,7 +934,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		// Wait for debounce window to pass
 		time.Sleep(600 * time.Millisecond)
 
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("working\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -951,7 +951,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		// Wait for debounce window to pass
 		time.Sleep(600 * time.Millisecond)
 
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("error Build failed with 3 errors\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -981,7 +981,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		}
 
 		// Write the same signal again
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("error Build failed with 3 errors\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -1082,7 +1082,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 		env.ReadDashboardMessage(conn, 3*time.Second)
 		time.Sleep(600 * time.Millisecond)
 
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("completed Implementation done\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -1132,7 +1132,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 		time.Sleep(600 * time.Millisecond)
 
 		// Write a different signal
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("needs_input Approve changes?\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -1226,7 +1226,7 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 		time.Sleep(600 * time.Millisecond)
 
 		// Write a signal to create a nudge
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("needs_input Waiting for approval\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
@@ -1270,9 +1270,10 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 	})
 }
 
-// TestE2EMultipleSessionsSharedSignal validates that multiple sessions in the same
-// workspace all receive signals from the shared signal file.
-func TestE2EMultipleSessionsSharedSignal(t *testing.T) {
+// TestE2EMultipleSessionsIsolatedSignals validates that multiple sessions in the same
+// workspace have isolated signal files — writing to one session's signal file does NOT
+// nudge the other session.
+func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -1347,7 +1348,7 @@ func TestE2EMultipleSessionsSharedSignal(t *testing.T) {
 		t.Logf("Second session: %s in workspace %s", session2ID, workspaceID)
 	})
 
-	t.Run("SignalAffectsBothSessions", func(t *testing.T) {
+	t.Run("SignalIsolatedPerSession", func(t *testing.T) {
 		dashConn, err := env.ConnectDashboardWebSocket()
 		if err != nil {
 			t.Fatalf("Failed to connect dashboard websocket: %v", err)
@@ -1358,23 +1359,20 @@ func TestE2EMultipleSessionsSharedSignal(t *testing.T) {
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
 		time.Sleep(600 * time.Millisecond)
 
-		// Write signal to the shared signal file
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		// Write signal to session1's signal file only
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", session1ID)
 		if err := os.WriteFile(signalFile, []byte("completed All tasks done\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}
 
-		// Wait for BOTH sessions to show the nudge
-		// Read dashboard messages until we see both sessions with the expected nudge
-		deadline := time.Now().Add(10 * time.Second)
+		// Wait for session1 to show the nudge
+		deadline := time.Now().Add(5 * time.Second)
 		session1Got := false
-		session2Got := false
 
-		for time.Now().Before(deadline) && !(session1Got && session2Got) {
+		for time.Now().Before(deadline) && !session1Got {
 			msg, err := env.ReadDashboardMessage(dashConn, time.Until(deadline))
 			if err != nil {
-				t.Fatalf("Timed out waiting for both sessions to get nudge (session1=%v, session2=%v): %v",
-					session1Got, session2Got, err)
+				t.Fatalf("Timed out waiting for session1 nudge: %v", err)
 			}
 			if msg.Type == "sessions" {
 				for _, ws := range msg.Workspaces {
@@ -1383,21 +1381,28 @@ func TestE2EMultipleSessionsSharedSignal(t *testing.T) {
 							session1Got = true
 							t.Logf("Session 1 (%s) received nudge: %s", session1ID, sess.NudgeState)
 						}
-						if sess.ID == session2ID && sess.NudgeState == "Completed" {
-							session2Got = true
-							t.Logf("Session 2 (%s) received nudge: %s", session2ID, sess.NudgeState)
-						}
 					}
 				}
 			}
 		}
 
 		if !session1Got {
-			t.Error("Session 1 did not receive the nudge")
+			t.Fatal("Session 1 did not receive the nudge")
 		}
-		if !session2Got {
-			t.Error("Session 2 did not receive the nudge")
+
+		// Verify session2 did NOT get nudged — read a few more messages and check
+		time.Sleep(500 * time.Millisecond)
+
+		// Get current state via REST API to check session2's nudge
+		workspaces := env.GetAPIWorkspaces()
+		for _, ws := range workspaces {
+			for _, sess := range ws.Sessions {
+				if sess.ID == session2ID && sess.NudgeState != "" {
+					t.Errorf("Session 2 should NOT have been nudged, but got nudge_state=%q", sess.NudgeState)
+				}
+			}
 		}
+		t.Log("Session 2 correctly not nudged — signals are isolated per session")
 	})
 }
 
@@ -1471,13 +1476,13 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 	})
 
 	t.Run("VerifySchmuxDirCreated", func(t *testing.T) {
-		schmuxDir := filepath.Join(workspacePath, ".schmux")
+		schmuxDir := filepath.Join(workspacePath, ".schmux", "signal")
 		info, err := os.Stat(schmuxDir)
 		if err != nil {
-			t.Fatalf(".schmux directory not created for command session: %v", err)
+			t.Fatalf(".schmux/signal directory not created for command session: %v", err)
 		}
 		if !info.IsDir() {
-			t.Fatal(".schmux exists but is not a directory")
+			t.Fatal(".schmux/signal exists but is not a directory")
 		}
 	})
 
@@ -1508,7 +1513,7 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 		time.Sleep(600 * time.Millisecond)
 
 		// Write a signal file — this verifies the FileWatcher is active for SpawnCommand sessions
-		signalFile := filepath.Join(workspacePath, ".schmux", "signal")
+		signalFile := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
 		if err := os.WriteFile(signalFile, []byte("completed Command finished\n"), 0644); err != nil {
 			t.Fatalf("Failed to write signal file: %v", err)
 		}

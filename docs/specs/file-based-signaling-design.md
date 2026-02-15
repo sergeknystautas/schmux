@@ -32,7 +32,7 @@ status to a well-known file; schmux watches the file for changes.
 ### File Location
 
 ```
-$WORKSPACE/.schmux/signal
+$WORKSPACE/.schmux/signal/<session-id>
 ```
 
 The path is provided to agents via the `SCHMUX_STATUS_FILE` environment
@@ -82,7 +82,7 @@ Valid states: completed, needs_input, needs_testing, error, working
 ### Local Sessions: Go fsnotify
 
 ```
-Agent (in tmux) --writes--> $WORKSPACE/.schmux/signal
+Agent (in tmux) --writes--> $WORKSPACE/.schmux/signal/<session-id>
                                     |
                         fsnotify watcher (Go goroutine)
                                     |
@@ -91,7 +91,7 @@ Agent (in tmux) --writes--> $WORKSPACE/.schmux/signal
                         HandleAgentSignal (existing path)
 ```
 
-- One `fsnotify` watcher per session, watching `$WORKSPACE/.schmux/signal`
+- One `fsnotify` watcher per session, watching `$WORKSPACE/.schmux/signal/<session-id>`
 - On `fsnotify.Write` event: read file, parse `STATE MESSAGE`
 - Compare against last-read content (string comparison)
 - If different: invoke signal callback
@@ -107,7 +107,7 @@ emits changes. Schmux reads those changes via `%output` events over the
 existing control mode connection.
 
 ```
-Agent writes $WORKSPACE/.schmux/signal
+Agent writes $WORKSPACE/.schmux/signal/<session-id>
     |
 Watcher pane detects change      (inotifywait or polling)
     |
