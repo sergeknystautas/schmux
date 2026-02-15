@@ -334,7 +334,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 		},
 		"Notification": {
 			{
-				Matcher: "permission_prompt|idle_prompt|elicitation_dialog",
+				Matcher: "permission_prompt|elicitation_dialog",
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
