@@ -748,6 +748,11 @@ func (m *Manager) Dispose(workspaceID string) error {
 		}
 	}
 
+	// Delete local branch if it wasn't pushed to remote
+	if worktreeBaseErr == nil && w.Branch != "" {
+		m.cleanupLocalBranch(ctx, worktreeBasePath, w)
+	}
+
 	// Remove from state
 	if err := m.state.RemoveWorkspace(workspaceID); err != nil {
 		return fmt.Errorf("failed to remove workspace from state: %w", err)
