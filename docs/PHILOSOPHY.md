@@ -26,7 +26,7 @@ schmux is deliberately _not_ trying to be:
 - **Batch/headless automation** — sessions are interactive by design. If you want fully autonomous pipelines, use CI/CD.
 - **A replacement for the agents** — schmux orchestrates Claude, Codex, Gemini, etc. It doesn't try to be an AI coding tool itself.
 - **An IDE** — it launches VS Code but doesn't try to replace it. The dashboard is for orchestration and observability, not editing.
-- **Distributed** — everything runs on one machine. No multi-node coordination or remote session management.
+- **Distributed** — the daemon runs locally on your machine. While schmux supports spawning agents on remote hosts via SSH, there is no multi-node daemon coordination or peer-to-peer communication. The local daemon is always the single coordinator.
 - **Trying to hide git** — git is the foundation, not an implementation detail. You're expected to understand branches, commits, and diffs.
 
 ---

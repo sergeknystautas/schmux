@@ -10,16 +10,31 @@ import (
 )
 
 func TestLoad(t *testing.T) {
-	// Create a temporary state directory
 	tmpDir := t.TempDir()
-	stateDir := filepath.Join(tmpDir, ".schmux")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		t.Fatalf("failed to create state dir: %v", err)
+	statePath := filepath.Join(tmpDir, ".schmux", "state.json")
+
+	// Create the .schmux directory
+	schmuxDir := filepath.Join(tmpDir, ".schmux")
+	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		t.Fatalf("failed to create .schmux dir: %v", err)
 	}
 
-	// This test would require mocking the home directory
-	// For now, we'll skip the actual load test
-	t.Skip("requires home directory mocking")
+	// Load should succeed even with no state file (returns empty state)
+	st, err := Load(statePath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	if st == nil {
+		t.Fatal("Load() returned nil state")
+	}
+
+	// Verify empty state
+	if len(st.GetSessions()) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(st.GetSessions()))
+	}
+	if len(st.GetWorkspaces()) != 0 {
+		t.Errorf("expected 0 workspaces, got %d", len(st.GetWorkspaces()))
+	}
 }
 
 func TestAddAndGetWorkspace(t *testing.T) {

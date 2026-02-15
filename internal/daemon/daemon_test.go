@@ -52,7 +52,8 @@ func TestPidFileParsing(t *testing.T) {
 }
 
 func TestShutdown(t *testing.T) {
-	// Just test that Shutdown doesn't panic
+	// Verifies Shutdown does not panic. Limited assertion possible
+	// due to package-level channel state shared across tests.
 	Shutdown()
 }
 

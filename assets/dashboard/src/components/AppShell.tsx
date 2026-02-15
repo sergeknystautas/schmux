@@ -518,6 +518,14 @@ export default function AppShell() {
                   <div
                     className="nav-workspace__header"
                     onClick={() => handleWorkspaceClick(workspace.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleWorkspaceClick(workspace.id);
+                      }
+                    }}
                   >
                     <span className="nav-workspace__name">
                       {isRemote && (
@@ -660,6 +668,14 @@ export default function AppShell() {
                           key={sess.id}
                           className={`nav-session${isActive ? ' nav-session--active' : ''}`}
                           onClick={() => handleSessionClick(sess.id)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleSessionClick(sess.id);
+                            }
+                          }}
                         >
                           <div className="nav-session__row1">
                             <span className="nav-session__name">

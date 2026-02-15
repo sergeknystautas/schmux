@@ -78,6 +78,7 @@ func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) 
 
 // handleCreateRemoteFlavor creates a new remote flavor.
 func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		Flavor                string `json:"flavor"`
 		DisplayName           string `json:"display_name"`
@@ -172,6 +173,7 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		var req struct {
 			DisplayName           string `json:"display_name"`
 			VCS                   string `json:"vcs"`
@@ -311,6 +313,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		FlavorID string `json:"flavor_id"`
 	}

@@ -41,6 +41,15 @@ export default class TerminalStream {
   initialized: Promise<Terminal | null>;
   resizeDebounceTimer: ReturnType<typeof setTimeout> | null;
 
+  // WebSocket reconnection state
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private maxReconnectAttempt = 10;
+
+  // ResizeObserver cleanup references
+  private resizeObserver: ResizeObserver | null = null;
+  private windowResizeHandler: (() => void) | null = null;
+
   // Multi-line selection state
   selectionMode: boolean;
   selectedLines: Map<number, SelectedLine>;
@@ -195,11 +204,15 @@ export default class TerminalStream {
       if (sessionDetail) {
         resizeObserver.observe(sessionDetail);
       }
+
+      this.resizeObserver = resizeObserver;
     }
 
-    window.addEventListener('resize', () => {
+    const handleResize = () => {
       this.handleResize();
-    });
+    };
+    this.windowResizeHandler = handleResize;
+    window.addEventListener('resize', handleResize);
   }
 
   handleResize() {
@@ -314,6 +327,7 @@ export default class TerminalStream {
 
     this.ws.onopen = () => {
       this.connected = true;
+      this.reconnectAttempt = 0;
       this.terminal.clear();
       this.onStatusChange('connected');
 
@@ -332,11 +346,23 @@ export default class TerminalStream {
 
     this.ws.onclose = () => {
       this.connected = false;
-      if (this.terminal) {
-        this.terminal.writeln('\x1b[90m\r\n\x1b[0m');
-        this.terminal.writeln('\x1b[91mConnection closed\x1b[0m');
-      }
       this.onStatusChange('disconnected');
+      if (this.reconnectAttempt < this.maxReconnectAttempt) {
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
+        this.reconnectAttempt++;
+        if (this.terminal) {
+          this.terminal.writeln(
+            `\r\n\x1b[33m[Connection lost, reconnecting in ${delay / 1000}s...]\x1b[0m`
+          );
+        }
+        this.reconnectTimer = setTimeout(() => {
+          this.connect();
+        }, delay);
+      } else {
+        if (this.terminal) {
+          this.terminal.writeln('\r\n\x1b[31m[Connection lost. Refresh to reconnect.]\x1b[0m');
+        }
+      }
     };
 
     this.ws.onerror = (error) => {
@@ -349,6 +375,18 @@ export default class TerminalStream {
   }
 
   disconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    if (this.windowResizeHandler) {
+      window.removeEventListener('resize', this.windowResizeHandler);
+      this.windowResizeHandler = null;
+    }
     if (this.ws) {
       this.ws.close();
     }

@@ -226,10 +226,16 @@ func TestReload_RequiresPath(t *testing.T) {
 
 func TestConfigExists(t *testing.T) {
 	t.Run("returns false when config doesn't exist", func(t *testing.T) {
-		// We can't easily test this without mocking home directory
-		// Just verify the function runs
+		// Save and restore HOME to test with a known directory
+		origHome := os.Getenv("HOME")
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+		defer os.Setenv("HOME", origHome)
+
 		exists := ConfigExists()
-		_ = exists // Don't assert - depends on environment
+		if exists {
+			t.Error("expected ConfigExists() to return false with empty HOME")
+		}
 	})
 }
 

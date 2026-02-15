@@ -47,14 +47,28 @@ schmux is a **multi-agent AI orchestration system** that runs multiple AI coding
 ```
 cmd/schmux/              # CLI entry point (main.go)
 internal/
+├── api/contracts/       # Shared API contract types
+├── branchsuggest/       # AI-powered branch name suggestion
+├── config/              # Config IO (~/.schmux/config.json)
+├── conflictresolve/     # AI-powered conflict resolution
 ├── daemon/              # Background process, main loop
 ├── dashboard/           # HTTP server + handlers + websockets
+├── detect/              # Tool detection (claude, codex, etc.)
+├── difftool/            # External diff tool support
+├── github/              # GitHub PR client and discovery
+├── nudgenik/            # AI session status assessment
+├── oneshot/             # One-shot LLM execution
+├── preview/             # Web preview reverse proxy
+├── provision/           # Remote host provisioning
+├── remote/              # Remote workspace via SSH
+├── schema/              # JSON schema generation
 ├── session/             # Session lifecycle and tracking
-├── workspace/           # Repo clone/checkout + overlays
-├── tmux/                # tmux integration
-├── config/              # Config IO (~/.schmux/config.json)
+├── signal/              # Agent signal parsing
 ├── state/               # State IO (~/.schmux/state.json)
-└── detect/              # Tool detection (claude, codex, etc.)
+├── tmux/                # tmux integration
+├── update/              # Self-update
+├── vcs/                 # VCS abstraction (git, sapling)
+└── workspace/           # Repo clone/checkout + overlays
 
 assets/dashboard/        # React frontend (built to dist/)
 docs/                    # Documentation
@@ -82,7 +96,7 @@ HTTP server and WebSocket handler for terminal streaming.
 
 - `server.go` - HTTP server setup, route registration
 - `handlers.go` - API endpoint handlers
-- `terminal.go` - WebSocket terminal streaming
+- `websocket.go` - WebSocket terminal streaming
 
 ### Session (`internal/session/`)
 

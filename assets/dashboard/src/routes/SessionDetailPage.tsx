@@ -29,6 +29,10 @@ export default function SessionDetailPage() {
   const [wsStatus, setWsStatus] = useState<
     'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
   >('connecting');
+  const wsStatusRef = useRef(wsStatus);
+  useEffect(() => {
+    wsStatusRef.current = wsStatus;
+  }, [wsStatus]);
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(
@@ -159,7 +163,7 @@ export default function SessionDetailPage() {
   useEffect(() => {
     const seenInterval = config.nudgenik?.seen_interval_ms || 2000;
     const interval = setInterval(() => {
-      if (wsStatus === 'connected') {
+      if (wsStatusRef.current === 'connected') {
         if (sessionId) {
           markAsViewed(sessionId);
         }

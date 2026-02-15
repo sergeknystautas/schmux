@@ -128,6 +128,15 @@ For faster iteration during development:
 │  Config/State (internal/config/, internal/state/)       │
 │  - ~/.schmux/config.json  (repos, agents, workspace)    │
 │  - ~/.schmux/state.json    (workspaces, sessions)       │
+│                                                         │
+│  Preview Manager (internal/preview/manager.go)          │
+│  - Reverse proxy for workspace dev servers              │
+│                                                         │
+│  Remote Manager (internal/remote/manager.go)            │
+│  - SSH connections to remote hosts via tmux control mode │
+│                                                         │
+│  GitHub Integration (internal/github/)                  │
+│  - PR discovery, OAuth, repository info                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -153,10 +162,17 @@ See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns
 
 Routes:
 
-- `/` - Tips (tmux shortcuts, quick reference)
+- `/` - Home (workspace list, session overview)
+- `/tips` - Tips (tmux shortcuts, quick reference)
 - `/spawn` - Spawn wizard (multi-step form)
 - `/sessions/{id}` - Session detail with terminal
+- `/preview/{workspaceId}/{previewId}` - Web preview iframe
+- `/git/{workspaceId}` - Git commit graph
+- `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
+- `/config` - Settings editor
+- `/settings/remote` - Remote flavor configuration
 - `/ws/terminal/{id}` - WebSocket for live terminal output
+- `/ws/dashboard` - WebSocket for real-time session/workspace updates
 
 ## Important Files
 

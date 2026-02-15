@@ -311,10 +311,14 @@ export default function ConnectionProgressModal({
             <h2 className="modal__title" style={{ margin: 0, flex: 1 }}>
               Connecting to {flavorName}
             </h2>
-            <div
+            <button
               onClick={onClose}
+              aria-label="Close"
               style={{
+                background: 'none',
+                border: 'none',
                 cursor: 'pointer',
+                color: 'inherit',
                 padding: '4px',
                 display: 'flex',
                 alignItems: 'center',
@@ -345,7 +349,7 @@ export default function ConnectionProgressModal({
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </div>
+            </button>
           </div>
           <div
             className="modal__body"
@@ -398,10 +402,14 @@ export default function ConnectionProgressModal({
               </p>
             </div>
           </div>
-          <div
+          <button
             onClick={onClose}
+            aria-label="Close"
             style={{
+              background: 'none',
+              border: 'none',
               cursor: 'pointer',
+              color: 'inherit',
               padding: '4px',
               display: 'flex',
               alignItems: 'center',
@@ -432,7 +440,7 @@ export default function ConnectionProgressModal({
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </div>
+          </button>
         </div>
 
         <div className="modal__body" style={{ padding: 'var(--spacing-md)' }}>
