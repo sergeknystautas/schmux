@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dismissLinearSyncResolveConflictState } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
-import { useModal } from './ModalProvider';
 import { useSync } from '../hooks/useSync';
 import type {
   LinearSyncResolveConflictStatePayload,
@@ -186,14 +185,30 @@ export default function LinearSyncResolveConflictProgress({
   const [continuing, setContinuing] = useState(false);
   const { handleLinearSyncFromMain } = useSync();
 
+  // Auto-dismiss when resolution completes and there are no more commits to sync
+  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
+  const hasMoreCommits = (workspace?.git_behind ?? 0) > 0;
+  useEffect(() => {
+    if (state?.status === 'done' && !hasMoreCommits) {
+      clearLinearSyncResolveConflictState(workspaceId);
+      const firstSession = workspace?.sessions?.[0];
+      navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
+      dismissLinearSyncResolveConflictState(workspaceId).catch(() => {});
+    }
+  }, [
+    state?.status,
+    hasMoreCommits,
+    workspaceId,
+    clearLinearSyncResolveConflictState,
+    navigate,
+    workspace?.sessions,
+  ]);
+
   if (!state) return null;
 
   const isActive = state.status === 'in_progress';
   const isDone = state.status === 'done';
   const isFailed = state.status === 'failed';
-
-  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
-  const hasMoreCommits = (workspace?.git_behind ?? 0) > 0;
 
   const handleDismiss = async () => {
     clearLinearSyncResolveConflictState(workspaceId);
