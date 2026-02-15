@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
@@ -477,6 +478,17 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				activeWorkspaces[s.WorkspaceID] = true
 			}
 
+			// Look up source branch for the event
+			var sourceBranch string
+			if sw, found := st.GetWorkspace(sourceWorkspaceID); found {
+				sourceBranch = sw.Branch
+			}
+
+			// Track old content for diff and target workspace IDs
+			var firstOldContent []byte
+			var capturedOld bool
+			var targetWorkspaceIDs []string
+
 			for _, w := range repoWorkspaces[repoURL] {
 				if w.ID == sourceWorkspaceID {
 					continue
@@ -485,6 +497,16 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					continue
 				}
 				destPath := filepath.Join(w.Path, relPath)
+
+				// Capture old content from the first target (all siblings have the same pre-propagation content)
+				if !capturedOld {
+					oldData, readErr := os.ReadFile(destPath)
+					if readErr == nil {
+						firstOldContent = oldData
+					}
+					capturedOld = true
+				}
+
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 					log.Printf("[compound] failed to create dir for propagation: %v\n", err)
 					continue
@@ -503,6 +525,20 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				newHash := compound.HashBytes(content)
 				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
 				log.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
+				targetWorkspaceIDs = append(targetWorkspaceIDs, w.ID)
+			}
+
+			// Broadcast overlay change event to dashboard
+			if len(targetWorkspaceIDs) > 0 {
+				diff := difftool.UnifiedDiff(relPath, firstOldContent, content)
+				server.BroadcastOverlayChange(dashboard.OverlayChangeEvent{
+					RelPath:            relPath,
+					SourceWorkspaceID:  sourceWorkspaceID,
+					SourceBranch:       sourceBranch,
+					TargetWorkspaceIDs: targetWorkspaceIDs,
+					Timestamp:          time.Now().Unix(),
+					UnifiedDiff:        diff,
+				})
 			}
 		}
 
