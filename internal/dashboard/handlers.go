@@ -1715,6 +1715,7 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 			ClientSecret string `json:"client_secret"`
 		}
 		var req SecretsRequest
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 			return
@@ -1861,6 +1862,7 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 				Secrets map[string]string `json:"secrets"`
 			}
 			var req SecretsRequest
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 				return
@@ -3451,6 +3453,7 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 		Repo   string `json:"repo"`
 		Branch string `json:"branch"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return

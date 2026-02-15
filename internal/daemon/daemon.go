@@ -50,6 +50,11 @@ var (
 
 	// ErrDevRestart is returned by Run() when the daemon needs to restart
 	// for a dev mode workspace switch. The caller should exit with code 42.
+	//
+	// NOTE: These package-level channels and sync.Once variables are only safe because
+	// Run() is called once per process lifetime. The dev restart mechanism exits with
+	// code 42, which the caller handles by re-executing the binary. If Run() were ever
+	// called multiple times in the same process, these would need to be reset.
 	ErrDevRestart = errors.New("dev restart requested")
 )
 
@@ -534,11 +539,13 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				compounder.AddWorkspace(workspaceID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 			} else {
 				// Last session disposed — reconcile overlay files before the workspace goes dormant.
-				// This catches any changes the debounce timer hasn't processed yet.
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				compounder.Reconcile(ctx, workspaceID)
-				compounder.RemoveWorkspace(workspaceID)
+				// Run in a goroutine to avoid blocking the dispose HTTP handler.
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					defer cancel()
+					compounder.Reconcile(ctx, workspaceID)
+					compounder.RemoveWorkspace(workspaceID)
+				}()
 			}
 		})
 

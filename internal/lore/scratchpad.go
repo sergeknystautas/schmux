@@ -99,8 +99,9 @@ func ReadEntries(path string, filter EntryFilter) ([]Entry, error) {
 	return entries, nil
 }
 
-// AppendEntry appends a single entry to a JSONL file. Creates the file if it doesn't exist.
-func AppendEntry(path string, entry Entry) error {
+// appendEntryToFile performs the file I/O for appending an entry.
+// Callers must hold scratchpadMu.
+func appendEntryToFile(path string, entry Entry) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -120,9 +121,19 @@ func AppendEntry(path string, entry Entry) error {
 	return nil
 }
 
+// AppendEntry appends a single entry to a JSONL file. Creates the file if it doesn't exist.
+// Protected by scratchpadMu to prevent data loss during concurrent append + prune operations.
+func AppendEntry(path string, entry Entry) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+	return appendEntryToFile(path, entry)
+}
+
 // AppendStateChange records a state transition for an entry.
 func AppendStateChange(path, stateChange, entryTS, proposalID string) error {
-	return AppendEntry(path, Entry{
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+	return appendEntryToFile(path, Entry{
 		Timestamp:   time.Now().UTC(),
 		StateChange: stateChange,
 		EntryTS:     entryTS,
@@ -150,7 +161,12 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 			continue
 		}
 		if textSet[e.Text] {
-			if err := AppendStateChange(path, stateChange, e.Timestamp.Format(time.RFC3339), proposalID); err != nil {
+			if err := appendEntryToFile(path, Entry{
+				Timestamp:   time.Now().UTC(),
+				StateChange: stateChange,
+				EntryTS:     e.Timestamp.Format(time.RFC3339),
+				ProposalID:  proposalID,
+			}); err != nil {
 				return err
 			}
 		}
@@ -230,8 +246,7 @@ func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
 
 // PruneEntries removes applied/dismissed entries older than maxAge from the JSONL file.
 // It rewrites the file in-place, keeping only entries that should be retained.
-// WARNING: This function is not safe for concurrent use with AppendEntry.
-// The caller must ensure exclusive access (e.g., single goroutine or file lock).
+// Protected by scratchpadMu for safe concurrent use with AppendEntry.
 // Returns the number of pruned lines and any error encountered.
 func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	scratchpadMu.Lock()

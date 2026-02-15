@@ -34,9 +34,10 @@ type Manager struct {
 	maxGlobal       int
 	idleTimeout     time.Duration
 
-	mu      sync.Mutex
-	entries map[string]*entry // preview_id -> listener entry
-	stopCh  chan struct{}
+	mu       sync.Mutex
+	entries  map[string]*entry // preview_id -> listener entry
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 type entry struct {
@@ -68,7 +69,9 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout
 }
 
 func (m *Manager) Stop() {
-	close(m.stopCh)
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+	})
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id := range m.entries {

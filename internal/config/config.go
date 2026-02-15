@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -94,7 +95,9 @@ type Config struct {
 	// repoURLCache is a lazily-built cache mapping repo URL to Repo.
 	// Not serialized to JSON. Built on first call to FindRepoByURL.
 	// Invalidated by Save() when repos change.
+	// Protected by repoURLMu for concurrent access safety.
 	repoURLCache map[string]Repo `json:"-"`
+	repoURLMu    sync.RWMutex    `json:"-"`
 }
 
 // RemoteFlavor represents a remote host flavor configuration.
@@ -772,8 +775,19 @@ func (c *Config) FindRepo(name string) (Repo, bool) {
 }
 
 // FindRepoByURL finds a repository by its URL.
-// Uses a lazily-built cache for O(1) lookups.
+// Uses a lazily-built cache for O(1) lookups. Thread-safe.
 func (c *Config) FindRepoByURL(url string) (Repo, bool) {
+	c.repoURLMu.RLock()
+	if c.repoURLCache != nil {
+		repo, found := c.repoURLCache[url]
+		c.repoURLMu.RUnlock()
+		return repo, found
+	}
+	c.repoURLMu.RUnlock()
+
+	c.repoURLMu.Lock()
+	defer c.repoURLMu.Unlock()
+	// Double-check after acquiring write lock
 	if c.repoURLCache == nil {
 		c.repoURLCache = make(map[string]Repo, len(c.Repos))
 		for _, repo := range c.Repos {
@@ -1016,7 +1030,9 @@ func (c *Config) Save() error {
 	}
 
 	// Invalidate the repo URL cache since repos may have changed
+	c.repoURLMu.Lock()
 	c.repoURLCache = nil
+	c.repoURLMu.Unlock()
 
 	return nil
 }
