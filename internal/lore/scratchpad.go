@@ -7,8 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// scratchpadMu serializes JSONL mutations to prevent read-then-append race conditions.
+var scratchpadMu sync.Mutex
 
 // Entry represents a single lore scratchpad entry or state-change record.
 type Entry struct {
@@ -130,6 +134,9 @@ func AppendStateChange(path, stateChange, entryTS, proposalID string) error {
 // state-change records for them. The entries_used from the curator contain entry
 // text strings, so we match by text and use the entry's timestamp as the reference.
 func MarkEntriesByText(path string, stateChange string, entryTexts []string, proposalID string) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
 	entries, err := ReadEntries(path, nil)
 	if err != nil {
 		return err
@@ -227,6 +234,9 @@ func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
 // The caller must ensure exclusive access (e.g., single goroutine or file lock).
 // Returns the number of pruned lines and any error encountered.
 func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -247,6 +257,26 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 		return 0, err
 	}
 
+	// Parse each line once, pairing raw text with parsed entry
+	type parsedLine struct {
+		raw   string
+		entry Entry
+		valid bool
+	}
+	var parsed []parsedLine
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {
+			parsed = append(parsed, parsedLine{raw: line, valid: false})
+			continue
+		}
+		parsed = append(parsed, parsedLine{raw: line, entry: e, valid: true})
+	}
+
 	now := time.Now()
 	cutoff := now.Add(-maxAge)
 
@@ -258,15 +288,11 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	}
 	stateMap := make(map[string]stateInfo)
 
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+	for _, pl := range parsed {
+		if !pl.valid {
 			continue
 		}
-		var e Entry
-		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {
-			continue // skip malformed, will keep the line
-		}
+		e := pl.entry
 		if e.StateChange == "applied" || e.StateChange == "dismissed" {
 			if e.EntryTS != "" {
 				// Keep the latest state change for each entry_ts
@@ -296,16 +322,12 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 
 	// Filter lines: keep those not in pruneSet
 	var kept []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue // skip empty lines
-		}
-		var e Entry
-		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {
-			kept = append(kept, line) // keep malformed lines
+	for _, pl := range parsed {
+		if !pl.valid {
+			kept = append(kept, pl.raw) // keep malformed lines
 			continue
 		}
+		e := pl.entry
 
 		// Check if this is a lore entry that should be pruned
 		if e.StateChange == "" {
@@ -324,7 +346,7 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 			}
 		}
 
-		kept = append(kept, line)
+		kept = append(kept, pl.raw)
 	}
 
 	if pruned == 0 {

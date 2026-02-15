@@ -167,6 +167,9 @@ export async function waitForTerminalOutput(
  * Returns the repo path.
  */
 export async function createTestRepo(name: string): Promise<string> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error(`Invalid repo name: ${name}`);
+  }
   const { execSync } = await import('child_process');
   const repoDir = `/tmp/schmux-test-repos/${name}`;
   execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);

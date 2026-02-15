@@ -440,8 +440,7 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to sync to main');
+    await parseErrorResponse(response, 'Failed to sync to main');
   }
   return response.json();
 }
@@ -452,8 +451,7 @@ export async function pushToBranch(workspaceId: string): Promise<LinearSyncRespo
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to push to branch');
+    await parseErrorResponse(response, 'Failed to push to branch');
   }
   return response.json();
 }
@@ -466,8 +464,7 @@ export async function linearSyncResolveConflict(
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok && response.status !== 202) {
-    const err = await response.json();
-    throw new Error(err.message || err.error || 'Failed to start conflict resolution');
+    await parseErrorResponse(response, 'Failed to start conflict resolution');
   }
   return response.json();
 }
@@ -825,13 +822,15 @@ export async function devRebuild(
 // ============================================================================
 
 export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
-  const res = await fetch(`/api/lore/${repoName}/proposals`);
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/proposals`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
-  const res = await fetch(`/api/lore/${repoName}/proposals/${id}`);
+  const res = await fetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}`
+  );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -841,17 +840,23 @@ export async function applyLoreProposal(
   id: string,
   overrides?: Record<string, string>
 ): Promise<LoreApplyResponse> {
-  const res = await fetch(`/api/lore/${repoName}/proposals/${id}/apply`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: overrides ? JSON.stringify({ overrides }) : undefined,
-  });
+  const res = await fetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/apply`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: overrides ? JSON.stringify({ overrides }) : undefined,
+    }
+  );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
-  const res = await fetch(`/api/lore/${repoName}/proposals/${id}/dismiss`, { method: 'POST' });
+  const res = await fetch(
+    `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
+    { method: 'POST' }
+  );
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -865,12 +870,12 @@ export async function getLoreEntries(
   if (filters?.type) params.set('type', filters.type);
   if (filters?.limit) params.set('limit', String(filters.limit));
   const qs = params.toString();
-  const res = await fetch(`/api/lore/${repoName}/entries${qs ? '?' + qs : ''}`);
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function triggerLoreCuration(repoName: string): Promise<void> {
-  const res = await fetch(`/api/lore/${repoName}/curate`, { method: 'POST' });
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
 }

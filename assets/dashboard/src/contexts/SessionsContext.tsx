@@ -24,10 +24,7 @@ type SessionsContextValue = {
   loading: boolean;
   error: string;
   connected: boolean;
-  waitForSession: (
-    sessionId: string,
-    opts?: { timeoutMs?: number; intervalMs?: number }
-  ) => Promise<boolean>;
+  waitForSession: (sessionId: string, opts?: { timeoutMs?: number }) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
   ackSession: (sessionId: string) => void;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
@@ -118,8 +115,14 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
 
   // Keep a ref updated so waitForSession can always read current value
   const sessionsByIdRef = useRef(sessionsById);
+  // Listeners notified whenever sessionsById updates (for event-driven waitForSession)
+  const sessionListenersRef = useRef<Set<() => void>>(new Set());
   useEffect(() => {
     sessionsByIdRef.current = sessionsById;
+    // Notify all waiting listeners that sessions have been updated
+    for (const listener of sessionListenersRef.current) {
+      listener();
+    }
   }, [sessionsById]);
 
   // Clean up preview iframes when previews disappear
@@ -176,25 +179,33 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     setPendingNavigationState(null);
   }, []);
 
-  const waitForSession = useCallback(
-    async (sessionId: string, { timeoutMs = 8000, intervalMs = 500 } = {}) => {
-      if (!sessionId) return false;
-      // Check ref to get current value, not stale closure
-      if (sessionsByIdRef.current[sessionId]) return true;
+  const waitForSession = useCallback(async (sessionId: string, { timeoutMs = 8000 } = {}) => {
+    if (!sessionId) return false;
+    // Check ref to get current value, not stale closure
+    if (sessionsByIdRef.current[sessionId]) return true;
 
-      // With WebSocket, we just need to wait for the next update
-      // The server will broadcast when a session is created
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        // Check if session appeared (state updated via WebSocket)
-        // Read from ref to get current value, not stale closure
-        if (sessionsByIdRef.current[sessionId]) return true;
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      }
-      return false;
-    },
-    []
-  );
+    // Event-driven: resolve when a WebSocket update includes the target session
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const listener = () => {
+        if (sessionsByIdRef.current[sessionId] && !settled) {
+          settled = true;
+          sessionListenersRef.current.delete(listener);
+          resolve(true);
+        }
+      };
+      sessionListenersRef.current.add(listener);
+
+      // Timeout fallback
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          sessionListenersRef.current.delete(listener);
+          resolve(!!sessionsByIdRef.current[sessionId]);
+        }
+      }, timeoutMs);
+    });
+  }, []);
 
   // Acknowledge a session's current nudge_seq so the sound won't replay on reload.
   // Called when the user navigates to a session (views it).

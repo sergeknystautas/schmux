@@ -36,6 +36,16 @@ import (
 //go:embed cookbooks.json
 var cookbooksFS embed.FS
 
+// extractPathSegment extracts a path segment between a prefix and suffix from a URL path.
+// Example: extractPathSegment("/api/workspaces/ws-123/dispose", "/api/workspaces/", "/dispose") returns "ws-123"
+func extractPathSegment(path, prefix, suffix string) string {
+	s := strings.TrimPrefix(path, prefix)
+	if suffix != "" {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	return s
+}
+
 // handleApp serves the React application entry point for UI routes.
 func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
@@ -925,8 +935,7 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract session ID from URL: /api/sessions/{id}/dispose
-	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
-	sessionID := strings.TrimSuffix(path, "/dispose")
+	sessionID := extractPathSegment(r.URL.Path, "/api/sessions/", "/dispose")
 	if sessionID == "" {
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
@@ -973,8 +982,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Extract workspace ID from URL: /api/workspaces/{id}/dispose
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/dispose")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -1019,8 +1027,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Extract workspace ID from URL: /api/workspaces/{id}/dispose-all
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/dispose-all")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose-all")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -3525,8 +3532,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Extract workspace ID: /api/workspaces/{id}/git-graph
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/git-graph")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-graph")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -3622,8 +3628,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/git-commit-stage")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-commit-stage")
 	if workspaceID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -3657,7 +3662,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	for _, file := range req.Files {
 		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
 		cmd.Dir = ws.Path
@@ -3688,8 +3693,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/git-amend")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-amend")
 	if workspaceID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -3737,7 +3741,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	for _, file := range req.Files {
 		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
 		cmd.Dir = ws.Path
@@ -3777,8 +3781,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/git-discard")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-discard")
 	if workspaceID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -3897,8 +3900,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/git-uncommit")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-uncommit")
 	if workspaceID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)

@@ -251,7 +251,8 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 					storedSess, ok := m.state.GetSession(sessionID)
 					if ok {
 						nudgeState := signal.MapStateToNudge(lastSig.State)
-						if storedSess.Nudge != nudgeState {
+						storedNudgeState := extractNudgeState(storedSess.Nudge)
+						if storedNudgeState != nudgeState {
 							signalCb(sessionID, *lastSig)
 						}
 					}
@@ -476,8 +477,6 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					}
 					m.StartRemoteSignalMonitor(current)
 				}
-			case <-ctx.Done():
-				return
 			}
 		}()
 

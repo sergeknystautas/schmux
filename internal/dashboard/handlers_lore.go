@@ -73,7 +73,8 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 
 	proposals, err := s.loreStore.List(repoName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] list proposals error: %v\n", err)
+		http.Error(w, "failed to list proposals", http.StatusInternalServerError)
 		return
 	}
 
@@ -103,7 +104,7 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 
 	proposal, err := s.loreStore.Get(repoName, proposalID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, "proposal not found", http.StatusNotFound)
 		return
 	}
 
@@ -153,6 +154,10 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for k, v := range body.Overrides {
+			if _, exists := proposal.ProposedFiles[k]; !exists {
+				http.Error(w, fmt.Sprintf("override key %q not in original proposal", k), http.StatusBadRequest)
+				return
+			}
 			proposal.ProposedFiles[k] = v
 		}
 	}
@@ -250,12 +255,18 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	// Load the proposal first to get EntriesUsed for marking
 	proposal, err := s.loreStore.Get(repoName, proposalID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, "proposal not found", http.StatusNotFound)
+		return
+	}
+
+	if proposal.Status == "applied" {
+		http.Error(w, "proposal is already applied", http.StatusConflict)
 		return
 	}
 
 	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalDismissed); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] update proposal status error: %v\n", err)
+		http.Error(w, "failed to update proposal status", http.StatusInternalServerError)
 		return
 	}
 
@@ -288,7 +299,8 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 
 	overlayDir, err := workspace.OverlayDir(repoName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] resolve overlay dir error: %v\n", err)
+		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
 		return
 	}
 	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
@@ -310,7 +322,8 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := lore.ReadEntries(lorePath, filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] read entries error: %v\n", err)
+		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
 		return
 	}
 
@@ -361,14 +374,16 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 
 	overlayDir, err := workspace.OverlayDir(repoName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] resolve overlay dir error: %v\n", err)
+		http.Error(w, "failed to resolve overlay directory", http.StatusInternalServerError)
 		return
 	}
 	lorePath := filepath.Join(overlayDir, ".claude", "lore.jsonl")
 
 	proposal, err := s.loreCurator.Curate(r.Context(), repoName, bareDir, lorePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("curation failed: %v", err), http.StatusInternalServerError)
+		fmt.Printf("[lore] curation failed: %v\n", err)
+		http.Error(w, "curation failed", http.StatusInternalServerError)
 		return
 	}
 	if proposal == nil {
@@ -378,7 +393,8 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.loreStore.Save(proposal); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("[lore] save proposal error: %v\n", err)
+		http.Error(w, "failed to save proposal", http.StatusInternalServerError)
 		return
 	}
 

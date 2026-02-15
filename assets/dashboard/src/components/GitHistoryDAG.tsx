@@ -51,7 +51,15 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [commitMessageConfigured, setCommitMessageConfigured] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
+  const prevFingerprintRef = useRef('');
   const [containerHeight, setContainerHeight] = useState(0);
+
+  // Pull workspace data early so all hooks are called before any conditional returns.
+  const { workspaces } = useSessions();
+  const ws = workspaces.find((w) => w.id === workspaceId);
+  const gitFingerprint = ws
+    ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
+    : '';
 
   // Measure container height so we can request the right number of commits
   useEffect(() => {
@@ -127,8 +135,25 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   // Refetch when git state changes via WebSocket session updates.
   // Track the git-relevant fields and refetch when they change.
-  const { workspaces } = useSessions();
-  const ws = workspaces.find((w) => w.id === workspaceId);
+  useEffect(() => {
+    if (gitFingerprint && gitFingerprint !== prevFingerprintRef.current) {
+      prevFingerprintRef.current = gitFingerprint;
+      fetchData();
+    }
+  }, [gitFingerprint, fetchData]);
+
+  const copyHash = useCallback((hash: string) => {
+    navigator.clipboard
+      .writeText(hash)
+      .then(() => {
+        setCopiedHash(hash);
+        setTimeout(() => setCopiedHash(null), 2000);
+      })
+      .catch(() => {
+        // Clipboard API not available (non-HTTPS)
+      });
+  }, []);
+
   if (!ws) {
     return (
       <div className="git-dag" ref={containerRef}>
@@ -138,24 +163,6 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       </div>
     );
   }
-  const gitFingerprint = ws
-    ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
-    : '';
-  const prevFingerprintRef = useRef(gitFingerprint);
-
-  useEffect(() => {
-    if (gitFingerprint && gitFingerprint !== prevFingerprintRef.current) {
-      prevFingerprintRef.current = gitFingerprint;
-      fetchData();
-    }
-  }, [gitFingerprint, fetchData]);
-
-  const copyHash = useCallback((hash: string) => {
-    navigator.clipboard.writeText(hash).then(() => {
-      setCopiedHash(hash);
-      setTimeout(() => setCopiedHash(null), 2000);
-    });
-  }, []);
 
   if (loading || maxCommits <= 0) {
     return (

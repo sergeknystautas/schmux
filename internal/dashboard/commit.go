@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -71,6 +70,7 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req CommitMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -95,14 +95,15 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run git diff HEAD --numstat to get file stats for response (staged + unstaged)
-	ctx := context.Background()
+	ctx := r.Context()
 	numstatCmd := exec.CommandContext(ctx, "git", "diff", "HEAD", "--numstat")
 	numstatCmd.Dir = ws.Path
 	numstatOutput, err := numstatCmd.CombinedOutput()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git diff --numstat failed: %s", string(numstatOutput))})
+		fmt.Printf("[commit-generate] git diff --numstat failed: %s\n", string(numstatOutput))
+		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
 		return
 	}
 	files := parseNumstat(string(numstatOutput))
@@ -114,12 +115,20 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git diff failed: %s", string(diffOutput))})
+		fmt.Printf("[commit-generate] git diff failed: %s\n", string(diffOutput))
+		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
 		return
 	}
 
+	// Cap diff output to prevent unbounded memory usage in prompt
+	const maxDiffSize = 100 * 1024 // 100KB
+	diffStr := string(diffOutput)
+	if len(diffStr) > maxDiffSize {
+		diffStr = diffStr[:maxDiffSize] + "\n\n... (diff truncated)"
+	}
+
 	// Build the prompt
-	prompt := BuildOneshotCommitPrompt(string(diffOutput))
+	prompt := BuildOneshotCommitPrompt(diffStr)
 
 	// Check if commit message target is configured
 	targetName := s.config.GetCommitMessageTarget()

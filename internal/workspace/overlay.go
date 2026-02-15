@@ -150,10 +150,13 @@ func copyFile(src, dst string, mode fs.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	_, copyErr := io.Copy(dstFile, srcFile)
+	closeErr := dstFile.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 // isIgnoredByGit checks if a file path is covered by .gitignore in the given directory.

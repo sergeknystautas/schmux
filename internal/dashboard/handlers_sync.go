@@ -91,8 +91,7 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 // one at a time, preserving local changes. Supports diverged branches.
 func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-from-main
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/linear-sync-from-main")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-from-main")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -190,8 +189,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 // This pushes the current branch's commits directly to main without a merge commit.
 func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-to-main
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/linear-sync-to-main")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-to-main")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -253,8 +251,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 // Fails if the remote branch has commits that the local branch does not have.
 func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from URL: /api/workspaces/{id}/push-to-branch
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/push-to-branch")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/push-to-branch")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -319,8 +316,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 // Returns 202 immediately; progress is streamed via the /ws/dashboard WebSocket.
 // POST /api/workspaces/{id}/linear-sync-resolve-conflict
 func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/linear-sync-resolve-conflict")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-resolve-conflict")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -484,8 +480,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 // handleDeleteLinearSyncResolveConflictState handles DELETE requests to dismiss a completed resolve conflict state.
 // DELETE /api/workspaces/{id}/linear-sync-resolve-conflict-state
 func (s *Server) handleDeleteLinearSyncResolveConflictState(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/linear-sync-resolve-conflict-state")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-resolve-conflict-state")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return

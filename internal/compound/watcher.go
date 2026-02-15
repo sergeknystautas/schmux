@@ -2,6 +2,7 @@ package compound
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,6 +36,7 @@ type Watcher struct {
 	mu       sync.Mutex
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	stopped  bool // set to true on Stop(), checked by debounce callbacks
 }
 
 const suppressionTTL = 5 * time.Second
@@ -77,7 +79,7 @@ func (w *Watcher) AddWorkspace(workspaceID, workspacePath string, manifest map[s
 
 	for dir := range dirsToWatch {
 		if err := w.watcher.Add(dir); err != nil {
-			fmt.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
+			log.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
 			continue
 		}
 		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
@@ -201,6 +203,7 @@ func (w *Watcher) Stop() {
 		close(w.stopCh)
 		w.watcher.Close()
 		w.mu.Lock()
+		w.stopped = true
 		for _, timer := range w.debounceTimers {
 			timer.Stop()
 		}
@@ -229,6 +232,10 @@ func (w *Watcher) eventLoop() {
 					w.retryPendingDirs(event.Name)
 				}
 			}
+			// NOTE: Only Write and Create events are handled. Deletions (Remove/Rename)
+			// are intentionally not propagated — overlay compounding syncs content forward
+			// (new/changed files), not backward (deletions). Deleted overlay files will
+			// remain in other workspaces until manually removed.
 			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
 				w.handleEvent(event)
 			}
@@ -236,7 +243,7 @@ func (w *Watcher) eventLoop() {
 			if !ok {
 				return
 			}
-			fmt.Printf("[compound] watcher error: %v\n", err)
+			log.Printf("[compound] watcher error: %v\n", err)
 		}
 	}
 }
@@ -365,6 +372,12 @@ func (w *Watcher) resetDebounce(workspaceID, relPath string) {
 		timer.Stop()
 	}
 	w.debounceTimers[key] = time.AfterFunc(time.Duration(w.debounceMs)*time.Millisecond, func() {
+		w.mu.Lock()
+		stopped := w.stopped
+		w.mu.Unlock()
+		if stopped {
+			return
+		}
 		w.onChange(workspaceID, relPath)
 	})
 }

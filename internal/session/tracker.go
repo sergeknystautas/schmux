@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -464,4 +465,20 @@ func (t *SessionTracker) waitOrStop(d time.Duration) bool {
 	case <-t.stopCh:
 		return true
 	}
+}
+
+// extractNudgeState parses the state field from a JSON nudge string.
+// The nudge is stored as JSON like {"state":"Completed","summary":"Done","source":"agent"}.
+// If the nudge is empty or not valid JSON, returns the raw string as a fallback.
+func extractNudgeState(nudge string) string {
+	if nudge == "" {
+		return ""
+	}
+	var parsed struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(nudge), &parsed); err != nil {
+		return nudge // if not JSON, treat as raw state string
+	}
+	return parsed.State
 }

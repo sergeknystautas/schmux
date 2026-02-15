@@ -381,6 +381,27 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 		}
 	}
 
+	// Ensure fork point is always included to keep graph connected
+	if forkPoint != "" && !seen[forkPoint] {
+		fpArgs := []string{"log",
+			"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
+			"--max-count=1",
+			forkPoint,
+		}
+		fpCmd := exec.CommandContext(ctx, "git", fpArgs...)
+		fpCmd.Dir = gitDir
+		fpOutput, fpErr := fpCmd.Output()
+		if fpErr == nil {
+			fpNodes := ParseGitLogOutput(string(fpOutput))
+			for _, n := range fpNodes {
+				if !seen[n.Hash] {
+					seen[n.Hash] = true
+					allNodes = append(allNodes, n)
+				}
+			}
+		}
+	}
+
 	return allNodes, nil
 }
 

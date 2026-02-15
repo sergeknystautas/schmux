@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -453,27 +454,34 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		propagator := func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 			// Validate relPath to prevent path traversal
 			if err := compound.ValidateRelPath(relPath); err != nil {
-				fmt.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
+				log.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
 				return
 			}
+
+			// Build index of workspaces by repo to avoid O(W) full scan
+			repoWorkspaces := make(map[string][]state.Workspace)
 			for _, w := range st.GetWorkspaces() {
-				if w.ID == sourceWorkspaceID || w.Repo != repoURL || w.RemoteHostID != "" {
+				if w.RemoteHostID == "" {
+					repoWorkspaces[w.Repo] = append(repoWorkspaces[w.Repo], w)
+				}
+			}
+
+			// Build set of workspace IDs with active sessions to avoid O(S) scan per workspace
+			activeWorkspaces := make(map[string]bool)
+			for _, s := range st.GetSessions() {
+				activeWorkspaces[s.WorkspaceID] = true
+			}
+
+			for _, w := range repoWorkspaces[repoURL] {
+				if w.ID == sourceWorkspaceID {
 					continue
 				}
-				// Only propagate to workspaces with active sessions
-				hasSession := false
-				for _, s := range st.GetSessions() {
-					if s.WorkspaceID == w.ID {
-						hasSession = true
-						break
-					}
-				}
-				if !hasSession {
+				if !activeWorkspaces[w.ID] {
 					continue
 				}
 				destPath := filepath.Join(w.Path, relPath)
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-					fmt.Printf("[compound] failed to create dir for propagation: %v\n", err)
+					log.Printf("[compound] failed to create dir for propagation: %v\n", err)
 					continue
 				}
 				compounder.Suppress(w.ID, relPath)
@@ -483,13 +491,13 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					writeMode = info.Mode().Perm()
 				}
 				if err := os.WriteFile(destPath, content, writeMode); err != nil {
-					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
+					log.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
 					continue
 				}
 				// Update the target workspace's manifest hash (content already in memory)
 				newHash := compound.HashBytes(content)
 				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
-				fmt.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
+				log.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
 			}
 		}
 
@@ -498,7 +506,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
 		})
 		if err != nil {
-			fmt.Printf("[compound] warning: failed to create compounder: %v\n", err)
+			log.Printf("[compound] warning: failed to create compounder: %v\n", err)
 		}
 	}
 
@@ -567,7 +575,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 		}
 		compounder.Start()
-		fmt.Printf("[compound] started overlay compounding loop\n")
+		log.Printf("[compound] started overlay compounding loop\n")
 	}
 	// Lore curation timer — declared at Run() scope so shutdown can clean up
 	var loreCurateTimer *time.Timer
