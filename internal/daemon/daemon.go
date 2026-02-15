@@ -33,6 +33,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -418,6 +419,33 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
+
+	// Create tunnel manager for remote access
+	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
+		Disabled:        cfg.GetRemoteAccessDisabled(),
+		AuthEnabled:     cfg.GetAuthEnabled(),
+		AllowedUsersSet: false, // TODO: wire up when GetAllowedUsers is added to config
+		Port:            cfg.GetPort(),
+		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
+		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),
+		OnStatusChange: func(status tunnel.TunnelStatus) {
+			server.BroadcastTunnelStatus(status)
+			// Send notifications when tunnel comes up
+			if status.State == tunnel.StateConnected && status.URL != "" {
+				ntfyTopic := cfg.GetRemoteAccessNtfyTopic()
+				notifyCmd := cfg.GetRemoteAccessNotifyCommand()
+				nc := tunnel.NotifyConfig{}
+				if ntfyTopic != "" {
+					nc.NtfyURL = "https://ntfy.sh/" + ntfyTopic
+				}
+				nc.Command = notifyCmd
+				if err := nc.Send(status.URL, "schmux remote access"); err != nil {
+					fmt.Printf("[remote-access] notification error: %v\n", err)
+				}
+			}
+		},
+	})
+	server.SetTunnelManager(tunnelMgr)
 
 	// Wire signal detection: file watcher → session manager → dashboard server
 	// MUST happen before tracker creation so trackers capture a non-nil callback.
@@ -913,6 +941,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Shutdown telemetry (flush pending events)
 	tel.Shutdown()
+
+	// Stop tunnel manager
+	tunnelMgr.Stop()
 
 	// Stop git watcher
 	if gitWatcher != nil {
