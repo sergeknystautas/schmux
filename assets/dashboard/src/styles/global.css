@@ -3722,3 +3722,36 @@ body.keyboard-mode-active::after {
     overflow-x: auto;
   }
 }
+
+/* Repo tabs — used by Overlays and Lore pages */
+.repo-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  margin: 0 var(--spacing-lg);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.repo-tab {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.repo-tab:hover {
+  color: var(--color-text);
+}
+
+.repo-tab--active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}

@@ -97,6 +97,11 @@ export default function AppShell() {
     fetchCounts();
   }, [repoNamesKey]);
 
+  const totalLorePending = useMemo(
+    () => Object.values(loreCounts).reduce((sum, n) => sum + n, 0),
+    [loreCounts]
+  );
+
   // Identify which workspaces are dev-eligible (same repo as source)
   const devSourceWorkspace = workspaces?.find((ws) => ws.path === devStatus?.source_workspace);
   const devSourceRepo = devSourceWorkspace?.repo;
@@ -798,52 +803,46 @@ export default function AppShell() {
               </svg>
               <span>Remote Hosts</span>
             </NavLink>
-            {config?.repos?.length > 0 &&
-              config.repos.map((repo) => (
-                <NavLink
-                  key={repo.name}
-                  to={`/overlays/${encodeURIComponent(repo.name)}`}
-                  className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+            {config?.repos?.length > 0 && (
+              <NavLink
+                to="/overlays"
+                className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+              >
+                <svg
+                  className="nav-link__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
                 >
-                  <svg
-                    className="nav-link__icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                    <polyline points="2 17 12 22 22 17"></polyline>
-                    <polyline points="2 12 12 17 22 12"></polyline>
-                  </svg>
-                  <span>{config.repos.length === 1 ? 'Overlays' : `Overlays: ${repo.name}`}</span>
-                </NavLink>
-              ))}
-            {config?.repos?.length > 0 &&
-              config.repos.map((repo) => (
-                <NavLink
-                  key={`lore-${repo.name}`}
-                  to={`/lore/${encodeURIComponent(repo.name)}`}
-                  className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+                <span>Overlays</span>
+              </NavLink>
+            )}
+            {config?.repos?.length > 0 && (
+              <NavLink
+                to="/lore"
+                className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+              >
+                <svg
+                  className="nav-link__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
                 >
-                  <svg
-                    className="nav-link__icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                  </svg>
-                  <span>
-                    {config.repos.length === 1 ? 'Lore' : `Lore: ${repo.name}`}
-                    {(loreCounts[repo.name] || 0) > 0 && (
-                      <span className="nav-badge">{loreCounts[repo.name]}</span>
-                    )}
-                  </span>
-                </NavLink>
-              ))}
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+                <span>
+                  Lore
+                  {totalLorePending > 0 && <span className="nav-badge">{totalLorePending}</span>}
+                </span>
+              </NavLink>
+            )}
           </div>
           {isDevMode && <TypingPerformance />}
         </div>

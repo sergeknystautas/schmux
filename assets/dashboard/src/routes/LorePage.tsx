@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams } from 'react-router-dom';
 import {
   getLoreProposals,
   getLoreEntries,
@@ -8,6 +7,7 @@ import {
   triggerLoreCuration,
   getErrorMessage,
 } from '../lib/api';
+import { useConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
 import type { LoreProposal, LoreEntry } from '../lib/types';
 import styles from '../styles/lore.module.css';
@@ -18,9 +18,11 @@ type SelectedProposal = {
 };
 
 export default function LorePage() {
-  const { repoName } = useParams<{ repoName: string }>();
+  const { config } = useConfig();
+  const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
 
+  const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [proposals, setProposals] = useState<LoreProposal[]>([]);
@@ -46,31 +48,38 @@ export default function LorePage() {
     type?: string;
   }>({});
 
+  // Sync activeRepo when repos list changes (e.g., config loaded after mount)
+  useEffect(() => {
+    if (repos.length > 0 && !repos.find((r) => r.name === activeRepo)) {
+      setActiveRepo(repos[0].name);
+    }
+  }, [repos, activeRepo]);
+
   const loadProposals = useCallback(async () => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     try {
-      const proposalData = await getLoreProposals(repoName);
+      const proposalData = await getLoreProposals(activeRepo);
       setProposals(proposalData.proposals || []);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load lore proposals'));
     }
-  }, [repoName]);
+  }, [activeRepo]);
 
   const loadEntries = useCallback(async () => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     try {
-      const entryData = await getLoreEntries(repoName, entryFilters);
+      const entryData = await getLoreEntries(activeRepo, entryFilters);
       setEntries(entryData.entries || []);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load lore entries'));
     }
-  }, [repoName, entryFilters]);
+  }, [activeRepo, entryFilters]);
 
   // Load all unique agents/types from unfiltered entries (S10 fix)
   const loadFilterOptions = useCallback(async () => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     try {
-      const entryData = await getLoreEntries(repoName);
+      const entryData = await getLoreEntries(activeRepo);
       const agents = new Set<string>();
       const types = new Set<string>();
       for (const e of entryData.entries || []) {
@@ -82,7 +91,7 @@ export default function LorePage() {
     } catch {
       // Filter options are non-critical; silently ignore errors
     }
-  }, [repoName]);
+  }, [activeRepo]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -106,11 +115,22 @@ export default function LorePage() {
     loadEntries();
   }, [entryFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleTabChange = (repoName: string) => {
+    setActiveRepo(repoName);
+    // Reset per-repo UI state
+    setSelected(null);
+    setEditing(false);
+    setEditedFiles({});
+    setShowEntries(false);
+    setEntryFilters({});
+    filtersInitialized.current = false;
+  };
+
   const handleApply = async (proposal: LoreProposal, overrides?: Record<string, string>) => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     setApplying(true);
     try {
-      const result = await applyLoreProposal(repoName, proposal.id, overrides);
+      const result = await applyLoreProposal(activeRepo, proposal.id, overrides);
       toastSuccess(`Applied! Branch: ${result.branch}`);
       setEditing(false);
       setEditedFiles({});
@@ -124,9 +144,9 @@ export default function LorePage() {
   };
 
   const handleDismiss = async (proposal: LoreProposal) => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     try {
-      await dismissLoreProposal(repoName, proposal.id);
+      await dismissLoreProposal(activeRepo, proposal.id);
       toastSuccess('Proposal dismissed');
       loadData();
       setSelected(null);
@@ -136,10 +156,10 @@ export default function LorePage() {
   };
 
   const handleReCurate = async () => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     setCurating(true);
     try {
-      await triggerLoreCuration(repoName);
+      await triggerLoreCuration(activeRepo);
       toastSuccess('Re-curation triggered');
       loadData();
     } catch (err) {
@@ -224,12 +244,27 @@ export default function LorePage() {
   return (
     <div className={styles.container} data-testid="lore-page">
       <div className={styles.header}>
-        <h2>Lore — {repoName}</h2>
+        <h2>Lore</h2>
         <span className={styles.summary}>
           {pendingCount} pending proposal{pendingCount !== 1 ? 's' : ''} · {rawEntries.length} raw
           entries
         </span>
       </div>
+
+      {/* Repo tabs */}
+      {repos.length > 1 && (
+        <div className="repo-tabs">
+          {repos.map((repo) => (
+            <button
+              key={repo.name}
+              className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
+              onClick={() => handleTabChange(repo.name)}
+            >
+              {repo.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Proposals Section */}
       <section className={styles.section}>

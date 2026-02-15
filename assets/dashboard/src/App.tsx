@@ -47,8 +47,8 @@ export default function App() {
                       <Route path="/tips" element={<TipsPage />} />
                       <Route path="/config" element={<ConfigPage />} />
                       <Route path="/settings/remote" element={<RemoteSettingsPage />} />
-                      <Route path="/overlays/:repoName" element={<OverlayPage />} />
-                      <Route path="/lore/:repoName" element={<LorePage />} />
+                      <Route path="/overlays" element={<OverlayPage />} />
+                      <Route path="/lore" element={<LorePage />} />
                       <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>

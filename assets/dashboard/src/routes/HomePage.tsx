@@ -664,7 +664,7 @@ export default function HomePage() {
                 (.claude/settings.json, .claude/settings.local.json) are automatically synced across
                 workspaces.{' '}
                 <Link
-                  to={`/overlays/${encodeURIComponent(o.repo_name)}`}
+                  to="/overlays"
                   style={{ color: 'var(--color-accent)', textDecoration: 'none' }}
                 >
                   Manage overlays &rarr;

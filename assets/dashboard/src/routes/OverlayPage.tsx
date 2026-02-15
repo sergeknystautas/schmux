@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   getOverlays,
   getSessions,
@@ -7,6 +7,7 @@ import {
   addOverlayFiles,
   getErrorMessage,
 } from '../lib/api';
+import { useConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
 import type {
   OverlayInfo,
@@ -31,31 +32,41 @@ type AddFlowState =
   | { step: 'adding' };
 
 export default function OverlayPage() {
-  const { repoName } = useParams<{ repoName: string }>();
+  const { config } = useConfig();
+  const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
 
+  const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [overlay, setOverlay] = useState<OverlayInfo | null>(null);
+  const [allOverlays, setAllOverlays] = useState<OverlayInfo[]>([]);
   const [addFlow, setAddFlow] = useState<AddFlowState>({ step: 'closed' });
 
-  const loadOverlay = useCallback(async () => {
+  // Sync activeRepo when repos list changes (e.g., config loaded after mount)
+  useEffect(() => {
+    if (repos.length > 0 && !repos.find((r) => r.name === activeRepo)) {
+      setActiveRepo(repos[0].name);
+    }
+  }, [repos, activeRepo]);
+
+  const loadOverlays = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
       const data = await getOverlays();
-      const found = data.overlays.find((o) => o.repo_name === repoName) || null;
-      setOverlay(found);
+      setAllOverlays(data.overlays || []);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load overlay info'));
     } finally {
       setLoading(false);
     }
-  }, [repoName]);
+  }, []);
 
   useEffect(() => {
-    loadOverlay();
-  }, [loadOverlay]);
+    loadOverlays();
+  }, [loadOverlays]);
+
+  const overlay = allOverlays.find((o) => o.repo_name === activeRepo) || null;
 
   // Group declared paths by source
   const builtinPaths = overlay?.declared_paths.filter((p) => p.source === 'builtin') || [];
@@ -66,13 +77,14 @@ export default function OverlayPage() {
   const handleStartAdd = async () => {
     try {
       const sessions = await getSessions();
-      const workspaces = sessions.filter((ws) => ws.repo_name === repoName || ws.repo === repoName);
+      const workspaces = sessions.filter(
+        (ws) => ws.repo_name === activeRepo || ws.repo === activeRepo
+      );
       if (workspaces.length === 0) {
         toastError('No workspaces found for this repo. Spawn a workspace first.');
         return;
       }
       if (workspaces.length === 1) {
-        // Skip picker — go straight to scan
         handleScan(workspaces[0].id);
       } else {
         setAddFlow({ step: 'pick-workspace', workspaces });
@@ -83,10 +95,10 @@ export default function OverlayPage() {
   };
 
   const handleScan = async (workspaceId: string) => {
-    if (!repoName) return;
+    if (!activeRepo) return;
     setAddFlow({ step: 'scanning' });
     try {
-      const result = await scanOverlayFiles(workspaceId, repoName);
+      const result = await scanOverlayFiles(workspaceId, activeRepo);
       const selected = new Set<string>(
         result.candidates.filter((c) => c.detected).map((c) => c.path)
       );
@@ -144,7 +156,7 @@ export default function OverlayPage() {
   };
 
   const handleConfirmAdd = async () => {
-    if (addFlow.step !== 'results' || !repoName) return;
+    if (addFlow.step !== 'results' || !activeRepo) return;
     const paths = Array.from(addFlow.selected);
     const customPaths = addFlow.customPaths;
     if (paths.length === 0 && customPaths.length === 0) {
@@ -153,7 +165,7 @@ export default function OverlayPage() {
     }
     const req: OverlayAddRequest = {
       workspace_id: addFlow.workspaceId,
-      repo_name: repoName,
+      repo_name: activeRepo,
       paths,
       custom_paths: customPaths,
     };
@@ -165,7 +177,7 @@ export default function OverlayPage() {
         toastSuccess(`Added ${count} overlay file${count !== 1 ? 's' : ''}`);
       }
       setAddFlow({ step: 'closed' });
-      loadOverlay();
+      loadOverlays();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to add overlay files'));
       setAddFlow({ step: 'closed' });
@@ -173,6 +185,11 @@ export default function OverlayPage() {
   };
 
   const handleCancelAdd = () => {
+    setAddFlow({ step: 'closed' });
+  };
+
+  const handleTabChange = (repoName: string) => {
+    setActiveRepo(repoName);
     setAddFlow({ step: 'closed' });
   };
 
@@ -193,7 +210,7 @@ export default function OverlayPage() {
         <div className="empty-state__icon">!</div>
         <h3 className="empty-state__title">Error</h3>
         <p className="empty-state__description">{error}</p>
-        <button className="btn btn--primary" onClick={loadOverlay}>
+        <button className="btn btn--primary" onClick={loadOverlays}>
           Retry
         </button>
       </div>
@@ -204,7 +221,7 @@ export default function OverlayPage() {
     <>
       <div className="app-header">
         <div className="app-header__info">
-          <h1 className="app-header__meta">Overlay Files{repoName ? ` \u2014 ${repoName}` : ''}</h1>
+          <h1 className="app-header__meta">Overlay Files</h1>
         </div>
         <div className="app-header__actions">
           <Link to="/" className="btn">
@@ -212,6 +229,21 @@ export default function OverlayPage() {
           </Link>
         </div>
       </div>
+
+      {/* Repo tabs */}
+      {repos.length > 1 && (
+        <div className="repo-tabs">
+          {repos.map((repo) => (
+            <button
+              key={repo.name}
+              className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
+              onClick={() => handleTabChange(repo.name)}
+            >
+              {repo.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="spawn-content">
         {/* Description */}
