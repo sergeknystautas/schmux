@@ -55,6 +55,11 @@ export default defineConfig({
     strictPort: true, // Fail if port is already in use
     cors: true, // Allow the Go proxy to connect
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts',
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
