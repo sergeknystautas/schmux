@@ -124,7 +124,7 @@ export default function AppShell() {
     const result: Record<string, any> = {};
     for (const ws of workspaces) {
       for (const sess of ws.sessions || []) {
-        result[sess.id] = sess;
+        result[sess.id] = { ...sess, workspace_id: ws.id };
       }
     }
     return result;
