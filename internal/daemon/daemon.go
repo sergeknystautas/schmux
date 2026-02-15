@@ -387,6 +387,35 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		server.HandleAgentSignal(sessionID, sig)
 	})
 
+	// Wire terminal capture callback: on session dispose, capture scrollback for lore mining
+	if cfg.GetLoreEnabled() {
+		sm.SetTerminalCaptureCallback(func(sessionID, workspaceID, terminalOutput string) {
+			ws, found := st.GetWorkspace(workspaceID)
+			if !found || ws.RemoteHostID != "" {
+				return
+			}
+
+			cleaned := processTerminalCapture(terminalOutput)
+			if cleaned == "" {
+				return
+			}
+
+			lorePath := filepath.Join(ws.Path, ".schmux", "lore.jsonl")
+			entry := lore.Entry{
+				Timestamp: time.Now().UTC(),
+				Workspace: workspaceID,
+				Agent:     "schmux",
+				Type:      "terminal-capture",
+				Text:      cleaned,
+			}
+			if err := lore.AppendEntry(lorePath, entry); err != nil {
+				fmt.Printf("[lore] warning: failed to append terminal capture for %s: %v\n", sessionID, err)
+			} else {
+				fmt.Printf("[lore] captured terminal output for session %s (%d chars)\n", sessionID, len(cleaned))
+			}
+		})
+	}
+
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
 		timeoutCtx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
@@ -859,6 +888,22 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		return ErrDevRestart
 	}
 	return nil
+}
+
+// maxTerminalCaptureLen is the maximum number of characters to keep from terminal output.
+const maxTerminalCaptureLen = 5000
+
+// processTerminalCapture strips ANSI escape sequences, truncates to the last
+// maxTerminalCaptureLen characters, and returns empty string if only whitespace remains.
+func processTerminalCapture(raw string) string {
+	cleaned := tmux.StripAnsi(raw)
+	if len(cleaned) > maxTerminalCaptureLen {
+		cleaned = cleaned[len(cleaned)-maxTerminalCaptureLen:]
+	}
+	if strings.TrimSpace(cleaned) == "" {
+		return ""
+	}
+	return cleaned
 }
 
 // Shutdown triggers a graceful shutdown. Safe to call multiple times.

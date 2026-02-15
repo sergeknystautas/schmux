@@ -138,3 +138,85 @@ func TestValidateReadyToRun_MissingTmux(t *testing.T) {
 		t.Errorf("Expected error containing %q, got %q", expectedMsg, err)
 	}
 }
+
+func TestProcessTerminalCapture(t *testing.T) {
+	t.Run("strips ANSI and returns plain text", func(t *testing.T) {
+		// ESC[32m = green, ESC[0m = reset
+		raw := "\x1b[32mHello\x1b[0m world"
+		got := processTerminalCapture(raw)
+		if got != "Hello world" {
+			t.Errorf("got %q, want %q", got, "Hello world")
+		}
+	})
+
+	t.Run("truncates to last 5000 chars", func(t *testing.T) {
+		// Build a string longer than maxTerminalCaptureLen
+		long := strings.Repeat("x", 8000)
+		got := processTerminalCapture(long)
+		if len(got) != maxTerminalCaptureLen {
+			t.Errorf("got len %d, want %d", len(got), maxTerminalCaptureLen)
+		}
+		// Should keep the LAST 5000 chars (all 'x')
+		if got != strings.Repeat("x", maxTerminalCaptureLen) {
+			t.Error("should keep the last 5000 characters")
+		}
+	})
+
+	t.Run("truncates after stripping ANSI", func(t *testing.T) {
+		// ANSI bloated string: the raw string is long but cleaned is short
+		ansiPadding := strings.Repeat("\x1b[31m\x1b[0m", 2000) // lots of ANSI, no visible text
+		plainTail := "visible content here"
+		raw := ansiPadding + plainTail
+		got := processTerminalCapture(raw)
+		if got != plainTail {
+			t.Errorf("got %q, want %q", got, plainTail)
+		}
+	})
+
+	t.Run("returns empty for whitespace-only content", func(t *testing.T) {
+		got := processTerminalCapture("   \n\t\n  ")
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns empty for ANSI-only content", func(t *testing.T) {
+		got := processTerminalCapture("\x1b[32m\x1b[0m\x1b[1m")
+		if got != "" {
+			t.Errorf("got %q, want empty string for ANSI-only input", got)
+		}
+	})
+
+	t.Run("returns empty for empty input", func(t *testing.T) {
+		got := processTerminalCapture("")
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("preserves content under limit", func(t *testing.T) {
+		input := "short output"
+		got := processTerminalCapture(input)
+		if got != input {
+			t.Errorf("got %q, want %q", got, input)
+		}
+	})
+
+	t.Run("exactly at limit is not truncated", func(t *testing.T) {
+		input := strings.Repeat("a", maxTerminalCaptureLen)
+		got := processTerminalCapture(input)
+		if len(got) != maxTerminalCaptureLen {
+			t.Errorf("got len %d, want %d", len(got), maxTerminalCaptureLen)
+		}
+	})
+
+	t.Run("truncation keeps tail not head", func(t *testing.T) {
+		// First 3000 chars are 'a', last 5000 chars are 'b', total 8000
+		head := strings.Repeat("a", 3000)
+		tail := strings.Repeat("b", 5000)
+		got := processTerminalCapture(head + tail)
+		if got != tail {
+			t.Error("truncation should keep the tail (last 5000 chars), not the head")
+		}
+	})
+}

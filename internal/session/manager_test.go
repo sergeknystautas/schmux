@@ -3,9 +3,12 @@ package session
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -727,4 +730,259 @@ func TestGetTrackerAndEnsureTracker(t *testing.T) {
 		// Explicit cleanup so background goroutine does not leak in tests.
 		m.stopTracker(sess.ID)
 	})
+}
+
+func TestKillProcessGroupGraceful(t *testing.T) {
+	t.Run("exits quickly when process handles SIGTERM", func(t *testing.T) {
+		// Start a process that exits cleanly on SIGTERM (default behavior of sleep)
+		cmd := exec.Command("sleep", "60")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start process: %v", err)
+		}
+		pid := cmd.Process.Pid
+
+		// Wait in background so the process doesn't become a zombie
+		done := make(chan struct{})
+		go func() { cmd.Wait(); close(done) }()
+
+		start := time.Now()
+		err := killProcessGroupGraceful(context.Background(), pid, 30*time.Second)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Errorf("killProcessGroupGraceful() error = %v", err)
+		}
+
+		// Should exit well before the 30s timeout since sleep handles SIGTERM
+		if elapsed > 5*time.Second {
+			t.Errorf("took too long: %v (expected < 5s)", elapsed)
+		}
+
+		// Wait for process to fully exit (avoids zombie)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("process did not exit within 2s after kill")
+		}
+	})
+
+	t.Run("escalates to SIGKILL on timeout", func(t *testing.T) {
+		// Start a process that traps and ignores SIGTERM
+		cmd := exec.Command("bash", "-c", "trap '' TERM; sleep 60")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start process: %v", err)
+		}
+		pid := cmd.Process.Pid
+
+		// Wait in background so the process doesn't become a zombie
+		done := make(chan struct{})
+		go func() { cmd.Wait(); close(done) }()
+
+		// Give the trap a moment to be installed
+		time.Sleep(200 * time.Millisecond)
+
+		start := time.Now()
+		err := killProcessGroupGraceful(context.Background(), pid, 500*time.Millisecond)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Errorf("killProcessGroupGraceful() error = %v", err)
+		}
+
+		// Should take roughly the timeout duration (500ms)
+		if elapsed < 400*time.Millisecond {
+			t.Errorf("returned too quickly: %v (expected ~500ms for timeout)", elapsed)
+		}
+		if elapsed > 5*time.Second {
+			t.Errorf("took too long: %v (expected ~500ms)", elapsed)
+		}
+
+		// Wait for process to fully exit after SIGKILL
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("process did not exit within 2s after SIGKILL")
+		}
+	})
+
+	t.Run("handles already-dead process", func(t *testing.T) {
+		// Use a PID that doesn't exist
+		err := killProcessGroupGraceful(context.Background(), 999999999, 1*time.Second)
+		if err != nil {
+			t.Errorf("killProcessGroupGraceful() error = %v, expected nil for dead process", err)
+		}
+	})
+
+	t.Run("force-kills on context cancellation", func(t *testing.T) {
+		// Start a process that traps and ignores SIGTERM
+		cmd := exec.Command("bash", "-c", "trap '' TERM; sleep 60")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("failed to start process: %v", err)
+		}
+		pid := cmd.Process.Pid
+
+		// Wait in background so the process doesn't become a zombie
+		done := make(chan struct{})
+		go func() { cmd.Wait(); close(done) }()
+
+		// Give the trap a moment to be installed
+		time.Sleep(200 * time.Millisecond)
+
+		// Cancel context after 300ms
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		err := killProcessGroupGraceful(ctx, pid, 30*time.Second)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Errorf("killProcessGroupGraceful() error = %v", err)
+		}
+
+		// Should respect context cancellation, not wait for the 30s timeout
+		if elapsed > 5*time.Second {
+			t.Errorf("did not respect context cancellation: %v", elapsed)
+		}
+
+		// Wait for process to fully exit after force kill
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("process did not exit within 2s after context-cancelled kill")
+		}
+	})
+}
+
+func TestSetTerminalCaptureCallback(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("")
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath)
+
+	m := New(cfg, st, statePath, wm)
+
+	var capturedSessionID, capturedWorkspaceID, capturedOutput string
+	m.SetTerminalCaptureCallback(func(sessionID, workspaceID, output string) {
+		capturedSessionID = sessionID
+		capturedWorkspaceID = workspaceID
+		capturedOutput = output
+	})
+
+	// Verify callback is set
+	if m.terminalCaptureCallback == nil {
+		t.Fatal("terminalCaptureCallback should not be nil")
+	}
+
+	// Invoke it
+	m.terminalCaptureCallback("s1", "w1", "hello world")
+	if capturedSessionID != "s1" || capturedWorkspaceID != "w1" || capturedOutput != "hello world" {
+		t.Errorf("callback received wrong values: %q, %q, %q", capturedSessionID, capturedWorkspaceID, capturedOutput)
+	}
+}
+
+func TestKillProcessGroupGraceful_ProcessSelfExits(t *testing.T) {
+	// Start a process that exits on its own after 200ms (not via our signal)
+	cmd := exec.Command("bash", "-c", "sleep 0.2")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+	pid := cmd.Process.Pid
+
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+
+	// Use a long timeout — the function should return as soon as the process
+	// self-exits, not wait for the full timeout
+	start := time.Now()
+	err := killProcessGroupGraceful(context.Background(), pid, 30*time.Second)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("killProcessGroupGraceful() error = %v", err)
+	}
+
+	// Should return within ~1s (process self-exits at 200ms, poll interval 100ms)
+	if elapsed > 2*time.Second {
+		t.Errorf("should detect self-exit quickly, took %v", elapsed)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("process did not fully exit")
+	}
+}
+
+func TestKillProcessGroupGraceful_DirectPIDFallback(t *testing.T) {
+	// Start a child process WITHOUT its own process group (Setpgid: false).
+	// The process group kill (-pid) will fail because the child shares
+	// our process group, and we can't send SIGTERM to ourselves.
+	// So the function should fall back to direct PID kill.
+	cmd := exec.Command("sleep", "60")
+	// Intentionally NOT setting Setpgid: true
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+	pid := cmd.Process.Pid
+
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+
+	start := time.Now()
+	err := killProcessGroupGraceful(context.Background(), pid, 5*time.Second)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("killProcessGroupGraceful() error = %v", err)
+	}
+
+	// Should exit quickly via direct-PID fallback (sleep handles SIGTERM)
+	if elapsed > 3*time.Second {
+		t.Errorf("direct-PID fallback took too long: %v", elapsed)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("process did not exit after direct-PID kill")
+	}
+}
+
+func TestKillProcessGroupGraceful_ZeroTimeout(t *testing.T) {
+	// A zero timeout should immediately escalate to SIGKILL
+	cmd := exec.Command("bash", "-c", "trap '' TERM; sleep 60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+	pid := cmd.Process.Pid
+
+	done := make(chan struct{})
+	go func() { cmd.Wait(); close(done) }()
+
+	time.Sleep(200 * time.Millisecond) // let trap install
+
+	start := time.Now()
+	err := killProcessGroupGraceful(context.Background(), pid, 0)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("killProcessGroupGraceful() error = %v", err)
+	}
+
+	// With zero timeout, should return almost immediately
+	if elapsed > 2*time.Second {
+		t.Errorf("zero timeout took too long: %v", elapsed)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("process did not exit after zero-timeout SIGKILL")
+	}
 }

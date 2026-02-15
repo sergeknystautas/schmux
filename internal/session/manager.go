@@ -30,23 +30,27 @@ const (
 	// before falling back to a UUID suffix.
 	maxNicknameAttempts = 100
 
-	// processKillGracePeriod is how long to wait for SIGTERM before SIGKILL
-	processKillGracePeriod = 100 * time.Millisecond
+	// processKillPollInterval is how often to check if a process has exited after SIGTERM
+	processKillPollInterval = 100 * time.Millisecond
+
+	// orphanGracePeriod is the grace period for orphaned processes (shorter than main)
+	orphanGracePeriod = 5 * time.Second
 )
 
 // Manager manages sessions.
 type Manager struct {
-	config           *config.Config
-	state            state.StateStore
-	workspace        workspace.WorkspaceManager
-	remoteManager    *remote.Manager // Optional, for remote sessions
-	signalCallback   func(sessionID string, sig signal.Signal)
-	outputCallback   func(sessionID string, chunk []byte)
-	trackers         map[string]*SessionTracker
-	remoteDetectors  map[string]*remoteSignalMonitor // signal detectors for remote sessions
-	mu               sync.RWMutex
-	compoundCallback func(workspaceID string, isSpawn bool) // notify compounder on session spawn/dispose
-	loreCallback     func(repoName, repoURL string)         // notify lore curator on session dispose
+	config                  *config.Config
+	state                   state.StateStore
+	workspace               workspace.WorkspaceManager
+	remoteManager           *remote.Manager // Optional, for remote sessions
+	signalCallback          func(sessionID string, sig signal.Signal)
+	outputCallback          func(sessionID string, chunk []byte)
+	terminalCaptureCallback func(sessionID, workspaceID, terminalOutput string) // called on dispose with terminal scrollback
+	trackers                map[string]*SessionTracker
+	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
+	mu                      sync.RWMutex
+	compoundCallback        func(workspaceID string, isSpawn bool) // notify compounder on session spawn/dispose
+	loreCallback            func(repoName, repoURL string)         // notify lore curator on session dispose
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -113,6 +117,13 @@ func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool))
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string)) {
 	m.loreCallback = cb
+}
+
+// SetTerminalCaptureCallback sets the callback for capturing terminal output on session dispose.
+// The callback receives the session ID, workspace ID, and the captured terminal scrollback.
+// Must be called before Start() — not safe for concurrent use.
+func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, terminalOutput string)) {
+	m.terminalCaptureCallback = cb
 }
 
 // StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
@@ -1021,52 +1032,63 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	return true
 }
 
-// killProcessGroup kills a process and its entire process group.
-// On Unix, a negative PID to syscall.Kill signals the entire process group.
-func killProcessGroup(pid int) error {
-	// First try to kill the process group (negative PID)
-	// Use syscall.Kill directly since os.FindProcess doesn't handle negative PIDs correctly
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err == nil {
-		// Successfully sent SIGTERM to process group
-		// Wait for graceful shutdown
-		time.Sleep(processKillGracePeriod)
+// killProcessGroupGraceful sends SIGTERM to a process group and polls until the
+// process exits or the timeout expires, then escalates to SIGKILL.
+// Respects context cancellation (force-kills immediately on cancel).
+func killProcessGroupGraceful(ctx context.Context, pid int, timeout time.Duration) error {
+	// Try process group first (negative PID)
+	pgKill := func(sig syscall.Signal) error {
+		return syscall.Kill(-pid, sig)
+	}
+	pgAlive := func() bool {
+		return syscall.Kill(-pid, syscall.Signal(0)) == nil
+	}
 
-		// Check if process group is still alive and force kill if needed
-		if err := syscall.Kill(-pid, syscall.Signal(0)); err == nil {
-			// Process group still exists, send SIGKILL
-			if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
-				// Log but don't fail - process may have exited
-				fmt.Printf("[session] warning: failed to send SIGKILL to process group %d: %v\n", -pid, err)
+	// If process group doesn't exist, fall back to direct PID
+	if err := pgKill(syscall.SIGTERM); err != nil {
+		// Check if direct process exists
+		if syscall.Kill(pid, syscall.Signal(0)) != nil {
+			return nil // Process doesn't exist, nothing to do
+		}
+		// Fall back to direct PID
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			return nil // Process already dead
+		}
+		pgKill = func(sig syscall.Signal) error {
+			return syscall.Kill(pid, sig)
+		}
+		pgAlive = func() bool {
+			return syscall.Kill(pid, syscall.Signal(0)) == nil
+		}
+	}
+
+	// Poll until process exits or timeout
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(processKillPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Context cancelled — force kill immediately
+			if pgAlive() {
+				pgKill(syscall.SIGKILL) //nolint:errcheck
+			}
+			return nil
+		case <-deadline:
+			// Timeout — escalate to SIGKILL
+			if pgAlive() {
+				if err := pgKill(syscall.SIGKILL); err != nil {
+					fmt.Printf("[session] warning: failed to send SIGKILL to process %d: %v\n", pid, err)
+				}
+			}
+			return nil
+		case <-ticker.C:
+			if !pgAlive() {
+				return nil // Process exited cleanly
 			}
 		}
-		return nil
 	}
-
-	// Fallback: process group may not exist, try killing the process directly
-	// Check if process exists first
-	if err := syscall.Kill(pid, syscall.Signal(0)); err != nil {
-		// Process doesn't exist, nothing to do
-		return nil
-	}
-
-	// Send SIGTERM for graceful shutdown
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		// Process may already be dead, which is fine
-		return nil
-	}
-
-	// Wait for graceful shutdown
-	time.Sleep(processKillGracePeriod)
-
-	// Force kill if still running
-	if err := syscall.Kill(pid, syscall.Signal(0)); err == nil {
-		// Process still exists, send SIGKILL
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-			fmt.Printf("[session] warning: failed to send SIGKILL to process %d: %v\n", pid, err)
-		}
-	}
-
-	return nil
 }
 
 // findProcessesInWorkspace finds all processes with a working directory in the given workspace path.
@@ -1128,12 +1150,14 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	orphanKilled := 0
 	tmuxKilled := false
 
+	gracePeriod := m.config.DisposeGracePeriod()
+
 	// Get the workspace for process cleanup fallback
 	ws, found := m.workspace.GetByID(sess.WorkspaceID)
 	if found {
-		// Step 1: Kill the tracked process group (if we have a PID)
+		// Step 1: Kill the tracked process group gracefully (wait for agent to exit)
 		if sess.Pid > 0 {
-			if err := killProcessGroup(sess.Pid); err != nil {
+			if err := killProcessGroupGraceful(ctx, sess.Pid, gracePeriod); err != nil {
 				warnings = append(warnings, fmt.Sprintf("failed to kill process group %d: %v", sess.Pid, err))
 			} else {
 				processesKilled = 1
@@ -1154,7 +1178,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 				if sess.Pid > 0 && pid == sess.Pid {
 					continue
 				}
-				if err := killProcessGroup(pid); err != nil {
+				if err := killProcessGroupGraceful(ctx, pid, orphanGracePeriod); err != nil {
 					warnings = append(warnings, fmt.Sprintf("failed to kill orphaned process %d: %v", pid, err))
 				} else {
 					orphanKilled++
@@ -1163,7 +1187,19 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	// Step 3: Kill tmux session (ignore error if already gone - that's success)
+	// Step 3: Capture terminal output (tmux pane is still alive after process exit)
+	if m.terminalCaptureCallback != nil && ctx.Err() == nil {
+		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
+		output, err := tmux.CaptureOutput(captureCtx, sess.TmuxSession)
+		captureCancel()
+		if err != nil {
+			fmt.Printf("[session] warning: failed to capture terminal output for %s: %v\n", sessionID, err)
+		} else if output != "" {
+			m.terminalCaptureCallback(sessionID, sess.WorkspaceID, output)
+		}
+	}
+
+	// Step 4: Kill tmux session (ignore error if already gone - that's success)
 	if err := tmux.KillSession(ctx, sess.TmuxSession); err == nil {
 		tmuxKilled = true
 	}

@@ -310,6 +310,17 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				},
 			},
 		},
+		"SessionEnd": {
+			{
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       signalCommand("completed"),
+						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
 		"UserPromptSubmit": {
 			{
 				Hooks: []claudeHookHandler{
