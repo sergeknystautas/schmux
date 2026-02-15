@@ -15,8 +15,8 @@ const (
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
-// The jsonSchema parameter is optional; if provided, it should be a JSON schema
-// for structured output. For Claude, this is inline JSON; for Codex, a file path.
+// The jsonSchema parameter is required for oneshot mode (structured output);
+// it is ignored for interactive and resume modes.
 // The model parameter is optional; if provided, it will be used to inject model-specific flags.
 func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSchema string, model *Model) ([]string, error) {
 	parts := strings.Fields(detectedCommand)

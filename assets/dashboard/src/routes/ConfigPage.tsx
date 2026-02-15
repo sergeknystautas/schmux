@@ -62,6 +62,7 @@ type ConfigSnapshot = {
   branchSuggestTarget: string;
   conflictResolveTarget: string;
   prReviewTarget: string;
+  commitMessageTarget: string;
   terminalWidth: string;
   terminalHeight: string;
   terminalSeedLines: string;
@@ -159,6 +160,7 @@ export default function ConfigPage() {
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
   const [conflictResolveTarget, setConflictResolveTarget] = useState('');
   const [prReviewTarget, setPrReviewTarget] = useState('');
+  const [commitMessageTarget, setCommitMessageTarget] = useState('');
 
   // External diff new item state
   const [newDiffName, setNewDiffName] = useState('');
@@ -222,6 +224,7 @@ export default function ConfigPage() {
       branchSuggestTarget,
       conflictResolveTarget,
       prReviewTarget,
+      commitMessageTarget,
       terminalWidth,
       terminalHeight,
       terminalSeedLines,
@@ -267,6 +270,7 @@ export default function ConfigPage() {
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
       current.prReviewTarget !== originalConfig.prReviewTarget ||
+      current.commitMessageTarget !== originalConfig.commitMessageTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
       current.terminalHeight !== originalConfig.terminalHeight ||
       current.terminalSeedLines !== originalConfig.terminalSeedLines ||
@@ -381,6 +385,7 @@ export default function ConfigPage() {
         setBranchSuggestTarget(data.branch_suggest?.target || '');
         setConflictResolveTarget(data.conflict_resolve?.target || '');
         setPrReviewTarget(data.pr_review?.target || '');
+        setCommitMessageTarget(data.commit_message?.target || '');
 
         setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
@@ -425,6 +430,7 @@ export default function ConfigPage() {
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
             prReviewTarget: data.pr_review?.target || '',
+            commitMessageTarget: data.commit_message?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
             terminalHeight: String(data.terminal?.height || 40),
             terminalSeedLines: String(data.terminal?.seed_lines || 100),
@@ -616,6 +622,9 @@ export default function ConfigPage() {
         pr_review: {
           target: prReviewTarget || '',
         },
+        commit_message: {
+          target: commitMessageTarget || '',
+        },
         sessions: {
           dashboard_poll_interval_ms: dashboardPollInterval,
           git_status_poll_interval_ms: gitStatusPollInterval,
@@ -674,6 +683,7 @@ export default function ConfigPage() {
           branchSuggestTarget,
           conflictResolveTarget,
           prReviewTarget,
+          commitMessageTarget,
           terminalWidth,
           terminalHeight,
           terminalSeedLines,
@@ -814,7 +824,18 @@ export default function ConfigPage() {
     const inPrReview =
       prReviewTarget &&
       (prReviewTarget === canonicalName || modelAliases[prReviewTarget] === canonicalName);
-    return { inQuickLaunch, inNudgenik, inBranchSuggest, inConflictResolve, inPrReview };
+    const inCommitMessage =
+      commitMessageTarget &&
+      (commitMessageTarget === canonicalName ||
+        modelAliases[commitMessageTarget] === canonicalName);
+    return {
+      inQuickLaunch,
+      inNudgenik,
+      inBranchSuggest,
+      inConflictResolve,
+      inPrReview,
+      inCommitMessage,
+    };
   };
 
   const removePromptableTarget = async (name) => {
@@ -824,7 +845,8 @@ export default function ConfigPage() {
       usage.inNudgenik ||
       usage.inBranchSuggest ||
       usage.inConflictResolve ||
-      usage.inPrReview
+      usage.inPrReview ||
+      usage.inCommitMessage
     ) {
       const reasons = [
         usage.inQuickLaunch ? 'quick launch item' : null,
@@ -832,6 +854,7 @@ export default function ConfigPage() {
         usage.inBranchSuggest ? 'branch suggest target' : null,
         usage.inConflictResolve ? 'conflict resolve target' : null,
         usage.inPrReview ? 'PR review target' : null,
+        usage.inCommitMessage ? 'commit message target' : null,
       ]
         .filter(Boolean)
         .join(' and ');
@@ -1158,6 +1181,8 @@ export default function ConfigPage() {
     conflictResolveTarget.trim() !== '' && !promptableTargetNames.has(conflictResolveTarget.trim());
   const prReviewTargetMissing =
     prReviewTarget.trim() !== '' && !promptableTargetNames.has(prReviewTarget.trim());
+  const commitMessageTargetMissing =
+    commitMessageTarget.trim() !== '' && !promptableTargetNames.has(commitMessageTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
   const getTabForStep = (step) => step;
@@ -1912,6 +1937,56 @@ export default function ConfigPage() {
               <p className="wizard-step-content__description">
                 Configure targets and tools used during code review workflows.
               </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Commit Message</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={commitMessageTarget}
+                      onChange={(e) => setCommitMessageTarget(e.target.value)}
+                    >
+                      <option value="">Disabled</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Select a promptable target for generating commit messages from the Git History
+                      DAG.
+                    </p>
+                    {commitMessageTargetMissing && (
+                      <p className="form-group__error">
+                        Selected target is not available or not promptable.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">

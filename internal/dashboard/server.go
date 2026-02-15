@@ -283,6 +283,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
 	mux.HandleFunc("/api/models/", s.withCORS(s.withAuth(s.handleModel)))
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
+	mux.HandleFunc("/api/commit/prompt", s.withCORS(s.withAuth(s.handleCommitPrompt)))
+	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuth(s.handleCommitGenerate)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
 	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
 	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))

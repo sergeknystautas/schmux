@@ -141,12 +141,18 @@ type ConfigResponse struct {
 	Network                    Network               `json:"network"`
 	AccessControl              AccessControl         `json:"access_control"`
 	PrReview                   PrReview              `json:"pr_review"`
+	CommitMessage              CommitMessage         `json:"commit_message"`
 	Notifications              Notifications         `json:"notifications"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
 // PrReview represents PR review configuration in the API response.
 type PrReview struct {
+	Target string `json:"target"`
+}
+
+// CommitMessage represents commit message generation configuration.
+type CommitMessage struct {
 	Target string `json:"target"`
 }
 
@@ -238,12 +244,18 @@ type ConfigUpdateRequest struct {
 	Network                    *NetworkUpdate         `json:"network,omitempty"`
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
+	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
 
 // PrReviewUpdate represents partial PR review config updates.
 type PrReviewUpdate struct {
+	Target *string `json:"target,omitempty"`
+}
+
+// CommitMessageUpdate represents partial commit message config updates.
+type CommitMessageUpdate struct {
 	Target *string `json:"target,omitempty"`
 }
 

@@ -28,7 +28,7 @@ const (
 
 // Execute runs the given agent command in one-shot (non-interactive) mode with the provided prompt.
 // The agentCommand should be the detected binary path (e.g., "claude", "/home/user/.local/bin/claude").
-// The schemaLabel parameter is optional; if provided, it should be a known schema label from this package.
+// The schemaLabel parameter is required; must be a registered schema label for structured output.
 // The model parameter is optional; if provided, it will be used to inject model-specific flags.
 // Returns the parsed response string from the agent.
 func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel string, env map[string]string, dir string, model *detect.Model) (string, error) {
@@ -41,6 +41,9 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 	}
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if schemaLabel == "" {
+		return "", fmt.Errorf("schema label cannot be empty")
 	}
 
 	// Resolve schema label to a file path, then read inline for Claude
@@ -129,10 +132,13 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 // It resolves models, loads secrets, and merges env vars automatically.
 // This is the preferred way to execute oneshot commands for promptable targets.
 // The timeout parameter controls how long to wait for the one-shot execution to complete.
-// The schemaLabel parameter is optional; if provided, it should be a known schema label.
+// The schemaLabel parameter is required; must be a registered schema label for structured output.
 func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if schemaLabel == "" {
+		return "", fmt.Errorf("schema label cannot be empty")
 	}
 
 	target, err := resolveTarget(cfg, targetName)

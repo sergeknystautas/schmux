@@ -1266,6 +1266,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		PrReview: contracts.PrReview{
 			Target: s.config.GetPrReviewTarget(),
 		},
+		CommitMessage: contracts.CommitMessage{
+			Target: s.config.GetCommitMessageTarget(),
+		},
 		Notifications: contracts.Notifications{
 			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
 			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
@@ -1548,6 +1551,15 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.PrReview.Target != nil {
 			cfg.PrReview.Target = *req.PrReview.Target
+		}
+	}
+
+	if req.CommitMessage != nil {
+		if cfg.CommitMessage == nil {
+			cfg.CommitMessage = &config.CommitMessageConfig{}
+		}
+		if req.CommitMessage.Target != nil {
+			cfg.CommitMessage.Target = *req.CommitMessage.Target
 		}
 	}
 

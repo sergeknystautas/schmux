@@ -78,6 +78,7 @@ type Config struct {
 	Network                    *NetworkConfig         `json:"network,omitempty"`
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
+	CommitMessage              *CommitMessageConfig   `json:"commit_message,omitempty"`
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
@@ -187,6 +188,11 @@ type RemoteFlavor struct {
 // PrReviewConfig holds configuration for GitHub PR review sessions.
 type PrReviewConfig struct {
 	Target string `json:"target,omitempty"` // run target to use for PR review sessions
+}
+
+// CommitMessageConfig holds configuration for commit message generation.
+type CommitMessageConfig struct {
+	Target string `json:"target,omitempty"` // run target to use for commit message generation
 }
 
 // NotificationsConfig holds configuration for dashboard notifications.
@@ -540,6 +546,14 @@ func (c *Config) GetPrReviewTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.PrReview.Target)
+}
+
+// GetCommitMessageTarget returns the configured target for commit message generation.
+func (c *Config) GetCommitMessageTarget() string {
+	if c == nil || c.CommitMessage == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.CommitMessage.Target)
 }
 
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.

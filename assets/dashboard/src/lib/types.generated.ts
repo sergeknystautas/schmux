@@ -20,6 +20,14 @@ export interface BranchSuggestUpdate {
   target?: string;
 }
 
+export interface CommitMessage {
+  target: string;
+}
+
+export interface CommitMessageUpdate {
+  target?: string;
+}
+
 export interface ConfigResponse {
   workspace_path: string;
   source_code_management: string;
@@ -39,6 +47,7 @@ export interface ConfigResponse {
   network: Network;
   access_control: AccessControl;
   pr_review: PrReview;
+  commit_message: CommitMessage;
   notifications: Notifications;
   needs_restart: boolean;
 }
@@ -60,6 +69,7 @@ export interface ConfigUpdateRequest {
   network?: NetworkUpdate;
   access_control?: AccessControlUpdate;
   pr_review?: PrReviewUpdate;
+  commit_message?: CommitMessageUpdate;
   notifications?: NotificationsUpdate;
   model_versions?: Record<string, string>;
 }

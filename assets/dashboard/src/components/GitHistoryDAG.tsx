@@ -9,6 +9,7 @@ import {
   gitUncommit,
   spawnCommitSession,
   pushToBranch,
+  getConfig,
 } from '../lib/api';
 import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/gitGraphLayout';
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
@@ -60,6 +61,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [isUncommitting, setIsUncommitting] = useState(false);
+  const [commitMessageConfigured, setCommitMessageConfigured] = useState(false);
   const { handleSmartSync, handleLinearSyncToMain, handlePushToBranch } = useSync();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState(0);
@@ -75,6 +77,17 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     });
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // Fetch config to check if commit message target is configured
+  useEffect(() => {
+    getConfig()
+      .then((config) => {
+        setCommitMessageConfigured(!!config.commit_message?.target);
+      })
+      .catch(() => {
+        setCommitMessageConfigured(false);
+      });
   }, []);
 
   // Reserve rows for virtual nodes (you-are-here, commit-actions, commit-footer)
@@ -383,48 +396,60 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
     }
     if (ln.nodeType === 'commit-footer') {
       const canAmend = (ws?.git_ahead ?? 0) > 0;
+      const commitDisabled = !commitMessageConfigured || selectedFiles.size === 0 || isCommitting;
+
+      const commitButton = (
+        <button
+          className="git-dag__btn"
+          disabled={commitDisabled}
+          onClick={async () => {
+            const fileList = Array.from(selectedFiles)
+              .map((f) => `• ${f}`)
+              .join('\n');
+            const confirmed = await confirm(`Commit ${selectedFiles.size} files?`, {
+              confirmText: 'Commit',
+              detailedMessage: `The following files will be staged and committed:\n\n${fileList}`,
+            });
+            if (!confirmed) return;
+            setIsCommitting(true);
+            try {
+              await gitCommitStage(workspaceId, Array.from(selectedFiles));
+              if (ws) {
+                const results = await spawnCommitSession(
+                  workspaceId,
+                  ws.repo,
+                  ws.branch,
+                  Array.from(selectedFiles)
+                );
+                if (results.length > 0 && results[0].session_id) {
+                  setPendingNavigation({ type: 'session', id: results[0].session_id });
+                }
+              }
+              fetchData();
+            } catch (err) {
+              await alert('Commit Failed', err instanceof Error ? err.message : 'Unknown error');
+            } finally {
+              setIsCommitting(false);
+            }
+          }}
+        >
+          {isCommitting ? 'Committing...' : 'Commit'}
+        </button>
+      );
+
       return (
         <div
           key={ln.hash}
           className="git-dag__row git-dag__commit-row"
           style={{ height: lay.rowHeight }}
         >
-          <button
-            className="git-dag__btn"
-            disabled={selectedFiles.size === 0 || isCommitting}
-            onClick={async () => {
-              const fileList = Array.from(selectedFiles)
-                .map((f) => `• ${f}`)
-                .join('\n');
-              const confirmed = await confirm(`Commit ${selectedFiles.size} files?`, {
-                confirmText: 'Commit',
-                detailedMessage: `The following files will be staged and committed:\n\n${fileList}`,
-              });
-              if (!confirmed) return;
-              setIsCommitting(true);
-              try {
-                await gitCommitStage(workspaceId, Array.from(selectedFiles));
-                if (ws) {
-                  const results = await spawnCommitSession(
-                    workspaceId,
-                    ws.repo,
-                    ws.branch,
-                    Array.from(selectedFiles)
-                  );
-                  if (results.length > 0 && results[0].session_id) {
-                    setPendingNavigation({ type: 'session', id: results[0].session_id });
-                  }
-                }
-                fetchData();
-              } catch (err) {
-                await alert('Commit Failed', err instanceof Error ? err.message : 'Unknown error');
-              } finally {
-                setIsCommitting(false);
-              }
-            }}
-          >
-            {isCommitting ? 'Committing...' : 'Commit'}
-          </button>
+          {!commitMessageConfigured ? (
+            <Tooltip content="Select a model in Settings > Code Review > Commit Message">
+              <span style={{ display: 'inline-flex' }}>{commitButton}</span>
+            </Tooltip>
+          ) : (
+            commitButton
+          )}
           {canAmend && (
             <button
               className="git-dag__btn"
