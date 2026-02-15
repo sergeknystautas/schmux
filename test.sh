@@ -138,6 +138,7 @@ done
 
 # Check and auto-install dependencies
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 source "$SCRIPT_DIR/scripts/check-deps.sh"
 
 DEPS=("go:brew:go")
