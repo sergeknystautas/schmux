@@ -836,6 +836,32 @@ func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 	}
 }
 
+// BroadcastTunnelStatus sends the current tunnel status to all dashboard WebSocket clients.
+func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
+	msg := map[string]interface{}{
+		"type": "remote_access_status",
+		"data": status,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is enabled

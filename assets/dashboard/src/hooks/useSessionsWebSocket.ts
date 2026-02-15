@@ -3,6 +3,7 @@ import type {
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
   OverlayChangeEvent,
+  RemoteAccessStatus,
 } from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
@@ -17,6 +18,7 @@ type SessionsWebSocketState = {
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   overlayEvents: OverlayChangeEvent[];
   clearOverlayEvents: () => void;
+  remoteAccessStatus: RemoteAccessStatus;
 };
 
 export default function useSessionsWebSocket(): SessionsWebSocketState {
@@ -28,6 +30,9 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     Record<string, LinearSyncResolveConflictStatePayload>
   >({});
   const [overlayEvents, setOverlayEvents] = useState<OverlayChangeEvent[]>([]);
+  const [remoteAccessStatus, setRemoteAccessStatus] = useState<RemoteAccessStatus>({
+    state: 'off',
+  });
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -98,6 +103,8 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
           }));
         } else if (data.type === 'overlay_change') {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
+        } else if (data.type === 'remote_access_status' && data.data) {
+          setRemoteAccessStatus(data.data as RemoteAccessStatus);
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -161,5 +168,6 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     clearLinearSyncResolveConflictState,
     overlayEvents,
     clearOverlayEvents,
+    remoteAccessStatus,
   };
 }

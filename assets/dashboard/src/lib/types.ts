@@ -433,3 +433,9 @@ export interface LoreStatusResponse {
   llm_target: string;
   issues: string[];
 }
+
+export type RemoteAccessStatus = {
+  state: 'off' | 'starting' | 'connected' | 'error';
+  url?: string;
+  error?: string;
+};
