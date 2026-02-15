@@ -2528,7 +2528,11 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	} else {
 		// Divergence: get local commits + context (no main-ahead data)
 		// Get local commits from HEAD
-		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, 50))
+		maxLocal := maxTotal - mainContext
+		if maxLocal < 5 {
+			maxLocal = 5
+		}
+		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, maxLocal))
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -2548,8 +2552,26 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 
 	rawNodes := workspace.ParseGitLogOutput(logOutput)
 
+	// Detect local truncation for the divergence case
+	localTruncated := false
+	if forkPoint != "" && originMainHead != "" && localHead != originMainHead {
+		maxLocal := maxTotal - mainContext
+		if maxLocal < 5 {
+			maxLocal = 5
+		}
+		localCount := 0
+		for _, n := range rawNodes {
+			if n.Hash == forkPoint {
+				break
+			}
+			localCount++
+		}
+		localTruncated = localCount >= maxLocal
+	}
+
 	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
 	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
+	resp.LocalTruncated = localTruncated
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
