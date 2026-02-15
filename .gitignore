@@ -17,6 +17,7 @@ go.work
 
 # Dependency directories
 vendor/
+node_modules/
 
 # Build cache
 .cache/
