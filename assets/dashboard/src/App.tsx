@@ -17,6 +17,7 @@ import DiffPage from './routes/DiffPage';
 import MarkdownPreviewPage from './routes/MarkdownPreviewPage';
 import PreviewPage from './routes/PreviewPage';
 import GitGraphPage from './routes/GitGraphPage';
+import GitCommitPage from './routes/GitCommitPage';
 import LinearSyncResolveConflictPage from './routes/LinearSyncResolveConflictPage';
 import LegacyTerminalPage from './routes/LegacyTerminalPage';
 import NotFoundPage from './routes/NotFoundPage';
@@ -44,6 +45,7 @@ export default function App() {
                       />
                       <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
                       <Route path="/git/:workspaceId" element={<GitGraphPage />} />
+                      <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
                       <Route
                         path="/resolve-conflict/:workspaceId"
                         element={<LinearSyncResolveConflictPage />}

@@ -3640,6 +3640,64 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleWorkspaceGitCommit handles GET /api/workspaces/{id}/git-commit/{hash}.
+func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID and commit hash from path
+	// Path format: /api/workspaces/{workspaceId}/git-commit/{hash}
+	path := r.URL.Path
+	afterWorkspaces := strings.TrimPrefix(path, "/api/workspaces/")
+	workspaceID, commitHash, ok := strings.Cut(afterWorkspaces, "/git-commit/")
+	if !ok || workspaceID == "" || commitHash == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid path: expected /api/workspaces/{id}/git-commit/{hash}"})
+		return
+	}
+
+	// Verify workspace exists
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found: " + workspaceID})
+		return
+	}
+
+	// TODO: Remote workspace support
+	if ws.RemoteHostID != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		json.NewEncoder(w).Encode(map[string]string{"error": "commit detail not yet supported for remote workspaces"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.workspace.GetCommitDetail(ctx, workspaceID, commitHash)
+	if err != nil {
+		// Determine appropriate status code based on error
+		statusCode := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "invalid commit hash") {
+			statusCode = http.StatusBadRequest
+		} else if strings.Contains(err.Error(), "commit not found") || strings.Contains(err.Error(), "workspace not found") {
+			statusCode = http.StatusNotFound
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // validateGitFilePaths checks that none of the file paths contain path traversal
 // components (e.g., "../"). Returns an error message if any path is invalid.
 func validateGitFilePaths(files []string) string {

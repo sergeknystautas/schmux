@@ -6,6 +6,7 @@ import type {
   DetectToolsResponse,
   DiffExternalResponse,
   DiffResponse,
+  GitCommitDetailResponse,
   GitGraphResponse,
   LinearSyncResponse,
   LinearSyncResolveConflictResponse,
@@ -511,6 +512,18 @@ export async function getGitGraph(
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error('Failed to fetch git graph');
+  return response.json();
+}
+
+export async function getCommitDetail(
+  workspaceId: string,
+  commitHash: string
+): Promise<GitCommitDetailResponse> {
+  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit/${encodeURIComponent(commitHash)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to fetch commit detail');
+  }
   return response.json();
 }
 

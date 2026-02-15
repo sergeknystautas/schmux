@@ -208,6 +208,18 @@ export interface DiffResponse {
   files: FileDiff[];
 }
 
+export interface GitCommitDetailResponse {
+  hash: string;
+  short_hash: string;
+  author_name: string;
+  author_email: string;
+  timestamp: string;
+  message: string;
+  parents: string[];
+  is_merge: boolean;
+  files: FileDiff[];
+}
+
 export interface OpenVSCodeResponse {
   success: boolean;
   message: string;

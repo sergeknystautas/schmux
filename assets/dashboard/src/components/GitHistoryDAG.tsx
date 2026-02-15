@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   getGitGraph,
   getDiff,
@@ -38,7 +38,6 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [layout, setLayout] = useState<GitGraphLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
   const [pushToBranchSyncing, setPushToBranchSyncing] = useState(false);
@@ -141,18 +140,6 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       fetchData();
     }
   }, [gitFingerprint, fetchData]);
-
-  const copyHash = useCallback((hash: string) => {
-    navigator.clipboard
-      .writeText(hash)
-      .then(() => {
-        setCopiedHash(hash);
-        setTimeout(() => setCopiedHash(null), 2000);
-      })
-      .catch(() => {
-        // Clipboard API not available (non-HTTPS)
-      });
-  }, []);
 
   if (!ws) {
     return (
@@ -559,13 +546,13 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         style={{ height: lay.rowHeight }}
         title={ln.node.hash}
       >
-        <button
+        <Link
+          to={`/git/${workspaceId}/${ln.node.short_hash}`}
           className="git-dag__hash"
-          onClick={() => copyHash(ln.node.hash)}
-          title={copiedHash === ln.node.hash ? 'Copied!' : 'Click to copy full hash'}
+          title="View commit details"
         >
           {ln.node.short_hash}
-        </button>
+        </Link>
         <span className="git-dag__message">
           {ln.node.is_head.length > 0 && (
             <span className="git-dag__head-labels">

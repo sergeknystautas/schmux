@@ -23,6 +23,7 @@ type linearSyncResponse struct {
 // handleLinearSync handles POST requests for workspace linear sync operations.
 // Dispatches to specific handlers based on URL suffix:
 // - GET /api/workspaces/{id}/git-graph - get commit graph
+// - GET /api/workspaces/{id}/git-commit/{hash} - get commit detail
 // - POST /api/workspaces/{id}/linear-sync-from-main - sync commits from main into branch
 // - POST /api/workspaces/{id}/linear-sync-to-main - sync commits from branch to main
 // - POST /api/workspaces/{id}/push-to-branch - push commits to origin/branch
@@ -37,6 +38,10 @@ func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
 	// GET routes
 	if strings.HasSuffix(path, "/git-graph") {
 		s.handleWorkspaceGitGraph(w, r)
+		return
+	}
+	if strings.Contains(path, "/git-commit/") {
+		s.handleWorkspaceGitCommit(w, r)
 		return
 	}
 

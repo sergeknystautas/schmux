@@ -89,6 +89,29 @@ export interface ExternalDiffCommand {
   command: string;
 }
 
+export interface FileDiff {
+  old_path?: string;
+  new_path?: string;
+  old_content?: string;
+  new_content?: string;
+  status?: string;
+  lines_added: number;
+  lines_removed: number;
+  is_binary: boolean;
+}
+
+export interface GitCommitDetailResponse {
+  hash: string;
+  short_hash: string;
+  author_name: string;
+  author_email: string;
+  timestamp: string;
+  message: string;
+  parents: string[];
+  is_merge: boolean;
+  files: FileDiff[];
+}
+
 export interface GitGraphBranch {
   head: string;
   is_main: boolean;
