@@ -1681,6 +1681,75 @@ func TestDefaultOverlayPaths_ExcludesLoreJsonl(t *testing.T) {
 	}
 }
 
+func TestGetRemoteAccessDisabled(t *testing.T) {
+	t.Run("defaults to false when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessDisabled() {
+			t.Error("expected GetRemoteAccessDisabled() = false when RemoteAccess is nil")
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		disabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		if !cfg.GetRemoteAccessDisabled() {
+			t.Error("expected GetRemoteAccessDisabled() = true")
+		}
+	})
+}
+
+func TestGetRemoteAccessTimeoutMinutes(t *testing.T) {
+	t.Run("defaults to 0 when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 0 {
+			t.Errorf("expected 0, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 480}}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 480 {
+			t.Errorf("expected 480, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+}
+
+func TestGetRemoteAccessNtfyTopic(t *testing.T) {
+	t.Run("defaults to empty when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessNtfyTopic() != "" {
+			t.Errorf("expected empty, got %q", cfg.GetRemoteAccessNtfyTopic())
+		}
+	})
+
+	t.Run("returns trimmed value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+			Notify: &RemoteAccessNotifyConfig{NtfyTopic: "  my-topic  "},
+		}}
+		if cfg.GetRemoteAccessNtfyTopic() != "my-topic" {
+			t.Errorf("expected 'my-topic', got %q", cfg.GetRemoteAccessNtfyTopic())
+		}
+	})
+}
+
+func TestGetRemoteAccessNotifyCommand(t *testing.T) {
+	t.Run("defaults to empty when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessNotifyCommand() != "" {
+			t.Errorf("expected empty, got %q", cfg.GetRemoteAccessNotifyCommand())
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+			Notify: &RemoteAccessNotifyConfig{Command: "echo $SCHMUX_REMOTE_URL"},
+		}}
+		if cfg.GetRemoteAccessNotifyCommand() != "echo $SCHMUX_REMOTE_URL" {
+			t.Errorf("unexpected value: %q", cfg.GetRemoteAccessNotifyCommand())
+		}
+	})
+}
+
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
