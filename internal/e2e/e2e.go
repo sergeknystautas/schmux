@@ -1185,3 +1185,33 @@ func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *AP
 	e.T.Fatalf("Timed out waiting for session %s to be running", sessionID)
 	return nil
 }
+
+// AddDetectedTargetToConfig adds a detected (builtin) tool as a run target.
+// This is used to add e.g. "claude" as a target in E2E tests where the real
+// CLI isn't installed but we need the target name for hooks provisioning tests.
+func (e *Env) AddDetectedTargetToConfig(name, command string) {
+	e.T.Helper()
+	e.T.Logf("Adding detected target to config: %s", name)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e.T.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		e.T.Fatalf("Failed to load config: %v", err)
+	}
+
+	cfg.RunTargets = append(cfg.RunTargets, config.RunTarget{
+		Name:    name,
+		Type:    config.RunTargetTypePromptable,
+		Command: command,
+		Source:  config.RunTargetSourceDetected,
+	})
+
+	if err := cfg.Save(); err != nil {
+		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}

@@ -14,7 +14,7 @@ describe('getHostStatus', () => {
   });
 
   it('returns "disconnected" for invalid status', () => {
-    const host = { status: 'bogus' } as RemoteHost;
+    const host = { status: 'bogus' } as unknown as RemoteHost;
     expect(getHostStatus(host)).toBe('disconnected');
   });
 
