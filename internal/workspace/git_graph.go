@@ -41,8 +41,11 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	gitDir := ws.Path
 	localBranch := ws.Branch
 
-	// Detect default branch
-	defaultBranch := m.getDefaultBranch(ctx, gitDir)
+	// Detect default branch (use cached version keyed by repo URL)
+	defaultBranch, err := m.GetDefaultBranch(ctx, ws.Repo)
+	if err != nil {
+		defaultBranch = "main" // fallback if detection fails
+	}
 	originMain := "origin/" + defaultBranch
 
 	// Resolve local HEAD and origin/main
@@ -75,7 +78,6 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 
 	// Determine what to log
 	var rawNodes []RawNode
-	var err error
 
 	if originMainHead == "" || localHead == originMainHead {
 		// No divergence or no origin — just show recent commits from HEAD
@@ -340,7 +342,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 	// 1. Fetch context commits: commits from forkPoint going back (historical context)
 	if mainContext > 0 {
 		contextArgs := []string{"log",
-			"--format=%H|%h|%s|%an|%aI|%P",
+			"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
 			"--topo-order",
 			fmt.Sprintf("--max-count=%d", mainContext),
 			forkPoint,
@@ -361,7 +363,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 
 	// 2. Fetch local commits: all commits from HEAD that haven't been seen yet
 	localArgs := []string{"log",
-		"--format=%H|%h|%s|%an|%aI|%P",
+		"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
 		"--topo-order",
 		fmt.Sprintf("--max-count=%d", defaultMaxLocal),
 		"HEAD",
@@ -430,7 +432,7 @@ func getCommitCount(ctx context.Context, repoPath, rangeSpec string) int {
 // runGitLog runs git log and parses the output into RawNode structs.
 func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits int) ([]RawNode, error) {
 	args := []string{"log",
-		"--format=%H|%h|%s|%an|%aI|%P",
+		"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
 		"--topo-order",
 		fmt.Sprintf("--max-count=%d", maxCommits),
 	}
@@ -446,7 +448,9 @@ func runGitLog(ctx context.Context, repoPath string, refs []string, maxCommits i
 	return ParseGitLogOutput(string(output)), nil
 }
 
-// ParseGitLogOutput parses pipe-delimited git log output into RawNode structs.
+// ParseGitLogOutput parses null-byte-delimited git log output into RawNode structs.
+// Uses \x00 (null byte, via %x00 in git format) as the field delimiter to avoid
+// collisions with pipe characters that may appear in commit messages.
 func ParseGitLogOutput(output string) []RawNode {
 	var nodes []RawNode
 	seen := make(map[string]bool)
@@ -454,7 +458,7 @@ func ParseGitLogOutput(output string) []RawNode {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 6)
+		parts := strings.SplitN(line, "\x00", 6)
 		if len(parts) < 6 {
 			continue
 		}

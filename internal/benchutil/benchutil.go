@@ -36,6 +36,9 @@ type BenchResult struct {
 // ComputeBenchResult calculates percentiles and GC stats from raw durations.
 func ComputeBenchResult(name, variant string, durations []time.Duration, gcBefore, gcAfter *runtime.MemStats) BenchResult {
 	n := len(durations)
+	if n == 0 {
+		return BenchResult{}
+	}
 	ms := make([]float64, n)
 	var sum float64
 	for i, d := range durations {
@@ -50,7 +53,10 @@ func ComputeBenchResult(name, variant string, durations []time.Duration, gcBefor
 		diff := v - mean
 		variance += diff * diff
 	}
-	stddev := math.Sqrt(variance / float64(n))
+	var stddev float64
+	if n > 1 {
+		stddev = math.Sqrt(variance / float64(n-1))
+	}
 
 	gcPauses := gcAfter.NumGC - gcBefore.NumGC
 	gcPauseTotal := float64(gcAfter.PauseTotalNs-gcBefore.PauseTotalNs) / 1000.0
@@ -59,9 +65,9 @@ func ComputeBenchResult(name, variant string, durations []time.Duration, gcBefor
 		Name:       name,
 		Variant:    variant,
 		Iterations: n,
-		P50Ms:      ms[n*50/100],
-		P95Ms:      ms[n*95/100],
-		P99Ms:      ms[n*99/100],
+		P50Ms:      ms[min(n*50/100, n-1)],
+		P95Ms:      ms[min(n*95/100, n-1)],
+		P99Ms:      ms[min(n*99/100, n-1)],
 		MaxMs:      ms[n-1],
 		MeanMs:     mean,
 		MinMs:      ms[0],

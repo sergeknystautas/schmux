@@ -63,6 +63,7 @@ type APIWorkspace struct {
 // Env is the E2E test environment.
 // Docker provides isolation - no need for HOME overrides or env vars.
 type Env struct {
+	daemonLogFile *os.File // daemon stderr log file, closed in Cleanup
 	T             *testing.T
 	SchmuxBin     string
 	DaemonURL     string
@@ -104,6 +105,11 @@ func (e *Env) Cleanup() {
 		time.Sleep(500 * time.Millisecond)
 	}
 
+	if e.daemonLogFile != nil {
+		e.daemonLogFile.Close()
+		e.daemonLogFile = nil
+	}
+
 	if e.gitRepoDir != "" {
 		os.RemoveAll(e.gitRepoDir)
 	}
@@ -133,7 +139,8 @@ func (e *Env) DaemonStart() {
 		e.T.Fatalf("Failed to start daemon: %v", err)
 	}
 
-	// Don't close stderr - let it stay open for the daemon to write to
+	// Store the log file handle so Cleanup() can close it
+	e.daemonLogFile = stderr
 
 	// Wait for daemon to be ready
 	e.T.Log("Waiting for daemon to be ready...")
@@ -1398,7 +1405,10 @@ func (e *Env) SetRepoOverlayPaths(repoName string, paths []string) {
 func (e *Env) GetOverlayAPI() OverlayAPIResponse {
 	e.T.Helper()
 
-	resp, err := http.Get(e.DaemonURL + "/api/overlays")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/overlays", nil)
+	resp, err := http.DefaultClient.Do(req)
+	cancel()
 	if err != nil {
 		e.T.Fatalf("Failed to GET /api/overlays: %v", err)
 	}
@@ -1426,7 +1436,11 @@ func (e *Env) PostOverlayScan(workspaceID, repoName string) []OverlayScanCandida
 		"repo_name":    repoName,
 	})
 
-	resp, err := http.Post(e.DaemonURL+"/api/overlays/scan", "application/json", bytes.NewReader(reqBody))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/overlays/scan", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	cancel()
 	if err != nil {
 		e.T.Fatalf("Failed to POST /api/overlays/scan: %v", err)
 	}
@@ -1458,7 +1472,11 @@ func (e *Env) PostOverlayAdd(workspaceID, repoName string, paths, customPaths []
 		"custom_paths": customPaths,
 	})
 
-	resp, err := http.Post(e.DaemonURL+"/api/overlays/add", "application/json", bytes.NewReader(reqBody))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/overlays/add", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	cancel()
 	if err != nil {
 		e.T.Fatalf("Failed to POST /api/overlays/add: %v", err)
 	}

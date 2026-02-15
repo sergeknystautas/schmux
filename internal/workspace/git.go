@@ -14,7 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 )
 
-var branchNamePattern = regexp.MustCompile(`^[a-z0-9_]+(?:[._/-][a-z0-9_]+)*$`)
+var branchNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+(?:[._/-][a-zA-Z0-9_]+)*$`)
 
 // ErrInvalidBranchName is returned when a branch name fails validation.
 var ErrInvalidBranchName = errors.New("invalid branch name")
@@ -35,7 +35,7 @@ func ValidateBranchName(branch string) error {
 		return fmt.Errorf("%w: branch name cannot be empty", ErrInvalidBranchName)
 	}
 	if !branchNamePattern.MatchString(branch) {
-		return fmt.Errorf("%w: %q does not match required format (lowercase alphanumeric, underscores, hyphens, forward slashes, or periods)", ErrInvalidBranchName, branch)
+		return fmt.Errorf("%w: %q does not match required format (alphanumeric, underscores, hyphens, forward slashes, or periods)", ErrInvalidBranchName, branch)
 	}
 	// Check for consecutive separators (-, ., /, _)
 	for i := 0; i < len(branch)-1; i++ {
@@ -501,7 +501,12 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*GitS
 		status.Safe = false
 	}
 
-	// Use pre-computed values from gitStatus() - no independent git commands here
+	// Use pre-computed values from gitStatus() for ahead/behind counts.
+	// NOTE: These values may be stale (updated on the git status poll interval).
+	// This is intentional — running a full gitStatus() here would be expensive
+	// and this function is called from the dispose flow where a slight delay
+	// in reflecting push state is acceptable. The dirty-file check above is
+	// always fresh since it runs git status --porcelain directly.
 	commitsSyncedWithRemote := w.CommitsSyncedWithRemote
 	ahead := w.GitAhead
 

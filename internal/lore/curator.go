@@ -2,6 +2,7 @@ package lore
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -93,10 +95,15 @@ func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string
 	for ws := range sourceSet {
 		sources = append(sources, ws)
 	}
+	sort.Strings(sources)
 
 	now := time.Now().UTC()
+	// Generate 4 random hex chars to avoid proposal ID collision
+	randBytes := make([]byte, 2)
+	crypto_rand.Read(randBytes)
+	suffix := fmt.Sprintf("%x", randBytes)
 	proposal := &Proposal{
-		ID:               fmt.Sprintf("prop-%s", now.Format("20060102-150405")),
+		ID:               fmt.Sprintf("prop-%s-%s", now.Format("20060102-150405"), suffix),
 		Repo:             repoName,
 		CreatedAt:        now,
 		Status:           ProposalPending,
@@ -162,14 +169,15 @@ func ParseCuratorResponse(response string) (*CuratorResponse, error) {
 	// Strip markdown fencing if present
 	response = strings.TrimSpace(response)
 	if strings.HasPrefix(response, "```") {
-		lines := strings.SplitN(response, "\n", 2)
-		if len(lines) > 1 {
-			response = lines[1]
+		// Strip only the first and last fence lines
+		firstNewline := strings.Index(response, "\n")
+		if firstNewline >= 0 {
+			response = response[firstNewline+1:]
 		}
-		if idx := strings.LastIndex(response, "```"); idx >= 0 {
-			response = response[:idx]
+		lastFence := strings.LastIndex(response, "\n```")
+		if lastFence >= 0 {
+			response = response[:lastFence]
 		}
-		response = strings.TrimSpace(response)
 	}
 
 	var result CuratorResponse

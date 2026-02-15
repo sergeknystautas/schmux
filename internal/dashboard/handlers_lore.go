@@ -2,7 +2,9 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +26,15 @@ func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/lore/")
 	parts := strings.Split(path, "/")
 
+	// Validate repoName to prevent path traversal
+	if len(parts) > 0 {
+		repoName := parts[0]
+		if strings.ContainsAny(repoName, "/\\") || repoName == ".." || repoName == "." {
+			http.Error(w, "Invalid repo name", http.StatusBadRequest)
+			return
+		}
+	}
+
 	switch {
 	case len(parts) >= 4 && parts[1] == "proposals" && parts[3] == "apply":
 		s.handleLoreApply(w, r)
@@ -44,6 +55,10 @@ func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
 
 // handleLoreProposals lists all proposals for a repo.
 func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 2 || parts[0] == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
@@ -70,6 +85,10 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 
 // handleLoreProposalGet returns a single proposal by ID.
 func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 3 {
 		http.Error(w, "missing repo name or proposal id", http.StatusBadRequest)
@@ -99,6 +118,7 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 4 {
 		http.Error(w, "invalid path", http.StatusBadRequest)
@@ -117,12 +137,21 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check for overrides in request body
+	// Check that proposal is still pending
+	if proposal.Status != "" && proposal.Status != "pending" {
+		http.Error(w, fmt.Sprintf("proposal is %s, not pending", proposal.Status), http.StatusConflict)
+		return
+	}
+
+	// Check for overrides in request body (body may be empty for apply-without-overrides)
 	var body struct {
 		Overrides map[string]string `json:"overrides"`
 	}
 	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
 		for k, v := range body.Overrides {
 			proposal.ProposedFiles[k] = v
 		}
@@ -162,11 +191,11 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	var prURL string
 	if s.config.GetLoreAutoPR() {
 		title := "chore: update instruction files with agent lore"
-		body := proposal.DiffSummary
-		if body == "" {
-			body = fmt.Sprintf("Automated lore update — %d file(s) changed.", len(proposal.ProposedFiles))
+		prBody := proposal.DiffSummary
+		if prBody == "" {
+			prBody = fmt.Sprintf("Automated lore update — %d file(s) changed.", len(proposal.ProposedFiles))
 		}
-		url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, title, body)
+		url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, title, prBody)
 		if err != nil {
 			// Log but don't fail — the commit and push already succeeded
 			fmt.Fprintf(os.Stderr, "schmux: auto-PR creation failed (branch %s pushed): %v\n", result.Branch, err)
@@ -176,7 +205,9 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update proposal status
-	s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied)
+	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied); err != nil {
+		fmt.Fprintf(os.Stderr, "schmux: failed to update proposal status: %v\n", err)
+	}
 
 	// Mark source entries as "applied" in the lore JSONL
 	overlayDir, err := workspace.OverlayDir(repoName)
@@ -244,6 +275,10 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 // handleLoreEntries returns the lore JSONL entries for a repo from its overlay directory.
 // Supports query parameters: state, agent, type, limit.
 func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 2 {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
@@ -291,6 +326,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
 	if len(parts) < 2 || parts[0] == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)

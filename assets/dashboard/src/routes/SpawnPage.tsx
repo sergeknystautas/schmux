@@ -594,7 +594,7 @@ export default function SpawnPage() {
     setSelectedCommand('');
   };
 
-  const handleEngage = async () => {
+  const handleEngage = useCallback(async () => {
     if (!validateForm()) return;
 
     const selectedTargets: Record<string, number> = {};
@@ -751,7 +751,28 @@ export default function SpawnPage() {
       toastError(`Failed to spawn: ${errorMsg}`);
       setEngagePhase('idle');
     }
-  };
+  }, [
+    validateForm,
+    spawnMode,
+    selectedCommand,
+    targetCounts,
+    repo,
+    newRepoName,
+    branch,
+    nickname,
+    mode,
+    createBranch,
+    prompt,
+    branchSuggestTarget,
+    environment,
+    prefillWorkspaceId,
+    urlWorkspaceId,
+    modelSelectionMode,
+    getDefaultBranch,
+    generateBranchName,
+    toastError,
+    setPendingNavigation,
+  ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
   useEffect(() => {

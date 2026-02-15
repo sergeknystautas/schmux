@@ -111,9 +111,9 @@ func TestValidateBranchName(t *testing.T) {
 		{"empty", "", true},
 		{"whitespace only", " ", true},
 
-		// Invalid: uppercase
-		{"uppercase", "Feature", true},
-		{"uppercase mixed", "featureTest", true},
+		// Valid: uppercase (allowed)
+		{"uppercase", "Feature", false},
+		{"uppercase mixed", "featureTest", false},
 
 		// Invalid: special characters
 		{"at sign", "feature@branch", true},

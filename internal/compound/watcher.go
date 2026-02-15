@@ -37,6 +37,8 @@ type Watcher struct {
 	stopOnce sync.Once
 }
 
+const suppressionTTL = 5 * time.Second
+
 // NewWatcher creates a new file watcher for overlay-managed files.
 func NewWatcher(debounceMs int, onChange OnChangeFunc) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
@@ -185,7 +187,7 @@ func (w *Watcher) Suppress(workspaceID, relPath string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	key := workspaceID + ":" + relPath
-	w.suppressed[key] = time.Now().Add(5 * time.Second)
+	w.suppressed[key] = time.Now().Add(suppressionTTL)
 }
 
 // Start begins the event processing loop.
@@ -207,10 +209,16 @@ func (w *Watcher) Stop() {
 }
 
 func (w *Watcher) eventLoop() {
+	// Periodic cleanup of expired suppression entries
+	cleanupTicker := time.NewTicker(30 * time.Second)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-w.stopCh:
 			return
+		case <-cleanupTicker.C:
+			w.sweepExpiredSuppressions()
 		case event, ok := <-w.watcher.Events:
 			if !ok {
 				return
@@ -334,6 +342,19 @@ func (w *Watcher) scanDirForExistingFiles(workspaceID, workspacePath, dir string
 		}
 		if files[relPath] {
 			w.resetDebounce(workspaceID, relPath)
+		}
+	}
+}
+
+// sweepExpiredSuppressions removes suppression entries that have passed their TTL.
+func (w *Watcher) sweepExpiredSuppressions() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	now := time.Now()
+	for key, expiry := range w.suppressed {
+		if now.After(expiry) {
+			delete(w.suppressed, key)
 		}
 	}
 }

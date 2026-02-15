@@ -86,26 +86,31 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 }
 
 // SetRemoteManager sets the remote manager for remote session support.
+// Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
 }
 
-// SetSignalCallback sets the callback for signal detection from file watchers.
+// SetSignalCallback sets the callback invoked when a session emits a signal.
+// Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
 	m.signalCallback = cb
 }
 
-// SetOutputCallback sets callback for terminal output chunks from local trackers.
+// SetOutputCallback sets the callback for terminal output chunks from local trackers.
+// Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
 	m.outputCallback = cb
 }
 
 // SetCompoundCallback sets the callback for notifying the compounder on session lifecycle events.
+// Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool)) {
 	m.compoundCallback = cb
 }
 
 // SetLoreCallback sets the callback for notifying the lore system on session dispose.
+// Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string)) {
 	m.loreCallback = cb
 }

@@ -42,6 +42,7 @@ const (
 
 var (
 	shutdownChan   = make(chan struct{})
+	shutdownOnce   sync.Once
 	devRestartChan = make(chan struct{})
 	shutdownCtx    context.Context
 	cancelFunc     context.CancelFunc
@@ -568,6 +569,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		compounder.Start()
 		fmt.Printf("[compound] started overlay compounding loop\n")
 	}
+	// Lore curation timer — declared at Run() scope so shutdown can clean up
+	var loreCurateTimer *time.Timer
+	var loreCurateMu sync.Mutex
 
 	// Lore system: trigger curator on session dispose
 	if cfg.GetLoreEnabled() {
@@ -589,9 +593,6 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 		// Wire lore curator into dashboard server for manual curation endpoint
 		server.SetLoreCurator(loreCurator)
-
-		var loreCurateTimer *time.Timer
-		var loreCurateMu sync.Mutex
 
 		sm.SetLoreCallback(func(repoName, repoURL string) {
 			if !cfg.GetLoreCurateOnDispose() || loreCurator.Executor == nil {
@@ -617,7 +618,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
 
-				proposal, err := loreCurator.Curate(context.Background(), repoName, bareDir, lorePath)
+				proposal, err := loreCurator.Curate(shutdownCtx, repoName, bareDir, lorePath)
 				if err != nil {
 					fmt.Printf("[lore] curation failed: %v\n", err)
 					return
@@ -750,6 +751,12 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		fmt.Println("[daemon] dev restart requested")
 		devRestart = true
 	}
+	// Stop pending lore curation timer
+	loreCurateMu.Lock()
+	if loreCurateTimer != nil {
+		loreCurateTimer.Stop()
+	}
+	loreCurateMu.Unlock()
 
 	// Flush any pending batched state saves and do a final save
 	st.FlushPending()
@@ -778,17 +785,13 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	return nil
 }
 
-// Shutdown triggers a graceful shutdown.
+// Shutdown triggers a graceful shutdown. Safe to call multiple times.
 func Shutdown() {
-	shutdownOnce.Do(func() {
-		close(shutdownChan)
-	})
+	shutdownOnce.Do(func() { close(shutdownChan) })
 	if cancelFunc != nil {
 		cancelFunc()
 	}
 }
-
-var shutdownOnce sync.Once
 
 // DevRestart triggers a dev mode restart. The daemon will exit with
 // ErrDevRestart, which the caller should translate to exit code 42.

@@ -96,7 +96,13 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		return preview, nil
 	}
 
+	// Hold m.mu across the cap check and state upsert to prevent a TOCTOU race
+	// where concurrent CreateOrGet calls could both pass the cap check before
+	// either registers its preview. We release the lock before ensureListener
+	// to avoid holding it during blocking network I/O (net.Listen).
+	m.mu.Lock()
 	if err := m.enforceCaps(ws.ID); err != nil {
+		m.mu.Unlock()
 		return state.WorkspacePreview{}, err
 	}
 
@@ -109,7 +115,21 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		CreatedAt:   now,
 		LastUsedAt:  now,
 	}
-	return m.ensureListener(ctx, preview)
+	// Reserve the slot in state before releasing the lock so subsequent
+	// cap checks see this preview counted.
+	if err := m.state.UpsertPreview(preview); err != nil {
+		m.mu.Unlock()
+		return state.WorkspacePreview{}, err
+	}
+	m.mu.Unlock()
+
+	result, err := m.ensureListener(ctx, preview)
+	if err != nil {
+		// Roll back the reservation on listener failure.
+		_ = m.state.RemovePreview(preview.ID)
+		return state.WorkspacePreview{}, err
+	}
+	return result, nil
 }
 
 func (m *Manager) List(ctx context.Context, workspaceID string) ([]state.WorkspacePreview, error) {
@@ -414,23 +434,12 @@ func normalizeTargetHost(host string) (string, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
+	// The switch-case already restricts to known loopback values, so a DNS
+	// lookup is redundant and adds unnecessary latency / failure modes.
 	switch host {
 	case "127.0.0.1", "::1", "localhost":
 	default:
 		return "", ErrTargetHostNotAllowed
-	}
-
-	addrs, err := net.LookupIP(host)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve target host: %w", err)
-	}
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("target host did not resolve to any address")
-	}
-	for _, addr := range addrs {
-		if !addr.IsLoopback() {
-			return "", ErrTargetHostNotAllowed
-		}
 	}
 	return host, nil
 }

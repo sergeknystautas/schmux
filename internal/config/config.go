@@ -882,6 +882,12 @@ func CreateDefault(configPath string) *Config {
 
 // Load loads the configuration from the specified path.
 // The path is stored so that subsequent Save() calls write to the same location.
+// Load reads and parses the config file at configPath.
+// NOTE: Load may modify the config file on disk as a side effect. Both Migrate()
+// and populateBarePaths() perform one-time migrations that call Save() to persist
+// detected changes (e.g., renamed fields, bare repo path detection). These saves
+// are best-effort — if they fail, the in-memory config is still correct and the
+// migration will be re-attempted on the next load.
 func Load(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
