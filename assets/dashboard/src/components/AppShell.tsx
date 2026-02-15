@@ -344,6 +344,9 @@ export default function AppShell() {
         const resolveInProgress =
           linearSyncResolveConflictStates[workspace.id]?.status === 'in_progress';
         if (resolveInProgress) return;
+        const isDevLive =
+          devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace;
+        if (isDevLive) return;
         const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
         if (!accepted) return;
 
@@ -375,6 +378,7 @@ export default function AppShell() {
     linearSyncResolveConflictStates,
     success,
     toastError,
+    devStatus,
   ]);
 
   return (
@@ -573,57 +577,61 @@ export default function AppShell() {
                         {isDevLive ? 'Rebuild' : 'Test'}
                       </button>
                     )}
-                  </div>
-                  <div
-                    className="nav-workspace__repo"
-                    style={
-                      remoteDisconnected
-                        ? {
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '4px',
-                          }
-                        : undefined
-                    }
-                  >
-                    <span
-                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    <div
+                      className="nav-workspace__repo"
+                      style={
+                        remoteDisconnected
+                          ? {
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '4px',
+                            }
+                          : undefined
+                      }
                     >
-                      {isRemote && workspace.remote_flavor_name
-                        ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
-                        : getRepoName(workspace.repo)}
-                    </span>
-                    {remoteDisconnected && (
-                      <button
-                        className="btn btn--sm"
+                      <span
                         style={{
-                          fontSize: '0.65rem',
-                          padding: '1px 6px',
-                          margin: 0,
-                          color: 'var(--color-warning)',
-                          borderColor: 'var(--color-warning)',
-                          flexShrink: 0,
-                          lineHeight: 1.2,
-                        }}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const result = await reconnectRemoteHost(workspace.remote_host_id!);
-                            setReconnectModal({
-                              hostId: workspace.remote_host_id!,
-                              flavorId: result.flavor_id,
-                              displayName: result.hostname || workspace.branch,
-                              provisioningSessionId: result.provisioning_session_id || null,
-                            });
-                          } catch (err) {
-                            toastError(getErrorMessage(err, 'Failed to reconnect'));
-                          }
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        Reconnect
-                      </button>
-                    )}
+                        {isRemote && workspace.remote_flavor_name
+                          ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
+                          : getRepoName(workspace.repo)}
+                      </span>
+                      {remoteDisconnected && (
+                        <button
+                          className="btn btn--sm"
+                          style={{
+                            fontSize: '0.65rem',
+                            padding: '1px 6px',
+                            margin: 0,
+                            color: 'var(--color-warning)',
+                            borderColor: 'var(--color-warning)',
+                            flexShrink: 0,
+                            lineHeight: 1.2,
+                          }}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const result = await reconnectRemoteHost(workspace.remote_host_id!);
+                              setReconnectModal({
+                                hostId: workspace.remote_host_id!,
+                                flavorId: result.flavor_id,
+                                displayName: result.hostname || workspace.branch,
+                                provisioningSessionId: result.provisioning_session_id || null,
+                              });
+                            } catch (err) {
+                              toastError(getErrorMessage(err, 'Failed to reconnect'));
+                            }
+                          }}
+                        >
+                          Reconnect
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="nav-workspace__sessions">
                     {workspace.sessions?.map((sess) => {
