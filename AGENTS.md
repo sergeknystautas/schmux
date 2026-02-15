@@ -56,7 +56,12 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 Before committing changes, you MUST run:
 
 1. **Run all tests**: `./test.sh --all`
-2. **Format code**: `go fmt ./...`
+2. **Format code**: `./format.sh`
+
+`./format.sh` formats Go files with `gofmt` and TS/JS/CSS/MD/JSON files with prettier. It also auto-installs the pre-commit git hook if missing.
+
+❌ **WRONG**: `go fmt ./...` (misses frontend files)
+✅ **RIGHT**: `./format.sh` (formats everything)
 
 The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
@@ -70,6 +75,48 @@ For faster iteration during development:
 - Commits: short, imperative subject lines (e.g., “Implement v0.5 spec”, “Polish README”); keep unrelated changes split.
 - PRs: describe **what** changed and **why**, link to relevant docs when applicable, and list manual verification steps.
 - UI changes: include screenshots or a short screen recording of the dashboard views you touched.
+
+## ⚠️ TypeScript Type Generation — Never Edit `.generated.ts` Files
+
+API types shared between Go and TypeScript are defined in `internal/api/contracts/` and auto-generated into `assets/dashboard/src/lib/types.generated.ts`.
+
+❌ **WRONG**: Edit `types.generated.ts` directly
+✅ **RIGHT**: Edit Go structs in `internal/api/contracts/*.go`, then run `go run ./cmd/gen-types`
+
+When to regenerate:
+
+- Adding or modifying structs in `internal/api/contracts/`
+- Changing JSON field names or `omitempty` tags
+- Adding new API response types
+
+Manual TypeScript types go in `assets/dashboard/src/lib/types.ts` (not the generated file).
+
+## ⚠️ API Documentation — CI-Enforced
+
+Changes to API-related packages (`internal/dashboard/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, `internal/tmux/`) **must** include a corresponding update to `docs/api.md`. CI runs `scripts/check-api-docs.sh` to enforce this.
+
+## React Dashboard Architecture
+
+For React changes, consult `docs/dev/react.md` first — it documents architectural decisions and anti-patterns.
+
+Key patterns:
+
+- **State via WebSocket, not polling**: `SessionsContext` receives real-time updates from `/ws/dashboard`. Do not add polling for session/workspace state.
+- **Pending navigation**: After spawning a session, use the pending navigation system (not polling) to navigate once the session appears via WebSocket.
+- **Two WebSocket endpoints**: `/ws/dashboard` (server→client session/workspace broadcasts) and `/ws/terminal/{id}` (bidirectional terminal I/O).
+- **WebSocket write safety**: Always use the `wsConn` wrapper (which has a mutex) — gorilla WebSocket is not concurrent-safe for writes.
+- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh` (included in unit test suite).
+- **Vite chunks**: vendor (react, react-dom, react-router-dom) and xterm (@xterm/\*) are split into separate chunks in `vite.config.js`.
+
+## Dev Mode (`./dev.sh`)
+
+Hot-reload development mode:
+
+- Starts Vite dev server (port 5173) + Go daemon with `--dev-mode` flag
+- Backend proxies non-API routes to Vite for HMR
+- Exit code 42 means "restart requested" (from dashboard UI) — not a crash
+- State files: `~/.schmux/dev-state.json`, `~/.schmux/dev-restart.json`, `~/.schmux/dev-build-status.json`
+- Auto-installs Go, Node, tmux via Homebrew if missing
 
 ## Configuration & Safety Notes
 
