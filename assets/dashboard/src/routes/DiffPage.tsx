@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import type { FocusEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
@@ -22,6 +23,7 @@ const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
 ];
 
 const DIFF_SIDEBAR_WIDTH_KEY = 'schmux-diff-sidebar-width';
+const DIFF_KEYBOARD_FOCUS_KEY = 'schmux-diff-keyboard-focus';
 const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = 150;
 const MAX_SIDEBAR_WIDTH = 600;
@@ -51,6 +53,10 @@ export default function DiffPage() {
     DEFAULT_SIDEBAR_WIDTH
   );
   const [isResizing, setIsResizing] = useState(false);
+  const [keyboardFocus, setKeyboardFocus] = useLocalStorage<'left' | 'right' | null>(
+    DIFF_KEYBOARD_FOCUS_KEY,
+    'left'
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
@@ -100,6 +106,57 @@ export default function DiffPage() {
       document.body.style.userSelect = '';
     };
   }, [isResizing, handleMouseMove, handleMouseUp]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const files = diffData?.files || [];
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          setKeyboardFocus('left');
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          setKeyboardFocus('right');
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          if (keyboardFocus === 'left' && selectedFileIndex > 0) {
+            setSelectedFileIndex(selectedFileIndex - 1);
+          } else if (keyboardFocus === 'right' && contentRef.current) {
+            contentRef.current.scrollBy({ top: -100, behavior: 'smooth' });
+          }
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          if (keyboardFocus === 'left' && selectedFileIndex < files.length - 1) {
+            setSelectedFileIndex(selectedFileIndex + 1);
+          } else if (keyboardFocus === 'right' && contentRef.current) {
+            contentRef.current.scrollBy({ top: 100, behavior: 'smooth' });
+          }
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [keyboardFocus, selectedFileIndex, diffData, setKeyboardFocus]);
+
+  // Auto-scroll sidebar to keep selected file visible
+  useEffect(() => {
+    if (keyboardFocus === 'left') {
+      const fileListEl = document.querySelector('.diff-file-list');
+      const activeFileEl = document.querySelector('.diff-file-item--active');
+      if (fileListEl && activeFileEl) {
+        activeFileEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [selectedFileIndex, keyboardFocus]);
+
+  const handleSidebarFocus = () => setKeyboardFocus('left');
+  const handleContentFocus = () => setKeyboardFocus('right');
 
   const handleExternalDiff = async (cmd: ExternalDiffCommand) => {
     if (!workspaceId) return;
@@ -371,7 +428,11 @@ export default function DiffPage() {
         </div>
 
         <div className="diff-layout" ref={containerRef}>
-          <div className="diff-sidebar" style={{ width: `${sidebarWidth}px`, flexShrink: 0 }}>
+          <div
+            className={`diff-sidebar${keyboardFocus === 'left' ? ' diff-sidebar--focused' : ''}`}
+            style={{ width: `${sidebarWidth}px`, flexShrink: 0 }}
+            onClick={handleSidebarFocus}
+          >
             <h3 className="diff-sidebar__title">Changed Files ({diffData?.files?.length || 0})</h3>
             <div className="diff-file-list" data-testid="diff-file-list">
               {diffData?.files?.map((file, index) => {
@@ -424,7 +485,11 @@ export default function DiffPage() {
             onMouseDown={handleMouseDown}
           />
 
-          <div className="diff-content" data-testid="diff-viewer">
+          <div
+            className={`diff-content${keyboardFocus === 'right' ? ' diff-content--focused' : ''}`}
+            data-testid="diff-viewer"
+            onClick={handleContentFocus}
+          >
             {selectedFile && (
               <>
                 <div className="diff-content__header">
