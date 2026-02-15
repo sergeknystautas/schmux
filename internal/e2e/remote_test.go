@@ -114,14 +114,8 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 	t.Run("DisposeSession", func(t *testing.T) {
 		env.DisposeSession(sessionID)
 
-		// Verify session is gone
-		time.Sleep(500 * time.Millisecond)
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == sessionID {
-				t.Error("Session still exists after dispose")
-			}
-		}
+		// Poll until session is gone (instead of fixed sleep)
+		env.WaitForSessionGoneFromAPI(sessionID, 5*time.Second)
 	})
 }
 
@@ -246,15 +240,8 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 		env.DisposeSession(session2ID)
 		env.DisposeSession(session3ID)
 
-		time.Sleep(500 * time.Millisecond)
-
-		// Verify all gone
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == session1ID || sess.ID == session2ID || sess.ID == session3ID {
-				t.Errorf("Session %s still exists after dispose", sess.ID)
-			}
-		}
+		// Poll until all sessions are gone (instead of fixed sleep)
+		env.WaitForAllSessionsGoneFromAPI([]string{session1ID, session2ID, session3ID}, 5*time.Second)
 	})
 }
 
@@ -388,8 +375,7 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 		env.DaemonStop()
 	})
 
-	// Wait a bit for daemon to fully stop
-	time.Sleep(1 * time.Second)
+	// DaemonStop now polls until the daemon is fully stopped, no extra sleep needed
 
 	t.Run("RestartDaemon", func(t *testing.T) {
 		env.DaemonStart()
