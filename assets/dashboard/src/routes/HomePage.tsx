@@ -661,8 +661,7 @@ export default function HomePage() {
             >
               <span style={{ flex: 1 }}>
                 Overlay is active for <strong>{o.repo_name}</strong>. Agent config files
-                (.claude/settings.json, .claude/settings.local.json) are automatically synced across
-                workspaces.{' '}
+                (.claude/settings.local.json) are automatically synced across workspaces.{' '}
                 <Link
                   to="/overlays"
                   style={{ color: 'var(--color-accent)', textDecoration: 'none' }}

@@ -1448,15 +1448,12 @@ func TestGetOverlayPaths_DefaultsOnly(t *testing.T) {
 	cfg := &Config{}
 	paths := cfg.GetOverlayPaths("myrepo")
 	// Should include hardcoded defaults
-	if len(paths) < 2 {
-		t.Fatalf("expected at least 2 default paths, got %d", len(paths))
+	if len(paths) < 1 {
+		t.Fatalf("expected at least 1 default path, got %d", len(paths))
 	}
 	found := make(map[string]bool)
 	for _, p := range paths {
 		found[p] = true
-	}
-	if !found[".claude/settings.json"] {
-		t.Error("missing .claude/settings.json from defaults")
 	}
 	if !found[".claude/settings.local.json"] {
 		t.Error("missing .claude/settings.local.json from defaults")
@@ -1477,7 +1474,7 @@ func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
 	for _, p := range paths {
 		found[p] = true
 	}
-	if !found[".claude/settings.json"] {
+	if !found[".claude/settings.local.json"] {
 		t.Error("missing hardcoded default")
 	}
 	if !found[".tool-versions"] {
@@ -1491,16 +1488,16 @@ func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
 func TestGetOverlayPaths_Deduplication(t *testing.T) {
 	cfg := &Config{
 		Overlay: &OverlayConfig{
-			Paths: []string{".claude/settings.json"}, // duplicate of default
+			Paths: []string{".claude/settings.local.json"}, // duplicate of default
 		},
 		Repos: []Repo{
-			{Name: "myrepo", URL: "url", OverlayPaths: []string{".claude/settings.json"}},
+			{Name: "myrepo", URL: "url", OverlayPaths: []string{".claude/settings.local.json"}},
 		},
 	}
 	paths := cfg.GetOverlayPaths("myrepo")
 	count := 0
 	for _, p := range paths {
-		if p == ".claude/settings.json" {
+		if p == ".claude/settings.local.json" {
 			count++
 		}
 	}
@@ -1569,16 +1566,16 @@ func TestGetLoreAutoPR_Default(t *testing.T) {
 	}
 }
 
-func TestDefaultOverlayPaths_IncludesLore(t *testing.T) {
+func TestDefaultOverlayPaths_IncludesSettingsLocal(t *testing.T) {
 	found := false
 	for _, p := range DefaultOverlayPaths {
-		if p == ".claude/lore.jsonl" {
+		if p == ".claude/settings.local.json" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("DefaultOverlayPaths should include .claude/lore.jsonl")
+		t.Error("DefaultOverlayPaths should include .claude/settings.local.json")
 	}
 }
 
