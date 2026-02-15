@@ -7,12 +7,14 @@ import {
   getErrorMessage,
 } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
+import { useSessions } from '../contexts/SessionsContext';
 import { useToast } from '../components/ToastProvider';
 import type {
   OverlayInfo,
   OverlayPathInfo,
   OverlayScanCandidate,
   OverlayAddRequest,
+  OverlayChangeEvent,
   WorkspaceResponse,
 } from '../lib/types';
 
@@ -30,18 +32,22 @@ type AddFlowState =
     }
   | { step: 'adding' };
 
+type ViewTab = 'paths' | 'activity';
+
 export default function OverlayPage() {
   const { config } = useConfig();
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
+  const { overlayEvents, overlayUnreadCount, clearOverlayEvents, markOverlaysRead } = useSessions();
 
+  const [view, setView] = useState<ViewTab>('paths');
   const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [allOverlays, setAllOverlays] = useState<OverlayInfo[]>([]);
   const [addFlow, setAddFlow] = useState<AddFlowState>({ step: 'closed' });
 
-  // Sync activeRepo when repos list changes (e.g., config loaded after mount)
+  // Sync activeRepo when repos list changes
   useEffect(() => {
     if (repos.length > 0 && !repos.find((r) => r.name === activeRepo)) {
       setActiveRepo(repos[0].name);
@@ -64,6 +70,14 @@ export default function OverlayPage() {
   useEffect(() => {
     loadOverlays();
   }, [loadOverlays]);
+
+  // Mark overlays as read when switching to activity tab
+  const handleTabChange = (tab: ViewTab) => {
+    setView(tab);
+    if (tab === 'activity') {
+      markOverlaysRead();
+    }
+  };
 
   const overlay = allOverlays.find((o) => o.repo_name === activeRepo) || null;
 
@@ -132,7 +146,6 @@ export default function OverlayPage() {
     if (addFlow.step !== 'results') return;
     const trimmed = addFlow.customPath.trim();
     if (!trimmed) return;
-    // Validate: reject absolute paths, path traversal, and backslashes
     if (trimmed.startsWith('/') || trimmed.startsWith('\\') || trimmed.includes('..')) {
       toastError('Invalid path: must be relative without ".." traversal');
       return;
@@ -189,14 +202,14 @@ export default function OverlayPage() {
     setAddFlow({ step: 'closed' });
   };
 
-  const handleTabChange = (repoName: string) => {
+  const handleRepoTabChange = (repoName: string) => {
     setActiveRepo(repoName);
     setAddFlow({ step: 'closed' });
   };
 
   // --- Render ---
 
-  if (loading) {
+  if (loading && view === 'paths') {
     return (
       <div className="loading-state">
         <div className="spinner"></div>
@@ -205,7 +218,7 @@ export default function OverlayPage() {
     );
   }
 
-  if (error) {
+  if (error && view === 'paths') {
     return (
       <div className="empty-state">
         <div className="empty-state__icon">!</div>
@@ -226,79 +239,106 @@ export default function OverlayPage() {
         </div>
       </div>
 
-      {/* Repo tabs */}
-      {repos.length > 1 && (
-        <div className="repo-tabs">
-          {repos.map((repo) => (
-            <button
-              key={repo.name}
-              className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
-              onClick={() => handleTabChange(repo.name)}
-            >
-              {repo.name}
-            </button>
-          ))}
-        </div>
+      {/* View tabs: Paths | Activity */}
+      <div className="overlay-tabs">
+        <button
+          className={`overlay-tab${view === 'paths' ? ' overlay-tab--active' : ''}`}
+          onClick={() => handleTabChange('paths')}
+        >
+          Paths
+        </button>
+        <button
+          className={`overlay-tab${view === 'activity' ? ' overlay-tab--active' : ''}`}
+          onClick={() => handleTabChange('activity')}
+        >
+          Activity
+          {overlayUnreadCount > 0 && (
+            <span className="nav-badge nav-badge--danger" style={{ marginLeft: 6 }}>
+              {overlayUnreadCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {view === 'paths' && (
+        <>
+          {/* Repo tabs */}
+          {repos.length > 1 && (
+            <div className="repo-tabs">
+              {repos.map((repo) => (
+                <button
+                  key={repo.name}
+                  className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
+                  onClick={() => handleRepoTabChange(repo.name)}
+                >
+                  {repo.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="spawn-content">
+            <p style={{ marginBottom: 'var(--spacing-lg)', color: 'var(--color-text-muted)' }}>
+              Overlay files are shared across all workspaces for this repo. Agent configs, secrets,
+              and dotfiles are automatically copied to new workspaces and kept in sync.
+            </p>
+
+            <SectionHeader title="Auto-managed" />
+            {builtinPaths.length === 0 ? (
+              <p
+                style={{
+                  color: 'var(--color-text-faint)',
+                  fontSize: '0.875rem',
+                  padding: 'var(--spacing-sm) 0',
+                }}
+              >
+                No auto-managed overlay paths.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                {builtinPaths.map((p) => (
+                  <PathRow key={p.path} info={p} />
+                ))}
+              </div>
+            )}
+
+            <SectionHeader title="Repo-specific" />
+            {repoPaths.length === 0 ? (
+              <p
+                style={{
+                  color: 'var(--color-text-faint)',
+                  fontSize: '0.875rem',
+                  padding: 'var(--spacing-sm) 0',
+                }}
+              >
+                No repo-specific overlay files configured.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                {repoPaths.map((p) => (
+                  <PathRow key={p.path} info={p} showStatus />
+                ))}
+              </div>
+            )}
+
+            <div style={{ textAlign: 'center', marginTop: 'var(--spacing-lg)' }}>
+              <button
+                className="btn btn--primary"
+                onClick={handleStartAdd}
+                disabled={addFlow.step !== 'closed'}
+              >
+                + Add files
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
-      <div className="spawn-content">
-        {/* Description */}
-        <p style={{ marginBottom: 'var(--spacing-lg)', color: 'var(--color-text-muted)' }}>
-          Overlay files are shared across all workspaces for this repo. Agent configs, secrets, and
-          dotfiles are automatically copied to new workspaces and kept in sync.
-        </p>
-
-        {/* Auto-managed section */}
-        <SectionHeader title="Auto-managed" />
-        {builtinPaths.length === 0 ? (
-          <p
-            style={{
-              color: 'var(--color-text-faint)',
-              fontSize: '0.875rem',
-              padding: 'var(--spacing-sm) 0',
-            }}
-          >
-            No auto-managed overlay paths.
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-            {builtinPaths.map((p) => (
-              <PathRow key={p.path} info={p} />
-            ))}
-          </div>
-        )}
-
-        {/* Repo-specific section */}
-        <SectionHeader title="Repo-specific" />
-        {repoPaths.length === 0 ? (
-          <p
-            style={{
-              color: 'var(--color-text-faint)',
-              fontSize: '0.875rem',
-              padding: 'var(--spacing-sm) 0',
-            }}
-          >
-            No repo-specific overlay files configured.
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-            {repoPaths.map((p) => (
-              <PathRow key={p.path} info={p} showStatus />
-            ))}
-          </div>
-        )}
-
-        {/* Add button */}
-        <div style={{ textAlign: 'center', marginTop: 'var(--spacing-lg)' }}>
-          <button
-            className="btn btn--primary"
-            onClick={handleStartAdd}
-            disabled={addFlow.step !== 'closed'}
-          >
-            + Add files
-          </button>
+      {view === 'activity' && (
+        <div className="spawn-content">
+          <OverlayActivityFeed events={overlayEvents} onClear={clearOverlayEvents} />
         </div>
-      </div>
+      )}
 
       {/* Add flow modal */}
       {addFlow.step !== 'closed' && (
@@ -361,7 +401,110 @@ export default function OverlayPage() {
   );
 }
 
-// --- Sub-components ---
+// --- Activity feed components ---
+
+function OverlayActivityFeed({
+  events,
+  onClear,
+}: {
+  events: OverlayChangeEvent[];
+  onClear: () => void;
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="overlay-activity">
+        <p className="overlay-activity__empty">
+          No overlay changes yet. Changes will appear here in real-time as files are synced across
+          workspaces.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overlay-activity">
+      <div className="overlay-activity__toolbar">
+        <button className="btn btn--sm" onClick={onClear}>
+          Clear all
+        </button>
+      </div>
+      {events.map((event, i) => (
+        <OverlayEventCard key={`${event.timestamp}-${event.rel_path}-${i}`} event={event} />
+      ))}
+    </div>
+  );
+}
+
+function OverlayEventCard({ event }: { event: OverlayChangeEvent }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const timeStr = new Date(event.timestamp * 1000).toLocaleTimeString();
+
+  return (
+    <div className="overlay-event">
+      <div className="overlay-event__header" onClick={() => setExpanded(!expanded)}>
+        <div>
+          <span className="overlay-event__file">{event.rel_path}</span>
+          <div className="overlay-event__meta">
+            <span>
+              from <strong>{event.source_branch || event.source_workspace_id.slice(0, 8)}</strong>
+            </span>
+            <span>
+              &rarr; {event.target_workspace_ids.length} workspace
+              {event.target_workspace_ids.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+          <span className="overlay-event__time">{timeStr}</span>
+          <svg
+            className={`overlay-event__chevron${expanded ? ' overlay-event__chevron--open' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+      </div>
+      {expanded && event.unified_diff && (
+        <div className="overlay-event__diff">
+          <pre>
+            {event.unified_diff.split('\n').map((line, j) => {
+              let cls = 'overlay-diff-line';
+              if (line.startsWith('+') && !line.startsWith('+++')) cls += ' overlay-diff-line--add';
+              else if (line.startsWith('-') && !line.startsWith('---'))
+                cls += ' overlay-diff-line--del';
+              else if (line.startsWith('@@')) cls += ' overlay-diff-line--hunk';
+              else if (line.startsWith('---') || line.startsWith('+++'))
+                cls += ' overlay-diff-line--header';
+              return (
+                <div key={j} className={cls}>
+                  {line}
+                </div>
+              );
+            })}
+          </pre>
+        </div>
+      )}
+      {expanded && !event.unified_diff && (
+        <div className="overlay-event__diff">
+          <pre
+            style={{
+              padding: 'var(--spacing-sm) var(--spacing-md)',
+              color: 'var(--color-text-faint)',
+            }}
+          >
+            No diff available (new file or binary content)
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Existing sub-components ---
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -526,7 +669,6 @@ function ScanResults({
         </div>
       )}
 
-      {/* Custom paths already added */}
       {customPaths.length > 0 && (
         <div style={{ marginBottom: 'var(--spacing-md)' }}>
           <SectionHeader title="Custom paths" />
@@ -556,7 +698,6 @@ function ScanResults({
         </div>
       )}
 
-      {/* Custom path input */}
       <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'flex-end' }}>
         <div className="form-group" style={{ flex: 1 }}>
           <label className="form-group__label" htmlFor="overlay-custom-path">

@@ -38,7 +38,13 @@ export default function AppShell() {
   const { toggleTheme } = useTheme();
   const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
-  const { workspaces, connected, linearSyncResolveConflictStates } = useSessions();
+  const {
+    workspaces,
+    connected,
+    linearSyncResolveConflictStates,
+    overlayUnreadCount,
+    markOverlaysRead,
+  } = useSessions();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();
@@ -759,6 +765,7 @@ export default function AppShell() {
               <NavLink
                 to="/overlays"
                 className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+                onClick={markOverlaysRead}
               >
                 <svg
                   className="nav-link__icon"
@@ -771,7 +778,12 @@ export default function AppShell() {
                   <polyline points="2 17 12 22 22 17"></polyline>
                   <polyline points="2 12 12 17 22 12"></polyline>
                 </svg>
-                <span>Overlays</span>
+                <span>
+                  Overlays
+                  {overlayUnreadCount > 0 && (
+                    <span className="nav-badge nav-badge--danger">{overlayUnreadCount}</span>
+                  )}
+                </span>
               </NavLink>
             )}
             {config?.repos?.length > 0 && (
