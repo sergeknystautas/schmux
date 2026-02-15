@@ -909,7 +909,8 @@ func TestNudgeSeqPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLastSignalAtPersistenceRoundTrip(t *testing.T) {
+func TestLastSignalAtNotPersisted(t *testing.T) {
+	// LastSignalAt has json:"-" and should NOT survive save/load
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
@@ -922,7 +923,7 @@ func TestLastSignalAtPersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("Save() failed: %v", err)
 	}
 
-	// Load from disk and verify
+	// Load from disk and verify LastSignalAt is zero (not persisted)
 	loaded, err := Load(statePath)
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
@@ -931,8 +932,8 @@ func TestLastSignalAtPersistenceRoundTrip(t *testing.T) {
 	if !found {
 		t.Fatal("session not found after load")
 	}
-	if !sess.LastSignalAt.Equal(ts) {
-		t.Errorf("LastSignalAt after load = %v, want %v", sess.LastSignalAt, ts)
+	if !sess.LastSignalAt.IsZero() {
+		t.Errorf("LastSignalAt after load = %v, want zero (should not persist)", sess.LastSignalAt)
 	}
 }
 

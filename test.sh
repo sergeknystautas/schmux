@@ -19,6 +19,7 @@
 #   --help          Show this help message
 
 set -e  # Exit on error
+set -u  # Treat unset variables as errors
 set -o pipefail  # Propagate errors through pipes
 
 # Colors for output

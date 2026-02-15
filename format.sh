@@ -25,7 +25,7 @@ if ! (cd assets/dashboard && npm list prettier >/dev/null 2>&1); then
 fi
 
 echo "Formatting Go files..."
-gofmt -w $(find . -name '*.go' -not -path './vendor/*')
+find . -name '*.go' -not -path './vendor/*' -print0 | xargs -0 gofmt -w
 
 echo "Formatting TS/JS/CSS/MD/JSON files..."
 (cd assets/dashboard && npx prettier --write "../.." --ignore-path "../../.prettierignore")

@@ -34,18 +34,19 @@ func HashBytes(data []byte) string {
 }
 
 // IsBinary checks if a file appears to be binary by looking for null bytes
-// in the first 512 bytes.
+// in the first 512 bytes. Returns true for unreadable files to avoid
+// text merge on potentially binary data.
 func IsBinary(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return true // treat unreadable files as binary to be safe
 	}
 	defer f.Close()
 
 	buf := make([]byte, maxBinaryCheckSize)
 	n, err := f.Read(buf)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return false
+		return true // treat read errors as binary to be safe
 	}
 	for i := 0; i < n; i++ {
 		if buf[i] == 0 {

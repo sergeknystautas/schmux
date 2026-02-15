@@ -65,8 +65,12 @@ func Get(label string) (string, error) {
 		return "", fmt.Errorf("failed to generate schema for %s: %w", label, err)
 	}
 
-	// Cache it
+	// Cache it (re-check to avoid overwriting a concurrent generation)
 	schemaCacheMu.Lock()
+	if existing, ok := schemaCache[label]; ok {
+		schemaCacheMu.Unlock()
+		return existing, nil
+	}
 	schemaCache[label] = schema
 	schemaCacheMu.Unlock()
 

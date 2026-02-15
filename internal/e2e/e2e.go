@@ -1501,7 +1501,12 @@ func (e *Env) PostDismissNudge(repoName string) {
 
 	reqBody, _ := json.Marshal(map[string]string{"repo_name": repoName})
 
-	resp, err := http.Post(e.DaemonURL+"/api/overlays/dismiss-nudge", "application/json", bytes.NewReader(reqBody))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/overlays/dismiss-nudge", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.T.Fatalf("Failed to POST /api/overlays/dismiss-nudge: %v", err)
 	}

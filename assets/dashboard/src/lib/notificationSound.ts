@@ -25,10 +25,6 @@ export function warmupAudioContext(): void {
     if (ctx.state === 'suspended') {
       ctx.resume();
     }
-    // Remove all listeners after first interaction
-    document.removeEventListener('click', resume);
-    document.removeEventListener('keydown', resume);
-    document.removeEventListener('touchstart', resume);
   };
 
   document.addEventListener('click', resume, { once: true });

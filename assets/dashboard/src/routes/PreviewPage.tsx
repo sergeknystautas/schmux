@@ -31,13 +31,15 @@ export default function PreviewPage() {
     }
   }, [workspaceId, workspace, previewId, preview, navigate]);
 
+  const previewId_ = preview?.id;
+  const previewUrl = preview?.url;
+
   useEffect(() => {
-    if (!preview || !mountRef.current) return;
-    const { id, url } = preview;
+    if (!previewId_ || !previewUrl || !mountRef.current) return;
     const mount = mountRef.current;
     const updateViewport = () => {
       const rect = mount.getBoundingClientRect();
-      showPreviewIframe(id, url, {
+      showPreviewIframe(previewId_, previewUrl, {
         left: rect.left,
         top: rect.top,
         width: rect.width,
@@ -54,7 +56,7 @@ export default function PreviewPage() {
       window.removeEventListener('resize', updateViewport);
       hidePreviewIframes();
     };
-  }, [preview]);
+  }, [previewId_, previewUrl]);
 
   if (!workspace) {
     return (
