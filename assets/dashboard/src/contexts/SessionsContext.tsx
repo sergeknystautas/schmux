@@ -17,6 +17,7 @@ import type {
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
   PendingNavigation,
+  OverlayChangeEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -32,6 +33,10 @@ type SessionsContextValue = {
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
+  overlayEvents: OverlayChangeEvent[];
+  overlayUnreadCount: number;
+  clearOverlayEvents: () => void;
+  markOverlaysRead: () => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -45,8 +50,15 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     connected,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
+    overlayEvents,
+    clearOverlayEvents,
   } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+  const [overlayReadCount, setOverlayReadCount] = useState(0);
+  const overlayUnreadCount = Math.max(0, overlayEvents.length - overlayReadCount);
+  const markOverlaysRead = useCallback(() => {
+    setOverlayReadCount(overlayEvents.length);
+  }, [overlayEvents.length]);
   const lastProcessedNudgeRef = useRef<Record<string, number>>({});
   const lastCleanupRef = useRef(0);
 
@@ -235,6 +247,10 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
+      overlayEvents,
+      overlayUnreadCount,
+      clearOverlayEvents,
+      markOverlaysRead,
     }),
     [
       workspaces,
@@ -248,6 +264,10 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
+      overlayEvents,
+      overlayUnreadCount,
+      clearOverlayEvents,
+      markOverlaysRead,
     ]
   );
 
