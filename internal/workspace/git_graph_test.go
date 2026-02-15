@@ -592,3 +592,28 @@ func TestGitGraph_LocalNotTruncated(t *testing.T) {
 		t.Error("expected LocalTruncated=false when local commits fit within limit")
 	}
 }
+
+func TestGitGraph_MainAheadNewestTimestamp(t *testing.T) {
+	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-timestamp")
+	ctx := context.Background()
+
+	// Add a local commit
+	commitOnWorkspace(t, wsDir, "local.txt", "local work")
+
+	// Add remote commits
+	commitOnRemote(t, remoteDir, wsDir, "remote1.txt", "remote 1")
+	commitOnRemote(t, remoteDir, wsDir, "remote2.txt", "remote 2")
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	if resp.MainAheadCount != 2 {
+		t.Errorf("expected MainAheadCount=2, got %d", resp.MainAheadCount)
+	}
+
+	if resp.MainAheadNewestTimestamp == "" {
+		t.Error("expected MainAheadNewestTimestamp to be populated when main is ahead")
+	}
+}
