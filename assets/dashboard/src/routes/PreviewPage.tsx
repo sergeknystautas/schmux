@@ -73,7 +73,7 @@ export default function PreviewPage() {
         workspace={workspace}
         activePreviewId={preview?.id}
       />
-      <div style={{ height: 'calc(100vh - 176px)', minHeight: 320 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
       </div>
     </>

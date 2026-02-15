@@ -8,6 +8,7 @@ type SessionsWebSocketState = {
   workspaces: WorkspaceResponse[];
   connected: boolean;
   loading: boolean;
+  stale: boolean;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
 };
@@ -16,6 +17,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [stale, setStale] = useState(false);
   const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<
     Record<string, LinearSyncResolveConflictStatePayload>
   >({});
@@ -47,6 +49,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     ws.onopen = () => {
       if (!mountedRef.current) return;
       setConnected(true);
+      setStale(false);
       // Reset reconnect delay on successful connection
       reconnectDelayRef.current = RECONNECT_DELAY_MS;
     };
@@ -80,6 +83,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     ws.onclose = () => {
       if (!mountedRef.current) return;
       setConnected(false);
+      setStale(true);
       wsRef.current = null;
 
       // Schedule reconnect with exponential backoff
@@ -123,6 +127,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     workspaces,
     connected,
     loading,
+    stale,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
   };

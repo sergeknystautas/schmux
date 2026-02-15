@@ -144,8 +144,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
 		fmt.Printf("[workspace] refresh-overlay error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
-		// Return 400 for client errors (active sessions, not found)
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -163,6 +162,8 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
 	var req struct {
 		WorkspaceID string `json:"workspace_id"`
 		RepoName    string `json:"repo_name"`
@@ -176,6 +177,21 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		http.Error(w, "Workspace not found", http.StatusNotFound)
 		return
+	}
+
+	// Validate repo name if provided
+	if req.RepoName != "" {
+		repoFound := false
+		for _, repo := range s.config.GetRepos() {
+			if repo.Name == req.RepoName {
+				repoFound = true
+				break
+			}
+		}
+		if !repoFound {
+			http.Error(w, "Unknown repo", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// List gitignored files using git
@@ -227,6 +243,8 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
 	var req struct {
 		WorkspaceID string   `json:"workspace_id"`
 		RepoName    string   `json:"repo_name"`
@@ -238,6 +256,11 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Paths)+len(req.CustomPaths) > 100 {
+		http.Error(w, "Too many paths (max 100)", http.StatusBadRequest)
+		return
+	}
+
 	ws, found := s.state.GetWorkspace(req.WorkspaceID)
 	if !found {
 		http.Error(w, "Workspace not found", http.StatusNotFound)
@@ -245,15 +268,22 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate repo name against configured repos
-	repoFound := false
+	var matchedRepo *config.Repo
 	for _, repo := range s.config.GetRepos() {
 		if repo.Name == req.RepoName {
-			repoFound = true
+			r := repo
+			matchedRepo = &r
 			break
 		}
 	}
-	if !repoFound {
+	if matchedRepo == nil {
 		http.Error(w, "Unknown repo", http.StatusBadRequest)
+		return
+	}
+
+	// Verify that the workspace belongs to the specified repo
+	if ws.Repo != matchedRepo.URL {
+		http.Error(w, "Workspace does not belong to this repo", http.StatusBadRequest)
 		return
 	}
 
@@ -263,10 +293,17 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type pathError struct {
+		Path  string `json:"path"`
+		Error string `json:"error"`
+	}
+
 	// Copy selected files from workspace to overlay dir
 	var copied []string
+	var errors []pathError
 	for _, relPath := range req.Paths {
 		if err := compound.ValidateRelPath(relPath); err != nil {
+			errors = append(errors, pathError{Path: relPath, Error: err.Error()})
 			continue
 		}
 		srcPath := filepath.Join(ws.Path, relPath)
@@ -275,9 +312,11 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 
 		content, err := os.ReadFile(srcPath)
 		if err != nil {
+			errors = append(errors, pathError{Path: relPath, Error: fmt.Sprintf("failed to read: %v", err)})
 			continue
 		}
 		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+			errors = append(errors, pathError{Path: relPath, Error: fmt.Sprintf("failed to write: %v", err)})
 			continue
 		}
 		copied = append(copied, relPath)
@@ -287,6 +326,7 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 	var validCustom []string
 	for _, p := range req.CustomPaths {
 		if err := compound.ValidateRelPath(p); err != nil {
+			errors = append(errors, pathError{Path: p, Error: err.Error()})
 			continue
 		}
 		validCustom = append(validCustom, p)
@@ -306,6 +346,7 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		"success":    true,
 		"copied":     copied,
 		"registered": allNewPaths,
+		"errors":     errors,
 	})
 }
 
@@ -315,6 +356,8 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 
 	var req struct {
 		RepoName string `json:"repo_name"`
@@ -328,11 +371,14 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the repo and set OverlayNudgeDismissed
+	// Find the repo and set OverlayNudgeDismissed.
+	// NOTE: GetRepos() returns the backing slice directly (not a copy),
+	// so modifying repos[i] mutates s.config.Repos[i] in place.
+	repos := s.config.GetRepos()
 	found := false
-	for i := range s.config.Repos {
-		if s.config.Repos[i].Name == req.RepoName {
-			s.config.Repos[i].OverlayNudgeDismissed = true
+	for i := range repos {
+		if repos[i].Name == req.RepoName {
+			repos[i].OverlayNudgeDismissed = true
 			found = true
 			break
 		}

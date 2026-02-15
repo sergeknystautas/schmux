@@ -224,31 +224,46 @@ func (s *State) FlushPending() {
 }
 
 // saveNow performs the actual save operation (internal implementation).
+// Copies data under RLock and writes to disk outside the lock to avoid
+// holding the lock during I/O.
 func (s *State) saveNow() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	path := s.path
+	data, err := json.MarshalIndent(s, "", "  ")
+	s.mu.RUnlock()
 
-	if s.path == "" {
+	if path == "" {
 		return fmt.Errorf("state path is empty, cannot save")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0755); err != nil {
-		return fmt.Errorf("failed to create state directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	// Use atomic write pattern (temp file + rename)
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+
+	// Use atomic write pattern (unique temp file + rename)
+	tmpFile, err := os.CreateTemp(dir, ".state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to write state: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	// Atomic rename on POSIX systems
-	if err := os.Rename(tmpPath, s.path); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath) // Clean up temp file
 		return fmt.Errorf("failed to save state: %w", err)
 	}

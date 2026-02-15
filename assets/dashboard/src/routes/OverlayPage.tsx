@@ -156,7 +156,7 @@ export default function OverlayPage() {
     try {
       const result = await addOverlayFiles(req);
       if (result.success) {
-        const count = (result.copied?.length || 0) + (result.registered?.length || 0);
+        const count = result.registered?.length || 0;
         toastSuccess(`Added ${count} overlay file${count !== 1 ? 's' : ''}`);
       }
       setAddFlow({ step: 'closed' });

@@ -73,6 +73,7 @@ func ReadEntries(path string, filter EntryFilter) ([]Entry, error) {
 
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -170,11 +171,26 @@ func ResolveEntryState(entry Entry, allEntries []Entry) string {
 	return latestState
 }
 
+// buildStateMap creates a map from entry timestamp to its latest resolved state.
+// Assumes entries are in chronological order (append-only JSONL), so the last
+// state-change record for a given EntryTS wins. This matches the file format
+// where newer state overrides are appended after the original entry.
+func buildStateMap(entries []Entry) map[string]string {
+	stateMap := make(map[string]string)
+	for _, e := range entries {
+		if e.StateChange != "" && e.EntryTS != "" {
+			stateMap[e.EntryTS] = e.StateChange
+		}
+	}
+	return stateMap
+}
+
 // FilterByParams returns a filter that applies query parameter filters.
 // Supported filters: state (raw/proposed/applied/dismissed), agent, type, limit.
 // State resolution requires the full entry list to check state-change records.
 func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
 	return func(entries []Entry) []Entry {
+		sm := buildStateMap(entries)
 		var result []Entry
 		for _, e := range entries {
 			if e.StateChange != "" {
@@ -187,7 +203,11 @@ func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
 				continue
 			}
 			if state != "" {
-				resolved := ResolveEntryState(e, entries)
+				tsStr := e.Timestamp.Format(time.RFC3339)
+				resolved := sm[tsStr]
+				if resolved == "" {
+					resolved = "raw"
+				}
 				if resolved != state {
 					continue
 				}
@@ -203,6 +223,8 @@ func FilterByParams(state, agent, entryType string, limit int) EntryFilter {
 
 // PruneEntries removes applied/dismissed entries older than maxAge from the JSONL file.
 // It rewrites the file in-place, keeping only entries that should be retained.
+// WARNING: This function is not safe for concurrent use with AppendEntry.
+// The caller must ensure exclusive access (e.g., single goroutine or file lock).
 // Returns the number of pruned lines and any error encountered.
 func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	f, err := os.Open(path)
@@ -217,6 +239,7 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	// Read all raw lines (to preserve original JSON formatting)
 	var lines []string
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
@@ -276,8 +299,7 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
-			kept = append(kept, line)
-			continue
+			continue // skip empty lines
 		}
 		var e Entry
 		if err := json.Unmarshal([]byte(trimmed), &e); err != nil {

@@ -7,7 +7,13 @@ import {
   dismissLinearSyncResolveConflictState,
   getErrorMessage,
 } from '../lib/api';
-import { formatRelativeTime, formatTimestamp } from '../lib/utils';
+import {
+  formatRelativeTime,
+  formatTimestamp,
+  nudgeStateEmoji,
+  formatNudgeSummary,
+  WorkingSpinner,
+} from '../lib/utils';
 import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -16,27 +22,6 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 import { getQuickLaunchItems } from '../lib/quicklaunch';
-
-const nudgeStateEmoji: Record<string, string> = {
-  'Needs Authorization': '\u26D4\uFE0F',
-  'Needs Feature Clarification': '\uD83D\uDD0D',
-  'Needs User Testing': '\uD83D\uDC40',
-  Completed: '\u2705',
-  Error: '\u274C',
-};
-
-function formatNudgeSummary(summary?: string) {
-  if (!summary) return null;
-  let text = summary.trim();
-  if (text.length > 100) {
-    text = text.substring(0, 97) + '...';
-  }
-  return text;
-}
-
-function WorkingSpinner() {
-  return <span className="working-spinner"></span>;
-}
 
 type SessionTabsProps = {
   sessions: SessionResponse[];

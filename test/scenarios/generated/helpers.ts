@@ -171,6 +171,8 @@ export async function createTestRepo(name: string): Promise<string> {
   const repoDir = `/tmp/schmux-test-repos/${name}`;
   execSync(`rm -rf ${repoDir} && mkdir -p ${repoDir}`);
   execSync(`git init -b main ${repoDir}`);
+  execSync(`git -C ${repoDir} config user.email "test@schmux.dev"`);
+  execSync(`git -C ${repoDir} config user.name "Schmux Test"`);
   execSync(`touch ${repoDir}/README.md`);
   execSync(`git -C ${repoDir} add .`);
   execSync(`git -C ${repoDir} commit -m "initial"`);
@@ -189,8 +191,12 @@ export function sleep(ms: number): Promise<void> {
  * Wait for the dashboard WebSocket to connect (green "Live" indicator).
  */
 export async function waitForDashboardLive(page: Page): Promise<void> {
-  // The dashboard shows a connection indicator; wait for the page to load
-  // and the WebSocket to establish.
   await page.waitForLoadState('networkidle');
-  await sleep(1000); // allow WebSocket handshake
+  // Wait for the WebSocket connection indicator to show "Live"
+  try {
+    await page.waitForSelector('[data-testid="connection-status"]', { timeout: 5000 });
+  } catch {
+    // Fall back to short sleep if indicator not found
+    await sleep(1000);
+  }
 }

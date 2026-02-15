@@ -19,7 +19,7 @@ type PreCommitHookError struct {
 
 func (e *PreCommitHookError) Error() string {
 	if e.error != nil {
-		return "WIP commit failed - pre-commit hook error (fix formatting errors before rebasing)"
+		return fmt.Sprintf("WIP commit failed - pre-commit hook error: %v", e.error)
 	}
 	return "WIP commit failed - pre-commit hook error (fix formatting errors before rebasing)"
 }
@@ -139,13 +139,17 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			// git rebase --abort
 			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
 			abortCmd.Dir = workspacePath
-			_ = abortCmd.Run()
+			if out, err := abortCmd.CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "[workspace] warning: git rebase --abort failed: %v: %s\n", err, string(out))
+			}
 
 			// git reset --mixed HEAD~1 - undo the WIP commit
 			if didCommit {
 				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 				resetCmd.Dir = workspacePath
-				_ = resetCmd.Run()
+				if out, err := resetCmd.CombinedOutput(); err != nil {
+					fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+				}
 				fmt.Printf("[workspace] reset WIP commit after conflict\n")
 			}
 
@@ -486,11 +490,15 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		emit(ResolveConflictStep{Action: "abort", Status: "in_progress", Message: fmt.Sprintf("Aborting: %s", reason)})
 		abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
 		abortCmd.Dir = workspacePath
-		_ = abortCmd.Run()
+		if out, err := abortCmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "[workspace] warning: git rebase --abort failed: %v: %s\n", err, string(out))
+		}
 		if didCommit {
 			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 			resetCmd.Dir = workspacePath
-			_ = resetCmd.Run()
+			if out, err := resetCmd.CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+			}
 		}
 		emit(ResolveConflictStep{Action: "abort", Status: "failed", Message: fmt.Sprintf("Aborted: %s", reason)})
 	}

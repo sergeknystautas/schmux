@@ -1,6 +1,10 @@
 // Store both the iframe and the canonical URL we used to create it
 // This avoids browser URL normalization issues when comparing
-const iframeRegistry = new Map<string, { iframe: HTMLIFrameElement; url: string }>();
+const iframeRegistry = new Map<
+  string,
+  { iframe: HTMLIFrameElement; url: string; lastUsed: number }
+>();
+const MAX_IFRAMES = 10;
 let parkingLot: HTMLDivElement | null = null;
 
 function ensureParkingLot(): HTMLDivElement {
@@ -20,11 +24,33 @@ function ensureParkingLot(): HTMLDivElement {
   return parkingLot;
 }
 
+function evictLeastRecentlyUsed(): void {
+  if (iframeRegistry.size < MAX_IFRAMES) return;
+  let oldestId: string | null = null;
+  let oldestTime = Infinity;
+  for (const [id, entry] of iframeRegistry) {
+    if (entry.lastUsed < oldestTime) {
+      oldestTime = entry.lastUsed;
+      oldestId = id;
+    }
+  }
+  if (oldestId) {
+    const evicted = iframeRegistry.get(oldestId);
+    if (evicted) {
+      evicted.iframe.remove();
+      iframeRegistry.delete(oldestId);
+    }
+  }
+}
+
 function ensurePreviewIframe(previewId: string, url: string): HTMLIFrameElement {
   const lot = ensureParkingLot();
   const entry = iframeRegistry.get(previewId);
 
   if (!entry) {
+    // Evict least recently used iframe if at capacity
+    evictLeastRecentlyUsed();
+
     // Create new iframe
     const iframe = document.createElement('iframe');
     iframe.src = url;
@@ -38,10 +64,13 @@ function ensurePreviewIframe(previewId: string, url: string): HTMLIFrameElement 
     iframe.style.height = '100%';
     iframe.style.border = 'none';
     iframe.style.visibility = 'hidden';
-    iframeRegistry.set(previewId, { iframe, url });
+    iframeRegistry.set(previewId, { iframe, url, lastUsed: Date.now() });
     lot.appendChild(iframe);
     return iframe;
   }
+
+  // Update last used timestamp
+  entry.lastUsed = Date.now();
 
   // Only reload if the URL has actually changed
   // Compare against our stored URL, not iframe.src (which is browser-normalized)

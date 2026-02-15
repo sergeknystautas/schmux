@@ -157,6 +157,9 @@ DEPS=("go:brew:go")
 if [ "$RUN_E2E" = true ] || [ "$RUN_SCENARIOS" = true ]; then
     DEPS+=("docker:brew-cask:docker")
 fi
+if [ "$RUN_BENCH" = true ]; then
+    DEPS+=("python3:brew:python3")
+fi
 check_deps "${DEPS[@]}"
 
 # Print header

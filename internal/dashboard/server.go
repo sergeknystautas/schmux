@@ -111,6 +111,7 @@ type Server struct {
 	broadcastTimer   *time.Timer
 	broadcastMu      sync.Mutex
 	broadcastDone    chan struct{}
+	broadcastExited  chan struct{}
 	broadcastReady   chan struct{}
 	broadcastOnce    sync.Once
 	broadcastStopped bool
@@ -182,6 +183,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		sessionsConns:                   make(map[*wsConn]bool),
 		rotationLocks:                   make(map[string]*sync.Mutex),
 		broadcastDone:                   make(chan struct{}),
+		broadcastExited:                 make(chan struct{}),
 		broadcastReady:                  make(chan struct{}),
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
@@ -398,6 +400,9 @@ func (s *Server) Stop() error {
 		close(s.broadcastDone)
 	})
 
+	// Wait for broadcastLoop goroutine to exit
+	<-s.broadcastExited
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -407,6 +412,8 @@ func (s *Server) Stop() error {
 	if s.previewManager != nil {
 		s.previewManager.Stop()
 	}
+	// Stop rate limiter cleanup goroutine
+	s.connectLimiter.Stop()
 
 	return nil
 }
@@ -697,6 +704,7 @@ func (s *Server) BroadcastSessions() {
 
 // broadcastLoop waits for the debounce timer to fire, then broadcasts to all clients.
 func (s *Server) broadcastLoop() {
+	defer close(s.broadcastExited)
 	// Wait for the timer to be initialized
 	select {
 	case <-s.broadcastReady:

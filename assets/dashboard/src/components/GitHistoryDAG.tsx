@@ -18,6 +18,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useSync } from '../hooks/useSync';
 import { useModal } from './ModalProvider';
 import { usePendingNavigation } from '../lib/navigation';
+import { formatRelativeTime } from '../lib/utils';
 import Tooltip from './Tooltip';
 
 interface GitHistoryDAGProps {
@@ -27,20 +28,6 @@ interface GitHistoryDAGProps {
 const NODE_RADIUS = 5;
 const COLUMN_WIDTH = 20;
 const GRAPH_PADDING = 12;
-
-function relativeTime(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 30) return `${diffDay}d ago`;
-  return new Date(timestamp).toLocaleDateString();
-}
 
 export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const navigate = useNavigate();
@@ -142,6 +129,15 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   // Track the git-relevant fields and refetch when they change.
   const { workspaces } = useSessions();
   const ws = workspaces.find((w) => w.id === workspaceId);
+  if (!ws) {
+    return (
+      <div className="git-dag" ref={containerRef}>
+        <div className="loading-state">
+          <div className="spinner" /> Loading workspace...
+        </div>
+      </div>
+    );
+  }
   const gitFingerprint = ws
     ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
     : '';
@@ -381,6 +377,15 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           className="git-dag__file-row"
           style={{ cursor: 'pointer' }}
           onClick={toggleFile}
+          role="button"
+          tabIndex={0}
+          aria-label={`${isSelected ? 'Deselect' : 'Select'} file ${filePath}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleFile();
+            }
+          }}
         >
           <input
             type="checkbox"
@@ -388,6 +393,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             onChange={toggleFile}
             onClick={(e) => e.stopPropagation()}
             style={{ marginRight: '8px' }}
+            aria-label={`Select ${filePath}`}
           />
           <span className={`commit-workflow__status ${statusClass}`}>{statusLabel}</span>
           <span className="commit-workflow__filename">{filePath}</span>
@@ -519,7 +525,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             {ln.syncSummary.count !== 1 ? 's' : ''}
           </span>
           <span style={{ flex: 1 }} />
-          <span className="git-dag__time">{relativeTime(ln.syncSummary.newestTimestamp)}</span>
+          <span className="git-dag__time">
+            {formatRelativeTime(ln.syncSummary.newestTimestamp)}
+          </span>
         </div>
       );
     }
@@ -578,7 +586,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
           )}
         </span>
         <span className="git-dag__author">{ln.node.author}</span>
-        <span className="git-dag__time">{relativeTime(ln.node.timestamp)}</span>
+        <span className="git-dag__time">{formatRelativeTime(ln.node.timestamp)}</span>
       </div>
     );
   };

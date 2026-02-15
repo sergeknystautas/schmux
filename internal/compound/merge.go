@@ -156,6 +156,10 @@ VERSION B (workspace modification):
 
 // mergeJSONLLines performs a line-level union of two JSONL files.
 // Deduplicates by exact line content. Preserves order: overlay lines first, then new workspace lines.
+//
+// NOTE: Deduplication uses exact string comparison of trimmed lines. Semantically identical
+// JSON objects with different key ordering (e.g., {"a":1,"b":2} vs {"b":2,"a":1}) will be
+// treated as different lines and both kept in the output.
 func mergeJSONLLines(wsContent, overlayContent []byte, overlayPath string) ([]byte, error) {
 	seen := make(map[string]bool)
 	var merged []string

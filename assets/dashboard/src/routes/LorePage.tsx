@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   getLoreProposals,
@@ -43,27 +43,47 @@ export default function LorePage() {
     type?: string;
   }>({});
 
-  const loadData = useCallback(async () => {
+  const loadProposals = useCallback(async () => {
     if (!repoName) return;
     try {
-      setLoading(true);
-      setError('');
-      const [proposalData, entryData] = await Promise.all([
-        getLoreProposals(repoName),
-        getLoreEntries(repoName, entryFilters),
-      ]);
+      const proposalData = await getLoreProposals(repoName);
       setProposals(proposalData.proposals || []);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load lore proposals'));
+    }
+  }, [repoName]);
+
+  const loadEntries = useCallback(async () => {
+    if (!repoName) return;
+    try {
+      const entryData = await getLoreEntries(repoName, entryFilters);
       setEntries(entryData.entries || []);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load lore data'));
-    } finally {
-      setLoading(false);
+      setError(getErrorMessage(err, 'Failed to load lore entries'));
     }
   }, [repoName, entryFilters]);
 
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    await Promise.all([loadProposals(), loadEntries()]);
+    setLoading(false);
+  }, [loadProposals, loadEntries]);
+
+  // Initial load when repo changes
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Reload only entries when filters change (skip on initial mount)
+  const filtersInitialized = useRef(false);
+  useEffect(() => {
+    if (!filtersInitialized.current) {
+      filtersInitialized.current = true;
+      return;
+    }
+    loadEntries();
+  }, [loadEntries]);
 
   const handleApply = async (proposal: LoreProposal, overrides?: Record<string, string>) => {
     if (!repoName) return;

@@ -93,14 +93,9 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 			return nil
 		}
 
-		// Get file info to check permissions and mode
-		info, err := d.Info()
-		if err != nil {
-			return fmt.Errorf("failed to get file info for %s: %w", path, err)
-		}
-
-		// Check if this is a symlink
-		if info.Mode()&os.ModeSymlink != 0 {
+		// Check if this is a symlink (must use d.Type(), not info.Mode(),
+		// because DirEntry.Info() follows symlinks and loses the symlink flag)
+		if d.Type()&os.ModeSymlink != 0 {
 			// Copy symlink as-is
 			target, err := os.Readlink(path)
 			if err != nil {
@@ -111,6 +106,12 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 			}
 			fmt.Printf("[workspace] copied overlay symlink: %s -> %s\n", relPath, target)
 			return nil
+		}
+
+		// Get file info for permissions
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to get file info for %s: %w", path, err)
 		}
 
 		// Copy regular file

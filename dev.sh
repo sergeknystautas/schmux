@@ -35,6 +35,7 @@ DEV_BUILD_STATUS_FILE="${SCHMUX_DIR}/dev-build-status.json"
 DEV_LOG_FILE="${SCHMUX_DIR}/dev.log"
 BINARY="./tmp/schmux"
 VITE_PID=""
+DAEMON_PID=""
 
 # Read a JSON field using python3 (macOS built-in) with jq fallback
 json_field() {
@@ -50,6 +51,12 @@ json_field() {
 cleanup() {
     echo ""
     echo -e "${CYAN}[dev]${NC} Shutting down..."
+
+    # Kill daemon if running
+    if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
+        kill "$DAEMON_PID" 2>/dev/null || true
+        wait "$DAEMON_PID" 2>/dev/null || true
+    fi
 
     # Kill Vite
     if [[ -n "$VITE_PID" ]] && kill -0 "$VITE_PID" 2>/dev/null; then
@@ -218,8 +225,11 @@ SEOF
     # Run the daemon (output to terminal with color prefixes + raw log on disk)
     : > "$DEV_LOG_FILE"  # truncate log on each daemon restart
     set +e
-    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
+    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done &
+    DAEMON_PID=$!
+    wait "$DAEMON_PID" 2>/dev/null || true
     EXIT_CODE=${PIPESTATUS[0]}
+    DAEMON_PID=""
     set -e
 
     if [[ "$EXIT_CODE" -eq 42 ]]; then

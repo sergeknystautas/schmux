@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // ApplyResult holds the output of applying a proposal.
@@ -19,8 +18,8 @@ type ApplyResult struct {
 // It does NOT push — the caller decides whether to push.
 // bareDir is the path to the bare clone. workBaseDir is where temp worktrees are created.
 func ApplyProposal(ctx context.Context, proposal *Proposal, bareDir, workBaseDir string) (*ApplyResult, error) {
-	now := time.Now().UTC()
-	branch := fmt.Sprintf("schmux/lore-%s", now.Format("20060102-150405"))
+	proposalID := proposal.ID
+	branch := fmt.Sprintf("schmux/lore-%s", strings.TrimPrefix(proposalID, "prop-"))
 
 	// Determine default branch to branch from
 	defaultBranch, err := getDefaultBranch(ctx, bareDir)
@@ -34,14 +33,14 @@ func ApplyProposal(ctx context.Context, proposal *Proposal, bareDir, workBaseDir
 	}
 
 	// Create temp worktree
-	worktreePath := filepath.Join(workBaseDir, "lore-"+now.Format("20060102-150405"))
+	worktreePath := filepath.Join(workBaseDir, "lore-"+strings.TrimPrefix(proposalID, "prop-"))
 	if err := runGit(ctx, bareDir, "worktree", "add", worktreePath, branch); err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 
 	// Ensure cleanup
 	defer func() {
-		runGit(ctx, bareDir, "worktree", "remove", "--force", worktreePath)
+		runGit(context.Background(), bareDir, "worktree", "remove", "--force", worktreePath)
 	}()
 
 	// Configure git user in worktree

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
 import useTheme from '../hooks/useTheme';
 import useVersionInfo from '../hooks/useVersionInfo';
@@ -11,7 +11,12 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
-import { formatRelativeTime } from '../lib/utils';
+import {
+  formatRelativeTime,
+  nudgeStateEmoji,
+  formatNudgeSummary,
+  WorkingSpinner,
+} from '../lib/utils';
 import { navigateToWorkspace } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -25,28 +30,9 @@ import {
   getLoreProposals,
   type DevStatus,
 } from '../lib/api';
+import type { WorkspaceResponse, SessionWithWorkspace } from '../lib/types';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
-
-const nudgeStateEmoji: Record<string, string> = {
-  'Needs Authorization': '\u26D4\uFE0F',
-  'Needs Feature Clarification': '\uD83D\uDD0D',
-  'Needs User Testing': '\uD83D\uDC40',
-  Completed: '\u2705',
-};
-
-function WorkingSpinner() {
-  return <span className="working-spinner"></span>;
-}
-
-function formatNudgeSummary(summary?: string) {
-  if (!summary) return null;
-  let text = summary.trim();
-  if (text.length > 40) {
-    text = text.substring(0, 37) + '...';
-  }
-  return text;
-}
 
 export default function AppShell() {
   const { toggleTheme } = useTheme();
@@ -75,7 +61,9 @@ export default function AppShell() {
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
   const [devRebuildTarget, setDevRebuildTarget] = useState<string | null>(null);
-  const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting'>('building');
+  const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting' | null>(
+    'building'
+  );
 
   useEffect(() => {
     if (!isDevMode) return;
@@ -86,25 +74,30 @@ export default function AppShell() {
 
   // Lore pending proposal counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
+  const repoNamesKey = useMemo(
+    () => (config?.repos || []).map((r) => r.name).join(','),
+    [config?.repos]
+  );
 
   useEffect(() => {
-    if (!config?.repos?.length) return;
+    if (!repoNamesKey) return;
+    const repoNames = repoNamesKey.split(',');
     const fetchCounts = async () => {
+      const results = await Promise.allSettled(repoNames.map((name) => getLoreProposals(name)));
       const counts: Record<string, number> = {};
-      for (const repo of config.repos) {
-        try {
-          const data = await getLoreProposals(repo.name);
-          counts[repo.name] = (data.proposals || []).filter((p) => p.status === 'pending').length;
-        } catch {
-          /* ignore */
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          counts[repoNames[i]] = (result.value.proposals || []).filter(
+            (p) => p.status === 'pending'
+          ).length;
         }
-      }
+      });
       setLoreCounts(counts);
     };
     fetchCounts();
     const interval = setInterval(fetchCounts, 30000);
     return () => clearInterval(interval);
-  }, [config?.repos]);
+  }, [repoNamesKey]);
 
   // Identify which workspaces are dev-eligible (same repo as source)
   const devSourceWorkspace = workspaces?.find((ws) => ws.path === devStatus?.source_workspace);
@@ -142,12 +135,20 @@ export default function AppShell() {
   }, [connected, devRebuilding]);
 
   // Helper to get sessionsById from workspaces
-  function sessionsById(workspaces: any[] | null | undefined): Record<string, any> {
-    if (!workspaces) return {};
-    const result: Record<string, any> = {};
-    for (const ws of workspaces) {
+  function sessionsById(
+    wsList: WorkspaceResponse[] | null | undefined
+  ): Record<string, SessionWithWorkspace> {
+    if (!wsList) return {};
+    const result: Record<string, SessionWithWorkspace> = {};
+    for (const ws of wsList) {
       for (const sess of ws.sessions || []) {
-        result[sess.id] = { ...sess, workspace_id: ws.id };
+        result[sess.id] = {
+          ...sess,
+          workspace_id: ws.id,
+          workspace_path: ws.path,
+          repo: ws.repo,
+          branch: ws.branch,
+        };
       }
     }
     return result;
@@ -674,7 +675,7 @@ export default function AppShell() {
                       );
                       const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
 
-                      const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
+                      const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
 
                       // "Working" is an operational state — show spinner inline
                       // in row1 to avoid reflow from row2 appearing/disappearing.
