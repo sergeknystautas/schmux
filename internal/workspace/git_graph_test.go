@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -533,5 +534,61 @@ func TestGitGraph_CancelledContext(t *testing.T) {
 	_, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestGitGraph_LocalTruncated(t *testing.T) {
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-truncate")
+	ctx := context.Background()
+
+	// Add 10 commits on the local branch
+	for i := 0; i < 10; i++ {
+		commitOnWorkspace(t, wsDir, fmt.Sprintf("file%d.txt", i), fmt.Sprintf("commit %d", i))
+	}
+
+	// Request with maxTotal=5 — should truncate local commits
+	resp, err := mgr.GetGitGraph(ctx, wsID, 5, 2)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	if !resp.LocalTruncated {
+		t.Error("expected LocalTruncated=true when local commits exceed maxTotal")
+	}
+
+	if len(resp.Nodes) > 5 {
+		t.Errorf("expected at most 5 nodes, got %d", len(resp.Nodes))
+	}
+
+	// HEAD should still be in the result
+	headHash := resp.Branches["feature-truncate"].Head
+	found := false
+	for _, n := range resp.Nodes {
+		if n.Hash == headHash {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("HEAD commit should be in truncated result")
+	}
+}
+
+func TestGitGraph_LocalNotTruncated(t *testing.T) {
+	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-notrunc")
+	ctx := context.Background()
+
+	// Add 3 commits — well under limit
+	for i := 0; i < 3; i++ {
+		commitOnWorkspace(t, wsDir, fmt.Sprintf("file%d.txt", i), fmt.Sprintf("commit %d", i))
+	}
+
+	resp, err := mgr.GetGitGraph(ctx, wsID, 200, 5)
+	if err != nil {
+		t.Fatalf("GetGitGraph: %v", err)
+	}
+
+	if resp.LocalTruncated {
+		t.Error("expected LocalTruncated=false when local commits fit within limit")
 	}
 }

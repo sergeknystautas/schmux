@@ -78,6 +78,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 
 	// Determine what to log
 	var rawNodes []RawNode
+	var localTruncated bool
 
 	if originMainHead == "" || localHead == originMainHead {
 		// No divergence or no origin — just show recent commits from HEAD
@@ -87,13 +88,19 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 		rawNodes, err = runGitLog(ctx, gitDir, []string{"HEAD", originMain}, maxTotal)
 	} else {
 		// Normal divergence — get local commits + context (no main-ahead data)
-		rawNodes, err = m.getGraphNodes(ctx, gitDir, forkPoint, mainContext)
+		maxLocal := maxTotal - mainContext
+		if maxLocal < 5 {
+			maxLocal = 5
+		}
+		rawNodes, localTruncated, err = m.getGraphNodes(ctx, gitDir, forkPoint, mainContext, maxLocal)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
 
-	return BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount), nil
+	resp := BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
+	resp.LocalTruncated = localTruncated
+	return resp, nil
 }
 
 // BuildGraphResponse builds a GitGraphResponse from raw nodes and branch metadata.
@@ -335,7 +342,7 @@ func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, 
 
 // getGraphNodes fetches commits for the graph: local commits + context (historical).
 // Main-ahead commits are NOT included - only their count is returned separately.
-func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, mainContext int) ([]RawNode, error) {
+func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, mainContext int, maxLocal int) ([]RawNode, bool, error) {
 	var allNodes []RawNode
 	seen := make(map[string]bool)
 
@@ -365,7 +372,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 	localArgs := []string{"log",
 		"--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P",
 		"--topo-order",
-		fmt.Sprintf("--max-count=%d", defaultMaxLocal),
+		fmt.Sprintf("--max-count=%d", maxLocal),
 		"HEAD",
 	}
 	localCmd := exec.CommandContext(ctx, "git", localArgs...)
@@ -373,12 +380,15 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 	localOutput, localErr := localCmd.Output()
 	if localErr == nil {
 		localNodes := ParseGitLogOutput(string(localOutput))
+		localTruncated := len(localNodes) >= maxLocal
 		for _, n := range localNodes {
 			if !seen[n.Hash] {
 				seen[n.Hash] = true
 				allNodes = append(allNodes, n)
 			}
 		}
+
+		return allNodes, localTruncated, nil
 	}
 
 	// Ensure fork point is always included to keep graph connected
@@ -402,7 +412,7 @@ func (m *Manager) getGraphNodes(ctx context.Context, gitDir, forkPoint string, m
 		}
 	}
 
-	return allNodes, nil
+	return allNodes, false, nil
 }
 
 // RawNode is an intermediate parsed commit before annotation.
