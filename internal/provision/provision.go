@@ -38,7 +38,7 @@ echo "STATE message" > $SCHMUX_STATUS_FILE
 | ` + "`needs_input`" + ` | Waiting for user confirmation, approval, or choice |
 | ` + "`needs_testing`" + ` | Implementation ready for user to test |
 | ` + "`error`" + ` | Something failed that needs user attention |
-| ` + "`working`" + ` | Starting new work (clears previous status) |
+| ` + "`working`" + ` | Starting new work (include what you're doing) |
 
 ### Examples
 
@@ -53,7 +53,7 @@ echo "needs_input Should I delete these 5 files?" > $SCHMUX_STATUS_FILE
 echo "error Build failed - missing dependency" > $SCHMUX_STATUS_FILE
 
 # When starting new work
-echo "working" > $SCHMUX_STATUS_FILE
+echo "working Refactoring auth module" > $SCHMUX_STATUS_FILE
 ` + "```" + `
 
 ### Best Practices
@@ -61,7 +61,7 @@ echo "working" > $SCHMUX_STATUS_FILE
 1. **Signal completion** when you finish the user's request
 2. **Signal needs_input** when waiting for user decisions (don't just ask in text)
 3. **Signal error** for failures that block progress
-4. **Signal working** when starting a new task to clear old status
+4. **Signal working** when starting a new task (describe what you're doing)
 5. Keep messages concise (under 100 characters)
 `
 
