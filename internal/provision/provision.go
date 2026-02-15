@@ -2,6 +2,7 @@
 package provision
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -257,4 +258,145 @@ func HasSignalingInstructions(workspacePath, targetName string) bool {
 	}
 
 	return strings.Contains(string(content), schmuxMarkerStart)
+}
+
+// SupportsHooks returns true if the tool supports the Claude Code hook system
+// for automatic signaling. Tools with hook support use lifecycle event hooks
+// instead of system prompt injection, which is more reliable.
+func SupportsHooks(baseTool string) bool {
+	return baseTool == "claude"
+}
+
+// claudeHookHandler is a single hook handler in a Claude Code hooks config.
+type claudeHookHandler struct {
+	Type          string `json:"type"`
+	Command       string `json:"command"`
+	StatusMessage string `json:"statusMessage"`
+}
+
+// claudeHookMatcherGroup is a matcher group containing one or more hook handlers.
+type claudeHookMatcherGroup struct {
+	Matcher string              `json:"matcher,omitempty"`
+	Hooks   []claudeHookHandler `json:"hooks"`
+}
+
+// signalCommand returns a shell command that writes a state to SCHMUX_STATUS_FILE.
+// Guarded by env var check so it's a no-op outside schmux-managed sessions.
+func signalCommand(state string) string {
+	return fmt.Sprintf(`[ -n "$SCHMUX_STATUS_FILE" ] && echo "%s" > "$SCHMUX_STATUS_FILE" || true`, state)
+}
+
+// buildClaudeHooksMap returns the hooks configuration map for Claude Code signaling.
+func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
+	return map[string][]claudeHookMatcherGroup{
+		"SessionStart": {
+			{
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       signalCommand("working"),
+						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
+		"UserPromptSubmit": {
+			{
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       signalCommand("working"),
+						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
+		"Stop": {
+			{
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       signalCommand("completed"),
+						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
+		"Notification": {
+			{
+				Matcher: "permission_prompt|idle_prompt|elicitation_dialog",
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       signalCommand("needs_input"),
+						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
+	}
+}
+
+// ClaudeHooksJSON returns the complete .claude/settings.local.json content
+// with hooks configuration for schmux signaling, as compact JSON bytes.
+func ClaudeHooksJSON() ([]byte, error) {
+	config := map[string]interface{}{
+		"hooks": buildClaudeHooksMap(),
+	}
+	return json.Marshal(config)
+}
+
+// EnsureClaudeHooks creates or updates .claude/settings.local.json in the
+// workspace with Claude Code hooks for automatic schmux signaling.
+// Preserves any non-hooks settings already in the file.
+func EnsureClaudeHooks(workspacePath string) error {
+	settingsDir := filepath.Join(workspacePath, ".claude")
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+
+	// Read existing settings or start fresh
+	var settings map[string]json.RawMessage
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if jsonErr := json.Unmarshal(data, &settings); jsonErr != nil {
+			// File is malformed, start fresh
+			settings = nil
+		}
+	}
+	if settings == nil {
+		settings = make(map[string]json.RawMessage)
+	}
+
+	// Build hooks config and set it (replaces existing hooks in this file)
+	hooksJSON, err := json.Marshal(buildClaudeHooksMap())
+	if err != nil {
+		return fmt.Errorf("failed to marshal hooks config: %w", err)
+	}
+	settings["hooks"] = json.RawMessage(hooksJSON)
+
+	// Write back with indentation
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .claude directory: %w", err)
+	}
+	if err := os.WriteFile(settingsPath, append(data, '\n'), 0644); err != nil {
+		return fmt.Errorf("failed to write settings file: %w", err)
+	}
+	fmt.Printf("[provision] configured Claude hooks in %s\n", settingsPath)
+	return nil
+}
+
+// WrapCommandWithHooksProvisioning prepends hooks file creation to a command.
+// Used for remote sessions where we can't write files via local I/O.
+// The hooks file is created in the working directory before the agent starts,
+// ensuring hooks are captured at Claude Code startup.
+func WrapCommandWithHooksProvisioning(command string) (string, error) {
+	jsonBytes, err := ClaudeHooksJSON()
+	if err != nil {
+		return command, fmt.Errorf("failed to build hooks JSON: %w", err)
+	}
+	// JSON uses double quotes only, safe to wrap in single quotes for shell
+	return fmt.Sprintf("mkdir -p .claude && printf '%%s\\n' '%s' > .claude/settings.local.json && %s", string(jsonBytes), command), nil
 }

@@ -380,9 +380,10 @@ func TestBuildCommand(t *testing.T) {
 			shouldContain: []string{
 				"ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'",
 				"claude",
-				"--append-system-prompt-file",
-				shellutil.Quote(signalingFilePath),
 				"'hello world'",
+			},
+			shouldNotContain: []string{
+				"--append-system-prompt-file", // Claude uses hooks, not prompt injection
 			},
 		},
 		{
@@ -512,8 +513,9 @@ func TestBuildCommand(t *testing.T) {
 			shouldContain: []string{
 				"claude",
 				"--continue",
-				"--append-system-prompt-file",
-				shellutil.Quote(signalingFilePath),
+			},
+			shouldNotContain: []string{
+				"--append-system-prompt-file", // Claude uses hooks, not prompt injection
 			},
 		},
 		{
@@ -539,8 +541,9 @@ func TestBuildCommand(t *testing.T) {
 				"ANTHROPIC_MODEL='claude-opus-4-5-20251101'",
 				"claude",
 				"--continue",
-				"--append-system-prompt-file",
-				shellutil.Quote(signalingFilePath),
+			},
+			shouldNotContain: []string{
+				"--append-system-prompt-file", // Claude uses hooks, not prompt injection
 			},
 		},
 		{
@@ -565,7 +568,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "remote mode claude uses inline system prompt",
+			name: "remote mode claude uses hooks not prompt injection",
 			target: ResolvedTarget{
 				Name:       "claude",
 				Kind:       TargetKindDetected,
@@ -580,10 +583,10 @@ func TestBuildCommand(t *testing.T) {
 			wantErr: false,
 			shouldContain: []string{
 				"claude",
-				"--append-system-prompt",
 				"'fix the bug'",
 			},
 			shouldNotContain: []string{
+				"--append-system-prompt", // Claude uses hooks, not inline prompt injection
 				"--append-system-prompt-file",
 				signalingFilePath,
 			},
@@ -612,7 +615,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "remote mode claude with env vars",
+			name: "remote mode claude with env vars uses hooks",
 			target: ResolvedTarget{
 				Name:       "claude-opus",
 				Kind:       TargetKindModel,
@@ -632,10 +635,10 @@ func TestBuildCommand(t *testing.T) {
 				"SCHMUX_ENABLED='1'",
 				"SCHMUX_SESSION_ID='remote-test-123'",
 				"claude",
-				"--append-system-prompt",
 				"'deploy'",
 			},
 			shouldNotContain: []string{
+				"--append-system-prompt", // Claude uses hooks, not prompt injection
 				"--append-system-prompt-file",
 			},
 		},

@@ -371,6 +371,16 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		return nil, err
 	}
 
+	// For Claude targets, prepend hooks provisioning to the command so hooks
+	// are in place before Claude Code starts (it captures hooks at startup).
+	baseTool := detect.GetBaseToolName(targetName)
+	if provision.SupportsHooks(baseTool) {
+		command, err = provision.WrapCommandWithHooksProvisioning(command)
+		if err != nil {
+			fmt.Printf("[session] warning: failed to wrap command with hooks provisioning: %v\n", err)
+		}
+	}
+
 	// Generate unique nickname if provided
 	uniqueNickname := nickname
 	if nickname != "" {
@@ -547,17 +557,19 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	// Provision agent instruction files with signaling instructions
-	// Only for agents that don't support CLI-based instruction injection
+	// Provision agent signaling mechanism
 	baseTool := detect.GetBaseToolName(opts.TargetName)
-	if provision.SupportsSystemPromptFlag(baseTool) {
+	if provision.SupportsHooks(baseTool) {
+		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
+		if err := provision.EnsureClaudeHooks(w.Path); err != nil {
+			fmt.Printf("[session] warning: failed to provision Claude hooks: %v\n", err)
+		}
+	} else if provision.SupportsSystemPromptFlag(baseTool) {
 		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
-			// Log warning but don't fail spawn - signaling is optional
 			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
 		}
 	} else {
 		if err := provision.EnsureAgentInstructions(w.Path, opts.TargetName); err != nil {
-			// Log warning but don't fail spawn - signaling is optional
 			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
 		}
 	}
@@ -879,7 +891,12 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // appendSignalingFlags appends CLI flags for signaling instruction injection.
 // In remote mode, uses inline content (--append-system-prompt) since local file
 // paths like ~/.schmux/signaling.md don't exist on the remote host.
+// Claude is skipped here because it uses hooks for signaling instead.
 func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
+	if provision.SupportsHooks(baseTool) {
+		// Claude uses hooks for signaling, no CLI flag needed
+		return cmd
+	}
 	if !provision.SupportsSystemPromptFlag(baseTool) {
 		return cmd
 	}

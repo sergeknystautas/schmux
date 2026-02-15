@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -251,5 +252,209 @@ func TestEnsureSignalingInstructionsFile(t *testing.T) {
 
 	if string(content) != SignalingInstructions {
 		t.Fatal("signaling file content mismatch")
+	}
+}
+
+func TestSupportsHooks(t *testing.T) {
+	tests := []struct {
+		tool     string
+		expected bool
+	}{
+		{"claude", true},
+		{"codex", false},
+		{"gemini", false},
+		{"unknown", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			if got := SupportsHooks(tt.tool); got != tt.expected {
+				t.Errorf("SupportsHooks(%q) = %v, want %v", tt.tool, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEnsureClaudeHooks_CreatesNewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	}
+
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("Failed to read settings file: %v", err)
+	}
+
+	// Parse as JSON to verify structure
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(content, &settings); err != nil {
+		t.Fatalf("Invalid JSON: %v", err)
+	}
+
+	// Check hooks key exists
+	hooksRaw, ok := settings["hooks"]
+	if !ok {
+		t.Fatal("Settings should contain hooks key")
+	}
+
+	// Parse hooks
+	var hooks map[string]json.RawMessage
+	if err := json.Unmarshal(hooksRaw, &hooks); err != nil {
+		t.Fatalf("Invalid hooks JSON: %v", err)
+	}
+
+	// Verify all expected events are present
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop", "Notification"} {
+		if _, ok := hooks[event]; !ok {
+			t.Errorf("Missing hook event: %s", event)
+		}
+	}
+
+	// Verify the commands reference SCHMUX_STATUS_FILE
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "SCHMUX_STATUS_FILE") {
+		t.Error("Hooks should reference SCHMUX_STATUS_FILE")
+	}
+
+	// Verify state signals are present in the command strings
+	for _, state := range []string{"working", "completed", "needs_input"} {
+		if !strings.Contains(contentStr, state) {
+			t.Errorf("Hooks should contain state %q", state)
+		}
+	}
+}
+
+func TestEnsureClaudeHooks_PreservesOtherSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create existing settings file with other settings
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+	existing := `{"permissions": {"allow": ["Read"]}, "other_key": "value"}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	}
+
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(content, &settings); err != nil {
+		t.Fatalf("Invalid JSON: %v", err)
+	}
+
+	// Check hooks were added
+	if _, ok := settings["hooks"]; !ok {
+		t.Error("hooks should be present")
+	}
+
+	// Check other settings preserved
+	if _, ok := settings["permissions"]; !ok {
+		t.Error("permissions should be preserved")
+	}
+	if _, ok := settings["other_key"]; !ok {
+		t.Error("other_key should be preserved")
+	}
+}
+
+func TestEnsureClaudeHooks_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Run twice
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("First call failed: %v", err)
+	}
+	content1, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
+
+	if err := EnsureClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("Second call failed: %v", err)
+	}
+	content2, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
+
+	if string(content1) != string(content2) {
+		t.Error("EnsureClaudeHooks should be idempotent")
+	}
+}
+
+func TestClaudeHooksJSON(t *testing.T) {
+	jsonBytes, err := ClaudeHooksJSON()
+	if err != nil {
+		t.Fatalf("ClaudeHooksJSON failed: %v", err)
+	}
+
+	// Should be valid JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("ClaudeHooksJSON returned invalid JSON: %v", err)
+	}
+
+	// Should have hooks key
+	if _, ok := parsed["hooks"]; !ok {
+		t.Error("Should contain hooks key")
+	}
+
+	// Should not contain single quotes (safe for shell wrapping)
+	if strings.Contains(string(jsonBytes), "'") {
+		t.Error("JSON should not contain single quotes")
+	}
+}
+
+func TestWrapCommandWithHooksProvisioning(t *testing.T) {
+	wrapped, err := WrapCommandWithHooksProvisioning(`claude "hello world"`)
+	if err != nil {
+		t.Fatalf("WrapCommandWithHooksProvisioning failed: %v", err)
+	}
+
+	// Should start with mkdir
+	if !strings.HasPrefix(wrapped, "mkdir -p .claude") {
+		t.Error("Should start with mkdir -p .claude")
+	}
+
+	// Should contain the original command
+	if !strings.Contains(wrapped, `claude "hello world"`) {
+		t.Error("Should contain the original command")
+	}
+
+	// Should contain settings.local.json creation
+	if !strings.Contains(wrapped, "settings.local.json") {
+		t.Error("Should create settings.local.json")
+	}
+
+	// Should contain hooks config
+	if !strings.Contains(wrapped, "hooks") {
+		t.Error("Should contain hooks configuration")
+	}
+
+	// Commands should be chained with &&
+	if !strings.Contains(wrapped, " && ") {
+		t.Error("Commands should be chained with &&")
+	}
+}
+
+func TestClaudeHooksNotificationMatcher(t *testing.T) {
+	jsonBytes, err := ClaudeHooksJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := string(jsonBytes)
+
+	// Verify Notification hook matches the right event types
+	for _, notifType := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog"} {
+		if !strings.Contains(content, notifType) {
+			t.Errorf("Notification hook should match %q", notifType)
+		}
 	}
 }
