@@ -779,6 +779,41 @@ func (s *Server) doBroadcast() {
 	}
 }
 
+// OverlayChangeEvent represents a file change that was propagated across workspaces.
+type OverlayChangeEvent struct {
+	Type               string   `json:"type"`
+	RelPath            string   `json:"rel_path"`
+	SourceWorkspaceID  string   `json:"source_workspace_id"`
+	SourceBranch       string   `json:"source_branch"`
+	TargetWorkspaceIDs []string `json:"target_workspace_ids"`
+	Timestamp          int64    `json:"timestamp"`
+	UnifiedDiff        string   `json:"unified_diff"`
+}
+
+// BroadcastOverlayChange sends an overlay change event to all connected dashboard WebSocket clients.
+func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
+	event.Type = "overlay_change"
+	payload, err := json.Marshal(event)
+	if err != nil {
+		fmt.Printf("[ws/dashboard] failed to marshal overlay change: %v\n", err)
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is enabled
