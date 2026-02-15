@@ -429,6 +429,12 @@ body {
 
 .nav-workspace {
   margin-bottom: var(--spacing-xs);
+  border: 1px solid transparent;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  margin-left: var(--spacing-sm);
+  margin-right: 0;
+  overflow: hidden;
 }
 
 .nav-workspace__header {
@@ -472,10 +478,12 @@ body {
   padding-left: var(--spacing-md);
 }
 
+.nav-workspace--active {
+  border-color: var(--color-border);
+}
+
 .nav-workspace--active > .nav-workspace__header {
-  background-color: var(--color-accent-subtle);
-  border-left: 2px solid var(--color-accent);
-  padding-left: calc(var(--spacing-lg) - 2px);
+  background-color: transparent;
 }
 
 .nav-session {
