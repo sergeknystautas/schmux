@@ -343,6 +343,39 @@ func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 	return nil
 }
 
+// cleanupLocalBranch deletes a workspace's local branch from the bare clone
+// if the branch was never pushed to the remote. This is best-effort; errors
+// are logged but not fatal.
+func (m *Manager) cleanupLocalBranch(ctx context.Context, worktreeBasePath string, w state.Workspace) {
+	// Skip default branch
+	defaultBranch, err := m.GetDefaultBranch(ctx, w.Repo)
+	if err == nil && w.Branch == defaultBranch {
+		return
+	}
+
+	// Skip if branch is checked out by another worktree
+	if m.isBranchInWorktree(ctx, worktreeBasePath, w.Branch) {
+		return
+	}
+
+	// Check if branch exists on remote
+	remoteBranchExists, err := m.gitRemoteBranchExists(ctx, worktreeBasePath, w.Branch)
+	if err != nil {
+		fmt.Printf("[workspace] warning: could not check remote branch: %v\n", err)
+		return
+	}
+	if remoteBranchExists {
+		return // branch was pushed, keep it
+	}
+
+	// Delete local branch
+	if err := m.deleteBranch(ctx, worktreeBasePath, w.Branch); err != nil {
+		fmt.Printf("[workspace] warning: failed to delete local branch %s: %v\n", w.Branch, err)
+	} else {
+		fmt.Printf("[workspace] deleted local branch: %s\n", w.Branch)
+	}
+}
+
 // findWorktreeBaseForWorkspace finds the worktree base path for a workspace.
 // First tries to read the .git file (if directory exists), then falls back
 // to looking up the worktree base by URL in state (works even if directory is gone).

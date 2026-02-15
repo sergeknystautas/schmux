@@ -376,6 +376,124 @@ func TestDispose_Integration(t *testing.T) {
 	}
 }
 
+// TestDispose_DeletesLocalBranch verifies that disposing a workspace deletes
+// the local branch from the bare clone when the branch was never pushed to remote.
+func TestDispose_DeletesLocalBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath)
+
+	// Create test repo (source / "remote") — only has main branch
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
+		Repos: []config.Repo{
+			testRepoWithBarePath("test", repoDir),
+		},
+	}
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create workspace on a new branch that doesn't exist on origin.
+	// addWorktree will create it locally from origin/main.
+	ws, err := m.GetOrCreate(ctx, repoDir, "feature-local-only")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// Find the bare clone path so we can verify branch existence
+	worktreeBasePath, err := m.findWorktreeBaseForWorkspace(*ws)
+	if err != nil {
+		t.Fatalf("findWorktreeBaseForWorkspace failed: %v", err)
+	}
+
+	// Verify branch exists in bare clone before dispose
+	if !m.localBranchExists(ctx, worktreeBasePath, "feature-local-only") {
+		t.Fatal("branch should exist in bare clone before dispose")
+	}
+
+	// Dispose the workspace
+	if err := m.Dispose(ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Verify the local branch was deleted from the bare clone
+	if m.localBranchExists(ctx, worktreeBasePath, "feature-local-only") {
+		t.Error("local branch should be deleted after dispose when not pushed to remote")
+	}
+}
+
+// TestDispose_KeepsBranchPushedToRemote verifies that disposing a workspace
+// keeps the local branch if it exists on the remote.
+func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath)
+
+	// Create test repo with a feature branch
+	repoDir := gitTestWorkTree(t)
+	gitTestBranch(t, repoDir, "feature-pushed")
+
+	cfg := &config.Config{
+		WorkspacePath:    tmpDir,
+		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
+		Repos: []config.Repo{
+			testRepoWithBarePath("test", repoDir),
+		},
+	}
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create workspace on the feature branch
+	ws, err := m.GetOrCreate(ctx, repoDir, "feature-pushed")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+
+	// Find the bare clone path
+	worktreeBasePath, err := m.findWorktreeBaseForWorkspace(*ws)
+	if err != nil {
+		t.Fatalf("findWorktreeBaseForWorkspace failed: %v", err)
+	}
+
+	// Fetch to ensure remote refs are up to date — the source repo has
+	// "feature-pushed" so the bare clone's origin should track it
+	fetchCmd := exec.Command("git", "fetch", "origin")
+	fetchCmd.Dir = worktreeBasePath
+	if output, fetchErr := fetchCmd.CombinedOutput(); fetchErr != nil {
+		t.Fatalf("git fetch failed: %v: %s", fetchErr, output)
+	}
+
+	// Verify remote branch exists
+	remoteBranchExists, err := m.gitRemoteBranchExists(ctx, worktreeBasePath, "feature-pushed")
+	if err != nil {
+		t.Fatalf("gitRemoteBranchExists failed: %v", err)
+	}
+	if !remoteBranchExists {
+		t.Fatal("remote branch should exist after fetch")
+	}
+
+	// Dispose the workspace
+	if err := m.Dispose(ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	// Verify the local branch was NOT deleted (it exists on remote)
+	if !m.localBranchExists(ctx, worktreeBasePath, "feature-pushed") {
+		t.Error("local branch should be kept after dispose when pushed to remote")
+	}
+}
+
 func TestGetOrCreate_LocalRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
