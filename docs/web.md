@@ -54,9 +54,19 @@ The CLI is for **speed and scripting**:
 
 Open `http://localhost:7337` after starting the daemon.
 
-### Tips (`/`, `/tips`)
+### Home (`/`)
 
-Default landing page. tmux keyboard shortcuts and quick reference.
+Dashboard home page. Workspace list and session overview at a glance.
+
+**Features:**
+
+- Workspace list with session counts and status
+- Quick access to active sessions
+- Real-time status updates
+
+### Tips (`/tips`)
+
+tmux keyboard shortcuts and quick reference.
 
 **Features:**
 
@@ -185,6 +195,22 @@ Configure repos, run targets, models, and workspace path.
 - Model secrets (for third-party models)
 - Workspace overlay status
 - Access control (network access + optional GitHub auth)
+
+### Preview (`/preview/:workspaceId/:previewId`)
+
+In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager.
+
+### Git Graph (`/git/:workspaceId`)
+
+Interactive commit graph for a workspace's git history.
+
+### Conflict Resolution (`/resolve-conflict/:workspaceId`)
+
+Linear sync conflict resolution progress view.
+
+### Remote Settings (`/settings/remote`)
+
+Remote flavor configuration for SSH-based remote workspaces.
 
 ### Authentication (Optional)
 

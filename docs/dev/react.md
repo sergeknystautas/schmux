@@ -43,7 +43,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 | ------------ | ------- | ----------------------- |
 | React        | 18.2.0  | UI framework            |
 | ReactDOM     | 18.2.0  | DOM rendering           |
-| Vite         | 5.0.12  | Build tool & dev server |
+| Vite         | 7.3.1   | Build tool & dev server |
 | React Router | 6.22.3  | Client-side routing     |
 
 ### Specialized
@@ -72,7 +72,7 @@ The Schmux frontend is a **single-page application** built with React 18 that pr
 **Examples:**
 
 - React Context instead of Redux for global state
-- Manual polling instead of WebSockets for everything
+- WebSocket-based real-time streaming via `/ws/dashboard` for session/workspace state
 - Custom components instead of UI libraries
 
 ### 2. Progressive Enhancement
@@ -124,10 +124,13 @@ assets/dashboard/
 │   │
 │   ├── contexts/             # React Context providers
 │   │   ├── ConfigContext.tsx      # Daemon configuration
+│   │   ├── SessionsContext.tsx    # Real-time sessions/workspaces via WebSocket
+│   │   ├── KeyboardContext.tsx    # Keyboard navigation mode (vim-style shortcuts)
 │   │   └── ViewedSessionsContext.tsx  # Session view tracking
 │   │
 │   ├── hooks/                # Custom React hooks
 │   │   ├── useConnectionMonitor.ts  # Health check polling
+│   │   ├── useSessionsWebSocket.ts  # WebSocket connection for real-time session updates
 │   │   ├── useTheme.ts             # Theme toggle
 │   │   └── useAsyncEffect.ts       # AbortController wrapper (planned)
 │   │
@@ -137,10 +140,18 @@ assets/dashboard/
 │   │   └── utils.ts          # Helper functions
 │   │
 │   ├── routes/               # Page components
-│   │   ├── SessionDetailPage.tsx   # Session terminal view
-│   │   ├── SpawnPage.tsx           # Multi-step spawn wizard
-│   │   ├── DiffPage.tsx            # Git diff viewer
-│   │   └── TipsPage.tsx            # Help/tips content
+│   │   ├── HomePage.tsx             # Dashboard home with workspace list
+│   │   ├── SessionDetailPage.tsx    # Session terminal view
+│   │   ├── SpawnPage.tsx            # Multi-step spawn wizard
+│   │   ├── DiffPage.tsx             # Git diff viewer
+│   │   ├── TipsPage.tsx             # Help/tips content
+│   │   ├── ConfigPage.tsx           # Settings editor
+│   │   ├── RemoteSettingsPage.tsx   # Remote flavor configuration
+│   │   ├── PreviewPage.tsx          # Web preview iframe
+│   │   ├── GitGraphPage.tsx         # Interactive commit graph
+│   │   ├── LinearSyncResolveConflictPage.tsx  # Conflict resolution progress
+│   │   ├── LegacyTerminalPage.tsx   # Legacy terminal redirect
+│   │   └── NotFoundPage.tsx         # 404 page
 │   │
 │   └── styles/               # Global styles
 │       ├── global.css        # Design tokens & base styles
@@ -537,7 +548,8 @@ class TerminalStream {
 ```jsx
 <Routes>
   <Route element={<AppShell />}>
-    <Route path="/" element={<TipsPage />} />
+    <Route path="/" element={<HomePage />} />
+    <Route path="/tips" element={<TipsPage />} />
     <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
     <Route path="/spawn" element={<SpawnPage />} />
     {/* ... */}
@@ -622,23 +634,28 @@ This section documents significant architectural decisions and the reasoning beh
 
 ---
 
-### Decision 3: Manual Polling over Real-time Everything
+### Decision 3: WebSocket-Based Real-Time Updates
 
-**Decision:** Use REST API + manual polling for most data, WebSocket only for terminal output
+**Decision:** Use WebSocket streaming via `/ws/dashboard` for session/workspace state, plus `/ws/terminal/{id}` for terminal output
 
 **Rationale:**
 
-- WebSocket connections are expensive
-- Most data doesn't need true real-time updates
-- Polling is simpler and more reliable
-- Terminal is the only truly real-time feature
+- Real-time updates provide better user experience than polling
+- Single WebSocket connection for all session/workspace state changes
+- Eliminates unnecessary polling requests when no data has changed
+- Terminal streaming requires true real-time communication
+
+**Implementation:**
+
+- `/ws/dashboard` streams session and workspace state updates to all connected clients
+- `/ws/terminal/{id}` streams terminal output for individual sessions
+- `SessionsContext` consumes the dashboard WebSocket and provides state to the entire app
+- Pending navigation system leverages WebSocket updates for deterministic navigation
 
 **Trade-offs:**
 
-- 5-second delay on updates (acceptable for dashboard use case)
-- Unnecessary requests when no data changed
-
-**Future:** React Query with smart refetching would optimize this.
+- More complex connection management (reconnection, error handling)
+- Server must maintain WebSocket connections
 
 ---
 

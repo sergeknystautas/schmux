@@ -102,7 +102,7 @@ Note: Dev builds (version "dev") cannot be updated via this endpoint.
 
 ### GET /api/hasNudgenik
 
-Returns whether NudgeNik is available (currently always true).
+Returns whether NudgeNik is available based on whether a nudgenik target is configured.
 
 Response:
 
@@ -129,7 +129,7 @@ Errors:
 
 - 400: "No response found in session output"
 - 404: "session not found"
-- 503: "Claude agent not found. Please run agent detection first."
+- 503: "Nudgenik is disabled. Configure a target in settings." / "Nudgenik target not found" / "Nudgenik target missing required secrets"
 - 500: "Failed to ask nudgenik: ..."
 
 ### GET /api/sessions
@@ -395,6 +395,39 @@ Notes:
 - Returns branches from all configured repos
 - Excludes `main` branch by default
 
+### POST /api/suggest-branch
+
+AI-powered branch name and nickname suggestion from a prompt.
+
+Request:
+
+```json
+{
+  "prompt": "Add dark mode support to the dashboard"
+}
+```
+
+Response:
+
+```json
+{
+  "branch": "add-dark-mode-support",
+  "nickname": "Add dark mode support"
+}
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"Failed to generate branch suggestion: ..."}` (empty prompt, invalid branch/response)
+- 404 with JSON: `{"error":"Failed to generate branch suggestion: ..."}` (target not found)
+- 503 with JSON: `{"error":"Branch suggestion is not configured"}` (disabled)
+- 500 with JSON: `{"error":"Failed to generate branch suggestion: ..."}`
+
+Notes:
+
+- Requires `branch_suggest.target` to be configured
+- The target generates both a git-compatible branch name and a human-readable nickname
+
 ### POST /api/prepare-branch-spawn
 
 Prepares spawn data for an existing branch. Used when clicking a recent branch on the home page.
@@ -403,7 +436,7 @@ Request:
 
 ```json
 {
-  "repo": "git@github.com:user/repo.git",
+  "repo_name": "repo",
   "branch": "feature-branch"
 }
 ```
@@ -412,7 +445,7 @@ Response:
 
 ```json
 {
-  "repo": "git@github.com:user/repo.git",
+  "repo": "repo",
   "branch": "feature-branch",
   "prompt": "Review the current state of this branch and prepare to resume work.\n\n...",
   "nickname": "Add new feature"
@@ -807,29 +840,27 @@ Errors:
 
 ### POST /api/diff-external/{workspaceId}
 
-Launches an external diff tool for a specific file in a workspace.
+Launches an external diff tool for all changed files in a workspace.
 
 Request:
 
 ```json
 {
-  "command": "command-name", // must match configured external_diff_commands
-  "old_file": "/path/to/old/file",
-  "new_file": "/path/to/new/file"
+  "command": "command-name" // optional; name from configured external_diff_commands, or a raw command string
 }
 ```
 
 Response:
 
 ```json
-{ "status": "ok" }
+{ "success": true, "message": "Opened 3 files in external diff tool" }
 ```
 
 Errors:
 
-- 400: "command is required" / "file paths are required" / "unknown command: ..."
-- 404: "workspace not found"
-- 500: "failed to launch diff tool: ..."
+- 400 with JSON: `{"success":false,"message":"No diff command specified"}` / `{"success":false,"message":"invalid request: ..."}`
+- 404 with JSON: `{"success":false,"message":"workspace {id} not found"}` / `{"success":false,"message":"workspace directory does not exist"}`
+- 200 with JSON: `{"success":false,"message":"No changes to diff"}` / `{"success":false,"message":"No modified or deleted files to diff"}`
 
 ### POST /api/open-vscode/{workspaceId}
 
@@ -899,6 +930,243 @@ Notes:
 - Fast-forward only—no merge commits
 - Updates workspace git status after sync
 - Supports both on-main and feature-branch workflows
+
+### POST /api/workspaces/{workspaceId}/push-to-branch
+
+Pushes the workspace's current branch commits to `origin/{branch}`, creating the remote branch if necessary.
+
+Response:
+
+```json
+{
+  "success": true,
+  "success_count": 2,
+  "branch": "feature-branch"
+}
+```
+
+Errors:
+
+- 400: "workspace ID is required"
+- 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
+- 500 with JSON: `{"success":false,"message":"Failed to push to branch: ..."}`
+
+Notes:
+
+- Fails if the remote branch has commits that the local branch does not have
+- Updates workspace git status after push
+
+### GET /api/workspaces/{workspaceId}/git-graph
+
+Returns the git commit graph for a workspace, including branch topology and dirty state.
+
+Query Parameters:
+
+- `max_total` (optional): Maximum total commits to display (default: 200). Also accepts `max_commits` for backward compatibility.
+- `main_context` (optional): Number of commits on main before fork point (default: 5). Also accepts `context` for backward compatibility.
+
+Response:
+
+```json
+{
+  "repo": "repo-url",
+  "nodes": [
+    {
+      "hash": "abc123...",
+      "short_hash": "abc123",
+      "message": "Add feature",
+      "author": "user",
+      "timestamp": "2025-01-15T10:00:00Z",
+      "parents": ["def456..."],
+      "branches": ["feature-branch"],
+      "is_head": ["feature-branch"],
+      "workspace_ids": ["schmux-001"]
+    }
+  ],
+  "branches": {
+    "feature-branch": {
+      "head": "abc123...",
+      "is_main": false,
+      "workspace_ids": ["schmux-001"]
+    }
+  },
+  "main_ahead_count": 3,
+  "dirty_state": {
+    "files_changed": 2,
+    "lines_added": 10,
+    "lines_removed": 5
+  }
+}
+```
+
+Errors:
+
+- 400: "workspace ID is required"
+- 404 with JSON: `{"error":"workspace not found: {id}"}`
+- 500 with JSON: `{"error":"..."}`
+
+Notes:
+
+- `dirty_state` is only included when there are uncommitted changes
+- Delegates to remote handler for remote workspaces
+
+### POST /api/workspaces/{workspaceId}/git-commit-stage
+
+Stages the specified files (runs `git add` for each file).
+
+Request:
+
+```json
+{
+  "files": ["path/to/file1.go", "path/to/file2.go"]
+}
+```
+
+Response:
+
+```json
+{ "success": true, "message": "Files staged" }
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"workspace ID is required"}` / `{"error":"invalid request body"}` / `{"error":"invalid file path: \"...\""}`
+- 404 with JSON: `{"error":"workspace not found"}`
+- 500 with JSON: `{"error":"git add failed: ..."}`
+
+Notes:
+
+- File paths must be relative and cannot contain path traversal (`..`)
+- Updates workspace git status and broadcasts after staging
+
+### POST /api/workspaces/{workspaceId}/git-amend
+
+Stages the specified files and amends the last commit (`git commit --amend --no-edit`).
+
+Request:
+
+```json
+{
+  "files": ["path/to/file1.go"]
+}
+```
+
+Response:
+
+```json
+{ "success": true, "message": "Commit amended" }
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"workspace ID is required"}` / `{"error":"No commits to amend"}` / `{"error":"at least one file is required"}` / `{"error":"invalid file path: \"...\""}`
+- 404 with JSON: `{"error":"workspace not found"}`
+- 500 with JSON: `{"error":"git add failed: ..."}` / `{"error":"git commit --amend failed: ..."}`
+
+Notes:
+
+- Requires at least one unpushed commit (`git_ahead > 0`)
+- At least one file must be specified
+- Updates workspace git status and broadcasts after amend
+
+### POST /api/workspaces/{workspaceId}/git-discard
+
+Discards local changes. If `files` are specified, only those files are discarded. If `files` is empty or body is omitted, all changes are discarded.
+
+Request (optional):
+
+```json
+{
+  "files": ["path/to/file.go"]
+}
+```
+
+Response:
+
+```json
+{ "success": true, "message": "Changes discarded" }
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"workspace ID is required"}` / `{"error":"invalid request body"}` / `{"error":"invalid file path: \"...\""}`
+- 404 with JSON: `{"error":"workspace not found"}`
+- 500 with JSON: `{"error":"git clean failed: ..."}` / `{"error":"git checkout failed: ..."}`
+
+Notes:
+
+- Per-file discard tries `git checkout HEAD -- {file}` first, then `git rm --cached` + working tree removal, then `git clean -f` as a last resort
+- Discard-all runs `git clean -fd` followed by `git checkout -- .`
+- Updates workspace git status and broadcasts after discard
+
+### POST /api/workspaces/{workspaceId}/git-uncommit
+
+Resets the HEAD commit, keeping changes as unstaged (`git reset HEAD~1`). Requires a `hash` parameter to verify we are uncommitting the expected commit.
+
+Request:
+
+```json
+{
+  "hash": "abc123def456..."
+}
+```
+
+Response:
+
+```json
+{ "success": true, "message": "Commit undone, changes are now unstaged" }
+```
+
+Errors:
+
+- 400 with JSON: `{"error":"workspace ID is required"}` / `{"error":"No commits to uncommit"}` / `{"error":"hash is required"}`
+- 404 with JSON: `{"error":"workspace not found"}`
+- 409 with JSON: `{"error":"HEAD has changed, please refresh and try again"}`
+- 500 with JSON: `{"error":"failed to get current HEAD"}` / `{"error":"git reset failed: ..."}`
+
+Notes:
+
+- Requires at least one unpushed commit (`git_ahead > 0`)
+- The `hash` must match the current HEAD to prevent accidental uncommit of a different commit
+- Updates workspace git status and broadcasts after uncommit
+
+### POST /api/workspaces/{workspaceId}/linear-sync-resolve-conflict
+
+Starts an asynchronous conflict resolution for a workspace. Returns immediately with 202; progress is streamed via the `/ws/dashboard` WebSocket.
+
+Response (202):
+
+```json
+{
+  "started": true,
+  "workspace_id": "workspace-id"
+}
+```
+
+Errors:
+
+- 400: "workspace ID is required"
+- 404 with JSON: `{"started":false,"message":"workspace {id} not found"}`
+- 409 with JSON: `{"started":false,"message":"operation already in progress"}`
+
+Notes:
+
+- Progress steps are broadcast as `linear_sync_resolve_conflict` messages on the `/ws/dashboard` WebSocket
+- Auto-clears completed/failed state on new request
+- Clears `conflict_on_branch` on successful resolution
+- Pauses Vite file watching during resolution to avoid transform errors
+
+### DELETE /api/workspaces/{workspaceId}/linear-sync-resolve-conflict-state
+
+Dismisses a completed or failed conflict resolution state.
+
+Response (200): empty body
+
+Errors:
+
+- 400: "workspace ID is required"
+- 404: no conflict resolution state found
+- 409 with JSON: `{"message":"operation still in progress"}`
 
 ### GET /api/prs
 
@@ -990,7 +1258,7 @@ Errors:
 
 - 400: "repo_url and pr_number are required"
 - 404: "PR #N not found for URL" (PR not in discovery cache)
-- 400: "No pr_review target configured and no promptable targets available"
+- 400: "No pr_review target configured"
 - 500: "Failed to checkout PR: ..." or "Workspace created but session launch failed: ..."
 
 ### GET /api/overlays
@@ -1017,13 +1285,15 @@ Client -> server messages:
 {"type":"pause","data":""}
 {"type":"resume","data":""}
 {"type":"input","data":"raw-bytes-or-escape-seqs"}
+{"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
 ```
 
 Server -> client messages:
 
 ```json
-{"type":"full","content":"..."}   // initial full content (with ANSI state)
-{"type":"append","content":"..."} // incremental content
+{"type":"full","content":"..."}       // initial full content (with ANSI state)
+{"type":"append","content":"..."}     // incremental content
+{"type":"displaced","content":"..."}  // connection displaced by another window
 {"type":"reconnect","content":"Log rotated, please reconnect"}
 ```
 
@@ -1031,6 +1301,309 @@ Errors:
 
 - 400: "session ID is required"
 - 410: "session not running"
+
+### WS /ws/dashboard
+
+Real-time dashboard state updates via WebSocket. Sends the full workspace/session state on connect, then pushes updates whenever state changes.
+
+Server -> client messages:
+
+Sessions update:
+
+```json
+{
+  "type": "sessions",
+  "workspaces": [...]
+}
+```
+
+The `workspaces` array has the same shape as the `GET /api/sessions` response.
+
+Conflict resolution progress (sent as separate messages when active):
+
+```json
+{
+  "type": "linear_sync_resolve_conflict",
+  "workspace_id": "workspace-id",
+  "status": "in_progress",
+  "hash": "",
+  "started_at": "2025-01-15T10:00:00Z",
+  "finished_at": "",
+  "message": "",
+  "steps": [
+    {
+      "action": "cherry_pick",
+      "status": "in_progress",
+      "message": "...",
+      "at": "2025-01-15T10:00:01Z",
+      "local_commit": "abc123",
+      "local_commit_message": "Add feature",
+      "files": ["file.go"],
+      "confidence": "high",
+      "summary": "..."
+    }
+  ],
+  "resolutions": []
+}
+```
+
+Notes:
+
+- Uses trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+- No client-to-server messages expected; the connection is kept alive by reading
+
+### WS /ws/provision/{provisionId}
+
+Streams PTY I/O for remote host provisioning. Provides interactive terminal access during remote host setup.
+
+Client -> server messages:
+
+```json
+{"type":"input","data":"raw-bytes"}
+{"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
+```
+
+Also accepts binary WebSocket messages as direct PTY input.
+
+Server -> client messages: binary WebSocket messages (raw PTY output).
+
+Errors:
+
+- 400: "provision ID is required" / "invalid provision ID format"
+- 404: "remote host connection not found"
+- 503: "remote workspace support not enabled" / "provisioning terminal not available"
+
+## Remote Workspace API
+
+### GET /api/config/remote-flavors
+
+Returns all configured remote flavors.
+
+Response:
+
+```json
+[
+  {
+    "id": "flavor-id",
+    "flavor": "devserver",
+    "display_name": "Dev Server",
+    "vcs": "git",
+    "workspace_path": "/home/user/workspaces",
+    "connect_command": "ssh {hostname}",
+    "reconnect_command": "ssh {hostname}",
+    "provision_command": "setup.sh",
+    "hostname_regex": "dev-.*",
+    "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+  }
+]
+```
+
+### POST /api/config/remote-flavors
+
+Creates a new remote flavor.
+
+Request:
+
+```json
+{
+  "flavor": "devserver",
+  "display_name": "Dev Server",
+  "vcs": "git",
+  "workspace_path": "/home/user/workspaces",
+  "connect_command": "ssh {hostname}",
+  "reconnect_command": "ssh {hostname}",
+  "provision_command": "setup.sh",
+  "hostname_regex": "dev-.*",
+  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+}
+```
+
+Response: the created `RemoteFlavorResponse` object (same shape as GET items).
+
+Errors:
+
+- 400: "Invalid request body" or validation error (plain text)
+- 500: "Failed to save config"
+
+### GET /api/config/remote-flavors/{id}
+
+Returns a single remote flavor by ID.
+
+Response: a `RemoteFlavorResponse` object.
+
+Errors:
+
+- 400: "Flavor ID required"
+- 404: "Flavor not found"
+
+### PUT /api/config/remote-flavors/{id}
+
+Updates an existing remote flavor. The `flavor` field is immutable.
+
+Request:
+
+```json
+{
+  "display_name": "Updated Name",
+  "vcs": "git",
+  "workspace_path": "/home/user/workspaces",
+  "connect_command": "ssh {hostname}",
+  "reconnect_command": "ssh {hostname}",
+  "provision_command": "setup.sh",
+  "hostname_regex": "dev-.*",
+  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}"
+}
+```
+
+Response: the updated `RemoteFlavorResponse` object.
+
+Errors:
+
+- 400: "Invalid request body" or validation error (plain text)
+- 404: "Flavor not found"
+- 500: "Failed to save config"
+
+### DELETE /api/config/remote-flavors/{id}
+
+Deletes a remote flavor.
+
+Response: 204 No Content
+
+Errors:
+
+- 404: error message (plain text)
+- 500: "Failed to save config"
+
+### GET /api/remote/hosts
+
+Returns all remote hosts with their connection status.
+
+Response:
+
+```json
+[
+  {
+    "id": "remote-abc123",
+    "flavor_id": "flavor-id",
+    "display_name": "Dev Server",
+    "hostname": "dev-001.example.com",
+    "uuid": "...",
+    "status": "connected",
+    "provisioned": true,
+    "vcs": "git",
+    "connected_at": "2025-01-15T10:00:00Z",
+    "expires_at": "2025-01-16T10:00:00Z",
+    "provisioning_session_id": ""
+  }
+]
+```
+
+Notes:
+
+- `display_name` and `vcs` are resolved from the flavor configuration
+- `provisioning_session_id` is set when a provisioning terminal is active (for WebSocket connection)
+
+### POST /api/remote/hosts/connect
+
+Starts a connection to a remote host asynchronously. Returns immediately; poll `/api/remote/hosts` for status updates.
+
+Request:
+
+```json
+{
+  "flavor_id": "flavor-id"
+}
+```
+
+Response (200, if already connected): a `RemoteHostResponse` object with current connection state.
+
+Response (202, if connecting):
+
+```json
+{
+  "flavor_id": "flavor-id",
+  "display_name": "Dev Server",
+  "status": "provisioning",
+  "vcs": "git",
+  "provisioning_session_id": "provision-remote-abc123"
+}
+```
+
+Errors:
+
+- 400: "Invalid request body" / "flavor_id is required"
+- 404: "Flavor not found: {id}"
+- 429: "Rate limit exceeded. Max 3 connection attempts per minute."
+- 500: "Failed to start connection: ..."
+- 503: "Remote workspace support not enabled"
+
+### POST /api/remote/hosts/{id}/reconnect
+
+Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket.
+
+Response (202):
+
+```json
+{
+  "id": "remote-abc123",
+  "flavor_id": "flavor-id",
+  "display_name": "Dev Server",
+  "hostname": "dev-001.example.com",
+  "status": "reconnecting",
+  "vcs": "git",
+  "provisioning_session_id": "provision-remote-abc123"
+}
+```
+
+Errors:
+
+- 400: "Invalid path"
+- 404: "Host not found"
+- 500: "Failed to start reconnection: ..."
+- 503: "Remote workspace support not enabled"
+
+### DELETE /api/remote/hosts/{id}
+
+Disconnects and removes a remote host.
+
+Response: 204 No Content
+
+Errors:
+
+- 400: "Host ID required"
+- 500: "Failed to update host: ..." / "Failed to save state"
+
+### GET /api/remote/flavor-statuses
+
+Returns all flavors with their real-time connection status.
+
+Response:
+
+```json
+[
+  {
+    "flavor": {
+      "id": "flavor-id",
+      "flavor": "devserver",
+      "display_name": "Dev Server",
+      "vcs": "git",
+      "workspace_path": "/home/user/workspaces",
+      "connect_command": "ssh {hostname}",
+      "reconnect_command": "ssh {hostname}",
+      "provision_command": "setup.sh"
+    },
+    "connected": true,
+    "status": "connected",
+    "hostname": "dev-001.example.com",
+    "host_id": "remote-abc123"
+  }
+]
+```
+
+Notes:
+
+- `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
+- Uses real-time connection status from the remote manager when available; falls back to persisted state
 
 ## Dev Mode Endpoints
 

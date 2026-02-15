@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useConfig } from './ConfigContext';
 import useLocalStorage, { VIEWED_SESSIONS_KEY } from '../hooks/useLocalStorage';
 
@@ -15,12 +15,16 @@ export function ViewedSessionsProvider({ children }: { children: React.ReactNode
     {}
   );
   const { config } = useConfig();
+  const configRef = useRef(config);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   const markAsViewed = useCallback((sessionId: string) => {
-    // Read config at call time to avoid recreating this function when config changes
-    const buffer = config?.nudgenik?.viewed_buffer_ms || 5000;
+    // Read config via ref at call time to avoid recreating this function when config changes
+    const buffer = configRef.current?.nudgenik?.viewed_buffer_ms || 5000;
     setViewedSessions((prev) => ({ ...prev, [sessionId]: Date.now() + buffer }));
-  }, []); // Empty deps - function is stable, reads config dynamically
+  }, []); // Empty deps - function is stable, reads config via ref
 
   const value = useMemo(() => ({ viewedSessions, markAsViewed }), [viewedSessions, markAsViewed]);
 

@@ -26,10 +26,8 @@ jobs:
 
       - name: Build dashboard assets
         run: |
-          cd assets/dashboard
-          npm ci
-          npm run build
-          tar -czf ../../dashboard-assets.tar.gz -C dist .
+          go run ./cmd/build-dashboard
+          tar -czf dashboard-assets.tar.gz -C assets/dashboard/dist .
 
       - name: Run tests
         run: go test ./...

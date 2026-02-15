@@ -174,8 +174,14 @@ export async function updateNickname(
   });
   if (!response.ok) {
     if (response.status === 409) {
-      const err = await response.json();
-      const error = new Error(err.error || 'Nickname already in use') as ApiError;
+      let message = 'Nickname already in use';
+      try {
+        const err = await response.json();
+        message = err.error || message;
+      } catch {
+        // Response wasn't JSON, use default message
+      }
+      const error = new Error(message) as ApiError;
       error.isConflict = true;
       throw error;
     }
@@ -187,8 +193,7 @@ export async function updateNickname(
 export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, { method: 'POST' });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to dispose workspace');
+    await parseErrorResponse(response, 'Failed to dispose workspace');
   }
   return response.json();
 }
@@ -198,8 +203,7 @@ export async function disposeWorkspaceAll(
 ): Promise<{ status: string; sessions_disposed: number }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, { method: 'POST' });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to dispose workspace and sessions');
+    await parseErrorResponse(response, 'Failed to dispose workspace and sessions');
   }
   return response.json();
 }
@@ -280,8 +284,7 @@ export async function openVSCode(workspaceId: string): Promise<OpenVSCodeRespons
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message || response.statusText || 'Failed to open VS Code');
+    await parseErrorResponse(response, 'Failed to open VS Code');
   }
   return response.json();
 }
@@ -296,8 +299,7 @@ export async function diffExternal(
     body: JSON.stringify(command ? { command } : {}),
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message || response.statusText || 'Failed to open external diff');
+    await parseErrorResponse(response, 'Failed to open external diff');
   }
   return response.json();
 }
@@ -359,8 +361,7 @@ export async function refreshOverlay(workspaceId: string): Promise<{ status: str
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Failed to refresh overlay');
+    await parseErrorResponse(response, 'Failed to refresh overlay');
   }
   return response.json();
 }

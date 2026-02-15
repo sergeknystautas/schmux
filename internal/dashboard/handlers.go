@@ -480,6 +480,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req SpawnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
@@ -751,6 +752,7 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
 	// Parse request
@@ -813,6 +815,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
 	var req struct {
@@ -1047,6 +1050,8 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
 	// Extract session ID from URL: /api/sessions-nickname/{session-id}
 	sessionID := strings.TrimPrefix(r.URL.Path, "/api/sessions-nickname/")
 	if sessionID == "" {
@@ -1274,6 +1279,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 
 // handleConfigUpdate handles config update requests.
 func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		fmt.Printf("[config] invalid JSON payload: %v\n", err)
@@ -2164,6 +2170,9 @@ func adaptQuickLaunch(presets []config.QuickLaunch) []contracts.QuickLaunch {
 func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, treeish string) string {
 	if treeish == "worktree" {
 		fullPath := filepath.Join(workspacePath, filePath)
+		if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(workspacePath)+string(filepath.Separator)) && filepath.Clean(fullPath) != filepath.Clean(workspacePath) {
+			return ""
+		}
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			return ""

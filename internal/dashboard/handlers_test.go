@@ -123,11 +123,16 @@ func TestHandleAskNudgenik(t *testing.T) {
 			server.handleAskNudgenik(rr, req)
 
 			// Check response status
-			// For the valid session case, accept 200 (success), 400 (no response extracted), or 500 (tmux/CLI failed)
-			// since tmux may not be available in test environments
+			// For the valid session case, accept multiple status codes since
+			// behavior depends on configuration and tmux availability:
+			// 200 = nudgenik ran successfully
+			// 400 = session not found or invalid
+			// 500 = nudgenik execution error
+			// 503 = nudgenik not configured
 			if tt.name == "valid session id" {
-				if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
-					t.Errorf("expected status 200, 400, or 500, got %d", rr.Code)
+				if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest &&
+					rr.Code != http.StatusInternalServerError && rr.Code != http.StatusServiceUnavailable {
+					t.Errorf("expected status 200, 400, 500, or 503, got %d", rr.Code)
 				}
 			} else {
 				if rr.Code != tt.wantStatus {

@@ -549,11 +549,15 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 // Shutdown triggers a graceful shutdown.
 func Shutdown() {
-	close(shutdownChan)
+	shutdownOnce.Do(func() {
+		close(shutdownChan)
+	})
 	if cancelFunc != nil {
 		cancelFunc()
 	}
 }
+
+var shutdownOnce sync.Once
 
 // DevRestart triggers a dev mode restart. The daemon will exit with
 // ErrDevRestart, which the caller should translate to exit code 42.

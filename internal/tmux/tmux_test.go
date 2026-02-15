@@ -165,6 +165,10 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 	})
 }
 
+// Context cancellation tests: these verify that functions accept a context
+// parameter and attempt to honor cancellation. Due to inherent race conditions
+// between cancellation and OS-level command execution, we use t.Log rather
+// than t.Error when cancellation is not observed.
 func TestContextCancellation(t *testing.T) {
 	t.Run("CreateSession respects cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -391,31 +395,10 @@ func TestExtractLatestResponseCapsContent(t *testing.T) {
 	}
 }
 
-// Tests that require tmux to be installed - skipped by default
-
-func TestListSessions(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
-
-func TestSessionExists(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
-
-func TestCaptureOutput(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
-
-func TestCreateSession(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
-
-func TestKillSession(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
-
-func TestSendKeys(t *testing.T) {
-	t.Skip("requires tmux to be installed")
-}
+// NOTE: Core tmux operations (CreateSession, KillSession, SendKeys,
+// CaptureOutput, ListSessions, SessionExists) require a running tmux
+// server and are tested in the E2E test suite (internal/e2e/) which
+// runs inside Docker with tmux installed.
 
 // Benchmarks
 
