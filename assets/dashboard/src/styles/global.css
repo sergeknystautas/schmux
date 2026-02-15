@@ -445,6 +445,13 @@ body {
   background-color: var(--color-surface-alt);
 }
 
+.nav-workspace__top-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
 .nav-workspace__name {
   font-size: 0.7rem;
   font-weight: 600;
@@ -453,6 +460,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .nav-workspace__changes {
@@ -460,6 +469,8 @@ body {
   font-family: var(--font-mono);
   padding-left: var(--spacing-sm);
   margin-right: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .nav-workspace__repo {
