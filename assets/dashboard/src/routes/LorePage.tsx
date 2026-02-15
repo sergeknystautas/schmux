@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   getLoreProposals,
@@ -25,6 +25,9 @@ export default function LorePage() {
   const [error, setError] = useState('');
   const [proposals, setProposals] = useState<LoreProposal[]>([]);
   const [entries, setEntries] = useState<LoreEntry[]>([]);
+  // Track all unique agents/types from unfiltered entries so filter dropdowns don't narrow
+  const [allAgents, setAllAgents] = useState<string[]>([]);
+  const [allTypes, setAllTypes] = useState<string[]>([]);
   const [selected, setSelected] = useState<SelectedProposal | null>(null);
   const [applying, setApplying] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
@@ -63,12 +66,30 @@ export default function LorePage() {
     }
   }, [repoName, entryFilters]);
 
+  // Load all unique agents/types from unfiltered entries (S10 fix)
+  const loadFilterOptions = useCallback(async () => {
+    if (!repoName) return;
+    try {
+      const entryData = await getLoreEntries(repoName);
+      const agents = new Set<string>();
+      const types = new Set<string>();
+      for (const e of entryData.entries || []) {
+        if (e.agent) agents.add(e.agent);
+        if (e.type) types.add(e.type);
+      }
+      setAllAgents(Array.from(agents).sort());
+      setAllTypes(Array.from(types).sort());
+    } catch {
+      // Filter options are non-critical; silently ignore errors
+    }
+  }, [repoName]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
-    await Promise.all([loadProposals(), loadEntries()]);
+    await Promise.all([loadProposals(), loadEntries(), loadFilterOptions()]);
     setLoading(false);
-  }, [loadProposals, loadEntries]);
+  }, [loadProposals, loadEntries, loadFilterOptions]);
 
   // Initial load when repo changes
   useEffect(() => {
@@ -83,7 +104,7 @@ export default function LorePage() {
       return;
     }
     loadEntries();
-  }, [loadEntries]);
+  }, [entryFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApply = async (proposal: LoreProposal, overrides?: Record<string, string>) => {
     if (!repoName) return;
@@ -156,22 +177,9 @@ export default function LorePage() {
     return <span className={cls}>{status}</span>;
   };
 
-  // Derive unique agents and types from entries for filter dropdowns
-  const uniqueAgents = useMemo(() => {
-    const agents = new Set<string>();
-    for (const e of entries) {
-      if (e.agent) agents.add(e.agent);
-    }
-    return Array.from(agents).sort();
-  }, [entries]);
-
-  const uniqueTypes = useMemo(() => {
-    const types = new Set<string>();
-    for (const e of entries) {
-      if (e.type) types.add(e.type);
-    }
-    return Array.from(types).sort();
-  }, [entries]);
+  // Use pre-loaded unfiltered agents/types for filter dropdowns
+  const uniqueAgents = allAgents;
+  const uniqueTypes = allTypes;
 
   if (loading) {
     return <div className="page-loading">Loading lore...</div>;
@@ -214,7 +222,7 @@ export default function LorePage() {
   };
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-testid="lore-page">
       <div className={styles.header}>
         <h2>Lore — {repoName}</h2>
         <span className={styles.summary}>
@@ -232,10 +240,11 @@ export default function LorePage() {
             disposed.
           </p>
         ) : (
-          <div className={styles.proposalList}>
+          <div className={styles.proposalList} data-testid="lore-proposals">
             {proposals.map((p) => (
               <div
                 key={p.id}
+                data-testid={`lore-proposal-card-${p.id}`}
                 className={`${styles.proposalCard} ${selected?.proposal.id === p.id ? styles.selected : ''}`}
                 onClick={() => {
                   setEditing(false);
@@ -301,21 +310,27 @@ export default function LorePage() {
             renderFileContent(selected.proposal.proposed_files[selected.activeFile] || '')
           )}
 
-          <div className={styles.actions}>
+          <div className={styles.actions} data-testid="lore-actions">
             {selected.proposal.status === 'pending' && !editing && (
               <>
                 <button
                   className={styles.applyButton}
+                  data-testid="lore-apply-button"
                   onClick={() => handleApply(selected.proposal)}
                   disabled={applying}
                 >
                   {applying ? 'Applying...' : 'Apply'}
                 </button>
-                <button className={styles.editApplyButton} onClick={handleEditAndApply}>
+                <button
+                  className={styles.editApplyButton}
+                  data-testid="lore-edit-apply-button"
+                  onClick={handleEditAndApply}
+                >
                   Edit & Apply
                 </button>
                 <button
                   className={styles.dismissButton}
+                  data-testid="lore-dismiss-button"
                   onClick={() => handleDismiss(selected.proposal)}
                 >
                   Dismiss
@@ -326,12 +341,17 @@ export default function LorePage() {
               <>
                 <button
                   className={styles.applyButton}
+                  data-testid="lore-save-apply-button"
                   onClick={handleSaveAndApply}
                   disabled={applying}
                 >
                   {applying ? 'Applying...' : 'Save & Apply'}
                 </button>
-                <button className={styles.dismissButton} onClick={handleCancelEdit}>
+                <button
+                  className={styles.dismissButton}
+                  data-testid="lore-cancel-edit-button"
+                  onClick={handleCancelEdit}
+                >
                   Cancel
                 </button>
               </>
@@ -340,6 +360,7 @@ export default function LorePage() {
               <>
                 <button
                   className={styles.reCurateButton}
+                  data-testid="lore-curate-button"
                   onClick={handleReCurate}
                   disabled={curating}
                 >
@@ -347,6 +368,7 @@ export default function LorePage() {
                 </button>
                 <button
                   className={styles.dismissButton}
+                  data-testid="lore-dismiss-stale-button"
                   onClick={() => handleDismiss(selected.proposal)}
                 >
                   Dismiss
@@ -377,9 +399,10 @@ export default function LorePage() {
         </h3>
         {showEntries && (
           <>
-            <div className={styles.filterBar}>
+            <div className={styles.filterBar} data-testid="lore-filter-bar">
               <select
                 className={styles.filterSelect}
+                data-testid="lore-filter-state"
                 value={entryFilters.state || ''}
                 onChange={(e) =>
                   setEntryFilters({ ...entryFilters, state: e.target.value || undefined })
@@ -393,6 +416,7 @@ export default function LorePage() {
               </select>
               <select
                 className={styles.filterSelect}
+                data-testid="lore-filter-agent"
                 value={entryFilters.agent || ''}
                 onChange={(e) =>
                   setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
@@ -407,6 +431,7 @@ export default function LorePage() {
               </select>
               <select
                 className={styles.filterSelect}
+                data-testid="lore-filter-type"
                 value={entryFilters.type || ''}
                 onChange={(e) =>
                   setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
@@ -420,7 +445,7 @@ export default function LorePage() {
                 ))}
               </select>
             </div>
-            <div className={styles.entriesList}>
+            <div className={styles.entriesList} data-testid="lore-entries">
               {rawEntries.length === 0 ? (
                 <p className={styles.empty}>No raw lore entries yet.</p>
               ) : (

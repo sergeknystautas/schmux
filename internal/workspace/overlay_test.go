@@ -9,10 +9,9 @@ import (
 )
 
 func TestOverlayDir(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home dir: %v", err)
-	}
+	// Use a temp directory as HOME to avoid touching real ~/.schmux/
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
 
 	tests := []struct {
 		name     string
@@ -22,12 +21,12 @@ func TestOverlayDir(t *testing.T) {
 		{
 			name:     "simple repo name",
 			repoName: "myproject",
-			want:     filepath.Join(homeDir, ".schmux", "overlays", "myproject"),
+			want:     filepath.Join(fakeHome, ".schmux", "overlays", "myproject"),
 		},
 		{
 			name:     "repo with hyphens",
 			repoName: "my-project",
-			want:     filepath.Join(homeDir, ".schmux", "overlays", "my-project"),
+			want:     filepath.Join(fakeHome, ".schmux", "overlays", "my-project"),
 		},
 	}
 
@@ -45,40 +44,13 @@ func TestOverlayDir(t *testing.T) {
 }
 
 func TestListOverlayFiles(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir := t.TempDir()
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home dir: %v", err)
-	}
+	// Use a temp directory as HOME to avoid touching real ~/.schmux/
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
 
 	// Create a mock overlay directory structure
 	repoName := "test-repo"
-	overlayDir := filepath.Join(homeDir, ".schmux", "overlays", repoName)
-
-	// Save the original overlay directory if it exists and restore after test
-	origExists := false
-	var origBackup string
-	if _, err := os.Stat(overlayDir); err == nil {
-		origExists = true
-		origBackup = tempDir + "/orig-overlay"
-		if err := os.Rename(overlayDir, origBackup); err != nil {
-			t.Fatalf("failed to backup original overlay dir: %v", err)
-		}
-		defer func() {
-			if err := os.Rename(origBackup, overlayDir); err != nil {
-				t.Errorf("failed to restore original overlay dir: %v", err)
-			}
-		}()
-	}
-	defer func() {
-		if !origExists {
-			os.RemoveAll(overlayDir)
-		}
-	}()
-
-	// Clean up any existing overlay directory
-	os.RemoveAll(overlayDir)
+	overlayDir := filepath.Join(fakeHome, ".schmux", "overlays", repoName)
 
 	// Create test overlay directory
 	if err := os.MkdirAll(overlayDir, 0755); err != nil {

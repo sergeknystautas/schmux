@@ -225,9 +225,7 @@ SEOF
     # Run the daemon (output to terminal with color prefixes + raw log on disk)
     : > "$DEV_LOG_FILE"  # truncate log on each daemon restart
     set +e
-    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done &
-    DAEMON_PID=$!
-    wait "$DAEMON_PID" 2>/dev/null || true
+    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
     EXIT_CODE=${PIPESTATUS[0]}
     DAEMON_PID=""
     set -e

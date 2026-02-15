@@ -265,17 +265,14 @@ func (m *Manager) enforceCaps(workspaceID string) error {
 func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePreview) (state.WorkspacePreview, error) {
 	m.mu.Lock()
 	currentEntry, hasEntry := m.entries[preview.ID]
-	m.mu.Unlock()
-
 	if hasEntry && currentEntry != nil && isProxyAlive(preview.ProxyPort) {
+		m.mu.Unlock()
 		return m.updateStatus(ctx, preview, false)
 	}
-
 	if hasEntry {
-		m.mu.Lock()
 		m.stopEntryLocked(preview.ID)
-		m.mu.Unlock()
 	}
+	m.mu.Unlock()
 
 	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", preview.TargetHost, preview.TargetPort))
 	if err != nil {
@@ -350,6 +347,10 @@ func (m *Manager) touch(previewID string) {
 		return
 	}
 	now := time.Now().UTC()
+	// Debounce: only update state if more than 30 seconds since last touch
+	if now.Sub(preview.LastUsedAt) < 30*time.Second {
+		return
+	}
 	preview.LastUsedAt = now
 	if preview.Status == StatusDegraded {
 		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)

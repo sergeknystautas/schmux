@@ -240,26 +240,26 @@ build_local_artifacts() {
 if [ "$RUN_UNIT" = true ]; then
     echo -e "${YELLOW}▶️  Running unit tests...${NC}"
 
-    # Build test command
-    TEST_CMD="go test -short ./..."
+    # Build test command as array
+    TEST_ARGS=(go test -short ./...)
 
     if [ "$RUN_RACE" = true ]; then
-        TEST_CMD="$TEST_CMD -race"
+        TEST_ARGS+=(-race)
         echo -e "  ${BLUE}🔍 Race detector enabled${NC}"
     fi
 
     if [ "$RUN_VERBOSE" = true ]; then
-        TEST_CMD="$TEST_CMD -v"
+        TEST_ARGS+=(-v)
         echo -e "  ${BLUE}📢 Verbose output enabled${NC}"
     fi
 
     if [ "$RUN_COVERAGE" = true ]; then
-        TEST_CMD="$TEST_CMD -coverprofile=coverage.out -covermode=atomic"
+        TEST_ARGS+=(-coverprofile=coverage.out -covermode=atomic)
         echo -e "  ${BLUE}📊 Coverage enabled${NC}"
     fi
 
     if [ -n "$TEST_RUN_PATTERN" ]; then
-        TEST_CMD="$TEST_CMD -run $TEST_RUN_PATTERN"
+        TEST_ARGS+=(-run "$TEST_RUN_PATTERN")
         echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
     fi
 
@@ -267,7 +267,7 @@ if [ "$RUN_UNIT" = true ]; then
 
     # Run tests
     UNIT_OUTPUT_FILE=$(mktemp)
-    if eval $TEST_CMD 2>&1 | tee "$UNIT_OUTPUT_FILE"; then
+    if "${TEST_ARGS[@]}" 2>&1 | tee "$UNIT_OUTPUT_FILE"; then
         echo ""
         echo -e "${GREEN}✅ Unit tests passed${NC}"
 
@@ -353,16 +353,16 @@ if [ "$RUN_E2E" = true ]; then
                     fi
                     echo ""
 
-                    # Build docker run command with optional test filter
-                    DOCKER_RUN_CMD="docker run --rm"
+                    # Build docker run command as array
+                    DOCKER_RUN_ARGS=(docker run --rm)
                     if [ -n "$TEST_RUN_PATTERN" ]; then
-                        DOCKER_RUN_CMD="$DOCKER_RUN_CMD -e TEST_RUN=$TEST_RUN_PATTERN"
+                        DOCKER_RUN_ARGS+=(-e "TEST_RUN=$TEST_RUN_PATTERN")
                     fi
-                    DOCKER_RUN_CMD="$DOCKER_RUN_CMD schmux-e2e"
+                    DOCKER_RUN_ARGS+=(schmux-e2e)
 
                     # Capture output to show failure summary
                     E2E_OUTPUT_FILE=$(mktemp)
-                    if eval $DOCKER_RUN_CMD 2>&1 | tee "$E2E_OUTPUT_FILE"; then
+                    if "${DOCKER_RUN_ARGS[@]}" 2>&1 | tee "$E2E_OUTPUT_FILE"; then
                         echo ""
                         echo -e "${GREEN}✅ E2E tests passed${NC}"
                     else

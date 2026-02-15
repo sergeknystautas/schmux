@@ -156,7 +156,7 @@ func TestValidateRelPath(t *testing.T) {
 		{name: "parent traversal", relPath: "../etc/passwd", wantErr: true},
 		{name: "deep traversal", relPath: "../../etc/shadow", wantErr: true},
 		{name: "mid-path traversal", relPath: filepath.Join("foo", "..", "..", "etc"), wantErr: true},
-		{name: "dot only", relPath: ".", wantErr: false},
+		{name: "dot only", relPath: ".", wantErr: true},
 	}
 
 	for _, tt := range tests {

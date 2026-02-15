@@ -255,9 +255,10 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 	}
 
 	// Hash the git status fields
-	newHash := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v",
+	newHash := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v|%v",
 		w.GitDirty, w.GitAhead, w.GitBehind,
-		w.GitLinesAdded, w.GitLinesRemoved, w.GitFilesChanged, w.Branch)
+		w.GitLinesAdded, w.GitLinesRemoved, w.GitFilesChanged, w.Branch,
+		w.CommitsSyncedWithRemote)
 
 	// Check if changed
 	gw.lastStatusHashMu.Lock()

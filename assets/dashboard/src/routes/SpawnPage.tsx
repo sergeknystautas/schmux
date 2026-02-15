@@ -527,7 +527,7 @@ export default function SpawnPage() {
     []
   );
 
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     if (spawnMode === 'resume') {
       if (totalPromptableCount === 0) {
         toastError('Please select at least one target');
@@ -572,7 +572,20 @@ export default function SpawnPage() {
       return false;
     }
     return true;
-  };
+  }, [
+    spawnMode,
+    totalPromptableCount,
+    mode,
+    isRemoteWithoutProvisioning,
+    repo,
+    newRepoName,
+    branchSuggestTarget,
+    branch,
+    prompt,
+    selectedCommand,
+    environment.type,
+    toastError,
+  ]);
 
   // Handle slash command selection - switches to command mode
   const handleSlashCommandSelect = (command: string) => {

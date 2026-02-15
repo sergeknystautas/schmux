@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +39,8 @@ type Proposal struct {
 }
 
 // IsStale checks whether any instruction file has changed since the proposal was created.
+// NOTE: This uses os.ReadFile and only works with non-bare repos that have a working tree.
+// For bare repos, callers should use git-show to read files instead.
 func (p *Proposal) IsStale(repoDir string) (bool, error) {
 	for relPath, expectedHash := range p.FileHashes {
 		fullPath := filepath.Join(repoDir, relPath)
@@ -59,6 +63,7 @@ func (p *Proposal) IsStale(repoDir string) (bool, error) {
 // ProposalStore manages proposals on disk at baseDir/<repo>/<id>.json.
 type ProposalStore struct {
 	baseDir string
+	mu      sync.Mutex
 }
 
 // NewProposalStore creates a new ProposalStore rooted at the given directory.
@@ -74,8 +79,19 @@ func (s *ProposalStore) proposalPath(repo, id string) string {
 	return filepath.Join(s.repoDir(repo), id+".json")
 }
 
+// validateProposalID rejects IDs containing path separators or directory traversal components.
+func validateProposalID(id string) error {
+	if strings.ContainsAny(id, "/\\") || id == ".." || id == "." || strings.Contains(id, "..") {
+		return fmt.Errorf("invalid proposal ID: %s", id)
+	}
+	return nil
+}
+
 // Save writes a proposal to disk as a JSON file.
 func (s *ProposalStore) Save(p *Proposal) error {
+	if err := validateProposalID(p.ID); err != nil {
+		return err
+	}
 	dir := s.repoDir(p.Repo)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -89,6 +105,9 @@ func (s *ProposalStore) Save(p *Proposal) error {
 
 // Get reads a proposal from disk by repo and ID.
 func (s *ProposalStore) Get(repo, id string) (*Proposal, error) {
+	if err := validateProposalID(id); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(s.proposalPath(repo, id))
 	if err != nil {
 		return nil, err
@@ -134,6 +153,12 @@ func (s *ProposalStore) List(repo string) ([]*Proposal, error) {
 
 // UpdateStatus updates the status of a proposal on disk.
 func (s *ProposalStore) UpdateStatus(repo, id string, status ProposalStatus) error {
+	if err := validateProposalID(id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	p, err := s.Get(repo, id)
 	if err != nil {
 		return err

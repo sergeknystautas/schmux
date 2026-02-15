@@ -63,6 +63,9 @@ func ValidateRelPath(relPath string) error {
 	}
 	// Clean the path and check for traversal
 	cleaned := filepath.Clean(relPath)
+	if cleaned == "." {
+		return fmt.Errorf("path '.' (workspace root) not allowed")
+	}
 	if filepath.IsAbs(cleaned) {
 		return fmt.Errorf("absolute path not allowed: %s", relPath)
 	}

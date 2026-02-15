@@ -84,6 +84,24 @@ func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string
 		return nil, fmt.Errorf("failed to parse curator response: %w", err)
 	}
 
+	// Validate LLM response: proposed file keys must exist in instruction files
+	for key := range result.ProposedFiles {
+		if _, ok := instrFiles[key]; !ok {
+			return nil, fmt.Errorf("curator proposed unknown file: %s", key)
+		}
+	}
+
+	// Validate LLM response: entries_used must exist in input entries
+	entryTextSet := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		entryTextSet[e.Text] = true
+	}
+	for _, usedText := range result.EntriesUsed {
+		if !entryTextSet[usedText] {
+			return nil, fmt.Errorf("curator referenced unknown entry: %s", usedText)
+		}
+	}
+
 	// Collect unique source workspaces
 	sourceSet := make(map[string]bool)
 	for _, e := range entries {
@@ -100,7 +118,9 @@ func (c *Curator) Curate(ctx context.Context, repoName, repoDir, lorePath string
 	now := time.Now().UTC()
 	// Generate 4 random hex chars to avoid proposal ID collision
 	randBytes := make([]byte, 2)
-	crypto_rand.Read(randBytes)
+	if _, err := crypto_rand.Read(randBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate random bytes: %w", err)
+	}
 	suffix := fmt.Sprintf("%x", randBytes)
 	proposal := &Proposal{
 		ID:               fmt.Sprintf("prop-%s-%s", now.Format("20060102-150405"), suffix),

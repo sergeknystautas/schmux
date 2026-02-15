@@ -3,6 +3,7 @@ package compound
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,11 +20,14 @@ func TestWatcher_DetectsFileChange(t *testing.T) {
 	}
 
 	var callbackCount atomic.Int32
+	var mu sync.Mutex
 	var gotWorkspaceID, gotRelPath string
 
 	w, err := NewWatcher(100, func(workspaceID, rp string) {
+		mu.Lock()
 		gotWorkspaceID = workspaceID
 		gotRelPath = rp
+		mu.Unlock()
 		callbackCount.Add(1)
 	})
 	if err != nil {
@@ -57,11 +61,16 @@ func TestWatcher_DetectsFileChange(t *testing.T) {
 		t.Fatal("expected callback to fire after file change, got 0 calls")
 	}
 
-	if gotWorkspaceID != "ws-001" {
-		t.Errorf("callback workspaceID = %q, want %q", gotWorkspaceID, "ws-001")
+	mu.Lock()
+	wsID := gotWorkspaceID
+	rp := gotRelPath
+	mu.Unlock()
+
+	if wsID != "ws-001" {
+		t.Errorf("callback workspaceID = %q, want %q", wsID, "ws-001")
 	}
-	if gotRelPath != relPath {
-		t.Errorf("callback relPath = %q, want %q", gotRelPath, relPath)
+	if rp != relPath {
+		t.Errorf("callback relPath = %q, want %q", rp, relPath)
 	}
 }
 
@@ -214,10 +223,13 @@ func TestWatcher_DetectsNewFileAtDeclaredPath(t *testing.T) {
 	os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0755)
 
 	var callbackCount atomic.Int32
+	var mu2 sync.Mutex
 	var gotRelPath string
 
 	w, err := NewWatcher(100, func(workspaceID, rp string) {
+		mu2.Lock()
 		gotRelPath = rp
+		mu2.Unlock()
 		callbackCount.Add(1)
 	})
 	if err != nil {
@@ -246,8 +258,11 @@ func TestWatcher_DetectsNewFileAtDeclaredPath(t *testing.T) {
 	if callbackCount.Load() == 0 {
 		t.Fatal("expected callback for newly created file at declared path")
 	}
-	if gotRelPath != relPath {
-		t.Errorf("callback relPath = %q, want %q", gotRelPath, relPath)
+	mu2.Lock()
+	rp := gotRelPath
+	mu2.Unlock()
+	if rp != relPath {
+		t.Errorf("callback relPath = %q, want %q", rp, relPath)
 	}
 }
 

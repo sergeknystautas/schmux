@@ -50,7 +50,10 @@ func ApplyProposal(ctx context.Context, proposal *Proposal, bareDir, workBaseDir
 	// Write proposed files
 	var filesToAdd []string
 	for relPath, content := range proposal.ProposedFiles {
-		fullPath := filepath.Join(worktreePath, relPath)
+		fullPath := filepath.Join(worktreePath, filepath.Clean(relPath))
+		if !strings.HasPrefix(fullPath, filepath.Clean(worktreePath)+string(os.PathSeparator)) {
+			return nil, fmt.Errorf("path traversal in proposed file: %s", relPath)
+		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory for %s: %w", relPath, err)
 		}

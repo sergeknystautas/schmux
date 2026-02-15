@@ -131,8 +131,7 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract workspace ID from URL: /api/workspaces/:id/refresh-overlay
-	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/workspaces/")
-	workspaceID = strings.TrimSuffix(workspaceID, "/refresh-overlay")
+	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/refresh-overlay")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -162,7 +161,7 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
 		WorkspaceID string `json:"workspace_id"`
@@ -243,7 +242,7 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
 		WorkspaceID string   `json:"workspace_id"`
@@ -357,7 +356,7 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
 		RepoName string `json:"repo_name"`
@@ -372,8 +371,12 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find the repo and set OverlayNudgeDismissed.
-	// NOTE: GetRepos() returns the backing slice directly (not a copy),
-	// so modifying repos[i] mutates s.config.Repos[i] in place.
+	// NOTE: This is a known TOCTOU race — GetRepos() returns the backing slice
+	// directly (not a copy), so the read-modify-write is not atomic. This is
+	// acceptable because overlay nudge dismissal is a low-frequency, non-critical
+	// UI operation where concurrent mutations are extremely unlikely. A proper fix
+	// would return a copy from GetRepos() or use a dedicated update method with
+	// locking on the config object.
 	repos := s.config.GetRepos()
 	found := false
 	for i := range repos {
