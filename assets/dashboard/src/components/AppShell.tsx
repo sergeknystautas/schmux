@@ -421,6 +421,8 @@ export default function AppShell() {
               <NavLink to="/" className="logo">
                 <span
                   className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
+                  data-testid="connection-status"
+                  data-connected={connected ? 'true' : 'false'}
                   title={connected ? 'Connected' : 'Offline'}
                 ></span>
                 schmux

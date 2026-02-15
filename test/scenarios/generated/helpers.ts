@@ -194,12 +194,8 @@ export function sleep(ms: number): Promise<void> {
  * Wait for the dashboard WebSocket to connect (green "Live" indicator).
  */
 export async function waitForDashboardLive(page: Page): Promise<void> {
-  await page.waitForLoadState('networkidle');
-  // Wait for the WebSocket connection indicator to show "Live"
-  try {
-    await page.waitForSelector('[data-testid="connection-status"]', { timeout: 5000 });
-  } catch {
-    // Fall back to short sleep if indicator not found
-    await sleep(1000);
-  }
+  // Wait for the connection indicator dot to reflect a live WebSocket.
+  await page.waitForSelector('[data-testid="connection-status"][data-connected="true"]', {
+    timeout: 10_000,
+  });
 }
