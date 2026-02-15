@@ -118,6 +118,8 @@ export interface GitGraphResponse {
   nodes: GitGraphNode[];
   branches: Record<string, GitGraphBranch>;
   main_ahead_count: number;
+  main_ahead_newest_timestamp?: string;
+  local_truncated?: boolean;
   dirty_state?: GitGraphDirtyState;
 }
 
