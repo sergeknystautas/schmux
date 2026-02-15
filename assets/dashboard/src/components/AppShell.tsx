@@ -566,55 +566,57 @@ export default function AppShell() {
                       }
                     }}
                   >
-                    <span className="nav-workspace__name">
-                      {isRemote && (
-                        <span
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            borderRadius: '50%',
-                            backgroundColor: remoteDisconnected
-                              ? 'var(--color-error)'
-                              : 'var(--color-success)',
-                            display: 'inline-block',
-                            marginRight: '6px',
-                            flexShrink: 0,
-                          }}
-                          title={remoteDisconnected ? 'Disconnected' : 'Connected'}
-                        />
-                      )}
-                      {displayBranch}
-                    </span>
-                    {hasChanges && (
-                      <span className="nav-workspace__changes">
-                        {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
-                        {linesRemoved > 0 && (
+                    <div className="nav-workspace__top-row">
+                      <span className="nav-workspace__name">
+                        {isRemote && (
                           <span
-                            className="text-error"
-                            style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
-                          >
-                            -{linesRemoved}
-                          </span>
+                            style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: remoteDisconnected
+                                ? 'var(--color-error)'
+                                : 'var(--color-success)',
+                              display: 'inline-block',
+                              marginRight: '6px',
+                              flexShrink: 0,
+                            }}
+                            title={remoteDisconnected ? 'Disconnected' : 'Connected'}
+                          />
                         )}
+                        {displayBranch}
                       </span>
-                    )}
-                    {isDevEligible && (
-                      <button
-                        className="nav-workspace__dev-btn"
-                        title={
-                          isDevLive
-                            ? 'Rebuild backend and restart Vite'
-                            : 'Switch to this workspace (rebuild + restart)'
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDevRebuild(workspace.id, 'both');
-                        }}
-                        disabled={devRebuilding}
-                      >
-                        {isDevLive ? 'Rebuild' : 'Test'}
-                      </button>
-                    )}
+                      {hasChanges && (
+                        <span className="nav-workspace__changes">
+                          {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
+                          {linesRemoved > 0 && (
+                            <span
+                              className="text-error"
+                              style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
+                            >
+                              -{linesRemoved}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {isDevEligible && (
+                        <button
+                          className="nav-workspace__dev-btn"
+                          title={
+                            isDevLive
+                              ? 'Rebuild backend and restart Vite'
+                              : 'Switch to this workspace (rebuild + restart)'
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDevRebuild(workspace.id, 'both');
+                          }}
+                          disabled={devRebuilding}
+                        >
+                          {isDevLive ? 'Rebuild' : 'Test'}
+                        </button>
+                      )}
+                    </div>
                     <div
                       className="nav-workspace__repo"
                       style={
