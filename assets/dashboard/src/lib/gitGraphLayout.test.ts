@@ -271,4 +271,59 @@ describe('computeLayout', () => {
     const actionsNode = layout.nodes.find((n) => n.nodeType === 'commit-actions');
     expect(actionsNode?.dirtyState).toEqual(dirtyState);
   });
+
+  it('passes main_ahead_newest_timestamp to sync summary node', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(
+      makeResponse(nodes, branches, {
+        main_ahead_count: 3,
+        main_ahead_newest_timestamp: '2024-06-15T10:30:00Z',
+      })
+    );
+
+    const syncNode = layout.nodes.find((n) => n.nodeType === 'sync-summary');
+    expect(syncNode).toBeDefined();
+    expect(syncNode!.syncSummary?.newestTimestamp).toBe('2024-06-15T10:30:00Z');
+  });
+
+  it('appends truncation node when local_truncated is true', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], ['feat2'], ['feature']),
+      makeNode('feat2', ['feature'], ['shared']),
+      makeNode('shared', ['main', 'feature'], [], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches, { local_truncated: true }));
+
+    const truncNode = layout.nodes.find((n) => n.nodeType === 'truncation');
+    expect(truncNode).toBeDefined();
+    expect(truncNode!.hash).toBe('__truncation__');
+    // Truncation node should be the last node
+    expect(layout.nodes[layout.nodes.length - 1]).toBe(truncNode);
+  });
+
+  it('does not insert truncation node when local_truncated is false', () => {
+    const nodes = [
+      makeNode('feat1', ['feature'], [], ['feature']),
+      makeNode('shared', ['main', 'feature'], ['feat1'], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const truncNode = layout.nodes.find((n) => n.nodeType === 'truncation');
+    expect(truncNode).toBeUndefined();
+  });
 });
