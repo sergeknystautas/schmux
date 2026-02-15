@@ -158,7 +158,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 		return
 	}
 
-	log.Printf("[compound] syncing %s from %s (action=%d)\n", relPath, workspaceID, action)
+	log.Printf("[overlay] syncing %s from workspace %s (action=%s)\n", relPath, workspaceID, action)
 
 	// Ensure overlay parent directory exists
 	if err := os.MkdirAll(filepath.Dir(overlayPath), 0755); err != nil {
@@ -188,6 +188,7 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 
 	// Propagate to sibling workspaces
 	if c.propagate != nil && mergedContent != nil {
+		log.Printf("[overlay] propagating %s from workspace %s to siblings\n", relPath, workspaceID)
 		c.propagate(workspaceID, repoURL, relPath, mergedContent)
 	}
 }

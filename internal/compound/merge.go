@@ -19,6 +19,20 @@ const (
 	MergeActionLLMMerge                    // Both diverged, need LLM merge
 )
 
+// String returns a human-readable name for the merge action.
+func (a MergeAction) String() string {
+	switch a {
+	case MergeActionSkip:
+		return "skip"
+	case MergeActionFastPath:
+		return "fast-path"
+	case MergeActionLLMMerge:
+		return "llm-merge"
+	default:
+		return fmt.Sprintf("unknown(%d)", int(a))
+	}
+}
+
 const maxLLMMergeFileSize = 100 * 1024 // 100KB
 
 // LLMExecutor is a function that sends a prompt to an LLM and returns the response.
