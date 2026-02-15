@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import type { FocusEvent } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
@@ -495,6 +495,16 @@ export default function DiffPage() {
                 <div className="diff-content__header">
                   <h2 className="diff-content__title">
                     {selectedFile.new_path || selectedFile.old_path}
+                    {(selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
+                      selectedFile.old_path?.match(/\.(md|mdx)$/i)) && (
+                      <Link
+                        className="diff-content__preview-btn"
+                        to={`/diff/${workspaceId}/md/${encodeURIComponent(selectedFile.new_path || selectedFile.old_path || '')}`}
+                        title="Preview markdown"
+                      >
+                        Preview
+                      </Link>
+                    )}
                   </h2>
                   <span
                     className={`badge badge--${selectedFile.status === 'added' ? 'success' : selectedFile.status === 'deleted' ? 'danger' : 'neutral'}`}
