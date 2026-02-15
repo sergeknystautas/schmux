@@ -2489,6 +2489,14 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		}
 	}
 
+	// Get newest timestamp of commits ahead on main
+	var mainAheadNewestTimestamp string
+	if mainAheadCount > 0 {
+		if out, err := conn.RunCommand(ctx, workdir, fmt.Sprintf("git log --format=%%aI -1 HEAD..%s", defaultBranchRef)); err == nil {
+			mainAheadNewestTimestamp = strings.TrimSpace(out)
+		}
+	}
+
 	// Build workspace ID mapping for annotations
 	branchWorkspaces := make(map[string][]string)
 	for _, w := range s.state.GetWorkspaces() {
@@ -2541,6 +2549,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	rawNodes := workspace.ParseGitLogOutput(logOutput)
 
 	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
+	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

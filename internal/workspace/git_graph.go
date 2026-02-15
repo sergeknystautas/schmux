@@ -76,6 +76,12 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 		mainAheadCount = getCommitCount(ctx, gitDir, "HEAD.."+originMain)
 	}
 
+	// Get newest timestamp of commits ahead on main
+	var mainAheadNewestTimestamp string
+	if mainAheadCount > 0 {
+		mainAheadNewestTimestamp = getNewestTimestamp(ctx, gitDir, "HEAD.."+originMain)
+	}
+
 	// Determine what to log
 	var rawNodes []RawNode
 	var localTruncated bool
@@ -100,6 +106,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 
 	resp := BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
 	resp.LocalTruncated = localTruncated
+	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
 	return resp, nil
 }
 
@@ -458,6 +465,17 @@ func getCommitCount(ctx context.Context, repoPath, rangeSpec string) int {
 	count := 0
 	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
 	return count
+}
+
+// getNewestTimestamp returns the timestamp of the newest commit in a range.
+func getNewestTimestamp(ctx context.Context, repoPath, rangeSpec string) string {
+	cmd := exec.CommandContext(ctx, "git", "log", "--format=%aI", "-1", rangeSpec)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // runGitLog runs git log and parses the output into RawNode structs.
