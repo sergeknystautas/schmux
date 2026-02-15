@@ -406,6 +406,7 @@ export default function AppShell() {
               </span>
             </div>
             <div className="nav-header__actions">
+              {mode === 'active' && <div className="keyboard-mode-pill">KB</div>}
               <Tooltip content="Toggle theme">
                 <button
                   id="themeToggle"
@@ -471,10 +472,6 @@ export default function AppShell() {
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
               Add Workspace
-              <kbd className="nav-spawn-btn__kbd">
-                {navigator.platform?.includes('Mac') ? '⌘K ' : 'Ctrl+K '}
-                {context.workspaceId ? 'Shift+N' : 'N'}
-              </kbd>
             </button>
           </div>
 
@@ -770,10 +767,6 @@ export default function AppShell() {
           </div>
           {isDevMode && <TypingPerformance />}
         </div>
-
-        {mode === 'active' && (
-          <div className="keyboard-mode-pill keyboard-mode-pill--bottom">KB</div>
-        )}
       </nav>
 
       <main className="app-shell__content">
