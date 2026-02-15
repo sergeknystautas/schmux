@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -460,7 +459,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		propagator := func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 			// Validate relPath to prevent path traversal
 			if err := compound.ValidateRelPath(relPath); err != nil {
-				log.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
+				fmt.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
 				return
 			}
 
@@ -508,7 +507,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-					log.Printf("[compound] failed to create dir for propagation: %v\n", err)
+					fmt.Printf("[compound] failed to create dir for propagation: %v\n", err)
 					continue
 				}
 				compounder.Suppress(w.ID, relPath)
@@ -518,19 +517,19 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					writeMode = info.Mode().Perm()
 				}
 				if err := os.WriteFile(destPath, content, writeMode); err != nil {
-					log.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
+					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
 					continue
 				}
 				// Update the target workspace's manifest hash (content already in memory)
 				newHash := compound.HashBytes(content)
 				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
-				log.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
+				fmt.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
 				targetWorkspaceIDs = append(targetWorkspaceIDs, w.ID)
 			}
 
 			// Broadcast overlay change event to dashboard
 			if len(targetWorkspaceIDs) > 0 {
-				log.Printf("[overlay] broadcasting change: %s from workspace %s (branch=%s) to %d workspace(s) %v\n",
+				fmt.Printf("[overlay] broadcasting change: %s from workspace %s (branch=%s) to %d workspace(s) %v\n",
 					relPath, sourceWorkspaceID, sourceBranch, len(targetWorkspaceIDs), targetWorkspaceIDs)
 				diff := difftool.UnifiedDiff(relPath, firstOldContent, content)
 				server.BroadcastOverlayChange(dashboard.OverlayChangeEvent{
@@ -542,7 +541,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					UnifiedDiff:        diff,
 				})
 			} else {
-				log.Printf("[overlay] no active sibling workspaces to propagate %s to (source=%s)\n", relPath, sourceWorkspaceID)
+				fmt.Printf("[overlay] no active sibling workspaces to propagate %s to (source=%s)\n", relPath, sourceWorkspaceID)
 			}
 		}
 
@@ -551,7 +550,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
 		})
 		if err != nil {
-			log.Printf("[compound] warning: failed to create compounder: %v\n", err)
+			fmt.Printf("[compound] warning: failed to create compounder: %v\n", err)
 		}
 	}
 
@@ -622,7 +621,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 		}
 		compounder.Start()
-		log.Printf("[compound] started overlay compounding loop\n")
+		fmt.Printf("[compound] started overlay compounding loop\n")
 	}
 	// Lore curation timer — declared at Run() scope so shutdown can clean up
 	var loreCurateTimer *time.Timer
