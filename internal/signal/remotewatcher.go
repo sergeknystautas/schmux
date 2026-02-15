@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 const (
@@ -16,12 +18,7 @@ const (
 // output when the content changes.
 func WatcherScript(statusFilePath string) string {
 	return fmt.Sprintf(`STATUS_FILE=%s; LAST=""; check() { if [ -f "$STATUS_FILE" ]; then CURRENT=$(cat "$STATUS_FILE" 2>/dev/null); if [ "$CURRENT" != "$LAST" ]; then LAST="$CURRENT"; echo "__SCHMUX_SIGNAL__${CURRENT}__END__"; fi; fi; }; if command -v inotifywait >/dev/null 2>&1; then check; while inotifywait -qq -e modify -e create "$STATUS_FILE" 2>/dev/null; do sleep 0.1; check; done; else while true; do check; sleep 2; done; fi`,
-		shellQuote(statusFilePath))
-}
-
-// shellQuote wraps a string in single quotes, escaping embedded single quotes.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+		shellutil.Quote(statusFilePath))
 }
 
 // ParseSentinelOutput extracts the signal content from a sentinel-wrapped line.

@@ -11,6 +11,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 func TestNew(t *testing.T) {
@@ -186,64 +187,6 @@ func TestGetOutput(t *testing.T) {
 			t.Error("expected error for nonexistent session")
 		}
 	})
-}
-
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "hello world",
-			expected: "'hello world'",
-		},
-		{
-			name:     "string with single quote",
-			input:    "don't",
-			expected: "'don'\\''t'",
-		},
-		{
-			name:     "string with multiple single quotes",
-			input:    "it's a 'test'",
-			expected: "'it'\\''s a '\\''test'\\'''",
-		},
-		{
-			name:     "string with newline",
-			input:    "hello\nworld",
-			expected: "'hello\nworld'",
-		},
-		{
-			name:     "string with newline and single quote",
-			input:    "hello\nit's me",
-			expected: "'hello\nit'\\''s me'",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "''",
-		},
-		{
-			name:     "string with backslash",
-			input:    "path\\to\\file",
-			expected: "'path\\to\\file'",
-		},
-		{
-			name:     "string with double quotes",
-			input:    `say "hello"`,
-			expected: `'say "hello"'`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shellQuote(tt.input)
-			if got != tt.expected {
-				t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
 }
 
 func TestSanitizeNickname(t *testing.T) {
@@ -438,7 +381,7 @@ func TestBuildCommand(t *testing.T) {
 				"ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'",
 				"claude",
 				"--append-system-prompt-file",
-				shellQuote(signalingFilePath),
+				shellutil.Quote(signalingFilePath),
 				"'hello world'",
 			},
 		},
@@ -465,7 +408,7 @@ func TestBuildCommand(t *testing.T) {
 				"-m",
 				"'gpt-5.2-codex'",
 				"-c",
-				shellQuote("model_instructions_file=" + signalingFilePath),
+				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 				"'write a function'",
 			},
 			shouldNotContain: []string{
@@ -498,7 +441,7 @@ func TestBuildCommand(t *testing.T) {
 				"-m",
 				"'gpt-5.3-codex'",
 				"-c",
-				shellQuote("model_instructions_file=" + signalingFilePath),
+				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 				"'test prompt'",
 			},
 			shouldNotContain: []string{
@@ -570,7 +513,7 @@ func TestBuildCommand(t *testing.T) {
 				"claude",
 				"--continue",
 				"--append-system-prompt-file",
-				shellQuote(signalingFilePath),
+				shellutil.Quote(signalingFilePath),
 			},
 		},
 		{
@@ -597,7 +540,7 @@ func TestBuildCommand(t *testing.T) {
 				"claude",
 				"--continue",
 				"--append-system-prompt-file",
-				shellQuote(signalingFilePath),
+				shellutil.Quote(signalingFilePath),
 			},
 		},
 		{
@@ -618,7 +561,7 @@ func TestBuildCommand(t *testing.T) {
 				"resume",
 				"--last",
 				"-c",
-				shellQuote("model_instructions_file=" + signalingFilePath),
+				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 			},
 		},
 		{

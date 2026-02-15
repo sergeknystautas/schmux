@@ -3,6 +3,8 @@ package vcs
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // SaplingCommandBuilder implements CommandBuilder for Sapling (sl).
@@ -18,11 +20,11 @@ func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
 	if revision == "HEAD" {
 		slRev = ".^"
 	}
-	return fmt.Sprintf("sl cat -r %s %s", slRev, shellQuote(path))
+	return fmt.Sprintf("sl cat -r %s %s", slRev, shellutil.Quote(path))
 }
 
 func (s *SaplingCommandBuilder) FileContent(path string) string {
-	return fmt.Sprintf("cat %s", shellQuote(path))
+	return fmt.Sprintf("cat %s", shellutil.Quote(path))
 }
 
 func (s *SaplingCommandBuilder) UntrackedFiles() string {

@@ -183,6 +183,9 @@ func TestStripANSIStateMachine(t *testing.T) {
 			want: "A\nB",
 		},
 		{
+			// This test uses raw terminal output that contained a bracket-marker signal.
+			// It tests ANSI stripping (cursor movements, DEC private modes, colors),
+			// not the signal detection protocol itself.
 			name: "real world Claude Code signal with DEC sequences",
 			in:   "\r\n\x1b[?2026l\x1b[?2026h\r\x1b[8A\x1b[38;2;255;255;255m\xe2\x8f\xba\x1b[1C\x1b[39m--<[schmux:needs_input:How\x1b[1Ccan\x1b[1CI\x1b[1Chelp]>--\r\x1b[2B",
 			want: "\r\n\r⏺ --<[schmux:needs_input:How can I help]>--\r\n\n",

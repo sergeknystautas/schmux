@@ -149,3 +149,82 @@ func TestFindValidUTF8Boundary(t *testing.T) {
 		})
 	}
 }
+
+func TestIsMeaningfulTerminalChunk(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{
+			name: "pure ANSI escape sequences",
+			data: []byte("\x1b[31m\x1b[0m\x1b[1;34m"),
+			want: false,
+		},
+		{
+			name: "printable text",
+			data: []byte("hello world"),
+			want: true,
+		},
+		{
+			name: "mixed ANSI and text",
+			data: []byte("\x1b[32mSuccess\x1b[0m"),
+			want: true,
+		},
+		{
+			name: "tmux DA response (CSI ?)",
+			data: []byte("\x1b[?1;2c"),
+			want: false,
+		},
+		{
+			name: "tmux DA response (CSI >)",
+			data: []byte("\x1b[>0;136;0c"),
+			want: false,
+		},
+		{
+			name: "OSC 10 foreground query",
+			data: []byte("\x1b]10;rgb:ffff/ffff/ffff\x1b\\"),
+			want: false,
+		},
+		{
+			name: "OSC 11 background query",
+			data: []byte("\x1b]11;rgb:0000/0000/0000\x1b\\"),
+			want: false,
+		},
+		{
+			name: "whitespace only",
+			data: []byte("   \t\n  "),
+			want: false,
+		},
+		{
+			name: "empty",
+			data: []byte{},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMeaningfulTerminalChunk(tt.data)
+			if got != tt.want {
+				t.Errorf("isMeaningfulTerminalChunk(%q) = %v, want %v", tt.data, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSendInputFallbackComment documents that SendInput falls back to tmux
+// send-keys when the PTY is not attached. A full integration test of the
+// successful fallback path requires a running tmux server.
+func TestSendInputFallbackComment(t *testing.T) {
+	st := state.New("")
+	tracker := NewSessionTracker("s1", "tmux-nonexistent", st, "", nil, nil)
+
+	// Without a PTY or tmux, SendInput returns an error from the tmux fallback.
+	// This documents the fallback behavior; verifying successful delivery
+	// requires an integration test with a live tmux session.
+	err := tracker.SendInput("test input")
+	if err == nil {
+		t.Fatal("expected error from SendInput without PTY or tmux")
+	}
+}

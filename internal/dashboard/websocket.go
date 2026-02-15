@@ -49,7 +49,7 @@ var filterSequences = [][]byte{
 	[]byte("\x1b[?1049h"), // Enable alternate screen
 }
 
-// filterTerminalModes removes sequences that interfere with xterm.js scrollback.
+// filterMouseMode removes sequences that interfere with xterm.js scrollback.
 func filterMouseMode(data []byte) []byte {
 	for _, seq := range filterSequences {
 		data = bytes.ReplaceAll(data, seq, nil)
@@ -320,7 +320,7 @@ drained:
 	}
 }
 
-// HandleAgentSignal processes a bracket-marker signal from an agent and updates the session nudge state.
+// HandleAgentSignal processes a file-based signal from an agent and updates the session nudge state.
 func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	// Map signal state to nudge format for frontend compatibility
 	nudgeResult := nudgenik.Result{

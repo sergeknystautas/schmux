@@ -26,6 +26,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/vcs"
@@ -592,7 +593,14 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
-		sess, err := s.session.SpawnCommand(ctx, req.Repo, req.Branch, req.Command, req.Nickname, req.WorkspaceID, req.NewBranch)
+		sess, err := s.session.SpawnCommand(ctx, session.SpawnOptions{
+			RepoURL:     req.Repo,
+			Branch:      req.Branch,
+			Command:     req.Command,
+			Nickname:    req.Nickname,
+			WorkspaceID: req.WorkspaceID,
+			NewBranch:   req.NewBranch,
+		})
 		cancel()
 
 		if err != nil {
@@ -700,7 +708,16 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
 			} else {
 				// Local spawn - use existing Spawn()
-				sess, err = s.session.Spawn(ctx, req.Repo, req.Branch, targetName, req.Prompt, nickname, req.WorkspaceID, req.Resume, req.NewBranch)
+				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
+					RepoURL:     req.Repo,
+					Branch:      req.Branch,
+					TargetName:  targetName,
+					Prompt:      req.Prompt,
+					Nickname:    nickname,
+					WorkspaceID: req.WorkspaceID,
+					Resume:      req.Resume,
+					NewBranch:   req.NewBranch,
+				})
 			}
 
 			cancel()

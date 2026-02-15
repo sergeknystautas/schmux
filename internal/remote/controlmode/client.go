@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // Client provides a high-level interface for tmux control mode.
@@ -249,7 +250,7 @@ func (c *Client) UnsubscribeOutput(paneID string, ch <-chan OutputEvent) {
 func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string) (windowID, paneID string, err error) {
 	// Build command
 	cmd := fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}' %s",
-		shellQuote(name), shellQuote(workdir), shellQuote(command))
+		shellutil.Quote(name), shellutil.Quote(workdir), shellutil.Quote(command))
 
 	output, err := c.Execute(ctx, cmd)
 	if err != nil {
@@ -287,7 +288,7 @@ func (c *Client) SendKeys(ctx context.Context, paneID, keys string) error {
 
 		// Send printable text run with -l (literal mode)
 		if j > i {
-			if _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, shellQuote(keys[i:j]))); err != nil {
+			if _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, shellutil.Quote(keys[i:j]))); err != nil {
 				return err
 			}
 			i = j
@@ -474,15 +475,6 @@ func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error 
 	return err
 }
 
-// shellQuote quotes a string for safe use in tmux commands.
-// Uses Go's battle-tested strconv.Quote for proper escaping.
-func shellQuote(s string) string {
-	// Use single quotes for safe shell quoting (prevents variable expansion)
-	// Single quotes preserve everything literally, including newlines.
-	// Embedded single quotes are handled with the '\'' trick.
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
 // FindWindowByName finds a window by name.
 func (c *Client) FindWindowByName(ctx context.Context, name string) (*WindowInfo, error) {
 	windows, err := c.ListWindows(ctx)
@@ -518,7 +510,7 @@ func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, 
 }
 
 // tmuxQuote quotes a string for safe use in tmux commands using double quotes.
-// Unlike shellQuote (which uses the '\” trick that tmux doesn't support),
+// Unlike shellutil.Quote (which uses the '\” trick that tmux doesn't support),
 // tmux double quotes handle embedded single quotes naturally.
 // In tmux double quotes: \ " and $ need to be escaped.
 func tmuxQuote(s string) string {
@@ -573,7 +565,7 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	// Begin/end sentinels on their own lines let us cleanly extract just the output,
 	// ignoring the shell's command echo line.
 	fullCmd := fmt.Sprintf("echo %s; cd %s && %s; echo %s",
-		beginSentinel, shellQuote(workdir), command, endSentinel)
+		beginSentinel, shellutil.Quote(workdir), command, endSentinel)
 
 	fmt.Printf("[controlmode] RunCommand: typing into pane %s: %s\n", paneID, fullCmd)
 

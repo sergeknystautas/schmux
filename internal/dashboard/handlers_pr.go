@@ -9,6 +9,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	gh "github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/session"
 )
 
 // handlePRs handles GET /api/prs - returns cached PRs.
@@ -133,7 +134,14 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 
 	// Launch session
 	nickname := fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title)
-	sess, err := s.session.Spawn(ctx, pr.RepoURL, gh.PRBranchName(pr), target, prompt, nickname, ws.ID, false, "")
+	sess, err := s.session.Spawn(ctx, session.SpawnOptions{
+		RepoURL:     pr.RepoURL,
+		Branch:      gh.PRBranchName(pr),
+		TargetName:  target,
+		Prompt:      prompt,
+		Nickname:    nickname,
+		WorkspaceID: ws.ID,
+	})
 	if err != nil {
 		fmt.Printf("[pr] session launch failed: %v\n", err)
 		w.Header().Set("Content-Type", "application/json")
