@@ -710,8 +710,8 @@ export default function SpawnPage() {
       if (hasSuccess) {
         clearSpawnDraft(urlWorkspaceId);
         saveLastRepo(actualRepo);
-        // Only save promptable target counts — command targets would overwrite agent selection
-        if (spawnMode === 'promptable') {
+        // Only save promptable/resume target counts — command targets would overwrite agent selection
+        if (spawnMode === 'promptable' || spawnMode === 'resume') {
           saveLastTargetCounts(selectedTargets);
           saveLastModelSelectionMode(modelSelectionMode);
         }
