@@ -980,6 +980,16 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Block disposal of the workspace that is live in dev mode
+	if devPath := s.devSourceWorkspacePath(); devPath != "" {
+		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"error": "cannot dispose workspace that is live in dev mode"})
+			return
+		}
+	}
+
 	if err := s.workspace.Dispose(workspaceID); err != nil {
 		fmt.Printf("[workspace] dispose error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1014,6 +1024,16 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
+	}
+
+	// Block disposal of the workspace that is live in dev mode
+	if devPath := s.devSourceWorkspacePath(); devPath != "" {
+		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"error": "cannot dispose workspace that is live in dev mode"})
+			return
+		}
 	}
 
 	// First, dispose all sessions in the workspace

@@ -6,14 +6,19 @@ import { useToast } from './ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSync } from '../hooks/useSync';
+import useDevStatus from '../hooks/useDevStatus';
 import Tooltip from './Tooltip';
 import type { WorkspaceResponse } from '../lib/types';
 
 type WorkspaceHeaderProps = {
   workspace: WorkspaceResponse;
+  isDevLive?: boolean;
 };
 
-export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
+export default function WorkspaceHeader({
+  workspace,
+  isDevLive: isDevLiveProp,
+}: WorkspaceHeaderProps) {
   const navigate = useNavigate();
   const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
@@ -21,10 +26,16 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
   const { linearSyncResolveConflictStates } = useSessions();
   const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
+  const { devStatus } = useDevStatus();
 
   // Check if resolve conflict is in progress for this workspace
   const crState = linearSyncResolveConflictStates[workspace.id];
   const resolveInProgress = crState?.status === 'in_progress';
+
+  // Dev mode guard: use explicit prop if provided, otherwise compute from hook
+  const isDevLive =
+    isDevLiveProp ??
+    (devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace);
 
   // Git branch icon SVG
   const branchIcon = (
@@ -158,11 +169,18 @@ export default function WorkspaceHeader({ workspace }: WorkspaceHeaderProps) {
               )}
             </button>
           </Tooltip>
-          <Tooltip content="Dispose workspace and all sessions" variant="warning">
+          <Tooltip
+            content={
+              isDevLive
+                ? 'Cannot dispose workspace while live in dev mode'
+                : 'Dispose workspace and all sessions'
+            }
+            variant={isDevLive ? undefined : 'warning'}
+          >
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"
               onClick={handleDisposeWorkspace}
-              disabled={resolveInProgress}
+              disabled={resolveInProgress || isDevLive}
               aria-label={`Dispose ${workspace.id}`}
             >
               <svg
