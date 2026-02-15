@@ -85,11 +85,11 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       });
   }, []);
 
-  // Reserve rows for virtual nodes (you-are-here, commit-actions, commit-footer)
-  const VIRTUAL_ROW_OVERHEAD = 3;
+  // Reserve rows for virtual nodes: you-are-here (1) + commit workflow (2 + file count)
+  const virtualRowOverhead = 1 + (diffFiles.length > 0 ? 2 + diffFiles.length : 0);
   const maxCommits =
     containerHeight > 0
-      ? Math.max(5, Math.floor(containerHeight / ROW_HEIGHT) - VIRTUAL_ROW_OVERHEAD)
+      ? Math.max(5, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead)
       : 0;
 
   const fetchData = useCallback(async () => {
@@ -538,6 +538,17 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         </div>
       );
     }
+    if (ln.nodeType === 'truncation') {
+      return (
+        <div
+          key={ln.hash}
+          className="git-dag__row git-dag__truncation-row"
+          style={{ height: lay.rowHeight }}
+        >
+          <span className="git-dag__truncation-text">⋯ older commits not shown</span>
+        </div>
+      );
+    }
     const isHeadCommit = ln.node.is_head.includes(ws?.branch || '');
     const canUncommit = isHeadCommit && (ws?.git_ahead ?? 0) > 0;
 
@@ -702,7 +713,8 @@ function NodeCircle({
   if (
     node.nodeType === 'commit-file' ||
     node.nodeType === 'commit-actions' ||
-    node.nodeType === 'commit-footer'
+    node.nodeType === 'commit-footer' ||
+    node.nodeType === 'truncation'
   ) {
     return null;
   }
