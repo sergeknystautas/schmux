@@ -34,6 +34,27 @@ type devBuildStatus struct {
 	At            string `json:"at"`
 }
 
+// devSourceWorkspacePath returns the path of the workspace currently serving
+// dev mode, or "" if dev mode is off or the state file cannot be read.
+func (s *Server) devSourceWorkspacePath() string {
+	if !s.devMode {
+		return ""
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(homeDir, ".schmux", "dev-state.json"))
+	if err != nil {
+		return ""
+	}
+	var ds devStateInfo
+	if json.Unmarshal(data, &ds) != nil {
+		return ""
+	}
+	return ds.SourceWorkspace
+}
+
 // handleDevStatus returns the current dev mode state.
 func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

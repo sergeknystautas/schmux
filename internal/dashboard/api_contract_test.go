@@ -483,3 +483,116 @@ func TestGitGraphEndpoint_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected status 405, got %d", rr.Code)
 	}
 }
+
+func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
+	// Set HOME to a temp dir so we can control dev-state.json
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	schmuxDir := filepath.Join(tmpHome, ".schmux")
+	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		t.Fatalf("failed to create .schmux dir: %v", err)
+	}
+
+	// Create server with dev mode enabled
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = t.TempDir()
+	cfg.RunTargets = []config.RunTarget{
+		{Name: "promptable", Type: config.RunTargetTypePromptable, Command: "echo promptable", Source: config.RunTargetSourceUser},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath)
+	wm := workspace.New(cfg, st, statePath)
+	sm := session.New(cfg, st, statePath, wm)
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+		DevMode: true,
+	})
+
+	wsPath := t.TempDir()
+	ws := state.Workspace{
+		ID:     "ws-dev-live",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   wsPath,
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	// Write dev-state.json pointing to this workspace's path
+	devState, _ := json.Marshal(devStateInfo{SourceWorkspace: wsPath})
+	if err := os.WriteFile(filepath.Join(schmuxDir, "dev-state.json"), devState, 0644); err != nil {
+		t.Fatalf("failed to write dev-state.json: %v", err)
+	}
+
+	t.Run("dispose blocked for dev-live workspace", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live/dispose", nil)
+		rr := httptest.NewRecorder()
+		server.handleDisposeWorkspace(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("expected status 409, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var resp map[string]string
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp["error"] == "" {
+			t.Fatal("expected error message in response")
+		}
+	})
+
+	t.Run("dispose-all blocked for dev-live workspace", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live/dispose-all", nil)
+		rr := httptest.NewRecorder()
+		server.handleDisposeWorkspaceAll(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("expected status 409, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("dispose allowed for non-dev-live workspace", func(t *testing.T) {
+		otherPath := t.TempDir()
+		ws2 := state.Workspace{
+			ID:     "ws-other",
+			Repo:   "https://example.com/repo.git",
+			Branch: "feature",
+			Path:   otherPath,
+		}
+		if err := st.AddWorkspace(ws2); err != nil {
+			t.Fatalf("failed to add workspace: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-other/dispose", nil)
+		rr := httptest.NewRecorder()
+		server.handleDisposeWorkspace(rr, req)
+		// Should NOT be 409 — the workspace is not dev-live, so it proceeds
+		// (may fail for other reasons like git safety, but not 409)
+		if rr.Code == http.StatusConflict {
+			t.Fatal("expected non-409 status for non-dev-live workspace, got 409")
+		}
+	})
+
+	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
+		// Create a non-dev-mode server
+		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+			DevMode: false,
+		})
+		// Re-add the workspace (it may have been disposed above)
+		ws3 := state.Workspace{
+			ID:     "ws-dev-live-2",
+			Repo:   "https://example.com/repo.git",
+			Branch: "main",
+			Path:   wsPath,
+		}
+		_ = st.AddWorkspace(ws3)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live-2/dispose", nil)
+		rr := httptest.NewRecorder()
+		server2.handleDisposeWorkspace(rr, req)
+		if rr.Code == http.StatusConflict {
+			t.Fatal("expected non-409 when dev mode is off, got 409")
+		}
+	})
+}
