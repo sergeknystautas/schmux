@@ -130,10 +130,13 @@ export default function AppShell() {
     return result;
   }
 
-  // Check if we're on a diff page for a specific workspace
+  // Check if we're on a workspace-scoped page
   const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
   const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
-  const activeWorkspaceId = diffMatch ? diffMatch[1] : previewMatch ? previewMatch[1] : null;
+  const resolveConflictMatch = location.pathname.match(/^\/resolve-conflict\/([^\/]+)$/);
+  const gitMatch = location.pathname.match(/^\/git\/([^\/]+)$/);
+  const activeWorkspaceId =
+    diffMatch?.[1] ?? previewMatch?.[1] ?? resolveConflictMatch?.[1] ?? gitMatch?.[1] ?? null;
 
   // Check if we're on a session detail page and get workspace info
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
