@@ -652,9 +652,10 @@ func (c *Config) GetLoreInstructionFiles() []string {
 }
 
 // DefaultOverlayPaths are always watched for all repos.
+// Note: .schmux/lore.jsonl is NOT an overlay path — lore is one-directional
+// (workspaces write, backend reads) and should not be broadcast via compounding.
 var DefaultOverlayPaths = []string{
 	".claude/settings.local.json",
-	".schmux/lore.jsonl",
 }
 
 // GetOverlayPaths returns the deduplicated union of hardcoded defaults,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -506,5 +507,231 @@ func TestPruneEntries_MixedEntries(t *testing.T) {
 	}
 	if !texts["recent dismissed"] {
 		t.Error("recent dismissed entry should have been kept")
+	}
+}
+
+func TestReadEntriesMulti_MergesAndDeduplicates(t *testing.T) {
+	dir := t.TempDir()
+
+	// File 1: two entries
+	file1 := filepath.Join(dir, "ws1.jsonl")
+	content1 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T14:33:00Z","ws":"ws-abc","agent":"claude-code","type":"codebase","text":"fact two"}
+`
+	if err := os.WriteFile(file1, []byte(content1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// File 2: one new entry and one duplicate of file 1
+	file2 := filepath.Join(dir, "ws2.jsonl")
+	content2 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T14:35:00Z","ws":"ws-def","agent":"codex","type":"operational","text":"fact three"}
+`
+	if err := os.WriteFile(file2, []byte(content2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ReadEntriesMulti([]string{file1, file2}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 3 unique entries (fact one deduplicated)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+}
+
+func TestReadEntriesMulti_SkipsMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	file1 := filepath.Join(dir, "exists.jsonl")
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+`
+	if err := os.WriteFile(file1, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	nonexistent := filepath.Join(dir, "nonexistent.jsonl")
+	entries, err := ReadEntriesMulti([]string{file1, nonexistent}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestReadEntriesMulti_WithFilter(t *testing.T) {
+	dir := t.TempDir()
+
+	file1 := filepath.Join(dir, "ws1.jsonl")
+	content1 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T14:33:00Z","ws":"ws-abc","agent":"claude-code","type":"codebase","text":"fact two"}
+`
+	if err := os.WriteFile(file1, []byte(content1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// State file with a state change for fact one
+	stateFile := filepath.Join(dir, "state.jsonl")
+	stateContent := `{"ts":"2026-02-13T15:00:00Z","state_change":"proposed","entry_ts":"2026-02-13T14:32:00Z","proposal_id":"prop-123"}
+`
+	if err := os.WriteFile(stateFile, []byte(stateContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only raw entries should remain
+	entries, err := ReadEntriesMulti([]string{file1, stateFile}, FilterRaw())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 raw entry, got %d", len(entries))
+	}
+	if entries[0].Text != "fact two" {
+		t.Errorf("expected 'fact two', got %s", entries[0].Text)
+	}
+}
+
+func TestReadEntriesMulti_IncludesStateChangeRecords(t *testing.T) {
+	dir := t.TempDir()
+
+	file1 := filepath.Join(dir, "ws1.jsonl")
+	content1 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+`
+	if err := os.WriteFile(file1, []byte(content1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stateFile := filepath.Join(dir, "state.jsonl")
+	stateContent := `{"ts":"2026-02-13T15:00:00Z","state_change":"applied","entry_ts":"2026-02-13T14:32:00Z","proposal_id":"prop-123"}
+`
+	if err := os.WriteFile(stateFile, []byte(stateContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unfiltered should include both the entry and the state-change record
+	entries, err := ReadEntriesMulti([]string{file1, stateFile}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+func TestLoreStateDir(t *testing.T) {
+	dir, err := LoreStateDir("test-repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !filepath.IsAbs(dir) {
+		t.Errorf("expected absolute path, got %s", dir)
+	}
+	if !strings.Contains(dir, filepath.Join(".schmux", "lore", "test-repo")) {
+		t.Errorf("expected path containing .schmux/lore/test-repo, got %s", dir)
+	}
+	// Directory should exist
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("directory should exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("should be a directory")
+	}
+	// Clean up
+	os.RemoveAll(dir)
+}
+
+func TestLoreStatePath(t *testing.T) {
+	path, err := LoreStatePath("test-repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasSuffix(path, filepath.Join("test-repo", "state.jsonl")) {
+		t.Errorf("expected path ending with test-repo/state.jsonl, got %s", path)
+	}
+	// Clean up parent dir
+	os.RemoveAll(filepath.Dir(path))
+}
+
+func TestMarkEntriesByTextMulti(t *testing.T) {
+	dir := t.TempDir()
+
+	// Source file with entries
+	srcFile := filepath.Join(dir, "ws1.jsonl")
+	srcContent := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"fact one"}
+{"ts":"2026-02-13T14:33:00Z","ws":"ws-abc","agent":"claude-code","type":"codebase","text":"fact two"}
+`
+	if err := os.WriteFile(srcFile, []byte(srcContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Destination (state) file — initially empty
+	destFile := filepath.Join(dir, "state.jsonl")
+
+	err := MarkEntriesByTextMulti([]string{srcFile}, destFile, "proposed", []string{"fact one"}, "prop-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// State file should have one state-change record
+	entries, err := ReadEntries(destFile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 state-change record, got %d", len(entries))
+	}
+	if entries[0].StateChange != "proposed" {
+		t.Errorf("expected state_change 'proposed', got %s", entries[0].StateChange)
+	}
+	if entries[0].ProposalID != "prop-test" {
+		t.Errorf("expected proposal_id 'prop-test', got %s", entries[0].ProposalID)
+	}
+
+	// Now reading both files together, "fact one" should be marked as proposed
+	combined, err := ReadEntriesMulti([]string{srcFile, destFile}, FilterRaw())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only "fact two" should be raw
+	if len(combined) != 1 {
+		t.Fatalf("expected 1 raw entry, got %d", len(combined))
+	}
+	if combined[0].Text != "fact two" {
+		t.Errorf("expected 'fact two', got %s", combined[0].Text)
+	}
+}
+
+func TestMarkEntriesByTextMulti_DeduplicatesAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Same entry in two workspace files
+	ws1 := filepath.Join(dir, "ws1.jsonl")
+	ws2 := filepath.Join(dir, "ws2.jsonl")
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"operational","text":"shared fact"}
+`
+	if err := os.WriteFile(ws1, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ws2, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	destFile := filepath.Join(dir, "state.jsonl")
+
+	err := MarkEntriesByTextMulti([]string{ws1, ws2}, destFile, "applied", []string{"shared fact"}, "prop-dedup")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only write one state-change record (deduplicated by text)
+	entries, err := ReadEntries(destFile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 state-change record (deduplicated), got %d", len(entries))
 	}
 }

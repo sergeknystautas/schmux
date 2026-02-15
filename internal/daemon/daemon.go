@@ -658,12 +658,32 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			}
 			debounce := time.Duration(cfg.GetLoreCurateDebounceMs()) * time.Millisecond
 			loreCurateTimer = time.AfterFunc(debounce, func() {
-				overlayDir, err := workspace.OverlayDir(repoName)
+				// Collect workspace lore paths (raw entries only)
+				var wsPaths []string
+				for _, w := range st.GetWorkspaces() {
+					if w.Repo == repoURL && w.RemoteHostID == "" {
+						wsPaths = append(wsPaths, filepath.Join(w.Path, ".schmux", "lore.jsonl"))
+					}
+				}
+				// Central state file for state-change records
+				statePath, stateErr := lore.LoreStatePath(repoName)
+
+				// Build combined read paths: workspace files + state file
+				readPaths := append([]string{}, wsPaths...)
+				if stateErr == nil {
+					readPaths = append(readPaths, statePath)
+				}
+
+				// Read raw entries from all paths
+				rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
 				if err != nil {
-					fmt.Printf("[lore] failed to get overlay dir: %v\n", err)
+					fmt.Printf("[lore] failed to read entries: %v\n", err)
 					return
 				}
-				lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
+				if len(rawEntries) == 0 {
+					fmt.Printf("[lore] no raw entries to curate for %s\n", repoName)
+					return
+				}
 
 				repo, found := cfg.FindRepoByURL(repoURL)
 				if !found {
@@ -672,7 +692,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
 
-				proposal, err := loreCurator.Curate(shutdownCtx, repoName, bareDir, lorePath)
+				proposal, err := loreCurator.CurateWithEntries(shutdownCtx, repoName, bareDir, rawEntries)
 				if err != nil {
 					fmt.Printf("[lore] curation failed: %v\n", err)
 					return
@@ -688,29 +708,31 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				fmt.Printf("[lore] proposal %s created for %s: %s\n", proposal.ID, repoName, proposal.DiffSummary)
 
-				// Mark source entries as "proposed" in the lore JSONL
-				if err := lore.MarkEntriesByText(lorePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
-					fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+				// Mark source entries as "proposed" in the central state JSONL
+				if stateErr == nil {
+					if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+						fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+					}
 				}
 			})
 			loreCurateMu.Unlock()
 		})
 		fmt.Printf("[lore] system enabled, will curate on session dispose\n")
 
-		// Prune old lore entries on startup
+		// Prune old state-change records on startup (from central state files only —
+		// raw entries in workspaces are append-only logs and don't need pruning)
 		go func() {
 			maxAge := time.Duration(cfg.GetLorePruneAfterDays()) * 24 * time.Hour
 			for _, repo := range cfg.GetRepos() {
-				overlayDir, err := workspace.OverlayDir(repo.Name)
+				statePath, err := lore.LoreStatePath(repo.Name)
 				if err != nil {
 					continue
 				}
-				lorePath := filepath.Join(overlayDir, ".schmux", "lore.jsonl")
-				pruned, err := lore.PruneEntries(lorePath, maxAge)
+				pruned, err := lore.PruneEntries(statePath, maxAge)
 				if err != nil {
 					fmt.Printf("[lore] warning: prune failed for %s: %v\n", repo.Name, err)
 				} else if pruned > 0 {
-					fmt.Printf("[lore] pruned %d old entries for %s\n", pruned, repo.Name)
+					fmt.Printf("[lore] pruned %d old state entries for %s\n", pruned, repo.Name)
 				}
 			}
 		}()
