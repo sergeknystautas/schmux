@@ -1189,6 +1189,8 @@ func (e *Env) WaitForSessionRunning(sessionID string, timeout time.Duration) *AP
 // AddDetectedTargetToConfig adds a detected (builtin) tool as a run target.
 // This is used to add e.g. "claude" as a target in E2E tests where the real
 // CLI isn't installed but we need the target name for hooks provisioning tests.
+// IMPORTANT: This must be called AFTER DaemonStart + ReloadConfig, because
+// the daemon's startup tool detection replaces all detected-source targets.
 func (e *Env) AddDetectedTargetToConfig(name, command string) {
 	e.T.Helper()
 	e.T.Logf("Adding detected target to config: %s", name)
@@ -1213,5 +1215,30 @@ func (e *Env) AddDetectedTargetToConfig(name, command string) {
 
 	if err := cfg.Save(); err != nil {
 		e.T.Fatalf("Failed to save config: %v", err)
+	}
+}
+
+// ReloadConfig triggers the daemon to reload its config from disk.
+// This is needed after modifying the config file while the daemon is running
+// (e.g., after AddDetectedTargetToConfig).
+func (e *Env) ReloadConfig() {
+	e.T.Helper()
+	e.T.Logf("Reloading daemon config from disk")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, e.DaemonURL+"/api/config", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.T.Fatalf("Failed to reload config: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("Config reload failed (status %d): %s", resp.StatusCode, string(body))
 	}
 }

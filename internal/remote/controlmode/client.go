@@ -615,7 +615,12 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 
 			// Extract content between sentinels
 			contentStart := beginIdx + len(beginMarker)
-			result := strings.TrimSpace(captured[contentStart:endIdx])
+			// When the command produces no output, the end marker immediately
+			// follows the begin marker and contentStart can exceed endIdx.
+			var result string
+			if contentStart <= endIdx {
+				result = strings.TrimSpace(captured[contentStart:endIdx])
+			}
 
 			fmt.Printf("[controlmode] RunCommand: captured %d bytes from pane %s\n", len(result), paneID)
 			return result, nil
