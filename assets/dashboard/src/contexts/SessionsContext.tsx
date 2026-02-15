@@ -29,6 +29,7 @@ type SessionsContextValue = {
     opts?: { timeoutMs?: number; intervalMs?: number }
   ) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
+  ackSession: (sessionId: string) => void;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   pendingNavigation: PendingNavigation | null;
@@ -195,6 +196,20 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Acknowledge a session's current nudge_seq so the sound won't replay on reload.
+  // Called when the user navigates to a session (views it).
+  const ackSession = useCallback((sessionId: string) => {
+    const session = sessionsByIdRef.current[sessionId];
+    const nudgeSeq = session?.nudge_seq ?? 0;
+    if (nudgeSeq === 0) return;
+    const storageKey = `schmux:ack:${sessionId}`;
+    const lastAckedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
+    if (nudgeSeq > lastAckedSeq) {
+      localStorage.setItem(storageKey, String(nudgeSeq));
+    }
+    lastProcessedNudgeRef.current[sessionId] = nudgeSeq;
+  }, []);
+
   const value = useMemo(
     () => ({
       workspaces,
@@ -203,6 +218,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       connected,
       waitForSession,
       sessionsById,
+      ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
       pendingNavigation,
@@ -215,6 +231,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       connected,
       waitForSession,
       sessionsById,
+      ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
       pendingNavigation,
