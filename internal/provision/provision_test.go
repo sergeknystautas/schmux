@@ -452,10 +452,16 @@ func TestClaudeHooksNotificationMatcher(t *testing.T) {
 	content := string(jsonBytes)
 
 	// Verify Notification hook matches the right event types
-	for _, notifType := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog"} {
+	for _, notifType := range []string{"permission_prompt", "elicitation_dialog"} {
 		if !strings.Contains(content, notifType) {
 			t.Errorf("Notification hook should match %q", notifType)
 		}
+	}
+
+	// idle_prompt should NOT be matched — it fires when the agent is just
+	// waiting for input, which is normal idle state, not "needs attention"
+	if strings.Contains(content, "idle_prompt") {
+		t.Error("Notification hook should NOT match idle_prompt")
 	}
 }
 
