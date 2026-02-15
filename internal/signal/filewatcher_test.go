@@ -195,3 +195,19 @@ func TestFileWatcherReadCurrent(t *testing.T) {
 		t.Errorf("State = %q, want needs_input", sig.State)
 	}
 }
+
+func TestFileWatcherDoubleStop(t *testing.T) {
+	dir := t.TempDir()
+	signalFile := filepath.Join(dir, "signal")
+
+	fw, err := NewFileWatcher("test-session", signalFile, func(sig Signal) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First stop should work normally
+	fw.Stop()
+
+	// Second stop should not panic
+	fw.Stop()
+}

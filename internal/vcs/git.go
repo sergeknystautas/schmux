@@ -3,6 +3,8 @@ package vcs
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // GitCommandBuilder implements CommandBuilder for git.
@@ -17,7 +19,7 @@ func (g *GitCommandBuilder) ShowFile(path, revision string) string {
 }
 
 func (g *GitCommandBuilder) FileContent(path string) string {
-	return fmt.Sprintf("cat %s", shellQuote(path))
+	return fmt.Sprintf("cat %s", shellutil.Quote(path))
 }
 
 func (g *GitCommandBuilder) UntrackedFiles() string {
@@ -65,9 +67,4 @@ func (g *GitCommandBuilder) DetectDefaultBranch() string {
 
 func (g *GitCommandBuilder) RevListCount(rangeSpec string) string {
 	return fmt.Sprintf("git rev-list --count %s", rangeSpec)
-}
-
-// shellQuote quotes a string for safe use in shell commands.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
