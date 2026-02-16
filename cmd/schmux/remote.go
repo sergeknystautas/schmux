@@ -83,8 +83,8 @@ func (cmd *RemoteCommand) runSetPin() error {
 	}
 
 	pin := strings.TrimSpace(string(pin1))
-	if len(pin) < 4 {
-		return fmt.Errorf("PIN must be at least 4 characters")
+	if len(pin) < 6 {
+		return fmt.Errorf("PIN must be at least 6 characters")
 	}
 
 	fmt.Print("Confirm PIN: ")
