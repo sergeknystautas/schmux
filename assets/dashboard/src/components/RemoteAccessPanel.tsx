@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
@@ -50,7 +51,7 @@ export default function RemoteAccessPanel() {
 
       {!pinHashSet && remoteAccessStatus.state === 'off' && (
         <div className="remote-access-panel__warning">
-          Set a PIN first: <code>schmux remote set-pin</code>
+          <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
         </div>
       )}
 

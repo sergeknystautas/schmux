@@ -936,3 +936,15 @@ export async function remoteAccessOff(): Promise<void> {
     throw new Error(text || 'Failed to stop remote access');
   }
 }
+
+export async function setRemoteAccessPin(pin: string): Promise<void> {
+  const response = await fetch('/api/remote-access/set-pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to set PIN');
+  }
+}
