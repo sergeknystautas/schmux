@@ -79,7 +79,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
-	if s.config.GetAuthEnabled() {
+	if s.requiresAuth() {
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -122,7 +122,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		WriteBufferSize: 4096,
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
+			if s.requiresAuth() {
 				return s.isAllowedOrigin(origin)
 			}
 			if origin == "" {
@@ -337,7 +337,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 		WriteBufferSize: 4096,
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
+			if s.requiresAuth() {
 				return s.isAllowedOrigin(origin)
 			}
 			if origin == "" {
@@ -473,7 +473,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
+			if s.requiresAuth() {
 				return s.isAllowedOrigin(origin)
 			}
 			if origin == "" {
@@ -615,7 +615,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if s.config.GetAuthEnabled() {
+	if s.requiresAuth() {
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -669,7 +669,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
+			if s.requiresAuth() {
 				return s.isAllowedOrigin(origin)
 			}
 			if origin == "" {
