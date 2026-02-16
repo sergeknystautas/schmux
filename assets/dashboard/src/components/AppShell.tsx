@@ -67,6 +67,9 @@ export default function AppShell() {
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
+  const isRemoteClient =
+    window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const isRemoteAccess = isRemoteClient || simulateRemote;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
   const [devRebuildTarget, setDevRebuildTarget] = useState<string | null>(null);
@@ -357,22 +360,24 @@ export default function AppShell() {
       scope,
     });
 
-    // V - open workspace in VS Code
-    registerAction({
-      key: 'v',
-      description: 'Open workspace in VS Code',
-      handler: async () => {
-        try {
-          const result = await openVSCode(workspace.id);
-          if (!result.success) {
-            await alert('Unable to open VS Code', result.message);
+    // V - open workspace in VS Code (local only)
+    if (!isRemoteAccess) {
+      registerAction({
+        key: 'v',
+        description: 'Open workspace in VS Code',
+        handler: async () => {
+          try {
+            const result = await openVSCode(workspace.id);
+            if (!result.success) {
+              await alert('Unable to open VS Code', result.message);
+            }
+          } catch (err) {
+            await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
           }
-        } catch (err) {
-          await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
-        }
-      },
-      scope,
-    });
+        },
+        scope,
+      });
+    }
 
     // Shift+W - dispose workspace (same restrictions as dispose button)
     registerAction({
@@ -386,6 +391,8 @@ export default function AppShell() {
         const isDevLive =
           devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace;
         if (isDevLive) return;
+        const hasRunningSessions = workspace.sessions?.some((s) => s.running) ?? false;
+        if (hasRunningSessions) return;
         const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
         if (!accepted) return;
 
@@ -403,12 +410,13 @@ export default function AppShell() {
     return () => {
       unregisterAction('d');
       unregisterAction('g');
-      unregisterAction('v');
+      if (!isRemoteAccess) unregisterAction('v');
       unregisterAction('w', true);
     };
   }, [
     context.workspaceId,
     workspaces,
+    isRemoteAccess,
     registerAction,
     unregisterAction,
     navigate,

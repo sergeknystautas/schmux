@@ -1478,6 +1478,21 @@ body {
   align-items: flex-end;
 }
 
+/* On desktop, __main is transparent — its children join the session-tabs flex row */
+.session-tabs__main {
+  display: contents;
+}
+
+.session-tabs__spacer {
+  flex: 1;
+}
+
+.session-tabs__accessory {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: flex-end;
+}
+
 .session-tabs__nowrap {
   display: flex;
   flex-wrap: nowrap;
@@ -1503,11 +1518,6 @@ body {
 .session-tab:hover {
   border-color: var(--color-accent);
   background: var(--color-surface);
-}
-
-.session-tab:first-child {
-  position: relative;
-  left: -1px;
 }
 
 .session-tab--active {
@@ -4456,59 +4466,292 @@ body.keyboard-mode-active::after {
   margin-bottom: var(--spacing-sm);
 }
 
-/* Mobile responsive layout for remote access from phone */
+/* =============================================================================
+ * MOBILE RESPONSIVE LAYOUT
+ * Monitoring-first: nav becomes a thin top bar, content gets full width.
+ * Home page provides workspace navigation; sidebar details are hidden.
+ * ============================================================================= */
 @media (max-width: 768px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-  }
-
+  /* --- App Shell: single column, nav on top --- */
+  .app-shell,
   .app-shell--collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: auto 1fr;
+    height: 100dvh;
   }
 
+  /* Nav becomes a sticky top bar */
   .app-shell__nav {
-    order: 2;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
     height: auto;
-    max-height: 50vh;
-    overflow-y: auto;
+    position: sticky;
+    top: 0;
     border-right: none;
-    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
     z-index: 100;
+    overflow: visible;
   }
 
-  .app-shell__content {
-    order: 1;
-    padding: var(--spacing-md);
-    padding-bottom: 80px; /* Space for bottom nav */
+  .nav-top {
+    flex: none;
+    overflow: visible;
   }
 
-  /* Hide sidebar elements that don't work well on mobile */
-  .nav-collapse-btn,
-  .nav-header__subtitle {
+  /* Hide sidebar sections not needed on mobile */
+  .nav-links,
+  .nav-spawn-btn-container,
+  .remote-access-panel,
+  .typing-perf,
+  .nav-collapse-btn {
     display: none;
   }
 
-  /* Make workspace cards full width */
-  .workspace-card {
-    width: 100% !important;
+  /* --- Workspace strip: horizontal scrollable tabs --- */
+  .nav-workspaces {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    padding: 0;
+    border-top: 1px solid var(--color-border);
   }
 
-  /* Remote access panel: hide QR code on mobile (when added later) */
-  .remote-access-panel__qr {
+  .nav-workspaces::-webkit-scrollbar {
     display: none;
   }
 
-  /* Terminal: make it fill the screen */
-  .terminal-container {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
+  /* Hide the "Workspaces" section header */
+  .nav-section-header {
+    display: none;
+  }
+
+  /* Each workspace becomes a tab */
+  .nav-workspace {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
     border-radius: 0;
+    border: none;
+    border-bottom: 2px solid transparent;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  .nav-workspace--active {
+    border-bottom-color: var(--color-accent);
+    background: transparent;
+  }
+
+  .nav-workspace__header {
+    padding: var(--spacing-xs) var(--spacing-md);
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .nav-workspace__top-row {
+    gap: var(--spacing-xs);
+  }
+
+  .nav-workspace__name {
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .nav-workspace--active .nav-workspace__name {
+    color: var(--color-accent);
+  }
+
+  /* Hide details inside tabs — just the name */
+  .nav-workspace__repo,
+  .nav-workspace__changes,
+  .nav-workspace__sessions,
+  .nav-workspace__dev-btn {
+    display: none;
+  }
+
+  /* Keep the remote banner visible above the nav bar */
+  .remote-banner {
+    font-size: 0.65rem;
+    padding: 3px var(--spacing-md);
+  }
+
+  /* Nav header: compact row */
+  .nav-header {
+    padding: var(--spacing-xs) var(--spacing-md);
+  }
+
+  .nav-header__version {
+    display: none;
+  }
+
+  /* --- Content area: full width, reduced padding, constrained by grid --- */
+  .app-shell__content {
+    padding: var(--spacing-sm);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Git graph: constrain to available space instead of growing unbounded */
+  .git-dag {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* --- Workspace Header: left-aligned, no wrap on narrow screens --- */
+  .app-header {
+    flex-wrap: nowrap;
+    gap: var(--spacing-xs);
+    padding: 0 0 var(--spacing-xs) 0;
+    margin-bottom: var(--spacing-xs);
+    align-items: flex-start;
+  }
+
+  .app-header__info {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .app-header__meta {
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .app-header__name {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .app-header__actions {
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+  }
+
+  /* --- Session Tabs: flatten hierarchy so accessory can reorder below content --- */
+  .session-tabs {
+    display: contents;
+  }
+
+  /* Main session tabs: horizontal scrollable strip */
+  .session-tabs__main {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+    order: 2;
+  }
+
+  .session-tabs__main::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Spacer hidden on mobile */
+  .session-tabs__spacer {
+    display: none;
+  }
+
+  /* Accessory tabs: moved below content pane via order */
+  .session-tabs__accessory {
+    order: 4;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+  }
+
+  .session-tabs__accessory .session-tab {
+    min-width: 0;
+    border-top: none;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    margin-top: -1px;
+  }
+
+  /* Content pane overlaps accessory tabs' negative margin */
+  .session-detail,
+  .diff-page,
+  .git-dag {
+    z-index: 1;
+    position: relative;
+  }
+
+  /* Content panes: default to order 3 (between tabs and accessory).
+     app-header (order 1) and session-tabs__main (order 2) come before,
+     session-tabs__accessory (order 4) comes after. */
+  .app-shell__content > * {
+    order: 3;
+  }
+
+  .app-header {
+    order: 1;
+  }
+
+  .session-tab {
+    min-width: 120px;
+    max-width: none;
+    padding: var(--spacing-sm) var(--spacing-md);
+    flex-shrink: 0;
+  }
+
+  /* --- Session Detail: drop the sidebar, single column --- */
+  .session-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .session-detail__sidebar {
+    display: none;
+  }
+
+  /* --- Terminal: fill available space --- */
+  #terminal .xterm {
+    margin: var(--spacing-xs);
+  }
+
+  /* --- Modals: full-width on mobile --- */
+  .modal {
+    max-width: calc(100vw - var(--spacing-md) * 2);
+    margin: var(--spacing-md);
+  }
+
+  /* --- Diff Page: stack sidebar above content --- */
+  .diff-layout {
+    flex-direction: column;
+  }
+
+  .diff-sidebar {
+    width: 100% !important;
+    max-height: 30vh;
+    border-radius: 0;
+    border-right: none;
+    border-left: none;
+  }
+
+  .diff-resizer {
+    display: none;
+  }
+
+  .diff-content {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .diff-actions {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 }

@@ -41,7 +41,7 @@ export default function DiffPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { config } = useConfig();
-  const { workspaces } = useSessions();
+  const { workspaces, simulateRemote } = useSessions();
   const { alert } = useModal();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,6 +63,9 @@ export default function DiffPage() {
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
+  const isRemoteClient =
+    window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const isRemoteAccess = isRemoteClient || simulateRemote;
   const externalDiffCommands = config?.external_diff_commands || [];
 
   // Navigate home if workspace was disposed
@@ -394,26 +397,12 @@ export default function DiffPage() {
       )}
 
       <div className="diff-page">
-        <div className="diff-actions">
-          <span className="diff-actions__label">Diff in:</span>
-          {BUILTIN_DIFF_COMMANDS.map((cmd) => (
-            <button
-              key={`builtin-${cmd.name}`}
-              className="btn btn--sm btn--ghost btn--bordered"
-              onClick={() => handleExternalDiff(cmd)}
-              disabled={executingDiff !== null}
-            >
-              {executingDiff === cmd.name ? (
-                <div className="spinner spinner--small"></div>
-              ) : (
-                cmd.name
-              )}
-            </button>
-          ))}
-          {hasUserCommands &&
-            externalDiffCommands.map((cmd) => (
+        {!isRemoteAccess && (
+          <div className="diff-actions">
+            <span className="diff-actions__label">Diff in:</span>
+            {BUILTIN_DIFF_COMMANDS.map((cmd) => (
               <button
-                key={cmd.name}
+                key={`builtin-${cmd.name}`}
                 className="btn btn--sm btn--ghost btn--bordered"
                 onClick={() => handleExternalDiff(cmd)}
                 disabled={executingDiff !== null}
@@ -425,7 +414,23 @@ export default function DiffPage() {
                 )}
               </button>
             ))}
-        </div>
+            {hasUserCommands &&
+              externalDiffCommands.map((cmd) => (
+                <button
+                  key={cmd.name}
+                  className="btn btn--sm btn--ghost btn--bordered"
+                  onClick={() => handleExternalDiff(cmd)}
+                  disabled={executingDiff !== null}
+                >
+                  {executingDiff === cmd.name ? (
+                    <div className="spinner spinner--small"></div>
+                  ) : (
+                    cmd.name
+                  )}
+                </button>
+              ))}
+          </div>
+        )}
 
         <div className="diff-layout" ref={containerRef}>
           <div
