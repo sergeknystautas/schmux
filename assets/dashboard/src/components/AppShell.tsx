@@ -763,8 +763,6 @@ export default function AppShell() {
             })}
           </div>
 
-          <RemoteAccessPanel />
-
           <div className="nav-links">
             {config?.repos?.length > 0 && (
               <NavLink
@@ -869,6 +867,7 @@ export default function AppShell() {
             </div>
           </div>
           {isDevMode && <TypingPerformance />}
+          <RemoteAccessPanel />
         </div>
       </nav>
 
