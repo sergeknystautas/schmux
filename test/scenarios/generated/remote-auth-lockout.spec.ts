@@ -3,11 +3,11 @@ import { apiPost, waitForHealthy } from './helpers';
 
 const BASE_URL = 'http://localhost:7337';
 
-test.describe.serial('Remote auth lockout after failed PIN attempts', () => {
+test.describe.serial('Remote auth lockout after failed password attempts', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
-    // Ensure a PIN is set for this test suite
-    await apiPost('/api/remote-access/set-pin', { pin: 'testpin123' });
+    // Ensure a password is set for this test suite
+    await apiPost('/api/remote-access/set-password', { password: 'testpassword123' });
   });
 
   test('remote auth page without token shows invalid link error', async ({ page }) => {
@@ -28,18 +28,18 @@ test.describe.serial('Remote auth lockout after failed PIN attempts', () => {
     const res = await fetch(`${BASE_URL}/remote-auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'token=nonexistent-token&pin=wrong',
+      body: 'token=nonexistent-token&password=wrong',
     });
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('Invalid or expired link');
   });
 
-  test('POST remote auth with wrong token and wrong PIN returns invalid link HTML', async () => {
+  test('POST remote auth with wrong token and wrong password returns invalid link HTML', async () => {
     const res = await fetch(`${BASE_URL}/remote-auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&pin=wrongpin',
+      body: 'token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&password=wrongpassword',
     });
     expect(res.status).toBe(200);
     const body = await res.text();

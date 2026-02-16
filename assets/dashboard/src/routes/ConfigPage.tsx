@@ -9,14 +9,14 @@ import {
   getBuiltinQuickLaunch,
   getAuthSecretsStatus,
   saveAuthSecrets,
-  setRemoteAccessPin,
+  setRemoteAccessPassword,
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { NtfyTopicGenerator } from '../components/NtfyTopicGenerator';
-import { pinStrength } from '../lib/pinStrength';
+import { passwordStrength } from '../lib/passwordStrength';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
@@ -205,12 +205,12 @@ export default function ConfigPage() {
   const [remoteAccessTimeoutMinutes, setRemoteAccessTimeoutMinutes] = useState(0);
   const [remoteAccessNtfyTopic, setRemoteAccessNtfyTopic] = useState('');
   const [remoteAccessNotifyCommand, setRemoteAccessNotifyCommand] = useState('');
-  const [remoteAccessPinHashSet, setRemoteAccessPinHashSet] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinConfirm, setPinConfirm] = useState('');
-  const [pinSaving, setPinSaving] = useState(false);
-  const [pinError, setPinError] = useState('');
-  const [pinSuccess, setPinSuccess] = useState('');
+  const [remoteAccessPasswordHashSet, setRemoteAccessPasswordHashSet] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
@@ -428,7 +428,7 @@ export default function ConfigPage() {
         setRemoteAccessTimeoutMinutes(data.remote_access?.timeout_minutes || 0);
         setRemoteAccessNtfyTopic(data.remote_access?.notify?.ntfy_topic || '');
         setRemoteAccessNotifyCommand(data.remote_access?.notify?.command || '');
-        setRemoteAccessPinHashSet(data.remote_access?.pin_hash_set || false);
+        setRemoteAccessPasswordHashSet(data.remote_access?.password_hash_set || false);
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -1156,33 +1156,33 @@ export default function ConfigPage() {
     error: string;
   } | null>(null);
 
-  const handleSetPin = async () => {
-    setPinError('');
-    setPinSuccess('');
-    if (!pinInput.trim()) {
-      setPinError('PIN cannot be empty');
+  const handleSetPassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (!passwordInput.trim()) {
+      setPasswordError('Password cannot be empty');
       return;
     }
-    if (pinInput.length < 6) {
-      setPinError('PIN must be at least 6 characters');
+    if (passwordInput.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
       return;
     }
-    if (pinInput !== pinConfirm) {
-      setPinError('PINs do not match');
+    if (passwordInput !== passwordConfirm) {
+      setPasswordError('Passwords do not match');
       return;
     }
-    setPinSaving(true);
+    setPasswordSaving(true);
     try {
-      await setRemoteAccessPin(pinInput);
-      setRemoteAccessPinHashSet(true);
-      setPinInput('');
-      setPinConfirm('');
-      setPinSuccess('PIN updated');
+      await setRemoteAccessPassword(passwordInput);
+      setRemoteAccessPasswordHashSet(true);
+      setPasswordInput('');
+      setPasswordConfirm('');
+      setPasswordSuccess('Password updated');
       reloadConfig();
     } catch (err) {
-      setPinError(getErrorMessage(err, 'Failed to set PIN'));
+      setPasswordError(getErrorMessage(err, 'Failed to set password'));
     } finally {
-      setPinSaving(false);
+      setPasswordSaving(false);
     }
   };
 
@@ -2330,7 +2330,7 @@ export default function ConfigPage() {
                   {!remoteAccessDisabled && (
                     <>
                       <div className="form-group">
-                        <label className="form-group__label">Access PIN</label>
+                        <label className="form-group__label">Access Password</label>
                         <div
                           style={{
                             display: 'flex',
@@ -2338,12 +2338,12 @@ export default function ConfigPage() {
                             gap: 'var(--spacing-xs)',
                           }}
                         >
-                          {remoteAccessPinHashSet && (
+                          {remoteAccessPasswordHashSet && (
                             <p
                               className="form-group__hint"
                               style={{ color: 'var(--color-success)' }}
                             >
-                              PIN is configured
+                              Password is configured
                             </p>
                           )}
                           <input
@@ -2351,57 +2351,61 @@ export default function ConfigPage() {
                             className="input"
                             style={{ maxWidth: '240px' }}
                             placeholder={
-                              remoteAccessPinHashSet ? 'New PIN (leave blank to keep)' : 'Enter PIN'
+                              remoteAccessPasswordHashSet
+                                ? 'New password (leave blank to keep)'
+                                : 'Enter password'
                             }
-                            value={pinInput}
-                            onChange={(e) => setPinInput(e.target.value)}
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
                           />
-                          {pinInput && pinInput.length >= 6 && (
-                            <span className={`pin-strength pin-strength--${pinStrength(pinInput)}`}>
-                              {pinStrength(pinInput) === 'weak'
-                                ? 'Weak PIN'
-                                : pinStrength(pinInput) === 'ok'
+                          {passwordInput && passwordInput.length >= 6 && (
+                            <span
+                              className={`password-strength password-strength--${passwordStrength(passwordInput)}`}
+                            >
+                              {passwordStrength(passwordInput) === 'weak'
+                                ? 'Weak password'
+                                : passwordStrength(passwordInput) === 'ok'
                                   ? 'OK'
                                   : 'Strong'}
                             </span>
                           )}
-                          {pinInput && (
+                          {passwordInput && (
                             <input
                               type="password"
                               className="input"
                               style={{ maxWidth: '240px' }}
-                              placeholder="Confirm PIN"
-                              value={pinConfirm}
-                              onChange={(e) => setPinConfirm(e.target.value)}
+                              placeholder="Confirm password"
+                              value={passwordConfirm}
+                              onChange={(e) => setPasswordConfirm(e.target.value)}
                             />
                           )}
-                          {pinInput && (
+                          {passwordInput && (
                             <button
                               type="button"
                               className="btn btn--primary"
                               style={{ alignSelf: 'flex-start' }}
-                              onClick={handleSetPin}
-                              disabled={pinSaving}
+                              onClick={handleSetPassword}
+                              disabled={passwordSaving}
                             >
-                              {pinSaving
+                              {passwordSaving
                                 ? 'Saving...'
-                                : remoteAccessPinHashSet
-                                  ? 'Update PIN'
-                                  : 'Set PIN'}
+                                : remoteAccessPasswordHashSet
+                                  ? 'Update Password'
+                                  : 'Set Password'}
                             </button>
                           )}
-                          {pinError && <p className="form-group__error">{pinError}</p>}
-                          {pinSuccess && (
+                          {passwordError && <p className="form-group__error">{passwordError}</p>}
+                          {passwordSuccess && (
                             <p
                               className="form-group__hint"
                               style={{ color: 'var(--color-success)' }}
                             >
-                              {pinSuccess}
+                              {passwordSuccess}
                             </p>
                           )}
                         </div>
                         <p className="form-group__hint">
-                          Required to start a remote tunnel. You&apos;ll enter this PIN when
+                          Required to start a remote tunnel. You&apos;ll enter this password when
                           connecting from another device.
                         </p>
                       </div>

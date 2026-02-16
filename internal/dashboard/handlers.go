@@ -1336,9 +1336,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
 		RemoteAccess: contracts.RemoteAccess{
-			Disabled:       s.config.GetRemoteAccessDisabled(),
-			TimeoutMinutes: s.config.GetRemoteAccessTimeoutMinutes(),
-			PinHashSet:     s.config.GetRemoteAccessPinHash() != "",
+			Disabled:        s.config.GetRemoteAccessDisabled(),
+			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
+			PasswordHashSet: s.config.GetRemoteAccessPasswordHash() != "",
 			Notify: contracts.RemoteAccessNotify{
 				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
 				Command:   s.config.GetRemoteAccessNotifyCommand(),

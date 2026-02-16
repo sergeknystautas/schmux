@@ -14,7 +14,7 @@ export default function RemoteAccessPanel() {
 
   const isDevMode = !!versionInfo?.dev_mode;
   const isDisabled = config?.remote_access?.disabled;
-  const pinHashSet = config?.remote_access?.pin_hash_set;
+  const passwordHashSet = config?.remote_access?.password_hash_set;
   const isActive =
     remoteAccessStatus.state === 'connected' || remoteAccessStatus.state === 'starting';
 
@@ -71,7 +71,7 @@ export default function RemoteAccessPanel() {
           <button
             className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
             onClick={handleToggle}
-            disabled={loading || remoteAccessStatus.state === 'starting' || !pinHashSet}
+            disabled={loading || remoteAccessStatus.state === 'starting' || !passwordHashSet}
             data-testid="remote-access-toggle"
           >
             {loading || remoteAccessStatus.state === 'starting' ? (
@@ -93,9 +93,9 @@ export default function RemoteAccessPanel() {
             )}
           </button>
 
-          {!pinHashSet && remoteAccessStatus.state === 'off' && (
+          {!passwordHashSet && remoteAccessStatus.state === 'off' && (
             <div className="remote-access-panel__warning">
-              <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
+              <Link to="/config?tab=access">Set a password</Link> to enable remote access.
             </div>
           )}
 

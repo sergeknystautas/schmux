@@ -92,25 +92,25 @@ func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
 	}
 }
 
-func TestRenderPinPage_EscapesNonce(t *testing.T) {
+func TestRenderPasswordPage_EscapesNonce(t *testing.T) {
 	// A malicious nonce with HTML/JS injection
 	maliciousNonce := `"><script>alert('xss')</script><input value="`
-	output := renderPinPage(maliciousNonce, "", 5)
+	output := renderPasswordPage(maliciousNonce, "", 5)
 
 	if strings.Contains(output, "<script>") {
-		t.Error("renderPinPage must HTML-escape the nonce value")
+		t.Error("renderPasswordPage must HTML-escape the nonce value")
 	}
 	if !strings.Contains(output, "&lt;script&gt;") {
 		t.Error("expected escaped script tag in output")
 	}
 }
 
-func TestRenderPinPage_EscapesErrorMsg(t *testing.T) {
+func TestRenderPasswordPage_EscapesErrorMsg(t *testing.T) {
 	maliciousMsg := `<img src=x onerror=alert(1)>`
-	output := renderPinPage("", maliciousMsg, 0)
+	output := renderPasswordPage("", maliciousMsg, 0)
 
 	if strings.Contains(output, "<img") {
-		t.Error("renderPinPage must HTML-escape error messages")
+		t.Error("renderPasswordPage must HTML-escape error messages")
 	}
 	if !strings.Contains(output, "&lt;img") {
 		t.Error("expected escaped img tag in output")
@@ -182,13 +182,13 @@ func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
 	}
 }
 
-func TestHandleRemoteAccessSetPin_RejectsShortPin(t *testing.T) {
+func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
 
 	tests := []struct {
-		name string
-		pin  string
+		name     string
+		password string
 	}{
 		{"empty", ""},
 		{"too short 3 chars", "abc"},
@@ -196,16 +196,16 @@ func TestHandleRemoteAccessSetPin_RejectsShortPin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := strings.NewReader(fmt.Sprintf(`{"pin":%q}`, tt.pin))
-			req, _ := http.NewRequest("POST", "/api/remote-access/set-pin", body)
+			body := strings.NewReader(fmt.Sprintf(`{"password":%q}`, tt.password))
+			req, _ := http.NewRequest("POST", "/api/remote-access/set-password", body)
 			req.Header.Set("Content-Type", "application/json")
 			req.RemoteAddr = "127.0.0.1:12345"
 
 			rr := httptest.NewRecorder()
-			server.handleRemoteAccessSetPin(rr, req)
+			server.handleRemoteAccessSetPassword(rr, req)
 
 			if rr.Code != http.StatusBadRequest {
-				t.Errorf("expected 400 for PIN %q, got %d", tt.pin, rr.Code)
+				t.Errorf("expected 400 for password %q, got %d", tt.password, rr.Code)
 			}
 		})
 	}
@@ -253,7 +253,7 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 	// The rate limiter allows 5 requests per minute per IP
 	// Send 6 POST requests from the same IP — 6th should be rate-limited
 	for i := 0; i < 5; i++ {
-		body := strings.NewReader("nonce=" + nonce + "&pin=wrong")
+		body := strings.NewReader("nonce=" + nonce + "&password=wrong")
 		req, _ := http.NewRequest("POST", "/remote-auth", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.RemoteAddr = "1.2.3.4:12345"
@@ -322,8 +322,8 @@ func TestRemoteAuthGET_NoTokenOrNonce_ShowsInstructions(t *testing.T) {
 	if strings.Contains(body, "Invalid or expired") {
 		t.Error("should not show error message when no token/nonce provided")
 	}
-	if strings.Contains(body, `name="pin"`) {
-		t.Error("should not show PIN form when no token/nonce provided")
+	if strings.Contains(body, `name="password"`) {
+		t.Error("should not show password form when no token/nonce provided")
 	}
 	if !strings.Contains(body, "notification") {
 		t.Error("should show instructions mentioning notification app")
@@ -362,7 +362,7 @@ func TestRemoteAuthGET_TokenConsumedAndRedirectsToNonce(t *testing.T) {
 	}
 }
 
-func TestRemoteAuthGET_NonceShowsPinForm(t *testing.T) {
+func TestRemoteAuthGET_NonceShowsPasswordForm(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
@@ -379,7 +379,7 @@ func TestRemoteAuthGET_NonceShowsPinForm(t *testing.T) {
 	loc := rr.Header().Get("Location")
 	nonce := strings.TrimPrefix(loc, "/remote-auth?nonce=")
 
-	// GET with valid nonce should show PIN form
+	// GET with valid nonce should show password form
 	req2, _ := http.NewRequest("GET", "/remote-auth?nonce="+nonce, nil)
 	rr2 := httptest.NewRecorder()
 	server.handleRemoteAuthGET(rr2, req2)
@@ -389,8 +389,8 @@ func TestRemoteAuthGET_NonceShowsPinForm(t *testing.T) {
 	}
 
 	body := rr2.Body.String()
-	if !strings.Contains(body, `name="pin"`) {
-		t.Error("expected PIN form in response")
+	if !strings.Contains(body, `name="password"`) {
+		t.Error("expected password form in response")
 	}
 	if !strings.Contains(body, `name="nonce"`) {
 		t.Error("expected hidden nonce field in response")
@@ -425,9 +425,9 @@ func TestRemoteAuthPOST_WorksWithNonce(t *testing.T) {
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
-	// Set a PIN
+	// Set a password
 	pinHash, _ := bcrypt.GenerateFromPassword([]byte("testpin123"), bcrypt.DefaultCost)
-	server.config.RemoteAccess = &config.RemoteAccessConfig{PinHash: string(pinHash)}
+	server.config.RemoteAccess = &config.RemoteAccessConfig{PasswordHash: string(pinHash)}
 
 	server.remoteTokenMu.Lock()
 	token := server.remoteToken
@@ -441,8 +441,8 @@ func TestRemoteAuthPOST_WorksWithNonce(t *testing.T) {
 	loc := rr.Header().Get("Location")
 	nonce := strings.TrimPrefix(loc, "/remote-auth?nonce=")
 
-	// POST with valid nonce + correct PIN
-	body := strings.NewReader("nonce=" + nonce + "&pin=testpin123")
+	// POST with valid nonce + correct password
+	body := strings.NewReader("nonce=" + nonce + "&password=testpin123")
 	req2, _ := http.NewRequest("POST", "/remote-auth", body)
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req2.RemoteAddr = "1.2.3.4:12345"
@@ -636,7 +636,7 @@ func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
 	}
 }
 
-func TestSetPin_InvalidatesExistingSessions(t *testing.T) {
+func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
 
@@ -659,16 +659,16 @@ func TestSetPin_InvalidatesExistingSessions(t *testing.T) {
 
 	// Verify cookie is valid
 	if !server.validateRemoteCookie(cookieValue) {
-		t.Fatal("cookie should be valid before PIN change")
+		t.Fatal("cookie should be valid before password change")
 	}
 
-	// Change PIN
-	body := strings.NewReader(`{"pin":"newpin123"}`)
-	req, _ := http.NewRequest("POST", "/api/remote-access/set-pin", body)
+	// Change password
+	body := strings.NewReader(`{"password":"newpin123"}`)
+	req, _ := http.NewRequest("POST", "/api/remote-access/set-password", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "127.0.0.1:12345"
 	rr := httptest.NewRecorder()
-	server.handleRemoteAccessSetPin(rr, req)
+	server.handleRemoteAccessSetPassword(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -676,6 +676,6 @@ func TestSetPin_InvalidatesExistingSessions(t *testing.T) {
 
 	// Verify old cookie is now invalid
 	if server.validateRemoteCookie(cookieValue) {
-		t.Error("old cookie should be invalid after PIN change")
+		t.Error("old cookie should be invalid after password change")
 	}
 }

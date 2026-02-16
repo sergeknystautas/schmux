@@ -937,14 +937,14 @@ export async function remoteAccessOff(): Promise<void> {
   }
 }
 
-export async function setRemoteAccessPin(pin: string): Promise<void> {
-  const response = await fetch('/api/remote-access/set-pin', {
+export async function setRemoteAccessPassword(password: string): Promise<void> {
+  const response = await fetch('/api/remote-access/set-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({ password }),
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || 'Failed to set PIN');
+    throw new Error(text || 'Failed to set password');
   }
 }

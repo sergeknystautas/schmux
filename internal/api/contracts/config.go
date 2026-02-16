@@ -263,10 +263,10 @@ type LoreUpdate struct {
 
 // RemoteAccess represents remote access configuration in the API response.
 type RemoteAccess struct {
-	Disabled       bool               `json:"disabled"`
-	TimeoutMinutes int                `json:"timeout_minutes"`
-	PinHashSet     bool               `json:"pin_hash_set"`
-	Notify         RemoteAccessNotify `json:"notify"`
+	Disabled        bool               `json:"disabled"`
+	TimeoutMinutes  int                `json:"timeout_minutes"`
+	PasswordHashSet bool               `json:"password_hash_set"`
+	Notify          RemoteAccessNotify `json:"notify"`
 }
 
 // RemoteAccessNotify represents notification settings.

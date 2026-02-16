@@ -1,24 +1,24 @@
 import { test, expect } from '@playwright/test';
 import { apiGet, apiPost, waitForDashboardLive, waitForHealthy } from './helpers';
 
-test.describe.serial('Remote access PIN authentication', () => {
+test.describe.serial('Remote access password authentication', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
   });
 
-  test('set PIN via API succeeds', async () => {
-    const result = await apiPost<{ ok: boolean }>('/api/remote-access/set-pin', {
-      pin: 'test1234',
+  test('set password via API succeeds', async () => {
+    const result = await apiPost<{ ok: boolean }>('/api/remote-access/set-password', {
+      password: 'test1234',
     });
     expect(result.ok).toBe(true);
   });
 
-  test('config shows pin_hash_set true after setting PIN', async () => {
-    const config = await apiGet<{ remote_access: { pin_hash_set: boolean } }>('/api/config');
-    expect(config.remote_access.pin_hash_set).toBe(true);
+  test('config shows password_hash_set true after setting password', async () => {
+    const config = await apiGet<{ remote_access: { password_hash_set: boolean } }>('/api/config');
+    expect(config.remote_access.password_hash_set).toBe(true);
   });
 
-  test('dashboard PIN warning gone after setting PIN', async ({ page }) => {
+  test('dashboard password warning gone after setting password', async ({ page }) => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
@@ -33,7 +33,7 @@ test.describe.serial('Remote access PIN authentication', () => {
     const response = await page.goto('/remote-auth');
     expect(response?.status()).toBe(200);
     await expect(page.locator('body')).toContainText('Invalid or expired link');
-    // Should not show the PIN form
+    // Should not show the password form
     await expect(page.locator('form')).not.toBeVisible();
   });
 

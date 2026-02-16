@@ -17,9 +17,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const maxPinAttempts = 5
+const maxPasswordAttempts = 5
 
-const minPinLength = 6
+const minPasswordLength = 6
 
 const remoteSessionMaxAge = 24 * time.Hour
 
@@ -52,7 +52,7 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 		validToken := s.remoteToken
 		if token != validToken || validToken == "" {
 			s.remoteTokenMu.Unlock()
-			fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
 			return
 		}
 		// Consume token (one-time use)
@@ -62,7 +62,7 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 		nonceBytes := make([]byte, 16)
 		if _, err := crypto_rand.Read(nonceBytes); err != nil {
 			s.remoteTokenMu.Unlock()
-			fmt.Fprint(w, renderPinPage("", "Internal error.", 0))
+			fmt.Fprint(w, renderPasswordPage("", "Internal error.", 0))
 			return
 		}
 		nonceValue := hex.EncodeToString(nonceBytes)
@@ -90,17 +90,17 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 		s.remoteTokenMu.Unlock()
 
 		if !exists || time.Since(n.createdAt) > nonceMaxAge {
-			fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
 			return
 		}
 
-		if failures >= maxPinAttempts {
-			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
+		if failures >= maxPasswordAttempts {
+			fmt.Fprint(w, renderPasswordPage("", "Too many failed attempts. This link has been locked.", 0))
 			return
 		}
 
-		remaining := maxPinAttempts - failures
-		fmt.Fprint(w, renderPinPage(nonce, "", remaining))
+		remaining := maxPasswordAttempts - failures
+		fmt.Fprint(w, renderPasswordPage(nonce, "", remaining))
 		return
 	}
 
@@ -115,12 +115,12 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(http.StatusTooManyRequests)
-		fmt.Fprint(w, renderPinPage("", "Too many attempts. Please wait a minute before trying again.", 0))
+		fmt.Fprint(w, renderPasswordPage("", "Too many attempts. Please wait a minute before trying again.", 0))
 		return
 	}
 
 	nonce := r.FormValue("nonce")
-	pin := r.FormValue("pin")
+	password := r.FormValue("password")
 
 	s.remoteTokenMu.Lock()
 	n, nonceExists := s.remoteNonces[nonce]
@@ -129,47 +129,47 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	if nonce == "" || !nonceExists || time.Since(n.createdAt) > nonceMaxAge {
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+		fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
 		return
 	}
 
-	if failures >= maxPinAttempts {
+	if failures >= maxPasswordAttempts {
 		delete(s.remoteNonces, nonce)
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
+		fmt.Fprint(w, renderPasswordPage("", "Too many failed attempts. This link has been locked.", 0))
 		return
 	}
 	s.remoteTokenMu.Unlock()
 
-	// Get PIN hash from config
-	pinHash := ""
+	// Get password hash from config
+	passwordHash := ""
 	if s.config != nil {
-		pinHash = s.config.GetRemoteAccessPinHash()
+		passwordHash = s.config.GetRemoteAccessPasswordHash()
 	}
-	if pinHash == "" {
+	if passwordHash == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "PIN not configured.", 0))
+		fmt.Fprint(w, renderPasswordPage("", "Password not configured.", 0))
 		return
 	}
 
-	// Verify PIN with bcrypt
-	err := bcrypt.CompareHashAndPassword([]byte(pinHash), []byte(pin))
+	// Verify password with bcrypt
+	err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 	if err != nil {
 		s.remoteTokenMu.Lock()
 		s.remoteTokenFailures++
 		newFailures := s.remoteTokenFailures
-		if newFailures >= maxPinAttempts {
+		if newFailures >= maxPasswordAttempts {
 			delete(s.remoteNonces, nonce)
 			s.remoteTokenMu.Unlock()
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
+			fmt.Fprint(w, renderPasswordPage("", "Too many failed attempts. This link has been locked.", 0))
 			return
 		}
 		s.remoteTokenMu.Unlock()
-		remaining := maxPinAttempts - newFailures
+		remaining := maxPasswordAttempts - newFailures
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage(nonce, "Incorrect PIN.", remaining))
+		fmt.Fprint(w, renderPasswordPage(nonce, "Incorrect password.", remaining))
 		return
 	}
 
@@ -245,34 +245,34 @@ func (s *Server) validateRemoteCookie(value string) bool {
 	return hmac.Equal([]byte(parts[1]), []byte(expected))
 }
 
-func (s *Server) handleRemoteAccessSetPin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req struct {
-		Pin string `json:"pin"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if len(req.Pin) < minPinLength {
-		http.Error(w, fmt.Sprintf("PIN must be at least %d characters", minPinLength), http.StatusBadRequest)
+	if len(req.Password) < minPasswordLength {
+		http.Error(w, fmt.Sprintf("Password must be at least %d characters", minPasswordLength), http.StatusBadRequest)
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Pin), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to hash PIN", http.StatusInternalServerError)
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
 		return
 	}
 
 	if s.config.RemoteAccess == nil {
 		s.config.RemoteAccess = &config.RemoteAccessConfig{}
 	}
-	s.config.RemoteAccess.PinHash = string(hash)
+	s.config.RemoteAccess.PasswordHash = string(hash)
 	if err := s.config.Save(); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
@@ -325,7 +325,7 @@ body {
 </html>`
 }
 
-func renderPinPage(nonce string, errorMsg string, attemptsRemaining int) string {
+func renderPasswordPage(nonce string, errorMsg string, attemptsRemaining int) string {
 	nonceField := ""
 	if nonce != "" {
 		nonceField = `<input type="hidden" name="nonce" value="` + html.EscapeString(nonce) + `">`
@@ -339,13 +339,13 @@ func renderPinPage(nonce string, errorMsg string, attemptsRemaining int) string 
 	formHTML := ""
 	if nonce != "" {
 		attemptsHTML := ""
-		if attemptsRemaining > 0 && attemptsRemaining < maxPinAttempts {
+		if attemptsRemaining > 0 && attemptsRemaining < maxPasswordAttempts {
 			attemptsHTML = fmt.Sprintf(`<div class="attempts">%d attempt(s) remaining</div>`, attemptsRemaining)
 		}
 		formHTML = `<form method="POST" action="/remote-auth">
 			` + nonceField + `
-			<label for="pin">PIN</label>
-			<input type="password" id="pin" name="pin" autofocus required>
+			<label for="password">Password</label>
+			<input type="password" id="password" name="password" autofocus required>
 			` + attemptsHTML + `
 			<button type="submit">Continue</button>
 		</form>`

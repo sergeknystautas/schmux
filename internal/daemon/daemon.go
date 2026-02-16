@@ -422,11 +422,11 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create tunnel manager for remote access
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
-		Disabled:       cfg.GetRemoteAccessDisabled(),
-		PinHashSet:     cfg.GetRemoteAccessPinHash() != "",
-		Port:           cfg.GetPort(),
-		SchmuxBinDir:   filepath.Join(filepath.Dir(statePath), "bin"),
-		TimeoutMinutes: cfg.GetRemoteAccessTimeoutMinutes(),
+		Disabled:        cfg.GetRemoteAccessDisabled(),
+		PasswordHashSet: cfg.GetRemoteAccessPasswordHash() != "",
+		Port:            cfg.GetPort(),
+		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
+		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),
 		OnStatusChange: func(status tunnel.TunnelStatus) {
 			server.BroadcastTunnelStatus(status)
 			if status.State == tunnel.StateConnected && status.URL != "" {
