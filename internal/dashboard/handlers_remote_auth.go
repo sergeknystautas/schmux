@@ -43,7 +43,13 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if token == "" || validToken == "" || token != validToken {
+	// No token provided — show instructions page
+	if token == "" {
+		fmt.Fprint(w, renderInstructionsPage())
+		return
+	}
+
+	if validToken == "" || token != validToken {
 		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
 		return
 	}
@@ -229,6 +235,41 @@ func (s *Server) handleRemoteAccessSetPin(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func renderInstructionsPage() string {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authenticate</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	display: flex; align-items: center; justify-content: center;
+	min-height: 100vh; padding: 1rem;
+	background: #fff; color: #111;
+}
+@media (prefers-color-scheme: dark) {
+	body { background: #111; color: #e0e0e0; }
+}
+.card {
+	max-width: 360px; width: 100%; padding: 2.5rem 2rem; text-align: center;
+}
+.card p { font-size: 0.95rem; line-height: 1.5; color: #555; }
+@media (prefers-color-scheme: dark) {
+	.card p { color: #999; }
+}
+</style>
+</head>
+<body>
+<div class="card">
+	<p>Check your notification app for the authentication link.</p>
+</div>
+</body>
+</html>`
 }
 
 func renderPinPage(token string, errorMsg string, attemptsRemaining int) string {
