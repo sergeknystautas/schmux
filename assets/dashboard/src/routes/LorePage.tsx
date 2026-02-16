@@ -230,8 +230,8 @@ export default function LorePage() {
         <div className="empty-state__icon">!</div>
         <h3 className="empty-state__title">Lore Disabled</h3>
         <p className="empty-state__description">
-          The lore system is disabled. <a href="/config">Enable it in config</a> to start capturing
-          agent learnings.
+          The lore system is disabled. <a href="/config?tab=advanced">Enable it in config</a> to
+          start capturing agent learnings.
         </p>
       </div>
     );
@@ -280,7 +280,7 @@ export default function LorePage() {
           {loreStatus.issues.map((issue, i) => (
             <p key={i}>{issue}</p>
           ))}
-          <a href="/config">Open config</a>
+          <a href="/config?tab=advanced">Open config</a>
         </div>
       )}
 

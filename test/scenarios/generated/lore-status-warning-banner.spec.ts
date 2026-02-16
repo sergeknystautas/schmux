@@ -57,8 +57,8 @@ test.describe.serial('Lore status warning banner', () => {
     // Banner should mention LLM target
     await expect(banner).toContainText('LLM target');
 
-    // Banner should have a link to config
-    const configLink = banner.locator('a[href="/config"]');
+    // Banner should have a link to config advanced tab
+    const configLink = banner.locator('a[href="/config?tab=advanced"]');
     await expect(configLink).toBeVisible();
   });
 });

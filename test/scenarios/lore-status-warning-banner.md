@@ -21,4 +21,4 @@ health.
 - The lore page loads and shows the "Lore" heading
 - A warning banner is visible on the lore page
 - The warning banner contains text about LLM target not being configured
-- The warning banner contains a link to the config page
+- The warning banner contains a link to the config page Advanced tab
