@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -15,35 +16,21 @@ func TestTunnelState_InitiallyOff(t *testing.T) {
 	}
 }
 
-func TestTunnelState_StartRequiresAuth(t *testing.T) {
-	m := NewManager(ManagerConfig{
-		AuthEnabled:     false,
-		AllowedUsersSet: false,
-	})
-
+func TestTunnelState_StartRequiresPinHash(t *testing.T) {
+	m := NewManager(ManagerConfig{PinHashSet: false})
 	err := m.Start()
 	if err == nil {
-		t.Fatal("expected error when auth not enabled")
+		t.Fatal("expected error when PIN not configured")
 	}
-}
-
-func TestTunnelState_StartRequiresAllowlist(t *testing.T) {
-	m := NewManager(ManagerConfig{
-		AuthEnabled:     true,
-		AllowedUsersSet: false,
-	})
-
-	err := m.Start()
-	if err == nil {
-		t.Fatal("expected error when allowlist empty")
+	if !strings.Contains(err.Error(), "PIN") {
+		t.Errorf("error should mention PIN, got: %s", err.Error())
 	}
 }
 
 func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	m := NewManager(ManagerConfig{
-		Disabled:        true,
-		AuthEnabled:     true,
-		AllowedUsersSet: true,
+		Disabled:   true,
+		PinHashSet: true,
 	})
 
 	err := m.Start()

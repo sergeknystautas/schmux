@@ -35,6 +35,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	t.Cleanup(server.CloseForTest)
 	return server, cfg, st
 }
 
@@ -254,6 +255,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	t.Cleanup(server.CloseForTest)
 
 	ws := state.Workspace{
 		ID:     "ws-quick",
@@ -510,6 +512,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
 		DevMode: true,
 	})
+	t.Cleanup(server.CloseForTest)
 
 	wsPath := t.TempDir()
 	ws := state.Workspace{
@@ -579,6 +582,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
 			DevMode: false,
 		})
+		t.Cleanup(server2.CloseForTest)
 		// Re-add the workspace (it may have been disposed above)
 		ws3 := state.Workspace{
 			ID:     "ws-dev-live-2",

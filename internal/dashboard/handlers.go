@@ -1338,6 +1338,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		RemoteAccess: contracts.RemoteAccess{
 			Disabled:       s.config.GetRemoteAccessDisabled(),
 			TimeoutMinutes: s.config.GetRemoteAccessTimeoutMinutes(),
+			PinHashSet:     s.config.GetRemoteAccessPinHash() != "",
 			Notify: contracts.RemoteAccessNotify{
 				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
 				Command:   s.config.GetRemoteAccessNotifyCommand(),

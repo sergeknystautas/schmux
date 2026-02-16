@@ -2,8 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
+	"syscall"
 
 	"github.com/sergeknystautas/schmux/pkg/cli"
+	"golang.org/x/term"
 )
 
 // RemoteCommand implements the remote command.
@@ -19,7 +23,7 @@ func NewRemoteCommand(client *cli.Client) *RemoteCommand {
 // Run executes the remote command.
 func (cmd *RemoteCommand) Run(args []string) error {
 	if len(args) < 1 {
-		fmt.Println("Usage: schmux remote <on|off|status>")
+		fmt.Println("Usage: schmux remote <on|off|status|set-pin>")
 		return nil
 	}
 
@@ -56,9 +60,48 @@ func (cmd *RemoteCommand) Run(args []string) error {
 			}
 		}
 
+	case "set-pin":
+		return cmd.runSetPin()
+
 	default:
-		return fmt.Errorf("unknown subcommand: %s (use on, off, or status)", args[0])
+		return fmt.Errorf("unknown subcommand: %s (use on, off, status, or set-pin)", args[0])
 	}
 
+	return nil
+}
+
+func (cmd *RemoteCommand) runSetPin() error {
+	if !term.IsTerminal(int(syscall.Stdin)) {
+		return fmt.Errorf("set-pin requires an interactive terminal")
+	}
+
+	fmt.Print("Enter PIN: ")
+	pin1, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("failed to read PIN: %w", err)
+	}
+
+	pin := strings.TrimSpace(string(pin1))
+	if len(pin) < 4 {
+		return fmt.Errorf("PIN must be at least 4 characters")
+	}
+
+	fmt.Print("Confirm PIN: ")
+	pin2, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("failed to read PIN confirmation: %w", err)
+	}
+
+	if pin != strings.TrimSpace(string(pin2)) {
+		return fmt.Errorf("PINs do not match")
+	}
+
+	if err := cmd.client.RemoteAccessSetPin(pin); err != nil {
+		return fmt.Errorf("failed to set PIN: %w", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "Remote access PIN set successfully")
 	return nil
 }

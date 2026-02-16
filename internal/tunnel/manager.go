@@ -29,13 +29,12 @@ type TunnelStatus struct {
 
 // ManagerConfig holds configuration for the tunnel manager.
 type ManagerConfig struct {
-	Disabled        bool
-	AuthEnabled     bool
-	AllowedUsersSet bool
-	Port            int
-	SchmuxBinDir    string
-	TimeoutMinutes  int
-	OnStatusChange  func(TunnelStatus) // callback when tunnel status changes
+	Disabled       bool
+	PinHashSet     bool
+	Port           int
+	SchmuxBinDir   string
+	TimeoutMinutes int
+	OnStatusChange func(TunnelStatus) // callback when tunnel status changes
 }
 
 // Manager manages the cloudflared tunnel lifecycle.
@@ -78,11 +77,8 @@ func (m *Manager) Start() error {
 	if m.config.Disabled {
 		return fmt.Errorf("remote access is disabled in config")
 	}
-	if !m.config.AuthEnabled {
-		return fmt.Errorf("remote access requires auth to be enabled (access_control.enabled = true)")
-	}
-	if !m.config.AllowedUsersSet {
-		return fmt.Errorf("remote access requires a non-empty allowed_users list")
+	if !m.config.PinHashSet {
+		return fmt.Errorf("remote access requires a PIN (run: schmux remote set-pin)")
 	}
 
 	m.mu.RLock()

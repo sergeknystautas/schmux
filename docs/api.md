@@ -614,6 +614,7 @@ Response:
   "remote_access": {
     "disabled": false,
     "timeout_minutes": 0,
+    "pin_hash_set": false,
     "notify": {
       "ntfy_topic": "",
       "command": ""
@@ -1477,6 +1478,70 @@ Errors:
 
 ## Remote Access
 
+### GET /remote-auth
+
+Unauthenticated. Renders the PIN entry page for remote access authentication.
+
+Query Parameters:
+
+- `token` (required): One-time authentication token from the notification URL
+
+Response: HTML page with PIN entry form.
+
+Notes:
+
+- Returns an error page if token is missing, invalid, or expired
+- Returns a lockout page after 5 failed PIN attempts
+- The token is generated when the tunnel connects and included in the notification URL
+
+### POST /remote-auth
+
+Unauthenticated. Validates the PIN against the bcrypt hash stored in config.
+
+Form Parameters:
+
+- `token`: One-time authentication token
+- `pin`: User-entered PIN
+
+On success: Sets `schmux_remote` cookie (HMAC-signed timestamp) and redirects to `/`.
+
+On failure: Re-renders PIN page with error message and remaining attempts count.
+
+Notes:
+
+- Maximum 5 PIN attempts per token; after that the token is invalidated
+- On successful authentication, the token is consumed (one-time use)
+- The `schmux_remote` cookie is HttpOnly, Secure, SameSite=Lax
+
+### POST /api/remote-access/set-pin
+
+Sets the remote access PIN. Requires authentication (local dashboard access).
+
+Request:
+
+```json
+{
+  "pin": "my-secret-pin"
+}
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+Errors:
+
+- 400: "PIN cannot be empty" / "Invalid request body"
+- 405: "Method not allowed"
+- 500: "Failed to hash PIN" / "Failed to save config: ..."
+
+Notes:
+
+- The PIN is bcrypt-hashed before storage; plaintext is never persisted
+- Stored in `config.json` as `remote_access.pin_hash`
+
 ### POST /api/remote-access/on
 
 Start a Cloudflare quick tunnel for remote access.
@@ -1490,13 +1555,14 @@ Response (200):
 Errors:
 
 - 403: "remote access is disabled in config"
-- 400: "remote access requires auth to be enabled (access_control.enabled = true)" / "remote access requires a non-empty allowed_users list" / other precondition failures
+- 400: "remote access requires a PIN (run: schmux remote set-pin)"
 - 405: "Method not allowed"
 - 500: "remote access not available" (tunnel manager not initialized)
 
 Notes:
 
-- Requires auth and a non-empty allowed_users list as preconditions
+- Requires a PIN to be set (`remote_access.pin_hash` in config)
+- On tunnel connect, a one-time auth token is generated and sent via notification
 - The tunnel URL is broadcast via WebSocket once connected
 
 ### POST /api/remote-access/off
