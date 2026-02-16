@@ -612,40 +612,44 @@ export default function SessionTabs({
 
   return (
     <div className="session-tabs">
-      {/* Left: session tabs + add button */}
-      {sessions.map((sess) => renderSessionTab(sess))}
+      {/* Session tabs + add button (wrapped so mobile can reorder) */}
+      <div className="session-tabs__main">
+        {sessions.map((sess) => renderSessionTab(sess))}
 
-      {/* Add button */}
-      {showAddButton && renderAddButton()}
+        {/* Add button */}
+        {showAddButton && renderAddButton()}
 
-      {activeSpawnTab && (
-        <div
-          className={`session-tab session-tab--active${resolveInProgress ? ' session-tab--disabled' : ''}`}
-          onClick={() => !resolveInProgress && handleSpawnTabClick()}
-          role="button"
-          tabIndex={resolveInProgress ? -1 : 0}
-          style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
-        >
-          <div className="session-tab__row1">
-            <span className="session-tab__name">Spawning...</span>
+        {activeSpawnTab && (
+          <div
+            className={`session-tab session-tab--active${resolveInProgress ? ' session-tab--disabled' : ''}`}
+            onClick={() => !resolveInProgress && handleSpawnTabClick()}
+            role="button"
+            tabIndex={resolveInProgress ? -1 : 0}
+            style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+          >
+            <div className="session-tab__row1">
+              <span className="session-tab__name">Spawning...</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Spacer pushes accessory tabs to the right */}
-      <div style={{ flex: 1 }} />
+      {/* Spacer pushes accessory tabs to the right on desktop */}
+      <div className="session-tabs__spacer" />
 
-      {/* Right: accessory tabs */}
-      {(workspace?.previews || []).map((preview) => renderPreviewTab(preview))}
+      {/* Accessory tabs: on mobile, CSS order moves these below the content pane */}
+      <div className="session-tabs__accessory">
+        {(workspace?.previews || []).map((preview) => renderPreviewTab(preview))}
 
-      {/* Resolve conflict tab — shown when state exists */}
-      {isVCS && renderResolveConflictTab()}
+        {/* Resolve conflict tab — shown when state exists */}
+        {isVCS && renderResolveConflictTab()}
 
-      {/* Diff tab — shown for VCS workspaces */}
-      {isVCS && renderDiffTab()}
+        {/* Diff tab — shown for VCS workspaces */}
+        {isVCS && renderDiffTab()}
 
-      {/* Commit graph tab — shown for VCS workspaces */}
-      {isVCS && renderGitTab()}
+        {/* Commit graph tab — shown for VCS workspaces */}
+        {isVCS && renderGitTab()}
+      </div>
     </div>
   );
 }
