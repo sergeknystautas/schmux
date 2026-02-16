@@ -238,11 +238,14 @@ build_local_artifacts() {
     return 0
 }
 
-# Run unit tests
-if [ "$RUN_UNIT" = true ]; then
+# ─────────────────────────────────────────────────────────────────────────────
+# Suite runner functions
+# Each returns 0 on success, 1 on failure. Reads globals, does NOT call exit.
+# ─────────────────────────────────────────────────────────────────────────────
+
+run_unit_tests() {
     echo -e "${YELLOW}▶️  Running unit tests...${NC}"
 
-    # Build test command as array
     TEST_ARGS=(go test -short ./...)
 
     if [ "$RUN_RACE" = true ]; then
@@ -267,13 +270,12 @@ if [ "$RUN_UNIT" = true ]; then
 
     echo ""
 
-    # Run tests
-    UNIT_OUTPUT_FILE=$(mktemp)
-    if "${TEST_ARGS[@]}" 2>&1 | tee "$UNIT_OUTPUT_FILE"; then
+    local output_file
+    output_file=$(mktemp)
+    if "${TEST_ARGS[@]}" 2>&1 | tee "$output_file"; then
         echo ""
         echo -e "${GREEN}✅ Unit tests passed${NC}"
 
-        # Show coverage if enabled
         if [ "$RUN_COVERAGE" = true ]; then
             echo ""
             echo -e "${YELLOW}▶️  Coverage summary:${NC}"
@@ -282,220 +284,234 @@ if [ "$RUN_UNIT" = true ]; then
             echo -e "  ${BLUE}📄 Full coverage report: coverage.out${NC}"
             echo -e "  ${BLUE}🌐 View HTML report: go tool cover -html=coverage.out${NC}"
         fi
+        rm -f "$output_file"
+        return 0
     else
         echo ""
         echo -e "${RED}❌ Unit tests failed${NC}"
 
-        # Show failure summary with re-run commands
-        FAILED_TESTS=$(grep '^--- FAIL:' "$UNIT_OUTPUT_FILE" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
-        if [ -n "$FAILED_TESTS" ]; then
+        local failed_tests
+        failed_tests=$(grep '^--- FAIL:' "$output_file" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
+        if [ -n "$failed_tests" ]; then
             echo ""
             echo -e "${BLUE}Re-run individually with:${NC}"
             while IFS= read -r test_name; do
                 echo -e "  go test -run ${test_name} ./..."
-            done <<< "$FAILED_TESTS"
+            done <<< "$failed_tests"
         fi
 
-        EXIT_CODE=1
+        rm -f "$output_file"
+        return 1
     fi
-    rm -f "$UNIT_OUTPUT_FILE"
+}
 
+run_react_tests() {
+    echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
+    if (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent && npx vitest run); then
+        echo ""
+        echo -e "${GREEN}✅ React dashboard tests passed${NC}"
+        return 0
+    else
+        echo ""
+        echo -e "${RED}❌ React dashboard tests failed${NC}"
+        return 1
+    fi
+}
+
+run_e2e_tests() {
+    echo -e "${YELLOW}▶️  Running E2E tests...${NC}"
+    echo ""
+
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
+        echo -e "  ${BLUE}💡 E2E tests require Docker${NC}"
+        return 1
+    fi
+
+    if ! build_local_artifacts; then
+        return 1
+    fi
+
+    if ! ensure_base_image schmux-e2e-base Dockerfile.e2e-base "E2E"; then
+        return 1
+    fi
+
+    echo -e "  ${BLUE}🐳 Building E2E test image...${NC}"
+    local e2e_image_ready=false
+    if [ "$RUN_VERBOSE" = true ]; then
+        if docker build -f Dockerfile.e2e -t schmux-e2e .; then
+            e2e_image_ready=true
+        fi
+    else
+        if docker build -f Dockerfile.e2e -t schmux-e2e . > /dev/null 2>&1; then
+            e2e_image_ready=true
+        fi
+    fi
+
+    if [ "$e2e_image_ready" != true ]; then
+        echo -e "  ${RED}❌ Failed to build E2E test image${NC}"
+        return 1
+    fi
+
+    echo -e "  ${GREEN}✅ E2E test image built${NC}"
+    echo ""
+    echo -e "  ${BLUE}🚀 Running E2E tests in container...${NC}"
+    if [ -n "$TEST_RUN_PATTERN" ]; then
+        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
+    fi
+    echo ""
+
+    local docker_run_args=(docker run --rm)
+    if [ -n "$TEST_RUN_PATTERN" ]; then
+        docker_run_args+=(-e "TEST_RUN=$TEST_RUN_PATTERN")
+    fi
+    docker_run_args+=(schmux-e2e)
+
+    local e2e_output_file
+    e2e_output_file=$(mktemp)
+    if "${docker_run_args[@]}" 2>&1 | tee "$e2e_output_file"; then
+        echo ""
+        echo -e "${GREEN}✅ E2E tests passed${NC}"
+        rm -f "$e2e_output_file"
+        docker rmi schmux-e2e > /dev/null 2>&1 || true
+        return 0
+    else
+        echo ""
+        echo -e "${RED}❌ E2E tests failed${NC}"
+
+        local failed_tests
+        failed_tests=$(grep '^--- FAIL:' "$e2e_output_file" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
+        if [ -n "$failed_tests" ]; then
+            echo ""
+            echo -e "${RED}Failed tests:${NC}"
+            echo ""
+            echo -e "${BLUE}Re-run individually with:${NC}"
+            while IFS= read -r test_name; do
+                echo -e "  ./test.sh --e2e --run ${test_name}"
+            done <<< "$failed_tests"
+        fi
+
+        rm -f "$e2e_output_file"
+        docker rmi schmux-e2e > /dev/null 2>&1 || true
+        return 1
+    fi
+}
+
+run_scenario_tests() {
+    echo -e "${YELLOW}▶️  Running scenario tests...${NC}"
+    echo ""
+
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
+        echo -e "  ${BLUE}💡 Scenario tests require Docker${NC}"
+        return 1
+    fi
+
+    local artifacts_dir="test/scenarios/artifacts"
+    rm -rf "$artifacts_dir"
+    mkdir -p "$artifacts_dir"
+
+    if ! build_local_artifacts; then
+        return 1
+    fi
+
+    if ! ensure_base_image schmux-scenarios-base Dockerfile.scenarios-base "Scenario"; then
+        return 1
+    fi
+
+    echo -e "  ${BLUE}🐳 Building scenario test image...${NC}"
+    local scenario_image_ready=false
+    if [ "$RUN_VERBOSE" = true ]; then
+        if docker build -f Dockerfile.scenarios -t schmux-scenarios .; then
+            scenario_image_ready=true
+        fi
+    else
+        if docker build -f Dockerfile.scenarios -t schmux-scenarios . > /dev/null 2>&1; then
+            scenario_image_ready=true
+        fi
+    fi
+
+    if [ "$scenario_image_ready" != true ]; then
+        echo -e "  ${RED}❌ Failed to build scenario test image${NC}"
+        return 1
+    fi
+
+    echo -e "  ${GREEN}✅ Scenario test image built${NC}"
+    echo ""
+    echo -e "  ${BLUE}🎭 Running Playwright scenario tests in container...${NC}"
+    if [ -n "$TEST_RUN_PATTERN" ]; then
+        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
+    fi
+    echo ""
+
+    local scenario_run_args=(docker run --rm -v "$(pwd)/$artifacts_dir:/artifacts")
+    if [ -n "$TEST_RUN_PATTERN" ]; then
+        scenario_run_args+=(-e "TEST_GREP=$TEST_RUN_PATTERN")
+    fi
+    scenario_run_args+=(schmux-scenarios)
+
+    local scenario_output_file
+    scenario_output_file=$(mktemp)
+    if "${scenario_run_args[@]}" 2>&1 | tee "$scenario_output_file"; then
+        echo ""
+        echo -e "${GREEN}✅ Scenario tests passed${NC}"
+        rm -f "$scenario_output_file"
+        docker rmi schmux-scenarios > /dev/null 2>&1 || true
+        return 0
+    else
+        echo ""
+        echo -e "${RED}❌ Scenario tests failed${NC}"
+
+        local failed_scenarios
+        failed_scenarios=$(sed -n 's/.*\.spec\.ts:[0-9]*:[0-9]* › \([^›─]*\).*/\1/p' "$scenario_output_file" | sed 's/ *$//' | sort -u)
+        if [ -n "$failed_scenarios" ]; then
+            echo ""
+            echo -e "${BLUE}Re-run individually with:${NC}"
+            while IFS= read -r scenario_name; do
+                echo -e "  ./test.sh --scenarios --run '${scenario_name}'"
+            done <<< "$failed_scenarios"
+        fi
+
+        echo ""
+        echo -e "  ${BLUE}📁 Test artifacts saved to: $artifacts_dir/${NC}"
+        if [ -d "$artifacts_dir/playwright-report" ]; then
+            echo -e "  ${BLUE}🌐 View HTML report: npx playwright show-report $artifacts_dir/playwright-report${NC}"
+        fi
+        if [ -d "$artifacts_dir/test-results" ]; then
+            echo -e "  ${BLUE}🎬 Videos/screenshots: $artifacts_dir/test-results/${NC}"
+        fi
+
+        rm -f "$scenario_output_file"
+        docker rmi schmux-scenarios > /dev/null 2>&1 || true
+        return 1
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Run test suites
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Run unit tests
+if [ "$RUN_UNIT" = true ]; then
+    run_unit_tests || EXIT_CODE=1
     echo ""
 fi
 
 # Run React dashboard tests (standalone or as part of unit tests)
 if [ "$RUN_UNIT" = true ] || [ "$RUN_REACT" = true ]; then
-    echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
-    if (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent && npx vitest run); then
-        echo ""
-        echo -e "${GREEN}✅ React dashboard tests passed${NC}"
-    else
-        echo ""
-        echo -e "${RED}❌ React dashboard tests failed${NC}"
-        EXIT_CODE=1
-    fi
-
+    run_react_tests || EXIT_CODE=1
     echo ""
 fi
 
 # Run E2E tests
 if [ "$RUN_E2E" = true ]; then
-    echo -e "${YELLOW}▶️  Running E2E tests...${NC}"
-    echo ""
-
-    # Check if Docker is available
-    if ! command -v docker &> /dev/null; then
-        echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
-        echo -e "  ${BLUE}💡 E2E tests require Docker${NC}"
-        EXIT_CODE=1
-    else
-        # Build local artifacts (cross-compiled binary)
-        if build_local_artifacts; then
-            # Ensure base image exists
-            if ensure_base_image schmux-e2e-base Dockerfile.e2e-base "E2E"; then
-                # Always rebuild thin image (fast, just COPY ops)
-                echo -e "  ${BLUE}🐳 Building E2E test image...${NC}"
-                E2E_IMAGE_READY=false
-                if [ "$RUN_VERBOSE" = true ]; then
-                    if docker build -f Dockerfile.e2e -t schmux-e2e .; then
-                        E2E_IMAGE_READY=true
-                    fi
-                else
-                    if docker build -f Dockerfile.e2e -t schmux-e2e . > /dev/null 2>&1; then
-                        E2E_IMAGE_READY=true
-                    fi
-                fi
-
-                if [ "$E2E_IMAGE_READY" = true ]; then
-                    echo -e "  ${GREEN}✅ E2E test image built${NC}"
-                    echo ""
-                    echo -e "  ${BLUE}🚀 Running E2E tests in container...${NC}"
-                    if [ -n "$TEST_RUN_PATTERN" ]; then
-                        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
-                    fi
-                    echo ""
-
-                    # Build docker run command as array
-                    DOCKER_RUN_ARGS=(docker run --rm)
-                    if [ -n "$TEST_RUN_PATTERN" ]; then
-                        DOCKER_RUN_ARGS+=(-e "TEST_RUN=$TEST_RUN_PATTERN")
-                    fi
-                    DOCKER_RUN_ARGS+=(schmux-e2e)
-
-                    # Capture output to show failure summary
-                    E2E_OUTPUT_FILE=$(mktemp)
-                    if "${DOCKER_RUN_ARGS[@]}" 2>&1 | tee "$E2E_OUTPUT_FILE"; then
-                        echo ""
-                        echo -e "${GREEN}✅ E2E tests passed${NC}"
-                    else
-                        echo ""
-                        echo -e "${RED}❌ E2E tests failed${NC}"
-
-                        # Show failure summary with re-run commands
-                        FAILED_TESTS=$(grep '^--- FAIL:' "$E2E_OUTPUT_FILE" | sed 's/--- FAIL: //;s/ (.*//' | cut -d/ -f1 | sort -u)
-                        if [ -n "$FAILED_TESTS" ]; then
-                            echo ""
-                            echo -e "${RED}Failed tests:${NC}"
-                            echo ""
-                            echo -e "${BLUE}Re-run individually with:${NC}"
-                            while IFS= read -r test_name; do
-                                echo -e "  ./test.sh --e2e --run ${test_name}"
-                            done <<< "$FAILED_TESTS"
-                        fi
-
-                        EXIT_CODE=1
-                    fi
-                    rm -f "$E2E_OUTPUT_FILE"
-
-                    # Clean up ephemeral thin image
-                    docker rmi schmux-e2e > /dev/null 2>&1 || true
-                else
-                    echo -e "  ${RED}❌ Failed to build E2E test image${NC}"
-                    EXIT_CODE=1
-                fi
-            else
-                EXIT_CODE=1
-            fi
-        else
-            EXIT_CODE=1
-        fi
-    fi
+    run_e2e_tests || EXIT_CODE=1
     echo ""
 fi
 
 # Run scenario tests
 if [ "$RUN_SCENARIOS" = true ]; then
-    echo -e "${YELLOW}▶️  Running scenario tests...${NC}"
-    echo ""
-
-    # Check if Docker is available
-    if ! command -v docker &> /dev/null; then
-        echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
-        echo -e "  ${BLUE}💡 Scenario tests require Docker${NC}"
-        EXIT_CODE=1
-    else
-        ARTIFACTS_DIR="test/scenarios/artifacts"
-        rm -rf "$ARTIFACTS_DIR"
-        mkdir -p "$ARTIFACTS_DIR"
-
-        # Build local artifacts (cross-compiled binary + dashboard)
-        if build_local_artifacts; then
-            # Ensure base image exists
-            if ensure_base_image schmux-scenarios-base Dockerfile.scenarios-base "Scenario"; then
-                # Always rebuild thin image (fast, just COPY ops)
-                echo -e "  ${BLUE}🐳 Building scenario test image...${NC}"
-                SCENARIO_IMAGE_READY=false
-                if [ "$RUN_VERBOSE" = true ]; then
-                    if docker build -f Dockerfile.scenarios -t schmux-scenarios .; then
-                        SCENARIO_IMAGE_READY=true
-                    fi
-                else
-                    if docker build -f Dockerfile.scenarios -t schmux-scenarios . > /dev/null 2>&1; then
-                        SCENARIO_IMAGE_READY=true
-                    fi
-                fi
-
-                if [ "$SCENARIO_IMAGE_READY" = true ]; then
-                    echo -e "  ${GREEN}✅ Scenario test image built${NC}"
-                    echo ""
-                    echo -e "  ${BLUE}🎭 Running Playwright scenario tests in container...${NC}"
-                    if [ -n "$TEST_RUN_PATTERN" ]; then
-                        echo -e "  ${BLUE}🎯 Filter: $TEST_RUN_PATTERN${NC}"
-                    fi
-                    echo ""
-
-                    # Build docker run command as array
-                    SCENARIO_RUN_ARGS=(docker run --rm -v "$(pwd)/$ARTIFACTS_DIR:/artifacts")
-                    if [ -n "$TEST_RUN_PATTERN" ]; then
-                        SCENARIO_RUN_ARGS+=(-e "TEST_GREP=$TEST_RUN_PATTERN")
-                    fi
-                    SCENARIO_RUN_ARGS+=(schmux-scenarios)
-
-                    # Capture output to show failure summary
-                    SCENARIO_OUTPUT_FILE=$(mktemp)
-                    if "${SCENARIO_RUN_ARGS[@]}" 2>&1 | tee "$SCENARIO_OUTPUT_FILE"; then
-                        echo ""
-                        echo -e "${GREEN}✅ Scenario tests passed${NC}"
-                    else
-                        echo ""
-                        echo -e "${RED}❌ Scenario tests failed${NC}"
-
-                        # Extract failed scenario names from Playwright output
-                        # Playwright list reporter shows: [chromium] › file.spec.ts:L:C › Describe Name › test name ──
-                        FAILED_SCENARIOS=$(sed -n 's/.*\.spec\.ts:[0-9]*:[0-9]* › \([^›─]*\).*/\1/p' "$SCENARIO_OUTPUT_FILE" | sed 's/ *$//' | sort -u)
-                        if [ -n "$FAILED_SCENARIOS" ]; then
-                            echo ""
-                            echo -e "${BLUE}Re-run individually with:${NC}"
-                            while IFS= read -r scenario_name; do
-                                echo -e "  ./test.sh --scenarios --run '${scenario_name}'"
-                            done <<< "$FAILED_SCENARIOS"
-                        fi
-
-                        echo ""
-                        echo -e "  ${BLUE}📁 Test artifacts saved to: $ARTIFACTS_DIR/${NC}"
-                        if [ -d "$ARTIFACTS_DIR/playwright-report" ]; then
-                            echo -e "  ${BLUE}🌐 View HTML report: npx playwright show-report $ARTIFACTS_DIR/playwright-report${NC}"
-                        fi
-                        if [ -d "$ARTIFACTS_DIR/test-results" ]; then
-                            echo -e "  ${BLUE}🎬 Videos/screenshots: $ARTIFACTS_DIR/test-results/${NC}"
-                        fi
-                        EXIT_CODE=1
-                    fi
-                    rm -f "$SCENARIO_OUTPUT_FILE"
-
-                    # Clean up ephemeral thin image
-                    docker rmi schmux-scenarios > /dev/null 2>&1 || true
-                else
-                    echo -e "  ${RED}❌ Failed to build scenario test image${NC}"
-                    EXIT_CODE=1
-                fi
-            else
-                EXIT_CODE=1
-            fi
-        else
-            EXIT_CODE=1
-        fi
-    fi
+    run_scenario_tests || EXIT_CODE=1
     echo ""
 fi
 
