@@ -70,6 +70,12 @@ const DEFAULT_CONFIG: ConfigResponse = {
     sound_disabled: false,
     confirm_before_close: false,
   },
+  lore: {
+    enabled: true,
+    llm_target: '',
+    curate_on_dispose: 'session',
+    auto_pr: false,
+  },
   needs_restart: false,
 };
 

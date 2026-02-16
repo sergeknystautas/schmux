@@ -49,6 +49,7 @@ export interface ConfigResponse {
   pr_review: PrReview;
   commit_message: CommitMessage;
   notifications: Notifications;
+  lore: Lore;
   needs_restart: boolean;
 }
 
@@ -71,6 +72,7 @@ export interface ConfigUpdateRequest {
   pr_review?: PrReviewUpdate;
   commit_message?: CommitMessageUpdate;
   notifications?: NotificationsUpdate;
+  lore?: LoreUpdate;
   model_versions?: Record<string, string>;
 }
 
@@ -144,6 +146,20 @@ export interface GitGraphResponse {
   main_ahead_newest_timestamp?: string;
   local_truncated?: boolean;
   dirty_state?: GitGraphDirtyState;
+}
+
+export interface Lore {
+  enabled: boolean;
+  llm_target: string;
+  curate_on_dispose: string;
+  auto_pr: boolean;
+}
+
+export interface LoreUpdate {
+  enabled?: boolean;
+  llm_target?: string;
+  curate_on_dispose?: string;
+  auto_pr?: boolean;
 }
 
 export interface Model {

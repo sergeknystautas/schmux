@@ -88,6 +88,10 @@ type ConfigSnapshot = {
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   modelVersions: Record<string, string>;
+  loreEnabled: boolean;
+  loreLLMTarget: string;
+  loreCurateOnDispose: string;
+  loreAutoPR: boolean;
 };
 
 type RunTargetEditModalState = {
@@ -199,6 +203,12 @@ export default function ConfigPage() {
   const [confirmBeforeClose, setConfirmBeforeClose] = useState(false);
   const [modelVersions, setModelVersions] = useState<Record<string, string>>({});
 
+  // Lore state
+  const [loreEnabled, setLoreEnabled] = useState(true);
+  const [loreLLMTarget, setLoreLLMTarget] = useState('');
+  const [loreCurateOnDispose, setLoreCurateOnDispose] = useState('session');
+  const [loreAutoPR, setLoreAutoPR] = useState(false);
+
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
@@ -250,6 +260,10 @@ export default function ConfigPage() {
       soundDisabled,
       confirmBeforeClose,
       modelVersions,
+      loreEnabled,
+      loreLLMTarget,
+      loreCurateOnDispose,
+      loreAutoPR,
     };
 
     // Deep comparison for arrays
@@ -295,7 +309,11 @@ export default function ConfigPage() {
       current.authTlsKeyPath !== originalConfig.authTlsKeyPath ||
       current.soundDisabled !== originalConfig.soundDisabled ||
       current.confirmBeforeClose !== originalConfig.confirmBeforeClose ||
-      JSON.stringify(current.modelVersions) !== JSON.stringify(originalConfig.modelVersions)
+      JSON.stringify(current.modelVersions) !== JSON.stringify(originalConfig.modelVersions) ||
+      current.loreEnabled !== originalConfig.loreEnabled ||
+      current.loreLLMTarget !== originalConfig.loreLLMTarget ||
+      current.loreCurateOnDispose !== originalConfig.loreCurateOnDispose ||
+      current.loreAutoPR !== originalConfig.loreAutoPR
     );
   };
 
@@ -411,6 +429,10 @@ export default function ConfigPage() {
         setSoundDisabled(data.notifications?.sound_disabled || false);
         setConfirmBeforeClose(data.notifications?.confirm_before_close || false);
         setModelVersions(data.model_versions || {});
+        setLoreEnabled(data.lore?.enabled ?? true);
+        setLoreLLMTarget(data.lore?.llm_target || '');
+        setLoreCurateOnDispose(data.lore?.curate_on_dispose || 'session');
+        setLoreAutoPR(data.lore?.auto_pr || false);
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -456,6 +478,10 @@ export default function ConfigPage() {
             soundDisabled: data.notifications?.sound_disabled || false,
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
             modelVersions: data.model_versions || {},
+            loreEnabled: data.lore?.enabled ?? true,
+            loreLLMTarget: data.lore?.llm_target || '',
+            loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
+            loreAutoPR: data.lore?.auto_pr || false,
           });
         }
 
@@ -655,6 +681,12 @@ export default function ConfigPage() {
           sound_disabled: soundDisabled,
           confirm_before_close: confirmBeforeClose,
         },
+        lore: {
+          enabled: loreEnabled,
+          llm_target: loreLLMTarget,
+          curate_on_dispose: loreCurateOnDispose,
+          auto_pr: loreAutoPR,
+        },
         model_versions: modelVersions,
       };
 
@@ -709,6 +741,10 @@ export default function ConfigPage() {
           soundDisabled,
           confirmBeforeClose,
           modelVersions,
+          loreEnabled,
+          loreLLMTarget,
+          loreCurateOnDispose,
+          loreAutoPR,
         });
       }
 
@@ -2187,6 +2223,111 @@ export default function ConfigPage() {
                 Terminal dimensions and advanced timing controls. You can leave these as defaults
                 unless you have specific needs.
               </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Lore</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={loreEnabled}
+                        onChange={(e) => setLoreEnabled(e.target.checked)}
+                      />
+                      <span>Enable lore system</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Capture agent learnings and curate them into documentation proposals.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">LLM Target</label>
+                    <select
+                      className="input"
+                      value={loreLLMTarget}
+                      onChange={(e) => setLoreLLMTarget(e.target.value)}
+                      disabled={!loreEnabled}
+                    >
+                      <option value="">None (curator disabled)</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Promptable target for curating lore entries into documentation proposals.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Curate On Dispose</label>
+                    <select
+                      className="input"
+                      value={loreCurateOnDispose}
+                      onChange={(e) => setLoreCurateOnDispose(e.target.value)}
+                      disabled={!loreEnabled}
+                    >
+                      <option value="session">Every session</option>
+                      <option value="workspace">Last session per workspace</option>
+                      <option value="never">Never (manual only)</option>
+                    </select>
+                    <p className="form-group__hint">
+                      When to automatically trigger lore curation after disposing a session.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={loreAutoPR}
+                        onChange={(e) => setLoreAutoPR(e.target.checked)}
+                        disabled={!loreEnabled}
+                      />
+                      <span>Auto-create PR after applying proposals</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Automatically open a pull request when a lore proposal is applied.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">

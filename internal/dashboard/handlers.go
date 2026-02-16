@@ -1333,6 +1333,12 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
 			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
 		},
+		Lore: contracts.Lore{
+			Enabled:         s.config.GetLoreEnabled(),
+			LLMTarget:       s.config.GetLoreTarget(),
+			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
+			AutoPR:          s.config.GetLoreAutoPR(),
+		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
 
@@ -1632,6 +1638,30 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Notifications.ConfirmBeforeClose != nil {
 			cfg.Notifications.ConfirmBeforeClose = *req.Notifications.ConfirmBeforeClose
+		}
+	}
+
+	if req.Lore != nil {
+		if cfg.Lore == nil {
+			cfg.Lore = &config.LoreConfig{}
+		}
+		if req.Lore.Enabled != nil {
+			enabled := *req.Lore.Enabled
+			cfg.Lore.Enabled = &enabled
+		}
+		if req.Lore.LLMTarget != nil {
+			cfg.Lore.Target = strings.TrimSpace(*req.Lore.LLMTarget)
+		}
+		if req.Lore.CurateOnDispose != nil {
+			v := *req.Lore.CurateOnDispose
+			switch v {
+			case "session", "workspace", "never":
+				cfg.Lore.CurateOnDispose = v
+			}
+		}
+		if req.Lore.AutoPR != nil {
+			autoPR := *req.Lore.AutoPR
+			cfg.Lore.AutoPR = &autoPR
 		}
 	}
 

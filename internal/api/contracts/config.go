@@ -143,6 +143,7 @@ type ConfigResponse struct {
 	PrReview                   PrReview              `json:"pr_review"`
 	CommitMessage              CommitMessage         `json:"commit_message"`
 	Notifications              Notifications         `json:"notifications"`
+	Lore                       Lore                  `json:"lore"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
@@ -246,6 +247,7 @@ type ConfigUpdateRequest struct {
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
 	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
+	Lore                       *LoreUpdate            `json:"lore,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
 
@@ -263,4 +265,20 @@ type CommitMessageUpdate struct {
 type NotificationsUpdate struct {
 	SoundDisabled      *bool `json:"sound_disabled,omitempty"`
 	ConfirmBeforeClose *bool `json:"confirm_before_close,omitempty"`
+}
+
+// Lore represents lore system configuration in the API response.
+type Lore struct {
+	Enabled         bool   `json:"enabled"`
+	LLMTarget       string `json:"llm_target"`
+	CurateOnDispose string `json:"curate_on_dispose"`
+	AutoPR          bool   `json:"auto_pr"`
+}
+
+// LoreUpdate represents partial lore config updates.
+type LoreUpdate struct {
+	Enabled         *bool   `json:"enabled,omitempty"`
+	LLMTarget       *string `json:"llm_target,omitempty"`
+	CurateOnDispose *string `json:"curate_on_dispose,omitempty"`
+	AutoPR          *bool   `json:"auto_pr,omitempty"`
 }
