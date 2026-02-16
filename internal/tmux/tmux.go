@@ -495,6 +495,23 @@ func IsChoiceLine(text string) bool {
 	return true
 }
 
+// IsPaneDead checks if the pane's process has exited (pane_dead flag).
+func IsPaneDead(ctx context.Context, name string) (bool, error) {
+	args := []string{
+		"display-message",
+		"-p",
+		"-t", name,
+		"#{pane_dead}",
+	}
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("failed to check pane_dead: %w", err)
+	}
+	return strings.TrimSpace(stdout.String()) == "1", nil
+}
+
 // IsAgentStatusLine returns true if the line looks like agent UI noise.
 func IsAgentStatusLine(text string) bool {
 	// Filter out Claude Code's vertical bar status lines (⎿)

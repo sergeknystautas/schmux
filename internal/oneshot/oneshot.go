@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/schema"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // ErrTargetNotFound is returned when a target name cannot be resolved.
@@ -157,6 +159,185 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
 	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
+}
+
+// ExecuteStreamed runs the given agent command inside a tmux session for live streaming.
+// It works like Execute() but the process runs visibly in tmux so it can be observed via the dashboard.
+// The onTmuxSession callback is fired with the tmux session name once the session is created.
+// Returns the parsed response string from the agent.
+func ExecuteStreamed(ctx context.Context, agentName, agentCommand, prompt, schemaLabel string,
+	env map[string]string, dir string, model *detect.Model,
+	onTmuxSession func(tmuxName string)) (string, error) {
+	// Validate inputs (same as Execute)
+	if agentName == "" {
+		return "", fmt.Errorf("agent name cannot be empty")
+	}
+	if agentCommand == "" {
+		return "", fmt.Errorf("agent command cannot be empty")
+	}
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if schemaLabel == "" {
+		return "", fmt.Errorf("schema label cannot be empty")
+	}
+
+	// Resolve schema label to a file path, then read inline for Claude
+	schemaArg := ""
+	if schemaLabel != "" {
+		schemaPath, err := resolveSchema(schemaLabel)
+		if err != nil {
+			return "", err
+		}
+		if agentName == "claude" {
+			content, err := os.ReadFile(schemaPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+			}
+			schemaArg = string(content)
+		} else {
+			schemaArg = schemaPath
+		}
+	}
+
+	// Build command parts safely
+	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, schemaArg, model)
+	if err != nil {
+		return "", err
+	}
+
+	// For Codex, add "-" to indicate stdin
+	if agentName == "codex" {
+		cmdParts = append(cmdParts, "-")
+	}
+
+	// Write prompt to a temp file (tmux can't pipe stdin from the caller)
+	promptFile, err := os.CreateTemp("", "schmux-prompt-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("failed to create prompt temp file: %w", err)
+	}
+	promptPath := promptFile.Name()
+	defer os.Remove(promptPath)
+
+	if _, err := promptFile.WriteString(prompt); err != nil {
+		promptFile.Close()
+		return "", fmt.Errorf("failed to write prompt to temp file: %w", err)
+	}
+	promptFile.Close()
+
+	// Build env prefix for tmux shell command
+	envPrefix := ""
+	if len(env) > 0 {
+		// Sort keys for deterministic ordering
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var envParts []string
+		for _, k := range keys {
+			envParts = append(envParts, fmt.Sprintf("%s=%s", k, shellescape(env[k])))
+		}
+		envPrefix = "env " + strings.Join(envParts, " ") + " "
+	}
+
+	// Build the full shell command with stdin redirect from prompt file
+	shellCmd := envPrefix + strings.Join(cmdParts, " ") + " < " + shellescape(promptPath)
+
+	// Create tmux session
+	tmuxName := fmt.Sprintf("schmux-cr-%d", time.Now().UnixNano())
+	if dir == "" {
+		dir = "."
+	}
+	if err := tmux.CreateSession(ctx, tmuxName, dir, shellCmd); err != nil {
+		return "", fmt.Errorf("failed to create tmux session: %w", err)
+	}
+	defer tmux.KillSession(context.Background(), tmuxName)
+
+	// Set remain-on-exit so the pane stays after the process exits
+	if err := tmux.SetOption(ctx, tmuxName, "remain-on-exit", "on"); err != nil {
+		return "", fmt.Errorf("failed to set remain-on-exit: %w", err)
+	}
+
+	// Fire callback with tmux session name
+	if onTmuxSession != nil {
+		onTmuxSession(tmuxName)
+	}
+
+	// Wait for the tmux process to exit
+	if err := waitForTmuxExit(ctx, tmuxName); err != nil {
+		return "", fmt.Errorf("waiting for tmux process: %w", err)
+	}
+
+	// Capture output (10000 lines, no escape codes) using a fresh context
+	// since the parent ctx may have been cancelled
+	captureCtx, captureCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer captureCancel()
+	rawOutput, err := tmux.CaptureLastLines(captureCtx, tmuxName, 10000, false)
+	if err != nil {
+		return "", fmt.Errorf("failed to capture tmux output: %w", err)
+	}
+
+	// Parse response based on agent type (same as Execute)
+	return parseResponse(agentName, rawOutput), nil
+}
+
+// ExecuteTargetStreamed runs a streamed one-shot execution for a named target from config.
+// It works like ExecuteTarget() but runs the agent inside a tmux session for live streaming.
+// For user-defined targets (targetKindUser), falls back to non-streamed ExecuteCommand().
+func ExecuteTargetStreamed(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string,
+	timeout time.Duration, dir string, onTmuxSession func(tmuxName string)) (string, error) {
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if schemaLabel == "" {
+		return "", fmt.Errorf("schema label cannot be empty")
+	}
+
+	target, err := resolveTarget(cfg, targetName)
+	if err != nil {
+		return "", err
+	}
+	if !target.Promptable {
+		return "", fmt.Errorf("target %s must be promptable", targetName)
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if target.Kind == targetKindUser {
+		// User-defined targets fall back to non-streamed execution
+		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
+	}
+	return ExecuteStreamed(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model, onTmuxSession)
+}
+
+// waitForTmuxExit polls until the tmux pane's process exits or ctx is cancelled.
+func waitForTmuxExit(ctx context.Context, tmuxName string) error {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if !tmux.SessionExists(ctx, tmuxName) {
+				return nil
+			}
+			dead, err := tmux.IsPaneDead(ctx, tmuxName)
+			if err != nil {
+				continue
+			}
+			if dead {
+				return nil
+			}
+		}
+	}
+}
+
+// shellescape wraps a string in single quotes for safe shell embedding.
+func shellescape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func mergeEnv(extra map[string]string) []string {
