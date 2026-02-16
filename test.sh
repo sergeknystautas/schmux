@@ -9,7 +9,7 @@
 #   --scenarios     Run scenario tests only (Playwright)
 #   --bench         Run latency benchmarks only (requires tmux)
 #   --react         Run React dashboard tests only
-#   --all           Run unit, E2E, and scenario tests
+#   --all           Run all test suites in parallel (unit, react, E2E, scenarios)
 #   --race          Run with race detector
 #   --verbose       Run with verbose output
 #   --coverage      Run with coverage report
@@ -121,7 +121,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --scenarios     Run scenario tests only (Playwright)"
             echo "  --react         Run React dashboard tests only"
             echo "  --bench         Run latency benchmarks only (requires tmux)"
-            echo "  --all           Run unit, E2E, and scenario tests"
+            echo "  --all           Run all test suites in parallel (unit, react, E2E, scenarios)"
             echo "  --race          Run with race detector"
             echo "  --verbose       Run with verbose output"
             echo "  --coverage      Run with coverage report"
@@ -132,7 +132,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  ./test.sh                    # Run unit tests"
-            echo "  ./test.sh --all              # Run all tests (unit + E2E + scenarios)"
+            echo "  ./test.sh --all              # Run all tests in parallel"
             echo "  ./test.sh --race --verbose   # Run unit tests with race detector and verbose output"
             echo "  ./test.sh --e2e              # Run E2E tests only"
             echo "  ./test.sh --e2e --run TestE2EOverlayCompounding  # Run a single E2E test"
@@ -208,6 +208,10 @@ ensure_base_image() {
 # Local build: cross-compile schmux binary + dashboard for Docker tests
 # ─────────────────────────────────────────────────────────────────────────────
 LOCAL_BUILD_DONE=false
+DASHBOARD_BUILT=false
+
+# Unique suffix for ephemeral Docker images so concurrent runs don't collide
+RUN_ID=$$
 
 build_local_artifacts() {
     if [ "$LOCAL_BUILD_DONE" = true ]; then
@@ -298,7 +302,7 @@ run_unit_tests() {
 
 run_react_tests() {
     echo -e "${YELLOW}▶️  Running React dashboard tests...${NC}"
-    if (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent && npx vitest run); then
+    if (cd "$SCRIPT_DIR/assets/dashboard" && { [ -d node_modules ] || npm ci --silent; } && npx vitest run); then
         echo ""
         echo -e "${GREEN}✅ React dashboard tests passed${NC}"
         return 0
@@ -312,6 +316,8 @@ run_react_tests() {
 run_e2e_tests() {
     echo -e "${YELLOW}▶️  Running E2E tests...${NC}"
     echo ""
+
+    local image_tag="schmux-e2e-${RUN_ID}"
 
     if ! command -v docker &> /dev/null; then
         echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
@@ -330,11 +336,11 @@ run_e2e_tests() {
     echo -e "  ${BLUE}🐳 Building E2E test image...${NC}"
     local e2e_image_ready=false
     if [ "$RUN_VERBOSE" = true ]; then
-        if docker build -f Dockerfile.e2e -t schmux-e2e .; then
+        if docker build -f Dockerfile.e2e -t "$image_tag" .; then
             e2e_image_ready=true
         fi
     else
-        if docker build -f Dockerfile.e2e -t schmux-e2e . > /dev/null 2>&1; then
+        if docker build -f Dockerfile.e2e -t "$image_tag" . > /dev/null 2>&1; then
             e2e_image_ready=true
         fi
     fi
@@ -356,7 +362,7 @@ run_e2e_tests() {
     if [ -n "$TEST_RUN_PATTERN" ]; then
         docker_run_args+=(-e "TEST_RUN=$TEST_RUN_PATTERN")
     fi
-    docker_run_args+=(schmux-e2e)
+    docker_run_args+=("$image_tag")
 
     local e2e_output_file
     e2e_output_file=$(mktemp)
@@ -364,7 +370,7 @@ run_e2e_tests() {
         echo ""
         echo -e "${GREEN}✅ E2E tests passed${NC}"
         rm -f "$e2e_output_file"
-        docker rmi schmux-e2e > /dev/null 2>&1 || true
+        docker rmi "$image_tag" > /dev/null 2>&1 || true
         return 0
     else
         echo ""
@@ -383,7 +389,7 @@ run_e2e_tests() {
         fi
 
         rm -f "$e2e_output_file"
-        docker rmi schmux-e2e > /dev/null 2>&1 || true
+        docker rmi "$image_tag" > /dev/null 2>&1 || true
         return 1
     fi
 }
@@ -391,6 +397,8 @@ run_e2e_tests() {
 run_scenario_tests() {
     echo -e "${YELLOW}▶️  Running scenario tests...${NC}"
     echo ""
+
+    local image_tag="schmux-scenarios-${RUN_ID}"
 
     if ! command -v docker &> /dev/null; then
         echo -e "${RED}❌ Docker is not installed or not in PATH${NC}"
@@ -407,12 +415,18 @@ run_scenario_tests() {
     fi
 
     # Dashboard build (needed for scenarios, not for E2E)
-    echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
-    if ! go run ./cmd/build-dashboard; then
-        echo -e "  ${RED}❌ Failed to build dashboard${NC}"
-        return 1
+    if [ "${DASHBOARD_BUILT:-false}" != true ]; then
+        local dashboard_args=()
+        if [ -d "$SCRIPT_DIR/assets/dashboard/node_modules" ]; then
+            dashboard_args+=(--skip-install)
+        fi
+        echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
+        if ! go run ./cmd/build-dashboard "${dashboard_args[@]}"; then
+            echo -e "  ${RED}❌ Failed to build dashboard${NC}"
+            return 1
+        fi
+        echo -e "  ${GREEN}✅ Dashboard built${NC}"
     fi
-    echo -e "  ${GREEN}✅ Dashboard built${NC}"
 
     if ! ensure_base_image schmux-scenarios-base Dockerfile.scenarios-base "Scenario"; then
         return 1
@@ -421,11 +435,11 @@ run_scenario_tests() {
     echo -e "  ${BLUE}🐳 Building scenario test image...${NC}"
     local scenario_image_ready=false
     if [ "$RUN_VERBOSE" = true ]; then
-        if docker build -f Dockerfile.scenarios -t schmux-scenarios .; then
+        if docker build -f Dockerfile.scenarios -t "$image_tag" .; then
             scenario_image_ready=true
         fi
     else
-        if docker build -f Dockerfile.scenarios -t schmux-scenarios . > /dev/null 2>&1; then
+        if docker build -f Dockerfile.scenarios -t "$image_tag" . > /dev/null 2>&1; then
             scenario_image_ready=true
         fi
     fi
@@ -447,7 +461,7 @@ run_scenario_tests() {
     if [ -n "$TEST_RUN_PATTERN" ]; then
         scenario_run_args+=(-e "TEST_GREP=$TEST_RUN_PATTERN")
     fi
-    scenario_run_args+=(schmux-scenarios)
+    scenario_run_args+=("$image_tag")
 
     local scenario_output_file
     scenario_output_file=$(mktemp)
@@ -455,7 +469,7 @@ run_scenario_tests() {
         echo ""
         echo -e "${GREEN}✅ Scenario tests passed${NC}"
         rm -f "$scenario_output_file"
-        docker rmi schmux-scenarios > /dev/null 2>&1 || true
+        docker rmi "$image_tag" > /dev/null 2>&1 || true
         return 0
     else
         echo ""
@@ -481,7 +495,7 @@ run_scenario_tests() {
         fi
 
         rm -f "$scenario_output_file"
-        docker rmi schmux-scenarios > /dev/null 2>&1 || true
+        docker rmi "$image_tag" > /dev/null 2>&1 || true
         return 1
     fi
 }
@@ -509,6 +523,28 @@ run_suites_parallel() {
     fi
     echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
     LOCAL_BUILD_DONE=true
+    echo ""
+
+    # Shared npm install (React tests + scenario dashboard build both need it)
+    echo -e "  ${BLUE}📦 Installing dashboard dependencies...${NC}"
+    if ! (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent); then
+        echo -e "  ${RED}❌ Failed to install dashboard dependencies${NC}"
+        rm -rf "$parallel_dir"
+        return 1
+    fi
+    echo -e "  ${GREEN}✅ Dashboard dependencies installed${NC}"
+    echo ""
+
+    # Shared dashboard build (scenarios need dist/, and building during fork
+    # corrupts Docker build context for E2E)
+    echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
+    if ! go run ./cmd/build-dashboard --skip-install; then
+        echo -e "  ${RED}❌ Failed to build dashboard${NC}"
+        rm -rf "$parallel_dir"
+        return 1
+    fi
+    echo -e "  ${GREEN}✅ Dashboard built${NC}"
+    DASHBOARD_BUILT=true
     echo ""
 
     # Fork: Unit tests
