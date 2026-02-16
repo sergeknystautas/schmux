@@ -10,7 +10,7 @@ export default function RemoteAccessPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const isDisabled = config?.remote_access?.disabled;
-  const authEnabled = config?.access_control?.enabled;
+  const pinHashSet = config?.remote_access?.pin_hash_set;
   const isActive =
     remoteAccessStatus.state === 'connected' || remoteAccessStatus.state === 'starting';
 
@@ -48,8 +48,10 @@ export default function RemoteAccessPanel() {
         </button>
       </div>
 
-      {!authEnabled && remoteAccessStatus.state === 'off' && (
-        <div className="remote-access-panel__warning">Requires auth to be enabled</div>
+      {!pinHashSet && remoteAccessStatus.state === 'off' && (
+        <div className="remote-access-panel__warning">
+          Set a PIN first: <code>schmux remote set-pin</code>
+        </div>
       )}
 
       {remoteAccessStatus.state === 'starting' && (

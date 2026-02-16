@@ -422,26 +422,15 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create tunnel manager for remote access
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
-		Disabled:        cfg.GetRemoteAccessDisabled(),
-		AuthEnabled:     cfg.GetAuthEnabled(),
-		AllowedUsersSet: cfg.GetAuthEnabled(), // auth gates access; no separate allowlist yet
-		Port:            cfg.GetPort(),
-		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
-		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),
+		Disabled:       cfg.GetRemoteAccessDisabled(),
+		PinHashSet:     cfg.GetRemoteAccessPinHash() != "",
+		Port:           cfg.GetPort(),
+		SchmuxBinDir:   filepath.Join(filepath.Dir(statePath), "bin"),
+		TimeoutMinutes: cfg.GetRemoteAccessTimeoutMinutes(),
 		OnStatusChange: func(status tunnel.TunnelStatus) {
 			server.BroadcastTunnelStatus(status)
-			// Send notifications when tunnel comes up
 			if status.State == tunnel.StateConnected && status.URL != "" {
-				ntfyTopic := cfg.GetRemoteAccessNtfyTopic()
-				notifyCmd := cfg.GetRemoteAccessNotifyCommand()
-				nc := tunnel.NotifyConfig{}
-				if ntfyTopic != "" {
-					nc.NtfyURL = "https://ntfy.sh/" + ntfyTopic
-				}
-				nc.Command = notifyCmd
-				if err := nc.Send(status.URL, "schmux remote access"); err != nil {
-					fmt.Printf("[remote-access] notification error: %v\n", err)
-				}
+				server.HandleTunnelConnected(status.URL)
 			}
 		},
 	})

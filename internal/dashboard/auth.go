@@ -113,11 +113,21 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 }
 
 func (s *Server) authenticateRequest(r *http.Request) (*authSession, error) {
+	// Try GitHub OAuth cookie first
 	cookie, err := r.Cookie(authCookieName)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		return s.parseSessionCookie(cookie.Value)
 	}
-	return s.parseSessionCookie(cookie.Value)
+
+	// Try remote session cookie
+	remoteCookie, err := r.Cookie("schmux_remote")
+	if err == nil {
+		if s.validateRemoteCookie(remoteCookie.Value) {
+			return &authSession{Login: "remote"}, nil
+		}
+	}
+
+	return nil, errors.New("no valid auth session")
 }
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {

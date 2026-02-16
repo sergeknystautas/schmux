@@ -70,6 +70,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   remote_access: {
     disabled: false,
     timeout_minutes: 0,
+    pin_hash_set: false,
     notify: {
       ntfy_topic: '',
       command: '',

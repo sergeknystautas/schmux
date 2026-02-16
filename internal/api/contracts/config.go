@@ -265,6 +265,7 @@ type LoreUpdate struct {
 type RemoteAccess struct {
 	Disabled       bool               `json:"disabled"`
 	TimeoutMinutes int                `json:"timeout_minutes"`
+	PinHashSet     bool               `json:"pin_hash_set"`
 	Notify         RemoteAccessNotify `json:"notify"`
 }
 

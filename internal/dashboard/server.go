@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -143,6 +145,12 @@ type Server struct {
 	// Tunnel manager for remote access
 	tunnelManager *tunnel.Manager
 
+	// Remote access auth state
+	remoteToken         string
+	remoteTokenFailures int
+	remoteTokenMu       sync.Mutex
+	remoteSessionSecret []byte
+
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
 
@@ -243,6 +251,56 @@ func (s *Server) SetTunnelManager(tm *tunnel.Manager) {
 	s.tunnelManager = tm
 }
 
+// HandleTunnelConnected handles a newly connected tunnel by generating an auth token and sending notifications.
+func (s *Server) HandleTunnelConnected(tunnelURL string) {
+	// Generate one-time token (32 bytes, hex-encoded)
+	tokenBytes := make([]byte, 32)
+	if _, err := crypto_rand.Read(tokenBytes); err != nil {
+		fmt.Printf("[remote-access] failed to generate token: %v\n", err)
+		return
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	// Generate new session secret (32 bytes) — invalidates old remote cookies
+	secretBytes := make([]byte, 32)
+	if _, err := crypto_rand.Read(secretBytes); err != nil {
+		fmt.Printf("[remote-access] failed to generate session secret: %v\n", err)
+		return
+	}
+
+	s.remoteTokenMu.Lock()
+	s.remoteToken = token
+	s.remoteTokenFailures = 0
+	s.remoteSessionSecret = secretBytes
+	s.remoteTokenMu.Unlock()
+
+	// Build auth URL
+	authURL := strings.TrimRight(tunnelURL, "/") + "/remote-auth?token=" + token
+	fmt.Printf("[remote-access] auth URL generated\n")
+
+	// Send notifications with auth URL
+	if s.config != nil {
+		ntfyTopic := s.config.GetRemoteAccessNtfyTopic()
+		notifyCmd := s.config.GetRemoteAccessNotifyCommand()
+		nc := tunnel.NotifyConfig{}
+		if ntfyTopic != "" {
+			nc.NtfyURL = "https://ntfy.sh/" + ntfyTopic
+		}
+		nc.Command = notifyCmd
+		if err := nc.Send(authURL, "schmux remote access"); err != nil {
+			fmt.Printf("[remote-access] notification error: %v\n", err)
+		}
+	}
+}
+
+// ClearRemoteAuth clears the remote auth state (token, failures). Called when tunnel stops.
+func (s *Server) ClearRemoteAuth() {
+	s.remoteTokenMu.Lock()
+	s.remoteToken = ""
+	s.remoteTokenFailures = 0
+	s.remoteTokenMu.Unlock()
+}
+
 // LogDashboardAssetPath logs where dashboard assets are being served from.
 func (s *Server) LogDashboardAssetPath() {
 	path := s.getDashboardDistPath()
@@ -289,6 +347,9 @@ func (s *Server) Start() error {
 		mux.HandleFunc("/", s.handleApp)
 		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
 	}
+
+	// Remote auth route (unauthenticated — token-protected)
+	mux.HandleFunc("/remote-auth", s.handleRemoteAuth)
 
 	// Auth routes
 	mux.HandleFunc("/auth/login", s.handleAuthLogin)
@@ -348,6 +409,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/remote-access/on", s.withCORS(s.withAuth(s.handleRemoteAccessOn)))
 	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuth(s.handleRemoteAccessOff)))
 	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
+	mux.HandleFunc("/api/remote-access/set-pin", s.withCORS(s.withAuth(s.handleRemoteAccessSetPin)))
 
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {
@@ -438,6 +500,25 @@ func (s *Server) Stop() error {
 	s.connectLimiter.Stop()
 
 	return nil
+}
+
+// CloseForTest stops background goroutines without requiring a running HTTP server.
+// This is intended for tests that create a Server via NewServer but don't call ListenAndServe.
+func (s *Server) CloseForTest() {
+	s.broadcastOnce.Do(func() {
+		s.broadcastMu.Lock()
+		s.broadcastStopped = true
+		if s.broadcastTimer != nil {
+			s.broadcastTimer.Stop()
+		}
+		s.broadcastMu.Unlock()
+		close(s.broadcastDone)
+	})
+	<-s.broadcastExited
+	if s.previewManager != nil {
+		s.previewManager.Stop()
+	}
+	s.connectLimiter.Stop()
 }
 
 func (s *Server) isLocalRequest(r *http.Request) bool {
@@ -838,6 +919,11 @@ func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 
 // BroadcastTunnelStatus sends the current tunnel status to all dashboard WebSocket clients.
 func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
+	// Clear remote auth state when tunnel goes off or errors
+	if status.State == tunnel.StateOff || status.State == tunnel.StateError {
+		s.ClearRemoteAuth()
+	}
+
 	msg := map[string]interface{}{
 		"type": "remote_access_status",
 		"data": status,
