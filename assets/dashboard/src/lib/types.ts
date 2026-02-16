@@ -309,6 +309,7 @@ export interface LinearSyncResolveConflictStatePayload {
   workspace_id: string;
   status: 'in_progress' | 'done' | 'failed';
   hash?: string;
+  tmux_session?: string;
   started_at: string;
   finished_at?: string;
   message?: string;

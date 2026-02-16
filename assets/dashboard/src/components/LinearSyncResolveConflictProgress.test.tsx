@@ -34,6 +34,22 @@ vi.mock('../hooks/useSync', () => ({
   }),
 }));
 
+vi.mock('../lib/terminalStream', () => ({
+  default: vi.fn().mockImplementation(function () {
+    this.initialized = Promise.resolve(null);
+    this.connect = vi.fn();
+    this.disconnect = vi.fn();
+    this.focus = vi.fn();
+  }),
+}));
+
+vi.mock('../contexts/ConfigContext', () => ({
+  useConfig: () => ({
+    config: { terminal: { width: 120, height: 40 } },
+    loading: false,
+  }),
+}));
+
 // --- Helpers ---
 
 function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceResponse {
@@ -191,5 +207,43 @@ describe('LinearSyncResolveConflictProgress', () => {
 
     expect(clearLinearSyncResolveConflictState).toHaveBeenCalledWith('ws-1');
     expect(navigate).toHaveBeenCalledWith('/sessions/session-1');
+  });
+
+  describe('terminal panel', () => {
+    it('renders terminal panel header when tmux_session is present and in_progress', () => {
+      const state = makeState({
+        status: 'in_progress',
+        tmux_session: 'cr-ws-1-abc1234',
+      });
+      mockLinearSyncResolveConflictStates = { 'ws-1': state };
+      mockWorkspaces = [makeWorkspace()];
+
+      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+
+      expect(screen.getByText('Agent output')).toBeInTheDocument();
+    });
+
+    it('does not render terminal panel when tmux_session is absent', () => {
+      const state = makeState({ status: 'in_progress' });
+      mockLinearSyncResolveConflictStates = { 'ws-1': state };
+      mockWorkspaces = [makeWorkspace()];
+
+      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+
+      expect(screen.queryByText('Agent output')).not.toBeInTheDocument();
+    });
+
+    it('does not render terminal panel when status is done', () => {
+      const state = makeState({
+        status: 'done',
+        tmux_session: 'cr-ws-1-abc1234',
+      });
+      mockLinearSyncResolveConflictStates = { 'ws-1': state };
+      mockWorkspaces = [makeWorkspace({ git_behind: 3 })];
+
+      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
+
+      expect(screen.queryByText('Agent output')).not.toBeInTheDocument();
+    });
   });
 });

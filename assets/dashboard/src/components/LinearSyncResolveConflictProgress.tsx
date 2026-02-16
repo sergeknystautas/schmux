@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import '@xterm/xterm/css/xterm.css';
 import { dismissLinearSyncResolveConflictState } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
+import { useConfig } from '../contexts/ConfigContext';
 import { useSync } from '../hooks/useSync';
+import TerminalStream from '../lib/terminalStream';
 import type {
   LinearSyncResolveConflictStatePayload,
   LinearSyncResolveConflictStep,
@@ -174,6 +177,67 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
   );
 }
 
+function CRTerminalPanel({ tmuxSession }: { tmuxSession: string }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const streamRef = React.useRef<TerminalStream | null>(null);
+  const [collapsed, setCollapsed] = React.useState(false);
+  const { config } = useConfig();
+
+  React.useEffect(() => {
+    if (!containerRef.current || collapsed) return;
+
+    const stream = new TerminalStream(tmuxSession, containerRef.current, {
+      followTail: true,
+      terminalSize: config?.terminal || null,
+      onStatusChange: () => {},
+    });
+    streamRef.current = stream;
+
+    stream.initialized.then(() => {
+      stream.connect();
+    });
+
+    return () => {
+      stream.disconnect();
+      streamRef.current = null;
+    };
+  }, [tmuxSession, collapsed, config?.terminal?.width, config?.terminal?.height]);
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--color-border)', paddingTop: 6 }}>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: 'var(--color-text-muted)',
+          cursor: 'pointer',
+          fontSize: '0.8rem',
+          padding: '2px 0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        <span style={{ fontSize: '0.7rem' }}>{collapsed ? '\u25B6' : '\u25BC'}</span>
+        Agent output
+      </button>
+      {!collapsed && (
+        <div
+          ref={containerRef}
+          style={{
+            height: 300,
+            marginTop: 4,
+            borderRadius: 4,
+            overflow: 'hidden',
+            background: 'var(--color-bg-terminal, #1a1a2e)',
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function LinearSyncResolveConflictProgress({
   workspaceId,
 }: LinearSyncResolveConflictProgressProps) {
@@ -302,6 +366,9 @@ export default function LinearSyncResolveConflictProgress({
           <StepRow key={step.action} step={step} />
         ))}
       </div>
+
+      {/* Terminal panel */}
+      {state.tmux_session && isActive && <CRTerminalPanel tmuxSession={state.tmux_session} />}
 
       {/* Next steps */}
       {!isActive && isDone && hasMoreCommits && (
