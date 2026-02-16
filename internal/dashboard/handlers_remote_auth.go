@@ -44,12 +44,12 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if token == "" || validToken == "" || token != validToken {
-		fmt.Fprint(w, renderPinPage("", "Invalid or expired link. Please request a new one from the dashboard.", 0))
+		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
 		return
 	}
 
 	if failures >= maxPinAttempts {
-		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked. Please restart the tunnel.", 0))
+		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
 		return
 	}
 
@@ -78,7 +78,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	if token == "" || validToken == "" || token != validToken {
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "Invalid or expired link. Please request a new one from the dashboard.", 0))
+		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
 		return
 	}
 
@@ -86,7 +86,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		s.remoteToken = ""
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked. Please restart the tunnel.", 0))
+		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
 		return
 	}
 	s.remoteTokenMu.Unlock()
@@ -98,7 +98,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	if pinHash == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage("", "PIN not configured on server. Run: schmux remote set-pin", 0))
+		fmt.Fprint(w, renderPinPage("", "PIN not configured.", 0))
 		return
 	}
 
@@ -112,7 +112,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 			s.remoteToken = ""
 			s.remoteTokenMu.Unlock()
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked. Please restart the tunnel.", 0))
+			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
 			return
 		}
 		s.remoteTokenMu.Unlock()
@@ -250,10 +250,10 @@ func renderPinPage(token string, errorMsg string, attemptsRemaining int) string 
 		}
 		formHTML = `<form method="POST" action="/remote-auth">
 			` + tokenField + `
-			<label for="pin">Enter PIN</label>
-			<input type="password" id="pin" name="pin" autofocus required placeholder="Your PIN or passphrase">
+			<label for="pin">PIN</label>
+			<input type="password" id="pin" name="pin" autofocus required>
 			` + attemptsHTML + `
-			<button type="submit">Authenticate</button>
+			<button type="submit">Continue</button>
 		</form>`
 	}
 
@@ -262,7 +262,7 @@ func renderPinPage(token string, errorMsg string, attemptsRemaining int) string 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>schmux — Remote Access</title>
+<title>Authenticate</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -286,8 +286,6 @@ body {
 	padding: 2rem; max-width: 400px; width: 100%;
 	box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
-h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
-.subtitle { font-size: 0.875rem; color: #888; margin-bottom: 1.5rem; }
 form { display: flex; flex-direction: column; gap: 0.75rem; }
 label { font-size: 0.875rem; font-weight: 500; }
 input[type="password"] {
@@ -309,8 +307,6 @@ button:hover { background: #1d4ed8; }
 </head>
 <body>
 <div class="card">
-	<h1>schmux Remote Access</h1>
-	<p class="subtitle">Authenticate to access the dashboard</p>
 	` + errorHTML + `
 	` + formHTML + `
 </div>

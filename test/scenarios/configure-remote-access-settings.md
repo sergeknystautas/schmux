@@ -20,7 +20,7 @@ command.
 - The PIN field shows "PIN is configured" or not based on pin_hash_set from GET /api/config
 - Typing a PIN reveals the confirm field and a "Set PIN" button
 - Entering mismatched PINs shows "PINs do not match" error
-- Entering matching PINs (at least 4 chars) and clicking "Set PIN" calls POST /api/remote-access/set-pin
+- Entering matching PINs (at least 6 chars) and clicking "Set PIN" calls POST /api/remote-access/set-pin
 - After setting PIN, the status text changes to "PIN is configured"
 - Setting ntfy topic to "test-topic", timeout to 30, and notify command to "echo test" then saving persists via POST /api/config
 - GET /api/config after save shows remote_access.notify.ntfy_topic="test-topic", remote_access.timeout_minutes=30, remote_access.notify.command="echo test"

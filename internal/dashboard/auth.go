@@ -134,6 +134,17 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 		return true
 	}
 	if _, err := s.authenticateRequest(r); err != nil {
+		// If tunnel is active but GitHub OAuth is not enabled,
+		// redirect to the remote PIN auth page instead of /auth/login.
+		if !s.authEnabled() {
+			s.remoteTokenMu.Lock()
+			token := s.remoteToken
+			s.remoteTokenMu.Unlock()
+			if token != "" {
+				http.Redirect(w, r, "/remote-auth?token="+token, http.StatusFound)
+				return false
+			}
+		}
 		http.Redirect(w, r, "/auth/login", http.StatusFound)
 		return false
 	}

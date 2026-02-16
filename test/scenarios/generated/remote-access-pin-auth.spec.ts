@@ -20,7 +20,7 @@ test.describe.serial('Remote access PIN authentication', () => {
 
     const warning = panel.locator('.remote-access-panel__warning');
     await expect(warning).toBeVisible();
-    await expect(warning).toContainText('set-pin');
+    await expect(warning).toContainText('Set a PIN');
   });
 
   test('tunnel start rejected without PIN', async () => {
