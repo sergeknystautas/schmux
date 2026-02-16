@@ -5,6 +5,7 @@ import {
   waitForDashboardLive,
   waitForHealthy,
   apiGet,
+  apiPost,
 } from './helpers';
 
 test.describe.serial('Lore status warning banner', () => {
@@ -24,6 +25,10 @@ test.describe.serial('Lore status warning banner', () => {
           promptable: true,
         },
       ],
+    });
+    // Explicitly reset lore: enabled with no llm_target (prior tests may have changed these)
+    await apiPost('/api/config', {
+      lore: { enabled: true, llm_target: '' },
     });
   });
 

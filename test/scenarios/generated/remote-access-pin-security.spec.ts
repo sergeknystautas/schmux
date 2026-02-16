@@ -6,6 +6,10 @@ const BASE_URL = 'http://localhost:7337';
 test.describe.serial('Remote access PIN security enforcement', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
+    // Reset remote access config to defaults (prior tests may have changed timeout)
+    await apiPost('/api/config', {
+      remote_access: { disabled: false, timeout_minutes: 120 },
+    });
   });
 
   test('rejects empty PIN', async () => {
