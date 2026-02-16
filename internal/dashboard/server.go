@@ -298,6 +298,7 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteTokenMu.Lock()
 	s.remoteToken = ""
 	s.remoteTokenFailures = 0
+	s.remoteSessionSecret = nil
 	s.remoteTokenMu.Unlock()
 }
 
