@@ -18,6 +18,7 @@ type LinearSyncResolveConflictStep struct {
 	Confidence         string   `json:"confidence,omitempty"`
 	Summary            string   `json:"summary,omitempty"`
 	Created            *bool    `json:"created,omitempty"` // for wip_commit step
+	TmuxSession        string   `json:"tmux_session,omitempty"`
 }
 
 // LinearSyncResolveConflictResolution is the per-conflict summary included in the final state.
@@ -37,6 +38,7 @@ type LinearSyncResolveConflictState struct {
 	WorkspaceID string                                `json:"workspace_id"`
 	Status      string                                `json:"status"` // "in_progress", "done", "failed"
 	Hash        string                                `json:"hash,omitempty"`
+	TmuxSession string                                `json:"tmux_session,omitempty"`
 	StartedAt   string                                `json:"started_at"`
 	FinishedAt  string                                `json:"finished_at,omitempty"`
 	Message     string                                `json:"message,omitempty"`
@@ -103,6 +105,18 @@ func (s *LinearSyncResolveConflictState) SetHash(hash string) {
 	if s.Hash == "" {
 		s.Hash = hash
 	}
+}
+
+func (s *LinearSyncResolveConflictState) SetTmuxSession(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TmuxSession = name
+}
+
+func (s *LinearSyncResolveConflictState) ClearTmuxSession() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TmuxSession = ""
 }
 
 // MarshalJSON produces a thread-safe JSON snapshot.

@@ -146,6 +146,10 @@ type Server struct {
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
 
+	// Ephemeral trackers for conflict resolution tmux sessions (not in state store)
+	crTrackers   map[string]*session.SessionTracker
+	crTrackersMu sync.RWMutex
+
 	// Lore proposal storage
 	loreStore *lore.ProposalStore
 
@@ -186,6 +190,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastExited:                 make(chan struct{}),
 		broadcastReady:                  make(chan struct{}),
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
+		crTrackers:                      make(map[string]*session.SessionTracker),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
 		previewDetect:                   make(map[string]time.Time),
 	}
@@ -981,4 +986,35 @@ func (s *Server) normalizeIPForRateLimit(remoteAddr string) string {
 	}
 	// No port found, return as-is
 	return remoteAddr
+}
+
+func (s *Server) setCRTracker(tmuxName string, tracker *session.SessionTracker) {
+	s.crTrackersMu.Lock()
+	defer s.crTrackersMu.Unlock()
+	s.crTrackers[tmuxName] = tracker
+}
+
+func (s *Server) getCRTracker(tmuxName string) *session.SessionTracker {
+	s.crTrackersMu.RLock()
+	defer s.crTrackersMu.RUnlock()
+	return s.crTrackers[tmuxName]
+}
+
+func (s *Server) deleteCRTracker(tmuxName string) {
+	s.crTrackersMu.Lock()
+	defer s.crTrackersMu.Unlock()
+	delete(s.crTrackers, tmuxName)
+}
+
+func (s *Server) cleanupCRTrackers(crState *LinearSyncResolveConflictState) {
+	crState.mu.Lock()
+	tmuxName := crState.TmuxSession
+	crState.TmuxSession = ""
+	crState.mu.Unlock()
+	if tmuxName != "" {
+		if tracker := s.getCRTracker(tmuxName); tracker != nil {
+			tracker.Stop()
+			s.deleteCRTracker(tmuxName)
+		}
+	}
 }

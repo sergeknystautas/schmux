@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -83,6 +84,12 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// Check if this is a conflict resolution ephemeral session (not in state store)
+	if tracker := s.getCRTracker(sessionID); tracker != nil {
+		s.handleCRTerminalWebSocket(w, r, sessionID, tracker)
+		return
 	}
 
 	// Check if session is already dead before upgrading.
@@ -315,6 +322,86 @@ drained:
 					fmt.Printf("[terminal] error resizing PTY: %v\n", err)
 				}
 			}
+		}
+	}
+}
+
+// handleCRTerminalWebSocket handles WebSocket connections for ephemeral conflict resolution
+// tmux sessions. Unlike handleTerminalWebSocket, this is read-only (client input is ignored)
+// and uses a directly-provided tracker rather than looking up sessions in the state store.
+func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
+	tmuxName string, tracker *session.SessionTracker) {
+
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if s.config.GetAuthEnabled() {
+				return s.isAllowedOrigin(origin)
+			}
+			if origin == "" {
+				return true
+			}
+			return s.isAllowedOrigin(origin)
+		},
+	}
+
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	conn := &wsConn{conn: rawConn}
+	defer conn.Close()
+
+	outputCh := tracker.AttachWebSocket()
+	defer tracker.DetachWebSocket(outputCh)
+
+	// Wait briefly for tracker to attach
+	deadline := time.Now().Add(2 * time.Second)
+	for !tracker.IsAttached() && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	// Bootstrap with scrollback
+	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	bootstrap, _ := tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+	capCancel()
+	if bootstrap != "" {
+		filtered := string(filterMouseMode([]byte(bootstrap)))
+		msg, _ := json.Marshal(WSOutputMessage{Type: "full", Content: filtered})
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+
+	// Read-only: drain client messages (required by gorilla) but ignore input
+	controlChan := make(chan struct{})
+	go func() {
+		defer close(controlChan)
+		for {
+			_, _, err := rawConn.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Stream output until connection closes or tracker stops
+	for {
+		select {
+		case data, ok := <-outputCh:
+			if !ok {
+				return
+			}
+			filtered := filterMouseMode(data)
+			if len(filtered) == 0 {
+				continue
+			}
+			msg, _ := json.Marshal(WSOutputMessage{Type: "append", Content: string(filtered)})
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-controlChan:
+			return
 		}
 	}
 }

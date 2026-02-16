@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -376,6 +377,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("[workspace] linear-sync-resolve-conflict: PANIC: %v\n", r)
+				s.cleanupCRTrackers(crState)
 				crState.Finish("failed", fmt.Sprintf("Internal error: %v", r), nil)
 				go s.BroadcastSessions()
 			}
@@ -383,6 +385,29 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 
 		// Wire the step callback to state mutations + broadcasts
 		onStep := func(step workspace.ResolveConflictStep) {
+			// Handle llm_session steps: create/destroy ephemeral tracker
+			if step.Action == "llm_session" && step.TmuxSession != "" {
+				if step.Status == "in_progress" {
+					crState.SetTmuxSession(step.TmuxSession)
+					tracker := session.NewSessionTracker(
+						step.TmuxSession,
+						step.TmuxSession,
+						nil, // no state store
+						"",  // no signal file
+						nil, // no signal callback
+						nil, // no output callback
+					)
+					tracker.Start()
+					s.setCRTracker(step.TmuxSession, tracker)
+				} else {
+					crState.ClearTmuxSession()
+					if tracker := s.getCRTracker(step.TmuxSession); tracker != nil {
+						tracker.Stop()
+						s.deleteCRTracker(step.TmuxSession)
+					}
+				}
+			}
+
 			if step.Hash != "" {
 				crState.SetHash(step.Hash)
 			}
@@ -396,6 +421,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 				Confidence:         step.Confidence,
 				Summary:            step.Summary,
 				Created:            step.Created,
+				TmuxSession:        step.TmuxSession,
 			}
 			if step.Status != "in_progress" {
 				if crState.UpdateLastMatchingStep(step.Action, step.LocalCommit, func(existing *LinearSyncResolveConflictStep) {
@@ -425,6 +451,8 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 				fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to update git status: %v\n", err)
 			}
 		}
+
+		s.cleanupCRTrackers(crState)
 
 		if err != nil {
 			fmt.Printf("[workspace] linear-sync-resolve-conflict error: workspace_id=%s error=%v\n", workspaceID, err)
