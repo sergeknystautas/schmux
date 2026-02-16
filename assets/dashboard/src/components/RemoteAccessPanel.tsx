@@ -37,54 +37,71 @@ export default function RemoteAccessPanel() {
 
   return (
     <div className="remote-access-panel" data-testid="remote-access-panel">
-      <div className="remote-access-panel__header">
+      <div className="remote-access-panel__body">
         <span className="remote-access-panel__title">Remote Access</span>
-        <button
-          className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
-          onClick={handleToggle}
-          disabled={loading || remoteAccessStatus.state === 'starting'}
-          data-testid="remote-access-toggle"
-        >
-          {loading || remoteAccessStatus.state === 'starting' ? '...' : isActive ? 'Stop' : 'Start'}
-        </button>
+
+        {!pinHashSet && remoteAccessStatus.state === 'off' && (
+          <div className="remote-access-panel__warning">
+            <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
+          </div>
+        )}
+
+        {remoteAccessStatus.state === 'starting' && (
+          <div className="remote-access-panel__status remote-access-panel__status--starting">
+            Starting tunnel...
+          </div>
+        )}
+
+        {remoteAccessStatus.state === 'connected' && remoteAccessStatus.url && (
+          <div className="remote-access-panel__status remote-access-panel__status--connected">
+            <a
+              href={remoteAccessStatus.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="remote-access-panel__url"
+            >
+              {remoteAccessStatus.url.replace('https://', '')}
+            </a>
+          </div>
+        )}
+
+        {remoteAccessStatus.state === 'error' && (
+          <div className="remote-access-panel__status remote-access-panel__status--error">
+            {remoteAccessStatus.error || 'Tunnel error'}
+          </div>
+        )}
+
+        {error && (
+          <div className="remote-access-panel__status remote-access-panel__status--error">
+            {error}
+          </div>
+        )}
       </div>
 
-      {!pinHashSet && remoteAccessStatus.state === 'off' && (
-        <div className="remote-access-panel__warning">
-          <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
-        </div>
-      )}
-
-      {remoteAccessStatus.state === 'starting' && (
-        <div className="remote-access-panel__status remote-access-panel__status--starting">
-          Starting tunnel...
-        </div>
-      )}
-
-      {remoteAccessStatus.state === 'connected' && remoteAccessStatus.url && (
-        <div className="remote-access-panel__status remote-access-panel__status--connected">
-          <a
-            href={remoteAccessStatus.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="remote-access-panel__url"
-          >
-            {remoteAccessStatus.url.replace('https://', '')}
-          </a>
-        </div>
-      )}
-
-      {remoteAccessStatus.state === 'error' && (
-        <div className="remote-access-panel__status remote-access-panel__status--error">
-          {remoteAccessStatus.error || 'Tunnel error'}
-        </div>
-      )}
-
-      {error && (
-        <div className="remote-access-panel__status remote-access-panel__status--error">
-          {error}
-        </div>
-      )}
+      <button
+        className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
+        onClick={handleToggle}
+        disabled={loading || remoteAccessStatus.state === 'starting'}
+        data-testid="remote-access-toggle"
+      >
+        {loading || remoteAccessStatus.state === 'starting' ? (
+          '...'
+        ) : isActive ? (
+          <>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+            </svg>
+            Stop
+          </>
+        ) : (
+          <>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="6,3 20,12 6,21" />
+            </svg>
+            Start
+          </>
+        )}
+      </button>
     </div>
   );
 }
