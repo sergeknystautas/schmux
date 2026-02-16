@@ -23,7 +23,7 @@ func NewRemoteCommand(client *cli.Client) *RemoteCommand {
 // Run executes the remote command.
 func (cmd *RemoteCommand) Run(args []string) error {
 	if len(args) < 1 {
-		fmt.Println("Usage: schmux remote <on|off|status|set-pin>")
+		fmt.Println("Usage: schmux remote <on|off|status|set-password>")
 		return nil
 	}
 
@@ -60,48 +60,48 @@ func (cmd *RemoteCommand) Run(args []string) error {
 			}
 		}
 
-	case "set-pin":
-		return cmd.runSetPin()
+	case "set-password":
+		return cmd.runSetPassword()
 
 	default:
-		return fmt.Errorf("unknown subcommand: %s (use on, off, status, or set-pin)", args[0])
+		return fmt.Errorf("unknown subcommand: %s (use on, off, status, or set-password)", args[0])
 	}
 
 	return nil
 }
 
-func (cmd *RemoteCommand) runSetPin() error {
+func (cmd *RemoteCommand) runSetPassword() error {
 	if !term.IsTerminal(int(syscall.Stdin)) {
-		return fmt.Errorf("set-pin requires an interactive terminal")
+		return fmt.Errorf("set-password requires an interactive terminal")
 	}
 
-	fmt.Print("Enter PIN: ")
-	pin1, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Print("Enter password: ")
+	pw1, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
-		return fmt.Errorf("failed to read PIN: %w", err)
+		return fmt.Errorf("failed to read password: %w", err)
 	}
 
-	pin := strings.TrimSpace(string(pin1))
-	if len(pin) < 6 {
-		return fmt.Errorf("PIN must be at least 6 characters")
+	password := strings.TrimSpace(string(pw1))
+	if len(password) < 6 {
+		return fmt.Errorf("password must be at least 6 characters")
 	}
 
-	fmt.Print("Confirm PIN: ")
-	pin2, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Print("Confirm password: ")
+	pw2, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
-		return fmt.Errorf("failed to read PIN confirmation: %w", err)
+		return fmt.Errorf("failed to read password confirmation: %w", err)
 	}
 
-	if pin != strings.TrimSpace(string(pin2)) {
-		return fmt.Errorf("PINs do not match")
+	if password != strings.TrimSpace(string(pw2)) {
+		return fmt.Errorf("passwords do not match")
 	}
 
-	if err := cmd.client.RemoteAccessSetPin(pin); err != nil {
-		return fmt.Errorf("failed to set PIN: %w", err)
+	if err := cmd.client.RemoteAccessSetPassword(password); err != nil {
+		return fmt.Errorf("failed to set password: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "Remote access PIN set successfully")
+	fmt.Fprintln(os.Stderr, "Remote access password set successfully")
 	return nil
 }

@@ -16,21 +16,21 @@ func TestTunnelState_InitiallyOff(t *testing.T) {
 	}
 }
 
-func TestTunnelState_StartRequiresPinHash(t *testing.T) {
-	m := NewManager(ManagerConfig{PinHashSet: false})
+func TestTunnelState_StartRequiresPasswordHash(t *testing.T) {
+	m := NewManager(ManagerConfig{PasswordHashSet: false})
 	err := m.Start()
 	if err == nil {
-		t.Fatal("expected error when PIN not configured")
+		t.Fatal("expected error when password not configured")
 	}
-	if !strings.Contains(err.Error(), "PIN") {
-		t.Errorf("error should mention PIN, got: %s", err.Error())
+	if !strings.Contains(err.Error(), "password") {
+		t.Errorf("error should mention password, got: %s", err.Error())
 	}
 }
 
 func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	m := NewManager(ManagerConfig{
-		Disabled:   true,
-		PinHashSet: true,
+		Disabled:        true,
+		PasswordHashSet: true,
 	})
 
 	err := m.Start()

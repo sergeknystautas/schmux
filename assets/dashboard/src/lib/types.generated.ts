@@ -251,7 +251,7 @@ export interface QuickLaunch {
 export interface RemoteAccess {
   disabled: boolean;
   timeout_minutes: number;
-  pin_hash_set: boolean;
+  password_hash_set: boolean;
   notify: RemoteAccessNotify;
 }
 

@@ -228,7 +228,7 @@ type RemoteAccessNotifyConfig struct {
 type RemoteAccessConfig struct {
 	Disabled       *bool                     `json:"disabled,omitempty"`
 	TimeoutMinutes int                       `json:"timeout_minutes,omitempty"`
-	PinHash        string                    `json:"pin_hash,omitempty"`
+	PasswordHash   string                    `json:"password_hash,omitempty"`
 	Notify         *RemoteAccessNotifyConfig `json:"notify,omitempty"`
 }
 // NudgenikConfig represents configuration for the NudgeNik assistant.
@@ -1485,12 +1485,12 @@ func (c *Config) GetRemoteAccessNotifyCommand() string {
 	return strings.TrimSpace(c.RemoteAccess.Notify.Command)
 }
 
-// GetRemoteAccessPinHash returns the bcrypt-hashed PIN for remote access auth.
-func (c *Config) GetRemoteAccessPinHash() string {
+// GetRemoteAccessPasswordHash returns the bcrypt-hashed password for remote access auth.
+func (c *Config) GetRemoteAccessPasswordHash() string {
 	if c == nil || c.RemoteAccess == nil {
 		return ""
 	}
-	return c.RemoteAccess.PinHash
+	return c.RemoteAccess.PasswordHash
 }
 
 // GetRemoteFlavors returns the list of remote flavors.

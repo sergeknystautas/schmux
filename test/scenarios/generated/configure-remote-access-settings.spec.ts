@@ -64,7 +64,7 @@ test.describe.serial('Configure remote access settings', () => {
     await expect(enableCheckbox).toBeChecked();
 
     // PIN, timeout, ntfy fields should be visible
-    const pinField = page.locator('.form-group__label', { hasText: 'Access PIN' });
+    const pinField = page.locator('.form-group__label', { hasText: 'Access password' });
     await expect(pinField).toBeVisible();
 
     const timeoutField = page.locator('.form-group__label', { hasText: 'Timeout (minutes)' });
@@ -100,23 +100,23 @@ test.describe.serial('Configure remote access settings', () => {
     await waitForDashboardLive(page);
 
     // Type a PIN to reveal the confirm field
-    const pinInput = page.locator('input[type="password"][placeholder*="PIN"]').first();
+    const pinInput = page.locator('input[type="password"][placeholder*="password"]').first();
     await pinInput.fill('test1234');
 
     // Confirm field should now be visible
-    const confirmInput = page.locator('input[type="password"][placeholder="Confirm PIN"]');
+    const confirmInput = page.locator('input[type="password"][placeholder="Confirm password"]');
     await expect(confirmInput).toBeVisible();
 
     // Enter mismatched confirm
     await confirmInput.fill('wrong');
 
     // Click Set PIN button
-    const setPinButton = page.locator('button', { hasText: /Set PIN|Update PIN/ });
+    const setPinButton = page.locator('button', { hasText: /Set password|Update password/ });
     await expect(setPinButton).toBeVisible();
     await setPinButton.click();
 
     // Error message should appear
-    const error = page.locator('.form-group__error', { hasText: 'PINs do not match' });
+    const error = page.locator('.form-group__error', { hasText: 'passwords do not match' });
     await expect(error).toBeVisible();
   });
 
@@ -125,22 +125,22 @@ test.describe.serial('Configure remote access settings', () => {
     await waitForDashboardLive(page);
 
     // Type matching PINs
-    const pinInput = page.locator('input[type="password"][placeholder*="PIN"]').first();
+    const pinInput = page.locator('input[type="password"][placeholder*="password"]').first();
     await pinInput.fill('test1234');
 
-    const confirmInput = page.locator('input[type="password"][placeholder="Confirm PIN"]');
+    const confirmInput = page.locator('input[type="password"][placeholder="Confirm password"]');
     await confirmInput.fill('test1234');
 
     // Click Set PIN
-    const setPinButton = page.locator('button', { hasText: /Set PIN|Update PIN/ });
+    const setPinButton = page.locator('button', { hasText: /Set password|Update password/ });
     await setPinButton.click();
 
     // Success message should appear
-    const success = page.locator('text=PIN updated');
+    const success = page.locator('text=password updated');
     await expect(success).toBeVisible({ timeout: 5000 });
 
-    // "PIN is configured" should appear
-    const configured = page.locator('text=PIN is configured');
+    // "password is configured" should appear
+    const configured = page.locator('text=password is configured');
     await expect(configured).toBeVisible();
   });
 
@@ -148,7 +148,7 @@ test.describe.serial('Configure remote access settings', () => {
     interface ConfigResp {
       remote_access: {
         disabled: boolean;
-        pin_hash_set: boolean;
+        password_hash_set: boolean;
         timeout_minutes: number;
         notify: {
           ntfy_topic: string;
@@ -158,7 +158,7 @@ test.describe.serial('Configure remote access settings', () => {
     }
 
     const config = await apiGet<ConfigResp>('/api/config');
-    expect(config.remote_access.pin_hash_set).toBe(true);
+    expect(config.remote_access.password_hash_set).toBe(true);
   });
 
   test('saving remote access settings persists via API', async ({ page }) => {
@@ -202,7 +202,7 @@ test.describe.serial('Configure remote access settings', () => {
     interface ConfigResp {
       remote_access: {
         disabled: boolean;
-        pin_hash_set: boolean;
+        password_hash_set: boolean;
         timeout_minutes: number;
         notify: {
           ntfy_topic: string;

@@ -614,7 +614,7 @@ Response:
   "remote_access": {
     "disabled": false,
     "timeout_minutes": 0,
-    "pin_hash_set": false,
+    "password_hash_set": false,
     "notify": {
       "ntfy_topic": "",
       "command": ""
@@ -1480,48 +1480,48 @@ Errors:
 
 ### GET /remote-auth
 
-Unauthenticated. Renders the PIN entry page for remote access authentication.
+Unauthenticated. Renders the password entry page for remote access authentication.
 
 Query Parameters:
 
 - `token` (required): One-time authentication token from the notification URL
 
-Response: HTML page with PIN entry form.
+Response: HTML page with password entry form.
 
 Notes:
 
 - Returns an error page if token is missing, invalid, or expired
-- Returns a lockout page after 5 failed PIN attempts
+- Returns a lockout page after 5 failed password attempts
 - The token is generated when the tunnel connects and included in the notification URL
 
 ### POST /remote-auth
 
-Unauthenticated. Validates the PIN against the bcrypt hash stored in config.
+Unauthenticated. Validates the password against the bcrypt hash stored in config.
 
 Form Parameters:
 
-- `token`: One-time authentication token
-- `pin`: User-entered PIN
+- `nonce`: Short-lived nonce (obtained by exchanging the one-time token)
+- `password`: User-entered password
 
 On success: Sets `schmux_remote` cookie (HMAC-signed timestamp) and redirects to `/`.
 
-On failure: Re-renders PIN page with error message and remaining attempts count.
+On failure: Re-renders password page with error message and remaining attempts count.
 
 Notes:
 
-- Maximum 5 PIN attempts per token; after that the token is invalidated
-- On successful authentication, the token is consumed (one-time use)
+- Maximum 5 password attempts per nonce; after that the nonce is invalidated
+- On first GET with token, the token is consumed and replaced with a short-lived nonce
 - The `schmux_remote` cookie is HttpOnly, Secure, SameSite=Lax
 
-### POST /api/remote-access/set-pin
+### POST /api/remote-access/set-password
 
-Sets the remote access PIN. Requires authentication (local dashboard access).
+Sets the remote access password. Requires authentication (local dashboard access).
 
 Request:
 
 ```json
 {
-  "pin": "my-secret-pin"
+  "password": "my-secret-password"
 }
 ```
 
@@ -1533,14 +1533,14 @@ Response:
 
 Errors:
 
-- 400: "PIN cannot be empty" / "Invalid request body"
+- 400: "Password cannot be empty" / "Invalid request body"
 - 405: "Method not allowed"
-- 500: "Failed to hash PIN" / "Failed to save config: ..."
+- 500: "Failed to hash password" / "Failed to save config: ..."
 
 Notes:
 
-- The PIN is bcrypt-hashed before storage; plaintext is never persisted
-- Stored in `config.json` as `remote_access.pin_hash`
+- The password is bcrypt-hashed before storage; plaintext is never persisted
+- Stored in `config.json` as `remote_access.password_hash`
 
 ### POST /api/remote-access/on
 
@@ -1555,13 +1555,13 @@ Response (200):
 Errors:
 
 - 403: "remote access is disabled in config"
-- 400: "remote access requires a PIN (run: schmux remote set-pin)"
+- 400: "remote access requires a password (run: schmux remote set-password)"
 - 405: "Method not allowed"
 - 500: "remote access not available" (tunnel manager not initialized)
 
 Notes:
 
-- Requires a PIN to be set (`remote_access.pin_hash` in config)
+- Requires a password to be set (`remote_access.password_hash` in config)
 - On tunnel connect, a one-time auth token is generated and sent via notification
 - The tunnel URL is broadcast via WebSocket once connected
 

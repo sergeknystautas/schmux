@@ -482,17 +482,17 @@ func (c *Client) RemoteAccessStatus() (*RemoteAccessStatusResponse, error) {
 	return &status, nil
 }
 
-// RemoteAccessSetPin sets the remote access PIN.
-func (c *Client) RemoteAccessSetPin(pin string) error {
+// RemoteAccessSetPassword sets the remote access password.
+func (c *Client) RemoteAccessSetPassword(password string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	payload, err := json.Marshal(map[string]string{"pin": pin})
+	payload, err := json.Marshal(map[string]string{"password": password})
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/remote-access/set-pin", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/remote-access/set-password", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
