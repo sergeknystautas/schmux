@@ -3,6 +3,8 @@ package tunnel
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,6 +86,12 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 	}
 
 	fmt.Printf("[remote-access] cloudflared downloaded to %s\n", destPath)
+
+	// Log SHA256 hash for audit trail
+	if hash, err := fileSHA256(destPath); err == nil {
+		fmt.Printf("[remote-access] cloudflared sha256: %s\n", hash)
+	}
+
 	return destPath, nil
 }
 
@@ -116,4 +124,18 @@ func extractTgz(r io.Reader, destPath string) error {
 			return f.Close()
 		}
 	}
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
