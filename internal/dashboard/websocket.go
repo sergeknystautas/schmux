@@ -266,7 +266,9 @@ drained:
 					continue
 				}
 				// Clear nudge atomically — avoid using stale sess pointer.
-				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") {
+				// Escape (\x1b alone) also clears nudge so the spinner stops
+				// immediately when the user presses Esc to interrupt an agent.
+				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
 					if s.state.ClearSessionNudge(sessionID) {
 						go func() {
 							if err := s.state.Save(); err != nil {
@@ -503,7 +505,9 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 				cancel()
 
 				// Clear nudge atomically — avoid using stale sess pointer.
-				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") {
+				// Escape (\x1b alone) also clears nudge so the spinner stops
+				// immediately when the user presses Esc to interrupt an agent.
+				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
 					if s.state.ClearSessionNudge(sessionID) {
 						if err := s.state.Save(); err != nil {
 							fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
