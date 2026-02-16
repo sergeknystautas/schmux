@@ -274,6 +274,59 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 	}
 }
 
+func TestRequireAuthOrRedirect_DoesNotLeakToken(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Unauthenticated request to /
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "1.2.3.4:12345"
+	rr := httptest.NewRecorder()
+
+	result := server.requireAuthOrRedirect(rr, req)
+	if result {
+		t.Fatal("expected requireAuthOrRedirect to return false (redirect)")
+	}
+
+	// Should redirect to /remote-auth WITHOUT a token query param
+	loc := rr.Header().Get("Location")
+	if loc == "" {
+		t.Fatal("expected Location header on redirect")
+	}
+	if strings.Contains(loc, "token=") {
+		t.Errorf("redirect URL must NOT contain token, got: %s", loc)
+	}
+	if loc != "/remote-auth" {
+		t.Errorf("expected redirect to /remote-auth, got: %s", loc)
+	}
+}
+
+func TestRemoteAuthGET_NoTokenOrNonce_ShowsInstructions(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// GET /remote-auth with no query params
+	req, _ := http.NewRequest("GET", "/remote-auth", nil)
+	req.RemoteAddr = "1.2.3.4:12345"
+	rr := httptest.NewRecorder()
+
+	server.handleRemoteAuthGET(rr, req)
+
+	body := rr.Body.String()
+	// Should show instructions, not a PIN form or error
+	if strings.Contains(body, "Invalid or expired") {
+		t.Error("should not show error message when no token/nonce provided")
+	}
+	if strings.Contains(body, `name="pin"`) {
+		t.Error("should not show PIN form when no token/nonce provided")
+	}
+	if !strings.Contains(body, "notification") {
+		t.Error("should show instructions mentioning notification app")
+	}
+}
+
 func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()

@@ -138,10 +138,10 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 		// redirect to the remote PIN auth page instead of /auth/login.
 		if !s.authEnabled() {
 			s.remoteTokenMu.Lock()
-			token := s.remoteToken
+			hasSecret := len(s.remoteSessionSecret) > 0
 			s.remoteTokenMu.Unlock()
-			if token != "" {
-				http.Redirect(w, r, "/remote-auth?token="+token, http.StatusFound)
+			if hasSecret {
+				http.Redirect(w, r, "/remote-auth", http.StatusFound)
 				return false
 			}
 		}
