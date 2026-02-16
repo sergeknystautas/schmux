@@ -101,6 +101,56 @@ func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 	return nil
 }
 
+// updateLocalDefaultBranch fast-forwards the local default branch in a bare clone
+// to match origin/<default>. This keeps refs/heads/main in sync with origin/main
+// so that new worktrees created from the local branch get the latest commits.
+// Only updates when:
+//   - The branch is not checked out in any worktree (safe to update ref)
+//   - The update is a fast-forward (origin is ahead of local, not diverged)
+func (m *Manager) updateLocalDefaultBranch(ctx context.Context, bareRepoPath, repoURL string) {
+	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
+	if err != nil || defaultBranch == "" {
+		return
+	}
+
+	// Don't update if the branch is checked out in a worktree — git won't allow
+	// updating a ref that's currently checked out, and it could cause issues.
+	if m.isBranchInWorktree(ctx, bareRepoPath, defaultBranch) {
+		return
+	}
+
+	localRef := "refs/heads/" + defaultBranch
+	remoteRef := "refs/remotes/origin/" + defaultBranch
+
+	// Check that origin/<default> exists
+	checkCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", remoteRef)
+	checkCmd.Dir = bareRepoPath
+	if checkCmd.Run() != nil {
+		return // remote ref doesn't exist
+	}
+
+	// Check that local ref exists (it should, since bare clone creates it)
+	localCheckCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
+	localCheckCmd.Dir = bareRepoPath
+	if localCheckCmd.Run() != nil {
+		return // local ref doesn't exist, nothing to update
+	}
+
+	// Verify this would be a fast-forward: local must be an ancestor of origin
+	ffCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", localRef, remoteRef)
+	ffCheckCmd.Dir = bareRepoPath
+	if ffCheckCmd.Run() != nil {
+		return // not a fast-forward (diverged or local is ahead)
+	}
+
+	// Fast-forward the local ref to match origin
+	updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
+	updateCmd.Dir = bareRepoPath
+	if output, err := updateCmd.CombinedOutput(); err != nil {
+		fmt.Printf("[workspace] warning: failed to fast-forward local %s: %v: %s\n", defaultBranch, err, string(output))
+	}
+}
+
 // gitCheckoutBranch runs git checkout -B, optionally resetting to origin/<branch>.
 func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, remoteBranchExists bool) error {
 	args := []string{"checkout", "-B", branch}
@@ -306,6 +356,13 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
+
+	// Fast-forward local default branch in bare clone to match origin
+	if isWorktree(dir) {
+		if bareRepoPath, err := resolveWorktreeBaseFromWorktree(dir); err == nil {
+			m.updateLocalDefaultBranch(ctx, bareRepoPath, repoURL)
+		}
+	}
 
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
 	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
