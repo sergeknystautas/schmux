@@ -278,12 +278,20 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Regenerate session secret to invalidate existing remote cookies
-	newSecret := make([]byte, 32)
-	if _, err := crypto_rand.Read(newSecret); err == nil {
-		s.remoteTokenMu.Lock()
-		s.remoteSessionSecret = newSecret
-		s.remoteTokenMu.Unlock()
+	// Regenerate session secret to invalidate existing remote cookies,
+	// but only if a tunnel is currently active (secret already exists).
+	// Setting the secret when no tunnel is active would activate auth
+	// for local requests, locking out the local dashboard.
+	s.remoteTokenMu.Lock()
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+	if hasTunnel {
+		newSecret := make([]byte, 32)
+		if _, err := crypto_rand.Read(newSecret); err == nil {
+			s.remoteTokenMu.Lock()
+			s.remoteSessionSecret = newSecret
+			s.remoteTokenMu.Unlock()
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
