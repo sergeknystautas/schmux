@@ -885,6 +885,7 @@ body {
 }
 
 .remote-access-panel__status--error {
+  width: 100%;
   color: var(--color-danger);
 }
 
@@ -899,6 +900,7 @@ body {
 }
 
 .remote-access-panel__warning {
+  width: 100%;
   margin-top: 2px;
   font-size: 11px;
   color: var(--color-warning, #ff9800);
