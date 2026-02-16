@@ -39,6 +39,8 @@ type SessionsContextValue = {
   clearOverlayEvents: () => void;
   markOverlaysRead: () => void;
   remoteAccessStatus: RemoteAccessStatus;
+  simulateRemote: boolean;
+  setSimulateRemote: (value: boolean) => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -58,6 +60,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   } = useSessionsWebSocket();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
   const [overlayReadCount, setOverlayReadCount] = useState(0);
+  const [simulateRemote, setSimulateRemote] = useState(false);
   const overlayUnreadCount = Math.max(0, overlayEvents.length - overlayReadCount);
   const markOverlaysRead = useCallback(() => {
     setOverlayReadCount(overlayEvents.length);
@@ -255,6 +258,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       clearOverlayEvents,
       remoteAccessStatus,
       markOverlaysRead,
+      simulateRemote,
+      setSimulateRemote,
     }),
     [
       workspaces,
@@ -273,6 +278,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       clearOverlayEvents,
       remoteAccessStatus,
       markOverlaysRead,
+      simulateRemote,
+      setSimulateRemote,
     ]
   );
 

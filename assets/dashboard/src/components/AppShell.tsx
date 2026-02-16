@@ -45,6 +45,8 @@ export default function AppShell() {
     linearSyncResolveConflictStates,
     overlayUnreadCount,
     markOverlaysRead,
+    remoteAccessStatus,
+    simulateRemote,
   } = useSessions();
   const navigate = useNavigate();
   const location = useLocation();
@@ -423,6 +425,25 @@ export default function AppShell() {
       <KeyboardModeIndicator />
       <nav className="app-shell__nav">
         <div className="nav-top">
+          {(remoteAccessStatus.state === 'connected' || simulateRemote) && (
+            <div className="remote-banner" data-testid="remote-banner">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+                <line x1="8" y1="2" x2="8" y2="18" />
+                <line x1="16" y1="6" x2="16" y2="22" />
+              </svg>
+              Remote Access
+            </div>
+          )}
           <div className="nav-header">
             <div className="nav-header__left">
               <NavLink to="/" className="logo">
