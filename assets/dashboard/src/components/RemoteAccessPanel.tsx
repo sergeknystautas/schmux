@@ -48,12 +48,6 @@ export default function RemoteAccessPanel() {
           <div className="remote-access-panel__body">
             <span className="remote-access-panel__title">Remote Access</span>
 
-            {!pinHashSet && remoteAccessStatus.state === 'off' && (
-              <div className="remote-access-panel__warning">
-                <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
-              </div>
-            )}
-
             {remoteAccessStatus.state === 'starting' && (
               <div className="remote-access-panel__status remote-access-panel__status--starting">
                 Starting tunnel...
@@ -72,24 +66,12 @@ export default function RemoteAccessPanel() {
                 </a>
               </div>
             )}
-
-            {remoteAccessStatus.state === 'error' && (
-              <div className="remote-access-panel__status remote-access-panel__status--error">
-                {remoteAccessStatus.error || 'Tunnel error'}
-              </div>
-            )}
-
-            {error && (
-              <div className="remote-access-panel__status remote-access-panel__status--error">
-                {error}
-              </div>
-            )}
           </div>
 
           <button
             className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
             onClick={handleToggle}
-            disabled={loading || remoteAccessStatus.state === 'starting'}
+            disabled={loading || remoteAccessStatus.state === 'starting' || !pinHashSet}
             data-testid="remote-access-toggle"
           >
             {loading || remoteAccessStatus.state === 'starting' ? (
@@ -110,6 +92,24 @@ export default function RemoteAccessPanel() {
               </>
             )}
           </button>
+
+          {!pinHashSet && remoteAccessStatus.state === 'off' && (
+            <div className="remote-access-panel__warning">
+              <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
+            </div>
+          )}
+
+          {remoteAccessStatus.state === 'error' && (
+            <div className="remote-access-panel__status remote-access-panel__status--error">
+              {remoteAccessStatus.error || 'Tunnel error'}
+            </div>
+          )}
+
+          {error && (
+            <div className="remote-access-panel__status remote-access-panel__status--error">
+              {error}
+            </div>
+          )}
         </>
       )}
 
