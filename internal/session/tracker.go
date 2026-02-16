@@ -281,7 +281,9 @@ func (t *SessionTracker) attachAndRead() error {
 				t.mu.Unlock()
 
 				if shouldUpdate {
-					t.state.UpdateSessionLastOutput(t.sessionID, now)
+					if t.state != nil {
+						t.state.UpdateSessionLastOutput(t.sessionID, now)
+					}
 				}
 				if clientCh != nil {
 					select {
