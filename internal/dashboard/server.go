@@ -327,6 +327,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
 	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
 
+	// Precog routes (repository construction model analysis)
+	mux.HandleFunc("/api/precog/repo/", s.withCORS(s.withAuth(s.handlePrecogRoutes)))
+
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {
 		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))

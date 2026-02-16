@@ -1299,6 +1299,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target:    s.config.GetConflictResolveTarget(),
 			TimeoutMs: s.config.GetConflictResolveTimeoutMs(),
 		},
+		Precog: contracts.Precog{
+			Target: s.config.GetPrecogTarget(),
+		},
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
@@ -1504,6 +1507,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.ConflictResolve.Target == "" && cfg.ConflictResolve.TimeoutMs <= 0 {
 			cfg.ConflictResolve = nil
+		}
+	}
+
+	if req.Precog != nil {
+		if cfg.Precog == nil {
+			cfg.Precog = &config.PrecogConfig{}
+		}
+		if req.Precog.Target != nil {
+			cfg.Precog.Target = strings.TrimSpace(*req.Precog.Target)
+		}
+		if cfg.Precog.Target == "" {
+			cfg.Precog = nil
 		}
 	}
 

@@ -42,6 +42,7 @@ export interface ConfigResponse {
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
+  precog: Precog;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -63,6 +64,7 @@ export interface ConfigUpdateRequest {
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
+  precog?: PrecogUpdate;
   terminal?: TerminalUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
@@ -206,6 +208,14 @@ export interface PrReview {
 }
 
 export interface PrReviewUpdate {
+  target?: string;
+}
+
+export interface Precog {
+  target?: string;
+}
+
+export interface PrecogUpdate {
   target?: string;
 }
 

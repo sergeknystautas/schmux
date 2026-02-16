@@ -83,6 +83,11 @@ type ConflictResolve struct {
 	TimeoutMs int    `json:"timeout_ms"`
 }
 
+// Precog represents precog (repository construction model) configuration.
+type Precog struct {
+	Target string `json:"target,omitempty"`
+}
+
 // Sessions represents session and git-related timing configuration.
 type Sessions struct {
 	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
@@ -136,6 +141,7 @@ type ConfigResponse struct {
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
+	Precog                     Precog                `json:"precog"`
 	Sessions                   Sessions              `json:"sessions"`
 	Xterm                      Xterm                 `json:"xterm"`
 	Network                    Network               `json:"network"`
@@ -188,6 +194,11 @@ type ConflictResolveUpdate struct {
 	TimeoutMs *int    `json:"timeout_ms,omitempty"`
 }
 
+// PrecogUpdate represents partial precog updates.
+type PrecogUpdate struct {
+	Target *string `json:"target,omitempty"`
+}
+
 // SessionsUpdate represents partial session timing updates.
 type SessionsUpdate struct {
 	DashboardPollIntervalMs *int `json:"dashboard_poll_interval_ms,omitempty"`
@@ -238,6 +249,7 @@ type ConfigUpdateRequest struct {
 	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`
+	Precog                     *PrecogUpdate          `json:"precog,omitempty"`
 	Terminal                   *TerminalUpdate        `json:"terminal,omitempty"`
 	Sessions                   *SessionsUpdate        `json:"sessions,omitempty"`
 	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`

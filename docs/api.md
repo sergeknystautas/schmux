@@ -1656,6 +1656,71 @@ Notes:
 - `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
 - Uses real-time connection status from the remote manager when available; falls back to persisted state
 
+## Precog Endpoints
+
+Precog (Repository Construction Model) analyzes a repository to produce a machine-readable model of its architecture, capabilities, and coordination surfaces.
+
+### POST /api/precog/repo/{repoName}
+
+Starts an async precog analysis for the specified repository.
+
+Response:
+
+```json
+{
+  "status": "started",
+  "job_id": "rcm-schmux-1707984000"
+}
+```
+
+Errors:
+
+- `400 Bad Request`: repo not found or missing bare_path
+- `409 Conflict`: analysis already running for this repo
+
+### GET /api/precog/repo/{repoName}/status
+
+Returns the status of a precog analysis job.
+
+Response:
+
+```json
+{
+  "status": "running",
+  "current_pass": "B",
+  "started_at": "2024-02-15T10:00:00Z",
+  "completed_at": null,
+  "error": null
+}
+```
+
+Notes:
+
+- `status` can be `"running"`, `"completed"`, or `"failed"`
+- `current_pass` is one of `"A"`, `"B"`, `"C"`, `"D"`, `"E"`, `"F"` (or empty when complete)
+
+### GET /api/precog/repo/{repoName}
+
+Returns the completed RCM analysis result.
+
+Response: Full RCM JSON (see `internal/api/contracts/precog.go` for schema).
+
+Key fields:
+
+- `repo_summary`: name, commit hash, system type, languages, lines of code
+- `capabilities`: 8-20 domain functions the system provides
+- `contracts`: coordination surfaces (shared types, configs, APIs)
+- `clusters`: groups of tightly coupled files
+- `couplings`: relationships between capabilities
+- `drift_findings`: mismatches between intended and actual structure
+- `gravity`: regions attracting development work
+- `trajectory`: predicted evolution directions
+- `confidence`: confidence estimates for each section
+
+Errors:
+
+- `404 Not Found`: no analysis exists for this repo
+
 ## Dev Mode Endpoints
 
 These endpoints are only registered when the daemon is started with `--dev-mode` (via `./dev.sh`).

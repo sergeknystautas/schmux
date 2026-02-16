@@ -88,6 +88,7 @@ type Config struct {
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
+	Precog                     *PrecogConfig          `json:"precog,omitempty"`
 
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
@@ -352,6 +353,12 @@ type ExternalDiffCommand struct {
 // ModelsConfig holds model-related configuration.
 type ModelsConfig struct {
 	Versions map[string]string `json:"versions,omitempty"` // modelID -> pinned version
+}
+
+// PrecogConfig holds configuration for precog (repository construction model) analysis.
+type PrecogConfig struct {
+	Target  string `json:"target,omitempty"`  // run target for LLM calls
+	Timeout int    `json:"timeout,omitempty"` // seconds per pass, default 120
 }
 
 const (
@@ -651,6 +658,24 @@ func (c *Config) GetLoreInstructionFiles() []string {
 		return c.Lore.InstructionFiles
 	}
 	return DefaultInstructionFiles
+}
+
+// GetPrecogTarget returns the configured precog LLM target.
+// Returns empty string if not configured.
+func (c *Config) GetPrecogTarget() string {
+	if c != nil && c.Precog != nil && c.Precog.Target != "" {
+		return c.Precog.Target
+	}
+	return ""
+}
+
+// GetPrecogTimeout returns the timeout in seconds for each precog pass.
+// Defaults to 120 seconds (2 minutes).
+func (c *Config) GetPrecogTimeout() int {
+	if c != nil && c.Precog != nil && c.Precog.Timeout > 0 {
+		return c.Precog.Timeout
+	}
+	return 120
 }
 
 // DefaultOverlayPaths are always watched for all repos.

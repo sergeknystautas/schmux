@@ -61,6 +61,7 @@ type ConfigSnapshot = {
   nudgenikTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
+  precogTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
   terminalWidth: string;
@@ -159,6 +160,7 @@ export default function ConfigPage() {
   const [nudgenikTarget, setNudgenikTarget] = useState('');
   const [branchSuggestTarget, setBranchSuggestTarget] = useState('');
   const [conflictResolveTarget, setConflictResolveTarget] = useState('');
+  const [precogTarget, setPrecogTarget] = useState('');
   const [prReviewTarget, setPrReviewTarget] = useState('');
   const [commitMessageTarget, setCommitMessageTarget] = useState('');
 
@@ -223,6 +225,7 @@ export default function ConfigPage() {
       nudgenikTarget,
       branchSuggestTarget,
       conflictResolveTarget,
+      precogTarget,
       prReviewTarget,
       commitMessageTarget,
       terminalWidth,
@@ -269,6 +272,7 @@ export default function ConfigPage() {
       current.nudgenikTarget !== originalConfig.nudgenikTarget ||
       current.branchSuggestTarget !== originalConfig.branchSuggestTarget ||
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
+      current.precogTarget !== originalConfig.precogTarget ||
       current.prReviewTarget !== originalConfig.prReviewTarget ||
       current.commitMessageTarget !== originalConfig.commitMessageTarget ||
       current.terminalWidth !== originalConfig.terminalWidth ||
@@ -384,6 +388,7 @@ export default function ConfigPage() {
         setNudgenikTarget(data.nudgenik?.target || '');
         setBranchSuggestTarget(data.branch_suggest?.target || '');
         setConflictResolveTarget(data.conflict_resolve?.target || '');
+        setPrecogTarget(data.precog?.target || '');
         setPrReviewTarget(data.pr_review?.target || '');
         setCommitMessageTarget(data.commit_message?.target || '');
 
@@ -429,6 +434,7 @@ export default function ConfigPage() {
             nudgenikTarget: data.nudgenik?.target || '',
             branchSuggestTarget: data.branch_suggest?.target || '',
             conflictResolveTarget: data.conflict_resolve?.target || '',
+            precogTarget: data.precog?.target || '',
             prReviewTarget: data.pr_review?.target || '',
             commitMessageTarget: data.commit_message?.target || '',
             terminalWidth: String(data.terminal?.width || 120),
@@ -619,6 +625,9 @@ export default function ConfigPage() {
         conflict_resolve: {
           target: conflictResolveTarget || '',
         },
+        precog: {
+          target: precogTarget || '',
+        },
         pr_review: {
           target: prReviewTarget || '',
         },
@@ -682,6 +691,7 @@ export default function ConfigPage() {
           nudgenikTarget,
           branchSuggestTarget,
           conflictResolveTarget,
+          precogTarget,
           prReviewTarget,
           commitMessageTarget,
           terminalWidth,
@@ -2043,6 +2053,51 @@ export default function ConfigPage() {
                         Selected target is not available or not promptable.
                       </p>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Precog (Repository Analysis)</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={precogTarget}
+                      onChange={(e) => setPrecogTarget(e.target.value)}
+                    >
+                      <option value="">Disabled</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      Select a promptable target for repository construction model (RCM) analysis.
+                      This analyzes repository structure, capabilities, and coordination surfaces.
+                    </p>
                   </div>
                 </div>
               </div>
