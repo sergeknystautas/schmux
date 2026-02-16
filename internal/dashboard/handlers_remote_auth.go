@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"crypto/hmac"
+	crypto_rand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -22,6 +23,12 @@ const minPinLength = 6
 
 const remoteSessionMaxAge = 24 * time.Hour
 
+type remoteNonce struct {
+	createdAt time.Time
+}
+
+const nonceMaxAge = 5 * time.Minute
+
 func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -35,32 +42,70 @@ func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-
-	s.remoteTokenMu.Lock()
-	validToken := s.remoteToken
-	failures := s.remoteTokenFailures
-	s.remoteTokenMu.Unlock()
+	nonce := r.URL.Query().Get("nonce")
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// No token provided — show instructions page
-	if token == "" {
-		fmt.Fprint(w, renderInstructionsPage())
+	// Case 1: Token provided — consume it and redirect to a nonce
+	if token != "" {
+		s.remoteTokenMu.Lock()
+		validToken := s.remoteToken
+		if token != validToken || validToken == "" {
+			s.remoteTokenMu.Unlock()
+			fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+			return
+		}
+		// Consume token (one-time use)
+		s.remoteToken = ""
+
+		// Generate nonce
+		nonceBytes := make([]byte, 16)
+		if _, err := crypto_rand.Read(nonceBytes); err != nil {
+			s.remoteTokenMu.Unlock()
+			fmt.Fprint(w, renderPinPage("", "Internal error.", 0))
+			return
+		}
+		nonceValue := hex.EncodeToString(nonceBytes)
+
+		// Clean expired nonces
+		now := time.Now()
+		for k, v := range s.remoteNonces {
+			if now.Sub(v.createdAt) > nonceMaxAge {
+				delete(s.remoteNonces, k)
+			}
+		}
+
+		s.remoteNonces[nonceValue] = &remoteNonce{createdAt: now}
+		s.remoteTokenMu.Unlock()
+
+		http.Redirect(w, r, "/remote-auth?nonce="+nonceValue, http.StatusFound)
 		return
 	}
 
-	if validToken == "" || token != validToken {
-		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+	// Case 2: Nonce provided — validate and show PIN form
+	if nonce != "" {
+		s.remoteTokenMu.Lock()
+		n, exists := s.remoteNonces[nonce]
+		failures := s.remoteTokenFailures
+		s.remoteTokenMu.Unlock()
+
+		if !exists || time.Since(n.createdAt) > nonceMaxAge {
+			fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
+			return
+		}
+
+		if failures >= maxPinAttempts {
+			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
+			return
+		}
+
+		remaining := maxPinAttempts - failures
+		fmt.Fprint(w, renderPinPage(nonce, "", remaining))
 		return
 	}
 
-	if failures >= maxPinAttempts {
-		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
-		return
-	}
-
-	remaining := maxPinAttempts - failures
-	fmt.Fprint(w, renderPinPage(token, "", remaining))
+	// Case 3: Neither token nor nonce — show instructions
+	fmt.Fprint(w, renderInstructionsPage())
 }
 
 func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
@@ -74,14 +119,14 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := r.FormValue("token")
+	nonce := r.FormValue("nonce")
 	pin := r.FormValue("pin")
 
 	s.remoteTokenMu.Lock()
-	validToken := s.remoteToken
+	n, nonceExists := s.remoteNonces[nonce]
 	failures := s.remoteTokenFailures
 
-	if token == "" || validToken == "" || token != validToken {
+	if nonce == "" || !nonceExists || time.Since(n.createdAt) > nonceMaxAge {
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, renderPinPage("", "Invalid or expired link.", 0))
@@ -89,7 +134,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if failures >= maxPinAttempts {
-		s.remoteToken = ""
+		delete(s.remoteNonces, nonce)
 		s.remoteTokenMu.Unlock()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
@@ -115,7 +160,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		s.remoteTokenFailures++
 		newFailures := s.remoteTokenFailures
 		if newFailures >= maxPinAttempts {
-			s.remoteToken = ""
+			delete(s.remoteNonces, nonce)
 			s.remoteTokenMu.Unlock()
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			fmt.Fprint(w, renderPinPage("", "Too many failed attempts. This link has been locked.", 0))
@@ -124,13 +169,13 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		s.remoteTokenMu.Unlock()
 		remaining := maxPinAttempts - newFailures
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, renderPinPage(token, "Incorrect PIN.", remaining))
+		fmt.Fprint(w, renderPinPage(nonce, "Incorrect PIN.", remaining))
 		return
 	}
 
-	// Success — set remote session cookie
+	// Success — delete nonce, set remote session cookie
 	s.remoteTokenMu.Lock()
-	s.remoteToken = "" // one-time use
+	delete(s.remoteNonces, nonce)
 	secret := s.remoteSessionSecret
 	s.remoteTokenMu.Unlock()
 
@@ -272,10 +317,10 @@ body {
 </html>`
 }
 
-func renderPinPage(token string, errorMsg string, attemptsRemaining int) string {
-	tokenField := ""
-	if token != "" {
-		tokenField = `<input type="hidden" name="token" value="` + html.EscapeString(token) + `">`
+func renderPinPage(nonce string, errorMsg string, attemptsRemaining int) string {
+	nonceField := ""
+	if nonce != "" {
+		nonceField = `<input type="hidden" name="nonce" value="` + html.EscapeString(nonce) + `">`
 	}
 
 	errorHTML := ""
@@ -284,13 +329,13 @@ func renderPinPage(token string, errorMsg string, attemptsRemaining int) string 
 	}
 
 	formHTML := ""
-	if token != "" {
+	if nonce != "" {
 		attemptsHTML := ""
 		if attemptsRemaining > 0 && attemptsRemaining < maxPinAttempts {
 			attemptsHTML = fmt.Sprintf(`<div class="attempts">%d attempt(s) remaining</div>`, attemptsRemaining)
 		}
 		formHTML = `<form method="POST" action="/remote-auth">
-			` + tokenField + `
+			` + nonceField + `
 			<label for="pin">PIN</label>
 			<input type="password" id="pin" name="pin" autofocus required>
 			` + attemptsHTML + `

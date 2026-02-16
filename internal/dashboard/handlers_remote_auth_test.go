@@ -13,6 +13,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestValidateRemoteCookie_ExpiredCookie(t *testing.T) {
@@ -90,13 +91,13 @@ func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
 	}
 }
 
-func TestRenderPinPage_EscapesToken(t *testing.T) {
-	// A malicious token with HTML/JS injection
-	maliciousToken := `"><script>alert('xss')</script><input value="`
-	output := renderPinPage(maliciousToken, "", 5)
+func TestRenderPinPage_EscapesNonce(t *testing.T) {
+	// A malicious nonce with HTML/JS injection
+	maliciousNonce := `"><script>alert('xss')</script><input value="`
+	output := renderPinPage(maliciousNonce, "", 5)
 
 	if strings.Contains(output, "<script>") {
-		t.Error("renderPinPage must HTML-escape the token value")
+		t.Error("renderPinPage must HTML-escape the nonce value")
 	}
 	if !strings.Contains(output, "&lt;script&gt;") {
 		t.Error("expected escaped script tag in output")
@@ -242,15 +243,16 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
-	// Get the token
+	// Create a nonce directly (simulates token exchange)
+	nonce := "rate-limit-test-nonce"
 	server.remoteTokenMu.Lock()
-	token := server.remoteToken
+	server.remoteNonces[nonce] = &remoteNonce{createdAt: time.Now()}
 	server.remoteTokenMu.Unlock()
 
 	// The rate limiter allows 5 requests per minute per IP
 	// Send 6 POST requests from the same IP — 6th should be rate-limited
 	for i := 0; i < 5; i++ {
-		body := strings.NewReader("token=" + token + "&pin=wrong")
+		body := strings.NewReader("nonce=" + nonce + "&pin=wrong")
 		req, _ := http.NewRequest("POST", "/remote-auth", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.RemoteAddr = "1.2.3.4:12345"
@@ -263,7 +265,7 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 	}
 
 	// 6th request should be rate-limited
-	body := strings.NewReader("token=" + token + "&pin=wrong")
+	body := strings.NewReader("nonce=" + nonce + "&pin=wrong")
 	req, _ := http.NewRequest("POST", "/remote-auth", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.RemoteAddr = "1.2.3.4:12345"
@@ -324,6 +326,173 @@ func TestRemoteAuthGET_NoTokenOrNonce_ShowsInstructions(t *testing.T) {
 	}
 	if !strings.Contains(body, "notification") {
 		t.Error("should show instructions mentioning notification app")
+	}
+}
+
+func TestRemoteAuthGET_TokenConsumedAndRedirectsToNonce(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	server.remoteTokenMu.Lock()
+	token := server.remoteToken
+	server.remoteTokenMu.Unlock()
+
+	// GET with valid token
+	req, _ := http.NewRequest("GET", "/remote-auth?token="+token, nil)
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d", rr.Code)
+	}
+
+	loc := rr.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/remote-auth?nonce=") {
+		t.Errorf("expected redirect to /remote-auth?nonce=..., got: %s", loc)
+	}
+
+	// Token should be consumed
+	server.remoteTokenMu.Lock()
+	remaining := server.remoteToken
+	server.remoteTokenMu.Unlock()
+	if remaining != "" {
+		t.Error("token should be consumed (empty) after first use")
+	}
+}
+
+func TestRemoteAuthGET_NonceShowsPinForm(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	server.remoteTokenMu.Lock()
+	token := server.remoteToken
+	server.remoteTokenMu.Unlock()
+
+	// Exchange token for nonce
+	req, _ := http.NewRequest("GET", "/remote-auth?token="+token, nil)
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr, req)
+
+	loc := rr.Header().Get("Location")
+	nonce := strings.TrimPrefix(loc, "/remote-auth?nonce=")
+
+	// GET with valid nonce should show PIN form
+	req2, _ := http.NewRequest("GET", "/remote-auth?nonce="+nonce, nil)
+	rr2 := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr2.Code)
+	}
+
+	body := rr2.Body.String()
+	if !strings.Contains(body, `name="pin"`) {
+		t.Error("expected PIN form in response")
+	}
+	if !strings.Contains(body, `name="nonce"`) {
+		t.Error("expected hidden nonce field in response")
+	}
+}
+
+func TestRemoteAuthGET_ExpiredNonceRejected(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Create an expired nonce manually
+	nonce := "expired-nonce-test"
+	server.remoteTokenMu.Lock()
+	server.remoteNonces[nonce] = &remoteNonce{
+		createdAt: time.Now().Add(-6 * time.Minute),
+	}
+	server.remoteTokenMu.Unlock()
+
+	req, _ := http.NewRequest("GET", "/remote-auth?nonce="+nonce, nil)
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Invalid or expired") {
+		t.Error("expected 'Invalid or expired' message for expired nonce")
+	}
+}
+
+func TestRemoteAuthPOST_WorksWithNonce(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Set a PIN
+	pinHash, _ := bcrypt.GenerateFromPassword([]byte("testpin123"), bcrypt.DefaultCost)
+	server.config.RemoteAccess = &config.RemoteAccessConfig{PinHash: string(pinHash)}
+
+	server.remoteTokenMu.Lock()
+	token := server.remoteToken
+	server.remoteTokenMu.Unlock()
+
+	// Exchange token for nonce
+	req, _ := http.NewRequest("GET", "/remote-auth?token="+token, nil)
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr, req)
+
+	loc := rr.Header().Get("Location")
+	nonce := strings.TrimPrefix(loc, "/remote-auth?nonce=")
+
+	// POST with valid nonce + correct PIN
+	body := strings.NewReader("nonce=" + nonce + "&pin=testpin123")
+	req2, _ := http.NewRequest("POST", "/remote-auth", body)
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.RemoteAddr = "1.2.3.4:12345"
+	rr2 := httptest.NewRecorder()
+	server.handleRemoteAuthPOST(rr2, req2)
+
+	if rr2.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect after successful auth, got %d", rr2.Code)
+	}
+	if rr2.Header().Get("Location") != "/" {
+		t.Errorf("expected redirect to /, got: %s", rr2.Header().Get("Location"))
+	}
+
+	// Check that a session cookie was set
+	cookies := rr2.Result().Cookies()
+	found := false
+	for _, c := range cookies {
+		if c.Name == "schmux_remote" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected schmux_remote cookie to be set")
+	}
+}
+
+func TestRemoteAuthGET_ReplayedTokenRejected(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	server.remoteTokenMu.Lock()
+	token := server.remoteToken
+	server.remoteTokenMu.Unlock()
+
+	// First use — should succeed (302 redirect to nonce)
+	req, _ := http.NewRequest("GET", "/remote-auth?token="+token, nil)
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr, req)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302 on first use, got %d", rr.Code)
+	}
+
+	// Second use — token consumed, should show error
+	req2, _ := http.NewRequest("GET", "/remote-auth?token="+token, nil)
+	rr2 := httptest.NewRecorder()
+	server.handleRemoteAuthGET(rr2, req2)
+
+	body := rr2.Body.String()
+	if !strings.Contains(body, "Invalid or expired") {
+		t.Error("replayed token should show 'Invalid or expired' message")
 	}
 }
 
