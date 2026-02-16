@@ -45,3 +45,14 @@ cd test/scenarios/generated && npx tsc --noEmit
 ```
 
 Report any type errors and fix them before presenting the results.
+
+## Verification
+
+After type-checking passes, run the generated scenario tests to confirm they pass end-to-end:
+
+```bash
+./test.sh --scenarios --run '<scenario name>'
+```
+
+Replace `<scenario name>` with the test describe block name (e.g., `'Remote access onboarding'`).
+If multiple scenarios were generated, run each one. Fix any failures before presenting the results.
