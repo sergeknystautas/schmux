@@ -269,40 +269,39 @@ body {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 	display: flex; align-items: center; justify-content: center;
 	min-height: 100vh; padding: 1rem;
-	background: #f5f5f5; color: #333;
+	background: #fff; color: #111;
 }
 @media (prefers-color-scheme: dark) {
-	body { background: #1a1a2e; color: #e0e0e0; }
-	.card { background: #16213e; border-color: #0f3460; }
-	input { background: #1a1a2e; color: #e0e0e0; border-color: #0f3460; }
-	input:focus { border-color: #4a90d9; }
-	button { background: #4a90d9; }
-	button:hover { background: #357abd; }
-	.error { background: #3d1515; border-color: #e74c3c; color: #ff6b6b; }
+	body { background: #111; color: #e0e0e0; }
+	.card { border-color: #333; }
+	input { background: #1a1a1a; color: #e0e0e0; border-color: #333; }
+	input:focus { border-color: #888; }
+	button { background: #fff; color: #111; }
+	button:hover { background: #ddd; }
+	.error { background: #2a1515; border-color: #dc2626; color: #ff6b6b; }
 	.attempts { color: #999; }
 }
 .card {
-	background: #fff; border: 1px solid #ddd; border-radius: 12px;
-	padding: 2rem; max-width: 400px; width: 100%;
-	box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+	max-width: 360px; width: 100%; padding: 2.5rem 2rem;
 }
-form { display: flex; flex-direction: column; gap: 0.75rem; }
-label { font-size: 0.875rem; font-weight: 500; }
+form { display: flex; flex-direction: column; gap: 1rem; }
+label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
 input[type="password"] {
-	padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px;
-	font-size: 1rem; outline: none;
+	padding: 0.75rem; border: 1px solid #ddd; border-radius: 6px;
+	font-size: 1rem; outline: none; transition: border-color 0.15s;
 }
-input[type="password"]:focus { border-color: #2563eb; }
+input[type="password"]:focus { border-color: #111; }
 button {
-	padding: 0.75rem; background: #2563eb; color: #fff; border: none;
-	border-radius: 8px; font-size: 1rem; cursor: pointer; font-weight: 500;
+	padding: 0.75rem; background: #111; color: #fff; border: none;
+	border-radius: 6px; font-size: 0.95rem; cursor: pointer; font-weight: 500;
+	transition: background 0.15s;
 }
-button:hover { background: #1d4ed8; }
+button:hover { background: #333; }
 .error {
 	background: #fef2f2; border: 1px solid #fecaca; color: #dc2626;
-	padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 0.5rem;
+	padding: 0.75rem; border-radius: 6px; font-size: 0.875rem; margin-bottom: 0.5rem;
 }
-.attempts { font-size: 0.8rem; color: #666; text-align: center; }
+.attempts { font-size: 0.8rem; color: #999; text-align: center; }
 </style>
 </head>
 <body>
