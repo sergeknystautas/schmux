@@ -23,7 +23,7 @@ and expect the API to reject the request with an error about needing a PIN.
 ## Verifications
 
 - GET /api/config shows `remote_access.pin_hash_set` is false initially
-- The dashboard home page shows the Remote Access panel with the "Set a PIN first" warning
+- The dashboard home page shows the Remote Access panel with a "Set a PIN" link
 - POST /api/remote-access/set-pin with `{"pin": "test1234"}` succeeds with `{"ok": true}`
 - GET /api/config now shows `remote_access.pin_hash_set` is true
 - Reloading the dashboard, the "Set a PIN first" warning is no longer visible

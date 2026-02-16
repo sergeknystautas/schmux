@@ -1161,8 +1161,8 @@ export default function ConfigPage() {
       setPinError('PIN cannot be empty');
       return;
     }
-    if (pinInput.length < 4) {
-      setPinError('PIN must be at least 4 characters');
+    if (pinInput.length < 6) {
+      setPinError('PIN must be at least 6 characters');
       return;
     }
     if (pinInput !== pinConfirm) {

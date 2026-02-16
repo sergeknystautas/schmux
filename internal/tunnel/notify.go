@@ -20,6 +20,13 @@ func (nc *NotifyConfig) Send(tunnelURL string, message string) error {
 	if nc.NtfyURL != "" {
 		if err := sendNtfyNotification(nc.NtfyURL, message, tunnelURL); err != nil {
 			errs = append(errs, fmt.Sprintf("ntfy: %v", err))
+		} else {
+			// Log success with topic but not the auth URL (contains token)
+			topic := nc.NtfyURL
+			if idx := strings.LastIndex(topic, "/"); idx >= 0 {
+				topic = topic[idx+1:]
+			}
+			fmt.Printf("[remote-access] ntfy notification sent to topic %q\n", topic)
 		}
 	}
 
