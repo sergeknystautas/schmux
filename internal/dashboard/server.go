@@ -422,6 +422,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOff)))
 	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
 	mux.HandleFunc("/api/remote-access/set-password", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessSetPassword)))
+	mux.HandleFunc("/api/remote-access/test-notification", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessTestNotification)))
 
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {

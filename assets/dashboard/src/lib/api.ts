@@ -948,3 +948,13 @@ export async function setRemoteAccessPassword(password: string): Promise<void> {
     throw new Error(text || 'Failed to set password');
   }
 }
+
+export async function testRemoteAccessNotification(): Promise<void> {
+  const response = await fetch('/api/remote-access/test-notification', {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to send test notification');
+  }
+}

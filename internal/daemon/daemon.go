@@ -423,7 +423,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	// Create tunnel manager for remote access
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
 		Disabled:        cfg.GetRemoteAccessDisabled(),
-		PasswordHashSet: cfg.GetRemoteAccessPasswordHash() != "",
+		PasswordHashSet: func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
 		Port:            cfg.GetPort(),
 		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
 		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),

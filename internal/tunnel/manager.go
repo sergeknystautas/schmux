@@ -30,7 +30,7 @@ type TunnelStatus struct {
 // ManagerConfig holds configuration for the tunnel manager.
 type ManagerConfig struct {
 	Disabled        bool
-	PasswordHashSet bool
+	PasswordHashSet func() bool // called at Start() to check if password is configured
 	Port            int
 	SchmuxBinDir    string
 	TimeoutMinutes  int
@@ -77,7 +77,7 @@ func (m *Manager) Start() error {
 	if m.config.Disabled {
 		return fmt.Errorf("remote access is disabled in config")
 	}
-	if !m.config.PasswordHashSet {
+	if m.config.PasswordHashSet == nil || !m.config.PasswordHashSet() {
 		return fmt.Errorf("remote access requires a password (run: schmux remote set-password)")
 	}
 
