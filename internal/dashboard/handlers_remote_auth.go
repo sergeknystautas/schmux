@@ -18,6 +18,8 @@ import (
 
 const maxPinAttempts = 5
 
+const minPinLength = 6
+
 const remoteSessionMaxAge = 24 * time.Hour
 
 func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
@@ -195,8 +197,8 @@ func (s *Server) handleRemoteAccessSetPin(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Pin == "" {
-		http.Error(w, "PIN cannot be empty", http.StatusBadRequest)
+	if len(req.Pin) < minPinLength {
+		http.Error(w, fmt.Sprintf("PIN must be at least %d characters", minPinLength), http.StatusBadRequest)
 		return
 	}
 

@@ -179,6 +179,35 @@ func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
 	}
 }
 
+func TestHandleRemoteAccessSetPin_RejectsShortPin(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+
+	tests := []struct {
+		name string
+		pin  string
+	}{
+		{"empty", ""},
+		{"too short 3 chars", "abc"},
+		{"too short 5 chars", "abcde"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := strings.NewReader(fmt.Sprintf(`{"pin":%q}`, tt.pin))
+			req, _ := http.NewRequest("POST", "/api/remote-access/set-pin", body)
+			req.Header.Set("Content-Type", "application/json")
+			req.RemoteAddr = "127.0.0.1:12345"
+
+			rr := httptest.NewRecorder()
+			server.handleRemoteAccessSetPin(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for PIN %q, got %d", tt.pin, rr.Code)
+			}
+		})
+	}
+}
+
 func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
