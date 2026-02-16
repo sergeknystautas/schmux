@@ -39,6 +39,7 @@ RUN_RACE=false
 RUN_VERBOSE=false
 RUN_COVERAGE=false
 FORCE_BUILD=false
+RUN_ALL=false
 TEST_RUN_PATTERN=""
 
 # Parse command line arguments
@@ -72,6 +73,7 @@ while [[ $# -gt 0 ]]; do
             RUN_UNIT=true
             RUN_E2E=true
             RUN_SCENARIOS=true
+            RUN_ALL=true
             shift
             ;;
         --bench)
@@ -215,23 +217,12 @@ build_local_artifacts() {
     echo -e "${YELLOW}▶️  Building local artifacts for Docker tests...${NC}"
     mkdir -p build
 
-    # Cross-compile schmux for linux/amd64
     echo -e "  ${BLUE}🔨 Cross-compiling schmux for Linux...${NC}"
     if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux; then
         echo -e "  ${RED}❌ Failed to cross-compile schmux${NC}"
         return 1
     fi
     echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
-
-    # Build dashboard if scenarios are requested
-    if [ "$RUN_SCENARIOS" = true ]; then
-        echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
-        if ! go run ./cmd/build-dashboard; then
-            echo -e "  ${RED}❌ Failed to build dashboard${NC}"
-            return 1
-        fi
-        echo -e "  ${GREEN}✅ Dashboard built${NC}"
-    fi
 
     LOCAL_BUILD_DONE=true
     echo ""
@@ -415,6 +406,14 @@ run_scenario_tests() {
         return 1
     fi
 
+    # Dashboard build (needed for scenarios, not for E2E)
+    echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
+    if ! go run ./cmd/build-dashboard; then
+        echo -e "  ${RED}❌ Failed to build dashboard${NC}"
+        return 1
+    fi
+    echo -e "  ${GREEN}✅ Dashboard built${NC}"
+
     if ! ensure_base_image schmux-scenarios-base Dockerfile.scenarios-base "Scenario"; then
         return 1
     fi
@@ -488,31 +487,140 @@ run_scenario_tests() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Parallel execution: run all suites concurrently, collect results
+# ─────────────────────────────────────────────────────────────────────────────
+run_suites_parallel() {
+    local parallel_dir
+    parallel_dir=$(mktemp -d)
+    local pids=()
+    local suites=()
+
+    echo -e "${YELLOW}▶️  Running test suites in parallel...${NC}"
+    echo ""
+
+    # Shared build step: cross-compile the binary (needed by E2E + scenarios)
+    echo -e "${YELLOW}▶️  Building local artifacts for Docker tests...${NC}"
+    mkdir -p build
+    echo -e "  ${BLUE}🔨 Cross-compiling schmux for Linux...${NC}"
+    if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux; then
+        echo -e "  ${RED}❌ Failed to cross-compile schmux${NC}"
+        rm -rf "$parallel_dir"
+        return 1
+    fi
+    echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
+    LOCAL_BUILD_DONE=true
+    echo ""
+
+    # Fork: Unit tests
+    suites+=("unit")
+    (
+        set +e
+        run_unit_tests
+        echo $? > "$parallel_dir/unit.status"
+    ) > "$parallel_dir/unit.log" 2>&1 &
+    pids+=($!)
+
+    # Fork: React tests
+    suites+=("react")
+    (
+        set +e
+        run_react_tests
+        echo $? > "$parallel_dir/react.status"
+    ) > "$parallel_dir/react.log" 2>&1 &
+    pids+=($!)
+
+    # Fork: E2E tests
+    suites+=("e2e")
+    (
+        set +e
+        run_e2e_tests
+        echo $? > "$parallel_dir/e2e.status"
+    ) > "$parallel_dir/e2e.log" 2>&1 &
+    pids+=($!)
+
+    # Fork: Scenario tests (includes dashboard build internally)
+    suites+=("scenarios")
+    (
+        set +e
+        run_scenario_tests
+        echo $? > "$parallel_dir/scenarios.status"
+    ) > "$parallel_dir/scenarios.log" 2>&1 &
+    pids+=($!)
+
+    echo -e "  ${BLUE}⏳ Waiting for ${#suites[@]} suites: ${suites[*]}${NC}"
+    echo ""
+
+    # Wait for all background jobs
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+
+    # Collect results and print output
+    local any_failed=false
+    local suite_labels=("Unit Tests" "React Tests" "E2E Tests" "Scenario Tests")
+
+    for i in "${!suites[@]}"; do
+        local suite="${suites[$i]}"
+        local label="${suite_labels[$i]}"
+        local status_file="$parallel_dir/${suite}.status"
+        local log_file="$parallel_dir/${suite}.log"
+        local status=1
+
+        if [ -f "$status_file" ]; then
+            status=$(cat "$status_file")
+        fi
+
+        echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
+        if [ "$status" -eq 0 ]; then
+            echo -e "${BLUE}║${NC}  ${GREEN}✅ ${label}${NC}$(printf '%*s' $((39 - ${#label})) '')${BLUE}║${NC}"
+        else
+            echo -e "${BLUE}║${NC}  ${RED}❌ ${label}${NC}$(printf '%*s' $((39 - ${#label})) '')${BLUE}║${NC}"
+            any_failed=true
+        fi
+        echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
+
+        if [ -f "$log_file" ]; then
+            cat "$log_file"
+        fi
+        echo ""
+    done
+
+    rm -rf "$parallel_dir"
+
+    if [ "$any_failed" = true ]; then
+        return 1
+    fi
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Run test suites
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run unit tests
-if [ "$RUN_UNIT" = true ]; then
-    run_unit_tests || EXIT_CODE=1
-    echo ""
-fi
+if [ "$RUN_ALL" = true ]; then
+    # Parallel mode: run all suites concurrently
+    run_suites_parallel || EXIT_CODE=1
+else
+    # Serial mode: run requested suites one at a time
+    if [ "$RUN_UNIT" = true ]; then
+        run_unit_tests || EXIT_CODE=1
+        echo ""
+    fi
 
-# Run React dashboard tests (standalone or as part of unit tests)
-if [ "$RUN_UNIT" = true ] || [ "$RUN_REACT" = true ]; then
-    run_react_tests || EXIT_CODE=1
-    echo ""
-fi
+    if [ "$RUN_UNIT" = true ] || [ "$RUN_REACT" = true ]; then
+        run_react_tests || EXIT_CODE=1
+        echo ""
+    fi
 
-# Run E2E tests
-if [ "$RUN_E2E" = true ]; then
-    run_e2e_tests || EXIT_CODE=1
-    echo ""
-fi
+    if [ "$RUN_E2E" = true ]; then
+        run_e2e_tests || EXIT_CODE=1
+        echo ""
+    fi
 
-# Run scenario tests
-if [ "$RUN_SCENARIOS" = true ]; then
-    run_scenario_tests || EXIT_CODE=1
-    echo ""
+    if [ "$RUN_SCENARIOS" = true ]; then
+        run_scenario_tests || EXIT_CODE=1
+        echo ""
+    fi
 fi
 
 # Run benchmarks
