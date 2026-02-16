@@ -2,14 +2,17 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
+import useVersionInfo from '../hooks/useVersionInfo';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
 
 export default function RemoteAccessPanel() {
-  const { remoteAccessStatus } = useSessions();
+  const { remoteAccessStatus, simulateRemote, setSimulateRemote } = useSessions();
   const { config } = useConfig();
+  const { versionInfo } = useVersionInfo();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isDevMode = !!versionInfo?.dev_mode;
   const isDisabled = config?.remote_access?.disabled;
   const pinHashSet = config?.remote_access?.pin_hash_set;
   const isActive =
@@ -31,77 +34,94 @@ export default function RemoteAccessPanel() {
     }
   };
 
-  if (isDisabled) {
+  const isRemoteClient =
+    window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+
+  if (isDisabled || isRemoteClient) {
     return null;
   }
 
   return (
     <div className="remote-access-panel" data-testid="remote-access-panel">
-      <div className="remote-access-panel__body">
-        <span className="remote-access-panel__title">Remote Access</span>
+      {!simulateRemote && (
+        <>
+          <div className="remote-access-panel__body">
+            <span className="remote-access-panel__title">Remote Access</span>
 
-        {!pinHashSet && remoteAccessStatus.state === 'off' && (
-          <div className="remote-access-panel__warning">
-            <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
+            {!pinHashSet && remoteAccessStatus.state === 'off' && (
+              <div className="remote-access-panel__warning">
+                <Link to="/config?tab=access">Set a PIN</Link> to enable remote access.
+              </div>
+            )}
+
+            {remoteAccessStatus.state === 'starting' && (
+              <div className="remote-access-panel__status remote-access-panel__status--starting">
+                Starting tunnel...
+              </div>
+            )}
+
+            {remoteAccessStatus.state === 'connected' && remoteAccessStatus.url && (
+              <div className="remote-access-panel__status remote-access-panel__status--connected">
+                <a
+                  href={remoteAccessStatus.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="remote-access-panel__url"
+                >
+                  {remoteAccessStatus.url.replace('https://', '')}
+                </a>
+              </div>
+            )}
+
+            {remoteAccessStatus.state === 'error' && (
+              <div className="remote-access-panel__status remote-access-panel__status--error">
+                {remoteAccessStatus.error || 'Tunnel error'}
+              </div>
+            )}
+
+            {error && (
+              <div className="remote-access-panel__status remote-access-panel__status--error">
+                {error}
+              </div>
+            )}
           </div>
-        )}
 
-        {remoteAccessStatus.state === 'starting' && (
-          <div className="remote-access-panel__status remote-access-panel__status--starting">
-            Starting tunnel...
-          </div>
-        )}
+          <button
+            className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
+            onClick={handleToggle}
+            disabled={loading || remoteAccessStatus.state === 'starting'}
+            data-testid="remote-access-toggle"
+          >
+            {loading || remoteAccessStatus.state === 'starting' ? (
+              '...'
+            ) : isActive ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+                Stop
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <polygon points="6,3 20,12 6,21" />
+                </svg>
+                Start
+              </>
+            )}
+          </button>
+        </>
+      )}
 
-        {remoteAccessStatus.state === 'connected' && remoteAccessStatus.url && (
-          <div className="remote-access-panel__status remote-access-panel__status--connected">
-            <a
-              href={remoteAccessStatus.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="remote-access-panel__url"
-            >
-              {remoteAccessStatus.url.replace('https://', '')}
-            </a>
-          </div>
-        )}
-
-        {remoteAccessStatus.state === 'error' && (
-          <div className="remote-access-panel__status remote-access-panel__status--error">
-            {remoteAccessStatus.error || 'Tunnel error'}
-          </div>
-        )}
-
-        {error && (
-          <div className="remote-access-panel__status remote-access-panel__status--error">
-            {error}
-          </div>
-        )}
-      </div>
-
-      <button
-        className={`remote-access-panel__toggle ${isActive ? 'remote-access-panel__toggle--active' : ''}`}
-        onClick={handleToggle}
-        disabled={loading || remoteAccessStatus.state === 'starting'}
-        data-testid="remote-access-toggle"
-      >
-        {loading || remoteAccessStatus.state === 'starting' ? (
-          '...'
-        ) : isActive ? (
-          <>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-            </svg>
-            Stop
-          </>
-        ) : (
-          <>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <polygon points="6,3 20,12 6,21" />
-            </svg>
-            Start
-          </>
-        )}
-      </button>
+      {isDevMode && (
+        <button
+          className={`dev-simulate-remote${simulateRemote ? ' dev-simulate-remote--active' : ''}`}
+          onClick={() => setSimulateRemote(!simulateRemote)}
+          data-testid="dev-simulate-remote"
+        >
+          {simulateRemote ? 'Exit' : 'Simulate'} Remote Access UI
+        </button>
+      )}
     </div>
   );
 }
