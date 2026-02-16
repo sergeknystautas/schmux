@@ -86,9 +86,14 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
   // Reserve rows for virtual nodes: you-are-here (1) + commit workflow (2 + file count)
   const virtualRowOverhead = 1 + (diffFiles.length > 0 ? 2 + diffFiles.length : 0);
+  // Always request enough commits to show all branch-ahead commits plus context
+  // (fork point + ancestors), so the branch detachment from main is always visible.
+  // The container scrolls, so requesting more than fits on screen is fine.
+  const aheadCount = ws?.git_ahead ?? 0;
+  const minCommits = aheadCount + 10; // all branch commits + fork point + context
   const maxCommits =
     containerHeight > 0
-      ? Math.max(5, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead)
+      ? Math.max(minCommits, Math.floor(containerHeight / ROW_HEIGHT) - virtualRowOverhead)
       : 0;
 
   const fetchData = useCallback(async () => {
