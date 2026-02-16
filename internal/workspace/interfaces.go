@@ -67,6 +67,7 @@ type ResolveConflictStep struct {
 	Files              []string `json:"files,omitempty"`
 	Confidence         string   `json:"confidence,omitempty"`
 	Summary            string   `json:"summary,omitempty"`
+	TmuxSession        string   `json:"tmux_session,omitempty"` // tmux session name for live terminal streaming
 	Created            *bool    `json:"created,omitempty"`
 }
 

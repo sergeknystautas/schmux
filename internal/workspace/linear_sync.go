@@ -645,7 +645,23 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		})
 
 		prompt := conflictresolve.BuildPrompt(workspacePath, hash, localCommitHash, localCommitMessage, unmergedFiles)
-		oneshotResult, rawResponse, err := conflictresolve.Execute(ctx, m.config, prompt, workspacePath)
+		onTmuxSession := func(tmuxName string) {
+			emit(ResolveConflictStep{
+				Action:      "llm_session",
+				Status:      "in_progress",
+				Message:     "Agent working in tmux session",
+				TmuxSession: tmuxName,
+				LocalCommit: localCommitHash,
+			})
+		}
+		oneshotResult, rawResponse, err := conflictresolve.ExecuteStreamed(ctx, m.config, prompt, workspacePath, onTmuxSession)
+
+		emit(ResolveConflictStep{
+			Action:      "llm_session",
+			Status:      "done",
+			Message:     "Agent finished",
+			LocalCommit: localCommitHash,
+		})
 
 		// Record the resolution attempt
 		fileNames := make([]string, 0, len(unmergedFiles))
