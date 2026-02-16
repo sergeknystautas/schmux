@@ -113,6 +113,26 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 	remoteBranchCmd.Dir = worktreeBasePath
 	remoteBranchExists := remoteBranchCmd.Run() == nil
 
+	// When both local and remote branches exist, check if local has diverged
+	// from remote (e.g., after a force-push of the default branch). If diverged,
+	// reset the local ref to match remote so the worktree gets the current history.
+	// Only safe when the branch is NOT checked out in another worktree.
+	if localBranchExists && remoteBranchExists && !m.isBranchInWorktree(ctx, worktreeBasePath, branch) {
+		localRef := "refs/heads/" + branch
+		remoteRef := "refs/remotes/origin/" + branch
+		ffCheck := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", localRef, remoteRef)
+		ffCheck.Dir = worktreeBasePath
+		if ffCheck.Run() != nil {
+			// Local branch has diverged from remote — reset to match remote
+			fmt.Printf("[workspace] local %s diverged from origin, resetting to origin/%s\n", branch, branch)
+			updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
+			updateCmd.Dir = worktreeBasePath
+			if output, err := updateCmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("failed to reset diverged local %s: %w: %s", branch, err, string(output))
+			}
+		}
+	}
+
 	var args []string
 	if localBranchExists {
 		// Branch exists locally - check it out directly (no -b)
