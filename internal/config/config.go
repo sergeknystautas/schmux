@@ -267,10 +267,40 @@ type LoreConfig struct {
 	Enabled          *bool    `json:"enabled,omitempty"`            // explicitly enable/disable (default: true)
 	Target           string   `json:"llm_target,omitempty"`         // LLM target for curator (falls back to compound target)
 	AutoPR           *bool    `json:"auto_pr,omitempty"`            // auto-create PR after pushing lore branch (default: false)
-	CurateOnDispose  *bool    `json:"curate_on_dispose,omitempty"`  // trigger curator on session dispose (default: true)
+	CurateOnDispose  string   `json:"curate_on_dispose,omitempty"`  // "session", "workspace", or "never" (default: "session")
 	CurateDebounceMs int      `json:"curate_debounce_ms,omitempty"` // debounce for auto-curation (default 30000)
 	PruneAfterDays   int      `json:"prune_after_days,omitempty"`   // days before pruning applied/dismissed entries (default 30)
 	InstructionFiles []string `json:"instruction_files,omitempty"`  // instruction file patterns to manage
+
+	// curateOnDisposeRaw stores the raw JSON value for backward compatibility.
+	// Old configs may have a boolean value (true → "session", false → "never").
+	curateOnDisposeRaw json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for LoreConfig to handle
+// backward compatibility where curate_on_dispose was a boolean.
+func (lc *LoreConfig) UnmarshalJSON(data []byte) error {
+	// Use an alias type to avoid infinite recursion
+	type loreConfigAlias LoreConfig
+	var alias loreConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		// If standard unmarshal fails (e.g., curate_on_dispose is a bool),
+		// parse the raw JSON to extract the field manually.
+		var raw map[string]json.RawMessage
+		if err2 := json.Unmarshal(data, &raw); err2 != nil {
+			return err
+		}
+		// Remove curate_on_dispose from the map and retry
+		codRaw := raw["curate_on_dispose"]
+		delete(raw, "curate_on_dispose")
+		sanitized, _ := json.Marshal(raw)
+		if err2 := json.Unmarshal(sanitized, &alias); err2 != nil {
+			return err
+		}
+		alias.curateOnDisposeRaw = codRaw
+	}
+	*lc = LoreConfig(alias)
+	return nil
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -617,13 +647,32 @@ func (c *Config) GetLoreAutoPR() bool {
 	return *c.Lore.AutoPR
 }
 
-// GetLoreCurateOnDispose returns whether to trigger the curator on session dispose.
-// Defaults to true.
-func (c *Config) GetLoreCurateOnDispose() bool {
-	if c == nil || c.Lore == nil || c.Lore.CurateOnDispose == nil {
-		return true
+// GetLoreCurateOnDispose returns the curate-on-dispose mode.
+// Returns "session", "workspace", or "never". Defaults to "session".
+func (c *Config) GetLoreCurateOnDispose() string {
+	if c == nil || c.Lore == nil {
+		return "session"
 	}
-	return *c.Lore.CurateOnDispose
+	// If the string value is already set, use it directly
+	if c.Lore.CurateOnDispose != "" {
+		switch c.Lore.CurateOnDispose {
+		case "session", "workspace", "never":
+			return c.Lore.CurateOnDispose
+		default:
+			return "session"
+		}
+	}
+	// Check the raw JSON for backward compatibility with boolean values
+	if c.Lore.curateOnDisposeRaw != nil {
+		raw := string(c.Lore.curateOnDisposeRaw)
+		if raw == "false" {
+			return "never"
+		}
+		if raw == "true" {
+			return "session"
+		}
+	}
+	return "session"
 }
 
 // GetLoreCurateDebounceMs returns the debounce interval for auto-curation in milliseconds.

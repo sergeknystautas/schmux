@@ -49,8 +49,8 @@ type Manager struct {
 	trackers                map[string]*SessionTracker
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
-	compoundCallback        func(workspaceID string, isSpawn bool) // notify compounder on session spawn/dispose
-	loreCallback            func(repoName, repoURL string)         // notify lore curator on session dispose
+	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
+	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -115,7 +115,7 @@ func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool))
 
 // SetLoreCallback sets the callback for notifying the lore system on session dispose.
 // Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string)) {
+func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string, isLastSession bool)) {
 	m.loreCallback = cb
 }
 
@@ -1236,14 +1236,14 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		m.compoundCallback(sess.WorkspaceID, false)
 	}
 
-	// Notify lore system on session dispose
-	if m.loreCallback != nil && isLastSession {
+	// Notify lore system on session dispose (always fires; daemon decides based on config)
+	if m.loreCallback != nil {
 		w, found := m.state.GetWorkspace(sess.WorkspaceID)
 		if found {
 			// Find repo name from URL
 			repoConfig, repoFound := m.config.FindRepoByURL(w.Repo)
 			if repoFound {
-				go m.loreCallback(repoConfig.Name, w.Repo)
+				go m.loreCallback(repoConfig.Name, w.Repo, isLastSession)
 			}
 		}
 	}

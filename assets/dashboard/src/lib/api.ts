@@ -14,6 +14,7 @@ import type {
   LoreEntriesResponse,
   LoreProposal,
   LoreProposalsResponse,
+  LoreStatusResponse,
   OpenVSCodeResponse,
   OverlayAddRequest,
   OverlayAddResponse,
@@ -891,4 +892,10 @@ export async function getLoreEntries(
 export async function triggerLoreCuration(repoName: string): Promise<void> {
   const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export async function getLoreStatus(): Promise<LoreStatusResponse> {
+  const res = await fetch('/api/lore/status');
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

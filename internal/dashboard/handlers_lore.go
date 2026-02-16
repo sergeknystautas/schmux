@@ -25,6 +25,12 @@ func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/lore/")
 	parts := strings.Split(path, "/")
 
+	// Global lore endpoints (no repo name required)
+	if len(parts) >= 1 && parts[0] == "status" {
+		s.handleLoreStatus(w, r)
+		return
+	}
+
 	// Validate repoName to prevent path traversal
 	if len(parts) > 0 {
 		repoName := parts[0]
@@ -50,6 +56,33 @@ func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+// handleLoreStatus returns the lore system configuration status.
+func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	enabled := s.config.GetLoreEnabled()
+	curateOnDispose := s.config.GetLoreCurateOnDispose()
+	llmTarget := s.config.GetLoreTarget()
+	curatorConfigured := s.loreCurator != nil && s.loreCurator.Executor != nil
+
+	var issues []string
+	if enabled && !curatorConfigured {
+		issues = append(issues, "No LLM target configured \u2014 curator cannot run. Set lore.llm_target in config.")
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled":            enabled,
+		"curator_configured": curatorConfigured,
+		"curate_on_dispose":  curateOnDispose,
+		"llm_target":         llmTarget,
+		"issues":             issues,
+	})
 }
 
 // getLoreWorkspacePaths returns the .schmux/lore.jsonl paths for all workspaces

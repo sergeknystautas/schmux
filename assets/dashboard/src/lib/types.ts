@@ -430,3 +430,11 @@ export interface LoreApplyResponse {
   status: string;
   branch: string;
 }
+
+export interface LoreStatusResponse {
+  enabled: boolean;
+  curator_configured: boolean;
+  curate_on_dispose: string;
+  llm_target: string;
+  issues: string[];
+}

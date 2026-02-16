@@ -1660,6 +1660,122 @@ func TestGetLoreAutoPR_Default(t *testing.T) {
 	}
 }
 
+func TestGetLoreCurateOnDispose(t *testing.T) {
+	t.Run("default is session", func(t *testing.T) {
+		c := &Config{}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("nil lore config defaults to session", func(t *testing.T) {
+		c := &Config{Lore: nil}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("string value session", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{CurateOnDispose: "session"}}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("string value workspace", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{CurateOnDispose: "workspace"}}
+		if got := c.GetLoreCurateOnDispose(); got != "workspace" {
+			t.Errorf("expected %q, got %q", "workspace", got)
+		}
+	})
+
+	t.Run("string value never", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{CurateOnDispose: "never"}}
+		if got := c.GetLoreCurateOnDispose(); got != "never" {
+			t.Errorf("expected %q, got %q", "never", got)
+		}
+	})
+
+	t.Run("invalid string defaults to session", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{CurateOnDispose: "bogus"}}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("backward compat bool true becomes session", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{
+			curateOnDisposeRaw: json.RawMessage("true"),
+		}}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("backward compat bool false becomes never", func(t *testing.T) {
+		c := &Config{Lore: &LoreConfig{
+			curateOnDisposeRaw: json.RawMessage("false"),
+		}}
+		if got := c.GetLoreCurateOnDispose(); got != "never" {
+			t.Errorf("expected %q, got %q", "never", got)
+		}
+	})
+}
+
+func TestLoreConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
+	t.Run("bool true in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": true, "llm_target": "claude"}`
+		var lc LoreConfig
+		if err := json.Unmarshal([]byte(input), &lc); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		if lc.Target != "claude" {
+			t.Errorf("expected target %q, got %q", "claude", lc.Target)
+		}
+		// Build config to check getter
+		c := &Config{Lore: &lc}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+
+	t.Run("bool false in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": false}`
+		var lc LoreConfig
+		if err := json.Unmarshal([]byte(input), &lc); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		c := &Config{Lore: &lc}
+		if got := c.GetLoreCurateOnDispose(); got != "never" {
+			t.Errorf("expected %q, got %q", "never", got)
+		}
+	})
+
+	t.Run("string value in JSON", func(t *testing.T) {
+		input := `{"curate_on_dispose": "workspace"}`
+		var lc LoreConfig
+		if err := json.Unmarshal([]byte(input), &lc); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		c := &Config{Lore: &lc}
+		if got := c.GetLoreCurateOnDispose(); got != "workspace" {
+			t.Errorf("expected %q, got %q", "workspace", got)
+		}
+	})
+
+	t.Run("absent field defaults to session", func(t *testing.T) {
+		input := `{"llm_target": "claude"}`
+		var lc LoreConfig
+		if err := json.Unmarshal([]byte(input), &lc); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		c := &Config{Lore: &lc}
+		if got := c.GetLoreCurateOnDispose(); got != "session" {
+			t.Errorf("expected %q, got %q", "session", got)
+		}
+	})
+}
+
 func TestDefaultOverlayPaths_IncludesSettingsLocal(t *testing.T) {
 	found := false
 	for _, p := range DefaultOverlayPaths {

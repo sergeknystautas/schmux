@@ -643,6 +643,15 @@ Request:
     "enabled": false,
     "provider": "github",
     "session_ttl_minutes": 1440
+  },
+  "lore": {
+    "enabled": true,
+    "llm_target": "claude",
+    "auto_pr": false,
+    "curate_on_dispose": "session",
+    "curate_debounce_ms": 30000,
+    "prune_after_days": 30,
+    "instruction_files": ["CLAUDE.md", "AGENTS.md"]
   }
 }
 ```
@@ -1323,6 +1332,110 @@ Response:
   "overlays": [{ "repo_name": "repo", "path": "/path", "exists": true, "file_count": 0 }]
 }
 ```
+
+## Lore API
+
+### GET /api/lore/status
+
+Returns the lore system configuration status, including whether the curator is configured and any issues.
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "curator_configured": false,
+  "curate_on_dispose": "session",
+  "llm_target": "",
+  "issues": ["No LLM target configured — curator cannot run. Set lore.llm_target in config."]
+}
+```
+
+Fields:
+
+- `enabled` (bool): Whether the lore system is enabled
+- `curator_configured` (bool): Whether the curator has an LLM executor configured
+- `curate_on_dispose` (string): When to auto-curate — `"session"` (every session dispose), `"workspace"` (only when last session for a workspace is disposed), or `"never"`
+- `llm_target` (string): Configured LLM target name (may be empty)
+- `issues` (string[]): Configuration issues that prevent full functionality
+
+### GET /api/lore/{repo}/proposals
+
+Lists all proposals for a repo.
+
+Response:
+
+```json
+{
+  "proposals": [{ "id": "...", "repo": "...", "status": "pending", ... }]
+}
+```
+
+### GET /api/lore/{repo}/proposals/{id}
+
+Returns a single proposal by ID.
+
+### POST /api/lore/{repo}/proposals/{id}/apply
+
+Applies a proposal: creates a worktree, commits changes, pushes the branch.
+
+Request body (optional):
+
+```json
+{
+  "overrides": { "CLAUDE.md": "modified content" }
+}
+```
+
+Response:
+
+```json
+{
+  "status": "applied",
+  "branch": "lore/...",
+  "pr_url": "https://..."
+}
+```
+
+### POST /api/lore/{repo}/proposals/{id}/dismiss
+
+Marks a proposal as dismissed.
+
+### GET /api/lore/{repo}/entries
+
+Returns lore entries for a repo, aggregated from all workspaces.
+
+Query parameters:
+
+- `state` — filter by state (`raw`, `proposed`, `applied`, `dismissed`)
+- `agent` — filter by agent name
+- `type` — filter by entry type
+- `limit` — max entries to return
+
+Response:
+
+```json
+{
+  "entries": [{ "ts": "...", "ws": "...", "agent": "...", "type": "...", "text": "..." }]
+}
+```
+
+### POST /api/lore/{repo}/curate
+
+Triggers manual curation for a repo. Requires an LLM target to be configured.
+
+Response:
+
+```json
+{
+  "status": "curated",
+  "proposal_id": "..."
+}
+```
+
+Errors:
+
+- 503: "lore curator not configured (no LLM target)" or "lore system not enabled"
 
 ## WebSocket
 

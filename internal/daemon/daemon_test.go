@@ -149,16 +149,16 @@ func TestProcessTerminalCapture(t *testing.T) {
 		}
 	})
 
-	t.Run("truncates to last 5000 chars", func(t *testing.T) {
+	t.Run("truncates to last 20000 chars", func(t *testing.T) {
 		// Build a string longer than maxTerminalCaptureLen
-		long := strings.Repeat("x", 8000)
+		long := strings.Repeat("x", 30000)
 		got := processTerminalCapture(long)
 		if len(got) != maxTerminalCaptureLen {
 			t.Errorf("got len %d, want %d", len(got), maxTerminalCaptureLen)
 		}
-		// Should keep the LAST 5000 chars (all 'x')
+		// Should keep the LAST 20000 chars (all 'x')
 		if got != strings.Repeat("x", maxTerminalCaptureLen) {
-			t.Error("should keep the last 5000 characters")
+			t.Error("should keep the last 20000 characters")
 		}
 	})
 
@@ -211,12 +211,12 @@ func TestProcessTerminalCapture(t *testing.T) {
 	})
 
 	t.Run("truncation keeps tail not head", func(t *testing.T) {
-		// First 3000 chars are 'a', last 5000 chars are 'b', total 8000
-		head := strings.Repeat("a", 3000)
-		tail := strings.Repeat("b", 5000)
+		// First 10000 chars are 'a', last 20000 chars are 'b', total 30000
+		head := strings.Repeat("a", 10000)
+		tail := strings.Repeat("b", 20000)
 		got := processTerminalCapture(head + tail)
 		if got != tail {
-			t.Error("truncation should keep the tail (last 5000 chars), not the head")
+			t.Error("truncation should keep the tail (last 20000 chars), not the head")
 		}
 	})
 
@@ -224,7 +224,7 @@ func TestProcessTerminalCapture(t *testing.T) {
 		// Build a string that forces truncation to land mid-rune.
 		// 'é' is 2 bytes (0xC3 0xA9). Fill with ASCII to push just past the limit,
 		// then place a multi-byte char right at the cut boundary.
-		prefix := "é" + strings.Repeat("x", maxTerminalCaptureLen) // 2 + 5000 = 5002 bytes
+		prefix := "é" + strings.Repeat("x", maxTerminalCaptureLen) // 2 + 20000 = 20002 bytes
 		got := processTerminalCapture(prefix)
 		// After truncation at byte offset, we'd cut into the 'é'. The fix should
 		// skip the broken leading byte so the result starts with a valid rune.
@@ -236,6 +236,42 @@ func TestProcessTerminalCapture(t *testing.T) {
 		}
 		if len(got) > maxTerminalCaptureLen {
 			t.Errorf("got len %d, want <= %d", len(got), maxTerminalCaptureLen)
+		}
+	})
+
+	t.Run("collapses runs of 3+ newlines to 2", func(t *testing.T) {
+		input := "line1\n\n\n\nline2\n\n\nline3"
+		got := processTerminalCapture(input)
+		want := "line1\n\nline2\n\nline3"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("collapses interior spaces/tabs within lines", func(t *testing.T) {
+		input := "hello    world\tfoo\t\tbar"
+		got := processTerminalCapture(input)
+		want := "hello world foo bar"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("preserves leading whitespace", func(t *testing.T) {
+		input := "    indented    content    here"
+		got := processTerminalCapture(input)
+		want := "    indented content here"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("collapses whitespace across multiple lines", func(t *testing.T) {
+		input := "  lead1   a   b\n\t\tlead2   c   d"
+		got := processTerminalCapture(input)
+		want := "  lead1 a b\n\t\tlead2 c d"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 }

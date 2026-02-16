@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getLoreProposals,
   getLoreEntries,
+  getLoreStatus,
   applyLoreProposal,
   dismissLoreProposal,
   triggerLoreCuration,
@@ -9,7 +10,7 @@ import {
 } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
-import type { LoreProposal, LoreEntry } from '../lib/types';
+import type { LoreProposal, LoreEntry, LoreStatusResponse } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
 type SelectedProposal = {
@@ -40,6 +41,9 @@ export default function LorePage() {
 
   // Re-curate state
   const [curating, setCurating] = useState(false);
+
+  // Lore system status
+  const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
 
   // Entry filter state
   const [entryFilters, setEntryFilters] = useState<{
@@ -96,7 +100,13 @@ export default function LorePage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
-    await Promise.all([loadProposals(), loadEntries(), loadFilterOptions()]);
+    // Fetch status in parallel with other data
+    const statusPromise = getLoreStatus()
+      .then(setLoreStatus)
+      .catch(() => {
+        // Status is non-critical; silently ignore errors
+      });
+    await Promise.all([loadProposals(), loadEntries(), loadFilterOptions(), statusPromise]);
     setLoading(false);
   }, [loadProposals, loadEntries, loadFilterOptions]);
 
@@ -214,6 +224,19 @@ export default function LorePage() {
     );
   }
 
+  if (loreStatus && !loreStatus.enabled) {
+    return (
+      <div className="empty-state">
+        <div className="empty-state__icon">!</div>
+        <h3 className="empty-state__title">Lore Disabled</h3>
+        <p className="empty-state__description">
+          The lore system is disabled. <a href="/config">Enable it in config</a> to start capturing
+          agent learnings.
+        </p>
+      </div>
+    );
+  }
+
   const pendingCount = proposals.filter((p) => p.status === 'pending').length;
   const rawEntries = entries.filter((e) => !e.state_change);
 
@@ -250,6 +273,16 @@ export default function LorePage() {
           entries
         </span>
       </div>
+
+      {/* Configuration warning banner */}
+      {loreStatus && loreStatus.issues && loreStatus.issues.length > 0 && (
+        <div className={styles.warningBanner} data-testid="lore-warning-banner">
+          {loreStatus.issues.map((issue, i) => (
+            <p key={i}>{issue}</p>
+          ))}
+          <a href="/config">Open config</a>
+        </div>
+      )}
 
       {/* Repo tabs */}
       {repos.length > 1 && (
