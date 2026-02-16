@@ -151,6 +151,7 @@ type Server struct {
 	remoteTokenMu       sync.Mutex
 	remoteSessionSecret []byte
 	remoteTunnelURL     string
+	remoteNonces        map[string]*remoteNonce
 
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
@@ -210,6 +211,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
 		remoteAuthLimiter:               NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 		previewDetect:                   make(map[string]time.Time),
+		remoteNonces:                    make(map[string]*remoteNonce),
 	}
 	s.previewManager = preview.NewManager(
 		st,
@@ -307,6 +309,7 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteTokenFailures = 0
 	s.remoteSessionSecret = nil
 	s.remoteTunnelURL = ""
+	s.remoteNonces = make(map[string]*remoteNonce)
 	s.remoteTokenMu.Unlock()
 }
 
