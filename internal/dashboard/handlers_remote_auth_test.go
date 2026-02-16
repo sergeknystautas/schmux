@@ -535,3 +535,102 @@ func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 		t.Error("should allow any origin again after tunnel stops with network_access=true")
 	}
 }
+
+func TestIsLocalRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+
+	if !server.isLocalRequest(req) {
+		t.Error("loopback request should be local when no tunnel is active")
+	}
+}
+
+func TestIsLocalRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
+
+	if server.isLocalRequest(req) {
+		t.Error("loopback + Cf-Connecting-IP + tunnel should NOT be local")
+	}
+}
+
+func TestIsLocalRequest_TunnelActive_LoopbackNoCfHeader_IsLocal(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	// No Cf-Connecting-IP or X-Forwarded-For headers
+
+	if !server.isLocalRequest(req) {
+		t.Error("loopback without forwarding headers should be local even with tunnel active")
+	}
+}
+
+func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Build a valid remote cookie
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(nowStr))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	// POST from 127.0.0.1 with Cf-Connecting-IP (tunneled), no CSRF token
+	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
+
+	rr := httptest.NewRecorder()
+	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
+	handler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for tunneled request without CSRF, got %d", rr.Code)
+	}
+}
+
+func TestNormalizeIPForRateLimit_TunnelActive_UsesCfConnectingIP(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	req, _ := http.NewRequest("POST", "/remote-auth", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Cf-Connecting-IP", "203.0.113.42")
+
+	ip := server.normalizeIPForRateLimit(req)
+	if ip != "203.0.113.42" {
+		t.Errorf("expected Cf-Connecting-IP value, got %q", ip)
+	}
+}
+
+func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	// No tunnel connected
+
+	req, _ := http.NewRequest("POST", "/remote-auth", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Cf-Connecting-IP", "203.0.113.42")
+
+	ip := server.normalizeIPForRateLimit(req)
+	if ip != "127.0.0.1" {
+		t.Errorf("expected RemoteAddr IP without tunnel, got %q", ip)
+	}
+}

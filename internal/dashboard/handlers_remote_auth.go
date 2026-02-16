@@ -110,7 +110,7 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	// Rate limit by IP
-	ip := s.normalizeIPForRateLimit(r.RemoteAddr)
+	ip := s.normalizeIPForRateLimit(r)
 	if !s.remoteAuthLimiter.Allow(ip) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Retry-After", "60")
