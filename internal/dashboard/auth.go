@@ -92,6 +92,12 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 			h(w, r)
 			return
 		}
+		// Local requests bypass tunnel-only auth (but not GitHub OAuth).
+		// The local user should always have unrestricted access.
+		if !s.authEnabled() && s.isLocalRequest(r) {
+			h(w, r)
+			return
+		}
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -121,6 +127,10 @@ func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 			h.ServeHTTP(w, r)
 			return
 		}
+		if !s.authEnabled() && s.isLocalRequest(r) {
+			h.ServeHTTP(w, r)
+			return
+		}
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -131,6 +141,9 @@ func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 
 func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) bool {
 	if !s.requiresAuth() {
+		return true
+	}
+	if !s.authEnabled() && s.isLocalRequest(r) {
 		return true
 	}
 	if _, err := s.authenticateRequest(r); err != nil {
