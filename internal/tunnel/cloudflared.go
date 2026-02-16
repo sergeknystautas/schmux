@@ -49,7 +49,8 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 		return path, nil
 	}
 
-	fmt.Printf("[remote-access] downloading cloudflared...\n")
+	fmt.Printf("[remote-access] cloudflared not found. Recommended: %s\n", installSuggestion(runtime.GOOS))
+	fmt.Printf("[remote-access] falling back to auto-download (no signature verification)...\n")
 	if err := os.MkdirAll(schmuxBinDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create bin dir: %w", err)
 	}
@@ -138,4 +139,15 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func installSuggestion(goos string) string {
+	switch goos {
+	case "darwin":
+		return "brew install cloudflared"
+	case "linux":
+		return "sudo apt install cloudflared  # or: sudo yum install cloudflared"
+	default:
+		return "install cloudflared from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+	}
 }

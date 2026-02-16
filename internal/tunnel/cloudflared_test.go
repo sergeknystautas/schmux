@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,23 @@ func TestFindCloudflared_NotFound(t *testing.T) {
 	_, err := FindCloudflared(tmpDir)
 	if err == nil {
 		t.Fatal("expected error when cloudflared not found")
+	}
+}
+
+func TestInstallSuggestion(t *testing.T) {
+	tests := []struct {
+		goos string
+		want string
+	}{
+		{"darwin", "brew install cloudflared"},
+		{"linux", "apt install cloudflared"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.goos, func(t *testing.T) {
+			got := installSuggestion(tt.goos)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("installSuggestion(%q) = %q, want contains %q", tt.goos, got, tt.want)
+			}
+		})
 	}
 }
