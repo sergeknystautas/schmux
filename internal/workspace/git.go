@@ -351,6 +351,15 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 	return files, nil
 }
 
+// hasCommonAncestor checks whether HEAD and the given ref share any common ancestor.
+// Returns true if `git merge-base HEAD <ref>` succeeds (i.e., the histories are related).
+// Returns false if there is no common ancestor (e.g., orphaned/force-pushed branch).
+func (m *Manager) hasCommonAncestor(ctx context.Context, dir, ref string) bool {
+	cmd := exec.CommandContext(ctx, "git", "merge-base", "HEAD", ref)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool)
 func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool) {

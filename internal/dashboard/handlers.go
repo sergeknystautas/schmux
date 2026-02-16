@@ -122,29 +122,30 @@ type SessionResponseItem struct {
 
 // WorkspaceResponseItem represents a workspace in the API response.
 type WorkspaceResponseItem struct {
-	ID                      string                `json:"id"`
-	Repo                    string                `json:"repo"`
-	RepoName                string                `json:"repo_name,omitempty"`
-	DefaultBranch           string                `json:"default_branch,omitempty"`
-	Branch                  string                `json:"branch"`
-	BranchURL               string                `json:"branch_url,omitempty"`
-	Path                    string                `json:"path"`
-	SessionCount            int                   `json:"session_count"`
-	Sessions                []SessionResponseItem `json:"sessions"`
-	QuickLaunch             []string              `json:"quick_launch,omitempty"`
-	GitAhead                int                   `json:"git_ahead"`
-	GitBehind               int                   `json:"git_behind"`
-	GitLinesAdded           int                   `json:"git_lines_added"`
-	GitLinesRemoved         int                   `json:"git_lines_removed"`
-	GitFilesChanged         int                   `json:"git_files_changed"`
-	RemoteHostID            string                `json:"remote_host_id,omitempty"`
-	RemoteHostStatus        string                `json:"remote_host_status,omitempty"`
-	RemoteFlavorName        string                `json:"remote_flavor_name,omitempty"`
-	RemoteFlavor            string                `json:"remote_flavor,omitempty"`
-	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
-	ConflictOnBranch        string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
-	CommitsSyncedWithRemote bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
-	Previews                []previewResponse     `json:"previews,omitempty"`
+	ID                       string                `json:"id"`
+	Repo                     string                `json:"repo"`
+	RepoName                 string                `json:"repo_name,omitempty"`
+	DefaultBranch            string                `json:"default_branch,omitempty"`
+	Branch                   string                `json:"branch"`
+	BranchURL                string                `json:"branch_url,omitempty"`
+	Path                     string                `json:"path"`
+	SessionCount             int                   `json:"session_count"`
+	Sessions                 []SessionResponseItem `json:"sessions"`
+	QuickLaunch              []string              `json:"quick_launch,omitempty"`
+	GitAhead                 int                   `json:"git_ahead"`
+	GitBehind                int                   `json:"git_behind"`
+	GitLinesAdded            int                   `json:"git_lines_added"`
+	GitLinesRemoved          int                   `json:"git_lines_removed"`
+	GitFilesChanged          int                   `json:"git_files_changed"`
+	RemoteHostID             string                `json:"remote_host_id,omitempty"`
+	RemoteHostStatus         string                `json:"remote_host_status,omitempty"`
+	RemoteFlavorName         string                `json:"remote_flavor_name,omitempty"`
+	RemoteFlavor             string                `json:"remote_flavor,omitempty"`
+	VCS                      string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
+	ConflictOnBranch         string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
+	CommitsSyncedWithRemote  bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
+	GitDefaultBranchOrphaned bool                  `json:"git_default_branch_orphaned"`  // true if origin/default has no common ancestor with HEAD
+	Previews                 []previewResponse     `json:"previews,omitempty"`
 }
 
 // buildSessionsResponse builds the sessions/workspaces response data.
@@ -217,28 +218,29 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
-			ID:                      ws.ID,
-			Repo:                    ws.Repo,
-			DefaultBranch:           defaultBranch,
-			Branch:                  branch,
-			BranchURL:               branchURL,
-			Path:                    ws.Path,
-			SessionCount:            0,
-			Sessions:                []SessionResponseItem{},
-			QuickLaunch:             quickLaunchNames,
-			GitAhead:                ws.GitAhead,
-			GitBehind:               ws.GitBehind,
-			GitLinesAdded:           ws.GitLinesAdded,
-			GitLinesRemoved:         ws.GitLinesRemoved,
-			GitFilesChanged:         ws.GitFilesChanged,
-			RemoteHostID:            remoteHostID,
-			RemoteHostStatus:        remoteHostStatus,
-			RemoteFlavorName:        remoteFlavorName,
-			RemoteFlavor:            remoteFlavor,
-			VCS:                     vcs,
-			ConflictOnBranch:        conflictOnBranch,
-			CommitsSyncedWithRemote: ws.CommitsSyncedWithRemote,
-			Previews:                []previewResponse{},
+			ID:                       ws.ID,
+			Repo:                     ws.Repo,
+			DefaultBranch:            defaultBranch,
+			Branch:                   branch,
+			BranchURL:                branchURL,
+			Path:                     ws.Path,
+			SessionCount:             0,
+			Sessions:                 []SessionResponseItem{},
+			QuickLaunch:              quickLaunchNames,
+			GitAhead:                 ws.GitAhead,
+			GitBehind:                ws.GitBehind,
+			GitLinesAdded:            ws.GitLinesAdded,
+			GitLinesRemoved:          ws.GitLinesRemoved,
+			GitFilesChanged:          ws.GitFilesChanged,
+			RemoteHostID:             remoteHostID,
+			RemoteHostStatus:         remoteHostStatus,
+			RemoteFlavorName:         remoteFlavorName,
+			RemoteFlavor:             remoteFlavor,
+			VCS:                      vcs,
+			ConflictOnBranch:         conflictOnBranch,
+			CommitsSyncedWithRemote:  ws.CommitsSyncedWithRemote,
+			GitDefaultBranchOrphaned: ws.GitDefaultBranchOrphaned,
+			Previews:                 []previewResponse{},
 		}
 		if s.previewManager != nil {
 			previews := s.state.GetWorkspacePreviews(ws.ID)

@@ -56,21 +56,22 @@ const (
 // Workspace represents a workspace directory state.
 // Multiple sessions can share the same workspace (multi-agent per directory).
 type Workspace struct {
-	ID                      string            `json:"id"`
-	Repo                    string            `json:"repo"`
-	Branch                  string            `json:"branch"`
-	Path                    string            `json:"path"`
-	GitDirty                bool              `json:"-"`
-	GitAhead                int               `json:"-"`
-	GitBehind               int               `json:"-"`
-	GitLinesAdded           int               `json:"-"`
-	GitLinesRemoved         int               `json:"-"`
-	GitFilesChanged         int               `json:"-"`
-	CommitsSyncedWithRemote bool              `json:"-"`                            // true if local HEAD matches origin/{branch}
-	RemoteHostID            string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces
-	RemotePath              string            `json:"remote_path,omitempty"`        // Path on remote host
-	ConflictOnBranch        *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
-	OverlayManifest         map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
+	ID                       string            `json:"id"`
+	Repo                     string            `json:"repo"`
+	Branch                   string            `json:"branch"`
+	Path                     string            `json:"path"`
+	GitDirty                 bool              `json:"-"`
+	GitAhead                 int               `json:"-"`
+	GitBehind                int               `json:"-"`
+	GitLinesAdded            int               `json:"-"`
+	GitLinesRemoved          int               `json:"-"`
+	GitFilesChanged          int               `json:"-"`
+	CommitsSyncedWithRemote  bool              `json:"-"`                            // true if local HEAD matches origin/{branch}
+	GitDefaultBranchOrphaned bool              `json:"-"`                            // true if origin/default has no common ancestor with HEAD
+	RemoteHostID             string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces
+	RemotePath               string            `json:"remote_path,omitempty"`        // Path on remote host
+	ConflictOnBranch         *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
+	OverlayManifest          map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
 }
 
 // WorkspacePreview represents a workspace preview proxy mapping.

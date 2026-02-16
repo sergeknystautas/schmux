@@ -699,3 +699,79 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 		t.Error("new worktree on main is missing after-clone.txt — local main was not updated")
 	}
 }
+
+// TestHasCommonAncestor_NormalBranch verifies that branches with shared history
+// return true from hasCommonAncestor.
+func TestHasCommonAncestor_NormalBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create repo with initial commit on main
+	remoteDir := gitTestWorkTree(t)
+
+	// Create a feature branch (shares history with main)
+	runGit(t, remoteDir, "checkout", "-b", "feature")
+	writeFile(t, remoteDir, "feature.txt", "feature content")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "feature commit")
+
+	// Clone and set up manager
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// HEAD is on main, origin/feature shares ancestry
+	if !m.hasCommonAncestor(ctx, cloneDir, "origin/feature") {
+		t.Error("hasCommonAncestor() returned false for branches with shared history")
+	}
+
+	// Also verify against origin/main (trivially the same)
+	if !m.hasCommonAncestor(ctx, cloneDir, "origin/main") {
+		t.Error("hasCommonAncestor() returned false for origin/main which is HEAD's upstream")
+	}
+}
+
+// TestHasCommonAncestor_OrphanBranch verifies that an orphan branch (no shared history)
+// returns false from hasCommonAncestor.
+func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create repo with initial commit on main
+	remoteDir := gitTestWorkTree(t)
+
+	// Create an orphan branch (no shared history with main)
+	runGit(t, remoteDir, "checkout", "--orphan", "orphan-branch")
+	writeFile(t, remoteDir, "orphan.txt", "orphan content")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "orphan commit")
+	runGit(t, remoteDir, "checkout", "main")
+
+	// Clone and set up manager
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// HEAD is on main, origin/orphan-branch has no common ancestor
+	if m.hasCommonAncestor(ctx, cloneDir, "origin/orphan-branch") {
+		t.Error("hasCommonAncestor() returned true for orphan branch with no shared history")
+	}
+}

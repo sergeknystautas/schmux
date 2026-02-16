@@ -603,6 +603,15 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 		actualBranch = w.Branch // fallback to existing state
 	}
 
+	// Detect orphaned default branch (origin/default has no common ancestor with HEAD)
+	orphaned := false
+	if defaultBranch, dbErr := m.GetDefaultBranch(ctx, w.Repo); dbErr == nil {
+		defaultRef := "origin/" + defaultBranch
+		if !m.hasCommonAncestor(ctx, w.Path, defaultRef) {
+			orphaned = true
+		}
+	}
+
 	// Update workspace in memory
 	w.GitDirty = dirty
 	w.GitAhead = ahead
@@ -611,6 +620,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	w.GitLinesRemoved = linesRemoved
 	w.GitFilesChanged = filesChanged
 	w.CommitsSyncedWithRemote = commitsSynced
+	w.GitDefaultBranchOrphaned = orphaned
 	w.Branch = actualBranch
 
 	// Update the workspace in state (this updates the in-memory copy)

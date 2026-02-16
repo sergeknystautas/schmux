@@ -67,6 +67,14 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	}
 	// Otherwise proceed - there are commits to pull (whether we're behind or diverged)
 
+	// 2b. Verify common ancestry — reject if origin/default has no shared history with HEAD
+	if !m.hasCommonAncestor(ctx, workspacePath, defaultRef) {
+		return nil, fmt.Errorf(
+			"cannot sync: no common ancestor between HEAD and %s (remote default branch may have been force-pushed to an unrelated history)",
+			defaultRef,
+		)
+	}
+
 	// 3. git log --oneline --reverse HEAD..<default branch> - Get list of commit hashes
 	logCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "--reverse", "HEAD.."+defaultRef)
 	logCmd.Dir = workspacePath
@@ -417,6 +425,13 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 
 	workspacePath := w.Path
 	defaultRef := "origin/" + defaultBranch
+
+	// Verify common ancestry — reject if origin/default has no shared history with HEAD
+	if !m.hasCommonAncestor(ctx, workspacePath, defaultRef) {
+		msg := fmt.Sprintf("Cannot resolve: no common ancestor between HEAD and %s (remote default branch may have been force-pushed to an unrelated history)", defaultRef)
+		emit(ResolveConflictStep{Action: "check_behind", Status: "failed", Message: msg})
+		return nil, fmt.Errorf("%s", msg)
+	}
 
 	// 1. Get the oldest commit hash from HEAD..<default branch>
 	logCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "--reverse", "HEAD.."+defaultRef)
