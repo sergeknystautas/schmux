@@ -638,6 +638,16 @@ func (c *Config) GetLoreTarget() string {
 	return c.GetCompoundTarget()
 }
 
+// GetLoreTargetRaw returns the explicitly configured lore curator LLM target
+// without any fallback. Returns "" if no target is set.
+// Use this for config UI display; use GetLoreTarget() for runtime behavior.
+func (c *Config) GetLoreTargetRaw() string {
+	if c == nil || c.Lore == nil {
+		return ""
+	}
+	return c.Lore.Target
+}
+
 // GetLoreAutoPR returns whether to auto-create a PR after pushing a lore branch.
 // Defaults to false.
 func (c *Config) GetLoreAutoPR() bool {

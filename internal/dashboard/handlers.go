@@ -1335,7 +1335,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		},
 		Lore: contracts.Lore{
 			Enabled:         s.config.GetLoreEnabled(),
-			LLMTarget:       s.config.GetLoreTarget(),
+			LLMTarget:       s.config.GetLoreTargetRaw(),
 			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
@@ -1691,6 +1691,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Update PR discovery polling based on new config
 	// Pass a function so poll always uses current repos list
 	s.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+
+	// Refresh lore curator executor when lore target changes
+	s.refreshLoreCurator(cfg)
 
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()

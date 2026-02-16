@@ -646,7 +646,7 @@ Request:
   },
   "lore": {
     "enabled": true,
-    "llm_target": "claude",
+    "llm_target": "",
     "auto_pr": false,
     "curate_on_dispose": "session",
     "curate_debounce_ms": 30000,

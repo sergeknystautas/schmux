@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 )
 
 // handleLoreRouter dispatches lore API requests based on the URL path.
@@ -474,4 +478,27 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		"status":      "curated",
 		"proposal_id": proposal.ID,
 	})
+}
+
+// refreshLoreCurator updates the lore curator's executor based on the current
+// config. Called after config save so the runtime curator stays in sync with
+// the persisted lore.llm_target value.
+func (s *Server) refreshLoreCurator(cfg *config.Config) {
+	target := cfg.GetLoreTarget()
+
+	if s.loreCurator == nil {
+		// Lore was disabled at startup — create a curator now
+		s.loreCurator = &lore.Curator{
+			InstructionFiles: cfg.GetLoreInstructionFiles(),
+			BareRepo:         true,
+		}
+	}
+
+	if target != "" {
+		s.loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+		}
+	} else {
+		s.loreCurator.Executor = nil
+	}
 }
