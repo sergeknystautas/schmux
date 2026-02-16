@@ -589,8 +589,8 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 		if !strings.Contains(notificationStr, "permission_prompt") {
 			t.Error("Notification hook missing permission_prompt matcher")
 		}
-		if !strings.Contains(notificationStr, "idle_prompt") {
-			t.Error("Notification hook missing idle_prompt matcher")
+		if !strings.Contains(notificationStr, "elicitation_dialog") {
+			t.Error("Notification hook missing elicitation_dialog matcher")
 		}
 	})
 
