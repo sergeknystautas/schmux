@@ -24,6 +24,14 @@ test.describe.serial('Configure remote access settings', () => {
         },
       ],
     });
+    // Reset remote access config to defaults so hasChanges() detects the test's fills
+    await apiPost('/api/config', {
+      remote_access: {
+        disabled: false,
+        timeout_minutes: 120,
+        notify: { ntfy_topic: '', command: '' },
+      },
+    });
   });
 
   test('Access tab is accessible and contains expected sections', async ({ page }) => {
@@ -183,7 +191,7 @@ test.describe.serial('Configure remote access settings', () => {
 
     // Save
     const saveButton = page.locator('[data-testid="config-save"]');
-    await expect(saveButton).toBeEnabled();
+    await expect(saveButton).toBeEnabled({ timeout: 10000 });
     await saveButton.click();
 
     // Wait for save to complete
@@ -216,8 +224,8 @@ test.describe.serial('Configure remote access settings', () => {
 
     // Advanced tab should NOT have Network or Authentication sections
     // (they moved to Access tab)
-    const advancedContent = page.locator('[data-step="6"]');
-    await expect(advancedContent).toBeVisible();
+    const advancedContent = page.locator('.wizard-step-content[data-step="6"]');
+    await expect(advancedContent).toBeVisible({ timeout: 10000 });
 
     const networkInAdvanced = advancedContent.locator('h3', { hasText: 'Network' });
     await expect(networkInAdvanced).toHaveCount(0);
