@@ -167,9 +167,9 @@ fi
 check_deps "${DEPS[@]}"
 
 # Print header
-echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║${NC}  🧪 Schmux Test Suite                          ${BLUE}║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
+echo -e "${BLUE}╔═══════════════════════╗${NC}"
+echo -e "${BLUE}║   Schmux Test Suite   ║${NC}"
+echo -e "${BLUE}╚═══════════════════════╝${NC}"
 echo ""
 
 # Track overall status
@@ -809,13 +809,12 @@ if isinstance(data, list) and data:
     echo ""
 fi
 
-# Print summary
-echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
+echo -e     "${BLUE}╔═════════════════════╗${NC}"
 if [ $EXIT_CODE -eq 0 ]; then
-    echo -e "${BLUE}║${NC}  ${GREEN}🎉 All tests passed!${NC}                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${GREEN}All tests passed!  ${BLUE}║${NC}"
 else
-    echo -e "${BLUE}║${NC}  ${RED}💥 Some tests failed${NC}                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${RED}Some tests failed! ${BLUE}║${NC}"
 fi
-echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
+echo -e     "${BLUE}╚═════════════════════╝${NC}"
 
 exit $EXIT_CODE

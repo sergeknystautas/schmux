@@ -13,9 +13,10 @@ import (
 
 // TestE2ERemoteBasicLifecycle tests the basic remote session lifecycle using mock connection.
 func TestE2ERemoteBasicLifecycle(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-basic"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -60,7 +61,7 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 
 	var sessionID string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", "remote-test")
+		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("remote-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}
@@ -102,8 +103,8 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 				if !sess.Running {
 					t.Error("Session should be running")
 				}
-				if sess.Nickname != "remote-test" {
-					t.Errorf("Expected nickname 'remote-test', got: %s", sess.Nickname)
+				if sess.Nickname != env.Nickname("remote-test") {
+					t.Errorf("Expected nickname '%s', got: %s", env.Nickname("remote-test"), sess.Nickname)
 				}
 			}
 		}
@@ -128,9 +129,10 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 
 // TestE2ERemoteMultipleSessions tests multiple sessions on the same remote host.
 func TestE2ERemoteMultipleSessions(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-multi"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -166,7 +168,7 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 	var session1ID, session2ID, session3ID string
 
 	t.Run("SpawnFirstSession", func(t *testing.T) {
-		session1ID = env.SpawnRemoteSession(flavorID, "echo", "", "agent-one")
+		session1ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session ID from first spawn")
 		}
@@ -178,7 +180,7 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 
 	t.Run("SpawnSecondSession", func(t *testing.T) {
 		// Second session should reuse existing connection (no provisioning delay)
-		session2ID = env.SpawnRemoteSession(flavorID, "echo", "", "agent-two")
+		session2ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session ID from second spawn")
 		}
@@ -188,7 +190,7 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 	})
 
 	t.Run("SpawnThirdSession", func(t *testing.T) {
-		session3ID = env.SpawnRemoteSession(flavorID, "echo", "", "agent-three")
+		session3ID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("agent-three"))
 		if session3ID == "" {
 			t.Fatal("Expected session ID from third spawn")
 		}
@@ -204,13 +206,13 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 		foundThree := false
 
 		for _, sess := range sessions {
-			if sess.ID == session1ID && sess.Running && sess.Nickname == "agent-one" {
+			if sess.ID == session1ID && sess.Running && sess.Nickname == env.Nickname("agent-one") {
 				foundOne = true
 			}
-			if sess.ID == session2ID && sess.Running && sess.Nickname == "agent-two" {
+			if sess.ID == session2ID && sess.Running && sess.Nickname == env.Nickname("agent-two") {
 				foundTwo = true
 			}
-			if sess.ID == session3ID && sess.Running && sess.Nickname == "agent-three" {
+			if sess.ID == session3ID && sess.Running && sess.Nickname == env.Nickname("agent-three") {
 				foundThree = true
 			}
 		}
@@ -261,9 +263,10 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 
 // TestE2ERemoteWebSocketOutput tests terminal output streaming for remote sessions.
 func TestE2ERemoteWebSocketOutput(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-ws"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -299,7 +302,7 @@ func TestE2ERemoteWebSocketOutput(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
 		// Use 'cat' target which echoes back input
-		sessionID = env.SpawnRemoteSession(flavorID, "cat", "", "ws-test")
+		sessionID = env.SpawnRemoteSession(flavorID, "cat", "", env.Nickname("ws-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}
@@ -329,9 +332,10 @@ func TestE2ERemoteWebSocketOutput(t *testing.T) {
 
 // TestE2ERemoteStatePersistence tests that remote state persists across daemon restarts.
 func TestE2ERemoteStatePersistence(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-state"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -359,7 +363,7 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 
 	var sessionID, hostID, hostname string
 	t.Run("SpawnRemoteSession", func(t *testing.T) {
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", "state-test")
+		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("state-test"))
 		env.WaitForRemoteHostStatus(flavorID, "connected", 15*time.Second)
 		env.WaitForSessionRunning(sessionID, 10*time.Second)
 
@@ -443,18 +447,13 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 // command should be wrapped so that .claude/settings.local.json is created in
 // the workspace before the agent starts.
 func TestE2ERemoteHooksProvisioning(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-hooks"
+	workspaceRoot := t.TempDir()
 
 	// Remote workspace path where the command runs (tmux -c sets cwd to this)
-	const remoteWorkspacePath = "/tmp/schmux-e2e-remote-hooks-ws"
-
-	// Ensure workspace directory exists so the command can write files
-	if err := os.MkdirAll(remoteWorkspacePath, 0755); err != nil {
-		t.Fatalf("Failed to create remote workspace dir: %v", err)
-	}
-	defer os.RemoveAll(remoteWorkspacePath)
+	remoteWorkspacePath := t.TempDir()
 
 	// Clean up any stale hooks file from previous runs
 	os.RemoveAll(filepath.Join(remoteWorkspacePath, ".claude"))
@@ -504,7 +503,7 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
 		// Target "claude" triggers hooks provisioning (SupportsHooks returns true)
-		sessionID = env.SpawnRemoteSession(flavorID, "claude", "do something", "hooks-test")
+		sessionID = env.SpawnRemoteSession(flavorID, "claude", "do something", env.Nickname("hooks-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from remote spawn")
 		}

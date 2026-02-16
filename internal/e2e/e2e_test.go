@@ -48,10 +48,11 @@ func isRunningInDocker() bool {
 // TestE2EFullLifecycle runs the full E2E test suite as one integrated test.
 // This validates the complete flow: daemon → workspace → sessions → cleanup.
 func TestE2EFullLifecycle(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	// Step 1: Create config
-	const workspaceRoot = "/tmp/schmux-e2e-workspaces"
+	workspaceRoot := t.TempDir()
 	t.Run("01_CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
 	})
@@ -117,9 +118,9 @@ func TestE2EFullLifecycle(t *testing.T) {
 	var session1ID, session2ID string
 	t.Run("05_SpawnTwoSessions", func(t *testing.T) {
 		// Spawn session 1
-		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", "agent-one")
+		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", env.Nickname("agent-one"))
 		// Spawn session 2
-		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", "agent-two")
+		env.SpawnSession("file://"+workspaceRoot+"/test-repo", "main", "echo", "", env.Nickname("agent-two"))
 
 		// Verify sessions via API
 		sessions := env.GetAPISessions()
@@ -129,18 +130,18 @@ func TestE2EFullLifecycle(t *testing.T) {
 
 		// Extract session IDs and verify nicknames
 		for _, sess := range sessions {
-			if sess.Nickname == "agent-one" {
+			if sess.Nickname == env.Nickname("agent-one") {
 				session1ID = sess.ID
-			} else if sess.Nickname == "agent-two" {
+			} else if sess.Nickname == env.Nickname("agent-two") {
 				session2ID = sess.ID
 			}
 		}
 
 		if session1ID == "" {
-			t.Error("Session with nickname 'agent-one' not found in API response")
+			t.Errorf("Session with nickname %q not found in API response", env.Nickname("agent-one"))
 		}
 		if session2ID == "" {
-			t.Error("Session with nickname 'agent-two' not found in API response")
+			t.Errorf("Session with nickname %q not found in API response", env.Nickname("agent-two"))
 		}
 	})
 
@@ -155,11 +156,11 @@ func TestE2EFullLifecycle(t *testing.T) {
 	t.Run("06_VerifyNamingConsistency", func(t *testing.T) {
 		// Verify CLI list shows the sessions
 		cliOutput := env.ListSessions()
-		if !strings.Contains(cliOutput, "agent-one") {
-			t.Error("CLI list does not contain 'agent-one'")
+		if !strings.Contains(cliOutput, env.Nickname("agent-one")) {
+			t.Errorf("CLI list does not contain %q", env.Nickname("agent-one"))
 		}
-		if !strings.Contains(cliOutput, "agent-two") {
-			t.Error("CLI list does not contain 'agent-two'")
+		if !strings.Contains(cliOutput, env.Nickname("agent-two")) {
+			t.Errorf("CLI list does not contain %q", env.Nickname("agent-two"))
 		}
 
 		// Verify tmux ls shows the sessions (names are sanitized)
@@ -170,18 +171,18 @@ func TestE2EFullLifecycle(t *testing.T) {
 		foundOne := false
 		foundTwo := false
 		for _, name := range tmuxSessions {
-			if strings.Contains(name, "agent") && strings.Contains(name, "one") {
+			if strings.Contains(name, env.Nickname("agent-one")) {
 				foundOne = true
 			}
-			if strings.Contains(name, "agent") && strings.Contains(name, "two") {
+			if strings.Contains(name, env.Nickname("agent-two")) {
 				foundTwo = true
 			}
 		}
 		if !foundOne {
-			t.Error("tmux ls does not show session for agent-one")
+			t.Errorf("tmux ls does not show session for %s", env.Nickname("agent-one"))
 		}
 		if !foundTwo {
-			t.Error("tmux ls does not show session for agent-two")
+			t.Errorf("tmux ls does not show session for %s", env.Nickname("agent-two"))
 		}
 
 		// Verify API shows both sessions with correct nicknames
@@ -193,18 +194,18 @@ func TestE2EFullLifecycle(t *testing.T) {
 		hasOne := false
 		hasTwo := false
 		for _, sess := range apiSessions {
-			if sess.Nickname == "agent-one" {
+			if sess.Nickname == env.Nickname("agent-one") {
 				hasOne = true
 			}
-			if sess.Nickname == "agent-two" {
+			if sess.Nickname == env.Nickname("agent-two") {
 				hasTwo = true
 			}
 		}
 		if !hasOne {
-			t.Error("API does not show session with nickname 'agent-one'")
+			t.Errorf("API does not show session with nickname %q", env.Nickname("agent-one"))
 		}
 		if !hasTwo {
-			t.Error("API does not show session with nickname 'agent-two'")
+			t.Errorf("API does not show session with nickname %q", env.Nickname("agent-two"))
 		}
 	})
 
@@ -244,7 +245,7 @@ func TestE2EFullLifecycle(t *testing.T) {
 		// Verify tmux sessions are gone
 		tmuxSessions := env.GetTmuxSessions()
 		for _, name := range tmuxSessions {
-			if strings.Contains(name, "agent") && (strings.Contains(name, "one") || strings.Contains(name, "two")) {
+			if strings.Contains(name, env.Nickname("agent-one")) || strings.Contains(name, env.Nickname("agent-two")) {
 				t.Errorf("tmux session still exists after dispose: %s", name)
 			}
 		}
@@ -263,10 +264,11 @@ func TestE2EFullLifecycle(t *testing.T) {
 
 // TestE2EDaemonLifecycle tests daemon start/stop and health endpoint.
 func TestE2EDaemonLifecycle(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	t.Run("CreateConfig", func(t *testing.T) {
-		env.CreateConfig("/tmp/schmux-e2e-daemon-test")
+		env.CreateConfig(t.TempDir())
 	})
 
 	t.Run("DaemonStart", func(t *testing.T) {
@@ -292,9 +294,10 @@ func TestE2EDaemonLifecycle(t *testing.T) {
 
 // TestE2ETwoSessionsNaming tests session nickname uniqueness and consistency.
 func TestE2ETwoSessionsNaming(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-naming-test"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -343,17 +346,17 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 
 	t.Run("SpawnSessions", func(t *testing.T) {
 		// Spawn two sessions with distinct nicknames
-		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", "alpha")
-		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", "beta")
+		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", env.Nickname("alpha"))
+		env.SpawnSession("file://"+workspaceRoot+"/naming-test-repo", "main", "echo", "", env.Nickname("beta"))
 	})
 
 	t.Run("VerifyCLI", func(t *testing.T) {
 		output := env.ListSessions()
-		if !strings.Contains(output, "alpha") {
-			t.Error("CLI list does not contain 'alpha'")
+		if !strings.Contains(output, env.Nickname("alpha")) {
+			t.Errorf("CLI list does not contain %q", env.Nickname("alpha"))
 		}
-		if !strings.Contains(output, "beta") {
-			t.Error("CLI list does not contain 'beta'")
+		if !strings.Contains(output, env.Nickname("beta")) {
+			t.Errorf("CLI list does not contain %q", env.Nickname("beta"))
 		}
 	})
 
@@ -366,19 +369,19 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 		hasAlpha := false
 		hasBeta := false
 		for _, sess := range sessions {
-			if sess.Nickname == "alpha" {
+			if sess.Nickname == env.Nickname("alpha") {
 				hasAlpha = true
 			}
-			if sess.Nickname == "beta" {
+			if sess.Nickname == env.Nickname("beta") {
 				hasBeta = true
 			}
 		}
 
 		if !hasAlpha {
-			t.Error("API does not show session with nickname 'alpha'")
+			t.Errorf("API does not show session with nickname %q", env.Nickname("alpha"))
 		}
 		if !hasBeta {
-			t.Error("API does not show session with nickname 'beta'")
+			t.Errorf("API does not show session with nickname %q", env.Nickname("beta"))
 		}
 	})
 
@@ -392,19 +395,19 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 		hasAlpha := false
 		hasBeta := false
 		for _, name := range tmuxSessions {
-			if strings.Contains(name, "alpha") {
+			if strings.Contains(name, env.Nickname("alpha")) {
 				hasAlpha = true
 			}
-			if strings.Contains(name, "beta") {
+			if strings.Contains(name, env.Nickname("beta")) {
 				hasBeta = true
 			}
 		}
 
 		if !hasAlpha {
-			t.Error("tmux does not show session with 'alpha'")
+			t.Errorf("tmux does not show session with %q", env.Nickname("alpha"))
 		}
 		if !hasBeta {
-			t.Error("tmux does not show session with 'beta'")
+			t.Errorf("tmux does not show session with %q", env.Nickname("beta"))
 		}
 	})
 }
@@ -412,9 +415,10 @@ func TestE2ETwoSessionsNaming(t *testing.T) {
 // TestE2EWebSocketTerminal validates WebSocket terminal streaming works.
 // It spawns an echo target and verifies we receive output via WebSocket.
 func TestE2EWebSocketTerminal(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-ws-test"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -455,7 +459,7 @@ func TestE2EWebSocketTerminal(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnSession", func(t *testing.T) {
 		// Target emits READY immediately, then sleeps (we just need to verify read path)
-		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-test-repo", "main", "echo", "", "ws-echo")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-test-repo", "main", "echo", "", env.Nickname("ws-echo"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -478,6 +482,7 @@ func TestE2EWebSocketTerminal(t *testing.T) {
 // TestE2ESourceCodeManagement tests that the source_code_manager config controls
 // whether workspaces are created via worktree or full clone.
 func TestE2ESourceCodeManagement(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -527,7 +532,7 @@ func TestE2ESourceCodeManagement(t *testing.T) {
 
 	t.Run("SpawnFirstSession", func(t *testing.T) {
 		// First spawn on "main" - should create full clone
-		session1ID = env.SpawnSession("file://"+workspaceRoot+"/scm-test-repo", "main", "echo", "", "first-agent")
+		session1ID = env.SpawnSession("file://"+workspaceRoot+"/scm-test-repo", "main", "echo", "", env.Nickname("first-agent"))
 		if session1ID == "" {
 			t.Fatal("Expected session ID from first spawn")
 		}
@@ -536,7 +541,7 @@ func TestE2ESourceCodeManagement(t *testing.T) {
 
 	t.Run("SpawnSecondSessionSameBranch", func(t *testing.T) {
 		// Second spawn on same "main" branch - should succeed with full clone mode
-		session2ID = env.SpawnSession("file://"+workspaceRoot+"/scm-test-repo", "main", "echo", "", "second-agent")
+		session2ID = env.SpawnSession("file://"+workspaceRoot+"/scm-test-repo", "main", "echo", "", env.Nickname("second-agent"))
 		if session2ID == "" {
 			t.Fatal("Expected session ID from second spawn")
 		}
@@ -598,6 +603,7 @@ func TestE2ESourceCodeManagement(t *testing.T) {
 // TestE2EBranchConflictCheck tests the /api/check-branch-conflict endpoint
 // which is used by the UI to validate branches in worktree mode.
 func TestE2EBranchConflictCheck(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -649,7 +655,7 @@ func TestE2EBranchConflictCheck(t *testing.T) {
 
 	var sessionID string
 	t.Run("SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "test-agent")
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("test-agent"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -676,6 +682,7 @@ func TestE2EBranchConflictCheck(t *testing.T) {
 
 // TestE2EDashboardWebSocket validates the /ws/dashboard websocket endpoint.
 func TestE2EDashboardWebSocket(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -749,7 +756,7 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 
 	var sessionID string
 	t.Run("SpawnAndReceiveUpdate", func(t *testing.T) {
-		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-dashboard-repo", "main", "echo", "", "ws-dash-test")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/ws-dashboard-repo", "main", "echo", "", env.Nickname("ws-dash-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -781,6 +788,7 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 // TestE2EFileBasedSignaling validates the full file-based signaling pipeline:
 // spawn session → write signal file → verify nudge propagates via dashboard WebSocket.
 func TestE2EFileBasedSignaling(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -851,7 +859,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 	var sessionID string
 	var workspacePath string
 	t.Run("SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession("file://"+workspaceRoot+"/signal-test-repo", "main", "echo", "", "signal-test")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/signal-test-repo", "main", "echo", "", env.Nickname("signal-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1007,6 +1015,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 // TestE2ESignalDaemonRestart validates that signal state survives a daemon restart
 // and that new signals work after the restart.
 func TestE2ESignalDaemonRestart(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -1052,7 +1061,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 	var sessionID string
 	var workspacePath string
 	t.Run("SpawnAndSignal", func(t *testing.T) {
-		sessionID = env.SpawnSession("file://"+workspaceRoot+"/restart-test-repo", "main", "echo", "", "restart-test")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/restart-test-repo", "main", "echo", "", env.Nickname("restart-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1151,6 +1160,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 // TestE2ENudgeClearOnTerminalInput validates that typing in the terminal WebSocket
 // clears the active nudge.
 func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -1195,7 +1205,7 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 	var sessionID string
 	var workspacePath string
 	t.Run("SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession("file://"+workspaceRoot+"/nudge-clear-repo", "main", "cat", "", "nudge-clear")
+		sessionID = env.SpawnSession("file://"+workspaceRoot+"/nudge-clear-repo", "main", "cat", "", env.Nickname("nudge-clear"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1274,6 +1284,7 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 // workspace have isolated signal files — writing to one session's signal file does NOT
 // nudge the other session.
 func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -1318,7 +1329,7 @@ func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 	var workspacePath, workspaceID string
 
 	t.Run("SpawnFirstSession", func(t *testing.T) {
-		session1ID = env.SpawnSession("file://"+workspaceRoot+"/multi-session-repo", "main", "echo", "", "multi-1")
+		session1ID = env.SpawnSession("file://"+workspaceRoot+"/multi-session-repo", "main", "echo", "", env.Nickname("multi-1"))
 		if session1ID == "" {
 			t.Fatal("Expected session ID from first spawn")
 		}
@@ -1341,7 +1352,7 @@ func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 
 	t.Run("SpawnSecondSessionInSameWorkspace", func(t *testing.T) {
 		// Spawn into the same workspace to ensure they share the signal file
-		session2ID = env.SpawnSessionInWorkspace(workspaceID, "echo", "", "multi-2")
+		session2ID = env.SpawnSessionInWorkspace(workspaceID, "echo", "", env.Nickname("multi-2"))
 		if session2ID == "" {
 			t.Fatal("Expected session ID from second spawn")
 		}
@@ -1409,6 +1420,7 @@ func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 // TestE2ESpawnCommandSignaling validates that sessions spawned via the SpawnCommand
 // code path (command field, used by quick launch presets) correctly set up signaling.
 func TestE2ESpawnCommandSignaling(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
 	workspaceRoot := t.TempDir()
@@ -1455,7 +1467,7 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 	t.Run("SpawnCommandSession", func(t *testing.T) {
 		repoURL := "file://" + workspaceRoot + "/cmd-signal-repo"
 		// Spawn using command field (exercises SpawnCommand code path)
-		sessionID = env.SpawnCommandSession(repoURL, "main", "sh -c 'echo hello; sleep 600'", "cmd-signal", "")
+		sessionID = env.SpawnCommandSession(repoURL, "main", "sh -c 'echo hello; sleep 600'", env.Nickname("cmd-signal"), "")
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1533,9 +1545,10 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 // overlay files are copied into workspaces at spawn time, modifications by agents
 // propagate back to the overlay directory, and changes propagate to sibling workspaces.
 func TestE2EOverlayCompounding(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-compound-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "compound-test-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -1604,7 +1617,7 @@ func TestE2EOverlayCompounding(t *testing.T) {
 	var session1ID string
 	var workspace1Path string
 	t.Run("07_SpawnSession1", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1638,7 +1651,7 @@ func TestE2EOverlayCompounding(t *testing.T) {
 	var session2ID string
 	var workspace2Path string
 	t.Run("09_SpawnSession2", func(t *testing.T) {
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -1674,11 +1687,7 @@ func TestE2EOverlayCompounding(t *testing.T) {
 
 	// Step 12: Wait for propagation to overlay dir and workspace2
 	t.Run("12_WaitForPropagation", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Failed to get home dir: %v", err)
-		}
-		overlayEnvPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayEnvPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		workspace2EnvPath := filepath.Join(workspace2Path, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
@@ -1698,7 +1707,7 @@ func TestE2EOverlayCompounding(t *testing.T) {
 		}
 
 		// If we get here, propagation timed out — log what we have for debugging
-		overlayData, _ := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		ws2Data, _ := os.ReadFile(filepath.Join(workspace2Path, ".env"))
 		t.Fatalf("Propagation timed out.\nOverlay .env: %q\nWorkspace2 .env: %q\nExpected: %q",
 			string(overlayData), string(ws2Data), newContent)
@@ -1706,11 +1715,7 @@ func TestE2EOverlayCompounding(t *testing.T) {
 
 	// Step 13: Verify overlay dir has the updated content
 	t.Run("13_VerifyOverlayUpdated", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Failed to get home dir: %v", err)
-		}
-		overlayEnvPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayEnvPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		data, err := os.ReadFile(overlayEnvPath)
 		if err != nil {
 			t.Fatalf("Failed to read overlay .env: %v", err)
@@ -1740,9 +1745,10 @@ func TestE2EOverlayCompounding(t *testing.T) {
 }
 
 func TestE2EOverlayDeclaredPaths(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-declared-paths-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "declared-paths-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -1812,13 +1818,13 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 	var session1ID, session2ID string
 	var ws1Path, ws2Path string
 	t.Run("07_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID from spawn")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID from spawn")
 		}
@@ -1869,11 +1875,7 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 
 	// Step 11: Wait for propagation to overlay dir and workspace 2
 	t.Run("11_WaitForPropagation", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Failed to get home dir: %v", err)
-		}
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".agent", "config.json")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".agent", "config.json")
 		ws2AgentPath := filepath.Join(ws2Path, ".agent", "config.json")
 
 		deadline := time.Now().Add(15 * time.Second)
@@ -1906,9 +1908,10 @@ func TestE2EOverlayDeclaredPaths(t *testing.T) {
 }
 
 func TestE2EOverlayAPI(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-overlay-api-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "overlay-api-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -1955,7 +1958,7 @@ func TestE2EOverlayAPI(t *testing.T) {
 	// Spawn a session to get a workspace
 	var sessionID, workspaceID string
 	t.Run("03_SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "api-test")
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("api-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -2046,8 +2049,7 @@ func TestE2EOverlayAPI(t *testing.T) {
 		}
 
 		// Verify file was actually copied to overlay dir
-		homeDir, _ := os.UserHomeDir()
-		overlaySecret := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".secret")
+		overlaySecret := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".secret")
 		data, err := os.ReadFile(overlaySecret)
 		if err != nil {
 			t.Fatalf("Overlay .secret was not created: %v", err)
@@ -2107,9 +2109,10 @@ func TestE2EOverlayAPI(t *testing.T) {
 }
 
 func TestE2EOverlayWorkspaceReuse(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-overlay-reuse-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "overlay-reuse-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2156,7 +2159,7 @@ func TestE2EOverlayWorkspaceReuse(t *testing.T) {
 	// Spawn first session, verify overlay, then dispose
 	var ws1Path string
 	t.Run("03_SpawnAndVerifyFirst", func(t *testing.T) {
-		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "first-session")
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("first-session"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -2183,7 +2186,7 @@ func TestE2EOverlayWorkspaceReuse(t *testing.T) {
 
 	// Spawn second session on the same branch — workspace should be reused
 	t.Run("05_SpawnSecondAndVerifyReuse", func(t *testing.T) {
-		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "second-session")
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("second-session"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -2208,9 +2211,10 @@ func TestE2EOverlayWorkspaceReuse(t *testing.T) {
 }
 
 func TestE2EOverlayReconcileOnDispose(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-overlay-reconcile-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "reconcile-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2258,7 +2262,7 @@ func TestE2EOverlayReconcileOnDispose(t *testing.T) {
 
 	// Spawn session, modify overlay file, immediately dispose
 	t.Run("03_SpawnAndModify", func(t *testing.T) {
-		sessionID := env.SpawnSession(repoURL, "main", "echo", "", "reconcile-test")
+		sessionID := env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("reconcile-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from spawn")
 		}
@@ -2287,11 +2291,7 @@ func TestE2EOverlayReconcileOnDispose(t *testing.T) {
 
 	// Verify the overlay directory has the updated content
 	t.Run("04_VerifyReconcileUpdatedOverlay", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatalf("Failed to get home dir: %v", err)
-		}
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		// Give a brief moment for the reconcile to complete (it runs synchronously during dispose)
 		time.Sleep(2 * time.Second)
@@ -2309,9 +2309,10 @@ func TestE2EOverlayReconcileOnDispose(t *testing.T) {
 }
 
 func TestE2EOverlayConcurrentModification(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-concurrent-mod-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "concurrent-mod-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2359,13 +2360,13 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-a")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-a"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-b")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-b"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -2386,8 +2387,7 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 
 	// Wait for Agent A's change to propagate to overlay and workspace 2
 	t.Run("05_WaitForAgentAPropagation", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
@@ -2416,8 +2416,7 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 	// Wait for Agent B's change to propagate — since there's no LLM executor,
 	// the merge falls back to last-write-wins (Agent B's content)
 	t.Run("07_WaitForAgentBPropagation", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
@@ -2429,14 +2428,13 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		overlayData, _ := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".schmux", "overlays", repoName, ".env"))
+		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		t.Fatalf("Agent B's change did not propagate. Overlay: %q", string(overlayData))
 	})
 
 	// Verify the overlay has Agent B's content (LWW)
 	t.Run("08_VerifyOverlayContent", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		data, err := os.ReadFile(overlayPath)
 		if err != nil {
 			t.Fatalf("Failed to read overlay: %v", err)
@@ -2454,9 +2452,10 @@ func TestE2EOverlayConcurrentModification(t *testing.T) {
 }
 
 func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-multi-repo-test"
+	workspaceRoot := t.TempDir()
 	const repoAName = "repo-alpha"
 	const repoBName = "repo-beta"
 	repoAPath := workspaceRoot + "/" + repoAName
@@ -2518,13 +2517,13 @@ func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
 	var wsAPath, wsBPath string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		sessionA = env.SpawnSession(repoAURL, "main", "echo", "", "alpha-agent")
+		sessionA = env.SpawnSession(repoAURL, "main", "echo", "", env.Nickname("alpha-agent"))
 		if sessionA == "" {
 			t.Fatal("Expected session A ID")
 		}
 		wsAPath = env.GetWorkspacePath(sessionA)
 
-		sessionB = env.SpawnSession(repoBURL, "main", "echo", "", "beta-agent")
+		sessionB = env.SpawnSession(repoBURL, "main", "echo", "", env.Nickname("beta-agent"))
 		if sessionB == "" {
 			t.Fatal("Expected session B ID")
 		}
@@ -2560,8 +2559,7 @@ func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
 
 	// Wait for propagation to repo A's overlay dir
 	t.Run("06_WaitForRepoAPropagation", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoAName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoAName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
@@ -2586,8 +2584,7 @@ func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
 		}
 
 		// Also verify repo B's overlay dir was not modified
-		homeDir, _ := os.UserHomeDir()
-		overlayB := filepath.Join(homeDir, ".schmux", "overlays", repoBName, ".env")
+		overlayB := filepath.Join(env.HomeDir, ".schmux", "overlays", repoBName, ".env")
 		dataOvB, err := os.ReadFile(overlayB)
 		if err != nil {
 			t.Fatalf("Failed to read repo B overlay: %v", err)
@@ -2604,9 +2601,10 @@ func TestE2EOverlayMultiRepoIsolation(t *testing.T) {
 }
 
 func TestE2EOverlayDormantWorkspaceSkipped(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-dormant-ws-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "dormant-ws-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2654,13 +2652,13 @@ func TestE2EOverlayDormantWorkspaceSkipped(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnTwoSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "active-agent")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("active-agent"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "dormant-agent")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("dormant-agent"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -2695,8 +2693,7 @@ func TestE2EOverlayDormantWorkspaceSkipped(t *testing.T) {
 
 	// Wait for propagation to overlay dir
 	t.Run("07_WaitForOverlayUpdate", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
@@ -2731,9 +2728,10 @@ func TestE2EOverlayDormantWorkspaceSkipped(t *testing.T) {
 }
 
 func TestE2EOverlayEmptyFile(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-empty-file-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "empty-file-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2781,13 +2779,13 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -2804,8 +2802,7 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 
 	// Wait for empty content to propagate to overlay dir and workspace 2
 	t.Run("05_WaitForPropagation", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
@@ -2822,7 +2819,7 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		overlayData, _ := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".schmux", "overlays", repoName, ".env"))
+		overlayData, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		ws2Data, _ := os.ReadFile(filepath.Join(ws2Path, ".env"))
 		t.Fatalf("Empty file propagation timed out.\nOverlay: %q (len=%d)\nWS2: %q (len=%d)",
 			string(overlayData), len(overlayData), string(ws2Data), len(ws2Data))
@@ -2835,9 +2832,10 @@ func TestE2EOverlayEmptyFile(t *testing.T) {
 }
 
 func TestE2EOverlayFilePermissions(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-permissions-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "permissions-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -2870,8 +2868,7 @@ func TestE2EOverlayFilePermissions(t *testing.T) {
 
 		// Create overlay file with restrictive permissions (0600)
 		env.CreateOverlayFile(repoName, ".env", "SECRET_KEY=very-secret\n")
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		if err := os.Chmod(overlayPath, 0600); err != nil {
 			t.Fatalf("Failed to set overlay permissions: %v", err)
 		}
@@ -2892,13 +2889,13 @@ func TestE2EOverlayFilePermissions(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -2959,9 +2956,10 @@ func TestE2EOverlayFilePermissions(t *testing.T) {
 }
 
 func TestE2EOverlayNotInGitignore(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-no-gitignore-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "no-gitignore-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -3012,7 +3010,7 @@ func TestE2EOverlayNotInGitignore(t *testing.T) {
 	var wsPath string
 
 	t.Run("03_SpawnSession", func(t *testing.T) {
-		sessionID = env.SpawnSession(repoURL, "main", "echo", "", "gitignore-agent")
+		sessionID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("gitignore-agent"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID")
 		}
@@ -3046,9 +3044,10 @@ func TestE2EOverlayNotInGitignore(t *testing.T) {
 }
 
 func TestE2EOverlayCompoundDisabled(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-compound-disabled-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "disabled-compound-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -3096,13 +3095,13 @@ func TestE2EOverlayCompoundDisabled(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -3143,8 +3142,7 @@ func TestE2EOverlayCompoundDisabled(t *testing.T) {
 		}
 
 		// Overlay dir should also be unchanged
-		homeDir, _ := os.UserHomeDir()
-		overlayData, err := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		overlayData, err := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		if err != nil {
 			t.Fatalf("Failed to read overlay: %v", err)
 		}
@@ -3160,9 +3158,10 @@ func TestE2EOverlayCompoundDisabled(t *testing.T) {
 }
 
 func TestE2EOverlayFileDeletion(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-file-deletion-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "deletion-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -3210,13 +3209,13 @@ func TestE2EOverlayFileDeletion(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -3237,8 +3236,7 @@ func TestE2EOverlayFileDeletion(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		// Overlay should still have the file
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 		data, err := os.ReadFile(overlayPath)
 		if err != nil {
 			t.Fatalf("Overlay .env was deleted (should be preserved): %v", err)
@@ -3264,9 +3262,10 @@ func TestE2EOverlayFileDeletion(t *testing.T) {
 }
 
 func TestE2EOverlayDaemonRestart(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-daemon-restart-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "restart-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -3315,13 +3314,13 @@ func TestE2EOverlayDaemonRestart(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -3400,9 +3399,10 @@ func TestE2EOverlayDaemonRestart(t *testing.T) {
 }
 
 func TestE2EOverlaySuppressionWindow(t *testing.T) {
+	t.Parallel()
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-suppression-test"
+	workspaceRoot := t.TempDir()
 	const repoName = "suppression-repo"
 	repoPath := workspaceRoot + "/" + repoName
 	repoURL := "file://" + repoPath
@@ -3450,13 +3450,13 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 	var ws1Path, ws2Path string
 
 	t.Run("03_SpawnSessions", func(t *testing.T) {
-		session1ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-one")
+		session1ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-one"))
 		if session1ID == "" {
 			t.Fatal("Expected session1 ID")
 		}
 		ws1Path = env.GetWorkspacePath(session1ID)
 
-		session2ID = env.SpawnSession(repoURL, "main", "echo", "", "agent-two")
+		session2ID = env.SpawnSession(repoURL, "main", "echo", "", env.Nickname("agent-two"))
 		if session2ID == "" {
 			t.Fatal("Expected session2 ID")
 		}
@@ -3497,8 +3497,7 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 	t.Run("07_VerifySuppressedWriteNotPropagated", func(t *testing.T) {
 		time.Sleep(3 * time.Second)
 
-		homeDir, _ := os.UserHomeDir()
-		data, _ := os.ReadFile(filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env"))
+		data, _ := os.ReadFile(filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env"))
 		if strings.Contains(string(data), "FROM_AGENT_B_SUPPRESSED") {
 			t.Error("Suppressed write was propagated to overlay — suppression failed!")
 		} else {
@@ -3521,8 +3520,7 @@ func TestE2EOverlaySuppressionWindow(t *testing.T) {
 
 	// Wait for propagation
 	t.Run("10_WaitForPostSuppressionPropagation", func(t *testing.T) {
-		homeDir, _ := os.UserHomeDir()
-		overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, ".env")
+		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
 		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {

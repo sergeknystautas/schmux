@@ -16,6 +16,8 @@ import (
 // - SSH server running on localhost
 // - SSH keys configured (done in Dockerfile.e2e)
 func TestE2ERemoteSSHSmoke(t *testing.T) {
+	t.Parallel()
+
 	// Check if SSH server is available
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "localhost", "echo", "test")
@@ -27,7 +29,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 
 	env := New(t)
 
-	const workspaceRoot = "/tmp/schmux-e2e-remote-ssh"
+	workspaceRoot := t.TempDir()
 
 	t.Run("CreateConfig", func(t *testing.T) {
 		env.CreateConfig(workspaceRoot)
@@ -63,7 +65,7 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	var sessionID string
 	t.Run("SpawnRemoteSessionViaSSH", func(t *testing.T) {
 		t.Log("Spawning remote session via SSH (this may take a few seconds)...")
-		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", "ssh-test")
+		sessionID = env.SpawnRemoteSession(flavorID, "echo", "", env.Nickname("ssh-test"))
 		if sessionID == "" {
 			t.Fatal("Expected session ID from SSH remote spawn")
 		}

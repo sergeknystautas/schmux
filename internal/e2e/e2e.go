@@ -23,8 +23,6 @@ import (
 )
 
 const (
-	// DefaultDaemonURL is the default URL for the daemon API
-	DefaultDaemonURL = "http://127.0.0.1:7337"
 	// DaemonStartupTimeout is how long to wait for daemon to start
 	DaemonStartupTimeout = 10 * time.Second
 )
@@ -61,17 +59,21 @@ type APIWorkspace struct {
 }
 
 // Env is the E2E test environment.
-// Docker provides isolation - no need for HOME overrides or env vars.
+// Each test gets its own isolated HOME directory and ephemeral daemon port
+// so tests can run concurrently via t.Parallel().
 type Env struct {
 	daemonLogFile *os.File // daemon stderr log file, closed in Cleanup
 	T             *testing.T
 	SchmuxBin     string
 	DaemonURL     string
+	HomeDir       string // isolated temp HOME for this test
+	daemonPort    int    // ephemeral port for this test's daemon
 	daemonStarted bool
 	gitRepoDir    string // temp local git repo for testing
 }
 
 // New creates a new E2E test environment.
+// Each call allocates an ephemeral port and isolated HOME directory.
 func New(t *testing.T) *Env {
 	t.Helper()
 
@@ -81,14 +83,46 @@ func New(t *testing.T) *Env {
 		t.Skipf("schmux binary not found in PATH (run `go build ./cmd/schmux` first)")
 	}
 
+	// Allocate ephemeral port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to allocate ephemeral port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	// Create isolated HOME directory
+	homeDir, err := os.MkdirTemp("", "schmux-e2e-home-")
+	if err != nil {
+		t.Fatalf("Failed to create temp home dir: %v", err)
+	}
+	// Create .schmux subdir
+	if err := os.MkdirAll(filepath.Join(homeDir, ".schmux"), 0755); err != nil {
+		t.Fatalf("Failed to create .schmux dir: %v", err)
+	}
+
 	e := &Env{
-		T:         t,
-		SchmuxBin: schmuxBin,
-		DaemonURL: DefaultDaemonURL,
+		T:          t,
+		SchmuxBin:  schmuxBin,
+		DaemonURL:  fmt.Sprintf("http://127.0.0.1:%d", port),
+		HomeDir:    homeDir,
+		daemonPort: port,
 	}
 
 	t.Cleanup(e.Cleanup)
 	return e
+}
+
+// DaemonPort returns the ephemeral port allocated for this test's daemon.
+func (e *Env) DaemonPort() int {
+	return e.daemonPort
+}
+
+// Nickname returns a test-unique nickname by prefixing the base name with
+// a short identifier derived from the daemon port. This prevents tmux
+// session name collisions when tests run in parallel.
+func (e *Env) Nickname(base string) string {
+	return fmt.Sprintf("p%d-%s", e.daemonPort, base)
 }
 
 // Cleanup cleans up the test environment.
@@ -97,6 +131,7 @@ func (e *Env) Cleanup() {
 		e.T.Log("Stopping daemon...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
+		cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
 		out, _ := cmd.CombinedOutput()
 		cancel()
 		e.T.Logf("stop output: %s", out)
@@ -113,6 +148,11 @@ func (e *Env) Cleanup() {
 	if e.gitRepoDir != "" {
 		os.RemoveAll(e.gitRepoDir)
 	}
+
+	// Clean up isolated HOME
+	if e.HomeDir != "" {
+		os.RemoveAll(e.HomeDir)
+	}
 }
 
 // DaemonStart starts the schmux daemon.
@@ -123,9 +163,11 @@ func (e *Env) DaemonStart() {
 	// Start daemon in foreground mode in a goroutine to capture stderr
 	cmd := exec.Command(e.SchmuxBin, "daemon-run")
 
+	// Set HOME to isolated dir so daemon uses its own ~/.schmux/
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
+
 	// Capture stderr to a log file for debugging
-	homeDir, _ := os.UserHomeDir()
-	logFile := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
+	logFile := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
 	os.MkdirAll(filepath.Dir(logFile), 0755)
 	stderr, err := os.Create(logFile)
 	if err != nil {
@@ -169,6 +211,7 @@ func (e *Env) DaemonStop() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
 	if err != nil {
@@ -231,12 +274,7 @@ func (e *Env) CreateConfig(workspacePath string) {
 	e.T.Helper()
 	e.T.Log("Creating config...")
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
+	schmuxDir := filepath.Join(e.HomeDir, ".schmux")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		e.T.Fatalf("Failed to create .schmux dir: %v", err)
 	}
@@ -248,6 +286,7 @@ func (e *Env) CreateConfig(workspacePath string) {
 	configPath := filepath.Join(schmuxDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = workspacePath
+	cfg.Network = &config.NetworkConfig{Port: e.daemonPort}
 	cfg.RunTargets = []config.RunTarget{
 		// Keep the session alive long enough for pipe-pane and tmux assertions.
 		{Name: "echo", Type: "command", Command: "sh -c 'echo hello; sleep 600'", Source: "user"},
@@ -285,7 +324,7 @@ func (e *Env) ConnectTerminalWebSocket(sessionID string) (*websocket.Conn, error
 	}
 
 	header := http.Header{}
-	header.Set("Origin", "http://localhost:7337")
+	header.Set("Origin", e.DaemonURL)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
 	if err != nil {
 		return nil, err
@@ -306,7 +345,7 @@ func (e *Env) ConnectDashboardWebSocket() (*websocket.Conn, error) {
 	}
 
 	header := http.Header{}
-	header.Set("Origin", "http://localhost:7337")
+	header.Set("Origin", e.DaemonURL)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
 	if err != nil {
 		return nil, err
@@ -492,13 +531,7 @@ func (e *Env) AddRepoToConfig(name, url string) {
 	e.T.Helper()
 	e.T.Logf("Adding repo to config: %s -> %s", name, url)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
-	configPath := filepath.Join(schmuxDir, "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -739,35 +772,37 @@ func (e *Env) SpawnQuickLaunchWithoutWorkspace(repoURL, branch, name string) int
 	return spawnResp.StatusCode
 }
 
-// ListSessions lists sessions via CLI.
-// Returns the raw output.
+// ListSessions lists sessions via the API.
+// Returns a formatted string containing session nicknames and IDs for assertion.
 func (e *Env) ListSessions() string {
 	e.T.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	cmd := exec.CommandContext(ctx, e.SchmuxBin, "list")
-	out, err := cmd.CombinedOutput()
-	cancel()
-	if err != nil {
-		e.T.Fatalf("Failed to list sessions: %v\nOutput: %s", err, out)
+	sessions := e.GetAPISessions()
+	var sb strings.Builder
+	for _, sess := range sessions {
+		fmt.Fprintf(&sb, "%s (%s) target=%s running=%v\n", sess.Nickname, sess.ID, sess.Target, sess.Running)
 	}
 
-	return string(out)
+	return sb.String()
 }
 
-// DisposeSession disposes a session via CLI.
+// DisposeSession disposes a session via the API.
 func (e *Env) DisposeSession(sessionID string) {
 	e.T.Helper()
 	e.T.Logf("Disposing session: %s", sessionID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	cmd := exec.CommandContext(ctx, e.SchmuxBin, "dispose", sessionID)
-	// Confirm the interactive prompt.
-	cmd.Stdin = strings.NewReader("y\n")
-	out, err := cmd.CombinedOutput()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/sessions/"+sessionID+"/dispose", nil)
+	resp, err := http.DefaultClient.Do(req)
 	cancel()
 	if err != nil {
-		e.T.Fatalf("Failed to dispose session: %v\nOutput: %s", err, out)
+		e.T.Fatalf("Failed to dispose session: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		e.T.Fatalf("Dispose returned non-200: %d\nBody: %s", resp.StatusCode, body)
 	}
 }
 
@@ -872,25 +907,23 @@ func (e *Env) CaptureArtifacts() {
 	e.T.Logf("Capturing artifacts to: %s", failureDir)
 
 	// Capture config.json and state.json
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		configPath := filepath.Join(homeDir, ".schmux", "config.json")
-		if data, err := os.ReadFile(configPath); err == nil {
-			os.WriteFile(filepath.Join(failureDir, "config.json"), data, 0644)
-		}
+	schmuxDir := filepath.Join(e.HomeDir, ".schmux")
+	configPath := filepath.Join(schmuxDir, "config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		os.WriteFile(filepath.Join(failureDir, "config.json"), data, 0644)
+	}
 
-		statePath := filepath.Join(homeDir, ".schmux", "state.json")
-		if data, err := os.ReadFile(statePath); err == nil {
-			os.WriteFile(filepath.Join(failureDir, "state.json"), data, 0644)
-		}
+	statePath := filepath.Join(schmuxDir, "state.json")
+	if data, err := os.ReadFile(statePath); err == nil {
+		os.WriteFile(filepath.Join(failureDir, "state.json"), data, 0644)
+	}
 
-		// Capture daemon log if it exists
-		daemonLogPath := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
-		if data, err := os.ReadFile(daemonLogPath); err == nil {
-			os.WriteFile(filepath.Join(failureDir, "daemon.log"), data, 0644)
-			// Also print to test output for immediate visibility
-			e.T.Logf("=== DAEMON LOG ===\n%s", string(data))
-		}
+	// Capture daemon log if it exists
+	daemonLogPath := filepath.Join(schmuxDir, "e2e-daemon.log")
+	if data, err := os.ReadFile(daemonLogPath); err == nil {
+		os.WriteFile(filepath.Join(failureDir, "daemon.log"), data, 0644)
+		// Also print to test output for immediate visibility
+		e.T.Logf("=== DAEMON LOG ===\n%s", string(data))
 	}
 
 	// Capture tmux ls output
@@ -916,13 +949,7 @@ func (e *Env) SetSourceCodeManagement(scm string) {
 	e.T.Helper()
 	e.T.Logf("Setting source_code_management to: %s", scm)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
-	configPath := filepath.Join(schmuxDir, "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1053,13 +1080,7 @@ func (e *Env) AddRemoteFlavorToConfig(flavor, displayName, workspacePath, connec
 	e.T.Helper()
 	e.T.Logf("Adding remote flavor to config: %s", displayName)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
-	configPath := filepath.Join(schmuxDir, "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1146,8 +1167,7 @@ func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) stri
 	cancel()
 	if err != nil {
 		// Print daemon log for debugging before failing
-		homeDir, _ := os.UserHomeDir()
-		daemonLogPath := filepath.Join(homeDir, ".schmux", "e2e-daemon.log")
+		daemonLogPath := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
 		if data, err2 := os.ReadFile(daemonLogPath); err2 == nil {
 			e.T.Logf("=== DAEMON LOG (spawn failed) ===\n%s", string(data))
 		}
@@ -1234,12 +1254,7 @@ func (e *Env) AddDetectedTargetToConfig(name, command string) {
 	e.T.Helper()
 	e.T.Logf("Adding detected target to config: %s", name)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		e.T.Fatalf("Failed to load config: %v", err)
@@ -1287,13 +1302,7 @@ func (e *Env) SetCompoundConfig(debounceMs int) {
 	e.T.Helper()
 	e.T.Logf("Setting compound config: enabled=true debounce_ms=%d", debounceMs)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	schmuxDir := filepath.Join(homeDir, ".schmux")
-	configPath := filepath.Join(schmuxDir, "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1316,12 +1325,7 @@ func (e *Env) SetCompoundDisabled() {
 	e.T.Helper()
 	e.T.Log("Setting compound config: enabled=false")
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		e.T.Fatalf("Failed to load config: %v", err)
@@ -1342,12 +1346,7 @@ func (e *Env) CreateOverlayFile(repoName, relPath, content string) {
 	e.T.Helper()
 	e.T.Logf("Creating overlay file: repo=%s path=%s", repoName, relPath)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	overlayPath := filepath.Join(homeDir, ".schmux", "overlays", repoName, relPath)
+	overlayPath := filepath.Join(e.HomeDir, ".schmux", "overlays", repoName, relPath)
 	if err := os.MkdirAll(filepath.Dir(overlayPath), 0755); err != nil {
 		e.T.Fatalf("Failed to create overlay directory: %v", err)
 	}
@@ -1378,12 +1377,7 @@ func (e *Env) SetRepoOverlayPaths(repoName string, paths []string) {
 	e.T.Helper()
 	e.T.Logf("Setting overlay paths for repo %s: %v", repoName, paths)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		e.T.Fatalf("Failed to get home dir: %v", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".schmux", "config.json")
+	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		e.T.Fatalf("Failed to load config: %v", err)
