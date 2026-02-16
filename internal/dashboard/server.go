@@ -951,8 +951,8 @@ func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
 
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Authenticate if auth is enabled
-	if s.config.GetAuthEnabled() {
+	// Authenticate if auth is required (GitHub OAuth or tunnel active)
+	if s.requiresAuth() {
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return

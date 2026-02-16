@@ -53,6 +53,19 @@ func (s *Server) authEnabled() bool {
 	return s.config.GetAuthEnabled()
 }
 
+// requiresAuth returns true if requests must be authenticated.
+// This is true when GitHub OAuth is enabled OR when a remote tunnel is active.
+func (s *Server) requiresAuth() bool {
+	if s.authEnabled() {
+		return true
+	}
+	// If tunnel is active (session secret exists), require auth
+	s.remoteTokenMu.Lock()
+	hasSecret := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+	return hasSecret
+}
+
 func (s *Server) authRedirectURI() (string, error) {
 	base := strings.TrimRight(s.config.GetPublicBaseURL(), "/")
 	if base == "" {
@@ -75,7 +88,7 @@ func (s *Server) authCookieSecure() bool {
 
 func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.authEnabled() {
+		if !s.requiresAuth() {
 			h(w, r)
 			return
 		}
@@ -89,7 +102,7 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.authEnabled() {
+		if !s.requiresAuth() {
 			h.ServeHTTP(w, r)
 			return
 		}
@@ -102,7 +115,7 @@ func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 }
 
 func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) bool {
-	if !s.authEnabled() {
+	if !s.requiresAuth() {
 		return true
 	}
 	if _, err := s.authenticateRequest(r); err != nil {

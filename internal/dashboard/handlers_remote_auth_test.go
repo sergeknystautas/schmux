@@ -111,3 +111,40 @@ func TestRenderPinPage_EscapesErrorMsg(t *testing.T) {
 		t.Error("expected escaped img tag in output")
 	}
 }
+
+func TestRequiresAuth_TrueWhenTunnelActive(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	// Simulate tunnel connected — sets remoteSessionSecret
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Auth is NOT enabled (no GitHub OAuth) but tunnel IS active
+	if !server.requiresAuth() {
+		t.Error("requiresAuth should return true when tunnel is active")
+	}
+}
+
+func TestRequiresAuth_FalseWhenNoTunnel(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	// No tunnel connected, no auth enabled — should NOT require auth
+	if server.requiresAuth() {
+		t.Error("requiresAuth should return false when tunnel is not active and auth is disabled")
+	}
+}
+
+func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	if !server.requiresAuth() {
+		t.Fatal("should require auth while tunnel is active")
+	}
+
+	server.ClearRemoteAuth()
+
+	if server.requiresAuth() {
+		t.Error("requiresAuth should return false after tunnel stops and secret is cleared")
+	}
+}
