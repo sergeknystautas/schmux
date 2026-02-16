@@ -128,6 +128,10 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
   const dirtyState = response.dirty_state;
   let youAreHereColumn: number | null = null;
   let syncSummaryInserted = false;
+  let youAreHereInserted = false;
+
+  // Pre-lookup the working copy parent node for reference in virtual nodes.
+  const wcpNode = workingCopyParent ? nodes.find((n) => n.hash === workingCopyParent) : undefined;
 
   // Commit nodes, with virtual nodes inserted at appropriate positions.
   for (const node of nodes) {
@@ -151,15 +155,19 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
       rowIndex++;
     }
 
-    // Insert virtual nodes right before the working copy parent
-    if (workingCopyParent && node.hash === workingCopyParent) {
+    // Insert you-are-here before the first regular commit node. This ensures
+    // the working directory marker is always at the top of the graph, even
+    // when context commits sort above the HEAD commit in disconnected graphs.
+    if (!youAreHereInserted && workingCopyParent) {
+      youAreHereInserted = true;
       youAreHereColumn = workingCopyColumn;
+      const refNode = wcpNode || node;
 
       layoutNodes.push({
         hash: '__you-are-here__',
         column: workingCopyColumn,
         y: rowIndex * ROW_HEIGHT,
-        node,
+        node: refNode,
         nodeType: 'you-are-here',
       });
       rowIndex++;
@@ -171,7 +179,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
           hash: '__commit-actions__',
           column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
-          node,
+          node: refNode,
           nodeType: 'commit-actions',
           dirtyState: dirtyState
             ? {
@@ -189,7 +197,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
             hash: `__commit-file-${i}__`,
             column: workingCopyColumn,
             y: rowIndex * ROW_HEIGHT,
-            node,
+            node: refNode,
             nodeType: 'commit-file',
             file: files[i],
           });
@@ -201,7 +209,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
           hash: '__commit-footer__',
           column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
-          node,
+          node: refNode,
           nodeType: 'commit-footer',
         });
         rowIndex++;
