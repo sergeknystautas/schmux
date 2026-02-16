@@ -154,6 +154,9 @@ type Server struct {
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
 
+	// Rate limiter for remote auth endpoint
+	remoteAuthLimiter *RateLimiter
+
 	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
@@ -204,6 +207,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
 		crTrackers:                      make(map[string]*session.SessionTracker),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		remoteAuthLimiter:               NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 		previewDetect:                   make(map[string]time.Time),
 	}
 	s.previewManager = preview.NewManager(
@@ -222,8 +226,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	}
 	go s.broadcastLoop()
 	go s.previewReconcileLoop()
-	// Start rate limiter cleanup goroutine
+	// Start rate limiter cleanup goroutines
 	go s.connectLimiter.startCleanup(10 * time.Minute)
+	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)
 	// Scan existing sessions for web server ports
 	go s.scanExistingSessionsForPreviews()
 	return s
@@ -497,8 +502,9 @@ func (s *Server) Stop() error {
 	if s.previewManager != nil {
 		s.previewManager.Stop()
 	}
-	// Stop rate limiter cleanup goroutine
+	// Stop rate limiter cleanup goroutines
 	s.connectLimiter.Stop()
+	s.remoteAuthLimiter.Stop()
 
 	return nil
 }
@@ -520,6 +526,7 @@ func (s *Server) CloseForTest() {
 		s.previewManager.Stop()
 	}
 	s.connectLimiter.Stop()
+	s.remoteAuthLimiter.Stop()
 }
 
 func (s *Server) isLocalRequest(r *http.Request) bool {
