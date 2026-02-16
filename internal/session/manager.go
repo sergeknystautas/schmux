@@ -1144,6 +1144,13 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return m.disposeRemoteSession(ctx, sess)
 	}
 
+	// Keep the tmux pane alive after the process exits so we can capture
+	// terminal output in step 3. Without this, tmux destroys the pane
+	// immediately when the process exits (remain-on-exit defaults to off).
+	if m.terminalCaptureCallback != nil {
+		tmux.SetOption(ctx, sess.TmuxSession, "remain-on-exit", "on")
+	}
+
 	// Track what we've done for the summary
 	var warnings []string
 	processesKilled := 0
