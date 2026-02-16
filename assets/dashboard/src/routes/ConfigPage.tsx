@@ -15,6 +15,7 @@ import {
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
+import { NtfyTopicGenerator } from '../components/NtfyTopicGenerator';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
@@ -2422,12 +2423,14 @@ export default function ConfigPage() {
                           value={remoteAccessNtfyTopic}
                           onChange={(e) => setRemoteAccessNtfyTopic(e.target.value)}
                         />
+                        <NtfyTopicGenerator
+                          currentTopic={remoteAccessNtfyTopic}
+                          onChange={setRemoteAccessNtfyTopic}
+                        />
                         <p className="form-group__hint">
-                          Receive a push notification with the connection URL via{' '}
-                          <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer">
-                            ntfy.sh
-                          </a>
-                          . Install the ntfy app on your phone and subscribe to this topic.
+                          This topic receives your auth URL. <strong>Treat it as a secret</strong> —
+                          anyone who knows it can see your auth links. Use a randomly generated
+                          value.
                         </p>
                       </div>
 
