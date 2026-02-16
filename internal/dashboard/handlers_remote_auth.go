@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 )
 
 const maxPinAttempts = 5
+
+const remoteSessionMaxAge = 24 * time.Hour
 
 func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -126,6 +129,7 @@ func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
 		Name:     "schmux_remote",
 		Value:    now + "." + sig,
 		Path:     "/",
+		MaxAge:   int(remoteSessionMaxAge.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
@@ -135,6 +139,15 @@ func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
 func (s *Server) validateRemoteCookie(value string) bool {
 	parts := strings.SplitN(value, ".", 2)
 	if len(parts) != 2 {
+		return false
+	}
+
+	// Check timestamp expiry
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return false
+	}
+	if time.Since(time.Unix(ts, 0)) > remoteSessionMaxAge {
 		return false
 	}
 
