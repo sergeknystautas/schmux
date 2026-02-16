@@ -541,7 +541,23 @@ func (s *Server) isLocalRequest(r *http.Request) bool {
 		host = strings.TrimSpace(r.RemoteAddr)
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	if ip == nil || !ip.IsLoopback() {
+		return false
+	}
+
+	// If tunnel is active and the request has a forwarding header,
+	// it's a remote request proxied through cloudflared, not a genuine local request
+	s.remoteTokenMu.Lock()
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel {
+		if r.Header.Get("Cf-Connecting-IP") != "" || r.Header.Get("X-Forwarded-For") != "" {
+			return false
+		}
+	}
+
+	return true
 }
 
 // withCORS wraps a handler with CORS headers and origin validation.
@@ -1139,18 +1155,35 @@ func (rl *RateLimiter) Stop() {
 	close(rl.cleanupCh)
 }
 
-// normalizeIPForRateLimit extracts the IP address from a RemoteAddr string,
-// stripping the port to prevent rate limit bypass via different ports.
-func (s *Server) normalizeIPForRateLimit(remoteAddr string) string {
-	// RemoteAddr format is typically "IP:port" or "[IPv6]:port"
-	// We want to extract just the IP portion
+// normalizeIPForRateLimit extracts the IP address from a request,
+// using forwarding headers when a tunnel is active and the request arrives from loopback.
+func (s *Server) normalizeIPForRateLimit(r *http.Request) string {
+	ip := extractIPFromAddr(r.RemoteAddr)
+
+	// Only trust forwarding headers when tunnel is active AND request is from loopback
+	s.remoteTokenMu.Lock()
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback() {
+		if cfIP := strings.TrimSpace(r.Header.Get("Cf-Connecting-IP")); cfIP != "" {
+			return cfIP
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.SplitN(xff, ",", 2)
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	return ip
+}
+
+// extractIPFromAddr extracts the IP portion from a RemoteAddr string (IP:port or [IPv6]:port).
+func extractIPFromAddr(remoteAddr string) string {
 	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
 		ip := remoteAddr[:idx]
-		// Remove IPv6 brackets if present
 		ip = strings.Trim(ip, "[]")
 		return ip
 	}
-	// No port found, return as-is
 	return remoteAddr
 }
 

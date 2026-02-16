@@ -300,7 +300,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Rate limiting by user (if auth enabled) or IP (without port)
-	rateLimitKey := s.normalizeIPForRateLimit(r.RemoteAddr)
+	rateLimitKey := s.normalizeIPForRateLimit(r)
 	if s.config.GetAuthEnabled() {
 		if user, err := s.authenticateRequest(r); err == nil && user != nil {
 			rateLimitKey = user.Login
