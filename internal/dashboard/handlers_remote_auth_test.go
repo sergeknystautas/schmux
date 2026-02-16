@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +148,61 @@ func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
 
 	if server.requiresAuth() {
 		t.Error("requiresAuth should return false after tunnel stops and secret is cleared")
+	}
+}
+
+func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Build a valid remote cookie
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(nowStr))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	// POST with valid remote cookie but NO CSRF token from a non-local address
+	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.RemoteAddr = "1.2.3.4:12345" // non-local to trigger CSRF check
+
+	rr := httptest.NewRecorder()
+	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
+	handler(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden without CSRF token, got %d", rr.Code)
+	}
+}
+
+func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Build a valid remote cookie
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(nowStr))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	// POST from localhost — should NOT require CSRF
+	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.RemoteAddr = "127.0.0.1:12345" // local
+
+	rr := httptest.NewRecorder()
+	handler := server.withAuthAndCSRF(server.handleRemoteAccessOff)
+	handler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for local request without CSRF, got %d", rr.Code)
 	}
 }

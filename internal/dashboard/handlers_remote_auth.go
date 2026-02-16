@@ -135,6 +135,21 @@ func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// Set CSRF cookie so remote sessions can make state-changing requests
+	csrfToken, err := randomToken(32)
+	if err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    csrfToken,
+		Path:     "/",
+		MaxAge:   int(remoteSessionMaxAge.Seconds()),
+		HttpOnly: false,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
+	})
 }
 
 func (s *Server) validateRemoteCookie(value string) bool {

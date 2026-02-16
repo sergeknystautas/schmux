@@ -100,6 +100,21 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// withAuthAndCSRF wraps a handler with both auth and CSRF validation.
+// Used for state-changing endpoints that need cross-site request forgery protection.
+// Local requests (from loopback) are exempt from CSRF checks.
+func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
+	return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if !s.isLocalRequest(r) && !s.validateCSRF(r) {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		h(w, r)
+	})
+}
+
 func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.requiresAuth() {
