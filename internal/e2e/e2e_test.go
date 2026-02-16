@@ -1938,7 +1938,7 @@ func TestE2EOverlayAPI(t *testing.T) {
 
 		env.AddRepoToConfig(repoName, repoURL)
 		env.SetSourceCodeManagement("git")
-		env.CreateOverlayFile(repoName, ".claude/settings.json", `{"model":"sonnet"}`)
+		env.CreateOverlayFile(repoName, ".claude/settings.local.json", `{"model":"sonnet"}`)
 	})
 
 	t.Run("02_DaemonStart", func(t *testing.T) {
@@ -1985,15 +1985,15 @@ func TestE2EOverlayAPI(t *testing.T) {
 		// Check that builtin defaults are present
 		foundBuiltin := false
 		for _, dp := range repoOverlay.DeclaredPaths {
-			if dp.Path == ".claude/settings.json" && dp.Source == "builtin" {
+			if dp.Path == ".claude/settings.local.json" && dp.Source == "builtin" {
 				foundBuiltin = true
 				if dp.Status != "synced" {
-					t.Errorf("Expected .claude/settings.json status=synced, got %q", dp.Status)
+					t.Errorf("Expected .claude/settings.local.json status=synced, got %q", dp.Status)
 				}
 			}
 		}
 		if !foundBuiltin {
-			t.Error("Expected .claude/settings.json as a builtin declared path")
+			t.Error("Expected .claude/settings.local.json as a builtin declared path")
 		}
 
 		// Nudge should not be dismissed yet
