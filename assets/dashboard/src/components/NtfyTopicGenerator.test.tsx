@@ -20,12 +20,18 @@ describe('NtfyTopicGenerator', () => {
     expect(topic).toMatch(/^schmux-[0-9a-f]{32}$/);
   });
 
+  it('shows placeholder when no QR code is displayed', () => {
+    render(<NtfyTopicGenerator currentTopic="" onChange={vi.fn()} />);
+    expect(screen.getByText(/QR code will appear here/)).toBeInTheDocument();
+  });
+
   it('QR code SVG renders after generation', async () => {
     const onChange = vi.fn();
     const { container } = render(<NtfyTopicGenerator currentTopic="" onChange={onChange} />);
 
-    // No QR before clicking
+    // Placeholder shown, no QR before clicking
     expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByText(/QR code will appear here/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByText('Generate secure topic'));
 
@@ -62,12 +68,14 @@ describe('NtfyTopicGenerator', () => {
       />
     );
     expect(container.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByText(/QR code will appear here/)).toBeNull();
   });
 
-  it('when currentTopic does not match the pattern, no QR code is shown', () => {
+  it('when currentTopic does not match the pattern, placeholder is shown', () => {
     const { container } = render(
       <NtfyTopicGenerator currentTopic="my-custom-topic" onChange={vi.fn()} />
     );
     expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByText(/QR code will appear here/)).toBeInTheDocument();
   });
 });

@@ -4771,3 +4771,28 @@ body.keyboard-mode-active::after {
 .password-strength--strong {
   color: var(--color-success);
 }
+
+/* ntfy QR code */
+.ntfy-qr-container {
+  margin-top: 0.75rem;
+}
+.ntfy-qr-code {
+  display: inline-block;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+.ntfy-qr-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 176px;
+  height: 176px;
+  border: 1px dashed var(--color-border);
+  border-radius: 0.5rem;
+  color: var(--color-text-faint);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 1rem;
+}

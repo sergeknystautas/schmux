@@ -32,12 +32,20 @@ export function NtfyTopicGenerator({ currentTopic, onChange }: Props) {
       <button type="button" onClick={handleGenerate} className="btn btn--secondary btn--sm">
         Generate secure topic
       </button>
-      {showQR && ntfyURL && (
-        <div style={{ marginTop: '0.75rem' }}>
-          <QRCodeSVG value={ntfyURL} size={160} />
-          <p className="form-group__hint">Scan with the ntfy app to subscribe to this topic.</p>
-        </div>
-      )}
+      <div className="ntfy-qr-container">
+        {showQR && ntfyURL ? (
+          <>
+            <div className="ntfy-qr-code">
+              <QRCodeSVG value={ntfyURL} size={144} />
+            </div>
+            <p className="form-group__hint">Scan with the ntfy app to subscribe to this topic.</p>
+          </>
+        ) : (
+          <div className="ntfy-qr-placeholder">
+            <span>QR code will appear here after generating a topic</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
