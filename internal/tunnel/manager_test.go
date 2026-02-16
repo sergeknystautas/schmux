@@ -17,7 +17,7 @@ func TestTunnelState_InitiallyOff(t *testing.T) {
 }
 
 func TestTunnelState_StartRequiresPasswordHash(t *testing.T) {
-	m := NewManager(ManagerConfig{PasswordHashSet: false})
+	m := NewManager(ManagerConfig{PasswordHashSet: func() bool { return false }})
 	err := m.Start()
 	if err == nil {
 		t.Fatal("expected error when password not configured")
@@ -30,7 +30,7 @@ func TestTunnelState_StartRequiresPasswordHash(t *testing.T) {
 func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	m := NewManager(ManagerConfig{
 		Disabled:        true,
-		PasswordHashSet: true,
+		PasswordHashSet: func() bool { return true },
 	})
 
 	err := m.Start()

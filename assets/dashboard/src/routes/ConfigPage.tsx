@@ -10,6 +10,7 @@ import {
   getAuthSecretsStatus,
   saveAuthSecrets,
   setRemoteAccessPassword,
+  testRemoteAccessNotification,
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
@@ -2446,6 +2447,21 @@ export default function ConfigPage() {
                           anyone who knows it can see your auth links. Use a randomly generated
                           value.
                         </p>
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--sm"
+                          disabled={!remoteAccessNtfyTopic}
+                          onClick={async () => {
+                            try {
+                              await testRemoteAccessNotification();
+                              success('Test notification sent!');
+                            } catch (err) {
+                              toastError(getErrorMessage(err, 'Failed to send test notification'));
+                            }
+                          }}
+                        >
+                          Send test notification
+                        </button>
                       </div>
 
                       <div className="form-group">
