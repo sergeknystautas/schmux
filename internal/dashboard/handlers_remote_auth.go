@@ -58,6 +58,16 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
+	// Rate limit by IP
+	ip := s.normalizeIPForRateLimit(r.RemoteAddr)
+	if !s.remoteAuthLimiter.Allow(ip) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, renderPinPage("", "Too many attempts. Please wait a minute before trying again.", 0))
+		return
+	}
+
 	token := r.FormValue("token")
 	pin := r.FormValue("pin")
 

@@ -235,3 +235,40 @@ func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
 		t.Errorf("expected 200 for local request without CSRF, got %d", rr.Code)
 	}
 }
+
+func TestRemoteAuth_RateLimiting(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Get the token
+	server.remoteTokenMu.Lock()
+	token := server.remoteToken
+	server.remoteTokenMu.Unlock()
+
+	// The rate limiter allows 5 requests per minute per IP
+	// Send 6 POST requests from the same IP — 6th should be rate-limited
+	for i := 0; i < 5; i++ {
+		body := strings.NewReader("token=" + token + "&pin=wrong")
+		req, _ := http.NewRequest("POST", "/remote-auth", body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "1.2.3.4:12345"
+		rr := httptest.NewRecorder()
+		server.handleRemoteAuthPOST(rr, req)
+		// These may fail for various reasons but should NOT be 429
+		if rr.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d should not be rate-limited", i+1)
+		}
+	}
+
+	// 6th request should be rate-limited
+	body := strings.NewReader("token=" + token + "&pin=wrong")
+	req, _ := http.NewRequest("POST", "/remote-auth", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "1.2.3.4:12345"
+	rr := httptest.NewRecorder()
+	server.handleRemoteAuthPOST(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 Too Many Requests, got %d", rr.Code)
+	}
+}
