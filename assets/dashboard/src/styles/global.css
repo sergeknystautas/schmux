@@ -4755,3 +4755,19 @@ body.keyboard-mode-active::after {
     border-right: none;
   }
 }
+
+/* PIN strength indicator */
+.pin-strength {
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+  display: block;
+}
+.pin-strength--weak {
+  color: var(--color-danger);
+}
+.pin-strength--ok {
+  color: var(--color-text-muted);
+}
+.pin-strength--strong {
+  color: var(--color-success);
+}
