@@ -16,7 +16,7 @@ import {
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
-import { NtfyTopicGenerator } from '../components/NtfyTopicGenerator';
+import { NtfyTopicGenerateButton, NtfyTopicQRDisplay } from '../components/NtfyTopicGenerator';
 import { passwordStrength } from '../lib/passwordStrength';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
@@ -2329,156 +2329,166 @@ export default function ConfigPage() {
                   </div>
 
                   {!remoteAccessDisabled && (
-                    <>
-                      <div className="form-group">
-                        <label className="form-group__label">Access Password</label>
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 'var(--spacing-xs)',
-                          }}
-                        >
-                          {remoteAccessPasswordHashSet && (
-                            <p
-                              className="form-group__hint"
-                              style={{ color: 'var(--color-success)' }}
-                            >
-                              Password is configured
-                            </p>
-                          )}
-                          <input
-                            type="password"
-                            className="input"
-                            style={{ maxWidth: '240px' }}
-                            placeholder={
-                              remoteAccessPasswordHashSet
-                                ? 'New password (leave blank to keep)'
-                                : 'Enter password'
-                            }
-                            value={passwordInput}
-                            onChange={(e) => setPasswordInput(e.target.value)}
-                          />
-                          {passwordInput && passwordInput.length >= 6 && (
-                            <span
-                              className={`password-strength password-strength--${passwordStrength(passwordInput)}`}
-                            >
-                              {passwordStrength(passwordInput) === 'weak'
-                                ? 'Weak password'
-                                : passwordStrength(passwordInput) === 'ok'
-                                  ? 'OK'
-                                  : 'Strong'}
-                            </span>
-                          )}
-                          {passwordInput && (
+                    <div className="remote-access-grid">
+                      <div className="remote-access-grid__fields">
+                        <div className="form-group">
+                          <label className="form-group__label">Access Password</label>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 'var(--spacing-xs)',
+                            }}
+                          >
+                            {remoteAccessPasswordHashSet && (
+                              <p
+                                className="form-group__hint"
+                                style={{ color: 'var(--color-success)' }}
+                              >
+                                Password is configured
+                              </p>
+                            )}
                             <input
                               type="password"
                               className="input"
-                              style={{ maxWidth: '240px' }}
-                              placeholder="Confirm password"
-                              value={passwordConfirm}
-                              onChange={(e) => setPasswordConfirm(e.target.value)}
+                              placeholder={
+                                remoteAccessPasswordHashSet
+                                  ? 'New password (leave blank to keep)'
+                                  : 'Enter password'
+                              }
+                              value={passwordInput}
+                              onChange={(e) => setPasswordInput(e.target.value)}
                             />
-                          )}
-                          {passwordInput && (
+                            {passwordInput && passwordInput.length >= 6 && (
+                              <span
+                                className={`password-strength password-strength--${passwordStrength(passwordInput)}`}
+                              >
+                                {passwordStrength(passwordInput) === 'weak'
+                                  ? 'Weak password'
+                                  : passwordStrength(passwordInput) === 'ok'
+                                    ? 'OK'
+                                    : 'Strong'}
+                              </span>
+                            )}
+                            {passwordInput && (
+                              <input
+                                type="password"
+                                className="input"
+                                placeholder="Confirm password"
+                                value={passwordConfirm}
+                                onChange={(e) => setPasswordConfirm(e.target.value)}
+                              />
+                            )}
+                            {passwordInput && (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ alignSelf: 'flex-start' }}
+                                onClick={handleSetPassword}
+                                disabled={passwordSaving}
+                              >
+                                {passwordSaving
+                                  ? 'Saving...'
+                                  : remoteAccessPasswordHashSet
+                                    ? 'Update Password'
+                                    : 'Set Password'}
+                              </button>
+                            )}
+                            {passwordError && <p className="form-group__error">{passwordError}</p>}
+                            {passwordSuccess && (
+                              <p
+                                className="form-group__hint"
+                                style={{ color: 'var(--color-success)' }}
+                              >
+                                {passwordSuccess}
+                              </p>
+                            )}
+                          </div>
+                          <p className="form-group__hint">
+                            Required to start a remote tunnel. You&apos;ll enter this password when
+                            connecting from another device.
+                          </p>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-group__label">Timeout (minutes)</label>
+                          <input
+                            type="number"
+                            className="input input--compact"
+                            style={{ maxWidth: '120px' }}
+                            min="0"
+                            value={remoteAccessTimeoutMinutes}
+                            onChange={(e) =>
+                              setRemoteAccessTimeoutMinutes(parseInt(e.target.value) || 0)
+                            }
+                          />
+                          <p className="form-group__hint">
+                            Auto-stop the tunnel after this many minutes. 0 means no timeout.
+                          </p>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-group__label">ntfy Topic</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="my-schmux-notifications"
+                            value={remoteAccessNtfyTopic}
+                            onChange={(e) => setRemoteAccessNtfyTopic(e.target.value)}
+                          />
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: 'var(--spacing-sm)',
+                              marginTop: 'var(--spacing-xs)',
+                            }}
+                          >
+                            <NtfyTopicGenerateButton onChange={setRemoteAccessNtfyTopic} />
                             <button
                               type="button"
-                              className="btn btn--primary"
-                              style={{ alignSelf: 'flex-start' }}
-                              onClick={handleSetPassword}
-                              disabled={passwordSaving}
+                              className="btn btn--secondary btn--sm"
+                              disabled={!remoteAccessNtfyTopic}
+                              onClick={async () => {
+                                try {
+                                  await testRemoteAccessNotification();
+                                  success('Test notification sent!');
+                                } catch (err) {
+                                  toastError(
+                                    getErrorMessage(err, 'Failed to send test notification')
+                                  );
+                                }
+                              }}
                             >
-                              {passwordSaving
-                                ? 'Saving...'
-                                : remoteAccessPasswordHashSet
-                                  ? 'Update Password'
-                                  : 'Set Password'}
+                              Send test notification
                             </button>
-                          )}
-                          {passwordError && <p className="form-group__error">{passwordError}</p>}
-                          {passwordSuccess && (
-                            <p
-                              className="form-group__hint"
-                              style={{ color: 'var(--color-success)' }}
-                            >
-                              {passwordSuccess}
-                            </p>
-                          )}
+                          </div>
+                          <p className="form-group__hint">
+                            This topic receives your auth URL. <strong>Treat it as a secret</strong>{' '}
+                            — anyone who knows it can see your auth links. Use a randomly generated
+                            value.
+                          </p>
                         </div>
-                        <p className="form-group__hint">
-                          Required to start a remote tunnel. You&apos;ll enter this password when
-                          connecting from another device.
-                        </p>
+
+                        <div className="form-group">
+                          <label className="form-group__label">Notify Command</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="echo $SCHMUX_REMOTE_URL | pbcopy"
+                            value={remoteAccessNotifyCommand}
+                            onChange={(e) => setRemoteAccessNotifyCommand(e.target.value)}
+                          />
+                          <p className="form-group__hint">
+                            Shell command to run when the tunnel connects. The URL is available as{' '}
+                            <code>$SCHMUX_REMOTE_URL</code>.
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="form-group">
-                        <label className="form-group__label">Timeout (minutes)</label>
-                        <input
-                          type="number"
-                          className="input input--compact"
-                          style={{ maxWidth: '120px' }}
-                          min="0"
-                          value={remoteAccessTimeoutMinutes}
-                          onChange={(e) =>
-                            setRemoteAccessTimeoutMinutes(parseInt(e.target.value) || 0)
-                          }
-                        />
-                        <p className="form-group__hint">
-                          Auto-stop the tunnel after this many minutes. 0 means no timeout.
-                        </p>
+                      <div className="remote-access-grid__qr">
+                        <NtfyTopicQRDisplay topic={remoteAccessNtfyTopic} />
                       </div>
-
-                      <div className="form-group">
-                        <label className="form-group__label">ntfy Topic</label>
-                        <input
-                          type="text"
-                          className="input"
-                          style={{ maxWidth: '300px' }}
-                          placeholder="my-schmux-notifications"
-                          value={remoteAccessNtfyTopic}
-                          onChange={(e) => setRemoteAccessNtfyTopic(e.target.value)}
-                        />
-                        <NtfyTopicGenerator
-                          currentTopic={remoteAccessNtfyTopic}
-                          onChange={setRemoteAccessNtfyTopic}
-                        />
-                        <p className="form-group__hint">
-                          This topic receives your auth URL. <strong>Treat it as a secret</strong> —
-                          anyone who knows it can see your auth links. Use a randomly generated
-                          value.
-                        </p>
-                        <button
-                          type="button"
-                          className="btn btn--secondary btn--sm"
-                          disabled={!remoteAccessNtfyTopic}
-                          onClick={async () => {
-                            try {
-                              await testRemoteAccessNotification();
-                              success('Test notification sent!');
-                            } catch (err) {
-                              toastError(getErrorMessage(err, 'Failed to send test notification'));
-                            }
-                          }}
-                        >
-                          Send test notification
-                        </button>
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-group__label">Notify Command</label>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="echo $SCHMUX_REMOTE_URL | pbcopy"
-                          value={remoteAccessNotifyCommand}
-                          onChange={(e) => setRemoteAccessNotifyCommand(e.target.value)}
-                        />
-                        <p className="form-group__hint">
-                          Shell command to run when the tunnel connects. The URL is available as{' '}
-                          <code>$SCHMUX_REMOTE_URL</code>.
-                        </p>
-                      </div>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>

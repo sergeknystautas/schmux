@@ -1050,6 +1050,16 @@ body {
   background-color: var(--color-danger-hover);
 }
 
+.btn--secondary {
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+}
+
+.btn--secondary:hover {
+  background-color: var(--color-surface-alt);
+  border-color: var(--color-text-muted);
+}
+
 .btn--ghost {
   background-color: transparent;
 }
@@ -4795,4 +4805,20 @@ body.keyboard-mode-active::after {
   font-size: 0.8rem;
   text-align: center;
   padding: 1rem;
+}
+
+/* Remote access config layout */
+.remote-access-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--spacing-xl);
+  align-items: start;
+}
+
+.remote-access-grid__fields {
+  min-width: 0;
+}
+
+.remote-access-grid__qr {
+  padding-top: var(--spacing-xs);
 }
