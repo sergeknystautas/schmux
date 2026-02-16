@@ -1699,8 +1699,22 @@ func TestGetRemoteAccessDisabled(t *testing.T) {
 }
 
 func TestGetRemoteAccessTimeoutMinutes(t *testing.T) {
-	t.Run("defaults to 0 when nil", func(t *testing.T) {
+	t.Run("defaults to 120 when nil", func(t *testing.T) {
 		cfg := &Config{}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 120 {
+			t.Errorf("expected 120, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("defaults to 120 when zero", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 0}}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 120 {
+			t.Errorf("expected 120, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("negative disables timeout", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: -1}}
 		if cfg.GetRemoteAccessTimeoutMinutes() != 0 {
 			t.Errorf("expected 0, got %d", cfg.GetRemoteAccessTimeoutMinutes())
 		}

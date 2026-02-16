@@ -1457,9 +1457,13 @@ func (c *Config) GetRemoteAccessDisabled() bool {
 	return *c.RemoteAccess.Disabled
 }
 
-// GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout. 0 = no timeout.
+// GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout in minutes.
+// Defaults to 120 (2 hours) when not configured. Set to -1 in config to disable.
 func (c *Config) GetRemoteAccessTimeoutMinutes() int {
-	if c == nil || c.RemoteAccess == nil {
+	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.TimeoutMinutes == 0 {
+		return 120
+	}
+	if c.RemoteAccess.TimeoutMinutes < 0 {
 		return 0
 	}
 	return c.RemoteAccess.TimeoutMinutes
