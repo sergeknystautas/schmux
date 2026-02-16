@@ -46,6 +46,7 @@ export default class TerminalStream {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private maxReconnectAttempt = 10;
   private disposed = false;
+  private wasDisplaced = false;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -326,6 +327,9 @@ export default class TerminalStream {
 
     this.ws = new WebSocket(wsUrl);
 
+    // Reset displaced flag on new connection attempt (e.g., after page refresh)
+    this.wasDisplaced = false;
+
     this.ws.onopen = () => {
       this.connected = true;
       this.reconnectAttempt = 0;
@@ -348,6 +352,13 @@ export default class TerminalStream {
     this.ws.onclose = () => {
       this.connected = false;
       if (this.disposed) return;
+
+      // If we were intentionally displaced (another window opened), don't retry
+      if (this.wasDisplaced) {
+        this.onStatusChange('disconnected');
+        return;
+      }
+
       this.onStatusChange('disconnected');
       if (this.reconnectAttempt < this.maxReconnectAttempt) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
@@ -426,6 +437,12 @@ export default class TerminalStream {
       case 'full':
         this.terminal.reset();
         this.terminal.write(msg.content);
+        break;
+      case 'displaced':
+        this.wasDisplaced = true;
+        this.terminal.writeln(
+          `\r\n\x1b[33m${msg.content}\x1b[0m\r\n\x1b[33m[Refresh to reconnect]\x1b[0m`
+        );
         break;
       default:
         this.terminal.reset();
