@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -899,6 +900,14 @@ func processTerminalCapture(raw string) string {
 	cleaned := tmux.StripAnsi(raw)
 	if len(cleaned) > maxTerminalCaptureLen {
 		cleaned = cleaned[len(cleaned)-maxTerminalCaptureLen:]
+		// Ensure we don't start mid-rune after byte-level truncation.
+		// Find the first valid rune boundary.
+		for i := 0; i < len(cleaned) && i < 4; i++ {
+			if utf8.RuneStart(cleaned[i]) {
+				cleaned = cleaned[i:]
+				break
+			}
+		}
 	}
 	if strings.TrimSpace(cleaned) == "" {
 		return ""

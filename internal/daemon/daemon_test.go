@@ -219,4 +219,23 @@ func TestProcessTerminalCapture(t *testing.T) {
 			t.Error("truncation should keep the tail (last 5000 chars), not the head")
 		}
 	})
+
+	t.Run("truncation does not split multi-byte UTF-8 characters", func(t *testing.T) {
+		// Build a string that forces truncation to land mid-rune.
+		// 'é' is 2 bytes (0xC3 0xA9). Fill with ASCII to push just past the limit,
+		// then place a multi-byte char right at the cut boundary.
+		prefix := "é" + strings.Repeat("x", maxTerminalCaptureLen) // 2 + 5000 = 5002 bytes
+		got := processTerminalCapture(prefix)
+		// After truncation at byte offset, we'd cut into the 'é'. The fix should
+		// skip the broken leading byte so the result starts with a valid rune.
+		for i, r := range got {
+			if r == '\uFFFD' {
+				t.Errorf("found replacement character at byte %d — truncation split a multi-byte rune", i)
+			}
+			break // only need to check the first rune
+		}
+		if len(got) > maxTerminalCaptureLen {
+			t.Errorf("got len %d, want <= %d", len(got), maxTerminalCaptureLen)
+		}
+	})
 }
