@@ -28,9 +28,6 @@ var (
 // executorFunc is the function used to run a oneshot target. Package-level var for testability.
 var executorFunc = oneshot.ExecuteTarget
 
-// executorStreamedFunc is the streamed variant of executorFunc. Package-level var for testability.
-var executorStreamedFunc = oneshot.ExecuteTargetStreamed
-
 // FileAction describes what the LLM did to resolve a single conflicted file.
 // Struct tags control JSON schema generation via swaggest/jsonschema-go.
 type FileAction struct {
@@ -123,35 +120,6 @@ func Execute(ctx context.Context, cfg *config.Config, prompt string, workspacePa
 	timeout := time.Duration(cfg.GetConflictResolveTimeoutMs()) * time.Millisecond
 
 	response, err := executorFunc(ctx, cfg, targetName, prompt, schema.LabelConflictResolve, timeout, workspacePath)
-	if err != nil {
-		if errors.Is(err, oneshot.ErrTargetNotFound) {
-			return OneshotResult{}, "", ErrTargetNotFound
-		}
-		return OneshotResult{}, "", fmt.Errorf("oneshot execute: %w", err)
-	}
-
-	result, err := ParseResult(response)
-	if err != nil {
-		return OneshotResult{}, response, err
-	}
-
-	return result, "", nil
-}
-
-// ExecuteStreamed is like Execute but runs the LLM in a tmux session for live output streaming.
-// The onTmuxSession callback is called with the tmux session name once it's created.
-func ExecuteStreamed(ctx context.Context, cfg *config.Config, prompt string, workspacePath string,
-	onTmuxSession func(tmuxName string)) (OneshotResult, string, error) {
-
-	targetName := cfg.GetConflictResolveTarget()
-	if targetName == "" {
-		return OneshotResult{}, "", ErrDisabled
-	}
-
-	timeout := time.Duration(cfg.GetConflictResolveTimeoutMs()) * time.Millisecond
-
-	response, err := executorStreamedFunc(ctx, cfg, targetName, prompt,
-		schema.LabelConflictResolve, timeout, workspacePath, onTmuxSession)
 	if err != nil {
 		if errors.Is(err, oneshot.ErrTargetNotFound) {
 			return OneshotResult{}, "", ErrTargetNotFound
