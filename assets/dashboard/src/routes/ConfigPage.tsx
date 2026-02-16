@@ -16,6 +16,7 @@ import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { NtfyTopicGenerator } from '../components/NtfyTopicGenerator';
+import { pinStrength } from '../lib/pinStrength';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
@@ -2355,6 +2356,15 @@ export default function ConfigPage() {
                             value={pinInput}
                             onChange={(e) => setPinInput(e.target.value)}
                           />
+                          {pinInput && pinInput.length >= 6 && (
+                            <span className={`pin-strength pin-strength--${pinStrength(pinInput)}`}>
+                              {pinStrength(pinInput) === 'weak'
+                                ? 'Weak PIN'
+                                : pinStrength(pinInput) === 'ok'
+                                  ? 'OK'
+                                  : 'Strong'}
+                            </span>
+                          )}
                           {pinInput && (
                             <input
                               type="password"
