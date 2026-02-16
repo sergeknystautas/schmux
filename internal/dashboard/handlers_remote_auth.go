@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -206,12 +207,12 @@ func (s *Server) handleRemoteAccessSetPin(w http.ResponseWriter, r *http.Request
 func renderPinPage(token string, errorMsg string, attemptsRemaining int) string {
 	tokenField := ""
 	if token != "" {
-		tokenField = `<input type="hidden" name="token" value="` + token + `">`
+		tokenField = `<input type="hidden" name="token" value="` + html.EscapeString(token) + `">`
 	}
 
 	errorHTML := ""
 	if errorMsg != "" {
-		errorHTML = `<div class="error">` + errorMsg + `</div>`
+		errorHTML = `<div class="error">` + html.EscapeString(errorMsg) + `</div>`
 	}
 
 	formHTML := ""

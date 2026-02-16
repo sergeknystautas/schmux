@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,5 +84,30 @@ func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
 	// Cookie should now be invalid
 	if server.validateRemoteCookie(cookieValue) {
 		t.Error("cookie should be invalid after ClearRemoteAuth")
+	}
+}
+
+func TestRenderPinPage_EscapesToken(t *testing.T) {
+	// A malicious token with HTML/JS injection
+	maliciousToken := `"><script>alert('xss')</script><input value="`
+	output := renderPinPage(maliciousToken, "", 5)
+
+	if strings.Contains(output, "<script>") {
+		t.Error("renderPinPage must HTML-escape the token value")
+	}
+	if !strings.Contains(output, "&lt;script&gt;") {
+		t.Error("expected escaped script tag in output")
+	}
+}
+
+func TestRenderPinPage_EscapesErrorMsg(t *testing.T) {
+	maliciousMsg := `<img src=x onerror=alert(1)>`
+	output := renderPinPage("", maliciousMsg, 0)
+
+	if strings.Contains(output, "<img") {
+		t.Error("renderPinPage must HTML-escape error messages")
+	}
+	if !strings.Contains(output, "&lt;img") {
+		t.Error("expected escaped img tag in output")
 	}
 }
