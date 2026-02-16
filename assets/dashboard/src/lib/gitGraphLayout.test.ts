@@ -659,6 +659,289 @@ describe('computeLayout', () => {
     expect(syncNode).toBeUndefined();
   });
 
+  // --- Long branch / disconnected graph tests ---
+
+  it('reorders nodes when HEAD commit is not first in API response (disconnected graph)', () => {
+    // Simulate the backend ISL-style DFS sort where context/public commits
+    // appear before draft/branch commits after reversal in a disconnected graph.
+    // The API returns: [context1, context2, feat1(HEAD), feat2, shared]
+    // computeLayout should reorder so feat1 (HEAD) comes first.
+    const nodes = [
+      makeNode('context1', ['main'], ['context2']),
+      makeNode('context2', ['main'], [], ['main']),
+      makeNode('feat1', ['feature'], ['feat2'], ['feature']),
+      makeNode('feat2', ['feature'], ['shared']),
+      makeNode('shared', ['main', 'feature'], []),
+    ];
+    const branches = {
+      main: { head: 'context2', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const commitNodes = layout.nodes.filter((n) => n.nodeType === 'commit');
+    const commitHashes = commitNodes.map((n) => n.hash);
+
+    // feat1 (HEAD) should come before context commits
+    expect(commitHashes.indexOf('feat1')).toBeLessThan(commitHashes.indexOf('context1'));
+    expect(commitHashes.indexOf('feat1')).toBeLessThan(commitHashes.indexOf('context2'));
+  });
+
+  it('you-are-here is always the first or second node even in disconnected graphs', () => {
+    // Context commits sort before HEAD in API response
+    const nodes = [
+      makeNode('ctx1', ['main'], []),
+      makeNode('head1', ['feature'], ['ctx1'], ['feature']),
+    ];
+    const branches = {
+      main: { head: 'ctx1', is_main: true, workspace_ids: [] },
+      feature: { head: 'head1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const yahIdx = layout.nodes.findIndex((n) => n.nodeType === 'you-are-here');
+    const firstCommitIdx = layout.nodes.findIndex((n) => n.nodeType === 'commit');
+    // you-are-here should appear before all commit nodes
+    expect(yahIdx).toBeLessThan(firstCommitIdx);
+    expect(yahIdx).toBeLessThanOrEqual(1); // at most after sync-summary
+  });
+
+  it('you-are-here is before all commits in disconnected graph with sync summary', () => {
+    // API returns context commits before HEAD, plus main_ahead_count
+    const nodes = [
+      makeNode('ctx1', ['main'], ['ctx2']),
+      makeNode('ctx2', ['main'], [], ['main']),
+      makeNode('feat1', ['feature'], ['shared'], ['feature']),
+      makeNode('shared', ['main', 'feature'], []),
+    ];
+    const branches = {
+      main: { head: 'ctx2', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 5 }));
+
+    const nodeTypes = layout.nodes.map((n) => n.nodeType);
+    // sync-summary first, then you-are-here, then commits
+    expect(nodeTypes[0]).toBe('sync-summary');
+    expect(nodeTypes[1]).toBe('you-are-here');
+    // No commit should appear before you-are-here
+    const yahIdx = nodeTypes.indexOf('you-are-here');
+    const firstCommitIdx = nodeTypes.indexOf('commit');
+    expect(yahIdx).toBeLessThan(firstCommitIdx);
+  });
+
+  it('long branch (50 commits) has correct ordering and all edges valid', () => {
+    // Build a 50-commit feature branch chain
+    const nodes = [];
+    for (let i = 0; i < 50; i++) {
+      const hash = `f${String(i).padStart(3, '0')}`;
+      const parent = i < 49 ? `f${String(i + 1).padStart(3, '0')}` : 'fork';
+      const isHead = i === 0 ? ['feature'] : [];
+      nodes.push(makeNode(hash, ['feature'], [parent], isHead));
+    }
+    // Fork point (on both branches)
+    nodes.push(makeNode('fork', ['main', 'feature'], ['main1'], ['main']));
+    // One more main commit below fork
+    nodes.push(makeNode('main1', ['main'], []));
+
+    const branches = {
+      main: { head: 'fork', is_main: true, workspace_ids: [] },
+      feature: { head: 'f000', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // 50 feature commits + fork + main1 + you-are-here = 53 nodes
+    const commitNodes = layout.nodes.filter((n) => n.nodeType === 'commit');
+    expect(commitNodes).toHaveLength(52);
+
+    // you-are-here is at the top
+    expect(layout.nodes[0].nodeType).toBe('you-are-here');
+
+    // All y values are strictly increasing
+    for (let i = 1; i < layout.nodes.length; i++) {
+      expect(layout.nodes[i].y).toBeGreaterThan(layout.nodes[i - 1].y);
+    }
+
+    // Every commit→parent edge references nodes that exist in the layout
+    const layoutHashes = new Set(layout.nodes.map((n) => n.hash));
+    for (const edge of layout.edges) {
+      expect(layoutHashes.has(edge.fromHash)).toBe(true);
+      expect(layoutHashes.has(edge.toHash)).toBe(true);
+    }
+
+    // Every commit→parent edge has fromY < toY (parent is below child)
+    const commitEdges = layout.edges.filter(
+      (e) => !e.fromHash.startsWith('__') && !e.toHash.startsWith('__')
+    );
+    for (const edge of commitEdges) {
+      expect(edge.fromY).toBeLessThan(edge.toY);
+    }
+  });
+
+  it('fork point is present and in column 0 when all commits are fetched', () => {
+    // 10 feature commits + fork point + 2 main-only commits
+    const nodes = [];
+    for (let i = 0; i < 10; i++) {
+      const hash = `feat${i}`;
+      const parent = i < 9 ? `feat${i + 1}` : 'fork';
+      const isHead = i === 0 ? ['feature'] : [];
+      nodes.push(makeNode(hash, ['feature'], [parent], isHead));
+    }
+    nodes.push(makeNode('fork', ['main', 'feature'], ['m1'], ['main']));
+    nodes.push(makeNode('m1', ['main'], ['m2']));
+    nodes.push(makeNode('m2', ['main'], []));
+
+    const branches = {
+      main: { head: 'fork', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat0', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // Fork point should exist and be in column 0
+    const forkNode = layout.nodes.find((n) => n.hash === 'fork');
+    expect(forkNode).toBeDefined();
+    expect(forkNode!.column).toBe(0);
+
+    // There should be an edge from the last feature commit to the fork point
+    const edgeToFork = layout.edges.find((e) => e.fromHash === 'feat9' && e.toHash === 'fork');
+    expect(edgeToFork).toBeDefined();
+    // This edge crosses columns (feature col 1 → main col 0)
+    expect(edgeToFork!.fromColumn).toBe(1);
+    expect(edgeToFork!.toColumn).toBe(0);
+  });
+
+  it('disconnected graph with context commits before HEAD reorders correctly', () => {
+    // Simulate a graph where the backend DFS puts 5 context commits before
+    // the 3 branch commits (disconnected because maxCommits < git_ahead)
+    const nodes = [
+      // Context commits (on main, not ancestors of HEAD)
+      makeNode('c1', ['main'], ['c2']),
+      makeNode('c2', ['main'], ['c3']),
+      makeNode('c3', ['main'], ['c4']),
+      makeNode('c4', ['main'], ['c5']),
+      makeNode('c5', ['main'], [], ['main']),
+      // Branch commits (HEAD is b1)
+      makeNode('b1', ['feature'], ['b2'], ['feature']),
+      makeNode('b2', ['feature'], ['b3']),
+      makeNode('b3', ['feature'], []), // parent not in graph (truncated)
+    ];
+    const branches = {
+      main: { head: 'c5', is_main: true, workspace_ids: [] },
+      feature: { head: 'b1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const commitNodes = layout.nodes.filter((n) => n.nodeType === 'commit');
+    const commitHashes = commitNodes.map((n) => n.hash);
+
+    // Branch commits should appear before context commits
+    expect(commitHashes.indexOf('b1')).toBeLessThan(commitHashes.indexOf('c1'));
+    expect(commitHashes.indexOf('b2')).toBeLessThan(commitHashes.indexOf('c1'));
+    expect(commitHashes.indexOf('b3')).toBeLessThan(commitHashes.indexOf('c1'));
+
+    // Branch commits maintain their relative order
+    expect(commitHashes.indexOf('b1')).toBeLessThan(commitHashes.indexOf('b2'));
+    expect(commitHashes.indexOf('b2')).toBeLessThan(commitHashes.indexOf('b3'));
+  });
+
+  it('node reordering does not happen when HEAD is already first', () => {
+    // Normal case: HEAD commit is first in the array
+    const nodes = [
+      makeNode('feat1', ['feature'], ['feat2'], ['feature']),
+      makeNode('feat2', ['feature'], ['shared']),
+      makeNode('shared', ['main', 'feature'], [], ['main']),
+    ];
+    const branches = {
+      main: { head: 'shared', is_main: true, workspace_ids: [] },
+      feature: { head: 'feat1', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    const commitNodes = layout.nodes.filter((n) => n.nodeType === 'commit');
+    const commitHashes = commitNodes.map((n) => n.hash);
+    // Order should be preserved: feat1, feat2, shared
+    expect(commitHashes).toEqual(['feat1', 'feat2', 'shared']);
+  });
+
+  it('long disconnected graph preserves edge integrity after reordering', () => {
+    // 3 context commits before 15 branch commits in API response
+    const nodes = [];
+    // Context commits first (as the backend would sort them)
+    nodes.push(makeNode('ctx1', ['main'], ['ctx2']));
+    nodes.push(makeNode('ctx2', ['main'], ['ctx3']));
+    nodes.push(makeNode('ctx3', ['main'], [], ['main']));
+    // Branch commits
+    for (let i = 0; i < 15; i++) {
+      const hash = `b${String(i).padStart(2, '0')}`;
+      const parent = i < 14 ? `b${String(i + 1).padStart(2, '0')}` : 'fork';
+      const isHead = i === 0 ? ['feature'] : [];
+      nodes.push(makeNode(hash, ['feature'], [parent], isHead));
+    }
+    nodes.push(makeNode('fork', ['main', 'feature'], ['ctx1']));
+
+    const branches = {
+      main: { head: 'ctx3', is_main: true, workspace_ids: [] },
+      feature: { head: 'b00', is_main: false, workspace_ids: [] },
+    };
+    const layout = computeLayout(makeResponse(nodes, branches));
+
+    // Verify every edge's coordinates match the actual node positions
+    for (const edge of layout.edges) {
+      const fromNode = layout.nodes.find((n) => n.hash === edge.fromHash);
+      const toNode = layout.nodes.find((n) => n.hash === edge.toHash);
+      if (fromNode && toNode) {
+        expect(edge.fromY).toBe(fromNode.y);
+        expect(edge.toY).toBe(toNode.y);
+        expect(edge.fromColumn).toBe(fromNode.column);
+        expect(edge.toColumn).toBe(toNode.column);
+        // Edges always go downward (from < to in y)
+        expect(edge.fromY).toBeLessThan(edge.toY);
+      }
+    }
+
+    // All 15 branch commits should be in column 1
+    for (let i = 0; i < 15; i++) {
+      const hash = `b${String(i).padStart(2, '0')}`;
+      const node = layout.nodes.find((n) => n.hash === hash);
+      expect(node?.column).toBe(1);
+    }
+  });
+
+  it('very long branch with sync summary and files still has monotonic y values', () => {
+    // 30 branch commits + fork + context, with sync summary and dirty files
+    const nodes = [];
+    for (let i = 0; i < 30; i++) {
+      const hash = `f${String(i).padStart(3, '0')}`;
+      const parent = i < 29 ? `f${String(i + 1).padStart(3, '0')}` : 'fork';
+      const isHead = i === 0 ? ['feature'] : [];
+      nodes.push(makeNode(hash, ['feature'], [parent], isHead));
+    }
+    nodes.push(makeNode('fork', ['main', 'feature'], [], ['main']));
+
+    const branches = {
+      main: { head: 'fork', is_main: true, workspace_ids: [] },
+      feature: { head: 'f000', is_main: false, workspace_ids: [] },
+    };
+    const files: FileDiff[] = [
+      { lines_added: 5, lines_removed: 2, is_binary: false, new_path: 'a.ts' },
+      { lines_added: 3, lines_removed: 0, is_binary: false, new_path: 'b.ts' },
+    ];
+    const layout = computeLayout(makeResponse(nodes, branches, { main_ahead_count: 10 }), files);
+
+    // Verify monotonic y values
+    for (let i = 1; i < layout.nodes.length; i++) {
+      expect(layout.nodes[i].y).toBeGreaterThan(layout.nodes[i - 1].y);
+    }
+
+    // Verify expected node types at boundaries
+    expect(layout.nodes[0].nodeType).toBe('sync-summary');
+    expect(layout.nodes[1].nodeType).toBe('you-are-here');
+    expect(layout.nodes[layout.nodes.length - 1].nodeType).toBe('commit');
+
+    // Total nodes: sync-summary + yah + actions + 2 files + footer + 30 commits + fork = 37
+    expect(layout.nodes).toHaveLength(37);
+  });
+
   it('truncation + files + sync summary produces correct total row count', () => {
     const nodes = [
       makeNode('feat1', ['feature'], [], ['feature']),
