@@ -150,6 +150,7 @@ type Server struct {
 	remoteTokenFailures int
 	remoteTokenMu       sync.Mutex
 	remoteSessionSecret []byte
+	remoteTunnelURL     string
 
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
@@ -277,6 +278,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	s.remoteToken = token
 	s.remoteTokenFailures = 0
 	s.remoteSessionSecret = secretBytes
+	s.remoteTunnelURL = tunnelURL
 	s.remoteTokenMu.Unlock()
 
 	// Build auth URL
@@ -304,6 +306,7 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteToken = ""
 	s.remoteTokenFailures = 0
 	s.remoteSessionSecret = nil
+	s.remoteTunnelURL = ""
 	s.remoteTokenMu.Unlock()
 }
 
@@ -583,6 +586,29 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 
 	port := s.config.GetPort()
 	authEnabled := s.config.GetAuthEnabled()
+
+	// When a remote tunnel is active, restrict origins to localhost and the tunnel URL only
+	s.remoteTokenMu.Lock()
+	tunnelURL := s.remoteTunnelURL
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel {
+		// Allow tunnel origin
+		if tunnelURL != "" {
+			if tunnelOrigin, err := normalizeOrigin(tunnelURL); err == nil && origin == tunnelOrigin {
+				return true
+			}
+		}
+		// Allow localhost only (not arbitrary origins)
+		if origin == fmt.Sprintf("http://localhost:%d", port) ||
+			origin == fmt.Sprintf("http://127.0.0.1:%d", port) ||
+			origin == fmt.Sprintf("https://localhost:%d", port) ||
+			origin == fmt.Sprintf("https://127.0.0.1:%d", port) {
+			return true
+		}
+		return false
+	}
 
 	// Allow configured public_base_url
 	if base := s.config.GetPublicBaseURL(); base != "" {

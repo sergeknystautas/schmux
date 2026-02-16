@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 )
 
@@ -270,5 +271,45 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 	server.handleRemoteAuthPOST(rr, req)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("expected 429 Too Many Requests, got %d", rr.Code)
+	}
+}
+
+func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+
+	// Enable network access (bind to 0.0.0.0)
+	server.config.Network = &config.NetworkConfig{
+		Port:        7337,
+		BindAddress: "0.0.0.0",
+	}
+
+	// Before tunnel: network_access=true should allow any origin
+	if !server.isAllowedOrigin("http://evil.com") {
+		t.Error("should allow any origin when no tunnel and network_access=true")
+	}
+
+	// Connect tunnel
+	server.HandleTunnelConnected("https://abc-xyz.trycloudflare.com")
+
+	// Tunnel origin should be allowed
+	if !server.isAllowedOrigin("https://abc-xyz.trycloudflare.com") {
+		t.Error("should allow tunnel origin when tunnel is active")
+	}
+
+	// Localhost should be allowed
+	if !server.isAllowedOrigin("http://localhost:7337") {
+		t.Error("should allow localhost when tunnel is active")
+	}
+
+	// Arbitrary origin should be REJECTED even with network_access=true
+	if server.isAllowedOrigin("http://evil.com") {
+		t.Error("should reject arbitrary origins when tunnel is active, even with network_access=true")
+	}
+
+	// After tunnel stops, should revert
+	server.ClearRemoteAuth()
+	if !server.isAllowedOrigin("http://evil.com") {
+		t.Error("should allow any origin again after tunnel stops with network_access=true")
 	}
 }
