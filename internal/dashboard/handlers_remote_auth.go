@@ -278,6 +278,14 @@ func (s *Server) handleRemoteAccessSetPin(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Regenerate session secret to invalidate existing remote cookies
+	newSecret := make([]byte, 32)
+	if _, err := crypto_rand.Read(newSecret); err == nil {
+		s.remoteTokenMu.Lock()
+		s.remoteSessionSecret = newSecret
+		s.remoteTokenMu.Unlock()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }

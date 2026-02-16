@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -632,5 +633,49 @@ func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
 	ip := server.normalizeIPForRateLimit(req)
 	if ip != "127.0.0.1" {
 		t.Errorf("expected RemoteAddr IP without tunnel, got %q", ip)
+	}
+}
+
+func TestSetPin_InvalidatesExistingSessions(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+
+	// Set up config with a saveable path
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	server.config = config.CreateDefault(configPath)
+
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Get session secret and create a valid cookie
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(nowStr))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	cookieValue := nowStr + "." + sig
+
+	// Verify cookie is valid
+	if !server.validateRemoteCookie(cookieValue) {
+		t.Fatal("cookie should be valid before PIN change")
+	}
+
+	// Change PIN
+	body := strings.NewReader(`{"pin":"newpin123"}`)
+	req, _ := http.NewRequest("POST", "/api/remote-access/set-pin", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	rr := httptest.NewRecorder()
+	server.handleRemoteAccessSetPin(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify old cookie is now invalid
+	if server.validateRemoteCookie(cookieValue) {
+		t.Error("old cookie should be invalid after PIN change")
 	}
 }
