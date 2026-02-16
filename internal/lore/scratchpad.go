@@ -65,6 +65,10 @@ func ParseEntry(line string) (Entry, error) {
 }
 
 // ReadEntries reads all entries from a JSONL file and optionally filters them.
+// NOTE: This function does NOT acquire scratchpadMu. It is called both directly
+// (lock-free, read-only) and from MarkEntriesByText/MarkEntriesByTextMulti
+// (which already hold the lock). Do NOT add locking here without refactoring
+// those callers to avoid deadlock.
 func ReadEntries(path string, filter EntryFilter) ([]Entry, error) {
 	f, err := os.Open(path)
 	if err != nil {

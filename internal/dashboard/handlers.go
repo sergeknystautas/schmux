@@ -1043,20 +1043,36 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// First, dispose all sessions in the workspace
+	// First, dispose all sessions in the workspace concurrently
 	sessions := s.state.GetSessions()
-	var sessionsDisposed []string
+	var wsSessions []string
 	for _, sess := range sessions {
 		if sess.WorkspaceID == workspaceID {
+			wsSessions = append(wsSessions, sess.ID)
+		}
+	}
+
+	type disposeResult struct {
+		sessionID string
+		err       error
+	}
+	results := make(chan disposeResult, len(wsSessions))
+	for _, sid := range wsSessions {
+		go func(id string) {
 			ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
-			if err := s.session.Dispose(ctx, sess.ID); err != nil {
-				cancel()
-				fmt.Printf("[workspace] dispose-all error: failed to dispose session %s: %v\n", sess.ID, err)
-			} else {
-				cancel()
-				sessionsDisposed = append(sessionsDisposed, sess.ID)
-				fmt.Printf("[workspace] dispose-all: disposed session %s\n", sess.ID)
-			}
+			defer cancel()
+			results <- disposeResult{sessionID: id, err: s.session.Dispose(ctx, id)}
+		}(sid)
+	}
+
+	var sessionsDisposed []string
+	for range wsSessions {
+		res := <-results
+		if res.err != nil {
+			fmt.Printf("[workspace] dispose-all error: failed to dispose session %s: %v\n", res.sessionID, res.err)
+		} else {
+			sessionsDisposed = append(sessionsDisposed, res.sessionID)
+			fmt.Printf("[workspace] dispose-all: disposed session %s\n", res.sessionID)
 		}
 	}
 
