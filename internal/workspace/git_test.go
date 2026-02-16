@@ -441,3 +441,261 @@ func TestGitRemoteBranchExists(t *testing.T) {
 		t.Error("gitRemoteBranchExists(missing-branch) expected false")
 	}
 }
+
+// gitCommitHash returns the commit hash for a ref in the given directory.
+func gitCommitHash(t *testing.T, dir, ref string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", ref)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse %s in %s: %v", ref, dir, err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// TestUpdateLocalDefaultBranch_FastForwardsAfterFetch verifies that after new commits
+// are pushed to the remote, fetching the bare clone and calling updateLocalDefaultBranch
+// advances refs/heads/main to match refs/remotes/origin/main.
+func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create "remote" repo with initial commit
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+
+	// Create bare clone (worktree base)
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	// Pre-populate default branch cache
+	m.setDefaultBranch(remoteDir, "main")
+
+	// Record the initial local main commit
+	initialHash := gitCommitHash(t, bareRepoPath, "refs/heads/main")
+
+	// Add new commits to the remote
+	writeFile(t, remoteDir, "new1.txt", "new content 1")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "remote commit 1")
+	writeFile(t, remoteDir, "new2.txt", "new content 2")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "remote commit 2")
+
+	remoteMainHash := gitCommitHash(t, remoteDir, "HEAD")
+
+	// Sanity: local main should still be at the initial commit
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != initialHash {
+		t.Fatalf("local main moved before fetch, expected %s got %s", initialHash, got)
+	}
+
+	// Fetch to update origin/main
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+
+	// Verify origin/main is updated but local main is still stale
+	if got := gitCommitHash(t, bareRepoPath, "refs/remotes/origin/main"); got != remoteMainHash {
+		t.Fatalf("origin/main not updated after fetch, expected %s got %s", remoteMainHash, got)
+	}
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != initialHash {
+		t.Fatalf("local main should still be stale after fetch alone, expected %s got %s", initialHash, got)
+	}
+
+	// Call updateLocalDefaultBranch — should fast-forward local main
+	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+
+	// Verify local main now matches origin/main
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != remoteMainHash {
+		t.Errorf("updateLocalDefaultBranch() did not advance local main: got %s, want %s", got, remoteMainHash)
+	}
+}
+
+// TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree verifies that
+// updateLocalDefaultBranch does NOT update refs/heads/main when the main branch
+// is checked out in a worktree (would be unsafe).
+func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create "remote" repo
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+
+	// Create bare clone
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	m.setDefaultBranch(remoteDir, "main")
+
+	// Check out main in a worktree
+	worktreePath := filepath.Join(tmpDir, "wt-main")
+	runGit(t, bareRepoPath, "worktree", "add", worktreePath, "main")
+
+	initialHash := gitCommitHash(t, bareRepoPath, "refs/heads/main")
+
+	// Add commits to remote and fetch
+	writeFile(t, remoteDir, "new.txt", "new content")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "remote commit")
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+
+	// Call updateLocalDefaultBranch — should skip because main is checked out
+	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+
+	// Local main should NOT have moved
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != initialHash {
+		t.Errorf("updateLocalDefaultBranch() should not update when branch is checked out in worktree: got %s, want %s", got, initialHash)
+	}
+}
+
+// TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches verifies that
+// updateLocalDefaultBranch does NOT update when local and remote have diverged
+// (not a fast-forward).
+func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create "remote" repo
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+
+	// Create bare clone
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	m.setDefaultBranch(remoteDir, "main")
+
+	// Create a local-only commit on refs/heads/main in the bare clone (simulate divergence)
+	// First, make a commit in a temp worktree on main, then remove the worktree
+	divergeWorktree := filepath.Join(tmpDir, "diverge-wt")
+	runGit(t, bareRepoPath, "worktree", "add", divergeWorktree, "main")
+	writeFile(t, divergeWorktree, "local-only.txt", "local commit")
+	runGit(t, divergeWorktree, "add", ".")
+	runGit(t, divergeWorktree, "config", "user.email", "test@test.com")
+	runGit(t, divergeWorktree, "config", "user.name", "Test")
+	runGit(t, divergeWorktree, "commit", "-m", "local divergent commit")
+	runGit(t, bareRepoPath, "worktree", "remove", divergeWorktree)
+
+	localHash := gitCommitHash(t, bareRepoPath, "refs/heads/main")
+
+	// Add different commits to remote and fetch
+	writeFile(t, remoteDir, "remote-only.txt", "remote commit")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "remote divergent commit")
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+
+	// Call updateLocalDefaultBranch — should skip because branches diverged
+	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+
+	// Local main should NOT have moved
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != localHash {
+		t.Errorf("updateLocalDefaultBranch() should not update on diverged branches: got %s, want %s", got, localHash)
+	}
+}
+
+// TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain is an end-to-end test
+// that verifies the full workflow: remote gets new commits → fetch → local main
+// is updated → new worktree created on main gets the latest commits.
+func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	st := state.New(statePath)
+	m := New(cfg, st, statePath)
+	ctx := context.Background()
+
+	// Create "remote" repo
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+
+	// Create bare clone
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	m.setDefaultBranch(remoteDir, "main")
+
+	// Add new commits to remote after bare clone was created
+	writeFile(t, remoteDir, "after-clone.txt", "added after clone")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "post-clone commit")
+
+	remoteMainHash := gitCommitHash(t, remoteDir, "HEAD")
+
+	// Fetch and update local default branch
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+
+	// Create a worktree on main — should get the latest commit
+	worktreePath := filepath.Join(tmpDir, "wt-main")
+	if err := m.addWorktree(ctx, bareRepoPath, worktreePath, "main", remoteDir); err != nil {
+		t.Fatalf("addWorktree() failed: %v", err)
+	}
+
+	// Verify the worktree HEAD matches the remote's latest main
+	worktreeHash := gitCommitHash(t, worktreePath, "HEAD")
+	if worktreeHash != remoteMainHash {
+		t.Errorf("new worktree on main has stale commit: got %s, want %s", worktreeHash, remoteMainHash)
+	}
+
+	// Verify the file from the post-clone commit exists
+	afterClonePath := filepath.Join(worktreePath, "after-clone.txt")
+	if _, err := os.Stat(afterClonePath); os.IsNotExist(err) {
+		t.Error("new worktree on main is missing after-clone.txt — local main was not updated")
+	}
+}

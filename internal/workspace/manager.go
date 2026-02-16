@@ -280,6 +280,9 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
 	}
 
+	// Fast-forward local default branch to match origin after fetch
+	m.updateLocalDefaultBranch(ctx, worktreeBasePath, repoURL)
+
 	createdUniqueBranch := false
 	if m.config.UseWorktrees() {
 		uniqueBranch, wasCreated, err := m.ensureUniqueBranch(ctx, worktreeBasePath, branch)
@@ -821,6 +824,9 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
 		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
 	}
+
+	// Fast-forward local default branch to match origin after fetch
+	m.updateLocalDefaultBranch(ctx, worktreeBasePath, source.Repo)
 
 	// 10. Check if branch already exists
 	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
