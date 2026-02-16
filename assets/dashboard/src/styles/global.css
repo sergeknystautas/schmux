@@ -818,6 +818,27 @@ body {
   background-color: var(--color-danger);
 }
 
+.iterm2-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 4px var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  background-color: var(--color-surface-alt);
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+.iterm2-link:hover {
+  color: var(--color-text);
+  background-color: var(--color-surface-hover);
+}
+
 @keyframes pulse {
   0%,
   100% {
