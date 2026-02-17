@@ -426,7 +426,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create tunnel manager for remote access
 	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
-		Disabled:          !cfg.GetRemoteAccessEnabled(),
+		Disabled:          func() bool { return !cfg.GetRemoteAccessEnabled() },
 		PasswordHashSet:   func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
 		Port:              cfg.GetPort(),
 		BindAddress:       cfg.GetBindAddress(),

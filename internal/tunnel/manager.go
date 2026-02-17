@@ -31,7 +31,7 @@ type TunnelStatus struct {
 
 // ManagerConfig holds configuration for the tunnel manager.
 type ManagerConfig struct {
-	Disabled          bool
+	Disabled          func() bool // called at Start() to check if remote access is disabled
 	PasswordHashSet   func() bool // called at Start() to check if password is configured
 	Port              int
 	BindAddress       string // server bind address; non-loopback will be rejected
@@ -78,7 +78,7 @@ func (m *Manager) setStatus(s TunnelStatus) {
 
 // Start starts the cloudflared tunnel. Returns error if preconditions not met.
 func (m *Manager) Start() error {
-	if m.config.Disabled {
+	if m.config.Disabled != nil && m.config.Disabled() {
 		return fmt.Errorf("remote access is disabled in config")
 	}
 	if m.config.PasswordHashSet == nil || !m.config.PasswordHashSet() {

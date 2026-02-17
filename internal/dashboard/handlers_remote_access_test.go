@@ -82,7 +82,7 @@ func TestHandleRemoteAccessStatus_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: true})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: func() bool { return true }})
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
 		// RemoteAccess.Enabled not set — defaults to false (disabled)
