@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	crypto_rand "crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -50,7 +51,7 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	if token != "" {
 		s.remoteTokenMu.Lock()
 		validToken := s.remoteToken
-		if token != validToken || validToken == "" {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(validToken)) != 1 || validToken == "" {
 			s.remoteTokenMu.Unlock()
 			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
 			return
@@ -84,9 +85,10 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 
 	// Case 2: Nonce provided — validate and show PIN form
 	if nonce != "" {
+		ip := s.normalizeIPForRateLimit(r)
 		s.remoteTokenMu.Lock()
 		n, exists := s.remoteNonces[nonce]
-		failures := s.remoteTokenFailures
+		failures := s.remoteTokenFailures[ip]
 		s.remoteTokenMu.Unlock()
 
 		if !exists || time.Since(n.createdAt) > nonceMaxAge {
@@ -130,7 +132,7 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	// to update failures atomically with a recheck.
 	s.remoteTokenMu.Lock()
 	n, nonceExists := s.remoteNonces[nonce]
-	failures := s.remoteTokenFailures
+	failures := s.remoteTokenFailures[ip]
 
 	if nonce == "" || !nonceExists || time.Since(n.createdAt) > nonceMaxAge {
 		s.remoteTokenMu.Unlock()
@@ -172,8 +174,11 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
 			return
 		}
-		s.remoteTokenFailures++
-		newFailures := s.remoteTokenFailures
+		if s.remoteTokenFailures == nil {
+			s.remoteTokenFailures = make(map[string]int)
+		}
+		s.remoteTokenFailures[ip]++
+		newFailures := s.remoteTokenFailures[ip]
 		if newFailures >= maxPasswordAttempts {
 			delete(s.remoteNonces, nonce)
 			s.remoteTokenMu.Unlock()
@@ -232,7 +237,7 @@ func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
 		Path:     "/",
 		MaxAge:   int(remoteSessionMaxAge.Seconds()),
 		HttpOnly: false,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   true,
 	})
 }
@@ -283,6 +288,10 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 	}
 	if len(req.Password) < minPasswordLength {
 		http.Error(w, fmt.Sprintf("Password must be at least %d characters", minPasswordLength), http.StatusBadRequest)
+		return
+	}
+	if len(req.Password) > 72 {
+		http.Error(w, "Password must be 72 characters or fewer (bcrypt limitation)", http.StatusBadRequest)
 		return
 	}
 

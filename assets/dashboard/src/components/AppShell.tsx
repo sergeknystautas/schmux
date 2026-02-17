@@ -16,6 +16,7 @@ import {
   nudgeStateEmoji,
   formatNudgeSummary,
   WorkingSpinner,
+  isRemoteClient,
 } from '../lib/utils';
 import { navigateToWorkspace } from '../lib/navigation';
 import { useModal } from './ModalProvider';
@@ -30,7 +31,6 @@ import {
   getLoreProposals,
   type DevStatus,
 } from '../lib/api';
-import type { WorkspaceResponse, SessionWithWorkspace } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
@@ -42,6 +42,7 @@ export default function AppShell() {
   const {
     workspaces,
     connected,
+    sessionsById,
     linearSyncResolveConflictStates,
     overlayUnreadCount,
     markOverlaysRead,
@@ -67,9 +68,7 @@ export default function AppShell() {
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
-  const isRemoteClient =
-    window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-  const isRemoteAccess = isRemoteClient || simulateRemote;
+  const isRemoteAccess = isRemoteClient() || simulateRemote;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
   const [devRebuildTarget, setDevRebuildTarget] = useState<string | null>(null);
@@ -149,26 +148,6 @@ export default function AppShell() {
     }
   }, [connected, devRebuilding]);
 
-  // Helper to get sessionsById from workspaces
-  function sessionsById(
-    wsList: WorkspaceResponse[] | null | undefined
-  ): Record<string, SessionWithWorkspace> {
-    if (!wsList) return {};
-    const result: Record<string, SessionWithWorkspace> = {};
-    for (const ws of wsList) {
-      for (const sess of ws.sessions || []) {
-        result[sess.id] = {
-          ...sess,
-          workspace_id: ws.id,
-          workspace_path: ws.path,
-          repo: ws.repo,
-          branch: ws.branch,
-        };
-      }
-    }
-    return result;
-  }
-
   // Check if we're on a workspace-scoped page
   const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
   const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
@@ -179,7 +158,7 @@ export default function AppShell() {
 
   // Check if we're on a session detail page and get workspace info
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
-  const currentSession = sessionMatch && sessionId ? sessionsById(workspaces)[sessionId] : null;
+  const currentSession = sessionMatch && sessionId ? sessionsById[sessionId] : null;
   const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId || previewMatch?.[1];
   const currentWorkspace = currentWorkspaceId
     ? workspaces?.find((ws) => ws.id === currentWorkspaceId)

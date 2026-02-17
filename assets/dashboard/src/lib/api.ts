@@ -86,7 +86,7 @@ export async function getConfig(): Promise<ConfigResponse> {
 export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[]> {
   const response = await fetch('/api/spawn', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -107,7 +107,7 @@ export async function checkBranchConflict(
 ): Promise<{ conflict: boolean; workspace_id?: string }> {
   const response = await fetch('/api/check-branch-conflict', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo, branch }),
   });
   if (!response.ok) {
@@ -123,7 +123,7 @@ export async function checkBranchConflict(
 export async function suggestBranch(request: SuggestBranchRequest): Promise<SuggestBranchResponse> {
   const response = await fetch('/api/suggest-branch', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -157,7 +157,7 @@ export async function prepareBranchSpawn(
 ): Promise<PrepareBranchSpawnResponse> {
   const response = await fetch('/api/prepare-branch-spawn', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_name: repoName, branch }),
   });
   if (!response.ok) {
@@ -168,7 +168,10 @@ export async function prepareBranchSpawn(
 }
 
 export async function disposeSession(sessionId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/sessions/${sessionId}/dispose`, { method: 'POST' });
+  const response = await fetch(`/api/sessions/${sessionId}/dispose`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) throw new Error('Failed to dispose session');
   return response.json();
 }
@@ -179,7 +182,7 @@ export async function updateNickname(
 ): Promise<{ status: string }> {
   const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ nickname }),
   });
   if (!response.ok) {
@@ -201,7 +204,10 @@ export async function updateNickname(
 }
 
 export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, { method: 'POST' });
+  const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to dispose workspace');
   }
@@ -211,7 +217,10 @@ export async function disposeWorkspace(workspaceId: string): Promise<{ status: s
 export async function disposeWorkspaceAll(
   workspaceId: string
 ): Promise<{ status: string; sessions_disposed: number }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, { method: 'POST' });
+  const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to dispose workspace and sessions');
   }
@@ -239,7 +248,10 @@ export async function getAuthMe(): Promise<{ login: string; avatar_url?: string;
 }
 
 export async function scanWorkspaces(): Promise<ScanResult> {
-  const response = await fetch('/api/workspaces/scan', { method: 'POST' });
+  const response = await fetch('/api/workspaces/scan', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) throw new Error('Failed to scan workspaces');
   return response.json();
 }
@@ -249,7 +261,7 @@ export async function updateConfig(
 ): Promise<{ status: string; message?: string; warning?: string; warnings?: string[] }> {
   const response = await fetch('/api/config', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -284,7 +296,7 @@ export async function saveAuthSecrets(payload: {
 }): Promise<{ status: string }> {
   const response = await fetch('/api/auth/secrets', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -297,7 +309,7 @@ export async function saveAuthSecrets(payload: {
 export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
   const response = await fetch(`/api/open-vscode/${workspaceId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to open VS Code');
@@ -311,7 +323,7 @@ export async function diffExternal(
 ): Promise<DiffExternalResponse> {
   const response = await fetch(`/api/diff-external/${workspaceId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(command ? { command } : {}),
   });
   if (!response.ok) {
@@ -341,7 +353,7 @@ export async function configureModelSecrets(
 ): Promise<{ status: string }> {
   const response = await fetch(`/api/models/${modelId}/secrets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ secrets }),
   });
   if (!response.ok) {
@@ -357,6 +369,7 @@ export async function configureModelSecrets(
 export async function removeModelSecrets(modelId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/models/${modelId}/secrets`, {
     method: 'DELETE',
+    headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
     const err = await response.text();
@@ -374,7 +387,7 @@ export async function getOverlays(): Promise<OverlaysResponse> {
 export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
   const response = await fetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to refresh overlay');
@@ -388,7 +401,7 @@ export async function scanOverlayFiles(
 ): Promise<OverlayScanResponse> {
   const response = await fetch('/api/overlays/scan', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId, repo_name: repoName }),
   });
   if (!response.ok) throw new Error('Failed to scan overlay files');
@@ -398,7 +411,7 @@ export async function scanOverlayFiles(
 export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAddResponse> {
   const response = await fetch('/api/overlays/add', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
   });
   if (!response.ok) throw new Error('Failed to add overlay files');
@@ -408,7 +421,7 @@ export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAd
 export async function dismissOverlayNudge(repoName: string): Promise<{ status: string }> {
   const response = await fetch('/api/overlays/dismiss-nudge', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_name: repoName }),
   });
   if (!response.ok) throw new Error('Failed to dismiss overlay nudge');
@@ -430,7 +443,7 @@ export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookboo
 export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok) {
     const err = (await response.json()) as LinearSyncResponse & { message: string };
@@ -446,7 +459,7 @@ export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyn
 export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to sync to main');
@@ -457,7 +470,7 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
 export async function pushToBranch(workspaceId: string): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to push to branch');
@@ -470,7 +483,7 @@ export async function linearSyncResolveConflict(
 ): Promise<LinearSyncResolveConflictResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
   if (!response.ok && response.status !== 202) {
     await parseErrorResponse(response, 'Failed to start conflict resolution');
@@ -483,6 +496,7 @@ export async function dismissLinearSyncResolveConflictState(workspaceId: string)
     `/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
     {
       method: 'DELETE',
+      headers: { ...csrfHeaders() },
     }
   );
   if (!response.ok) {
@@ -505,7 +519,10 @@ export interface RecentBranchesRefreshResponse {
 }
 
 export async function refreshRecentBranches(): Promise<RecentBranchesRefreshResponse> {
-  const response = await fetch('/api/recent-branches/refresh', { method: 'POST' });
+  const response = await fetch('/api/recent-branches/refresh', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) throw new Error('Failed to refresh recent branches');
   return response.json();
 }
@@ -553,7 +570,10 @@ export async function getPRs(): Promise<PRsResponse> {
 }
 
 export async function refreshPRs(): Promise<PRRefreshResponse> {
-  const response = await fetch('/api/prs/refresh', { method: 'POST' });
+  const response = await fetch('/api/prs/refresh', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) throw new Error('Failed to refresh PRs');
   return response.json();
 }
@@ -561,7 +581,7 @@ export async function refreshPRs(): Promise<PRRefreshResponse> {
 export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRCheckoutResponse> {
   const response = await fetch('/api/prs/checkout', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber }),
   });
   if (!response.ok) {
@@ -586,7 +606,7 @@ export async function createRemoteFlavor(
 ): Promise<RemoteFlavor> {
   const response = await fetch('/api/config/remote-flavors', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -602,7 +622,7 @@ export async function updateRemoteFlavor(
 ): Promise<RemoteFlavor> {
   const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -615,6 +635,7 @@ export async function updateRemoteFlavor(
 export async function deleteRemoteFlavor(id: string): Promise<void> {
   const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
     const text = await response.text();
@@ -641,7 +662,7 @@ export async function getRemoteFlavorStatuses(): Promise<RemoteFlavorStatus[]> {
 export async function connectRemoteHost(request: RemoteHostConnectRequest): Promise<RemoteHost> {
   const response = await fetch('/api/remote/hosts/connect', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -654,6 +675,7 @@ export async function connectRemoteHost(request: RemoteHostConnectRequest): Prom
 export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
   const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
     method: 'POST',
+    headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
     const text = await response.text();
@@ -665,6 +687,7 @@ export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
 export async function disconnectRemoteHost(hostId: string): Promise<void> {
   const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
     method: 'DELETE',
+    headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
     const text = await response.text();
@@ -684,7 +707,7 @@ export async function gitCommitStage(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit-stage`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
       body: JSON.stringify({ files }),
     }
   );
@@ -700,7 +723,7 @@ export async function gitAmend(
 ): Promise<{ success: boolean; message: string }> {
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-amend`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ files }),
   });
   if (!response.ok) {
@@ -715,7 +738,7 @@ export async function gitDiscard(
 ): Promise<{ success: boolean; message: string }> {
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-discard`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(files ? { files } : {}),
   });
   if (!response.ok) {
@@ -730,7 +753,7 @@ export async function gitUncommit(
 ): Promise<{ success: boolean; message: string }> {
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-uncommit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ hash }),
   });
   if (!response.ok) {
@@ -768,7 +791,7 @@ export async function getCommitPrompt(): Promise<string> {
 export async function generateCommitMessage(workspaceId: string): Promise<CommitMessageResponse> {
   const response = await fetch('/api/commit/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId }),
   });
   if (!response.ok) {
@@ -839,7 +862,7 @@ export async function devRebuild(
 ): Promise<{ status: string }> {
   const response = await fetch('/api/dev/rebuild', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId, type }),
   });
   if (!response.ok) {
@@ -876,7 +899,7 @@ export async function applyLoreProposal(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/apply`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
       body: overrides ? JSON.stringify({ overrides }) : undefined,
     }
   );
@@ -887,7 +910,10 @@ export async function applyLoreProposal(
 export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
   const res = await fetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders() },
+    }
   );
   if (!res.ok) throw new Error(await res.text());
 }
@@ -908,7 +934,10 @@ export async function getLoreEntries(
 }
 
 export async function triggerLoreCuration(repoName: string): Promise<void> {
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, { method: 'POST' });
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!res.ok) throw new Error(await res.text());
 }
 

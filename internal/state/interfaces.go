@@ -13,6 +13,7 @@ type StateStore interface {
 	GetSession(id string) (Session, bool)
 	AddSession(sess Session) error
 	UpdateSession(sess Session) error
+	UpdateSessionFunc(id string, fn func(sess *Session)) bool
 	RemoveSession(id string) error
 	UpdateSessionLastOutput(sessionID string, t time.Time)
 	UpdateSessionLastSignal(sessionID string, t time.Time)

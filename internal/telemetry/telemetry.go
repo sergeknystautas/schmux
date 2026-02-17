@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -54,20 +55,26 @@ func (n *NoopTelemetry) Shutdown()                                     {}
 
 // Client is the PostHog telemetry client.
 type Client struct {
-	apiKey      string
-	installID   string
-	eventChan   chan Event
-	stopChan    chan struct{}
-	wg          sync.WaitGroup
-	httpClient  *http.Client
-	lastFailLog time.Time
-	failLogMu   sync.Mutex
+	apiKey       string
+	installID    string
+	eventChan    chan Event
+	stopChan     chan struct{}
+	wg           sync.WaitGroup
+	httpClient   *http.Client
+	lastFailLog  time.Time
+	failLogMu    sync.Mutex
+	shutdownOnce sync.Once
 }
 
 // New creates a new telemetry client.
 // If apiKey is empty, returns a NoopTelemetry.
 // If installID is empty, a new UUID will be generated.
 func New(apiKey, installID string) Telemetry {
+	// Honor environment variable opt-out
+	if os.Getenv("SCHMUX_TELEMETRY_OFF") != "" || os.Getenv("DO_NOT_TRACK") != "" {
+		return &NoopTelemetry{}
+	}
+
 	if apiKey == "" {
 		return &NoopTelemetry{}
 	}
@@ -116,7 +123,9 @@ func (c *Client) Track(event string, properties map[string]any) {
 // Shutdown stops the telemetry client and flushes pending events.
 // It waits up to flushTimeout for events to be sent.
 func (c *Client) Shutdown() {
-	close(c.stopChan)
+	c.shutdownOnce.Do(func() {
+		close(c.stopChan)
+	})
 
 	// Wait for worker to finish with timeout
 	done := make(chan struct{})
