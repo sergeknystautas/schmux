@@ -923,7 +923,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"repo":     req.RepoName,
+		"repo":     repo.URL,
 		"branch":   req.Branch,
 		"prompt":   prompt,
 		"nickname": nickname,
