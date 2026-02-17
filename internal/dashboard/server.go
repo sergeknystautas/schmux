@@ -430,6 +430,8 @@ func (s *Server) Start() error {
 	if s.devMode {
 		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))
 		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuth(s.handleDevRebuild)))
+		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuth(s.handleDevSimulateTunnel)))
+		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuth(s.handleDevSimulateTunnelStop)))
 	}
 
 	// WebSocket for terminal streaming
@@ -1008,9 +1010,12 @@ func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is required (GitHub OAuth or tunnel active)
 	if s.requiresAuth() {
-		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		if s.authEnabled() || !s.isLocalRequest(r) {
+			if _, err := s.authenticateRequest(r); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 	}
 

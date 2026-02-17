@@ -68,7 +68,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
     auto_pr: false,
   },
   remote_access: {
-    disabled: false,
+    enabled: true,
     timeout_minutes: 0,
     password_hash_set: false,
     notify: {
