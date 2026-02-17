@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,10 @@ const cloudflaredBaseURL = "https://github.com/cloudflare/cloudflared/releases/l
 
 // maxCloudflaredSize is the maximum allowed download size for the cloudflared binary (200MB).
 const maxCloudflaredSize = 200 << 20
+
+// cloudflareTeamID is the Apple Developer Team Identifier for Cloudflare Inc.
+// Used to verify macOS code signatures on auto-downloaded binaries.
+const cloudflareTeamID = "68WVV388M8"
 
 func cloudflaredDownloadURL(goos, goarch string) string {
 	if goos == "darwin" {
@@ -53,7 +58,7 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 	}
 
 	fmt.Printf("[remote-access] cloudflared not found. Recommended: %s\n", installSuggestion(runtime.GOOS))
-	fmt.Printf("[remote-access] falling back to auto-download (no signature verification)...\n")
+	fmt.Printf("[remote-access] falling back to auto-download...\n")
 	if err := os.MkdirAll(schmuxBinDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create bin dir: %w", err)
 	}
@@ -96,7 +101,66 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 		fmt.Printf("[remote-access] cloudflared sha256: %s\n", hash)
 	}
 
+	// Verify code signature (macOS only; logs warning on other platforms)
+	if err := verifyCloudflaredSignature(destPath); err != nil {
+		os.Remove(destPath)
+		return "", fmt.Errorf("cloudflared signature verification failed: %w", err)
+	}
+
 	return destPath, nil
+}
+
+// verifyCloudflaredSignature checks the code signature of a downloaded cloudflared binary.
+// On macOS, it uses Apple's codesign tool to verify the binary is signed by Cloudflare Inc.
+// with the expected team identifier (68WVV388M8) and a valid Apple certificate chain.
+// On other platforms, it logs a warning since no signature verification is available.
+func verifyCloudflaredSignature(binPath string) error {
+	if runtime.GOOS != "darwin" {
+		fmt.Printf("[remote-access] WARNING: signature verification is only available on macOS. " +
+			"Consider installing cloudflared via your package manager for verified binaries.\n")
+		return nil
+	}
+
+	return verifyCodesign(binPath)
+}
+
+// verifyCodesign runs macOS codesign verification and checks the certificate chain.
+func verifyCodesign(binPath string) error {
+	// Step 1: Verify the signature is valid (checks integrity + certificate chain)
+	verifyCmd := exec.Command("codesign", "--verify", "--deep", "--strict", binPath)
+	if output, err := verifyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("codesign verification failed: %s (%w)", strings.TrimSpace(string(output)), err)
+	}
+
+	// Step 2: Extract signing identity and verify it belongs to Cloudflare
+	infoCmd := exec.Command("codesign", "-dvv", binPath)
+	// codesign -dvv writes to stderr
+	output, err := infoCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to read codesign info: %s (%w)", strings.TrimSpace(string(output)), err)
+	}
+
+	info := string(output)
+
+	// Verify TeamIdentifier matches Cloudflare's Apple Developer Team ID
+	if !strings.Contains(info, "TeamIdentifier="+cloudflareTeamID) {
+		return fmt.Errorf("binary is signed but not by Cloudflare (expected TeamIdentifier=%s)", cloudflareTeamID)
+	}
+
+	// Verify at least one Authority line mentions Cloudflare
+	hasCloudflareAuthority := false
+	for _, line := range strings.Split(info, "\n") {
+		if strings.HasPrefix(line, "Authority=") && strings.Contains(line, "Cloudflare") {
+			hasCloudflareAuthority = true
+			break
+		}
+	}
+	if !hasCloudflareAuthority {
+		return fmt.Errorf("binary is signed but Authority chain does not contain Cloudflare")
+	}
+
+	fmt.Printf("[remote-access] cloudflared signature verified (Cloudflare Inc., team %s)\n", cloudflareTeamID)
+	return nil
 }
 
 func extractTgz(r io.Reader, destPath string) error {
