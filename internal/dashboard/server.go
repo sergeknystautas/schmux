@@ -291,7 +291,9 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	if s.config != nil {
 		ntfyTopic := s.config.GetRemoteAccessNtfyTopic()
 		notifyCmd := s.config.GetRemoteAccessNotifyCommand()
-		nc := tunnel.NotifyConfig{}
+		nc := tunnel.NotifyConfig{
+			TunnelURL: tunnelURL, // command gets base URL only (no token)
+		}
 		if ntfyTopic != "" {
 			nc.NtfyURL = "https://ntfy.sh/" + ntfyTopic
 		}

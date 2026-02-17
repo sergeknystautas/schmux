@@ -10,8 +10,9 @@ import (
 )
 
 type NotifyConfig struct {
-	NtfyURL string
-	Command string
+	NtfyURL   string
+	Command   string
+	TunnelURL string // base tunnel URL (without auth token) for command env var
 }
 
 func (nc *NotifyConfig) Send(tunnelURL string, message string) error {
@@ -31,7 +32,14 @@ func (nc *NotifyConfig) Send(tunnelURL string, message string) error {
 	}
 
 	if nc.Command != "" {
-		if err := runNotifyCommand(nc.Command, tunnelURL); err != nil {
+		// Pass only the base tunnel URL to the command, not the auth URL with token.
+		// The auth URL contains a one-time token that should not be exposed to
+		// arbitrary command environments, stdout, or stderr.
+		cmdURL := nc.TunnelURL
+		if cmdURL == "" {
+			cmdURL = tunnelURL
+		}
+		if err := runNotifyCommand(nc.Command, cmdURL); err != nil {
 			errs = append(errs, fmt.Sprintf("command: %v", err))
 		}
 	}

@@ -17,6 +17,9 @@ import (
 
 const cloudflaredBaseURL = "https://github.com/cloudflare/cloudflared/releases/latest/download"
 
+// maxCloudflaredSize is the maximum allowed download size for the cloudflared binary (200MB).
+const maxCloudflaredSize = 200 << 20
+
 func cloudflaredDownloadURL(goos, goarch string) string {
 	if goos == "darwin" {
 		return fmt.Sprintf("%s/cloudflared-%s-%s.tgz", cloudflaredBaseURL, goos, goarch)
@@ -70,7 +73,7 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 	}
 
 	if runtime.GOOS == "darwin" {
-		if err := extractTgz(resp.Body, destPath); err != nil {
+		if err := extractTgz(io.LimitReader(resp.Body, maxCloudflaredSize), destPath); err != nil {
 			return "", fmt.Errorf("failed to extract cloudflared: %w", err)
 		}
 	} else {
@@ -78,7 +81,7 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to create cloudflared binary: %w", err)
 		}
-		if _, err := io.Copy(f, resp.Body); err != nil {
+		if _, err := io.Copy(f, io.LimitReader(resp.Body, maxCloudflaredSize)); err != nil {
 			f.Close()
 			os.Remove(destPath)
 			return "", fmt.Errorf("failed to write cloudflared binary: %w", err)

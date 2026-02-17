@@ -109,6 +109,9 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
+	// Limit request body size for form data
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
 	// Rate limit by IP
 	ip := s.normalizeIPForRateLimit(r)
 	if !s.remoteAuthLimiter.Allow(ip) {
@@ -122,6 +125,9 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	nonce := r.FormValue("nonce")
 	password := r.FormValue("password")
 
+	// Snapshot state under lock: validate nonce and check failure count.
+	// We release the lock before the expensive bcrypt call, then re-lock
+	// to update failures atomically with a recheck.
 	s.remoteTokenMu.Lock()
 	n, nonceExists := s.remoteNonces[nonce]
 	failures := s.remoteTokenFailures
@@ -140,23 +146,32 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, renderPasswordPage("", "Too many failed attempts. This link has been locked.", 0))
 		return
 	}
-	s.remoteTokenMu.Unlock()
 
-	// Get password hash from config
+	// Snapshot password hash under the same lock before releasing
 	passwordHash := ""
 	if s.config != nil {
 		passwordHash = s.config.GetRemoteAccessPasswordHash()
 	}
+	s.remoteTokenMu.Unlock()
+
 	if passwordHash == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, renderPasswordPage("", "Password not configured.", 0))
 		return
 	}
 
-	// Verify password with bcrypt
+	// Verify password with bcrypt (expensive — done without lock)
 	err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 	if err != nil {
+		// Re-lock to atomically increment failures and recheck nonce
 		s.remoteTokenMu.Lock()
+		// Recheck that nonce still exists (could have been consumed by concurrent success)
+		if _, stillExists := s.remoteNonces[nonce]; !stillExists {
+			s.remoteTokenMu.Unlock()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
+			return
+		}
 		s.remoteTokenFailures++
 		newFailures := s.remoteTokenFailures
 		if newFailures >= maxPasswordAttempts {
@@ -173,8 +188,15 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Success — delete nonce, set remote session cookie
+	// Success — atomically delete nonce and get secret
 	s.remoteTokenMu.Lock()
+	// Recheck nonce (could have been invalidated by concurrent lockout)
+	if _, stillExists := s.remoteNonces[nonce]; !stillExists {
+		s.remoteTokenMu.Unlock()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
+		return
+	}
 	delete(s.remoteNonces, nonce)
 	secret := s.remoteSessionSecret
 	s.remoteTokenMu.Unlock()
@@ -251,6 +273,7 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		Password string `json:"password"`
 	}
