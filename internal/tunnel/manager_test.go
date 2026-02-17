@@ -39,6 +39,46 @@ func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	}
 }
 
+func TestTunnelState_StartRejectsNonLoopbackBind(t *testing.T) {
+	tests := []struct {
+		name        string
+		bindAddress string
+		wantErr     bool
+	}{
+		{"empty (default)", "", false},
+		{"loopback IPv4", "127.0.0.1", false},
+		{"loopback IPv6", "::1", false},
+		{"all interfaces", "0.0.0.0", true},
+		{"LAN address", "192.168.1.100", true},
+		{"all IPv6", "::", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewManager(ManagerConfig{
+				PasswordHashSet: func() bool { return true },
+				BindAddress:     tt.bindAddress,
+			})
+			err := m.Start()
+			if err == nil {
+				// Start will proceed to find cloudflared — it may fail there,
+				// but it should NOT fail with a bind address error
+				if tt.wantErr {
+					t.Error("expected bind address error, but Start did not return one")
+				}
+				m.Stop()
+				return
+			}
+			isBind := strings.Contains(err.Error(), "non-loopback")
+			if tt.wantErr && !isBind {
+				t.Errorf("expected bind address error, got: %v", err)
+			}
+			if !tt.wantErr && isBind {
+				t.Errorf("did not expect bind address error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestParseCloudflaredURL(t *testing.T) {
 	tests := []struct {
 		line string

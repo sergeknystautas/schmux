@@ -425,6 +425,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		Disabled:        cfg.GetRemoteAccessDisabled(),
 		PasswordHashSet: func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
 		Port:            cfg.GetPort(),
+		BindAddress:     cfg.GetBindAddress(),
 		SchmuxBinDir:    filepath.Join(filepath.Dir(statePath), "bin"),
 		TimeoutMinutes:  cfg.GetRemoteAccessTimeoutMinutes(),
 		OnStatusChange: func(status tunnel.TunnelStatus) {

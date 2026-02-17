@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -32,6 +33,7 @@ type ManagerConfig struct {
 	Disabled        bool
 	PasswordHashSet func() bool // called at Start() to check if password is configured
 	Port            int
+	BindAddress     string // server bind address; non-loopback will be rejected
 	SchmuxBinDir    string
 	TimeoutMinutes  int
 	OnStatusChange  func(TunnelStatus) // callback when tunnel status changes
@@ -79,6 +81,19 @@ func (m *Manager) Start() error {
 	}
 	if m.config.PasswordHashSet == nil || !m.config.PasswordHashSet() {
 		return fmt.Errorf("remote access requires a password (run: schmux remote set-password)")
+	}
+
+	// Reject tunnel start when bound to a non-loopback address.
+	// When the server listens on 0.0.0.0, any machine on the local network can
+	// connect directly (without cloudflared), and such requests lack the
+	// Cf-Connecting-IP header used to distinguish local from remote requests.
+	// This would allow unauthenticated access from the LAN.
+	if addr := m.config.BindAddress; addr != "" {
+		ip := net.ParseIP(addr)
+		if ip != nil && !ip.IsLoopback() {
+			return fmt.Errorf("remote access cannot be started while the server is bound to %s (non-loopback). "+
+				"Set bind_address to 127.0.0.1 in config before enabling remote access", addr)
+		}
 	}
 
 	m.mu.RLock()
