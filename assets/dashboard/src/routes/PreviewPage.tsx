@@ -32,7 +32,11 @@ export default function PreviewPage() {
   }, [workspaceId, workspace, previewId, preview, navigate]);
 
   const previewId_ = preview?.id;
-  const previewUrl = preview?.url;
+  const previewProxyPort = preview?.proxy_port;
+  const previewUrl = useMemo(
+    () => (previewProxyPort ? `http://${window.location.hostname}:${previewProxyPort}` : null),
+    [previewProxyPort]
+  );
 
   useEffect(() => {
     if (!previewId_ || !previewUrl || !mountRef.current) return;

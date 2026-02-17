@@ -58,7 +58,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	var port int
 	_, _ = fmt.Sscanf(portStr, "%d", &port)
 
-	m := NewManager(st, 3, 20, time.Hour)
+	m := NewManager(st, 3, 20, time.Hour, false)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -88,7 +88,7 @@ func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
-	m := NewManager(st, 3, 20, time.Hour)
+	m := NewManager(st, 3, 20, time.Hour, false)
 	defer m.Stop()
 
 	_, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173)
@@ -112,7 +112,7 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	var port int
 	_, _ = fmt.Sscanf(portStr, "%d", &port)
 
-	m := NewManager(st, 3, 20, time.Hour)
+	m := NewManager(st, 3, 20, time.Hour, false)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

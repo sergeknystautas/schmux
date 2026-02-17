@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +23,6 @@ type previewResponse struct {
 	TargetHost  string `json:"target_host"`
 	TargetPort  int    `json:"target_port"`
 	ProxyPort   int    `json:"proxy_port"`
-	URL         string `json:"url"`
 	Status      string `json:"status"`
 	LastError   string `json:"last_error,omitempty"`
 }
@@ -167,9 +165,7 @@ func parseWorkspacePreviewPath(rawPath string) (workspaceID string, previewID st
 }
 
 // toPreviewResponse converts a WorkspacePreview to API response.
-// Note: Preview proxy always serves HTTP on localhost. Most browsers allow HTTP
-// to localhost even from HTTPS pages (localhost is a secure context). If this
-// becomes an issue, preview requests would need to be routed through the dashboard.
+// The frontend constructs the preview URL using window.location.hostname and proxy_port.
 func toPreviewResponse(p state.WorkspacePreview) previewResponse {
 	return previewResponse{
 		ID:          p.ID,
@@ -177,7 +173,6 @@ func toPreviewResponse(p state.WorkspacePreview) previewResponse {
 		TargetHost:  p.TargetHost,
 		TargetPort:  p.TargetPort,
 		ProxyPort:   p.ProxyPort,
-		URL:         "http://localhost:" + strconv.Itoa(p.ProxyPort),
 		Status:      p.Status,
 		LastError:   p.LastError,
 	}

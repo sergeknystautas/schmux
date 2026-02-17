@@ -50,7 +50,6 @@ export interface WorkspacePreview {
   target_host: string;
   target_port: number;
   proxy_port: number;
-  url: string;
   status: 'ready' | 'degraded';
   last_error?: string;
 }

@@ -173,7 +173,6 @@ Response:
         "target_host": "127.0.0.1",
         "target_port": 5173,
         "proxy_port": 51853,
-        "url": "http://127.0.0.1:51853",
         "status": "ready"
       }
     ]
@@ -240,16 +239,17 @@ Response:
   "target_host": "127.0.0.1",
   "target_port": 5173,
   "proxy_port": 51853,
-  "url": "http://127.0.0.1:51853",
   "status": "ready"
 }
 ```
+
+The frontend constructs the preview URL using `window.location.hostname` and `proxy_port`.
 
 Notes:
 
 - Target host must resolve only to loopback addresses (`127.0.0.1`, `::1`, `localhost`).
 - Remote workspaces are blocked in Phase 1 (422).
-- In network-access mode (`bind_address=0.0.0.0`), preview creation is local-client only.
+- In network-access mode, preview proxies bind to `0.0.0.0` for external access.
 - `status` can be `degraded` when upstream target is not yet reachable.
 
 ### GET /api/workspaces/{workspaceId}/previews

@@ -33,6 +33,7 @@ type Manager struct {
 	maxPerWorkspace int
 	maxGlobal       int
 	idleTimeout     time.Duration
+	networkAccess   bool // if true, bind to 0.0.0.0 for external access
 
 	mu       sync.Mutex
 	entries  map[string]*entry // preview_id -> listener entry
@@ -46,7 +47,7 @@ type entry struct {
 	server      *http.Server
 }
 
-func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout time.Duration) *Manager {
+func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout time.Duration, networkAccess bool) *Manager {
 	if maxPerWorkspace <= 0 {
 		maxPerWorkspace = 3
 	}
@@ -61,6 +62,7 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout
 		maxPerWorkspace: maxPerWorkspace,
 		maxGlobal:       maxGlobal,
 		idleTimeout:     idleTimeout,
+		networkAccess:   networkAccess,
 		entries:         map[string]*entry{},
 		stopCh:          make(chan struct{}),
 	}
@@ -289,7 +291,12 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 		proxy.ServeHTTP(w, r)
 	})
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// Bind to 0.0.0.0 for network access, or 127.0.0.1 for local only
+	bindAddr := "127.0.0.1:0"
+	if m.networkAccess {
+		bindAddr = "0.0.0.0:0"
+	}
+	listener, err := net.Listen("tcp", bindAddr)
 	if err != nil {
 		return state.WorkspacePreview{}, fmt.Errorf("failed to allocate proxy listener: %w", err)
 	}
