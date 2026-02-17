@@ -101,3 +101,52 @@ func TestInstallSuggestion(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyCodesign_UnsignedBinary(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("codesign only available on macOS")
+	}
+
+	// Create a fake unsigned binary
+	tmpDir := t.TempDir()
+	fakeBin := filepath.Join(tmpDir, "fakecloudflared")
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\necho hello\n"), 0755); err != nil {
+		t.Fatalf("failed to create fake binary: %v", err)
+	}
+
+	err := verifyCodesign(fakeBin)
+	if err == nil {
+		t.Fatal("expected error for unsigned binary, got nil")
+	}
+	if !strings.Contains(err.Error(), "codesign verification failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyCodesign_RealCloudflared(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("codesign only available on macOS")
+	}
+
+	// Only run if cloudflared is installed (e.g., via brew)
+	path, err := exec.LookPath("cloudflared")
+	if err != nil {
+		t.Skip("cloudflared not installed, skipping signature verification test")
+	}
+
+	if err := verifyCodesign(path); err != nil {
+		t.Errorf("verifyCodesign(%q) failed: %v", path, err)
+	}
+}
+
+func TestVerifyCloudflaredSignature_NonDarwin(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("test is for non-darwin platforms")
+	}
+
+	// On non-darwin, should succeed with a warning (no verification available)
+	err := verifyCloudflaredSignature("/nonexistent/path")
+	if err != nil {
+		t.Errorf("expected nil error on non-darwin, got: %v", err)
+	}
+}
