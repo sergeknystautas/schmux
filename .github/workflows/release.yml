@@ -37,9 +37,12 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Build binaries
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
           LDFLAGS="-X github.com/sergeknystautas/schmux/internal/version.Version=${VERSION}"
+          LDFLAGS="$LDFLAGS -X github.com/sergeknystautas/schmux/internal/telemetry.embeddedAPIKey=${POSTHOG_API_KEY}"
 
           GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o schmux-darwin-amd64 ./cmd/schmux
           GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o schmux-darwin-arm64 ./cmd/schmux

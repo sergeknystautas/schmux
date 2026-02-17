@@ -613,6 +613,8 @@ Response:
     "provider": "github",
     "session_ttl_minutes": 1440
   },
+  "telemetry_enabled": true,
+  "installation_id": "uuid-string",
   "needs_restart": false
 }
 ```

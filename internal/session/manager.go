@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -51,6 +52,7 @@ type Manager struct {
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
 	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
+	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -124,6 +126,24 @@ func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string, isLastSessio
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, terminalOutput string)) {
 	m.terminalCaptureCallback = cb
+}
+
+// SetTelemetry sets the telemetry client for usage tracking.
+func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
+	m.telemetry = t
+}
+
+// trackSessionCreated sends a telemetry event for session creation.
+// Safe to call even if telemetry is nil.
+func (m *Manager) trackSessionCreated(sessionID, workspaceID, target string) {
+	if m.telemetry == nil {
+		return
+	}
+	m.telemetry.Track("session_created", map[string]any{
+		"session_id":   sessionID,
+		"workspace_id": workspaceID,
+		"target":       target,
+	})
 }
 
 // StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
@@ -491,6 +511,9 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 			}
 		}()
 
+		// Track session creation (queued)
+		m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
+
 		return &sess, nil
 	}
 
@@ -531,6 +554,9 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	}
 
 	m.StartRemoteSignalMonitor(sess)
+
+	// Track session creation (immediate)
+	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
 
 	return &sess, nil
 }
@@ -694,6 +720,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	m.ensureTrackerFromSession(sess)
 
+	// Track session creation
+	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
+
 	return &sess, nil
 }
 
@@ -796,6 +825,9 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	m.ensureTrackerFromSession(sess)
+
+	// Track session creation
+	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
 
 	return &sess, nil
 }

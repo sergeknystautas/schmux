@@ -15,6 +15,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/telemetry"
 )
 
 const (
@@ -41,6 +42,7 @@ type Manager struct {
 	defaultBranchCacheMu sync.RWMutex
 	workspaceLockedFn    func(workspaceID string) bool
 	compoundReconcile    func(workspaceID string) // reconcile overlay before dispose
+	telemetry            telemetry.Telemetry      // optional, for usage tracking
 }
 
 // New creates a new workspace manager.
@@ -74,6 +76,69 @@ func (m *Manager) SetWorkspaceLockedFn(fn func(workspaceID string) bool) {
 // SetCompoundReconcile sets the callback for reconciling overlay files before workspace disposal.
 func (m *Manager) SetCompoundReconcile(fn func(workspaceID string)) {
 	m.compoundReconcile = fn
+}
+
+// SetTelemetry sets the telemetry client for usage tracking.
+func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
+	m.telemetry = t
+}
+
+// trackWorkspaceCreated sends a telemetry event for workspace creation.
+// Safe to call even if telemetry is nil.
+func (m *Manager) trackWorkspaceCreated(workspaceID, repoURL, branch string) {
+	if m.telemetry == nil {
+		return
+	}
+	m.telemetry.Track("workspace_created", map[string]any{
+		"workspace_id": workspaceID,
+		"repo_host":    extractRepoHost(repoURL),
+		"branch":       branch,
+	})
+}
+
+// extractRepoHost extracts the host from a repo URL.
+// Examples:
+//   - "https://github.com/user/repo.git" -> "github.com"
+//   - "git@github.com:user/repo.git" -> "github.com"
+//   - "local:name" -> "local"
+func extractRepoHost(repoURL string) string {
+	if strings.HasPrefix(repoURL, "local:") {
+		return "local"
+	}
+
+	// Handle git@host:path format
+	if strings.HasPrefix(repoURL, "git@") {
+		parts := strings.SplitN(repoURL[4:], ":", 2)
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	// Handle https://host/path format
+	if strings.HasPrefix(repoURL, "https://") || strings.HasPrefix(repoURL, "http://") {
+		url := repoURL
+		if strings.HasPrefix(url, "http://") {
+			url = url[7:]
+		} else {
+			url = url[8:]
+		}
+		// Find the first /
+		if idx := strings.Index(url, "/"); idx > 0 {
+			return url[:idx]
+		}
+		return url
+	}
+
+	// Handle ssh://host/path format
+	if strings.HasPrefix(repoURL, "ssh://") {
+		url := repoURL[6:]
+		if idx := strings.Index(url, "/"); idx > 0 {
+			return url[:idx]
+		}
+		return url
+	}
+
+	return "unknown"
 }
 
 func (m *Manager) repoLock(repoURL string) *sync.Mutex {
@@ -362,6 +427,9 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}
 
+	// Track workspace creation
+	m.trackWorkspaceCreated(w.ID, repoURL, branch)
+
 	return &w, nil
 }
 
@@ -436,6 +504,9 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	if err := m.config.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// Track workspace creation
+	m.trackWorkspaceCreated(w.ID, repoURL, branch)
 
 	return &w, nil
 }
@@ -929,6 +1000,9 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	fmt.Printf("[workspace] created from workspace: id=%s path=%s branch=%s source=%s\n",
 		w.ID, w.Path, newBranch, sourceWorkspaceID)
+
+	// Track workspace creation
+	m.trackWorkspaceCreated(w.ID, source.Repo, newBranch)
 
 	return &w, nil
 }

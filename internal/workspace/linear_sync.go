@@ -313,6 +313,16 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}
 
 	fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s success\n", workspaceID)
+
+	// Track push to main
+	if m.telemetry != nil {
+		m.telemetry.Track("push_to_main", map[string]any{
+			"workspace_id":   workspaceID,
+			"branch":         currentBranch,
+			"default_branch": defaultBranch,
+		})
+	}
+
 	return &LinearSyncResult{
 		Success:      true,
 		SuccessCount: ahead,

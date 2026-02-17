@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
@@ -30,7 +31,9 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -308,6 +311,36 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
+	// Initialize telemetry
+	var tel telemetry.Telemetry = &telemetry.NoopTelemetry{}
+	if cfg.GetTelemetryEnabled() {
+		// Ensure installation ID exists
+		installID := cfg.GetInstallationID()
+		if installID == "" {
+			installID = uuid.New().String()
+			cfg.SetInstallationID(installID)
+			if err := cfg.Save(); err != nil {
+				fmt.Printf("[telemetry] warning: failed to save installation ID: %v\n", err)
+			}
+		}
+
+		// Get API key (secrets override > embedded)
+		secretsKey, err := config.GetPosthogAPIKey()
+		if err != nil {
+			fmt.Printf("[telemetry] warning: failed to read secrets: %v\n", err)
+		}
+		apiKey := telemetry.GetAPIKey(secretsKey)
+		tel = telemetry.New(apiKey, installID)
+		if _, ok := tel.(*telemetry.Client); ok {
+			fmt.Println("[telemetry] anonymous usage metrics enabled (opt out: set telemetry_enabled=false in config)")
+		}
+	}
+
+	// Track daemon startup
+	tel.Track("daemon_started", map[string]any{
+		"version": version.Version,
+	})
+
 	// Compute state path
 	statePath := filepath.Join(schmuxDir, "state.json")
 
@@ -331,6 +364,10 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	// Create managers
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
+
+	// Wire telemetry to managers
+	wm.SetTelemetry(tel)
+	sm.SetTelemetry(tel)
 
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
@@ -873,6 +910,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	if err := st.Save(); err != nil {
 		fmt.Printf("[daemon] warning: final state save failed: %v\n", err)
 	}
+
+	// Shutdown telemetry (flush pending events)
+	tel.Shutdown()
 
 	// Stop git watcher
 	if gitWatcher != nil {

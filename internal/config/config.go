@@ -89,6 +89,10 @@ type Config struct {
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
 
+	// Telemetry settings
+	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
+	InstallationID   string `json:"installation_id,omitempty"`   // UUID for anonymous tracking
+
 	// path is the file path where this config was loaded from or should be saved to.
 	// Not serialized to JSON.
 	path string `json:"-"`
@@ -1770,6 +1774,29 @@ func (c *Config) GetModelVersions() map[string]string {
 		return nil
 	}
 	return c.Models.Versions
+}
+
+// GetTelemetryEnabled returns whether telemetry is enabled.
+// Defaults to true if not explicitly configured.
+func (c *Config) GetTelemetryEnabled() bool {
+	if c == nil || c.TelemetryEnabled == nil {
+		return true
+	}
+	return *c.TelemetryEnabled
+}
+
+// GetInstallationID returns the installation ID for telemetry.
+// Returns empty string if not set.
+func (c *Config) GetInstallationID() string {
+	if c == nil {
+		return ""
+	}
+	return c.InstallationID
+}
+
+// SetInstallationID sets the installation ID.
+func (c *Config) SetInstallationID(id string) {
+	c.InstallationID = id
 }
 
 // populateBarePaths detects and populates bare_path for repos that don't have it.
