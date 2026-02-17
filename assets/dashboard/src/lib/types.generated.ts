@@ -249,7 +249,7 @@ export interface QuickLaunch {
 }
 
 export interface RemoteAccess {
-  disabled: boolean;
+  enabled: boolean;
   timeout_minutes: number;
   password_hash_set: boolean;
   notify: RemoteAccessNotify;
@@ -266,7 +266,7 @@ export interface RemoteAccessNotifyUpdate {
 }
 
 export interface RemoteAccessUpdate {
-  disabled?: boolean;
+  enabled?: boolean;
   timeout_minutes?: number;
   notify?: RemoteAccessNotifyUpdate;
 }

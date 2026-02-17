@@ -35,7 +35,7 @@ func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.tunnelManager.Start(); err != nil {
-		if s.config.GetRemoteAccessDisabled() {
+		if !s.config.GetRemoteAccessEnabled() {
 			http.Error(w, err.Error(), http.StatusForbidden)
 		} else {
 			http.Error(w, err.Error(), http.StatusBadRequest)
