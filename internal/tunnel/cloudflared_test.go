@@ -1,6 +1,9 @@
 package tunnel
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,5 +151,96 @@ func TestVerifyCloudflaredSignature_NonDarwin(t *testing.T) {
 	err := verifyCloudflaredSignature("/nonexistent/path")
 	if err != nil {
 		t.Errorf("expected nil error on non-darwin, got: %v", err)
+	}
+}
+
+// makeTgz creates a tar.gz archive containing a single file named "cloudflared"
+// with the given content.
+func makeTgz(t *testing.T, content []byte) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "cloudflared",
+		Mode: 0755,
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatalf("tar header: %v", err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatalf("tar write: %v", err)
+	}
+	tw.Close()
+	gw.Close()
+	return &buf
+}
+
+func TestExtractTgz_NormalArchive(t *testing.T) {
+	content := []byte("#!/bin/sh\necho hello\n")
+	archive := makeTgz(t, content)
+
+	destPath := filepath.Join(t.TempDir(), "cloudflared")
+	if err := extractTgz(archive, destPath); err != nil {
+		t.Fatalf("extractTgz failed: %v", err)
+	}
+
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("reading extracted file: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Errorf("content mismatch: got %q, want %q", got, content)
+	}
+}
+
+func TestExtractTgz_RejectsOversizedEntry(t *testing.T) {
+	// Create a tar.gz with an entry whose header claims a size exceeding
+	// maxCloudflaredSize. The actual content is small (we only write a few bytes),
+	// but the tar header's Size field is what extractTgz should check against.
+	// This simulates a decompression bomb where the decompressed output could
+	// be much larger than the compressed input.
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	// Header claims file is maxCloudflaredSize + 1 byte
+	oversized := int64(maxCloudflaredSize + 1)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "cloudflared",
+		Mode: 0755,
+		Size: oversized,
+	}); err != nil {
+		t.Fatalf("tar header: %v", err)
+	}
+	// Write a small amount of actual data — just enough that extractTgz
+	// doesn't hit io.EOF before the size limit kicks in.
+	// We write zeros up to just past the limit to trigger the limiter.
+	smallChunk := make([]byte, 1024)
+	for written := int64(0); written < oversized; written += int64(len(smallChunk)) {
+		remaining := oversized - written
+		if remaining < int64(len(smallChunk)) {
+			smallChunk = smallChunk[:remaining]
+		}
+		tw.Write(smallChunk)
+	}
+	tw.Close()
+	gw.Close()
+
+	destPath := filepath.Join(t.TempDir(), "cloudflared")
+	err := extractTgz(&buf, destPath)
+	if err == nil {
+		t.Fatal("expected error for oversized tar entry, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("expected 'exceeds maximum' in error, got: %v", err)
+	}
+
+	// Extracted file should not be larger than maxCloudflaredSize
+	if fi, statErr := os.Stat(destPath); statErr == nil {
+		if fi.Size() > maxCloudflaredSize {
+			t.Errorf("extracted file is %d bytes, exceeds limit of %d", fi.Size(), maxCloudflaredSize)
+		}
 	}
 }
