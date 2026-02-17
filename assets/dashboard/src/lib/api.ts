@@ -498,6 +498,17 @@ export async function getRecentBranches(limit: number = 10): Promise<RecentBranc
   return response.json();
 }
 
+export interface RecentBranchesRefreshResponse {
+  branches: RecentBranch[];
+  fetched_count: number;
+}
+
+export async function refreshRecentBranches(): Promise<RecentBranchesRefreshResponse> {
+  const response = await fetch('/api/recent-branches/refresh', { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to refresh recent branches');
+  return response.json();
+}
+
 export async function getGitGraph(
   workspaceId: string,
   opts?: {

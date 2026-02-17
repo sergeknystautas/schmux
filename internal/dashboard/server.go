@@ -299,6 +299,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
 	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuth(s.handleCheckBranchConflict)))
 	mux.HandleFunc("/api/recent-branches", s.withCORS(s.withAuth(s.handleRecentBranches)))
+	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuth(s.handleRecentBranchesRefresh)))
 	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuth(s.handleSuggestBranch)))
 	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuth(s.handlePrepareBranchSpawn)))
 	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuth(s.handleDispose)))

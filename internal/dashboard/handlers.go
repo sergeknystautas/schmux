@@ -3776,6 +3776,37 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(branches)
 }
 
+// handleRecentBranchesRefresh handles POST /api/recent-branches/refresh - fetches updates from remotes.
+func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// Fetch updates from all origin query repos
+	s.workspace.FetchOriginQueries(ctx)
+
+	// Return fresh branches
+	branches, err := s.workspace.GetRecentBranches(ctx, 10)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if branches == nil {
+		branches = []workspace.RecentBranch{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"branches":      branches,
+		"fetched_count": len(branches),
+	})
+}
+
 // handleWorkspaceGitGraph handles GET /api/workspaces/{id}/git-graph.
 func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

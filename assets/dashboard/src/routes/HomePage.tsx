@@ -6,6 +6,7 @@ import { useToast } from '../components/ToastProvider';
 import {
   scanWorkspaces,
   getRecentBranches,
+  refreshRecentBranches,
   prepareBranchSpawn,
   getPRs,
   refreshPRs,
@@ -209,6 +210,7 @@ export default function HomePage() {
   const [scanning, setScanning] = useState(false);
   const [recentBranches, setRecentBranches] = useState<RecentBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
+  const [branchesRefreshing, setBranchesRefreshing] = useState(false);
   const [preparingBranch, setPreparingBranch] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
   const [prsLoading, setPrsLoading] = useState(true);
@@ -294,6 +296,21 @@ export default function HomePage() {
       toastError(getErrorMessage(err, 'Failed to refresh PRs'));
     } finally {
       setPrsRefreshing(false);
+    }
+  };
+
+  const handleRefreshBranches = async () => {
+    setBranchesRefreshing(true);
+    try {
+      const result = await refreshRecentBranches();
+      setRecentBranches(result.branches || []);
+      success(
+        `Found ${result.fetched_count} recent branch${result.fetched_count !== 1 ? 'es' : ''}`
+      );
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to refresh branches'));
+    } finally {
+      setBranchesRefreshing(false);
     }
   };
 
@@ -403,6 +420,15 @@ export default function HomePage() {
               <GitBranchIcon />
               Recent Branches
             </h2>
+            <button
+              className={styles.scanButton}
+              onClick={handleRefreshBranches}
+              disabled={branchesRefreshing}
+              title="Refresh branches from remote"
+            >
+              <RefreshIcon />
+              {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
           <div className={styles.sectionContent}>
             {branchesLoading ? (

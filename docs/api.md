@@ -395,6 +395,34 @@ Notes:
 - Returns branches from all configured repos
 - Excludes `main` branch by default
 
+### POST /api/recent-branches/refresh
+
+Fetches the latest branch information from all configured remote repositories and returns updated recent branches.
+
+Response:
+
+```json
+{
+  "branches": [
+    {
+      "repo_url": "git@github.com:user/repo.git",
+      "repo_name": "repo",
+      "branch": "feature-branch",
+      "commit_date": "2026-01-28T15:30:00Z",
+      "subject": "Add new feature"
+    }
+  ],
+  "fetched_count": 5
+}
+```
+
+Notes:
+
+- Performs `git fetch` on all origin query repos to get latest branch information
+- Returns the same branch list format as `GET /api/recent-branches`
+- `fetched_count` indicates how many branches were returned
+- Useful for refreshing the branch list when remote changes may have occurred
+
 ### POST /api/suggest-branch
 
 AI-powered branch name and nickname suggestion from a prompt.
