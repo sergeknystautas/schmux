@@ -37,6 +37,7 @@ import type {
   WorkspaceResponse,
   WorkspacePreview,
 } from './types';
+import { csrfHeaders } from './csrf';
 
 // Custom error types that preserve API response fields
 export class LinearSyncError extends Error {
@@ -922,7 +923,10 @@ export async function getLoreStatus(): Promise<LoreStatusResponse> {
 // ============================================================================
 
 export async function remoteAccessOn(): Promise<void> {
-  const response = await fetch('/api/remote-access/on', { method: 'POST' });
+  const response = await fetch('/api/remote-access/on', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || 'Failed to start remote access');
@@ -930,7 +934,10 @@ export async function remoteAccessOn(): Promise<void> {
 }
 
 export async function remoteAccessOff(): Promise<void> {
-  const response = await fetch('/api/remote-access/off', { method: 'POST' });
+  const response = await fetch('/api/remote-access/off', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || 'Failed to stop remote access');
@@ -940,7 +947,7 @@ export async function remoteAccessOff(): Promise<void> {
 export async function setRemoteAccessPassword(password: string): Promise<void> {
   const response = await fetch('/api/remote-access/set-password', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
@@ -952,6 +959,7 @@ export async function setRemoteAccessPassword(password: string): Promise<void> {
 export async function testRemoteAccessNotification(): Promise<void> {
   const response = await fetch('/api/remote-access/test-notification', {
     method: 'POST',
+    headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
     const text = await response.text();

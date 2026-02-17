@@ -181,13 +181,22 @@ func extractTgz(r io.Reader, destPath string) error {
 		}
 
 		if filepath.Base(header.Name) == "cloudflared" {
+			if header.Size > maxCloudflaredSize {
+				return fmt.Errorf("tar entry %q is %d bytes, exceeds maximum allowed size of %d", header.Name, header.Size, maxCloudflaredSize)
+			}
 			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			n, err := io.Copy(f, io.LimitReader(tr, maxCloudflaredSize+1))
+			if err != nil {
 				f.Close()
 				return err
+			}
+			if n > maxCloudflaredSize {
+				f.Close()
+				os.Remove(destPath)
+				return fmt.Errorf("extracted cloudflared binary exceeds maximum allowed size of %d bytes", maxCloudflaredSize)
 			}
 			return f.Close()
 		}
