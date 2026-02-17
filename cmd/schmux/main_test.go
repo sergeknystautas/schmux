@@ -16,8 +16,10 @@ func TestParseDaemonRunFlags(t *testing.T) {
 		{[]string{"--background"}, false, true, false},
 		{[]string{"--dev-proxy", "--background"}, true, true, false},
 		{[]string{"--background", "--dev-proxy"}, true, true, false},
-		{[]string{"--dev-mode"}, true, false, true}, // --dev-mode implies --dev-proxy
-		{[]string{"--dev-mode", "--background"}, true, true, true},
+		{[]string{"--dev-mode"}, false, false, true},
+		{[]string{"--dev-mode", "--background"}, false, true, true},
+		{[]string{"--dev-mode", "--dev-proxy"}, true, false, true},
+		{[]string{"--dev-mode", "--dev-proxy", "--background"}, true, true, true},
 	}
 
 	for _, tt := range tests {

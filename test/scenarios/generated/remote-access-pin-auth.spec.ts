@@ -29,10 +29,10 @@ test.describe.serial('Remote access password authentication', () => {
     await expect(warning).not.toBeVisible();
   });
 
-  test('remote auth page rejects missing token', async ({ page }) => {
+  test('remote auth page without token shows instructions', async ({ page }) => {
     const response = await page.goto('/remote-auth');
     expect(response?.status()).toBe(200);
-    await expect(page.locator('body')).toContainText('Invalid or expired link');
+    await expect(page.locator('body')).toContainText('Check your notification app');
     // Should not show the password form
     await expect(page.locator('form')).not.toBeVisible();
   });

@@ -13,6 +13,8 @@ const BASE_URL = 'http://localhost:7337';
 test.describe.serial('Remote access onboarding', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
+    // Clear any password set by earlier test suites
+    await apiPost('/api/dev/clear-password');
     const repoPath = await createTestRepo('onboarding-repo');
     await seedConfig({ repos: [repoPath] });
   });

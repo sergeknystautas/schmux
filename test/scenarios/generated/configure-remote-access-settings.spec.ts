@@ -27,7 +27,7 @@ test.describe.serial('Configure remote access settings', () => {
     // Reset remote access config to defaults so hasChanges() detects the test's fills
     await apiPost('/api/config', {
       remote_access: {
-        disabled: false,
+        enabled: true,
         timeout_minutes: 120,
         notify: { ntfy_topic: '', command: '' },
       },
@@ -111,7 +111,7 @@ test.describe.serial('Configure remote access settings', () => {
     await confirmInput.fill('wrong');
 
     // Click Set PIN button
-    const setPinButton = page.locator('button', { hasText: /Set password|Update password/ });
+    const setPinButton = page.locator('button', { hasText: /Set Password|Update Password/i });
     await expect(setPinButton).toBeVisible();
     await setPinButton.click();
 
@@ -132,7 +132,7 @@ test.describe.serial('Configure remote access settings', () => {
     await confirmInput.fill('test1234');
 
     // Click Set PIN
-    const setPinButton = page.locator('button', { hasText: /Set password|Update password/ });
+    const setPinButton = page.locator('button', { hasText: /Set Password|Update Password/i });
     await setPinButton.click();
 
     // Success message should appear
@@ -147,7 +147,7 @@ test.describe.serial('Configure remote access settings', () => {
   test('config API confirms PIN is set', async () => {
     interface ConfigResp {
       remote_access: {
-        disabled: boolean;
+        enabled: boolean;
         password_hash_set: boolean;
         timeout_minutes: number;
         notify: {
@@ -201,7 +201,7 @@ test.describe.serial('Configure remote access settings', () => {
   test('GET /api/config reflects saved remote access values', async () => {
     interface ConfigResp {
       remote_access: {
-        disabled: boolean;
+        enabled: boolean;
         password_hash_set: boolean;
         timeout_minutes: number;
         notify: {
@@ -212,7 +212,7 @@ test.describe.serial('Configure remote access settings', () => {
     }
 
     const config = await apiGet<ConfigResp>('/api/config');
-    expect(config.remote_access.disabled).toBe(false);
+    expect(config.remote_access.enabled).toBe(true);
     expect(config.remote_access.timeout_minutes).toBe(30);
     expect(config.remote_access.notify.ntfy_topic).toBe('test-topic');
     expect(config.remote_access.notify.command).toBe('echo test');

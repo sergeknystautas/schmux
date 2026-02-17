@@ -21,5 +21,5 @@ telling them the link is invalid.
 - POST /api/remote-access/set-password with `{"password": "test1234"}` succeeds with `{"ok": true}`
 - GET /api/config shows `remote_access.password_hash_set` is true after setting password
 - Reloading the dashboard, the "Set a password first" warning is no longer visible
-- GET /remote-auth without a token query parameter returns an HTML page containing "Invalid or expired link"
+- GET /remote-auth without a token query parameter returns an HTML page containing "Check your notification app"
 - GET /remote-auth?token=bogus-token returns an HTML page containing "Invalid or expired link"

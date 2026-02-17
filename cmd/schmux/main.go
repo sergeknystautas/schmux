@@ -14,7 +14,6 @@ import (
 
 // parseDaemonRunFlags parses the flags for daemon-run command.
 // Returns (devProxy, background, devMode) flags.
-// --dev-mode implies --dev-proxy.
 func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode bool) {
 	for _, arg := range args {
 		switch arg {
@@ -24,7 +23,6 @@ func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode
 			background = true
 		case "--dev-mode":
 			devMode = true
-			devProxy = true // dev-mode implies dev-proxy
 		}
 	}
 	return

@@ -226,3 +226,21 @@ func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
 }
+
+func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.config.RemoteAccess != nil {
+		s.config.RemoteAccess.PasswordHash = ""
+		if err := s.config.Save(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+}

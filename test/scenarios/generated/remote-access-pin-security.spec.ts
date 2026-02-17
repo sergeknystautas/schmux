@@ -8,7 +8,7 @@ test.describe.serial('Remote access password security enforcement', () => {
     await waitForHealthy();
     // Reset remote access config to defaults (prior tests may have changed timeout)
     await apiPost('/api/config', {
-      remote_access: { disabled: false, timeout_minutes: 120 },
+      remote_access: { enabled: true, timeout_minutes: 120 },
     });
   });
 
