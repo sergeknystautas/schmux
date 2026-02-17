@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import type { FocusEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
-import { getDiff, diffExternal, getErrorMessage } from '../lib/api';
+import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -502,16 +502,30 @@ export default function DiffPage() {
                 <div className="diff-content__header">
                   <h2 className="diff-content__title">
                     {selectedFile.new_path || selectedFile.old_path}
-                    {(selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
-                      selectedFile.old_path?.match(/\.(md|mdx)$/i)) && (
-                      <Link
-                        className="diff-content__preview-btn"
-                        to={`/diff/${workspaceId}/md/${encodeURIComponent(selectedFile.new_path || selectedFile.old_path || '')}`}
-                        title="Preview markdown"
-                      >
-                        Preview
-                      </Link>
-                    )}
+                    {/* Markdown preview: only for non-deleted files */}
+                    {selectedFile.status !== 'deleted' &&
+                      (selectedFile.new_path?.match(/\.(md|mdx)$/i) ||
+                        selectedFile.old_path?.match(/\.(md|mdx)$/i)) && (
+                        <Link
+                          className="diff-content__preview-btn"
+                          to={`/diff/${workspaceId}/md/${encodeURIComponent(selectedFile.new_path || '')}`}
+                          title="Preview markdown"
+                        >
+                          Preview
+                        </Link>
+                      )}
+                    {/* Image preview: only for non-deleted image files */}
+                    {selectedFile.status !== 'deleted' &&
+                      (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||
+                        selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) && (
+                        <Link
+                          className="diff-content__preview-btn"
+                          to={`/diff/${workspaceId}/img/${encodeURIComponent(selectedFile.new_path || '')}`}
+                          title="Preview image"
+                        >
+                          Preview
+                        </Link>
+                      )}
                   </h2>
                   <span
                     className={`badge badge--${selectedFile.status === 'added' ? 'success' : selectedFile.status === 'deleted' ? 'danger' : 'neutral'}`}
@@ -520,7 +534,18 @@ export default function DiffPage() {
                   </span>
                 </div>
                 <div className="diff-viewer-wrapper" ref={contentRef}>
-                  {selectedFile.is_binary ? (
+                  {/* Show image thumbnail for image files that are not deleted */}
+                  {selectedFile.status !== 'deleted' &&
+                  (selectedFile.new_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i) ||
+                    selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) ? (
+                    <div style={{ padding: '20px', textAlign: 'center' }}>
+                      <img
+                        src={getWorkspaceFileUrl(workspaceId, selectedFile.new_path)}
+                        alt={selectedFile.new_path}
+                        style={{ maxWidth: '300px', maxHeight: '300px', objectFit: 'contain' }}
+                      />
+                    </div>
+                  ) : selectedFile.is_binary ? (
                     <div className="diff-binary-notice">Binary file not shown</div>
                   ) : (
                     <ReactDiffViewer

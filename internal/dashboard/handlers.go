@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -2332,6 +2333,144 @@ func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, tr
 		output = output[:maxContentSize]
 	}
 	return string(output)
+}
+
+// handleFile serves raw file content from a workspace for image previews.
+// Path format: /api/file/{workspaceId}/...
+// Security: only allows image files, blocks path traversal, checks .gitignore.
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract workspace ID from URL: /api/file/{workspaceId}/...
+	trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/file/")
+	if trimmedPath == "" {
+		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		return
+	}
+	slashIdx := strings.Index(trimmedPath, "/")
+	if slashIdx <= 0 {
+		http.Error(w, "invalid path format", http.StatusBadRequest)
+		return
+	}
+	workspaceID := trimmedPath[:slashIdx]
+	filePath := trimmedPath[slashIdx+1:]
+	filePath, err := url.QueryUnescape(filePath)
+	if err != nil {
+		http.Error(w, "invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	// Validate workspace ID
+	if !isValidResourceID(workspaceID) {
+		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get workspace from state
+	ws, found := s.state.GetWorkspace(workspaceID)
+	if !found {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	// Delegate to remote handler if this is a remote workspace
+	if ws.RemoteHostID != "" {
+		s.handleRemoteFile(w, r, ws, filePath)
+		return
+	}
+
+	s.serveWorkspaceFile(w, r, ws, filePath)
+}
+
+// serveWorkspaceFile serves a file from a local workspace with security checks.
+func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
+	// Validate file path - block path traversal
+	fullPath := filepath.Join(ws.Path, filePath)
+	cleanFullPath := filepath.Clean(fullPath)
+	if !strings.HasPrefix(cleanFullPath, filepath.Clean(ws.Path)+string(filepath.Separator)) && cleanFullPath != filepath.Clean(ws.Path) {
+		http.Error(w, "invalid file path", http.StatusForbidden)
+		return
+	}
+
+	// Check file exists
+	info, err := os.Stat(cleanFullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "cannot access file", http.StatusInternalServerError)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "cannot serve directory", http.StatusForbidden)
+		return
+	}
+
+	// Only allow image files
+	ext := strings.ToLower(filepath.Ext(filePath))
+	allowedExts := map[string]string{
+		".png":  "image/png",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".webp": "image/webp",
+		".gif":  "image/gif",
+	}
+	contentType, allowed := allowedExts[ext]
+	if !allowed {
+		http.Error(w, "only image files are allowed", http.StatusForbidden)
+		return
+	}
+
+	// Check .gitignore - load gitignore patterns and check if file matches
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	gitignoreMatches, err := s.fileMatchesGitignore(ctx, ws.Path, filePath)
+	if err != nil {
+		http.Error(w, "failed to check gitignore", http.StatusInternalServerError)
+		return
+	}
+	if gitignoreMatches {
+		http.Error(w, "file is ignored by git", http.StatusForbidden)
+		return
+	}
+
+	// Serve the file
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, cleanFullPath)
+}
+
+// fileMatchesGitignore checks if a file path matches any .gitignore pattern.
+func (s *Server) fileMatchesGitignore(ctx context.Context, workspacePath, filePath string) (bool, error) {
+	// Use git check-ignore to check if file is ignored
+	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "check-ignore", "-q", filePath)
+	err := cmd.Run()
+	if err == nil {
+		// Exit code 0 means the file is ignored
+		return true, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		// Exit code 1 means the file is not ignored
+		if exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		// Other exit codes indicate errors
+		return false, err
+	}
+	// Any other error means we can't determine - treat as not ignored for safety
+	return false, nil
+}
+
+// handleRemoteFile handles file requests for remote workspaces.
+func (s *Server) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
+	// For remote workspaces, we need to fetch the file via remote command
+	// This is a simplified implementation - in production you'd use the remote connection
+	http.Error(w, "remote file preview not yet supported", http.StatusNotImplemented)
 }
 
 // handleRemoteDiff handles diff requests for remote workspaces by executing VCS

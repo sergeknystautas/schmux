@@ -15,6 +15,7 @@ import RemoteSettingsPage from './routes/RemoteSettingsPage';
 import SessionDetailPage from './routes/SessionDetailPage';
 import DiffPage from './routes/DiffPage';
 import MarkdownPreviewPage from './routes/MarkdownPreviewPage';
+import ImagePreviewPage from './routes/ImagePreviewPage';
 import PreviewPage from './routes/PreviewPage';
 import GitGraphPage from './routes/GitGraphPage';
 import GitCommitPage from './routes/GitCommitPage';
@@ -38,11 +39,15 @@ export default function App() {
                     <Route element={<AppShell />}>
                       <Route path="/" element={<HomePage />} />
                       <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                      <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                      <Route
+                        path="/diff/:workspaceId/img/:filepath"
+                        element={<ImagePreviewPage />}
+                      />
                       <Route
                         path="/diff/:workspaceId/md/:filepath"
                         element={<MarkdownPreviewPage />}
                       />
+                      <Route path="/diff/:workspaceId" element={<DiffPage />} />
                       <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
                       <Route path="/git/:workspaceId" element={<GitGraphPage />} />
                       <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />

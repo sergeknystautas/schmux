@@ -223,6 +223,12 @@ export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   return response.json();
 }
 
+// Get a file from the workspace for image preview
+export function getWorkspaceFileUrl(workspaceId: string, filePath: string): string {
+  const encoded = encodeURIComponent(filePath);
+  return `/api/file/${workspaceId}/${encoded}`;
+}
+
 export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
   const response = await fetch('/auth/me');
   if (!response.ok) {
