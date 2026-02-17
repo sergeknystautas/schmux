@@ -610,11 +610,10 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Set SSE headers
+	// Set SSE headers (CORS is handled by the withCORS wrapper at route registration)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

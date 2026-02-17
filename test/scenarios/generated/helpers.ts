@@ -182,6 +182,29 @@ export async function createTestRepo(name: string): Promise<string> {
   return repoDir;
 }
 
+// --- Tunnel simulation helpers ---
+
+interface SimulateTunnelResult {
+  url: string;
+  token: string;
+}
+
+/**
+ * Activates a simulated cloudflared tunnel via the dev-mode API.
+ * Returns the tunnel URL and one-time auth token.
+ * Requires the daemon to be running with --dev-mode (scenario entrypoint does this).
+ */
+export async function simulateTunnel(): Promise<SimulateTunnelResult> {
+  return apiPost<SimulateTunnelResult>('/api/dev/simulate-tunnel');
+}
+
+/**
+ * Stops the simulated tunnel and clears all remote auth state.
+ */
+export async function stopSimulatedTunnel(): Promise<void> {
+  await apiPost('/api/dev/simulate-tunnel-stop');
+}
+
 // --- Utilities ---
 
 export function sleep(ms: number): Promise<void> {

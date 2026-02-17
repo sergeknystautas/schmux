@@ -194,3 +194,35 @@ func (s *Server) resumeViteWatch() {
 	}
 	resp.Body.Close()
 }
+
+func (s *Server) handleDevSimulateTunnel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tunnelURL := fmt.Sprintf("https://fake-tunnel-%d.trycloudflare.com", time.Now().UnixNano())
+	s.HandleTunnelConnected(tunnelURL)
+
+	s.remoteTokenMu.Lock()
+	token := s.remoteToken
+	s.remoteTokenMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":   tunnelURL,
+		"token": token,
+	})
+}
+
+func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.ClearRemoteAuth()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+}
