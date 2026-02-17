@@ -2512,6 +2512,27 @@ a:hover {
   flex-shrink: 0;
 }
 
+.diff-file-item__status {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.diff-file-item__status--added {
+  color: var(--color-success);
+}
+
+.diff-file-item__status--modified {
+  color: var(--color-warning);
+}
+
+.diff-file-item__status--deleted {
+  color: var(--color-error);
+}
+
 .diff-content {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -3987,8 +4008,8 @@ a:hover {
 }
 
 .commit-workflow__status--modified {
-  background-color: var(--color-surface-alt);
-  color: var(--color-text-muted);
+  background-color: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
 }
 
 .commit-workflow__status--deleted {
@@ -3997,8 +4018,8 @@ a:hover {
 }
 
 .commit-workflow__status--untracked {
-  background-color: var(--color-surface-alt);
-  color: var(--color-text-muted);
+  background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
 }
 
 .commit-workflow__filename {

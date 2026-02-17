@@ -2061,23 +2061,48 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		Files       []FileDiff `json:"files"`
 	}
 
-	// Get git diff output using porcelain format
-	// --numstat shows: added/deleted lines filename
-	// HEAD compares against last commit (includes both staged and unstaged)
-	// --find-renames finds renames
+	// Step 1: Get file status from git (A=added, M=modified, D=deleted, R=renamed)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-	cmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
-	output, err := cmd.Output()
+	statusCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--name-status", "--find-renames")
+	statusOutput, _ := statusCmd.Output()
 	cancel()
-	if err != nil {
-		// No changes is not an error - continue, we'll still check for untracked files
-		output = []byte{}
+
+	// Build map of filepath -> status
+	fileStatus := make(map[string]string)
+	for _, line := range strings.Split(string(statusOutput), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		statusCode := parts[0]
+		filePath := parts[len(parts)-1] // Last part is the (new) filepath
+
+		switch {
+		case statusCode == "A":
+			fileStatus[filePath] = "added"
+		case statusCode == "D":
+			fileStatus[filePath] = "deleted"
+		case statusCode == "M":
+			fileStatus[filePath] = "modified"
+		case strings.HasPrefix(statusCode, "R"):
+			fileStatus[filePath] = "renamed"
+		default:
+			fileStatus[filePath] = "modified"
+		}
 	}
 
-	// Parse numstat output and get file diffs
+	// Step 2: Get line counts from numstat
+	ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
+	numstatCmd := exec.CommandContext(ctx, "git", "-C", ws.Path, "diff", "HEAD", "--numstat", "--find-renames")
+	numstatOutput, _ := numstatCmd.Output()
+	cancel()
+
+	// Step 3: Parse numstat and build file diffs, using status from step 1
 	files := make([]FileDiff, 0)
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(string(numstatOutput), "\n") {
 		if line == "" {
 			continue
 		}
@@ -2101,57 +2126,60 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			linesRemoved, _ = strconv.Atoi(deletedStr)
 		}
 
+		// Get status from name-status output
+		status := fileStatus[filePath]
+		if status == "" {
+			status = "modified"
+		}
+
 		if isBinary {
-			status := "modified"
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-			oldExists := s.getFileContent(ctx, ws.Path, filePath, "HEAD") != ""
-			cancel()
-			if !oldExists {
-				status = "added"
+			if status == "deleted" {
+				files = append(files, FileDiff{
+					OldPath:  filePath,
+					Status:   status,
+					IsBinary: true,
+				})
+			} else {
+				files = append(files, FileDiff{
+					NewPath:  filePath,
+					Status:   status,
+					IsBinary: true,
+				})
 			}
-			files = append(files, FileDiff{
-				NewPath:  filePath,
-				Status:   status,
-				IsBinary: true,
-			})
 			continue
 		}
 
-		// Skip if file was deleted (added is "-")
-		if addedStr == "-" && deletedStr != "-" {
-			// For deleted files, get old content
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-			oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
-			cancel()
+		// Get file content for non-binary files
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
+		var oldContent, newContent string
+		if status == "deleted" {
+			oldContent = s.getFileContent(ctx, ws.Path, filePath, "HEAD")
+		} else if status == "added" {
+			newContent = s.getFileContent(ctx, ws.Path, filePath, "worktree")
+		} else {
+			oldContent = s.getFileContent(ctx, ws.Path, filePath, "HEAD")
+			newContent = s.getFileContent(ctx, ws.Path, filePath, "worktree")
+		}
+		cancel()
+
+		if status == "deleted" {
 			files = append(files, FileDiff{
-				NewPath:      filePath,
+				OldPath:      filePath,
 				OldContent:   oldContent,
-				Status:       "deleted",
+				Status:       status,
 				LinesAdded:   linesAdded,
 				LinesRemoved: linesRemoved,
 			})
-			continue
+		} else {
+			files = append(files, FileDiff{
+				NewPath:      filePath,
+				OldContent:   oldContent,
+				NewContent:   newContent,
+				Status:       status,
+				LinesAdded:   linesAdded,
+				LinesRemoved: linesRemoved,
+			})
 		}
-
-		// Check if file is new (deleted is "0" and file doesn't exist in HEAD)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitStatusTimeoutMs())*time.Millisecond)
-		newContent := s.getFileContent(ctx, ws.Path, filePath, "worktree")
-		oldContent := s.getFileContent(ctx, ws.Path, filePath, "HEAD")
-		cancel()
-
-		status := "modified"
-		if oldContent == "" {
-			status = "added"
-		}
-
-		files = append(files, FileDiff{
-			NewPath:      filePath,
-			OldContent:   oldContent,
-			NewContent:   newContent,
-			Status:       status,
-			LinesAdded:   linesAdded,
-			LinesRemoved: linesRemoved,
-		})
 	}
 
 	// Get untracked files

@@ -352,13 +352,15 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       const isSelected = selectedFiles.has(filePath);
       const status = ln.file.status || 'modified';
       const statusLabel =
-        status === 'added' ? 'A' : status === 'deleted' ? 'D' : status === 'untracked' ? '??' : 'M';
+        status === 'added' ? 'A' : status === 'deleted' ? 'D' : status === 'untracked' ? '?' : 'M';
       const statusClass =
         status === 'added'
           ? 'commit-workflow__status--added'
           : status === 'deleted'
             ? 'commit-workflow__status--deleted'
-            : 'commit-workflow__status--modified';
+            : status === 'untracked'
+              ? 'commit-workflow__status--untracked'
+              : 'commit-workflow__status--modified';
       const toggleFile = () => {
         const newSet = new Set(selectedFiles);
         if (newSet.has(filePath)) newSet.delete(filePath);

@@ -437,6 +437,21 @@ export default function DiffPage() {
             <div className="diff-file-list" data-testid="diff-file-list">
               {diffData?.files?.map((file, index) => {
                 const { filename, directory } = splitPath(file.new_path || file.old_path);
+                const status = file.status || 'modified';
+                const statusIndicator =
+                  status === 'added'
+                    ? 'A'
+                    : status === 'deleted'
+                      ? 'D'
+                      : status === 'untracked'
+                        ? '?'
+                        : 'M';
+                const statusClass =
+                  status === 'added' || status === 'untracked'
+                    ? 'diff-file-item__status--added'
+                    : status === 'deleted'
+                      ? 'diff-file-item__status--deleted'
+                      : 'diff-file-item__status--modified';
                 return (
                   <button
                     key={index}
@@ -445,17 +460,9 @@ export default function DiffPage() {
                     data-testid={`diff-file-${index}`}
                   >
                     <div className="diff-file-item__info">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-                        <polyline points="13 2 13 9 20 9"></polyline>
-                      </svg>
+                      <span className={`diff-file-item__status ${statusClass}`}>
+                        {statusIndicator}
+                      </span>
                       <span className="diff-file-item__name">{filename}</span>
                       {directory && <span className="diff-file-item__dir">{directory}</span>}
                     </div>
