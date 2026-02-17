@@ -20,7 +20,7 @@ command.
 - The password field shows "password is configured" or not based on password_hash_set from GET /api/config
 - Typing a password reveals the confirm field and a "Set password" button
 - Entering mismatched passwords shows "passwords do not match" error
-- Entering matching passwords (at least 6 chars) and clicking "Set password" calls POST /api/remote-access/set-password
+- Entering matching passwords (at least 8 chars) and clicking "Set password" calls POST /api/remote-access/set-password
 - After setting password, the status text changes to "password is configured"
 - Setting ntfy topic to "test-topic", timeout to 30, and notify command to "echo test" then saving persists via POST /api/config
 - GET /api/config after save shows remote_access.notify.ntfy_topic="test-topic", remote_access.timeout_minutes=30, remote_access.notify.command="echo test"

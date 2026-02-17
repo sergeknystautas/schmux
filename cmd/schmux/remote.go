@@ -83,8 +83,8 @@ func (cmd *RemoteCommand) runSetPassword() error {
 	}
 
 	password := strings.TrimSpace(string(pw1))
-	if len(password) < 6 {
-		return fmt.Errorf("password must be at least 6 characters")
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
 	}
 
 	fmt.Print("Confirm password: ")
