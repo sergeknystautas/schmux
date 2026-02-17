@@ -580,12 +580,7 @@ export default function ConfigPage() {
     } else if (step === 5) {
       // Access settings are always valid
     } else if (step === 6) {
-      const width = parseInt(terminalWidth);
-      const height = parseInt(terminalHeight);
-      const seedLines = parseInt(terminalSeedLines);
-      if (!width || !height || !seedLines || width <= 0 || height <= 0 || seedLines <= 0) {
-        error = 'Terminal settings must be greater than 0';
-      }
+      // Advanced settings are always valid
     }
 
     setStepErrors((prev) => ({ ...prev, [step]: error }));
