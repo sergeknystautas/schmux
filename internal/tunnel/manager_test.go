@@ -30,7 +30,7 @@ func TestTunnelState_StartRequiresPasswordHash(t *testing.T) {
 
 func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	m := NewManager(ManagerConfig{
-		Disabled:        true,
+		Disabled:        func() bool { return true },
 		PasswordHashSet: func() bool { return true },
 	})
 
