@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { getDiff, getErrorMessage } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -122,7 +123,9 @@ export default function MarkdownPreviewPage() {
           </div>
           <div className="diff-viewer-wrapper">
             <div className="markdown-preview-content">
-              <ReactMarkdown>{selectedFile.new_content || ''}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {selectedFile.new_content || ''}
+              </ReactMarkdown>
             </div>
           </div>
         </div>
