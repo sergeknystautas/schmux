@@ -146,12 +146,13 @@ type Server struct {
 	tunnelManager *tunnel.Manager
 
 	// Remote access auth state
-	remoteToken         string
-	remoteTokenFailures map[string]int
-	remoteTokenMu       sync.Mutex
-	remoteSessionSecret []byte
-	remoteTunnelURL     string
-	remoteNonces        map[string]*remoteNonce
+	remoteToken          string
+	remoteTokenCreatedAt time.Time
+	remoteTokenFailures  map[string]int
+	remoteTokenMu        sync.Mutex
+	remoteSessionSecret  []byte
+	remoteTunnelURL      string
+	remoteNonces         map[string]*remoteNonce
 
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
@@ -278,6 +279,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 
 	s.remoteTokenMu.Lock()
 	s.remoteToken = token
+	s.remoteTokenCreatedAt = time.Now()
 	s.remoteTokenFailures = make(map[string]int)
 	s.remoteSessionSecret = secretBytes
 	s.remoteTunnelURL = tunnelURL

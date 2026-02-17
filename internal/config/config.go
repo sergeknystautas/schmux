@@ -1183,6 +1183,9 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
+	// Restrict permissions: config may contain sensitive data (e.g., password hashes)
+	os.Chmod(configPath, 0600)
+
 	// Invalidate the repo URL cache since repos may have changed
 	c.repoURLMu.Lock()
 	c.repoURLCache = nil

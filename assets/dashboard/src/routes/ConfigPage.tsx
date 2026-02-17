@@ -1164,8 +1164,8 @@ export default function ConfigPage() {
       setPasswordError('Password cannot be empty');
       return;
     }
-    if (passwordInput.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
+    if (passwordInput.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
       return;
     }
     if (passwordInput !== passwordConfirm) {

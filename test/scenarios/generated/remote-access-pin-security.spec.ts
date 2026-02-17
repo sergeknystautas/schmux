@@ -29,7 +29,7 @@ test.describe.serial('Remote access password security enforcement', () => {
     });
     expect(res.status).toBe(400);
     const body = await res.text();
-    expect(body.toLowerCase()).toContain('at least 6');
+    expect(body.toLowerCase()).toContain('at least 8');
   });
 
   test('rejects 5-char password', async () => {

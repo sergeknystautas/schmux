@@ -20,7 +20,7 @@ import (
 
 const maxPasswordAttempts = 5
 
-const minPasswordLength = 6
+const minPasswordLength = 8
 
 const remoteSessionMaxAge = 24 * time.Hour
 
@@ -29,6 +29,8 @@ type remoteNonce struct {
 }
 
 const nonceMaxAge = 5 * time.Minute
+
+const tokenMaxAge = 30 * time.Minute
 
 func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -54,6 +56,13 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(validToken)) != 1 || validToken == "" {
 			s.remoteTokenMu.Unlock()
 			fmt.Fprint(w, renderPasswordPage("", "Invalid or expired link.", 0))
+			return
+		}
+		// Reject expired tokens (30-minute TTL)
+		if time.Since(s.remoteTokenCreatedAt) > tokenMaxAge {
+			s.remoteToken = "" // Consume the expired token
+			s.remoteTokenMu.Unlock()
+			fmt.Fprint(w, renderPasswordPage("", "This link has expired. Stop and restart the tunnel to generate a new one.", 0))
 			return
 		}
 		// Consume token (one-time use)

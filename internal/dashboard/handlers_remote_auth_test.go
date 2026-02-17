@@ -193,6 +193,7 @@ func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
 		{"empty", ""},
 		{"too short 3 chars", "abc"},
 		{"too short 5 chars", "abcde"},
+		{"too short 7 chars", "abcdefg"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
