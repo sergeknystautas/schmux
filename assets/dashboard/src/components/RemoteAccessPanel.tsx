@@ -13,7 +13,7 @@ export default function RemoteAccessPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const isDevMode = !!versionInfo?.dev_mode;
-  const isDisabled = config?.remote_access?.disabled;
+  const isEnabled = config?.remote_access?.enabled;
   const passwordHashSet = config?.remote_access?.password_hash_set;
   const isActive =
     remoteAccessStatus.state === 'connected' || remoteAccessStatus.state === 'starting';
@@ -37,7 +37,7 @@ export default function RemoteAccessPanel() {
   const isRemoteClient =
     window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 
-  if (isDisabled || isRemoteClient) {
+  if (!isEnabled || isRemoteClient) {
     return null;
   }
 

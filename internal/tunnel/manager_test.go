@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -76,6 +77,27 @@ func TestTunnelState_StartRejectsNonLoopbackBind(t *testing.T) {
 				t.Errorf("did not expect bind address error, got: %v", err)
 			}
 		})
+	}
+}
+
+func TestTunnelState_StartRejectsAutoDownloadDisabled(t *testing.T) {
+	// Set PATH to empty dir so cloudflared won't be found
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", t.TempDir())
+	defer os.Setenv("PATH", origPath)
+
+	m := NewManager(ManagerConfig{
+		PasswordHashSet:   func() bool { return true },
+		AllowAutoDownload: false,
+		SchmuxBinDir:      t.TempDir(),
+	})
+	err := m.Start()
+	if err == nil {
+		m.Stop()
+		t.Fatal("expected error when cloudflared not found and auto-download disabled")
+	}
+	if !strings.Contains(err.Error(), "auto-download is disabled") {
+		t.Errorf("error should mention auto-download is disabled, got: %v", err)
 	}
 }
 

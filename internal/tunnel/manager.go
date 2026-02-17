@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -30,13 +31,14 @@ type TunnelStatus struct {
 
 // ManagerConfig holds configuration for the tunnel manager.
 type ManagerConfig struct {
-	Disabled        bool
-	PasswordHashSet func() bool // called at Start() to check if password is configured
-	Port            int
-	BindAddress     string // server bind address; non-loopback will be rejected
-	SchmuxBinDir    string
-	TimeoutMinutes  int
-	OnStatusChange  func(TunnelStatus) // callback when tunnel status changes
+	Disabled          bool
+	PasswordHashSet   func() bool // called at Start() to check if password is configured
+	Port              int
+	BindAddress       string // server bind address; non-loopback will be rejected
+	AllowAutoDownload bool   // allow auto-downloading cloudflared (default should be true)
+	SchmuxBinDir      string
+	TimeoutMinutes    int
+	OnStatusChange    func(TunnelStatus) // callback when tunnel status changes
 }
 
 // Manager manages the cloudflared tunnel lifecycle.
@@ -104,7 +106,16 @@ func (m *Manager) Start() error {
 	m.mu.RUnlock()
 
 	// Find or download cloudflared
-	binPath, err := EnsureCloudflared(m.config.SchmuxBinDir)
+	var binPath string
+	var err error
+	if m.config.AllowAutoDownload {
+		binPath, err = EnsureCloudflared(m.config.SchmuxBinDir)
+	} else {
+		binPath, err = FindCloudflared(m.config.SchmuxBinDir)
+		if err != nil {
+			err = fmt.Errorf("%w (auto-download is disabled — install cloudflared manually: %s)", err, installSuggestion(runtime.GOOS))
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("failed to get cloudflared: %w", err)
 	}

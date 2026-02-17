@@ -1336,7 +1336,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
 		RemoteAccess: contracts.RemoteAccess{
-			Disabled:        s.config.GetRemoteAccessDisabled(),
+			Enabled:         s.config.GetRemoteAccessEnabled(),
 			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
 			PasswordHashSet: s.config.GetRemoteAccessPasswordHash() != "",
 			Notify: contracts.RemoteAccessNotify{
@@ -1651,9 +1651,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if cfg.RemoteAccess == nil {
 			cfg.RemoteAccess = &config.RemoteAccessConfig{}
 		}
-		if req.RemoteAccess.Disabled != nil {
-			disabled := *req.RemoteAccess.Disabled
-			cfg.RemoteAccess.Disabled = &disabled
+		if req.RemoteAccess.Enabled != nil {
+			enabled := *req.RemoteAccess.Enabled
+			cfg.RemoteAccess.Enabled = &enabled
+			// Clear deprecated field when new field is explicitly set
+			cfg.RemoteAccess.Disabled = nil
 		}
 		if req.RemoteAccess.TimeoutMinutes != nil {
 			cfg.RemoteAccess.TimeoutMinutes = *req.RemoteAccess.TimeoutMinutes

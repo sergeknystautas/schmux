@@ -226,10 +226,15 @@ type RemoteAccessNotifyConfig struct {
 
 // RemoteAccessConfig configures remote access via Cloudflare tunnel.
 type RemoteAccessConfig struct {
-	Disabled       *bool                     `json:"disabled,omitempty"`
-	TimeoutMinutes int                       `json:"timeout_minutes,omitempty"`
-	PasswordHash   string                    `json:"password_hash,omitempty"`
-	Notify         *RemoteAccessNotifyConfig `json:"notify,omitempty"`
+	Enabled           *bool                     `json:"enabled,omitempty"`
+	TimeoutMinutes    int                       `json:"timeout_minutes,omitempty"`
+	PasswordHash      string                    `json:"password_hash,omitempty"`
+	AllowAutoDownload *bool                     `json:"allow_auto_download,omitempty"` // allow auto-downloading cloudflared binary (default: false)
+	Notify            *RemoteAccessNotifyConfig `json:"notify,omitempty"`
+
+	// Deprecated: Use Enabled instead. Kept for backward compatibility with existing configs.
+	// If both are set, Enabled takes precedence.
+	Disabled *bool `json:"disabled,omitempty"`
 }
 // NudgenikConfig represents configuration for the NudgeNik assistant.
 type NudgenikConfig struct {
@@ -1449,12 +1454,23 @@ func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
 	return nil
 }
 
-// GetRemoteAccessDisabled returns whether remote access is disabled entirely.
-func (c *Config) GetRemoteAccessDisabled() bool {
-	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Disabled == nil {
+// GetRemoteAccessEnabled returns whether remote access is enabled.
+// Defaults to false (disabled). Users must explicitly set "enabled": true.
+// For backward compatibility, "disabled": true in existing configs is respected
+// (inverted to enabled=false). If both fields are set, "enabled" takes precedence.
+func (c *Config) GetRemoteAccessEnabled() bool {
+	if c == nil || c.RemoteAccess == nil {
 		return false
 	}
-	return *c.RemoteAccess.Disabled
+	// New field takes precedence
+	if c.RemoteAccess.Enabled != nil {
+		return *c.RemoteAccess.Enabled
+	}
+	// Backward compat: invert old "disabled" field
+	if c.RemoteAccess.Disabled != nil {
+		return !*c.RemoteAccess.Disabled
+	}
+	return false
 }
 
 // GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout in minutes.
@@ -1491,6 +1507,15 @@ func (c *Config) GetRemoteAccessPasswordHash() string {
 		return ""
 	}
 	return c.RemoteAccess.PasswordHash
+}
+
+// GetRemoteAccessAllowAutoDownload returns whether auto-downloading cloudflared is allowed.
+// Defaults to false (disabled). Set to true in config to allow unverified binary downloads.
+func (c *Config) GetRemoteAccessAllowAutoDownload() bool {
+	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.AllowAutoDownload == nil {
+		return false
+	}
+	return *c.RemoteAccess.AllowAutoDownload
 }
 
 // GetRemoteFlavors returns the list of remote flavors.

@@ -89,7 +89,7 @@ type ConfigSnapshot = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
-  remoteAccessDisabled: boolean;
+  remoteAccessEnabled: boolean;
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
   remoteAccessNotifyCommand: string;
@@ -202,7 +202,7 @@ export default function ConfigPage() {
   const [loreAutoPR, setLoreAutoPR] = useState(false);
 
   // Remote access state
-  const [remoteAccessDisabled, setRemoteAccessDisabled] = useState(false);
+  const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false);
   const [remoteAccessTimeoutMinutes, setRemoteAccessTimeoutMinutes] = useState(0);
   const [remoteAccessNtfyTopic, setRemoteAccessNtfyTopic] = useState('');
   const [remoteAccessNotifyCommand, setRemoteAccessNotifyCommand] = useState('');
@@ -261,7 +261,7 @@ export default function ConfigPage() {
       loreLLMTarget,
       loreCurateOnDispose,
       loreAutoPR,
-      remoteAccessDisabled,
+      remoteAccessEnabled,
       remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic,
       remoteAccessNotifyCommand,
@@ -308,7 +308,7 @@ export default function ConfigPage() {
       current.loreLLMTarget !== originalConfig.loreLLMTarget ||
       current.loreCurateOnDispose !== originalConfig.loreCurateOnDispose ||
       current.loreAutoPR !== originalConfig.loreAutoPR ||
-      current.remoteAccessDisabled !== originalConfig.remoteAccessDisabled ||
+      current.remoteAccessEnabled !== originalConfig.remoteAccessEnabled ||
       current.remoteAccessTimeoutMinutes !== originalConfig.remoteAccessTimeoutMinutes ||
       current.remoteAccessNtfyTopic !== originalConfig.remoteAccessNtfyTopic ||
       current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand
@@ -425,7 +425,7 @@ export default function ConfigPage() {
         setLoreLLMTarget(data.lore?.llm_target || '');
         setLoreCurateOnDispose(data.lore?.curate_on_dispose || 'session');
         setLoreAutoPR(data.lore?.auto_pr || false);
-        setRemoteAccessDisabled(data.remote_access?.disabled || false);
+        setRemoteAccessEnabled(data.remote_access?.enabled || false);
         setRemoteAccessTimeoutMinutes(data.remote_access?.timeout_minutes || 0);
         setRemoteAccessNtfyTopic(data.remote_access?.notify?.ntfy_topic || '');
         setRemoteAccessNotifyCommand(data.remote_access?.notify?.command || '');
@@ -472,7 +472,7 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
-            remoteAccessDisabled: data.remote_access?.disabled || false,
+            remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
@@ -672,7 +672,7 @@ export default function ConfigPage() {
         },
         model_versions: modelVersions,
         remote_access: {
-          disabled: remoteAccessDisabled,
+          enabled: remoteAccessEnabled,
           timeout_minutes: remoteAccessTimeoutMinutes,
           notify: {
             ntfy_topic: remoteAccessNtfyTopic,
@@ -729,7 +729,7 @@ export default function ConfigPage() {
           loreLLMTarget,
           loreCurateOnDispose,
           loreAutoPR,
-          remoteAccessDisabled,
+          remoteAccessEnabled,
           remoteAccessTimeoutMinutes,
           remoteAccessNtfyTopic,
           remoteAccessNotifyCommand,
@@ -2318,8 +2318,8 @@ export default function ConfigPage() {
                     >
                       <input
                         type="checkbox"
-                        checked={!remoteAccessDisabled}
-                        onChange={(e) => setRemoteAccessDisabled(!e.target.checked)}
+                        checked={remoteAccessEnabled}
+                        onChange={(e) => setRemoteAccessEnabled(e.target.checked)}
                       />
                       <span>Enable remote access</span>
                     </label>
@@ -2328,7 +2328,7 @@ export default function ConfigPage() {
                     </p>
                   </div>
 
-                  {!remoteAccessDisabled && (
+                  {remoteAccessEnabled && (
                     <div className="remote-access-grid">
                       <div className="remote-access-grid__fields">
                         <div className="form-group">

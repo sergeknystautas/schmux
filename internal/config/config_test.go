@@ -1681,19 +1681,52 @@ func TestDefaultOverlayPaths_ExcludesLoreJsonl(t *testing.T) {
 	}
 }
 
-func TestGetRemoteAccessDisabled(t *testing.T) {
+func TestGetRemoteAccessEnabled(t *testing.T) {
 	t.Run("defaults to false when nil", func(t *testing.T) {
 		cfg := &Config{}
-		if cfg.GetRemoteAccessDisabled() {
-			t.Error("expected GetRemoteAccessDisabled() = false when RemoteAccess is nil")
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when RemoteAccess is nil")
 		}
 	})
 
-	t.Run("returns configured value", func(t *testing.T) {
+	t.Run("returns true when explicitly enabled", func(t *testing.T) {
+		enabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true")
+		}
+	})
+
+	t.Run("returns false when explicitly disabled", func(t *testing.T) {
+		enabled := false
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when explicitly set to false")
+		}
+	})
+
+	t.Run("backward compat: disabled=true means enabled=false", func(t *testing.T) {
 		disabled := true
 		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
-		if !cfg.GetRemoteAccessDisabled() {
-			t.Error("expected GetRemoteAccessDisabled() = true")
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when Disabled=true (backward compat)")
+		}
+	})
+
+	t.Run("backward compat: disabled=false means enabled=true", func(t *testing.T) {
+		disabled := false
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true when Disabled=false (backward compat)")
+		}
+	})
+
+	t.Run("enabled takes precedence over disabled", func(t *testing.T) {
+		enabled := true
+		disabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected Enabled to take precedence over Disabled")
 		}
 	})
 }
