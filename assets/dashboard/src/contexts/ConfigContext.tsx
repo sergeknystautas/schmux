@@ -27,12 +27,6 @@ const DEFAULT_CONFIG: ConfigResponse = {
   nudgenik: { target: '', viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
   branch_suggest: { target: '' },
   conflict_resolve: { target: '', timeout_ms: 120000 },
-  terminal: {
-    width: 120,
-    height: 40,
-    seed_lines: 100,
-    bootstrap_lines: 20000,
-  },
   sessions: {
     dashboard_poll_interval_ms: 5000,
     git_status_poll_interval_ms: 10000,

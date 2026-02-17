@@ -1,7 +1,6 @@
 import { Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import type { TerminalSize } from './types';
 import { inputLatency } from './inputLatency';
 
 type TerminalStreamOptions = {
@@ -9,7 +8,6 @@ type TerminalStreamOptions = {
   followCheckbox?: HTMLInputElement | null;
   onStatusChange?: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
   onResume?: (showing: boolean) => void;
-  terminalSize?: TerminalSize | null;
   onSelectedLinesChange?: (lines: string[]) => void;
 };
 
@@ -33,7 +31,6 @@ export default class TerminalStream {
   followCheckbox: HTMLInputElement | null;
   onStatusChange: (status: 'connected' | 'disconnected' | 'reconnecting' | 'error') => void;
   onResume: (showing: boolean) => void;
-  terminalSize: TerminalSize | null;
   terminal: Terminal | null;
   tmuxCols: number | null;
   tmuxRows: number | null;
@@ -76,7 +73,6 @@ export default class TerminalStream {
     this.followCheckbox = options.followCheckbox || null;
     this.onStatusChange = options.onStatusChange || (() => {});
     this.onResume = options.onResume || (() => {});
-    this.terminalSize = options.terminalSize || null;
     this.onSelectedLinesChange = options.onSelectedLinesChange || (() => {});
 
     this.terminal = null;
@@ -103,10 +99,10 @@ export default class TerminalStream {
       return null;
     }
 
-    // Calculate initial dimensions from container, falling back to config
+    // Calculate initial dimensions from container with reasonable defaults
     const containerRect = this.containerElement.getBoundingClientRect();
-    let cols = this.terminalSize?.width ?? 80;
-    let rows = this.terminalSize?.height ?? 24;
+    let cols = 120; // Default width
+    let rows = 40; // Default height
 
     // If container has valid dimensions, calculate from it
     // Use reasonable cell size estimates for initial render
@@ -115,14 +111,6 @@ export default class TerminalStream {
       const estimatedCellHeight = 17;
       cols = Math.max(20, Math.floor(containerRect.width / estimatedCellWidth) - 1);
       rows = Math.max(5, Math.floor(containerRect.height / estimatedCellHeight) - 1);
-    } else if (
-      typeof this.terminalSize?.width !== 'number' ||
-      typeof this.terminalSize?.height !== 'number'
-    ) {
-      const message = 'Terminal size is unavailable in config';
-      this.containerElement.textContent = `Error: ${message}`;
-      console.error(message);
-      return null;
     }
 
     this.tmuxCols = cols;

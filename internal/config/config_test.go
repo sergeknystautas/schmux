@@ -25,11 +25,6 @@ func TestLoad(t *testing.T) {
 		RunTargets: []RunTarget{
 			{Name: "test-agent", Type: RunTargetTypePromptable, Command: "echo test"},
 		},
-		Terminal: &TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
-		},
 	}
 
 	data, err := json.MarshalIndent(validConfig, "", "  ")
@@ -104,54 +99,6 @@ func TestGetRunTargets(t *testing.T) {
 	}
 }
 
-func TestGetTerminalSize(t *testing.T) {
-	t.Run("returns configured size", func(t *testing.T) {
-		cfg := &Config{
-			Terminal: &TerminalSize{Width: 120, Height: 40},
-		}
-		w, h := cfg.GetTerminalSize()
-		if w != 120 || h != 40 {
-			t.Errorf("got %d,%d, want 120,40", w, h)
-		}
-	})
-
-	t.Run("returns 0,0 when not configured", func(t *testing.T) {
-		cfg := &Config{}
-		w, h := cfg.GetTerminalSize()
-		if w != 0 || h != 0 {
-			t.Errorf("got %d,%d, want 0,0", w, h)
-		}
-	})
-
-	t.Run("returns 0,0 when terminal is nil", func(t *testing.T) {
-		cfg := &Config{Terminal: nil}
-		w, h := cfg.GetTerminalSize()
-		if w != 0 || h != 0 {
-			t.Errorf("got %d,%d, want 0,0", w, h)
-		}
-	})
-}
-
-func TestGetTerminalSeedLines(t *testing.T) {
-	t.Run("returns configured seed lines", func(t *testing.T) {
-		cfg := &Config{
-			Terminal: &TerminalSize{SeedLines: 100},
-		}
-		got := cfg.GetTerminalSeedLines()
-		if got != 100 {
-			t.Errorf("got %d, want 100", got)
-		}
-	})
-
-	t.Run("returns 0 when not configured", func(t *testing.T) {
-		cfg := &Config{}
-		got := cfg.GetTerminalSeedLines()
-		if got != 0 {
-			t.Errorf("got %d, want 0", got)
-		}
-	})
-}
-
 func TestCreateDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test-config.json")
@@ -160,22 +107,6 @@ func TestCreateDefault(t *testing.T) {
 	// WorkspacePath should be empty by default
 	if cfg.WorkspacePath != "" {
 		t.Errorf("WorkspacePath = %q, want empty", cfg.WorkspacePath)
-	}
-
-	if cfg.Terminal == nil {
-		t.Fatal("Terminal should not be nil")
-	}
-
-	if cfg.Terminal.Width != DefaultTerminalWidth {
-		t.Errorf("Width = %d, want %d", cfg.Terminal.Width, DefaultTerminalWidth)
-	}
-
-	if cfg.Terminal.Height != DefaultTerminalHeight {
-		t.Errorf("Height = %d, want %d", cfg.Terminal.Height, DefaultTerminalHeight)
-	}
-
-	if cfg.Terminal.SeedLines != DefaultTerminalSeedLines {
-		t.Errorf("SeedLines = %d, want %d", cfg.Terminal.SeedLines, DefaultTerminalSeedLines)
 	}
 
 	// Save should work since path is set
@@ -189,11 +120,6 @@ func TestSave_RequiresPath(t *testing.T) {
 	// Creating a config directly without a path should fail on Save
 	cfg := &Config{
 		WorkspacePath: "/tmp/test",
-		Terminal: &TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
-		},
 	}
 
 	err := cfg.Save()
@@ -209,11 +135,6 @@ func TestReload_RequiresPath(t *testing.T) {
 	// Creating a config directly without a path should fail on Reload
 	cfg := &Config{
 		WorkspacePath: "/tmp/test",
-		Terminal: &TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
-		},
 	}
 
 	err := cfg.Reload()
@@ -711,23 +632,11 @@ func TestLoad_JSONTypeErrorIncludesLineColumn(t *testing.T) {
   "workspace_path": "/test",
   "repos": [],
   "run_targets": [],
-  "terminal": {"width": 120, "height": 40, "seed_lines": 100},
   "access_control": {
     "enabled": "true"
   }
 }`,
 			wantField:    "access_control.enabled",
-			wantContains: "line",
-		},
-		{
-			name: "string instead of int",
-			json: `{
-  "workspace_path": "/test",
-  "repos": [],
-  "run_targets": [],
-  "terminal": {"width": "120", "height": 40, "seed_lines": 100}
-}`,
-			wantField:    "terminal.width",
 			wantContains: "line",
 		},
 	}
@@ -822,11 +731,6 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 		WorkspacePath: tmpDir,
 		Repos:         []Repo{},
 		RunTargets:    []RunTarget{},
-		Terminal: &TerminalSize{
-			Width:     120,
-			Height:    40,
-			SeedLines: 100,
-		},
 	}
 
 	data, err := json.MarshalIndent(validConfig, "", "  ")

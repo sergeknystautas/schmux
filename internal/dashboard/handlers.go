@@ -1213,9 +1213,6 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	repos := s.config.GetRepos()
 	runTargets := s.config.GetRunTargets()
 	quickLaunch := s.config.GetQuickLaunch()
-	width, height := s.config.GetTerminalSize()
-	seedLines := s.config.GetTerminalSeedLines()
-	bootstrapLines := s.config.GetTerminalBootstrapLines()
 
 	// Build repo response with default branch from cache
 	ctx := r.Context()
@@ -1289,7 +1286,6 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
 		Models:                     models,
 		ModelVersions:              s.config.GetModelVersions(),
-		Terminal:                   contracts.Terminal{Width: width, Height: height, SeedLines: seedLines, BootstrapLines: bootstrapLines},
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
@@ -1513,24 +1509,6 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.ConflictResolve.Target == "" && cfg.ConflictResolve.TimeoutMs <= 0 {
 			cfg.ConflictResolve = nil
-		}
-	}
-
-	if req.Terminal != nil {
-		if cfg.Terminal == nil {
-			cfg.Terminal = &config.TerminalSize{}
-		}
-		if req.Terminal.Width != nil && *req.Terminal.Width > 0 {
-			cfg.Terminal.Width = *req.Terminal.Width
-		}
-		if req.Terminal.Height != nil && *req.Terminal.Height > 0 {
-			cfg.Terminal.Height = *req.Terminal.Height
-		}
-		if req.Terminal.SeedLines != nil && *req.Terminal.SeedLines > 0 {
-			cfg.Terminal.SeedLines = *req.Terminal.SeedLines
-		}
-		if req.Terminal.BootstrapLines != nil && *req.Terminal.BootstrapLines > 0 {
-			cfg.Terminal.BootstrapLines = *req.Terminal.BootstrapLines
 		}
 	}
 

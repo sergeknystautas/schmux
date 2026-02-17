@@ -258,11 +258,6 @@ export interface ScanResult {
   removed: ScanWorkspace[];
 }
 
-export interface TerminalSize {
-  width: number;
-  height: number;
-}
-
 export type ApiError = Error & { isConflict?: boolean };
 
 export type PendingNavigation = { type: 'session'; id: string } | { type: 'workspace'; id: string };

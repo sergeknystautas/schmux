@@ -270,7 +270,6 @@ func TestDispose(t *testing.T) {
 func TestEnsurePipePane(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
-		Terminal:      &config.TerminalSize{Width: 80, Height: 24, SeedLines: 100},
 	}
 	st := state.New("")
 	statePath := t.TempDir() + "/state.json"

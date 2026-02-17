@@ -63,10 +63,6 @@ type ConfigSnapshot = {
   conflictResolveTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
-  terminalWidth: string;
-  terminalHeight: string;
-  terminalSeedLines: string;
-  terminalBootstrapLines: string;
   mtimePollInterval: number;
   dashboardPollInterval: number;
   viewedBuffer: number;
@@ -170,12 +166,6 @@ export default function ConfigPage() {
   const [newDiffName, setNewDiffName] = useState('');
   const [newDiffCommand, setNewDiffCommand] = useState('');
 
-  // Terminal state
-  const [terminalWidth, setTerminalWidth] = useState('120');
-  const [terminalHeight, setTerminalHeight] = useState('40');
-  const [terminalSeedLines, setTerminalSeedLines] = useState('100');
-  const [terminalBootstrapLines, setTerminalBootstrapLines] = useState('20000');
-
   // Advanced settings state
   const [mtimePollInterval, setMtimePollInterval] = useState(5000);
   const [dashboardPollInterval, setDashboardPollInterval] = useState(5000);
@@ -235,10 +225,6 @@ export default function ConfigPage() {
       conflictResolveTarget,
       prReviewTarget,
       commitMessageTarget,
-      terminalWidth,
-      terminalHeight,
-      terminalSeedLines,
-      terminalBootstrapLines,
       mtimePollInterval,
       dashboardPollInterval,
       viewedBuffer,
@@ -285,10 +271,6 @@ export default function ConfigPage() {
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
       current.prReviewTarget !== originalConfig.prReviewTarget ||
       current.commitMessageTarget !== originalConfig.commitMessageTarget ||
-      current.terminalWidth !== originalConfig.terminalWidth ||
-      current.terminalHeight !== originalConfig.terminalHeight ||
-      current.terminalSeedLines !== originalConfig.terminalSeedLines ||
-      current.terminalBootstrapLines !== originalConfig.terminalBootstrapLines ||
       current.mtimePollInterval !== originalConfig.mtimePollInterval ||
       current.dashboardPollInterval !== originalConfig.dashboardPollInterval ||
       current.viewedBuffer !== originalConfig.viewedBuffer ||
@@ -372,10 +354,6 @@ export default function ConfigPage() {
         if (!active) return;
         setWorkspacePath(data.workspace_path || '');
         setSourceCodeManager(data.source_code_management || 'git-worktree');
-        setTerminalWidth(String(data.terminal?.width || 120));
-        setTerminalHeight(String(data.terminal?.height || 40));
-        setTerminalSeedLines(String(data.terminal?.seed_lines || 100));
-        setTerminalBootstrapLines(String(data.terminal?.bootstrap_lines || 20000));
         setRepos(data.repos || []);
 
         const detectedItems = (data.run_targets || []).filter((t) => t.source === 'detected');
@@ -453,10 +431,6 @@ export default function ConfigPage() {
             conflictResolveTarget: data.conflict_resolve?.target || '',
             prReviewTarget: data.pr_review?.target || '',
             commitMessageTarget: data.commit_message?.target || '',
-            terminalWidth: String(data.terminal?.width || 120),
-            terminalHeight: String(data.terminal?.height || 40),
-            terminalSeedLines: String(data.terminal?.seed_lines || 100),
-            terminalBootstrapLines: String(data.terminal?.bootstrap_lines || 20000),
             mtimePollInterval: data.xterm?.mtime_poll_interval_ms || 5000,
             dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
             viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
@@ -583,13 +557,6 @@ export default function ConfigPage() {
       // Models are optional
     } else if (step === 4) {
       // Quick launch is optional
-    } else if (step === 5) {
-      const width = parseInt(terminalWidth);
-      const height = parseInt(terminalHeight);
-      const seedLines = parseInt(terminalSeedLines);
-      if (!width || !height || !seedLines || width <= 0 || height <= 0 || seedLines <= 0) {
-        error = 'Terminal settings must be greater than 0';
-      }
     }
 
     setStepErrors((prev) => ({ ...prev, [step]: error }));
@@ -608,10 +575,6 @@ export default function ConfigPage() {
     setWarning('');
 
     try {
-      const width = parseInt(terminalWidth);
-      const height = parseInt(terminalHeight);
-      const seedLines = parseInt(terminalSeedLines);
-
       const runTargets = [
         ...promptableTargets.map((t) => ({ ...t, type: 'promptable' })),
         ...commandTargets.map((t) => ({ ...t, type: 'command' })),
@@ -620,12 +583,6 @@ export default function ConfigPage() {
       const updateRequest: ConfigUpdateRequest = {
         workspace_path: workspacePath,
         source_code_management: sourceCodeManagement,
-        terminal: {
-          width,
-          height,
-          seed_lines: seedLines,
-          bootstrap_lines: parseInt(terminalBootstrapLines),
-        },
         repos: repos,
         run_targets: runTargets,
         quick_launch: quickLaunch,
@@ -716,10 +673,6 @@ export default function ConfigPage() {
           conflictResolveTarget,
           prReviewTarget,
           commitMessageTarget,
-          terminalWidth,
-          terminalHeight,
-          terminalSeedLines,
-          terminalBootstrapLines,
           mtimePollInterval,
           dashboardPollInterval,
           viewedBuffer,
@@ -2841,65 +2794,6 @@ export default function ConfigPage() {
                         />
                       </div>
                     ))}
-                </div>
-              </div>
-
-              <div className="settings-section">
-                <div className="settings-section__header">
-                  <h3 className="settings-section__title">Terminal</h3>
-                </div>
-                <div className="settings-section__body">
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-group__label">Width</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min="1"
-                        value={terminalWidth}
-                        onChange={(e) => setTerminalWidth(e.target.value)}
-                      />
-                      <p className="form-group__hint">Terminal width in columns</p>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-group__label">Height</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min="1"
-                        value={terminalHeight}
-                        onChange={(e) => setTerminalHeight(e.target.value)}
-                      />
-                      <p className="form-group__hint">Terminal height in rows</p>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-group__label">Seed Lines</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min="1"
-                        value={terminalSeedLines}
-                        onChange={(e) => setTerminalSeedLines(e.target.value)}
-                      />
-                      <p className="form-group__hint">Lines to capture when reconnecting</p>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-group__label">Bootstrap Lines</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min="1"
-                        value={terminalBootstrapLines}
-                        onChange={(e) => setTerminalBootstrapLines(e.target.value)}
-                      />
-                      <p className="form-group__hint">
-                        Lines to send on initial WebSocket connection (default: 20000)
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
 

@@ -584,7 +584,6 @@ Response:
     }
   ],
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
-  "terminal": { "width": 0, "height": 0, "seed_lines": 0, "bootstrap_lines": 0 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,
@@ -645,7 +644,6 @@ Request:
     }
   ],
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
-  "terminal": { "width": 120, "height": 30, "seed_lines": 1000, "bootstrap_lines": 200 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
     "git_status_poll_interval_ms": 0,

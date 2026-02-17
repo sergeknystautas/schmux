@@ -38,7 +38,6 @@ export interface ConfigResponse {
   external_diff_cleanup_after_ms?: number;
   models: Model[];
   model_versions?: Record<string, string>;
-  terminal: Terminal;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
@@ -64,7 +63,6 @@ export interface ConfigUpdateRequest {
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
-  terminal?: TerminalUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
@@ -294,20 +292,6 @@ export interface TLS {
 export interface TLSUpdate {
   cert_path?: string;
   key_path?: string;
-}
-
-export interface Terminal {
-  width: number;
-  height: number;
-  seed_lines: number;
-  bootstrap_lines: number;
-}
-
-export interface TerminalUpdate {
-  width?: number;
-  height?: number;
-  seed_lines?: number;
-  bootstrap_lines?: number;
 }
 
 export interface Xterm {

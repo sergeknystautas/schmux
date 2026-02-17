@@ -26,12 +26,6 @@ var (
 )
 
 const (
-	// Default terminal dimensions
-	DefaultTerminalWidth     = 120
-	DefaultTerminalHeight    = 40
-	DefaultTerminalSeedLines = 100
-	DefaultBootstrapLines    = 20000
-
 	// Default log rotation
 	DefaultMaxLogSizeMB     = 50 // 50MB
 	DefaultRotatedLogSizeMB = 1  // 1MB
@@ -71,7 +65,6 @@ type Config struct {
 	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
-	Terminal                   *TerminalSize          `json:"terminal,omitempty"`
 	Nudgenik                   *NudgenikConfig        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
@@ -226,14 +219,6 @@ type RemoteWorkspaceConfig struct {
 	//
 	// If empty, defaults to standard VS Code Remote-SSH format.
 	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
-}
-
-// TerminalSize represents terminal dimensions.
-type TerminalSize struct {
-	Width          int `json:"width"`
-	Height         int `json:"height"`
-	SeedLines      int `json:"seed_lines"`
-	BootstrapLines int `json:"bootstrap_lines,omitempty"`
 }
 
 // NudgenikConfig represents configuration for the NudgeNik assistant.
@@ -462,20 +447,6 @@ func (c *Config) ValidateForSave() ([]string, error) {
 }
 
 func (c *Config) validate(strict bool) ([]string, error) {
-	// Validate terminal config (required for daemon operation)
-	if c.Terminal == nil {
-		return nil, fmt.Errorf("%w: terminal is required (set terminal.width, terminal.height, and terminal.seed_lines)", ErrInvalidConfig)
-	}
-	if c.Terminal.Width <= 0 {
-		return nil, fmt.Errorf("%w: terminal.width must be > 0", ErrInvalidConfig)
-	}
-	if c.Terminal.Height <= 0 {
-		return nil, fmt.Errorf("%w: terminal.height must be > 0", ErrInvalidConfig)
-	}
-	if c.Terminal.SeedLines <= 0 {
-		return nil, fmt.Errorf("%w: terminal.seed_lines must be > 0", ErrInvalidConfig)
-	}
-
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
@@ -873,31 +844,6 @@ func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
 	return RunTarget{}, false
 }
 
-// GetTerminalSize returns the terminal size. Returns 0,0 if not configured.
-func (c *Config) GetTerminalSize() (width, height int) {
-	if c.Terminal != nil && c.Terminal.Width > 0 && c.Terminal.Height > 0 {
-		return c.Terminal.Width, c.Terminal.Height
-	}
-	return 0, 0 // not configured
-}
-
-// GetTerminalSeedLines returns the required seed_lines value.
-func (c *Config) GetTerminalSeedLines() int {
-	if c.Terminal == nil || c.Terminal.SeedLines <= 0 {
-		return 0
-	}
-	return c.Terminal.SeedLines
-}
-
-// GetTerminalBootstrapLines returns the number of lines to send on WebSocket connect.
-// Defaults to DefaultBootstrapLines if not set.
-func (c *Config) GetTerminalBootstrapLines() int {
-	if c.Terminal == nil || c.Terminal.BootstrapLines <= 0 {
-		return DefaultBootstrapLines
-	}
-	return c.Terminal.BootstrapLines
-}
-
 // Reload reloads the configuration from disk and replaces this Config struct.
 func (c *Config) Reload() error {
 	if c.path == "" {
@@ -950,12 +896,7 @@ func CreateDefault(configPath string) *Config {
 		QuickLaunch:                []QuickLaunch{},
 		ExternalDiffCommands:       []ExternalDiffCommand{},
 		ExternalDiffCleanupAfterMs: DefaultExternalDiffCleanupAfterMs,
-		Terminal: &TerminalSize{
-			Width:     DefaultTerminalWidth,
-			Height:    DefaultTerminalHeight,
-			SeedLines: DefaultTerminalSeedLines,
-		},
-		path: configPath,
+		path:                       configPath,
 	}
 }
 

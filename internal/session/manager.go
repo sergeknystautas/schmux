@@ -674,15 +674,6 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Force fixed window size for deterministic TUI output
-	width, height := m.config.GetTerminalSize()
-	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
-		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
-	}
-	if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
-		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
-	}
-
 	// Configure status bar: process on left, time on right, clear center
 	tmux.ConfigureStatusBar(ctx, tmuxSession)
 
@@ -786,15 +777,6 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	// Create tmux session with the raw command
 	if err := tmux.CreateSession(ctx, tmuxSession, w.Path, commandWithEnv); err != nil {
 		return nil, fmt.Errorf("failed to create tmux session: %w", err)
-	}
-
-	// Force fixed window size for deterministic TUI output
-	width, height := m.config.GetTerminalSize()
-	if err := tmux.SetWindowSizeManual(ctx, tmuxSession); err != nil {
-		fmt.Printf("[session] warning: failed to set manual window size: %v\n", err)
-	}
-	if err := tmux.ResizeWindow(ctx, tmuxSession, width, height); err != nil {
-		fmt.Printf("[session] warning: failed to resize window: %v\n", err)
 	}
 
 	// Configure status bar: process on left, time on right, clear center

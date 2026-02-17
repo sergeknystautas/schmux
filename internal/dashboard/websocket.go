@@ -17,7 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
-const bootstrapCaptureLines = 200
+const bootstrapCaptureLines = 1000
 
 // Terminal query response prefixes to filter from input.
 // These are responses from xterm.js to queries from tmux - we don't send them back.
@@ -529,9 +529,8 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	}
 
 	// Send initial pane history (for scrollback)
-	initialLines := s.config.GetTerminalBootstrapLines()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	history, err := conn.CapturePaneLines(ctx, sess.RemotePaneID, initialLines)
+	history, err := conn.CapturePaneLines(ctx, sess.RemotePaneID, bootstrapCaptureLines)
 	cancel()
 	if err != nil {
 		fmt.Printf("[ws remote %s] failed to capture initial pane content: %v\n", sessionID[:8], err)

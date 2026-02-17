@@ -57,14 +57,6 @@ type Model struct {
 	DefaultValue    string   `json:"default_value"`              // tier name (opus/sonnet/haiku)
 }
 
-// Terminal represents terminal dimensions.
-type Terminal struct {
-	Width          int `json:"width"`
-	Height         int `json:"height"`
-	SeedLines      int `json:"seed_lines"`
-	BootstrapLines int `json:"bootstrap_lines"`
-}
-
 // Nudgenik represents NudgeNik configuration.
 type Nudgenik struct {
 	Target         string `json:"target,omitempty"`
@@ -132,7 +124,6 @@ type ConfigResponse struct {
 	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
 	Models                     []Model               `json:"models"`
 	ModelVersions              map[string]string     `json:"model_versions,omitempty"` // pinned versions
-	Terminal                   Terminal              `json:"terminal"`
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
@@ -161,14 +152,6 @@ type CommitMessage struct {
 type Notifications struct {
 	SoundDisabled      bool `json:"sound_disabled"`
 	ConfirmBeforeClose bool `json:"confirm_before_close"`
-}
-
-// TerminalUpdate represents partial terminal updates.
-type TerminalUpdate struct {
-	Width          *int `json:"width,omitempty"`
-	Height         *int `json:"height,omitempty"`
-	SeedLines      *int `json:"seed_lines,omitempty"`
-	BootstrapLines *int `json:"bootstrap_lines,omitempty"`
 }
 
 // NudgenikUpdate represents partial nudgenik updates.
@@ -239,7 +222,6 @@ type ConfigUpdateRequest struct {
 	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`
-	Terminal                   *TerminalUpdate        `json:"terminal,omitempty"`
 	Sessions                   *SessionsUpdate        `json:"sessions,omitempty"`
 	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`
 	Network                    *NetworkUpdate         `json:"network,omitempty"`

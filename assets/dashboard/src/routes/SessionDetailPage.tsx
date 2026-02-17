@@ -110,20 +110,11 @@ export default function SessionDetailPage() {
 
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
-    if (configLoading) return;
-    if (
-      !config?.terminal ||
-      typeof config.terminal.width !== 'number' ||
-      typeof config.terminal.height !== 'number'
-    ) {
-      return;
-    }
     // Don't create terminal stream while remote host is disconnected
     if (remoteDisconnected) return;
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
-      terminalSize: config?.terminal || null,
       onResume: (showing) => {
         setShowResume(showing);
         setFollowTail(!showing);
@@ -143,13 +134,7 @@ export default function SessionDetailPage() {
     return () => {
       terminalStream.disconnect();
     };
-  }, [
-    sessionData?.id,
-    configLoading,
-    config?.terminal?.width,
-    config?.terminal?.height,
-    remoteDisconnected,
-  ]);
+  }, [sessionData?.id, remoteDisconnected]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
