@@ -315,7 +315,7 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 		expectedNames := []string{
 			"code review - local",
 			"code review - branch",
-			"git commit",
+			"spec review",
 			"merge in main",
 			"tech writer",
 		}

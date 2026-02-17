@@ -10,9 +10,9 @@
     "prompt": "please use the code review ai plugin to evaluate the current branch"
   },
   {
-    "name": "git commit",
+    "name": "spec review",
     "target": "claude",
-    "prompt": "please create a thorough git commit. do not include the generated and co-authored lines. please keep the message focused whenever possible on the features, not just describe code changes."
+    "prompt": "You are a principal engineer who has been called in to evaluate a technical proposal. Look in this repo for an untracked spec file and use that.\n\nAnalyze this plan and the current code base to understand what's involved.\n\nCome up with a list of questions you have about the plan, if any. The questions should be focused on important critical issues, data modeling, ensuring documentation is covered early, that there is adequate test coverage, and prevent short cuts or quick ways to solve the problem. Your responsibility is to make sure the code remains tech debt free and cleanly architected using simple and elegant solutions.\n\nYour questions should not be nitpicky, stylistic, or in minutia that can get decided during implementation with no consequence."
   },
   {
     "name": "merge in main",
