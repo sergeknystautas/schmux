@@ -147,7 +147,7 @@ type Server struct {
 
 	// Remote access auth state
 	remoteToken         string
-	remoteTokenFailures int
+	remoteTokenFailures map[string]int
 	remoteTokenMu       sync.Mutex
 	remoteSessionSecret []byte
 	remoteTunnelURL     string
@@ -278,7 +278,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 
 	s.remoteTokenMu.Lock()
 	s.remoteToken = token
-	s.remoteTokenFailures = 0
+	s.remoteTokenFailures = make(map[string]int)
 	s.remoteSessionSecret = secretBytes
 	s.remoteTunnelURL = tunnelURL
 	s.remoteTokenMu.Unlock()
@@ -308,7 +308,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 func (s *Server) ClearRemoteAuth() {
 	s.remoteTokenMu.Lock()
 	s.remoteToken = ""
-	s.remoteTokenFailures = 0
+	s.remoteTokenFailures = make(map[string]int)
 	s.remoteSessionSecret = nil
 	s.remoteTunnelURL = ""
 	s.remoteNonces = make(map[string]*remoteNonce)
@@ -373,50 +373,50 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
-	mux.HandleFunc("/api/update", s.withCORS(s.withAuth(s.handleUpdate)))
-	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuth(s.handleAuthSecrets)))
+	mux.HandleFunc("/api/update", s.withCORS(s.withAuthAndCSRF(s.handleUpdate)))
+	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuthAndCSRF(s.handleAuthSecrets)))
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
 	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
-	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuth(s.handleWorkspacesScan)))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleWorkspaceRoutes)))
+	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuthAndCSRF(s.handleWorkspacesScan)))
+	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuthAndCSRF(s.handleWorkspaceRoutes)))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
-	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
-	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
-	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuth(s.handleCheckBranchConflict)))
+	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuthAndCSRF(s.handleUpdateNickname)))
+	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuthAndCSRF(s.handleSpawnPost)))
+	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuthAndCSRF(s.handleCheckBranchConflict)))
 	mux.HandleFunc("/api/recent-branches", s.withCORS(s.withAuth(s.handleRecentBranches)))
-	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuth(s.handleRecentBranchesRefresh)))
-	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuth(s.handleSuggestBranch)))
-	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuth(s.handlePrepareBranchSpawn)))
-	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuth(s.handleDispose)))
-	mux.HandleFunc("/api/config", s.withCORS(s.withAuth(s.handleConfig)))
+	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuthAndCSRF(s.handleRecentBranchesRefresh)))
+	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuthAndCSRF(s.handleSuggestBranch)))
+	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
+	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
+	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
 	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
-	mux.HandleFunc("/api/models/", s.withCORS(s.withAuth(s.handleModel)))
+	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
 	mux.HandleFunc("/api/commit/prompt", s.withCORS(s.withAuth(s.handleCommitPrompt)))
-	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuth(s.handleCommitGenerate)))
+	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuthAndCSRF(s.handleCommitGenerate)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
 	mux.HandleFunc("/api/file/", s.withCORS(s.withAuth(s.handleFile)))
-	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
-	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
+	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuthAndCSRF(s.handleDiffExternal)))
+	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuthAndCSRF(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
-	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuth(s.handleOverlayScan)))
-	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuth(s.handleOverlayAdd)))
-	mux.HandleFunc("/api/overlays/dismiss-nudge", s.withCORS(s.withAuth(s.handleDismissNudge)))
+	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuthAndCSRF(s.handleOverlayScan)))
+	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuthAndCSRF(s.handleOverlayAdd)))
+	mux.HandleFunc("/api/overlays/dismiss-nudge", s.withCORS(s.withAuthAndCSRF(s.handleDismissNudge)))
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
-	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
-	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))
+	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
+	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
 
 	// Lore routes
-	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuth(s.handleLoreRouter)))
+	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
 
 	// Remote workspace routes
-	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuth(s.handleRemoteFlavors)))
-	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuth(s.handleRemoteFlavor)))
+	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavors)))
+	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavor)))
 	mux.HandleFunc("/api/remote/hosts", s.withCORS(s.withAuth(s.handleRemoteHosts)))
-	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuth(s.handleRemoteHostConnect)))
+	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostConnect)))
 	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
-	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
+	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostRoute)))
 	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
 
 	// Remote access routes
@@ -429,10 +429,10 @@ func (s *Server) Start() error {
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {
 		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))
-		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuth(s.handleDevRebuild)))
-		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuth(s.handleDevSimulateTunnel)))
-		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuth(s.handleDevSimulateTunnelStop)))
-		mux.HandleFunc("/api/dev/clear-password", s.withCORS(s.withAuth(s.handleDevClearPassword)))
+		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuthAndCSRF(s.handleDevRebuild)))
+		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnel)))
+		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnelStop)))
+		mux.HandleFunc("/api/dev/clear-password", s.withCORS(s.withAuthAndCSRF(s.handleDevClearPassword)))
 	}
 
 	// WebSocket for terminal streaming
@@ -583,7 +583,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 		// Set CORS headers
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			if s.config.GetAuthEnabled() {
+			if s.config.GetAuthEnabled() || s.requiresAuth() {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 		}
@@ -1176,7 +1176,10 @@ func (s *Server) normalizeIPForRateLimit(r *http.Request) string {
 
 	if hasTunnel && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback() {
 		if cfIP := strings.TrimSpace(r.Header.Get("Cf-Connecting-IP")); cfIP != "" {
-			return cfIP
+			// Basic validation: reject values that are too long or contain unexpected characters
+			if len(cfIP) <= 45 && net.ParseIP(cfIP) != nil {
+				return cfIP
+			}
 		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.SplitN(xff, ",", 2)

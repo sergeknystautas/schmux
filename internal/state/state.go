@@ -53,6 +53,15 @@ const (
 	RemoteHostStatusReconnecting = "reconnecting"
 )
 
+// Session status constants.
+const (
+	SessionStatusProvisioning = "provisioning"
+	SessionStatusRunning      = "running"
+	SessionStatusStopped      = "stopped"
+	SessionStatusFailed       = "failed"
+	SessionStatusQueued       = "queued"
+)
+
 // Workspace represents a workspace directory state.
 // Multiple sessions can share the same workspace (multi-agent per directory).
 type Workspace struct {
@@ -359,6 +368,20 @@ func (s *State) UpdateSession(sess Session) error {
 		}
 	}
 	return fmt.Errorf("session not found: %s", sess.ID)
+}
+
+// UpdateSessionFunc applies fn to the session with the given ID while holding
+// the write lock, preventing lost updates from concurrent modifications.
+func (s *State) UpdateSessionFunc(id string, fn func(sess *Session)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, sess := range s.Sessions {
+		if sess.ID == id {
+			fn(&s.Sessions[i])
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateSessionLastOutput atomically updates just the LastOutputAt field.

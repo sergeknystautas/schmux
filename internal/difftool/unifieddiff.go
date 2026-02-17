@@ -139,6 +139,14 @@ func countTrailingContext(lines []string) int {
 }
 
 func computeLCS(a, b []string) []string {
+	// Guard against excessive memory usage: O(m*n) matrix
+	// For two 10K-line files this would be ~800MB
+	const maxCells = 10_000_000 // ~80MB limit
+	if int64(len(a)+1)*int64(len(b)+1) > maxCells {
+		// Fall back to returning empty LCS (full diff)
+		return nil
+	}
+
 	m, n := len(a), len(b)
 	dp := make([][]int, m+1)
 	for i := range dp {

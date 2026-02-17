@@ -111,7 +111,22 @@ func (s *ProposalStore) Save(p *Proposal) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.proposalPath(p.Repo, p.ID), data, 0644)
+	destPath := s.proposalPath(p.Repo, p.ID)
+	tmp, err := os.CreateTemp(dir, ".proposals-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	return os.Rename(tmpPath, destPath)
 }
 
 // Get reads a proposal from disk by repo and ID.

@@ -122,6 +122,9 @@ func appendEntryToFile(path string, entry Entry) error {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return err
 	}
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync entry: %w", err)
+	}
 	return nil
 }
 
@@ -488,6 +491,10 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 // LoreStateDir returns the central lore state directory for a repo: ~/.schmux/lore/<repoName>/.
 // Creates the directory if it doesn't exist.
 func LoreStateDir(repoName string) (string, error) {
+	// Validate repoName to prevent path traversal
+	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid repo name: %s", repoName)
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -503,6 +510,10 @@ func LoreStateDir(repoName string) (string, error) {
 // ~/.schmux/lore/<repoName>/state.jsonl.
 // Creates the parent directory if it doesn't exist.
 func LoreStatePath(repoName string) (string, error) {
+	// Validate repoName to prevent path traversal
+	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid repo name: %s", repoName)
+	}
 	dir, err := LoreStateDir(repoName)
 	if err != nil {
 		return "", err

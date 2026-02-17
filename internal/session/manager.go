@@ -474,29 +474,30 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		go func() {
 			select {
 			case result := <-resultCh:
-				// Re-read session from state to avoid overwriting concurrent changes.
-				current, ok := m.state.GetSession(sessionID)
+				var updatedStatus string
+				var updatedSess state.Session
+				ok := m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
+					if result.Error != nil {
+						fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
+						sess.Status = "failed"
+					} else {
+						fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
+							sessionID, result.WindowID, result.PaneID)
+						sess.Status = "running"
+						sess.RemoteWindow = result.WindowID
+						sess.RemotePaneID = result.PaneID
+					}
+					updatedStatus = sess.Status
+					updatedSess = *sess
+				})
 				if !ok {
 					fmt.Printf("[session] queued session %s: session no longer in state\n", sessionID)
 					return
 				}
-				if result.Error != nil {
-					fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
-					current.Status = "failed"
-				} else {
-					fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
-						sessionID, result.WindowID, result.PaneID)
-					current.Status = "running"
-					current.RemoteWindow = result.WindowID
-					current.RemotePaneID = result.PaneID
-				}
-				if err := m.state.UpdateSession(current); err != nil {
-					fmt.Printf("[session] queued session %s: failed to update state: %v\n", sessionID, err)
-				}
 				if err := m.state.Save(); err != nil {
 					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
 				}
-				if current.Status == "running" {
+				if updatedStatus == "running" {
 					// Ensure .schmux/signal directory exists on remote host for file-based signaling
 					qConn := m.remoteManager.GetConnection(host.ID)
 					if qConn != nil && qConn.IsConnected() {
@@ -506,7 +507,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 						}
 						mkCancel()
 					}
-					m.StartRemoteSignalMonitor(current)
+					m.StartRemoteSignalMonitor(updatedSess)
 				}
 			}
 		}()

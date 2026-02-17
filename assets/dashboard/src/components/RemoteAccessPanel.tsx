@@ -4,6 +4,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import useVersionInfo from '../hooks/useVersionInfo';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
+import { isRemoteClient } from '../lib/utils';
 
 export default function RemoteAccessPanel() {
   const { remoteAccessStatus, simulateRemote, setSimulateRemote } = useSessions();
@@ -34,10 +35,7 @@ export default function RemoteAccessPanel() {
     }
   };
 
-  const isRemoteClient =
-    window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-
-  if (!isEnabled || isRemoteClient) {
+  if (!isEnabled || isRemoteClient()) {
     return null;
   }
 

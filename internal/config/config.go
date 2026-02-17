@@ -87,6 +87,9 @@ type Config struct {
 	// Not serialized to JSON.
 	path string `json:"-"`
 
+	// mu protects concurrent reads/writes to Config fields.
+	mu sync.RWMutex `json:"-"`
+
 	// repoURLCache is a lazily-built cache mapping repo URL to Repo.
 	// Not serialized to JSON. Built on first call to FindRepoByURL.
 	// Invalidated by Save() when repos change.
@@ -489,12 +492,16 @@ func (c *Config) expandNetworkPaths(homeDir string) {
 
 // GetWorkspacePath returns the workspace directory path.
 func (c *Config) GetWorkspacePath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.WorkspacePath
 }
 
 // GetWorktreeBasePath returns the path for bare clones (worktree base repos).
 // Defaults to ~/.schmux/repos if not set.
 func (c *Config) GetWorktreeBasePath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.WorktreeBasePath != "" {
 		return c.WorktreeBasePath
 	}
@@ -508,6 +515,8 @@ func (c *Config) GetWorktreeBasePath() string {
 // GetQueryRepoPath returns the path for query repos used for branch/commit querying.
 // Always ~/.schmux/query/ - separate from worktree base repos.
 func (c *Config) GetQueryRepoPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -518,6 +527,8 @@ func (c *Config) GetQueryRepoPath() string {
 // GetSourceCodeManagement returns the configured source code management mode.
 // Defaults to "git-worktree" if not set.
 func (c *Config) GetSourceCodeManagement() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.SourceCodeManagement == "" {
 		return SourceCodeManagementGitWorktree
 	}
@@ -531,26 +542,36 @@ func (c *Config) UseWorktrees() bool {
 
 // GetRepos returns the list of repositories.
 func (c *Config) GetRepos() []Repo {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Repos
 }
 
 // GetRunTargets returns the list of run targets.
 func (c *Config) GetRunTargets() []RunTarget {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.RunTargets
 }
 
 // GetQuickLaunch returns the list of quick launch presets.
 func (c *Config) GetQuickLaunch() []QuickLaunch {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.QuickLaunch
 }
 
 // GetExternalDiffCommands returns the list of external diff commands.
 func (c *Config) GetExternalDiffCommands() []ExternalDiffCommand {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.ExternalDiffCommands
 }
 
 // GetExternalDiffCleanupAfterMs returns the diff temp cleanup delay in ms.
 func (c *Config) GetExternalDiffCleanupAfterMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.ExternalDiffCleanupAfterMs > 0 {
 		return c.ExternalDiffCleanupAfterMs
 	}
@@ -559,6 +580,13 @@ func (c *Config) GetExternalDiffCleanupAfterMs() int {
 
 // GetNudgenikTarget returns the configured nudgenik target name, if any.
 func (c *Config) GetNudgenikTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getNudgenikTargetLocked()
+}
+
+// getNudgenikTargetLocked is the lock-free implementation. Caller must hold mu.
+func (c *Config) getNudgenikTargetLocked() string {
 	if c == nil || c.Nudgenik == nil {
 		return ""
 	}
@@ -567,6 +595,8 @@ func (c *Config) GetNudgenikTarget() string {
 
 // GetBranchSuggestTarget returns the configured branch suggestion target name, if any.
 func (c *Config) GetBranchSuggestTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.BranchSuggest == nil {
 		return ""
 	}
@@ -576,14 +606,23 @@ func (c *Config) GetBranchSuggestTarget() string {
 // GetCompoundTarget returns the configured compound target name.
 // Falls back to the nudgenik target if not explicitly configured.
 func (c *Config) GetCompoundTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getCompoundTargetLocked()
+}
+
+// getCompoundTargetLocked is the lock-free implementation. Caller must hold mu.
+func (c *Config) getCompoundTargetLocked() string {
 	if c == nil || c.Compound == nil || strings.TrimSpace(c.Compound.Target) == "" {
-		return c.GetNudgenikTarget()
+		return c.getNudgenikTargetLocked()
 	}
 	return strings.TrimSpace(c.Compound.Target)
 }
 
 // GetCompoundDebounceMs returns the compound debounce interval in milliseconds.
 func (c *Config) GetCompoundDebounceMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Compound == nil || c.Compound.DebounceMs <= 0 {
 		return 2000
 	}
@@ -592,6 +631,8 @@ func (c *Config) GetCompoundDebounceMs() int {
 
 // GetCompoundEnabled returns whether compounding is enabled.
 func (c *Config) GetCompoundEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Compound == nil || c.Compound.Enabled == nil {
 		return true // enabled by default
 	}
@@ -610,6 +651,8 @@ var DefaultInstructionFiles = []string{
 // GetLoreEnabled returns whether the lore system is enabled.
 // Defaults to true if not explicitly configured.
 func (c *Config) GetLoreEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil || c.Lore.Enabled == nil {
 		return true
 	}
@@ -619,16 +662,20 @@ func (c *Config) GetLoreEnabled() bool {
 // GetLoreTarget returns the configured lore curator LLM target.
 // Falls back to the compound target if not explicitly configured.
 func (c *Config) GetLoreTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c != nil && c.Lore != nil && c.Lore.Target != "" {
 		return c.Lore.Target
 	}
-	return c.GetCompoundTarget()
+	return c.getCompoundTargetLocked()
 }
 
 // GetLoreTargetRaw returns the explicitly configured lore curator LLM target
 // without any fallback. Returns "" if no target is set.
 // Use this for config UI display; use GetLoreTarget() for runtime behavior.
 func (c *Config) GetLoreTargetRaw() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil {
 		return ""
 	}
@@ -638,6 +685,8 @@ func (c *Config) GetLoreTargetRaw() string {
 // GetLoreAutoPR returns whether to auto-create a PR after pushing a lore branch.
 // Defaults to false.
 func (c *Config) GetLoreAutoPR() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil || c.Lore.AutoPR == nil {
 		return false
 	}
@@ -647,6 +696,8 @@ func (c *Config) GetLoreAutoPR() bool {
 // GetLoreCurateOnDispose returns the curate-on-dispose mode.
 // Returns "session", "workspace", or "never". Defaults to "session".
 func (c *Config) GetLoreCurateOnDispose() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil {
 		return "session"
 	}
@@ -675,6 +726,8 @@ func (c *Config) GetLoreCurateOnDispose() string {
 // GetLoreCurateDebounceMs returns the debounce interval for auto-curation in milliseconds.
 // Defaults to 30000 (30 seconds).
 func (c *Config) GetLoreCurateDebounceMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil || c.Lore.CurateDebounceMs <= 0 {
 		return 30000
 	}
@@ -684,6 +737,8 @@ func (c *Config) GetLoreCurateDebounceMs() int {
 // GetLorePruneAfterDays returns the number of days before pruning applied/dismissed entries.
 // Defaults to 30.
 func (c *Config) GetLorePruneAfterDays() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Lore == nil || c.Lore.PruneAfterDays <= 0 {
 		return 30
 	}
@@ -693,6 +748,8 @@ func (c *Config) GetLorePruneAfterDays() int {
 // GetLoreInstructionFiles returns the instruction file patterns managed by the lore curator.
 // Defaults to DefaultInstructionFiles if not configured.
 func (c *Config) GetLoreInstructionFiles() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c != nil && c.Lore != nil && len(c.Lore.InstructionFiles) > 0 {
 		return c.Lore.InstructionFiles
 	}
@@ -709,6 +766,8 @@ var DefaultOverlayPaths = []string{
 // GetOverlayPaths returns the deduplicated union of hardcoded defaults,
 // global config paths, and repo-specific paths for the given repo name.
 func (c *Config) GetOverlayPaths(repoName string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	seen := make(map[string]bool)
 	var paths []string
 
@@ -742,6 +801,8 @@ func (c *Config) GetOverlayPaths(repoName string) []string {
 
 // GetConflictResolveTarget returns the configured conflict resolution target name, if any.
 func (c *Config) GetConflictResolveTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.ConflictResolve == nil {
 		return ""
 	}
@@ -751,6 +812,8 @@ func (c *Config) GetConflictResolveTarget() string {
 // GetConflictResolveTimeoutMs returns the per-call conflict resolution timeout in ms.
 // Defaults to 120000 (2 minutes).
 func (c *Config) GetConflictResolveTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.ConflictResolve == nil || c.ConflictResolve.TimeoutMs <= 0 {
 		return DefaultConflictResolveTimeoutMs
 	}
@@ -759,6 +822,8 @@ func (c *Config) GetConflictResolveTimeoutMs() int {
 
 // GetPrReviewTarget returns the configured target for PR review sessions.
 func (c *Config) GetPrReviewTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.PrReview == nil {
 		return ""
 	}
@@ -767,6 +832,8 @@ func (c *Config) GetPrReviewTarget() string {
 
 // GetCommitMessageTarget returns the configured target for commit message generation.
 func (c *Config) GetCommitMessageTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.CommitMessage == nil {
 		return ""
 	}
@@ -776,6 +843,8 @@ func (c *Config) GetCommitMessageTarget() string {
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.
 // Defaults to true (sounds enabled) unless explicitly disabled.
 func (c *Config) GetNotificationSoundEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Notifications == nil {
 		return true
 	}
@@ -785,6 +854,8 @@ func (c *Config) GetNotificationSoundEnabled() bool {
 // GetConfirmBeforeClose returns whether the browser should show a "Leave site?" dialog on tab close.
 // Defaults to false (no confirmation).
 func (c *Config) GetConfirmBeforeClose() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.Notifications == nil {
 		return false
 	}
@@ -793,6 +864,8 @@ func (c *Config) GetConfirmBeforeClose() bool {
 
 // GetDetectedRunTarget finds a detected run target by name.
 func (c *Config) GetDetectedRunTarget(name string) (RunTarget, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, target := range c.RunTargets {
 		if target.Name == name && target.Source == RunTargetSourceDetected {
 			return target, true
@@ -803,6 +876,8 @@ func (c *Config) GetDetectedRunTarget(name string) (RunTarget, bool) {
 
 // GetDetectedRunTargets returns detected run targets.
 func (c *Config) GetDetectedRunTargets() []RunTarget {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	var out []RunTarget
 	for _, target := range c.RunTargets {
 		if target.Source == RunTargetSourceDetected {
@@ -814,6 +889,8 @@ func (c *Config) GetDetectedRunTargets() []RunTarget {
 
 // FindRepo finds a repository by name.
 func (c *Config) FindRepo(name string) (Repo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, repo := range c.Repos {
 		if repo.Name == name {
 			return repo, true
@@ -825,6 +902,8 @@ func (c *Config) FindRepo(name string) (Repo, bool) {
 // FindRepoByURL finds a repository by its URL.
 // Uses a lazily-built cache for O(1) lookups. Thread-safe.
 func (c *Config) FindRepoByURL(url string) (Repo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	c.repoURLMu.RLock()
 	if c.repoURLCache != nil {
 		repo, found := c.repoURLCache[url]
@@ -848,6 +927,8 @@ func (c *Config) FindRepoByURL(url string) (Repo, bool) {
 
 // GetRunTarget finds a run target by name.
 func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, target := range c.RunTargets {
 		if target.Name == name {
 			return target, true
@@ -858,11 +939,15 @@ func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
 
 // Reload reloads the configuration from disk and replaces this Config struct.
 func (c *Config) Reload() error {
-	if c.path == "" {
+	c.mu.RLock()
+	configPath := c.path
+	c.mu.RUnlock()
+
+	if configPath == "" {
 		return fmt.Errorf("config path not set: use Load() or CreateDefault() with a path")
 	}
 
-	data, err := os.ReadFile(c.path)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -887,12 +972,46 @@ func (c *Config) Reload() error {
 	}
 	newCfg.expandNetworkPaths(homeDir)
 
-	// Preserve the existing path
+	// Replace config fields under write lock (preserve mu and path)
+	c.mu.Lock()
 	existingPath := c.path
 	newCfg.path = existingPath
+	// Copy all serializable fields from newCfg into c, preserving the mutex
+	c.ConfigVersion = newCfg.ConfigVersion
+	c.WorkspacePath = newCfg.WorkspacePath
+	c.WorktreeBasePath = newCfg.WorktreeBasePath
+	c.SourceCodeManagement = newCfg.SourceCodeManagement
+	c.Repos = newCfg.Repos
+	c.RunTargets = newCfg.RunTargets
+	c.QuickLaunch = newCfg.QuickLaunch
+	c.ExternalDiffCommands = newCfg.ExternalDiffCommands
+	c.ExternalDiffCleanupAfterMs = newCfg.ExternalDiffCleanupAfterMs
+	c.Nudgenik = newCfg.Nudgenik
+	c.BranchSuggest = newCfg.BranchSuggest
+	c.ConflictResolve = newCfg.ConflictResolve
+	c.Compound = newCfg.Compound
+	c.Overlay = newCfg.Overlay
+	c.Lore = newCfg.Lore
+	c.Sessions = newCfg.Sessions
+	c.Xterm = newCfg.Xterm
+	c.Network = newCfg.Network
+	c.AccessControl = newCfg.AccessControl
+	c.PrReview = newCfg.PrReview
+	c.CommitMessage = newCfg.CommitMessage
+	c.Notifications = newCfg.Notifications
+	c.RemoteFlavors = newCfg.RemoteFlavors
+	c.RemoteWorkspace = newCfg.RemoteWorkspace
+	c.RemoteAccess = newCfg.RemoteAccess
+	c.Models = newCfg.Models
+	c.TelemetryEnabled = newCfg.TelemetryEnabled
+	c.InstallationID = newCfg.InstallationID
+	c.path = existingPath
+	c.mu.Unlock()
 
-	// Replace entire config
-	*c = newCfg
+	// Invalidate repo URL cache
+	c.repoURLMu.Lock()
+	c.repoURLCache = nil
+	c.repoURLMu.Unlock()
 
 	return nil
 }
@@ -1015,34 +1134,51 @@ func (c *Config) Migrate(rawJSON map[string]json.RawMessage) error {
 
 // Save writes the config to the path it was loaded from or created with.
 func (c *Config) Save() error {
-	if c.path == "" {
+	// Update config version under write lock, then marshal under read lock
+	c.mu.Lock()
+	configPath := c.path
+	if configPath == "" {
+		c.mu.Unlock()
 		return fmt.Errorf("config path not set: use Load() or CreateDefault() with a path")
 	}
-
-	// Update config version to current binary version
 	c.ConfigVersion = version.Version
+	c.mu.Unlock()
+
+	// Marshal under RLock, then release before file I/O
+	c.mu.RLock()
+	data, err := json.MarshalIndent(c, "", "  ")
+	c.mu.RUnlock()
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
 
 	// Ensure the directory exists
-	schmuxDir := filepath.Dir(c.path)
+	schmuxDir := filepath.Dir(configPath)
 	if schmuxDir != "." && schmuxDir != "" {
 		if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 			return fmt.Errorf("failed to create config directory: %w", err)
 		}
 	}
 
-	// Marshal with indentation for readability
-	data, err := json.MarshalIndent(c, "", "  ")
+	// Write to a unique temporary file first, then rename for atomicity
+	dir := filepath.Dir(configPath)
+	tmpFile, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	// Write to a temporary file first, then rename for atomicity
-	tmpPath := c.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, c.path); err != nil {
+	if err := os.Rename(tmpPath, configPath); err != nil {
 		os.Remove(tmpPath) // Clean up temp file
 		return fmt.Errorf("failed to save config: %w", err)
 	}
@@ -1118,6 +1254,8 @@ func EnsureExists() (bool, error) {
 
 // GetDashboardPollIntervalMs returns the dashboard sessions polling interval in ms. Defaults to 5000ms.
 func (c *Config) GetDashboardPollIntervalMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.DashboardPollIntervalMs <= 0 {
 		return 5000
 	}
@@ -1126,6 +1264,8 @@ func (c *Config) GetDashboardPollIntervalMs() int {
 
 // GetNudgenikViewedBufferMs returns the viewed timestamp buffer in ms. Defaults to 5000ms.
 func (c *Config) GetNudgenikViewedBufferMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Nudgenik == nil || c.Nudgenik.ViewedBufferMs <= 0 {
 		return 5000
 	}
@@ -1134,6 +1274,8 @@ func (c *Config) GetNudgenikViewedBufferMs() int {
 
 // GetNudgenikSeenIntervalMs returns the interval for marking sessions as seen in ms. Defaults to 2000ms.
 func (c *Config) GetNudgenikSeenIntervalMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Nudgenik == nil || c.Nudgenik.SeenIntervalMs <= 0 {
 		return 2000
 	}
@@ -1142,6 +1284,8 @@ func (c *Config) GetNudgenikSeenIntervalMs() int {
 
 // GetGitStatusPollIntervalMs returns the git status polling interval in ms. Defaults to 10000ms.
 func (c *Config) GetGitStatusPollIntervalMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.GitStatusPollIntervalMs <= 0 {
 		return 10000
 	}
@@ -1150,6 +1294,8 @@ func (c *Config) GetGitStatusPollIntervalMs() int {
 
 // GetGitStatusWatchEnabled returns whether the git status file watcher is enabled. Defaults to true.
 func (c *Config) GetGitStatusWatchEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.GitStatusWatchEnabled == nil {
 		return true
 	}
@@ -1158,6 +1304,8 @@ func (c *Config) GetGitStatusWatchEnabled() bool {
 
 // GetGitStatusWatchDebounceMs returns the git status watcher debounce interval in ms. Defaults to 1000.
 func (c *Config) GetGitStatusWatchDebounceMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.GitStatusWatchDebounceMs <= 0 {
 		return DefaultGitStatusWatchDebounceMs
 	}
@@ -1171,6 +1319,8 @@ func (c *Config) GitStatusWatchDebounce() time.Duration {
 
 // GetGitCloneTimeoutMs returns the git clone timeout in ms. Defaults to 300000 (5 min).
 func (c *Config) GetGitCloneTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.GitCloneTimeoutMs <= 0 {
 		return DefaultGitCloneTimeoutMs
 	}
@@ -1179,6 +1329,8 @@ func (c *Config) GetGitCloneTimeoutMs() int {
 
 // GetGitStatusTimeoutMs returns the git status timeout in ms. Defaults to 30000.
 func (c *Config) GetGitStatusTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.GitStatusTimeoutMs <= 0 {
 		return DefaultGitStatusTimeoutMs
 	}
@@ -1187,6 +1339,8 @@ func (c *Config) GetGitStatusTimeoutMs() int {
 
 // GetDisposeGracePeriodMs returns the dispose grace period in ms. Defaults to 30000 (30s).
 func (c *Config) GetDisposeGracePeriodMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Sessions == nil || c.Sessions.DisposeGracePeriodMs <= 0 {
 		return DefaultDisposeGracePeriodMs
 	}
@@ -1200,6 +1354,8 @@ func (c *Config) DisposeGracePeriod() time.Duration {
 
 // GetXtermQueryTimeoutMs returns the xterm query timeout in ms. Defaults to 5000.
 func (c *Config) GetXtermQueryTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Xterm == nil || c.Xterm.QueryTimeoutMs <= 0 {
 		return DefaultXtermQueryTimeoutMs
 	}
@@ -1208,6 +1364,8 @@ func (c *Config) GetXtermQueryTimeoutMs() int {
 
 // GetXtermOperationTimeoutMs returns the xterm operation timeout in ms. Defaults to 10000.
 func (c *Config) GetXtermOperationTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Xterm == nil || c.Xterm.OperationTimeoutMs <= 0 {
 		return DefaultXtermOperationTimeoutMs
 	}
@@ -1237,6 +1395,13 @@ func (c *Config) XtermOperationTimeout() time.Duration {
 // GetBindAddress returns the address to bind the server to.
 // Defaults to "127.0.0.1" (localhost only).
 func (c *Config) GetBindAddress() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getBindAddressLocked()
+}
+
+// getBindAddressLocked is the lock-free implementation. Caller must hold mu.
+func (c *Config) getBindAddressLocked() string {
 	if c.Network == nil || c.Network.BindAddress == "" {
 		return "127.0.0.1"
 	}
@@ -1246,11 +1411,15 @@ func (c *Config) GetBindAddress() string {
 // GetNetworkAccess returns whether the dashboard should be accessible from the local network.
 // This is a convenience method that checks if bind_address is "0.0.0.0".
 func (c *Config) GetNetworkAccess() bool {
-	return c.GetBindAddress() == "0.0.0.0"
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getBindAddressLocked() == "0.0.0.0"
 }
 
 // GetPort returns the dashboard port. Defaults to 7337.
 func (c *Config) GetPort() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Network == nil || c.Network.Port <= 0 {
 		return 7337
 	}
@@ -1259,6 +1428,8 @@ func (c *Config) GetPort() int {
 
 // GetPreviewMaxPerWorkspace returns the per-workspace preview limit.
 func (c *Config) GetPreviewMaxPerWorkspace() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Network == nil || c.Network.PreviewMaxPerWorkspace <= 0 {
 		return DefaultPreviewMaxPerWorkspace
 	}
@@ -1267,6 +1438,8 @@ func (c *Config) GetPreviewMaxPerWorkspace() int {
 
 // GetPreviewMaxGlobal returns the global preview limit.
 func (c *Config) GetPreviewMaxGlobal() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Network == nil || c.Network.PreviewMaxGlobal <= 0 {
 		return DefaultPreviewMaxGlobal
 	}
@@ -1275,6 +1448,8 @@ func (c *Config) GetPreviewMaxGlobal() int {
 
 // GetPreviewIdleTimeoutMs returns preview idle timeout in milliseconds.
 func (c *Config) GetPreviewIdleTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Network == nil || c.Network.PreviewIdleTimeoutMs <= 0 {
 		return DefaultPreviewIdleTimeoutMs
 	}
@@ -1283,6 +1458,8 @@ func (c *Config) GetPreviewIdleTimeoutMs() int {
 
 // GetPublicBaseURL returns the public base URL for the dashboard.
 func (c *Config) GetPublicBaseURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Network == nil {
 		return ""
 	}
@@ -1291,6 +1468,13 @@ func (c *Config) GetPublicBaseURL() string {
 
 // GetTLSCertPath returns the TLS certificate path.
 func (c *Config) GetTLSCertPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getTLSCertPathLocked()
+}
+
+// getTLSCertPathLocked is the lock-free implementation. Caller must hold mu.
+func (c *Config) getTLSCertPathLocked() string {
 	if c.Network == nil || c.Network.TLS == nil {
 		return ""
 	}
@@ -1299,6 +1483,13 @@ func (c *Config) GetTLSCertPath() string {
 
 // GetTLSKeyPath returns the TLS key path.
 func (c *Config) GetTLSKeyPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getTLSKeyPathLocked()
+}
+
+// getTLSKeyPathLocked is the lock-free implementation. Caller must hold mu.
+func (c *Config) getTLSKeyPathLocked() string {
 	if c.Network == nil || c.Network.TLS == nil {
 		return ""
 	}
@@ -1307,11 +1498,15 @@ func (c *Config) GetTLSKeyPath() string {
 
 // GetTLSEnabled returns whether TLS is configured.
 func (c *Config) GetTLSEnabled() bool {
-	return c.GetTLSCertPath() != "" && c.GetTLSKeyPath() != ""
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getTLSCertPathLocked() != "" && c.getTLSKeyPathLocked() != ""
 }
 
 // GetAuthEnabled returns whether auth is enabled.
 func (c *Config) GetAuthEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.AccessControl == nil {
 		return false
 	}
@@ -1320,6 +1515,8 @@ func (c *Config) GetAuthEnabled() bool {
 
 // GetAuthProvider returns the auth provider (default: github).
 func (c *Config) GetAuthProvider() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.AccessControl == nil {
 		return ""
 	}
@@ -1331,6 +1528,8 @@ func (c *Config) GetAuthProvider() string {
 
 // GetAuthSessionTTLMinutes returns the session TTL in minutes.
 func (c *Config) GetAuthSessionTTLMinutes() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.AccessControl == nil || c.AccessControl.SessionTTLMinutes <= 0 {
 		return DefaultAuthSessionTTLMinutes
 	}
@@ -1459,6 +1658,8 @@ func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
 // For backward compatibility, "disabled": true in existing configs is respected
 // (inverted to enabled=false). If both fields are set, "enabled" takes precedence.
 func (c *Config) GetRemoteAccessEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil {
 		return false
 	}
@@ -1476,6 +1677,8 @@ func (c *Config) GetRemoteAccessEnabled() bool {
 // GetRemoteAccessTimeoutMinutes returns the tunnel auto-kill timeout in minutes.
 // Defaults to 120 (2 hours) when not configured. Set to -1 in config to disable.
 func (c *Config) GetRemoteAccessTimeoutMinutes() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.TimeoutMinutes == 0 {
 		return 120
 	}
@@ -1487,6 +1690,8 @@ func (c *Config) GetRemoteAccessTimeoutMinutes() int {
 
 // GetRemoteAccessNtfyTopic returns the ntfy.sh topic for push notifications.
 func (c *Config) GetRemoteAccessNtfyTopic() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
 		return ""
 	}
@@ -1495,6 +1700,8 @@ func (c *Config) GetRemoteAccessNtfyTopic() string {
 
 // GetRemoteAccessNotifyCommand returns the custom notification command.
 func (c *Config) GetRemoteAccessNotifyCommand() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.Notify == nil {
 		return ""
 	}
@@ -1503,6 +1710,8 @@ func (c *Config) GetRemoteAccessNotifyCommand() string {
 
 // GetRemoteAccessPasswordHash returns the bcrypt-hashed password for remote access auth.
 func (c *Config) GetRemoteAccessPasswordHash() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil {
 		return ""
 	}
@@ -1512,6 +1721,8 @@ func (c *Config) GetRemoteAccessPasswordHash() string {
 // GetRemoteAccessAllowAutoDownload returns whether auto-downloading cloudflared is allowed.
 // Defaults to false (disabled). Set to true in config to allow unverified binary downloads.
 func (c *Config) GetRemoteAccessAllowAutoDownload() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.RemoteAccess == nil || c.RemoteAccess.AllowAutoDownload == nil {
 		return false
 	}
@@ -1520,6 +1731,8 @@ func (c *Config) GetRemoteAccessAllowAutoDownload() bool {
 
 // GetRemoteFlavors returns the list of remote flavors.
 func (c *Config) GetRemoteFlavors() []RemoteFlavor {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.RemoteFlavors == nil {
 		return []RemoteFlavor{}
 	}
@@ -1528,6 +1741,8 @@ func (c *Config) GetRemoteFlavors() []RemoteFlavor {
 
 // GetRemoteFlavor returns a remote flavor by ID.
 func (c *Config) GetRemoteFlavor(id string) (RemoteFlavor, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, rf := range c.RemoteFlavors {
 		if rf.ID == id {
 			return rf, true
@@ -1539,6 +1754,8 @@ func (c *Config) GetRemoteFlavor(id string) (RemoteFlavor, bool) {
 // GetRemoteVSCodeCommandTemplate returns the VSCode command template for remote workspaces.
 // Returns a default template if not configured.
 func (c *Config) GetRemoteVSCodeCommandTemplate() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.RemoteWorkspace != nil && c.RemoteWorkspace.VSCodeCommandTemplate != "" {
 		return c.RemoteWorkspace.VSCodeCommandTemplate
 	}
@@ -1598,6 +1815,8 @@ func (c *Config) AddRemoteFlavor(rf RemoteFlavor) error {
 		rf.ID = generateRemoteFlavorID(rf.Flavor)
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	// Check for duplicate ID
 	for _, existing := range c.RemoteFlavors {
 		if existing.ID == rf.ID {
@@ -1713,6 +1932,8 @@ func (c *Config) UpdateRemoteFlavor(rf RemoteFlavor) error {
 		return err
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for i, existing := range c.RemoteFlavors {
 		if existing.ID == rf.ID {
 			c.RemoteFlavors[i] = rf
@@ -1724,6 +1945,8 @@ func (c *Config) UpdateRemoteFlavor(rf RemoteFlavor) error {
 
 // RemoveRemoteFlavor removes a remote flavor by ID.
 func (c *Config) RemoveRemoteFlavor(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for i, rf := range c.RemoteFlavors {
 		if rf.ID == id {
 			c.RemoteFlavors = append(c.RemoteFlavors[:i], c.RemoteFlavors[i+1:]...)
@@ -1755,6 +1978,8 @@ func GenerateRemoteFlavorID(flavor string) string {
 
 // GetModelVersion returns the pinned version for a model, or empty string if not pinned.
 func (c *Config) GetModelVersion(modelID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Models == nil || c.Models.Versions == nil {
 		return ""
 	}
@@ -1763,6 +1988,8 @@ func (c *Config) GetModelVersion(modelID string) string {
 
 // GetModelVersions returns all pinned model versions.
 func (c *Config) GetModelVersions() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.Models == nil || c.Models.Versions == nil {
 		return nil
 	}
@@ -1772,6 +1999,8 @@ func (c *Config) GetModelVersions() map[string]string {
 // GetTelemetryEnabled returns whether telemetry is enabled.
 // Defaults to true if not explicitly configured.
 func (c *Config) GetTelemetryEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil || c.TelemetryEnabled == nil {
 		return true
 	}
@@ -1781,6 +2010,8 @@ func (c *Config) GetTelemetryEnabled() bool {
 // GetInstallationID returns the installation ID for telemetry.
 // Returns empty string if not set.
 func (c *Config) GetInstallationID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c == nil {
 		return ""
 	}
@@ -1789,6 +2020,8 @@ func (c *Config) GetInstallationID() string {
 
 // SetInstallationID sets the installation ID.
 func (c *Config) SetInstallationID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.InstallationID = id
 }
 
@@ -1929,6 +2162,8 @@ func bareRepoMatchesURL(repoPath, expectedURL string) bool {
 
 // SetModelVersions sets the model version overrides.
 func (c *Config) SetModelVersions(versions map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.Models == nil {
 		c.Models = &ModelsConfig{}
 	}
@@ -1937,6 +2172,8 @@ func (c *Config) SetModelVersions(versions map[string]string) {
 
 // AddRepoOverlayPaths adds overlay paths to a repo's config, deduplicating against existing paths.
 func (c *Config) AddRepoOverlayPaths(repoName string, paths []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for i := range c.Repos {
 		if c.Repos[i].Name == repoName {
 			existing := make(map[string]bool)

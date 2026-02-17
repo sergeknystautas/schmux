@@ -253,6 +253,10 @@ func Status() (running bool, url string, startedAt string, err error) {
 
 	url = fmt.Sprintf("http://localhost:%d", dashboardPort)
 	if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
+		// Use configured port if available (may differ from default dashboardPort)
+		if cfgPort := cfg.GetPort(); cfgPort != 0 {
+			url = fmt.Sprintf("http://localhost:%d", cfgPort)
+		}
 		if cfg.GetAuthEnabled() && cfg.GetPublicBaseURL() != "" {
 			url = cfg.GetPublicBaseURL()
 		}
