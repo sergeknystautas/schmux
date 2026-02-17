@@ -188,7 +188,6 @@ function CRTerminalPanel({ tmuxSession }: { tmuxSession: string }) {
 
     const stream = new TerminalStream(tmuxSession, containerRef.current, {
       followTail: true,
-      terminalSize: config?.terminal || null,
       onStatusChange: () => {},
     });
     streamRef.current = stream;
@@ -201,7 +200,7 @@ function CRTerminalPanel({ tmuxSession }: { tmuxSession: string }) {
       stream.disconnect();
       streamRef.current = null;
     };
-  }, [tmuxSession, collapsed, config?.terminal?.width, config?.terminal?.height]);
+  }, [tmuxSession, collapsed]);
 
   return (
     <div style={{ marginTop: 10, borderTop: '1px solid var(--color-border)', paddingTop: 6 }}>

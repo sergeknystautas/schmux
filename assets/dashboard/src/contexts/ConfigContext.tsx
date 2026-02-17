@@ -34,11 +34,8 @@ const DEFAULT_CONFIG: ConfigResponse = {
     git_status_timeout_ms: 30000,
   },
   xterm: {
-    mtime_poll_interval_ms: 5000,
     query_timeout_ms: 5000,
     operation_timeout_ms: 10000,
-    max_log_size_mb: 50,
-    rotated_log_size_mb: 1,
   },
   network: {
     bind_address: '127.0.0.1',

@@ -26,10 +26,6 @@ var (
 )
 
 const (
-	// Default log rotation
-	DefaultMaxLogSizeMB     = 50 // 50MB
-	DefaultRotatedLogSizeMB = 1  // 1MB
-
 	// Default timeout values in milliseconds
 	DefaultGitCloneTimeoutMs          = 300000  // 5 minutes
 	DefaultGitStatusPollIntervalMs    = 10000   // 10 seconds
@@ -303,13 +299,10 @@ type SessionsConfig struct {
 	DisposeGracePeriodMs     int   `json:"dispose_grace_period_ms,omitempty"`
 }
 
-// XtermConfig represents terminal capture, timeouts, and log rotation settings.
+// XtermConfig represents terminal capture and timeout settings.
 type XtermConfig struct {
-	MtimePollIntervalMs int `json:"mtime_poll_interval_ms"`
-	QueryTimeoutMs      int `json:"query_timeout_ms"`
-	OperationTimeoutMs  int `json:"operation_timeout_ms"`
-	MaxLogSizeMB        int `json:"max_log_size_mb,omitempty"`     // max log size before rotation
-	RotatedLogSizeMB    int `json:"rotated_log_size_mb,omitempty"` // target size after rotation (keeps tail)
+	QueryTimeoutMs     int `json:"query_timeout_ms"`
+	OperationTimeoutMs int `json:"operation_timeout_ms"`
 }
 
 // NetworkConfig controls server binding and TLS.
@@ -1104,14 +1097,6 @@ func EnsureExists() (bool, error) {
 	return true, nil
 }
 
-// GetXtermMtimePollIntervalMs returns the mtime polling interval in ms. Defaults to 5000ms.
-func (c *Config) GetXtermMtimePollIntervalMs() int {
-	if c.Xterm == nil || c.Xterm.MtimePollIntervalMs <= 0 {
-		return 5000
-	}
-	return c.Xterm.MtimePollIntervalMs
-}
-
 // GetDashboardPollIntervalMs returns the dashboard sessions polling interval in ms. Defaults to 5000ms.
 func (c *Config) GetDashboardPollIntervalMs() int {
 	if c.Sessions == nil || c.Sessions.DashboardPollIntervalMs <= 0 {
@@ -1163,22 +1148,6 @@ func (c *Config) GetGitStatusWatchDebounceMs() int {
 // GitStatusWatchDebounce returns the git status watcher debounce interval as a time.Duration.
 func (c *Config) GitStatusWatchDebounce() time.Duration {
 	return time.Duration(c.GetGitStatusWatchDebounceMs()) * time.Millisecond
-}
-
-// GetXtermMaxLogSizeMB returns the max log size in MB before rotation. Defaults to 50MB.
-func (c *Config) GetXtermMaxLogSizeMB() int64 {
-	if c.Xterm == nil || c.Xterm.MaxLogSizeMB <= 0 {
-		return DefaultMaxLogSizeMB
-	}
-	return int64(c.Xterm.MaxLogSizeMB)
-}
-
-// GetXtermRotatedLogSizeMB returns the target log size in MB after rotation. Defaults to 1MB.
-func (c *Config) GetXtermRotatedLogSizeMB() int64 {
-	if c.Xterm == nil || c.Xterm.RotatedLogSizeMB <= 0 {
-		return DefaultRotatedLogSizeMB
-	}
-	return int64(c.Xterm.RotatedLogSizeMB)
 }
 
 // GetGitCloneTimeoutMs returns the git clone timeout in ms. Defaults to 300000 (5 min).

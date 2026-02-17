@@ -1305,11 +1305,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			GitStatusTimeoutMs:      s.config.GetGitStatusTimeoutMs(),
 		},
 		Xterm: contracts.Xterm{
-			MtimePollIntervalMs: s.config.GetXtermMtimePollIntervalMs(),
-			QueryTimeoutMs:      s.config.GetXtermQueryTimeoutMs(),
-			OperationTimeoutMs:  s.config.GetXtermOperationTimeoutMs(),
-			MaxLogSizeMB:        int(s.config.GetXtermMaxLogSizeMB()),
-			RotatedLogSizeMB:    int(s.config.GetXtermRotatedLogSizeMB()),
+			QueryTimeoutMs:     s.config.GetXtermQueryTimeoutMs(),
+			OperationTimeoutMs: s.config.GetXtermOperationTimeoutMs(),
 		},
 		Network: contracts.Network{
 			BindAddress:   s.config.GetBindAddress(),
@@ -1534,20 +1531,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if cfg.Xterm == nil {
 			cfg.Xterm = &config.XtermConfig{}
 		}
-		if req.Xterm.MtimePollIntervalMs != nil && *req.Xterm.MtimePollIntervalMs > 0 {
-			cfg.Xterm.MtimePollIntervalMs = *req.Xterm.MtimePollIntervalMs
-		}
 		if req.Xterm.QueryTimeoutMs != nil && *req.Xterm.QueryTimeoutMs > 0 {
 			cfg.Xterm.QueryTimeoutMs = *req.Xterm.QueryTimeoutMs
 		}
 		if req.Xterm.OperationTimeoutMs != nil && *req.Xterm.OperationTimeoutMs > 0 {
 			cfg.Xterm.OperationTimeoutMs = *req.Xterm.OperationTimeoutMs
-		}
-		if req.Xterm.MaxLogSizeMB != nil && *req.Xterm.MaxLogSizeMB > 0 {
-			cfg.Xterm.MaxLogSizeMB = *req.Xterm.MaxLogSizeMB
-		}
-		if req.Xterm.RotatedLogSizeMB != nil && *req.Xterm.RotatedLogSizeMB > 0 {
-			cfg.Xterm.RotatedLogSizeMB = *req.Xterm.RotatedLogSizeMB
 		}
 	}
 

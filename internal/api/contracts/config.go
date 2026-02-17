@@ -83,13 +83,10 @@ type Sessions struct {
 	GitStatusTimeoutMs      int `json:"git_status_timeout_ms"`
 }
 
-// Xterm represents terminal capture, timeouts, and log rotation settings.
+// Xterm represents terminal capture and timeout settings.
 type Xterm struct {
-	MtimePollIntervalMs int `json:"mtime_poll_interval_ms"`
-	QueryTimeoutMs      int `json:"query_timeout_ms"`
-	OperationTimeoutMs  int `json:"operation_timeout_ms"`
-	MaxLogSizeMB        int `json:"max_log_size_mb,omitempty"`
-	RotatedLogSizeMB    int `json:"rotated_log_size_mb,omitempty"`
+	QueryTimeoutMs     int `json:"query_timeout_ms"`
+	OperationTimeoutMs int `json:"operation_timeout_ms"`
 }
 
 // Network controls server binding and TLS.
@@ -182,11 +179,8 @@ type SessionsUpdate struct {
 
 // XtermUpdate represents partial xterm updates.
 type XtermUpdate struct {
-	MtimePollIntervalMs *int `json:"mtime_poll_interval_ms,omitempty"`
-	QueryTimeoutMs      *int `json:"query_timeout_ms,omitempty"`
-	OperationTimeoutMs  *int `json:"operation_timeout_ms,omitempty"`
-	MaxLogSizeMB        *int `json:"max_log_size_mb,omitempty"`
-	RotatedLogSizeMB    *int `json:"rotated_log_size_mb,omitempty"`
+	QueryTimeoutMs     *int `json:"query_timeout_ms,omitempty"`
+	OperationTimeoutMs *int `json:"operation_timeout_ms,omitempty"`
 }
 
 // NetworkUpdate represents partial network updates.

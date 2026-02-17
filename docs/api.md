@@ -592,11 +592,8 @@ Response:
     "dispose_grace_period_ms": 0
   },
   "xterm": {
-    "mtime_poll_interval_ms": 0,
     "query_timeout_ms": 0,
-    "operation_timeout_ms": 0,
-    "max_log_size_mb": 0,
-    "rotated_log_size_mb": 0
+    "operation_timeout_ms": 0
   },
   "network": {
     "bind_address": "127.0.0.1",
@@ -652,11 +649,8 @@ Request:
     "dispose_grace_period_ms": 0
   },
   "xterm": {
-    "mtime_poll_interval_ms": 0,
     "query_timeout_ms": 0,
-    "operation_timeout_ms": 0,
-    "max_log_size_mb": 0,
-    "rotated_log_size_mb": 0
+    "operation_timeout_ms": 0
   },
   "network": {
     "bind_address": "127.0.0.1",

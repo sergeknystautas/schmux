@@ -63,7 +63,6 @@ type ConfigSnapshot = {
   conflictResolveTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
-  mtimePollInterval: number;
   dashboardPollInterval: number;
   viewedBuffer: number;
   nudgenikSeenInterval: number;
@@ -72,8 +71,6 @@ type ConfigSnapshot = {
   gitStatusTimeout: number;
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
-  maxLogSizeMB: number;
-  rotatedLogSizeMB: number;
   networkAccess: boolean;
   authEnabled: boolean;
   authProvider: string;
@@ -167,7 +164,6 @@ export default function ConfigPage() {
   const [newDiffCommand, setNewDiffCommand] = useState('');
 
   // Advanced settings state
-  const [mtimePollInterval, setMtimePollInterval] = useState(5000);
   const [dashboardPollInterval, setDashboardPollInterval] = useState(5000);
   const [viewedBuffer, setViewedBuffer] = useState(5000);
   const [nudgenikSeenInterval, setNudgenikSeenInterval] = useState(2000);
@@ -176,8 +172,6 @@ export default function ConfigPage() {
   const [gitStatusTimeout, setGitStatusTimeout] = useState(30000);
   const [xtermQueryTimeout, setXtermQueryTimeout] = useState(5000);
   const [xtermOperationTimeout, setXtermOperationTimeout] = useState(10000);
-  const [maxLogSizeMB, setMaxLogSizeMB] = useState(50);
-  const [rotatedLogSizeMB, setRotatedLogSizeMB] = useState(1);
   const [networkAccess, setNetworkAccess] = useState(false);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [authProvider, setAuthProvider] = useState('github');
@@ -225,7 +219,6 @@ export default function ConfigPage() {
       conflictResolveTarget,
       prReviewTarget,
       commitMessageTarget,
-      mtimePollInterval,
       dashboardPollInterval,
       viewedBuffer,
       nudgenikSeenInterval,
@@ -234,8 +227,6 @@ export default function ConfigPage() {
       gitStatusTimeout,
       xtermQueryTimeout,
       xtermOperationTimeout,
-      maxLogSizeMB,
-      rotatedLogSizeMB,
       networkAccess,
       authEnabled,
       authProvider,
@@ -271,7 +262,6 @@ export default function ConfigPage() {
       current.conflictResolveTarget !== originalConfig.conflictResolveTarget ||
       current.prReviewTarget !== originalConfig.prReviewTarget ||
       current.commitMessageTarget !== originalConfig.commitMessageTarget ||
-      current.mtimePollInterval !== originalConfig.mtimePollInterval ||
       current.dashboardPollInterval !== originalConfig.dashboardPollInterval ||
       current.viewedBuffer !== originalConfig.viewedBuffer ||
       current.nudgenikSeenInterval !== originalConfig.nudgenikSeenInterval ||
@@ -280,8 +270,6 @@ export default function ConfigPage() {
       current.gitStatusTimeout !== originalConfig.gitStatusTimeout ||
       current.xtermQueryTimeout !== originalConfig.xtermQueryTimeout ||
       current.xtermOperationTimeout !== originalConfig.xtermOperationTimeout ||
-      current.maxLogSizeMB !== originalConfig.maxLogSizeMB ||
-      current.rotatedLogSizeMB !== originalConfig.rotatedLogSizeMB ||
       current.networkAccess !== originalConfig.networkAccess ||
       current.authEnabled !== originalConfig.authEnabled ||
       current.authProvider !== originalConfig.authProvider ||
@@ -383,7 +371,6 @@ export default function ConfigPage() {
         setPrReviewTarget(data.pr_review?.target || '');
         setCommitMessageTarget(data.commit_message?.target || '');
 
-        setMtimePollInterval(data.xterm?.mtime_poll_interval_ms || 5000);
         setDashboardPollInterval(data.sessions?.dashboard_poll_interval_ms || 5000);
         setViewedBuffer(data.nudgenik?.viewed_buffer_ms || 5000);
         setNudgenikSeenInterval(data.nudgenik?.seen_interval_ms || 2000);
@@ -392,8 +379,6 @@ export default function ConfigPage() {
         setGitStatusTimeout(data.sessions?.git_status_timeout_ms || 30000);
         setXtermQueryTimeout(data.xterm?.query_timeout_ms || 5000);
         setXtermOperationTimeout(data.xterm?.operation_timeout_ms || 10000);
-        setMaxLogSizeMB(data.xterm?.max_log_size_mb || 50);
-        setRotatedLogSizeMB(data.xterm?.rotated_log_size_mb || 1);
         const netAccess = data.network?.bind_address === '0.0.0.0';
         setNetworkAccess(netAccess);
         setAuthEnabled(data.access_control?.enabled || false);
@@ -431,7 +416,6 @@ export default function ConfigPage() {
             conflictResolveTarget: data.conflict_resolve?.target || '',
             prReviewTarget: data.pr_review?.target || '',
             commitMessageTarget: data.commit_message?.target || '',
-            mtimePollInterval: data.xterm?.mtime_poll_interval_ms || 5000,
             dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
             viewedBuffer: data.nudgenik?.viewed_buffer_ms || 5000,
             nudgenikSeenInterval: data.nudgenik?.seen_interval_ms || 2000,
@@ -440,8 +424,6 @@ export default function ConfigPage() {
             gitStatusTimeout: data.sessions?.git_status_timeout_ms || 30000,
             xtermQueryTimeout: data.xterm?.query_timeout_ms || 5000,
             xtermOperationTimeout: data.xterm?.operation_timeout_ms || 10000,
-            maxLogSizeMB: data.xterm?.max_log_size_mb || 50,
-            rotatedLogSizeMB: data.xterm?.rotated_log_size_mb || 1,
             networkAccess: netAccess,
             authEnabled: data.access_control?.enabled || false,
             authProvider: data.access_control?.provider || 'github',
@@ -615,11 +597,8 @@ export default function ConfigPage() {
           git_status_timeout_ms: gitStatusTimeout,
         },
         xterm: {
-          mtime_poll_interval_ms: mtimePollInterval,
           query_timeout_ms: xtermQueryTimeout,
           operation_timeout_ms: xtermOperationTimeout,
-          max_log_size_mb: maxLogSizeMB,
-          rotated_log_size_mb: rotatedLogSizeMB,
         },
         network: {
           bind_address: networkAccess ? '0.0.0.0' : '127.0.0.1',
@@ -673,7 +652,6 @@ export default function ConfigPage() {
           conflictResolveTarget,
           prReviewTarget,
           commitMessageTarget,
-          mtimePollInterval,
           dashboardPollInterval,
           viewedBuffer,
           nudgenikSeenInterval,
@@ -682,8 +660,6 @@ export default function ConfigPage() {
           gitStatusTimeout,
           xtermQueryTimeout,
           xtermOperationTimeout,
-          maxLogSizeMB,
-          rotatedLogSizeMB,
           networkAccess,
           authEnabled,
           authProvider,
@@ -2886,24 +2862,6 @@ export default function ConfigPage() {
                 <div className="settings-section__body">
                   <div className="form-row">
                     <div className="form-group">
-                      <label className="form-group__label">Mtime Poll Interval (ms)</label>
-                      <input
-                        type="number"
-                        className="input input--compact"
-                        min="100"
-                        value={mtimePollInterval === 0 ? '' : mtimePollInterval}
-                        onChange={(e) =>
-                          setMtimePollInterval(
-                            e.target.value === '' ? 0 : parseInt(e.target.value) || 5000
-                          )
-                        }
-                      />
-                      <p className="form-group__hint">
-                        How often to check log file mtimes for new output
-                      </p>
-                    </div>
-
-                    <div className="form-group">
                       <label className="form-group__label">Query Timeout (ms)</label>
                       <input
                         type="number"
@@ -2920,9 +2878,7 @@ export default function ConfigPage() {
                         Maximum time to wait for xterm query operations (default: 5000ms)
                       </p>
                     </div>
-                  </div>
 
-                  <div className="form-row">
                     <div className="form-group">
                       <label className="form-group__label">Operation Timeout (ms)</label>
                       <input
@@ -2938,47 +2894,6 @@ export default function ConfigPage() {
                       />
                       <p className="form-group__hint">
                         Maximum time to wait for xterm operations (default: 10000ms)
-                      </p>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-group__label">Max Log Size (MB)</label>
-                      <input
-                        type="number"
-                        className="input input--compact"
-                        min="1"
-                        value={maxLogSizeMB === 0 ? '' : maxLogSizeMB}
-                        onChange={(e) =>
-                          setMaxLogSizeMB(
-                            e.target.value === '' ? 0 : parseInt(e.target.value) || 50
-                          )
-                        }
-                      />
-                      <p className="form-group__hint">
-                        Maximum log file size before rotation (default: 50MB)
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-group__label">Rotated Log Size (MB)</label>
-                      <input
-                        type="number"
-                        className="input input--compact"
-                        min="1"
-                        max={maxLogSizeMB}
-                        value={rotatedLogSizeMB === 0 ? '' : rotatedLogSizeMB}
-                        onChange={(e) =>
-                          setRotatedLogSizeMB(
-                            e.target.value === ''
-                              ? 0
-                              : Math.min(parseInt(e.target.value) || 1, maxLogSizeMB)
-                          )
-                        }
-                      />
-                      <p className="form-group__hint">
-                        Target log size after rotation - keeps the tail (default: 1MB)
                       </p>
                     </div>
                   </div>

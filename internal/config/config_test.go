@@ -161,26 +161,6 @@ func TestConfigExists(t *testing.T) {
 	})
 }
 
-func TestGetXtermMtimePollIntervalMs(t *testing.T) {
-	t.Run("returns configured value", func(t *testing.T) {
-		cfg := &Config{
-			Xterm: &XtermConfig{MtimePollIntervalMs: 1000},
-		}
-		got := cfg.GetXtermMtimePollIntervalMs()
-		if got != 1000 {
-			t.Errorf("got %d, want 1000", got)
-		}
-	})
-
-	t.Run("returns default when not configured", func(t *testing.T) {
-		cfg := &Config{}
-		got := cfg.GetXtermMtimePollIntervalMs()
-		if got != 5000 {
-			t.Errorf("got %d, want 5000 (default)", got)
-		}
-	})
-}
-
 func TestGetDashboardPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{

@@ -295,18 +295,12 @@ export interface TLSUpdate {
 }
 
 export interface Xterm {
-  mtime_poll_interval_ms: number;
   query_timeout_ms: number;
   operation_timeout_ms: number;
-  max_log_size_mb?: number;
-  rotated_log_size_mb?: number;
 }
 
 export interface XtermUpdate {
-  mtime_poll_interval_ms?: number;
   query_timeout_ms?: number;
   operation_timeout_ms?: number;
-  max_log_size_mb?: number;
-  rotated_log_size_mb?: number;
 }
 
