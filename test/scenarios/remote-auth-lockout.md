@@ -16,7 +16,7 @@ remote-auth endpoint to verify lockout behavior.
 
 ## Verifications
 
-- GET /remote-auth without a token shows "Invalid or expired link"
+- GET /remote-auth without a token shows "Check your notification app for the authentication link"
 - GET /remote-auth?token=fake-token shows "Invalid or expired link" (no form shown)
 - POST /remote-auth with an invalid token returns HTML containing "Invalid or expired link"
 - POST /remote-auth with a valid-looking but wrong token and wrong password returns HTML containing "Invalid or expired link"
