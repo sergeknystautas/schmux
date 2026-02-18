@@ -704,6 +704,29 @@ func TestMarkEntriesByTextMulti(t *testing.T) {
 	}
 }
 
+func TestParseFailureEntry(t *testing.T) {
+	line := `{"ts":"2026-02-18T10:30:00Z","ws":"ws-1","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}`
+	entry, err := ParseEntry(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entry.Type != "failure" {
+		t.Errorf("expected type=failure, got %s", entry.Type)
+	}
+	if entry.Tool != "Bash" {
+		t.Errorf("expected tool=Bash, got %s", entry.Tool)
+	}
+	if entry.InputSummary != "npm run build" {
+		t.Errorf("expected input_summary='npm run build', got %s", entry.InputSummary)
+	}
+	if entry.ErrorSummary != "Missing script" {
+		t.Errorf("expected error_summary='Missing script', got %s", entry.ErrorSummary)
+	}
+	if entry.Category != "wrong_command" {
+		t.Errorf("expected category=wrong_command, got %s", entry.Category)
+	}
+}
+
 func TestMarkEntriesByTextMulti_DeduplicatesAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 

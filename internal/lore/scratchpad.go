@@ -16,14 +16,18 @@ var scratchpadMu sync.Mutex
 
 // Entry represents a single lore scratchpad entry or state-change record.
 type Entry struct {
-	Timestamp   time.Time `json:"ts"`
-	Workspace   string    `json:"ws,omitempty"`
-	Agent       string    `json:"agent,omitempty"`
-	Type        string    `json:"type,omitempty"` // "operational" or "codebase"
-	Text        string    `json:"text,omitempty"`
-	StateChange string    `json:"state_change,omitempty"` // "proposed", "applied", "dismissed"
-	EntryTS     string    `json:"entry_ts,omitempty"`     // references the ts of the entry being changed
-	ProposalID  string    `json:"proposal_id,omitempty"`
+	Timestamp    time.Time `json:"ts"`
+	Workspace    string    `json:"ws,omitempty"`
+	Agent        string    `json:"agent,omitempty"`
+	Type         string    `json:"type,omitempty"` // "failure", "reflection", "friction", "operational", "codebase" (legacy)
+	Text         string    `json:"text,omitempty"`
+	Tool         string    `json:"tool,omitempty"`          // tool name for failure entries
+	InputSummary string    `json:"input_summary,omitempty"` // summarized tool input for failure entries
+	ErrorSummary string    `json:"error_summary,omitempty"` // summarized error for failure entries
+	Category     string    `json:"category,omitempty"`      // error category for failure entries
+	StateChange  string    `json:"state_change,omitempty"`  // "proposed", "applied", "dismissed"
+	EntryTS      string    `json:"entry_ts,omitempty"`      // references the ts of the entry being changed
+	ProposalID   string    `json:"proposal_id,omitempty"`
 }
 
 // EntryFilter controls which entries are returned by ReadEntries.
