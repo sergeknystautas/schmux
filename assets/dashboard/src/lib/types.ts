@@ -413,6 +413,10 @@ export interface LoreEntry {
   agent?: string;
   type?: string;
   text?: string;
+  tool?: string;
+  input_summary?: string;
+  error_summary?: string;
+  category?: string;
   state_change?: string;
   entry_ts?: string;
   proposal_id?: string;
@@ -426,6 +430,7 @@ export interface LoreProposal {
   source_count: number;
   sources: string[];
   file_hashes: Record<string, string>;
+  current_files?: Record<string, string>;
   proposed_files: Record<string, string>;
   diff_summary: string;
   entries_used: string[];
