@@ -32,6 +32,7 @@ type Proposal struct {
 	SourceCount      int               `json:"source_count"`
 	Sources          []string          `json:"sources"`
 	FileHashes       map[string]string `json:"file_hashes"`
+	CurrentFiles     map[string]string `json:"current_files,omitempty"`
 	ProposedFiles    map[string]string `json:"proposed_files"`
 	DiffSummary      string            `json:"diff_summary"`
 	EntriesUsed      []string          `json:"entries_used"`

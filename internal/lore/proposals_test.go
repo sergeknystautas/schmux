@@ -89,6 +89,35 @@ func TestProposalStore_IsStale(t *testing.T) {
 	}
 }
 
+func TestProposalStore_CurrentFiles(t *testing.T) {
+	dir := t.TempDir()
+	store := NewProposalStore(dir)
+
+	proposal := &Proposal{
+		ID:            "prop-current-files",
+		Repo:          "schmux",
+		Status:        ProposalPending,
+		SourceCount:   1,
+		FileHashes:    map[string]string{"CLAUDE.md": "sha256:abc"},
+		CurrentFiles:  map[string]string{"CLAUDE.md": "# Original content"},
+		ProposedFiles: map[string]string{"CLAUDE.md": "# Updated content"},
+		DiffSummary:   "Updated content",
+		EntriesUsed:   []string{"entry-1"},
+	}
+
+	if err := store.Save(proposal); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	loaded, err := store.Get("schmux", "prop-current-files")
+	if err != nil {
+		t.Fatalf("get failed: %v", err)
+	}
+	if loaded.CurrentFiles["CLAUDE.md"] != "# Original content" {
+		t.Errorf("expected current file content, got %q", loaded.CurrentFiles["CLAUDE.md"])
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

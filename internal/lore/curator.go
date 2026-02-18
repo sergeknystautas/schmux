@@ -146,6 +146,7 @@ func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir strin
 		SourceCount:      len(entries),
 		Sources:          sources,
 		FileHashes:       fileHashes,
+		CurrentFiles:     instrFiles,
 		ProposedFiles:    result.ProposedFiles,
 		DiffSummary:      result.DiffSummary,
 		EntriesUsed:      result.EntriesUsed,

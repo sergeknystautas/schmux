@@ -120,6 +120,9 @@ func TestCurate_WithEntries(t *testing.T) {
 	if proposal.Repo != "myrepo" {
 		t.Errorf("expected repo=myrepo, got %s", proposal.Repo)
 	}
+	if proposal.CurrentFiles["CLAUDE.md"] != "# Project" {
+		t.Errorf("expected current file content '# Project', got %q", proposal.CurrentFiles["CLAUDE.md"])
+	}
 }
 
 func TestReadFileFromBareRepo(t *testing.T) {
