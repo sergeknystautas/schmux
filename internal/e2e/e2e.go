@@ -131,7 +131,7 @@ func (e *Env) Cleanup() {
 		e.T.Log("Stopping daemon...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
-		cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
+		cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
 		out, _ := cmd.CombinedOutput()
 		cancel()
 		e.T.Logf("stop output: %s", out)
@@ -164,7 +164,9 @@ func (e *Env) DaemonStart() {
 	cmd := exec.Command(e.SchmuxBin, "daemon-run")
 
 	// Set HOME to isolated dir so daemon uses its own ~/.schmux/
-	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
+	// Set TMUX_TMPDIR to isolated dir so each test's daemon gets its own tmux
+	// server socket, preventing session name collisions between parallel tests.
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
 
 	// Capture stderr to a log file for debugging
 	logFile := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
@@ -211,7 +213,7 @@ func (e *Env) DaemonStop() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	cmd := exec.CommandContext(ctx, e.SchmuxBin, "stop")
-	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir)
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
 	if err != nil {
@@ -511,6 +513,7 @@ func (e *Env) SendKeysToTmux(sessionName, text string) {
 	e.T.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	cmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", sessionName, "-l", text)
+	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
 	if err != nil {
@@ -519,6 +522,7 @@ func (e *Env) SendKeysToTmux(sessionName, text string) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
 	cmd = exec.CommandContext(ctx, "tmux", "send-keys", "-t", sessionName, "C-m")
+	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err = cmd.CombinedOutput()
 	cancel()
 	if err != nil {
@@ -812,6 +816,7 @@ func (e *Env) GetTmuxSessions() []string {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	cmd := exec.CommandContext(ctx, "tmux", "ls")
+	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, err := cmd.CombinedOutput()
 	cancel()
 	if err != nil {
@@ -929,6 +934,7 @@ func (e *Env) CaptureArtifacts() {
 	// Capture tmux ls output
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	cmd := exec.CommandContext(ctx, "tmux", "ls")
+	cmd.Env = append(os.Environ(), "TMUX_TMPDIR="+e.HomeDir)
 	out, _ := cmd.CombinedOutput()
 	cancel()
 	os.WriteFile(filepath.Join(failureDir, "tmux-ls.txt"), out, 0644)
