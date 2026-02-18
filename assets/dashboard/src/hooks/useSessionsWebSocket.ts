@@ -5,6 +5,7 @@ import type {
   WorkspaceLockState,
   OverlayChangeEvent,
   RemoteAccessStatus,
+  WorkspaceSyncResultEvent,
 } from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
@@ -18,6 +19,8 @@ type SessionsWebSocketState = {
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   workspaceLockStates: Record<string, WorkspaceLockState>;
+  syncResultEvents: WorkspaceSyncResultEvent[];
+  clearSyncResultEvents: () => void;
   overlayEvents: OverlayChangeEvent[];
   clearOverlayEvents: () => void;
   remoteAccessStatus: RemoteAccessStatus;
@@ -34,6 +37,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [workspaceLockStates, setWorkspaceLockStates] = useState<
     Record<string, WorkspaceLockState>
   >({});
+  const [syncResultEvents, setSyncResultEvents] = useState<WorkspaceSyncResultEvent[]>([]);
   const [overlayEvents, setOverlayEvents] = useState<OverlayChangeEvent[]>([]);
   const [remoteAccessStatus, setRemoteAccessStatus] = useState<RemoteAccessStatus>({
     state: 'off',
@@ -142,6 +146,30 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
               delete next[wsId];
               return next;
             });
+
+            const rawSyncResult = data.sync_result as
+              | {
+                  success?: boolean;
+                  success_count?: number;
+                  conflicting_hash?: string;
+                  branch?: string;
+                  message?: string;
+                }
+              | undefined;
+            if (rawSyncResult && typeof rawSyncResult.success === 'boolean') {
+              setSyncResultEvents((prev) => [
+                ...prev,
+                {
+                  id: `${wsId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+                  workspace_id: wsId,
+                  success: rawSyncResult.success,
+                  success_count: rawSyncResult.success_count,
+                  conflicting_hash: rawSyncResult.conflicting_hash,
+                  branch: rawSyncResult.branch,
+                  message: rawSyncResult.message,
+                },
+              ]);
+            }
           }
         } else if (data.type === 'overlay_change') {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
@@ -201,6 +229,10 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     setOverlayEvents([]);
   }, []);
 
+  const clearSyncResultEvents = useCallback(() => {
+    setSyncResultEvents([]);
+  }, []);
+
   return {
     workspaces,
     connected,
@@ -209,6 +241,8 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
     workspaceLockStates,
+    syncResultEvents,
+    clearSyncResultEvents,
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,

@@ -930,22 +930,35 @@ Errors:
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-from-main
 
-Syncs commits from `origin/main` into the workspace's current branch via iterative cherry-pick.
+Syncs commits from `origin/main` into the workspace's current branch via iterative rebase.
 
-Response:
+Request body:
+
+```json
+{
+  "hash": "abc123..."
+}
+```
+
+- `hash` is required and must match the current next commit hash to sync from main.
+
+Response (accepted immediately):
 
 ```json
 {
   "success": true,
-  "message": "Synced 3 commits from main into feature-branch"
+  "message": "sync started",
+  "in_progress": true
 }
 ```
 
 Errors:
 
 - 400: "workspace ID is required"
+- 400 with JSON: `{"success":false,"message":"hash is required"}`
 - 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
 - 409 with JSON: `{"success":false,"message":"workspace is locked by another sync operation"}`
+- 409 with JSON on hash mismatch: `{"success":false,"message":"hash mismatch: ...","hash":"...","actual_hash":"..."}`
 - 500 with JSON: `{"success":false,"message":"Failed to sync from main: ..."}`
 
 Notes:
@@ -956,6 +969,7 @@ Notes:
 - Updates workspace git status after sync
 - Lock state changes are broadcast in real-time via the `workspace_locked` WebSocket message
 - Rebase progress (current/total commits) is streamed via `workspace_locked` messages with `sync_progress`
+- This endpoint now returns immediately (HTTP 202) and runs the sync in the background
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-to-main
 
@@ -1044,6 +1058,7 @@ Response:
     }
   },
   "main_ahead_count": 3,
+  "main_ahead_next_hash": "abc123...",
   "dirty_state": {
     "files_changed": 2,
     "lines_added": 10,
@@ -1689,9 +1704,26 @@ Workspace lock state (sent in real-time, not debounced, when lock state changes 
 }
 ```
 
+Unlock with sync completion metadata (sent when `linear-sync-from-main` finishes):
+
+```json
+{
+  "type": "workspace_locked",
+  "workspace_id": "workspace-id",
+  "locked": false,
+  "sync_result": {
+    "success": true,
+    "success_count": 23,
+    "branch": "main",
+    "conflicting_hash": ""
+  }
+}
+```
+
 - `locked: true` sent when a sync operation acquires the workspace lock
 - `locked: false` sent when the lock is released
 - `sync_progress` is optional; included during `linear-sync-from-main` rebase with current/total commit counts
+- `sync_result` is optional; included on unlock after `linear-sync-from-main` completes
 
 Notes:
 

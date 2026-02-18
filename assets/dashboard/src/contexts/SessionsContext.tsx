@@ -20,6 +20,7 @@ import type {
   PendingNavigation,
   OverlayChangeEvent,
   RemoteAccessStatus,
+  WorkspaceSyncResultEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -33,6 +34,8 @@ type SessionsContextValue = {
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   workspaceLockStates: Record<string, WorkspaceLockState>;
+  syncResultEvents: WorkspaceSyncResultEvent[];
+  clearSyncResultEvents: () => void;
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
@@ -57,6 +60,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
     workspaceLockStates,
+    syncResultEvents,
+    clearSyncResultEvents,
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,
@@ -70,10 +75,42 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   }, [overlayEvents.length]);
   const lastProcessedNudgeRef = useRef<Record<string, number>>({});
   const lastCleanupRef = useRef(0);
+  const prevLockedWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const workspaceLockSoundInitRef = useRef(false);
 
   useEffect(() => {
     warmupAudioContext();
   }, []);
+
+  // Play a sound when a workspace lock is cleared (sync finishes).
+  useEffect(() => {
+    const currentLockedIds = new Set(
+      Object.entries(workspaceLockStates)
+        .filter(([, state]) => state.locked)
+        .map(([id]) => id)
+    );
+
+    // Initialize baseline without playing sound on first render.
+    if (!workspaceLockSoundInitRef.current) {
+      workspaceLockSoundInitRef.current = true;
+      prevLockedWorkspaceIdsRef.current = currentLockedIds;
+      return;
+    }
+
+    let unlocked = false;
+    for (const prevId of prevLockedWorkspaceIdsRef.current) {
+      if (!currentLockedIds.has(prevId)) {
+        unlocked = true;
+        break;
+      }
+    }
+
+    prevLockedWorkspaceIdsRef.current = currentLockedIds;
+
+    if (unlocked && !config?.notifications?.sound_disabled) {
+      playAttentionSound();
+    }
+  }, [workspaceLockStates, config?.notifications?.sound_disabled]);
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -254,6 +291,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
       workspaceLockStates,
+      syncResultEvents,
+      clearSyncResultEvents,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
@@ -275,6 +314,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
       workspaceLockStates,
+      syncResultEvents,
+      clearSyncResultEvents,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,

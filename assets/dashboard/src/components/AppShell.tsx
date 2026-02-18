@@ -11,6 +11,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
+import { useSync } from '../hooks/useSync';
 import {
   formatRelativeTime,
   nudgeStateEmoji,
@@ -45,6 +46,8 @@ export default function AppShell() {
     sessionsById,
     linearSyncResolveConflictStates,
     workspaceLockStates,
+    syncResultEvents,
+    clearSyncResultEvents,
     overlayUnreadCount,
     markOverlaysRead,
     remoteAccessStatus,
@@ -56,8 +59,10 @@ export default function AppShell() {
   const [navCollapsed, setNavCollapsed] = useLocalStorage(NAV_COLLAPSED_KEY, false);
   const { mode, registerAction, unregisterAction, context } = useKeyboardMode();
   const { show: showHelp } = useHelpModal();
-  const { alert, confirm } = useModal();
+  const { alert, confirm, show } = useModal();
   const { success, error: toastError } = useToast();
+  const { startConflictResolution } = useSync();
+  const syncResultProcessingRef = useRef(false);
 
   // State for reconnect modal (used by sidebar Reconnect button)
   const [reconnectModal, setReconnectModal] = useState<{
@@ -76,6 +81,42 @@ export default function AppShell() {
   const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting' | null>(
     'building'
   );
+
+  useEffect(() => {
+    if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;
+    syncResultProcessingRef.current = true;
+
+    const process = async () => {
+      for (const event of syncResultEvents) {
+        if (event.conflicting_hash) {
+          const commitCount = event.success_count ?? 0;
+          const resolveConfirmed = await show(
+            'Unable to fully sync',
+            `We were able to fast forward ${commitCount} commits cleanly. You can have an agent resolve the conflict at ${event.conflicting_hash}.`,
+            {
+              confirmText: 'Resolve',
+              cancelText: 'Close',
+              danger: true,
+            }
+          );
+          if (resolveConfirmed) {
+            await startConflictResolution(event.workspace_id);
+          }
+        } else if (event.success) {
+          const branch = event.branch || 'main';
+          const count = event.success_count ?? 0;
+          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
+        } else {
+          await alert('Error', event.message || 'Failed to sync from main');
+        }
+      }
+      clearSyncResultEvents();
+    };
+
+    process().finally(() => {
+      syncResultProcessingRef.current = false;
+    });
+  }, [syncResultEvents, clearSyncResultEvents, alert, show, startConflictResolution]);
 
   useEffect(() => {
     if (!isDevMode) return;

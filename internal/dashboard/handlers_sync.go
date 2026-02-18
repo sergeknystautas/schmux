@@ -17,8 +17,11 @@ import (
 type linearSyncResponse struct {
 	Success              bool   `json:"success"`
 	Message              string `json:"message"`
+	InProgress           bool   `json:"in_progress,omitempty"`
 	IsPreCommitHookError bool   `json:"is_pre_commit_hook_error"`
 	PreCommitErrorDetail string `json:"pre_commit_error_detail,omitempty"`
+	Hash                 string `json:"hash,omitempty"`
+	ActualHash           string `json:"actual_hash,omitempty"`
 }
 
 // handleLinearSync handles POST requests for workspace linear sync operations.
@@ -103,8 +106,28 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	var req struct {
+		Hash string `json:"hash"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.Hash = strings.TrimSpace(req.Hash)
+	if req.Hash == "" {
+		fmt.Printf("[workspace] linear-sync-from-main validation error: workspace_id=%s hash missing\n", workspaceID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(linearSyncResponse{
+			Success: false,
+			Message: "hash is required",
+		})
+		return
+	}
+
 	// Get workspace from state
-	ws, found := s.state.GetWorkspace(workspaceID)
+	_, found := s.state.GetWorkspace(workspaceID)
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -117,8 +140,68 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 
 	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s\n", workspaceID)
 
+	// Validate required hash precondition before running sync.
+	graph, err := s.workspace.GetGitGraph(r.Context(), workspaceID, 1, 1)
+	if err != nil {
+		fmt.Printf("[workspace] linear-sync-from-main validation error: workspace_id=%s get-graph failed: %v\n", workspaceID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(linearSyncResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to validate hash precondition: %v", err),
+		})
+		return
+	}
+	actualHash := strings.TrimSpace(graph.MainAheadNextHash)
+	if actualHash == "" {
+		fmt.Printf("[workspace] linear-sync-from-main hash mismatch: workspace_id=%s requested=%s actual=<none>\n", workspaceID, req.Hash)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(linearSyncResponse{
+			Success:    false,
+			Message:    "hash mismatch: no next hash is available",
+			Hash:       req.Hash,
+			ActualHash: actualHash,
+		})
+		return
+	}
+	if actualHash != req.Hash {
+		fmt.Printf("[workspace] linear-sync-from-main hash mismatch: workspace_id=%s requested=%s actual=%s\n", workspaceID, req.Hash, actualHash)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(linearSyncResponse{
+			Success:    false,
+			Message:    fmt.Sprintf("hash mismatch: requested %s but next is %s", req.Hash, actualHash),
+			Hash:       req.Hash,
+			ActualHash: actualHash,
+		})
+		return
+	}
+
 	// Pause Vite file watching during rebase to prevent transform errors
 	// from transient conflict markers in source files.
+	if s.workspace.IsWorkspaceLocked(workspaceID) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(linearSyncResponse{
+			Success: false,
+			Message: "workspace is locked by another sync operation",
+		})
+		return
+	}
+
+	go s.runLinearSyncFromMain(workspaceID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(linearSyncResponse{
+		Success:    true,
+		Message:    "sync started",
+		InProgress: true,
+	})
+}
+
+func (s *Server) runLinearSyncFromMain(workspaceID string) {
 	s.pauseViteWatch()
 	defer s.resumeViteWatch()
 
@@ -129,36 +212,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	result, err := s.workspace.LinearSyncFromDefault(ctx, workspaceID)
 	if err != nil {
 		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
-		w.Header().Set("Content-Type", "application/json")
-
-		// 409 if workspace is locked by another sync operation
-		if errors.Is(err, workspace.ErrWorkspaceLocked) {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(linearSyncResponse{
-				Success: false,
-				Message: "workspace is locked by another sync operation",
-			})
-			return
-		}
-
-		w.WriteHeader(http.StatusInternalServerError)
-
-		// Check if it's a pre-commit hook error
-		var preCommitErr *workspace.PreCommitHookError
-		isPreCommitHookError := errors.As(err, &preCommitErr)
-
-		resp := linearSyncResponse{
-			Success:              false,
-			Message:              "Failed to sync from main",
-			IsPreCommitHookError: isPreCommitHookError,
-		}
-
-		// Extract the raw error detail for pre-commit hook failures
-		if isPreCommitHookError && preCommitErr.Unwrap() != nil {
-			resp.PreCommitErrorDetail = preCommitErr.Unwrap().Error()
-		}
-
-		json.NewEncoder(w).Encode(resp)
+		s.BroadcastWorkspaceUnlockedWithSyncResult(workspaceID, nil, err)
 		return
 	}
 
@@ -172,9 +226,8 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	// Update ConflictOnBranch based on result
 	if result.ConflictingHash != "" {
 		// Re-fetch workspace to avoid overwriting concurrent changes
-		ws, found = s.state.GetWorkspace(workspaceID)
+		ws, found := s.state.GetWorkspace(workspaceID)
 		if !found {
-			http.Error(w, "Workspace not found after sync", http.StatusNotFound)
 			return
 		}
 		// Conflict detected - set ConflictOnBranch to current branch
@@ -195,9 +248,8 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		successMsg = fmt.Sprintf("conflict at %s after %d commits", result.ConflictingHash, result.SuccessCount)
 	}
 	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s %s\n", workspaceID, successMsg)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	s.BroadcastWorkspaceUnlockedWithSyncResult(workspaceID, result, nil)
+	go s.BroadcastSessions()
 }
 
 // handleLinearSyncToMain handles POST requests to sync commits from branch to origin/main.

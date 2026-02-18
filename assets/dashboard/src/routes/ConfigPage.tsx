@@ -580,7 +580,14 @@ export default function ConfigPage() {
     } else if (step === 5) {
       // Access settings are always valid
     } else if (step === 6) {
-      // Advanced settings are always valid
+      if (
+        !xtermQueryTimeout ||
+        !xtermOperationTimeout ||
+        xtermQueryTimeout <= 0 ||
+        xtermOperationTimeout <= 0
+      ) {
+        error = 'xterm settings must be greater than 0';
+      }
     }
 
     setStepErrors((prev) => ({ ...prev, [step]: error }));

@@ -60,7 +60,7 @@ describe('useSync', () => {
       });
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncFromMain('ws-1'));
+      await act(() => result.current.handleLinearSyncFromMain('ws-1', 'abc123'));
 
       expect(alert).not.toHaveBeenCalled();
       expect(show).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe('useSync', () => {
       });
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncFromMain('ws-1'));
+      await act(() => result.current.handleLinearSyncFromMain('ws-1', 'abc123'));
 
       expect(show).toHaveBeenCalledWith(
         'Unable to fully sync',
@@ -89,7 +89,7 @@ describe('useSync', () => {
       });
 
       const { result } = renderHook(() => useSync());
-      await act(() => result.current.handleLinearSyncFromMain('ws-1'));
+      await act(() => result.current.handleLinearSyncFromMain('ws-1', 'abc123'));
 
       expect(alert).toHaveBeenCalledWith('Error', 'Sync failed.');
     });

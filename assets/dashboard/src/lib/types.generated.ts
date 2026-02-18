@@ -144,6 +144,7 @@ export interface GitGraphResponse {
   branches: Record<string, GitGraphBranch>;
   main_ahead_count: number;
   main_ahead_newest_timestamp?: string;
+  main_ahead_next_hash?: string;
   local_truncated?: boolean;
   dirty_state?: GitGraphDirtyState;
 }
