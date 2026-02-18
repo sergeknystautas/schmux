@@ -440,17 +440,30 @@ export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookboo
   return response.json();
 }
 
-export async function linearSyncFromMain(workspaceId: string): Promise<LinearSyncResponse> {
+export async function linearSyncFromMain(
+  workspaceId: string,
+  hash: string
+): Promise<LinearSyncResponse> {
   const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ hash }),
   });
   if (!response.ok) {
-    const err = (await response.json()) as LinearSyncResponse & { message: string };
+    let err: (LinearSyncResponse & { message?: string }) | null = null;
+    let fallbackMessage = 'Failed to sync from main';
+    try {
+      err = (await response.json()) as LinearSyncResponse & { message?: string };
+    } catch {
+      const text = await response.text().catch(() => '');
+      if (text.trim()) {
+        fallbackMessage = text.trim();
+      }
+    }
     throw new LinearSyncError(
-      err.message || 'Failed to sync from main',
-      err.is_pre_commit_hook_error || false,
-      err.pre_commit_error_detail
+      err?.message || fallbackMessage,
+      err?.is_pre_commit_hook_error || false,
+      err?.pre_commit_error_detail
     );
   }
   return response.json();

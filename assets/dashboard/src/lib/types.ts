@@ -263,6 +263,8 @@ export type PendingNavigation = { type: 'session'; id: string } | { type: 'works
 
 export interface LinearSyncResponse {
   success: boolean;
+  in_progress?: boolean;
+  message?: string;
   success_count?: number;
   conflicting_hash?: string;
   branch?: string;
@@ -316,6 +318,16 @@ export interface LinearSyncResolveConflictStatePayload {
 export interface WorkspaceLockState {
   locked: boolean;
   syncProgress?: { current: number; total: number };
+}
+
+export interface WorkspaceSyncResultEvent {
+  id: string;
+  workspace_id: string;
+  success: boolean;
+  success_count?: number;
+  conflicting_hash?: string;
+  branch?: string;
+  message?: string;
 }
 
 export interface RecentBranch {

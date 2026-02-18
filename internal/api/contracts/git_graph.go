@@ -7,6 +7,7 @@ type GitGraphResponse struct {
 	Branches                 map[string]GitGraphBranch `json:"branches"`
 	MainAheadCount           int                       `json:"main_ahead_count"`                      // commits on origin/main ahead of HEAD
 	MainAheadNewestTimestamp string                    `json:"main_ahead_newest_timestamp,omitempty"` // timestamp of newest commit ahead on main
+	MainAheadNextHash        string                    `json:"main_ahead_next_hash,omitempty"`        // next main commit hash that would be rebased
 	LocalTruncated           bool                      `json:"local_truncated,omitempty"`             // true when local branch commits were truncated
 	DirtyState               *GitGraphDirtyState       `json:"dirty_state,omitempty"`
 }

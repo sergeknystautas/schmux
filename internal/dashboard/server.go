@@ -985,6 +985,36 @@ func (s *Server) BroadcastWorkspaceLockedWithProgress(workspaceID string, curren
 	s.broadcastToAllDashboardConns(payload)
 }
 
+// BroadcastWorkspaceUnlockedWithSyncResult sends an unlock message that includes
+// sync completion metadata for linear-sync-from-main.
+func (s *Server) BroadcastWorkspaceUnlockedWithSyncResult(workspaceID string, result *workspace.LinearSyncResult, err error) {
+	syncResult := map[string]interface{}{}
+	if err != nil {
+		syncResult["success"] = false
+		syncResult["message"] = err.Error()
+	} else if result != nil {
+		syncResult["success"] = result.Success
+		syncResult["success_count"] = result.SuccessCount
+		if result.ConflictingHash != "" {
+			syncResult["conflicting_hash"] = result.ConflictingHash
+		}
+		if result.Branch != "" {
+			syncResult["branch"] = result.Branch
+		}
+	}
+
+	payload, marshalErr := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       false,
+		"sync_result":  syncResult,
+	})
+	if marshalErr != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
 // broadcastToAllDashboardConns sends a raw payload to all connected dashboard WebSocket clients.
 func (s *Server) broadcastToAllDashboardConns(payload []byte) {
 	s.sessionsConnsMu.RLock()

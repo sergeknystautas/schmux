@@ -168,12 +168,18 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 
 			// git reset --mixed HEAD~1 - undo the WIP commit
 			if didCommit {
-				resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
-				resetCmd.Dir = workspacePath
-				if out, err := resetCmd.CombinedOutput(); err != nil {
-					fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+				headMsgCmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%s", "HEAD")
+				headMsgCmd.Dir = workspacePath
+				headMsgOut, headMsgErr := headMsgCmd.Output()
+				headMsg := strings.TrimSpace(string(headMsgOut))
+				if headMsgErr == nil && headMsg == wipUUID {
+					resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+					resetCmd.Dir = workspacePath
+					if out, err := resetCmd.CombinedOutput(); err != nil {
+						fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+					}
+					fmt.Printf("[workspace] reset WIP commit after conflict\n")
 				}
-				fmt.Printf("[workspace] reset WIP commit after conflict\n")
 			}
 
 			return &LinearSyncResult{
@@ -192,12 +198,18 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 
 	// 7. All succeeded: git reset --mixed HEAD~1 - undo the WIP commit
 	if didCommit {
-		resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
-		resetCmd.Dir = workspacePath
-		if output, err := resetCmd.CombinedOutput(); err != nil {
-			fmt.Printf("[workspace] warning: git reset --mixed failed: %s\n", string(output))
-		} else {
-			fmt.Printf("[workspace] restored local changes after successful rebase\n")
+		headMsgCmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%s", "HEAD")
+		headMsgCmd.Dir = workspacePath
+		headMsgOut, headMsgErr := headMsgCmd.Output()
+		headMsg := strings.TrimSpace(string(headMsgOut))
+		if headMsgErr == nil && headMsg == wipUUID {
+			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
+			resetCmd.Dir = workspacePath
+			if output, err := resetCmd.CombinedOutput(); err != nil {
+				fmt.Printf("[workspace] warning: git reset --mixed failed: %s\n", string(output))
+			} else {
+				fmt.Printf("[workspace] restored local changes after successful rebase\n")
+			}
 		}
 	}
 

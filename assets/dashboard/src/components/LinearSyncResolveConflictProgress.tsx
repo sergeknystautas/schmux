@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dismissLinearSyncResolveConflictState } from '../lib/api';
+import { dismissLinearSyncResolveConflictState, getGitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSync } from '../hooks/useSync';
 import type {
@@ -298,8 +298,15 @@ export default function LinearSyncResolveConflictProgress({
 
   const handleContinue = async () => {
     setContinuing(true);
-    await handleLinearSyncFromMain(workspaceId);
-    setContinuing(false);
+    try {
+      const graph = await getGitGraph(workspaceId, { maxTotal: 1 });
+      if (!graph.main_ahead_next_hash) {
+        return;
+      }
+      await handleLinearSyncFromMain(workspaceId, graph.main_ahead_next_hash);
+    } finally {
+      setContinuing(false);
+    }
   };
 
   return (

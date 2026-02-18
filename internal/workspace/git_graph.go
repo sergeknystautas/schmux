@@ -78,8 +78,10 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 
 	// Get newest timestamp of commits ahead on main
 	var mainAheadNewestTimestamp string
+	var mainAheadNextHash string
 	if mainAheadCount > 0 {
 		mainAheadNewestTimestamp = getNewestTimestamp(ctx, gitDir, "HEAD.."+originMain)
+		mainAheadNextHash = getOldestHash(ctx, gitDir, "HEAD.."+originMain)
 	}
 
 	// Determine what to log
@@ -107,6 +109,7 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 	resp := BuildGraphResponse(rawNodes, localBranch, defaultBranch, localHead, originMainHead, forkPoint, branchWorkspaces, ws.Repo, maxTotal, mainAheadCount)
 	resp.LocalTruncated = localTruncated
 	resp.MainAheadNewestTimestamp = mainAheadNewestTimestamp
+	resp.MainAheadNextHash = mainAheadNextHash
 	return resp, nil
 }
 
@@ -488,6 +491,22 @@ func getNewestTimestamp(ctx context.Context, repoPath, rangeSpec string) string 
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// getOldestHash returns the oldest commit hash in the given range.
+// Example range: "HEAD..origin/main"
+func getOldestHash(ctx context.Context, repoPath, rangeSpec string) string {
+	cmd := exec.CommandContext(ctx, "git", "log", "--format=%H", "--reverse", rangeSpec)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(lines[0])
 }
 
 // runGitLog runs git log and parses the output into RawNode structs.

@@ -496,9 +496,14 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
 
       const onSyncClick = async () => {
         if (!ws || isSyncing) return;
+        const hash = data.main_ahead_next_hash;
+        if (!hash) {
+          await alert('Error', 'Missing hash for sync precondition. Please refresh and try again.');
+          return;
+        }
         setSyncing(true);
         try {
-          await handleSmartSync(ws);
+          await handleSmartSync(ws, hash);
         } finally {
           setSyncing(false);
         }
