@@ -28,6 +28,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
 	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -731,7 +732,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		}
 		if target := cfg.GetLoreTarget(); target != "" {
 			loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schema.LabelLoreCurator, timeout, "")
 			}
 		}
 

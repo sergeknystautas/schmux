@@ -15,6 +15,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 // handleLoreRouter dispatches lore API requests based on the URL path.
@@ -496,7 +497,7 @@ func (s *Server) refreshLoreCurator(cfg *config.Config) {
 
 	if target != "" {
 		s.loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+			return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schema.LabelLoreCurator, timeout, "")
 		}
 	} else {
 		s.loreCurator.Executor = nil

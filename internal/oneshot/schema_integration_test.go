@@ -10,6 +10,7 @@ import (
 	// Import domain packages to trigger their init() which registers schemas
 	_ "github.com/sergeknystautas/schmux/internal/branchsuggest"
 	_ "github.com/sergeknystautas/schmux/internal/conflictresolve"
+	_ "github.com/sergeknystautas/schmux/internal/lore"
 	_ "github.com/sergeknystautas/schmux/internal/nudgenik"
 )
 

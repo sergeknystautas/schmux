@@ -13,7 +13,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
+
+func init() {
+	schema.Register(schema.LabelLoreCurator, CuratorResponse{})
+}
 
 // Curator reads raw lore entries and instruction files, calls an LLM to produce a merge proposal.
 type Curator struct {
