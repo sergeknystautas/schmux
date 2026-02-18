@@ -130,6 +130,17 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
+
+		// 409 if workspace is locked by another sync operation
+		if errors.Is(err, workspace.ErrWorkspaceLocked) {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(linearSyncResponse{
+				Success: false,
+				Message: "workspace is locked by another sync operation",
+			})
+			return
+		}
+
 		w.WriteHeader(http.StatusInternalServerError)
 
 		// Check if it's a pre-commit hook error

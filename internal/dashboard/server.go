@@ -223,9 +223,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 	if mgr, ok := wm.(*workspace.Manager); ok {
-		mgr.SetWorkspaceLockedFn(func(workspaceID string) bool {
-			state := s.getLinearSyncResolveConflictState(workspaceID)
-			return state != nil && state.Status == "in_progress"
+		mgr.SetOnLockChangeFn(s.BroadcastWorkspaceLocked)
+		mgr.SetSyncProgressFn(func(workspaceID string, current, total int) {
+			s.BroadcastWorkspaceLockedWithProgress(workspaceID, current, total)
 		})
 	}
 	go s.broadcastLoop()
@@ -952,6 +952,54 @@ type OverlayChangeEvent struct {
 	TargetWorkspaceIDs []string `json:"target_workspace_ids"`
 	Timestamp          int64    `json:"timestamp"`
 	UnifiedDiff        string   `json:"unified_diff"`
+}
+
+// BroadcastWorkspaceLocked sends a workspace lock state change to all connected dashboard WebSocket clients.
+// Sent in real-time (not debounced) so clients see lock/unlock immediately.
+func (s *Server) BroadcastWorkspaceLocked(workspaceID string, locked bool) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       locked,
+	})
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// BroadcastWorkspaceLockedWithProgress sends a workspace lock message with sync progress info.
+func (s *Server) BroadcastWorkspaceLockedWithProgress(workspaceID string, current, total int) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       true,
+		"sync_progress": map[string]int{
+			"current": current,
+			"total":   total,
+		},
+	})
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// broadcastToAllDashboardConns sends a raw payload to all connected dashboard WebSocket clients.
+func (s *Server) broadcastToAllDashboardConns(payload []byte) {
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
 }
 
 // BroadcastOverlayChange sends an overlay change event to all connected dashboard WebSocket clients.

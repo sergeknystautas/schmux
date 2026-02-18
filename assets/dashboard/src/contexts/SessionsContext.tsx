@@ -16,6 +16,7 @@ import type {
   SessionWithWorkspace,
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
+  WorkspaceLockState,
   PendingNavigation,
   OverlayChangeEvent,
   RemoteAccessStatus,
@@ -31,6 +32,7 @@ type SessionsContextValue = {
   ackSession: (sessionId: string) => void;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
+  workspaceLockStates: Record<string, WorkspaceLockState>;
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
@@ -54,6 +56,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     connected,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
+    workspaceLockStates,
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,
@@ -250,6 +253,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
+      workspaceLockStates,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
@@ -270,6 +274,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
+      workspaceLockStates,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,

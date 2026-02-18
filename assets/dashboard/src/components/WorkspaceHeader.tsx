@@ -23,14 +23,16 @@ export default function WorkspaceHeader({
   const { alert, confirm } = useModal();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
-  const { linearSyncResolveConflictStates, simulateRemote } = useSessions();
+  const { linearSyncResolveConflictStates, simulateRemote, workspaceLockStates } = useSessions();
   const { handleLinearSyncFromMain, handleLinearSyncToMain, startConflictResolution } = useSync();
   const [openingVSCode, setOpeningVSCode] = useState(false);
   const { devStatus } = useDevStatus();
 
-  // Check if resolve conflict is in progress for this workspace
+  // Check if workspace is locked (resolve conflict or clean sync in progress)
   const crState = linearSyncResolveConflictStates[workspace.id];
   const resolveInProgress = crState?.status === 'in_progress';
+  const lockState = workspaceLockStates[workspace.id];
+  const isLocked = resolveInProgress || lockState?.locked;
 
   // Dev mode guard: use explicit prop if provided, otherwise compute from hook
   const isDevLive =
@@ -191,7 +193,7 @@ export default function WorkspaceHeader({
             <button
               className="btn btn--sm btn--ghost btn--danger btn--bordered"
               onClick={handleDisposeWorkspace}
-              disabled={resolveInProgress || isDevLive || hasRunningSessions}
+              disabled={isLocked || isDevLive || hasRunningSessions}
               aria-label={`Dispose ${workspace.id}`}
             >
               <svg

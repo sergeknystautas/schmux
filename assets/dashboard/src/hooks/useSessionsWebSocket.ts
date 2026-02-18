@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
+  WorkspaceLockState,
   OverlayChangeEvent,
   RemoteAccessStatus,
 } from '../lib/types';
@@ -16,6 +17,7 @@ type SessionsWebSocketState = {
   stale: boolean;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
+  workspaceLockStates: Record<string, WorkspaceLockState>;
   overlayEvents: OverlayChangeEvent[];
   clearOverlayEvents: () => void;
   remoteAccessStatus: RemoteAccessStatus;
@@ -28,6 +30,9 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [stale, setStale] = useState(false);
   const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<
     Record<string, LinearSyncResolveConflictStatePayload>
+  >({});
+  const [workspaceLockStates, setWorkspaceLockStates] = useState<
+    Record<string, WorkspaceLockState>
   >({});
   const [overlayEvents, setOverlayEvents] = useState<OverlayChangeEvent[]>([]);
   const [remoteAccessStatus, setRemoteAccessStatus] = useState<RemoteAccessStatus>({
@@ -101,6 +106,43 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
             ...prev,
             [wsId]: data,
           }));
+        } else if (data.type === 'workspace_locked' && data.workspace_id) {
+          const wsId = data.workspace_id as string;
+          const locked = data.locked as boolean;
+          if (locked) {
+            const syncProgress = data.sync_progress
+              ? {
+                  current: data.sync_progress.current as number,
+                  total: data.sync_progress.total as number,
+                }
+              : undefined;
+            setWorkspaceLockStates((prev) => ({
+              ...prev,
+              [wsId]: { locked: true, syncProgress: syncProgress ?? prev[wsId]?.syncProgress },
+            }));
+            // Optimistically decrement git_behind as each rebase step completes
+            if (syncProgress) {
+              const remaining = syncProgress.total - syncProgress.current;
+              setWorkspaces((prevWs) =>
+                prevWs.map((w) => (w.id === wsId ? { ...w, git_behind: remaining } : w))
+              );
+            }
+          } else {
+            setWorkspaceLockStates((prev) => {
+              const prevLock = prev[wsId];
+              if (!prevLock) return prev;
+              // Final optimistic update from last known progress
+              if (prevLock.syncProgress) {
+                const remaining = prevLock.syncProgress.total - prevLock.syncProgress.current;
+                setWorkspaces((prevWs) =>
+                  prevWs.map((w) => (w.id === wsId ? { ...w, git_behind: remaining } : w))
+                );
+              }
+              const next = { ...prev };
+              delete next[wsId];
+              return next;
+            });
+          }
         } else if (data.type === 'overlay_change') {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
         } else if (data.type === 'remote_access_status' && data.data) {
@@ -166,6 +208,7 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
     stale,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
+    workspaceLockStates,
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,

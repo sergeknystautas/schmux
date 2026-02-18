@@ -44,6 +44,7 @@ export default function AppShell() {
     connected,
     sessionsById,
     linearSyncResolveConflictStates,
+    workspaceLockStates,
     overlayUnreadCount,
     markOverlaysRead,
     remoteAccessStatus,
@@ -550,6 +551,9 @@ export default function AppShell() {
               </div>
             )}
             {workspaces?.map((workspace) => {
+              const wsLockState = workspaceLockStates[workspace.id];
+              const wsResolveState = linearSyncResolveConflictStates[workspace.id];
+              const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
               const linesAdded = workspace.git_lines_added ?? 0;
               const linesRemoved = workspace.git_lines_removed ?? 0;
               const isGit = !workspace.vcs || workspace.vcs === 'git';
@@ -609,7 +613,11 @@ export default function AppShell() {
                         )}
                         {displayBranch}
                       </span>
-                      {hasChanges && (
+                      {wsLocked ? (
+                        <span className="nav-workspace__changes">
+                          <WorkingSpinner />
+                        </span>
+                      ) : hasChanges ? (
                         <span className="nav-workspace__changes">
                           {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
                           {linesRemoved > 0 && (
@@ -621,7 +629,7 @@ export default function AppShell() {
                             </span>
                           )}
                         </span>
-                      )}
+                      ) : null}
                       {isDevEligible && (
                         <button
                           className="nav-workspace__dev-btn"
@@ -748,7 +756,11 @@ export default function AppShell() {
                           }}
                         >
                           <div className="nav-session__row1">
-                            {isWorkingState && <WorkingSpinner />}
+                            {wsLocked ? (
+                              <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
+                            ) : (
+                              isWorkingState && <WorkingSpinner />
+                            )}
                             <span className="nav-session__name">
                               {sess.remote_host_id && (
                                 <svg
@@ -773,7 +785,7 @@ export default function AppShell() {
                             </span>
                             <span className="nav-session__activity">{activityDisplay}</span>
                           </div>
-                          {nudgePreviewElement && (
+                          {!wsLocked && nudgePreviewElement && (
                             <div className="nav-session__row2">{nudgePreviewElement}</div>
                           )}
                         </div>

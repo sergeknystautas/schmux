@@ -39,7 +39,9 @@ export function useSync() {
       try {
         const result = await linearSyncFromMain(workspaceId);
         if (result.success) {
-          // No dialog — the git graph updates via WebSocket to reflect the sync.
+          const branch = result.branch || 'main';
+          const count = result.success_count ?? 0;
+          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
         } else if (result.conflicting_hash) {
           const commitCount = result.success_count ?? 0;
           const resolveConfirmed = await show(
