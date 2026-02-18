@@ -14,11 +14,6 @@
   margin: 0;
 }
 
-.summary {
-  color: var(--text-secondary, #888);
-  font-size: 0.875rem;
-}
-
 .warningBanner {
   background: var(--color-warning-subtle, rgba(255, 193, 7, 0.15));
   border: 1px solid var(--color-warning, #ffc107);
@@ -38,168 +33,76 @@
   text-decoration: underline;
 }
 
-.section {
-  margin-bottom: 2rem;
-}
-
-.section h3 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  color: var(--text-primary, #ddd);
-}
-
-.empty {
-  color: var(--text-secondary, #888);
-  font-style: italic;
-}
-
+/* Proposal cards */
 .proposalList {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .proposalCard {
-  padding: 0.75rem;
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
-  cursor: pointer;
-  background: var(--surface, #1a1a2e);
+  padding: 1rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface, #1a1a2e);
 }
 
-.proposalCard:hover {
-  border-color: var(--border-hover, #555);
-}
-
-.proposalCard.selected {
-  border-color: var(--accent, #4fc3f7);
-}
-
-.proposalHeader {
+.proposalCardHeader {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.75rem;
 }
 
-.proposalDate {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #888);
-}
-
-.proposalSummary {
-  font-size: 0.875rem;
-  margin-bottom: 0.25rem;
-}
-
-.proposalMeta {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #888);
-}
-
-.badgePending {
+.proposalCardBadge {
   font-size: 0.7rem;
-  padding: 0.125rem 0.375rem;
+  padding: 0.125rem 0.5rem;
   border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.proposalCardBadge[data-status='pending'] {
   background: var(--color-warning-subtle);
   color: var(--color-warning);
 }
 
-.badgeApplied {
-  font-size: 0.7rem;
-  padding: 0.125rem 0.375rem;
-  border-radius: 3px;
-  background: var(--color-success-subtle);
-  color: var(--color-success);
-}
-
-.badgeDismissed {
-  font-size: 0.7rem;
-  padding: 0.125rem 0.375rem;
-  border-radius: 3px;
-  background: var(--color-surface-alt);
-  color: var(--color-text-muted);
-}
-
-.badgeStale {
-  font-size: 0.7rem;
-  padding: 0.125rem 0.375rem;
-  border-radius: 3px;
+.proposalCardBadge[data-status='stale'] {
   background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
 
-/* Diff summary banner */
-.diffSummaryBanner {
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.75rem;
-  background: var(--color-accent-subtle);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  color: var(--text-primary, #ddd);
-  line-height: 1.5;
-}
-
-/* Code block with line numbers */
-.codeBlock {
-  display: flex;
-  border: 1px solid var(--border, #333);
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  background: var(--surface-dark, #111);
-  max-height: 400px;
-  overflow: auto;
-}
-
-.lineNumbers {
-  display: flex;
-  flex-direction: column;
-  padding: 0.75rem 0;
-  background: color-mix(in srgb, var(--color-text) 3%, transparent);
-  border-right: 1px solid var(--border, #333);
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.lineNumber {
-  padding: 0 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--text-secondary, #555);
-  text-align: right;
-  min-width: 2.5rem;
-  font-family: monospace;
-}
-
-.codeLines {
-  padding: 0.75rem 0.75rem;
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
+.proposalCardSummary {
+  font-size: 0.875rem;
   flex: 1;
-  min-width: 0;
 }
 
-.codeLine {
-  background: var(--color-success-subtle);
+.proposalCardDate {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+}
+
+.fileName {
+  font-size: 0.8rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #888);
+  margin-bottom: 0.25rem;
 }
 
 .fileTabs {
   display: flex;
   gap: 0;
   margin-bottom: 0;
-  border-bottom: 1px solid var(--border, #333);
+  border-bottom: 1px solid var(--color-border, #333);
 }
 
 .fileTab {
   padding: 0.375rem 0.75rem;
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--color-border, #333);
   border-bottom: none;
   background: transparent;
-  color: var(--text-secondary, #888);
+  color: var(--color-text-muted, #888);
   cursor: pointer;
   font-size: 0.8rem;
   border-radius: 4px 4px 0 0;
@@ -210,54 +113,61 @@
 }
 
 .activeTab {
-  background: var(--surface, #1a1a2e);
+  background: var(--color-surface, #1a1a2e);
   color: var(--text-primary, #ddd);
-  border-color: var(--accent, #4fc3f7);
+  border-color: var(--color-accent, #4fc3f7);
 }
 
-.fileContent {
-  padding: 1rem;
-  border: 1px solid var(--border, #333);
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  background: var(--surface-dark, #111);
+.diffWrapper {
+  border: 1px solid var(--color-border, #333);
+  border-radius: var(--radius-sm, 4px);
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.diffWrapper code,
+.diffWrapper pre {
+  font-size: 0.7rem !important;
+  line-height: 1.4;
+}
+
+/* Entries toggle and detail */
+.entriesToggle {
+  margin-bottom: 0.75rem;
+}
+
+.entriesDetail {
+  padding: 0.5rem 0 0 1rem;
   font-size: 0.8rem;
-  line-height: 1.5;
-  overflow-x: auto;
-  max-height: 400px;
-  overflow-y: auto;
-  white-space: pre-wrap;
+  color: var(--color-text-muted, #888);
 }
 
-/* Edit textarea */
-.editTextarea {
-  width: 100%;
-  min-height: 400px;
-  padding: 0.75rem;
-  border: 1px solid var(--accent, #4fc3f7);
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  background: var(--surface-dark, #111);
+.entriesDetail h5 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
   color: var(--text-primary, #ddd);
-  font-size: 0.8rem;
-  font-family: monospace;
-  line-height: 1.5;
-  resize: vertical;
-  white-space: pre;
-  tab-size: 2;
-  box-sizing: border-box;
 }
 
-.editTextarea:focus {
-  outline: none;
-  border-color: var(--accent, #4fc3f7);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #4fc3f7) 30%, transparent);
+.entriesDetail ul {
+  margin: 0;
+  padding-left: 1.25rem;
 }
 
+.entriesDetail li {
+  margin-bottom: 0.25rem;
+}
+
+.discardReason {
+  color: var(--color-text-muted, #888);
+  font-style: italic;
+}
+
+/* Actions — right-aligned, dismiss left of apply */
 .actions {
   display: flex;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+  justify-content: flex-end;
 }
 
 .applyButton {
@@ -279,46 +189,11 @@
   cursor: not-allowed;
 }
 
-/* Edit & Apply button */
-.editApplyButton {
-  padding: 0.375rem 1rem;
-  background: transparent;
-  color: var(--accent, #4fc3f7);
-  border: 1px solid var(--accent, #4fc3f7);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.editApplyButton:hover {
-  background: color-mix(in srgb, var(--color-accent, #4fc3f7) 10%, transparent);
-}
-
-/* Re-curate button */
-.reCurateButton {
-  padding: 0.375rem 1rem;
-  background: var(--color-warning);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.reCurateButton:hover {
-  background: color-mix(in srgb, var(--color-warning) 85%, black);
-}
-
-.reCurateButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .dismissButton {
   padding: 0.375rem 1rem;
   background: transparent;
   color: var(--text-secondary, #888);
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--color-border, #333);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.875rem;
@@ -329,21 +204,15 @@
   border-color: var(--border-hover, #555);
 }
 
-.entriesUsed {
-  margin-top: 1rem;
+/* Sections */
+.section {
+  margin-bottom: 2rem;
 }
 
-.entriesUsed h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
-  color: var(--text-secondary, #888);
-}
-
-.entriesUsed ul {
-  margin: 0;
-  padding-left: 1.25rem;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #888);
+.section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-primary, #ddd);
 }
 
 .toggleButton {
@@ -356,21 +225,71 @@
 }
 
 .toggleButton:hover {
-  color: var(--accent, #4fc3f7);
+  color: var(--color-accent, #4fc3f7);
 }
 
-/* Filter bar */
+/* History items */
+.historyList {
+  margin-top: 0.5rem;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #888);
+}
+
+.historyIcon {
+  font-size: 0.75rem;
+  width: 1rem;
+  text-align: center;
+}
+
+.historyStatus {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  min-width: 4rem;
+}
+
+.historyDate {
+  font-size: 0.75rem;
+}
+
+.historySummary {
+  flex: 1;
+}
+
+/* Repo tab pending badge dot */
+.repoBadge {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.empty {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+}
+
+/* Raw signals filter bar */
 .filterBar {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+  margin-top: 0.75rem;
 }
 
 .filterSelect {
   padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--color-border, #333);
   border-radius: 4px;
-  background: var(--surface, #1a1a2e);
+  background: var(--color-surface, #1a1a2e);
   color: var(--text-primary, #ddd);
   font-size: 0.8rem;
   cursor: pointer;
@@ -379,9 +298,10 @@
 
 .filterSelect:focus {
   outline: none;
-  border-color: var(--accent, #4fc3f7);
+  border-color: var(--color-accent, #4fc3f7);
 }
 
+/* Entry cards with type-based left border */
 .entriesList {
   display: flex;
   flex-direction: column;
@@ -390,9 +310,22 @@
 
 .entryCard {
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--color-border, #333);
+  border-left: 3px solid var(--color-border, #333);
   border-radius: 4px;
-  background: var(--surface, #1a1a2e);
+  background: var(--color-surface, #1a1a2e);
+}
+
+.entryCard[data-entry-type='failure'] {
+  border-left-color: var(--color-danger);
+}
+
+.entryCard[data-entry-type='reflection'] {
+  border-left-color: var(--color-accent);
+}
+
+.entryCard[data-entry-type='friction'] {
+  border-left-color: var(--color-warning);
 }
 
 .entryMeta {
@@ -402,15 +335,20 @@
   margin-bottom: 0.25rem;
 }
 
-.entryAgent {
-  color: var(--accent, #4fc3f7);
-}
-
 .entryType {
   color: var(--color-warning);
 }
 
-.entryWs {
+.entryAgent {
+  color: var(--color-accent, #4fc3f7);
+}
+
+.entryTool {
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, monospace);
+}
+
+.entryCategory {
   color: var(--text-secondary, #888);
 }
 
@@ -422,4 +360,25 @@
 .entryText {
   font-size: 0.8rem;
   color: var(--text-primary, #ddd);
+}
+
+/* Trigger Curation button */
+.curateButton {
+  margin-top: 0.75rem;
+  padding: 0.375rem 1rem;
+  background: var(--color-warning);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.curateButton:hover {
+  background: color-mix(in srgb, var(--color-warning) 85%, black);
+}
+
+.curateButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
