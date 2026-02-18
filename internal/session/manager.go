@@ -618,6 +618,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		if err := provision.EnsureClaudeHooks(w.Path); err != nil {
 			fmt.Printf("[session] warning: failed to provision Claude hooks: %v\n", err)
 		}
+		if err := provision.EnsureLoreHookScripts(w.Path); err != nil {
+			fmt.Printf("[session] warning: failed to write lore hook scripts: %v\n", err)
+		}
 	} else if provision.SupportsSystemPromptFlag(baseTool) {
 		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
 			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
