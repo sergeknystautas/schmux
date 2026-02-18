@@ -40,19 +40,18 @@ const (
 
 // Manager manages sessions.
 type Manager struct {
-	config                  *config.Config
-	state                   state.StateStore
-	workspace               workspace.WorkspaceManager
-	remoteManager           *remote.Manager // Optional, for remote sessions
-	signalCallback          func(sessionID string, sig signal.Signal)
-	outputCallback          func(sessionID string, chunk []byte)
-	terminalCaptureCallback func(sessionID, workspaceID, terminalOutput string) // called on dispose with terminal scrollback
-	trackers                map[string]*SessionTracker
-	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
-	mu                      sync.RWMutex
-	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
-	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
-	telemetry               telemetry.Telemetry                                // optional, for usage tracking
+	config           *config.Config
+	state            state.StateStore
+	workspace        workspace.WorkspaceManager
+	remoteManager    *remote.Manager // Optional, for remote sessions
+	signalCallback   func(sessionID string, sig signal.Signal)
+	outputCallback   func(sessionID string, chunk []byte)
+	trackers         map[string]*SessionTracker
+	remoteDetectors  map[string]*remoteSignalMonitor // signal detectors for remote sessions
+	mu               sync.RWMutex
+	compoundCallback func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
+	loreCallback     func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
+	telemetry        telemetry.Telemetry                                // optional, for usage tracking
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -119,13 +118,6 @@ func (m *Manager) SetCompoundCallback(cb func(workspaceID string, isSpawn bool))
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string, isLastSession bool)) {
 	m.loreCallback = cb
-}
-
-// SetTerminalCaptureCallback sets the callback for capturing terminal output on session dispose.
-// The callback receives the session ID, workspace ID, and the captured terminal scrollback.
-// Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, terminalOutput string)) {
-	m.terminalCaptureCallback = cb
 }
 
 // SetTelemetry sets the telemetry client for usage tracking.
@@ -1162,13 +1154,6 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return m.disposeRemoteSession(ctx, sess)
 	}
 
-	// Keep the tmux pane alive after the process exits so we can capture
-	// terminal output in step 3. Without this, tmux destroys the pane
-	// immediately when the process exits (remain-on-exit defaults to off).
-	if m.terminalCaptureCallback != nil {
-		tmux.SetOption(ctx, sess.TmuxSession, "remain-on-exit", "on")
-	}
-
 	// Track what we've done for the summary
 	var warnings []string
 	processesKilled := 0
@@ -1212,19 +1197,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	// Step 3: Capture terminal output (tmux pane is still alive after process exit)
-	if m.terminalCaptureCallback != nil && ctx.Err() == nil {
-		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
-		output, err := tmux.CaptureOutput(captureCtx, sess.TmuxSession)
-		captureCancel()
-		if err != nil {
-			fmt.Printf("[session] warning: failed to capture terminal output for %s: %v\n", sessionID, err)
-		} else if output != "" {
-			m.terminalCaptureCallback(sessionID, sess.WorkspaceID, output)
-		}
-	}
-
-	// Step 4: Kill tmux session (ignore error if already gone - that's success)
+	// Step 3: Kill tmux session (ignore error if already gone - that's success)
 	if err := tmux.KillSession(ctx, sess.TmuxSession); err == nil {
 		tmuxKilled = true
 	}

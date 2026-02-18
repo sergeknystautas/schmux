@@ -15,7 +15,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/compound"
@@ -448,35 +447,6 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
 		server.HandleAgentSignal(sessionID, sig)
 	})
-
-	// Wire terminal capture callback: on session dispose, capture scrollback for lore mining
-	if cfg.GetLoreEnabled() {
-		sm.SetTerminalCaptureCallback(func(sessionID, workspaceID, terminalOutput string) {
-			ws, found := st.GetWorkspace(workspaceID)
-			if !found || ws.RemoteHostID != "" {
-				return
-			}
-
-			cleaned := processTerminalCapture(terminalOutput)
-			if cleaned == "" {
-				return
-			}
-
-			lorePath := filepath.Join(ws.Path, ".schmux", "lore.jsonl")
-			entry := lore.Entry{
-				Timestamp: time.Now().UTC(),
-				Workspace: workspaceID,
-				Agent:     "schmux",
-				Type:      "terminal-capture",
-				Text:      cleaned,
-			}
-			if err := lore.AppendEntry(lorePath, entry); err != nil {
-				fmt.Printf("[lore] warning: failed to append terminal capture for %s: %v\n", sessionID, err)
-			} else {
-				fmt.Printf("[lore] captured terminal output for session %s (%d chars)\n", sessionID, len(cleaned))
-			}
-		})
-	}
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
@@ -960,76 +930,6 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		return ErrDevRestart
 	}
 	return nil
-}
-
-// maxTerminalCaptureLen is the maximum number of characters to keep from terminal output.
-const maxTerminalCaptureLen = 20000
-
-// processTerminalCapture strips ANSI escape sequences, collapses excessive whitespace,
-// truncates to the last maxTerminalCaptureLen characters, and returns empty string
-// if only whitespace remains.
-func processTerminalCapture(raw string) string {
-	cleaned := tmux.StripAnsi(raw)
-
-	// Collapse runs of 3+ newlines to 2 newlines
-	for strings.Contains(cleaned, "\n\n\n") {
-		cleaned = strings.ReplaceAll(cleaned, "\n\n\n", "\n\n")
-	}
-
-	// Collapse runs of spaces/tabs within lines (preserve leading whitespace)
-	lines := strings.Split(cleaned, "\n")
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-		// Find leading whitespace boundary
-		trimmed := strings.TrimLeft(line, " \t")
-		if trimmed == "" {
-			lines[i] = ""
-			continue
-		}
-		leading := line[:len(line)-len(trimmed)]
-		// Collapse interior runs of spaces/tabs to single space
-		collapsed := collapseInnerWhitespace(trimmed)
-		lines[i] = leading + collapsed
-	}
-	cleaned = strings.Join(lines, "\n")
-
-	if len(cleaned) > maxTerminalCaptureLen {
-		cleaned = cleaned[len(cleaned)-maxTerminalCaptureLen:]
-		// Ensure we don't start mid-rune after byte-level truncation.
-		// Find the first valid rune boundary.
-		for i := 0; i < len(cleaned) && i < 4; i++ {
-			if utf8.RuneStart(cleaned[i]) {
-				cleaned = cleaned[i:]
-				break
-			}
-		}
-	}
-	if strings.TrimSpace(cleaned) == "" {
-		return ""
-	}
-	return cleaned
-}
-
-// collapseInnerWhitespace collapses runs of spaces/tabs to a single space
-// within a line of text (leading whitespace should be stripped before calling).
-func collapseInnerWhitespace(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	inSpace := false
-	for _, r := range s {
-		if r == ' ' || r == '\t' {
-			if !inSpace {
-				b.WriteByte(' ')
-				inSpace = true
-			}
-		} else {
-			b.WriteRune(r)
-			inSpace = false
-		}
-	}
-	return b.String()
 }
 
 // Shutdown triggers a graceful shutdown. Safe to call multiple times.
