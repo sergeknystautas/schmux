@@ -409,7 +409,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			}
 
 			if step.Hash != "" {
-				crState.SetHash(step.Hash)
+				crState.SetHash(step.Hash, step.HashMessage)
 			}
 			stepPayload := LinearSyncResolveConflictStep{
 				Action:             step.Action,
@@ -418,6 +418,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 				LocalCommit:        step.LocalCommit,
 				LocalCommitMessage: step.LocalCommitMessage,
 				Files:              step.Files,
+				ConflictDiffs:      step.ConflictDiffs,
 				Confidence:         step.Confidence,
 				Summary:            step.Summary,
 				Created:            step.Created,
@@ -429,6 +430,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 					existing.Message = stepPayload.Message
 					existing.LocalCommitMessage = stepPayload.LocalCommitMessage
 					existing.Files = stepPayload.Files
+					existing.ConflictDiffs = stepPayload.ConflictDiffs
 					existing.Confidence = stepPayload.Confidence
 					existing.Summary = stepPayload.Summary
 					existing.Created = stepPayload.Created
