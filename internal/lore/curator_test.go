@@ -17,7 +17,7 @@ func TestBuildCuratorPrompt(t *testing.T) {
 		"CLAUDE.md": "# Project\n\n## Build\ngo build",
 	}
 	entries := []Entry{
-		{Text: "use go run ./cmd/build-dashboard", Type: "operational"},
+		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code"},
 	}
 	prompt := BuildCuratorPrompt(files, entries)
 	if !strings.Contains(prompt, "CLAUDE.md") {
@@ -83,7 +83,7 @@ func TestCurate_WithEntries(t *testing.T) {
 		Timestamp: time.Now().UTC(),
 		Workspace: "ws-1",
 		Agent:     "claude-code",
-		Type:      "operational",
+		Type:      "reflection",
 		Text:      "always run tests with --race",
 	})
 
@@ -166,5 +166,46 @@ func TestCuratorResponseSchemaRegistered(t *testing.T) {
 		if _, exists := props[field]; !exists {
 			t.Errorf("expected property %q in schema", field)
 		}
+	}
+}
+
+func TestBuildCuratorPrompt_SeparatesFailuresAndReflections(t *testing.T) {
+	files := map[string]string{
+		"CLAUDE.md": "# Project\n\n## Build\ngo build",
+	}
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
+		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
+	}
+	prompt := BuildCuratorPrompt(files, entries)
+
+	// Should have separate sections
+	if !strings.Contains(prompt, "FAILURE RECORDS:") {
+		t.Error("prompt should contain FAILURE RECORDS section")
+	}
+	if !strings.Contains(prompt, "FRICTION REFLECTIONS:") {
+		t.Error("prompt should contain FRICTION REFLECTIONS section")
+	}
+
+	// Failures should be formatted with tool and category
+	if !strings.Contains(prompt, "[Bash]") {
+		t.Error("prompt should contain tool name in failure record")
+	}
+	if !strings.Contains(prompt, "[wrong_command]") {
+		t.Error("prompt should contain category in failure record")
+	}
+	if !strings.Contains(prompt, "npm run build") {
+		t.Error("prompt should contain input summary")
+	}
+
+	// Reflections should contain text
+	if !strings.Contains(prompt, "Use go run ./cmd/build-dashboard") {
+		t.Error("prompt should contain reflection text")
+	}
+
+	// Should contain synthesize rule in system prompt
+	if !strings.Contains(prompt, "SYNTHESIZE") {
+		t.Error("prompt should contain SYNTHESIZE instruction")
 	}
 }

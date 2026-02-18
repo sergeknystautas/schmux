@@ -161,29 +161,33 @@ func BuildCuratorPrompt(instrFiles map[string]string, entries []Entry) string {
 	sb.WriteString(`You are a curator for a software project's agent instruction files.
 
 You will receive:
-1. A list of raw lore entries discovered by AI agents working on this project
-2. The current content of all instruction files
+1. Failure records: tool calls that failed during agent work sessions
+2. Friction reflections: agent-reported papercuts and wrong assumptions
+3. The current content of all instruction files
 
 Your job is to produce a merge proposal — changes to the instruction files that
-incorporate the new lore.
+prevent future agents from repeating these mistakes.
 
 Rules:
-- DEDUPLICATE: Collapse similar entries from different agents into one
-- FILTER: Discard entries already covered by existing content
-- ROUTE: Decide which file(s) each entry belongs in:
-  - Universal lore (applies to any agent) → add to ALL instruction files, adapted to each file's style
-  - Agent-specific lore → add to that agent's file only
-- CATEGORIZE: Place each entry under the appropriate existing section, or propose a new section if none fits
-- PRESERVE VOICE: Match the tone, formatting, and style of each file
+- SYNTHESIZE: Turn failure patterns into actionable rules
+  (e.g., 5 "npm run build" failures → "Always use go run ./cmd/build-dashboard")
+- DEDUPLICATE: Multiple agents hitting the same wall → one rule
+- FILTER: Discard one-off failures that don't indicate systemic issues
+  (e.g., a single typo in a file path is not lore-worthy)
+- FILTER: Discard failures already covered by existing instructions
+- ROUTE: Universal rules → all instruction files. Agent-specific → that file only
+- CATEGORIZE: Place under appropriate existing section, or propose new section
+- PRESERVE VOICE: Match tone, formatting, and style of each file
 - NEVER REMOVE existing content — only add or refine
+- Write rules as imperatives: "Use X, not Y" / "Always run X before Y"
 - Output ONLY valid JSON matching the schema below, no markdown fencing
 
 Output schema:
 {
   "proposed_files": {"<filename>": "<full proposed content>", ...},
   "diff_summary": "<one-line summary of changes>",
-  "entries_used": ["<entry text that was incorporated>", ...],
-  "entries_discarded": {"<entry text>": "<reason for discarding>", ...}
+  "entries_used": ["<entry text or input_summary that was incorporated>", ...],
+  "entries_discarded": {"<entry text or input_summary>": "<reason for discarding>", ...}
 }
 
 INSTRUCTION FILES:
@@ -192,9 +196,29 @@ INSTRUCTION FILES:
 		fmt.Fprintf(&sb, "\n=== %s ===\n%s\n", name, content)
 	}
 
-	sb.WriteString("\nRAW LORE:\n")
+	// Separate entries by type
+	var failures, reflections []Entry
 	for _, e := range entries {
-		fmt.Fprintf(&sb, "- [%s] [%s] [%s] %s\n", e.Agent, e.Type, e.Workspace, e.Text)
+		if e.Type == "failure" {
+			failures = append(failures, e)
+		} else {
+			reflections = append(reflections, e)
+		}
+	}
+
+	if len(failures) > 0 {
+		sb.WriteString("\nFAILURE RECORDS:\n")
+		for _, e := range failures {
+			fmt.Fprintf(&sb, "- [%s] [%s] [%s] [%s] command: %q → error: %q\n",
+				e.Agent, e.Tool, e.Category, e.Workspace, e.InputSummary, e.ErrorSummary)
+		}
+	}
+
+	if len(reflections) > 0 {
+		sb.WriteString("\nFRICTION REFLECTIONS:\n")
+		for _, e := range reflections {
+			fmt.Fprintf(&sb, "- [%s] [%s] [%s] %s\n", e.Agent, e.Type, e.Workspace, e.Text)
+		}
 	}
 
 	return sb.String()
