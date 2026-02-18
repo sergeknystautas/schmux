@@ -607,8 +607,8 @@ export default function TipsPage() {
               <h2>Dashboard Keyboard Shortcuts</h2>
               <p>
                 The dashboard has a keyboard mode activated by pressing{' '}
-                <span className={styles.keyCombo}>⌘K</span> (or{' '}
-                <span className={styles.keyCombo}>Ctrl+K</span> on Linux/Windows). Once activated,
+                <span className={styles.keyCombo}>⌘/</span> (or{' '}
+                <span className={styles.keyCombo}>Ctrl+/</span> on Linux/Windows). Once activated,
                 press a key to execute the action. Press{' '}
                 <span className={styles.keyCombo}>Esc</span> to cancel.
               </p>
@@ -720,7 +720,7 @@ export default function TipsPage() {
                 <tbody>
                   <tr>
                     <td>
-                      <span className={styles.keyCombo}>⌘K / Ctrl+K</span>
+                      <span className={styles.keyCombo}>⌘/ / Ctrl+/</span>
                     </td>
                     <td>Toggle keyboard mode</td>
                   </tr>

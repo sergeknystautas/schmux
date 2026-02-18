@@ -224,6 +224,20 @@ export default function AppShell() {
     };
   }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
 
+  // Deprecation notice for Cmd+K (changed to Cmd+/)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) {
+        e.preventDefault();
+        const modKey = e.metaKey ? '⌘' : 'Ctrl';
+        success(`${modKey}+K has been changed to ${modKey}+/`, 5000);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [success]);
+
   // beforeunload prevents accidental tab close (Cmd+W, browser X button, etc.)
   const confirmBeforeClose = config?.notifications?.confirm_before_close ?? false;
   useEffect(() => {
