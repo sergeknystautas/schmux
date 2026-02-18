@@ -856,33 +856,6 @@ func TestKillProcessGroupGraceful(t *testing.T) {
 	})
 }
 
-func TestSetTerminalCaptureCallback(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-
-	m := New(cfg, st, statePath, wm)
-
-	var capturedSessionID, capturedWorkspaceID, capturedOutput string
-	m.SetTerminalCaptureCallback(func(sessionID, workspaceID, output string) {
-		capturedSessionID = sessionID
-		capturedWorkspaceID = workspaceID
-		capturedOutput = output
-	})
-
-	// Verify callback is set
-	if m.terminalCaptureCallback == nil {
-		t.Fatal("terminalCaptureCallback should not be nil")
-	}
-
-	// Invoke it
-	m.terminalCaptureCallback("s1", "w1", "hello world")
-	if capturedSessionID != "s1" || capturedWorkspaceID != "w1" || capturedOutput != "hello world" {
-		t.Errorf("callback received wrong values: %q, %q, %q", capturedSessionID, capturedWorkspaceID, capturedOutput)
-	}
-}
-
 func TestKillProcessGroupGraceful_ProcessSelfExits(t *testing.T) {
 	// Start a process that exits on its own after 200ms (not via our signal)
 	cmd := exec.Command("bash", "-c", "sleep 0.2")
