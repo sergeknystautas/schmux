@@ -285,7 +285,9 @@ export default function LinearSyncResolveConflictProgress({
 
   // Auto-scroll to bottom as new steps arrive or existing steps update
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (bottomRef.current && typeof bottomRef.current.scrollIntoView === 'function') {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
   }, [state?.steps]);
 
   if (!state) return null;

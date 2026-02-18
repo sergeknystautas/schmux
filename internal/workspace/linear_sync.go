@@ -33,6 +33,11 @@ func (e *PreCommitHookError) Unwrap() error {
 // This brings commits FROM the default branch INTO the current branch one at a time, preserving local changes.
 // Supports diverged branches - will replay local commits on top of default branch's commits.
 func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
+	if !m.LockWorkspace(workspaceID) {
+		return nil, ErrWorkspaceLocked
+	}
+	defer m.UnlockWorkspace(workspaceID)
+
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -138,8 +143,18 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	}
 
 	// 6. For each commit hash: git rebase <hash>
+	// Capture the total timeout duration so we can stop at 80% to avoid killing a mid-flight rebase.
+	deadline, hasDeadline := ctx.Deadline()
+	var totalTimeout time.Duration
+	if hasDeadline {
+		totalTimeout = time.Until(deadline)
+	}
 	successCount := 0
 	for i, hash := range commitHashes {
+		if hasDeadline && time.Until(deadline) < totalTimeout/5 {
+			fmt.Printf("[workspace] approaching timeout, stopping after %d/%d rebases\n", successCount, len(commitHashes))
+			break
+		}
 		rebaseCmd := exec.CommandContext(ctx, "git", "rebase", hash)
 		rebaseCmd.Dir = workspacePath
 		if err := rebaseCmd.Run(); err != nil {
@@ -170,6 +185,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 		}
 		successCount++
 		fmt.Printf("[workspace] rebased %d/%d: %s\n", i+1, len(commitHashes), hash)
+		if m.syncProgressFn != nil {
+			m.syncProgressFn(workspaceID, i+1, len(commitHashes))
+		}
 	}
 
 	// 7. All succeeded: git reset --mixed HEAD~1 - undo the WIP commit
@@ -411,6 +429,11 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*Linear
 // one-shot LLM call to resolve the conflicted files, then continues. Repeats for each conflicting commit.
 // The onStep callback (if non-nil) is called at each progress step for real-time reporting.
 func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error) {
+	if !m.LockWorkspace(workspaceID) {
+		return nil, ErrWorkspaceLocked
+	}
+	defer m.UnlockWorkspace(workspaceID)
+
 	emit := func(step ResolveConflictStep) {
 		if onStep != nil {
 			onStep(step)

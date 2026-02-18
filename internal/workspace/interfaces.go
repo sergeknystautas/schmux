@@ -172,6 +172,9 @@ type WorkspaceManager interface {
 
 	// GetCommitDetail returns detailed information about a specific commit.
 	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.GitCommitDetailResponse, error)
+
+	// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
+	IsWorkspaceLocked(workspaceID string) bool
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

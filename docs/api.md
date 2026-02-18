@@ -945,6 +945,7 @@ Errors:
 
 - 400: "workspace ID is required"
 - 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
+- 409 with JSON: `{"success":false,"message":"workspace is locked by another sync operation"}`
 - 500 with JSON: `{"success":false,"message":"Failed to sync from main: ..."}`
 
 Notes:
@@ -953,6 +954,8 @@ Notes:
 - Aborts if conflicts are detected during cherry-pick
 - Preserves local changes via temporary WIP commit
 - Updates workspace git status after sync
+- Lock state changes are broadcast in real-time via the `workspace_locked` WebSocket message
+- Rebase progress (current/total commits) is streamed via `workspace_locked` messages with `sync_progress`
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-to-main
 
@@ -1675,9 +1678,25 @@ Conflict resolution progress (sent as separate messages when active):
 }
 ```
 
+Workspace lock state (sent in real-time, not debounced, when lock state changes or sync progress updates):
+
+```json
+{
+  "type": "workspace_locked",
+  "workspace_id": "workspace-id",
+  "locked": true,
+  "sync_progress": { "current": 5, "total": 496 }
+}
+```
+
+- `locked: true` sent when a sync operation acquires the workspace lock
+- `locked: false` sent when the lock is released
+- `sync_progress` is optional; included during `linear-sync-from-main` rebase with current/total commit counts
+
 Notes:
 
-- Uses trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+- Sessions updates use trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+- `workspace_locked` messages are sent immediately (not debounced)
 - No client-to-server messages expected; the connection is kept alive by reading
 
 Remote access status update:

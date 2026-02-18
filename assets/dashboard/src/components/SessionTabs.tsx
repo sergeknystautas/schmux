@@ -49,8 +49,12 @@ export default function SessionTabs({
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
-  const { waitForSession, linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } =
-    useSessions();
+  const {
+    waitForSession,
+    linearSyncResolveConflictStates,
+    clearLinearSyncResolveConflictState,
+    workspaceLockStates,
+  } = useSessions();
   const { setContext, clearContext } = useKeyboardMode();
 
   // Spawn dropdown state
@@ -62,6 +66,8 @@ export default function SessionTabs({
   const spawnMenuRef = useRef<HTMLDivElement | null>(null);
   const crState = workspace ? linearSyncResolveConflictStates[workspace.id] : undefined;
   const resolveInProgress = crState?.status === 'in_progress';
+  const lockState = workspace ? workspaceLockStates[workspace.id] : undefined;
+  const isLocked = resolveInProgress || lockState?.locked;
 
   const quickLaunch = React.useMemo(() => {
     const globalNames = (config?.quick_launch || []).map((item) => item.name);
@@ -132,18 +138,18 @@ export default function SessionTabs({
   }, [spawnMenuOpen]);
 
   useEffect(() => {
-    if (resolveInProgress && spawnMenuOpen) {
+    if (isLocked && spawnMenuOpen) {
       setSpawnMenuOpen(false);
     }
-  }, [resolveInProgress, spawnMenuOpen]);
+  }, [isLocked, spawnMenuOpen]);
 
   useEffect(() => {
-    if (!workspace || !resolveInProgress) return;
-    const target = `/resolve-conflict/${workspace.id}`;
+    if (!workspace || !isLocked) return;
+    const target = resolveInProgress ? `/resolve-conflict/${workspace.id}` : `/git/${workspace.id}`;
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }
-  }, [workspace, resolveInProgress, location.pathname, navigate]);
+  }, [workspace, isLocked, resolveInProgress, location.pathname, navigate]);
 
   // Set keyboard context for the active workspace/session
   useEffect(() => {
@@ -259,7 +265,7 @@ export default function SessionTabs({
   const renderSessionTab = (sess: SessionResponse) => {
     const isCurrent = sess.id === currentSessionId;
     const displayName = sess.nickname || sess.target;
-    const disabled = resolveInProgress;
+    const disabled = isLocked;
 
     const runTarget = (config?.run_targets || []).find((t) => t.name === sess.target);
     const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
@@ -351,17 +357,17 @@ export default function SessionTabs({
   // Helper to render the diff tab (always shown)
   const renderDiffTab = () => (
     <div
-      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}${resolveInProgress ? ' session-tab--disabled' : ''}`}
-      onClick={() => !resolveInProgress && handleDiffTabClick()}
+      className={`session-tab session-tab--diff${activeDiffTab ? ' session-tab--active' : ''}${isLocked ? ' session-tab--disabled' : ''}`}
+      onClick={() => !isLocked && handleDiffTabClick()}
       role="button"
-      tabIndex={resolveInProgress ? -1 : 0}
+      tabIndex={isLocked ? -1 : 0}
       onKeyDown={(e) => {
-        if (resolveInProgress) return;
+        if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
           handleDiffTabClick();
         }
       }}
-      style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+      style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">
@@ -389,17 +395,17 @@ export default function SessionTabs({
   // Helper to render the git tab
   const renderGitTab = () => (
     <div
-      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}${resolveInProgress ? ' session-tab--disabled' : ''}`}
-      onClick={() => !resolveInProgress && handleGitTabClick()}
+      className={`session-tab session-tab--diff${activeGitTab ? ' session-tab--active' : ''}${isLocked ? ' session-tab--disabled' : ''}`}
+      onClick={() => !isLocked && handleGitTabClick()}
       role="button"
-      tabIndex={resolveInProgress ? -1 : 0}
+      tabIndex={isLocked ? -1 : 0}
       onKeyDown={(e) => {
-        if (resolveInProgress) return;
+        if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
           handleGitTabClick();
         }
       }}
-      style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+      style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
     >
       <div className="session-tab__row1">
         <span className="session-tab__name">commit graph</span>
@@ -409,7 +415,7 @@ export default function SessionTabs({
 
   const renderPreviewTab = (preview: NonNullable<WorkspaceResponse['previews']>[number]) => {
     const isActive = activePreviewId === preview.id;
-    const disabled = resolveInProgress;
+    const disabled = isLocked;
     const statusTitle =
       preview.status === 'degraded'
         ? preview.last_error || 'Upstream server unavailable'
@@ -534,15 +540,15 @@ export default function SessionTabs({
         ref={spawnButtonRef}
         className="session-tab--add"
         onClick={(e) => {
-          if (resolveInProgress) return;
+          if (isLocked) return;
           e.stopPropagation();
           setSpawnMenuOpen(!spawnMenuOpen);
         }}
-        disabled={spawning || resolveInProgress}
+        disabled={spawning || isLocked}
         aria-expanded={spawnMenuOpen}
         aria-haspopup="menu"
         aria-label="Spawn new session"
-        style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+        style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         {spawning ? (
           <span className="spinner spinner--small"></span>
@@ -621,11 +627,11 @@ export default function SessionTabs({
 
         {activeSpawnTab && (
           <div
-            className={`session-tab session-tab--active${resolveInProgress ? ' session-tab--disabled' : ''}`}
-            onClick={() => !resolveInProgress && handleSpawnTabClick()}
+            className={`session-tab session-tab--active${isLocked ? ' session-tab--disabled' : ''}`}
+            onClick={() => !isLocked && handleSpawnTabClick()}
             role="button"
-            tabIndex={resolveInProgress ? -1 : 0}
-            style={resolveInProgress ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+            tabIndex={isLocked ? -1 : 0}
+            style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
           >
             <div className="session-tab__row1">
               <span className="session-tab__name">Spawning...</span>

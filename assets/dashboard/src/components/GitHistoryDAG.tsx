@@ -54,8 +54,10 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [containerHeight, setContainerHeight] = useState(0);
 
   // Pull workspace data early so all hooks are called before any conditional returns.
-  const { workspaces } = useSessions();
+  const { workspaces, workspaceLockStates } = useSessions();
   const ws = workspaces.find((w) => w.id === workspaceId);
+  const lockState = workspaceLockStates[workspaceId];
+  const isSyncing = syncing || !!lockState?.locked;
   const gitFingerprint = ws
     ? `${ws.git_ahead}:${ws.git_behind}:${ws.git_files_changed}:${ws.git_lines_added}:${ws.git_lines_removed}`
     : '';
@@ -232,7 +234,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       }
 
       const onPushToDefaultClick = async () => {
-        if (!ws || pushToDefaultDisabled || ffToMainSyncing) return;
+        if (!ws || pushToDefaultDisabled || ffToMainSyncing || isSyncing) return;
         setFfToMainSyncing(true);
         try {
           await handleLinearSyncToMain(ws.id, defaultBranch, ws.path);
@@ -242,7 +244,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       };
 
       const onPushToBranchClick = async () => {
-        if (!ws || pushToBranchSyncing) return;
+        if (!ws || pushToBranchSyncing || isSyncing) return;
         setPushToBranchSyncing(true);
         try {
           await handlePushToBranch(ws.id, branchName);
@@ -255,7 +257,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         <button
           className="git-dag__ff-to-main-button"
           onClick={onPushToDefaultClick}
-          disabled={pushToDefaultDisabled || ffToMainSyncing}
+          disabled={pushToDefaultDisabled || ffToMainSyncing || isSyncing}
         >
           {ffToMainSyncing ? (
             <>
@@ -271,7 +273,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
         <button
           className="git-dag__push-to-branch-button"
           onClick={onPushToBranchClick}
-          disabled={pushToBranchDisabled || pushToBranchSyncing}
+          disabled={pushToBranchDisabled || pushToBranchSyncing || isSyncing}
         >
           {pushToBranchSyncing ? (
             <>
@@ -493,7 +495,7 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
       const defaultBranch = ws?.default_branch || 'main';
 
       const onSyncClick = async () => {
-        if (!ws || syncing) return;
+        if (!ws || isSyncing) return;
         setSyncing(true);
         try {
           await handleSmartSync(ws);
@@ -508,9 +510,9 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             <button
               className="git-dag__sync-button"
               onClick={onSyncClick}
-              disabled={syncing || !ws}
+              disabled={isSyncing || !ws}
             >
-              {syncing ? (
+              {isSyncing ? (
                 <>
                   <span className="spinner" /> Pulling
                 </>
@@ -522,8 +524,10 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
             </button>
           </Tooltip>
           <span className="git-dag__sync-summary">
-            &middot; {ln.syncSummary.count} commit
-            {ln.syncSummary.count !== 1 ? 's' : ''}
+            &middot;{' '}
+            {lockState?.syncProgress
+              ? `Rebasing ${lockState.syncProgress.current}/${lockState.syncProgress.total} commits`
+              : `${ln.syncSummary.count} commit${ln.syncSummary.count !== 1 ? 's' : ''}`}
           </span>
           <span style={{ flex: 1 }} />
           <span className="git-dag__time">

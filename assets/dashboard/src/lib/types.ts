@@ -313,6 +313,11 @@ export interface LinearSyncResolveConflictStatePayload {
   resolutions?: ConflictResolution[];
 }
 
+export interface WorkspaceLockState {
+  locked: boolean;
+  syncProgress?: { current: number; total: number };
+}
+
 export interface RecentBranch {
   repo_name: string;
   repo_url: string;
