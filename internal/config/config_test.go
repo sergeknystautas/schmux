@@ -27,7 +27,7 @@ func TestLoad(t *testing.T) {
 		},
 	}
 
-	data, err := json.MarshalIndent(validConfig, "", "  ")
+	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
 		t.Fatalf("failed to marshal config: %v", err)
 	}
@@ -713,7 +713,7 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 		RunTargets:    []RunTarget{},
 	}
 
-	data, err := json.MarshalIndent(validConfig, "", "  ")
+	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
 		t.Fatalf("failed to marshal config: %v", err)
 	}

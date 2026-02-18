@@ -239,6 +239,7 @@ type RemoteAccessConfig struct {
 	// If both are set, Enabled takes precedence.
 	Disabled *bool `json:"disabled,omitempty"`
 }
+
 // NudgenikConfig represents configuration for the NudgeNik assistant.
 type NudgenikConfig struct {
 	Target         string `json:"target,omitempty"`

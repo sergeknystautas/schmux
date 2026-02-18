@@ -6,7 +6,7 @@ import {
   waitForDashboardLive,
   waitForHealthy,
   waitForTerminalOutput,
-  sleep,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe.serial('View live terminal output', () => {
@@ -37,7 +37,7 @@ test.describe.serial('View live terminal output', () => {
     sessionId = results[0].session_id;
 
     // Wait for the session to start producing output
-    await sleep(2000);
+    await waitForSessionRunning(sessionId);
   });
 
   test('terminal viewport is visible on session page', async ({ page }) => {

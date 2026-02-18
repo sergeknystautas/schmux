@@ -6,7 +6,7 @@ import {
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
-  sleep,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe.serial('Dispose a session', () => {
@@ -37,7 +37,7 @@ test.describe.serial('Dispose a session', () => {
     sessionId = results[0].session_id;
 
     // Wait for the session to be fully running
-    await sleep(2000);
+    await waitForSessionRunning(sessionId);
   });
 
   test('dispose session via the UI', async ({ page }) => {

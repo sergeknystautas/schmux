@@ -77,7 +77,7 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
 
     // Wait for at least one branch button to appear inside the card
     // Filter out the header Refresh button by excluding buttons with title containing "Refresh"
-    const branchButtons = recentBranchesCard.locator('button:not([title*="Refresh"])');
+    const branchButtons = recentBranchesCard.locator('[data-testid="branch-item"]');
     await branchButtons.first().waitFor({ state: 'visible', timeout: 15000 });
 
     const count = await branchButtons.count();
@@ -99,7 +99,7 @@ test.describe.serial('Quick launch a session from a recent branch', () => {
     const recentBranchesCard = page.locator('[data-testid="recent-branches"]');
     await expect(recentBranchesCard).toBeVisible({ timeout: 15000 });
 
-    const branchButtons = recentBranchesCard.locator('button:not([title*="Refresh"])');
+    const branchButtons = recentBranchesCard.locator('[data-testid="branch-item"]');
     await branchButtons.first().waitFor({ state: 'visible', timeout: 15000 });
 
     // Click the first branch button

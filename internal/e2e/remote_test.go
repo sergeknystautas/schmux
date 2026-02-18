@@ -116,14 +116,23 @@ func TestE2ERemoteBasicLifecycle(t *testing.T) {
 	t.Run("DisposeSession", func(t *testing.T) {
 		env.DisposeSession(sessionID)
 
-		// Verify session is gone
-		time.Sleep(500 * time.Millisecond)
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == sessionID {
-				t.Error("Session still exists after dispose")
+		// Poll until session is gone
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			sessions := env.GetAPISessions()
+			found := false
+			for _, sess := range sessions {
+				if sess.ID == sessionID {
+					found = true
+					break
+				}
 			}
+			if !found {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
+		t.Error("Session still exists after dispose")
 	})
 }
 
@@ -249,15 +258,24 @@ func TestE2ERemoteMultipleSessions(t *testing.T) {
 		env.DisposeSession(session2ID)
 		env.DisposeSession(session3ID)
 
-		time.Sleep(500 * time.Millisecond)
-
-		// Verify all gone
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == session1ID || sess.ID == session2ID || sess.ID == session3ID {
-				t.Errorf("Session %s still exists after dispose", sess.ID)
+		// Poll until all disposed sessions are gone
+		disposedIDs := map[string]bool{session1ID: true, session2ID: true, session3ID: true}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			sessions := env.GetAPISessions()
+			anyFound := false
+			for _, sess := range sessions {
+				if disposedIDs[sess.ID] {
+					anyFound = true
+					break
+				}
 			}
+			if !anyFound {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
+		t.Error("Some sessions still exist after dispose")
 	})
 }
 
@@ -392,9 +410,6 @@ func TestE2ERemoteStatePersistence(t *testing.T) {
 	t.Run("StopDaemon", func(t *testing.T) {
 		env.DaemonStop()
 	})
-
-	// Wait a bit for daemon to fully stop
-	time.Sleep(1 * time.Second)
 
 	t.Run("RestartDaemon", func(t *testing.T) {
 		env.DaemonStart()

@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { seedConfig, spawnSession, waitForDashboardLive, waitForHealthy, sleep } from './helpers';
+import {
+  seedConfig,
+  spawnSession,
+  waitForDashboardLive,
+  waitForHealthy,
+  sleep,
+  waitForSessionRunning,
+} from './helpers';
 
 const BASE_URL = 'http://localhost:7337';
 
@@ -55,7 +62,7 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
     sessionId = results[0].session_id;
     workspaceId = results[0].workspace_id;
 
-    await sleep(2000);
+    await waitForSessionRunning(sessionId);
 
     // Trigger conflict resolution via API. Accept 202 (started) or
     // 409 (already in progress from auto-trigger during spawn).

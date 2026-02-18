@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { seedConfig, spawnSession, waitForDashboardLive, waitForHealthy, sleep } from './helpers';
+import {
+  seedConfig,
+  spawnSession,
+  waitForDashboardLive,
+  waitForHealthy,
+  waitForSessionRunning,
+} from './helpers';
 import WS from 'ws';
 import { execSync } from 'child_process';
 import { writeFileSync } from 'fs';
@@ -160,7 +166,7 @@ RESPONSE
     workspaceId = results[0].workspace_id;
 
     // Wait for session to be ready
-    await sleep(2000);
+    await waitForSessionRunning(sessionId);
   });
 
   test('01 trigger conflict resolution returns 202', async () => {

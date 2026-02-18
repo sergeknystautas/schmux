@@ -485,7 +485,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 // config. Called after config save so the runtime curator stays in sync with
 // the persisted lore.llm_target value.
 func (s *Server) refreshLoreCurator(cfg *config.Config) {
-	target := cfg.GetLoreTarget()
+	target := cfg.GetLoreTargetRaw()
 
 	if s.loreCurator == nil {
 		// Lore was disabled at startup — create a curator now
