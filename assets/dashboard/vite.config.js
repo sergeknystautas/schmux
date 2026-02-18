@@ -72,7 +72,13 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
-          xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links'],
+          xterm: [
+            '@xterm/xterm',
+            '@xterm/addon-fit',
+            '@xterm/addon-web-links',
+            '@xterm/addon-unicode11',
+          ],
+          markdown: ['react-markdown', 'remark-gfm', 'react-diff-viewer-continued'],
         },
       },
     },
