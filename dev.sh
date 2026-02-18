@@ -29,6 +29,7 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 SCHMUX_DIR="${HOME}/.schmux"
+mkdir -p "$SCHMUX_DIR"
 DEV_STATE_FILE="${SCHMUX_DIR}/dev-state.json"
 DEV_RESTART_FILE="${SCHMUX_DIR}/dev-restart.json"
 DEV_BUILD_STATUS_FILE="${SCHMUX_DIR}/dev-build-status.json"
