@@ -288,11 +288,12 @@ export interface LinearSyncResolveConflictResponse {
 export interface LinearSyncResolveConflictStep {
   action: string;
   status: string;
-  message: string;
+  message: string[];
   at: string;
   local_commit?: string;
   local_commit_message?: string;
   files?: string[];
+  conflict_diffs?: Record<string, string[]>;
   confidence?: string;
   summary?: string;
   created?: boolean;
@@ -303,6 +304,7 @@ export interface LinearSyncResolveConflictStatePayload {
   workspace_id: string;
   status: 'in_progress' | 'done' | 'failed';
   hash?: string;
+  hash_message?: string;
   tmux_session?: string;
   started_at: string;
   finished_at?: string;

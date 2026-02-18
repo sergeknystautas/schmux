@@ -439,7 +439,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 	// Verify common ancestry — reject if origin/default has no shared history with HEAD
 	if !m.hasCommonAncestor(ctx, workspacePath, defaultRef) {
 		msg := fmt.Sprintf("Cannot resolve: no common ancestor between HEAD and %s (remote default branch may have been force-pushed to an unrelated history)", defaultRef)
-		emit(ResolveConflictStep{Action: "check_behind", Status: "failed", Message: msg})
+		emit(ResolveConflictStep{Action: "check_behind", Status: "failed", Message: []string{msg}})
 		return nil, fmt.Errorf("%s", msg)
 	}
 
@@ -454,7 +454,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) == 0 || lines[0] == "" {
 		msg := fmt.Sprintf("Caught up to %s", defaultBranch)
-		emit(ResolveConflictStep{Action: "check_behind", Status: "done", Message: msg})
+		emit(ResolveConflictStep{Action: "check_behind", Status: "done", Message: []string{msg}})
 		return &LinearSyncResolveConflictResult{
 			Success:     true,
 			Message:     msg,
@@ -466,7 +466,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 	parts := strings.Fields(lines[0])
 	if len(parts) == 0 {
 		msg := fmt.Sprintf("Caught up to %s", defaultBranch)
-		emit(ResolveConflictStep{Action: "check_behind", Status: "done", Message: msg})
+		emit(ResolveConflictStep{Action: "check_behind", Status: "done", Message: []string{msg}})
 		return &LinearSyncResolveConflictResult{
 			Success:     true,
 			Message:     msg,
@@ -474,12 +474,10 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		}, nil
 	}
 	hash := parts[0]
-	emit(ResolveConflictStep{
-		Action:  "check_behind",
-		Status:  "done",
-		Message: fmt.Sprintf("%d commits behind origin/%s, rebasing %s", len(lines), defaultBranch, hash),
-		Hash:    hash,
-	})
+	hashMessage := ""
+	if len(parts) > 1 {
+		hashMessage = strings.Join(parts[1:], " ")
+	}
 	fmt.Printf("[workspace] linear-sync-resolve-conflict: workspace_id=%s rebasing hash=%s\n", workspaceID, hash)
 
 	// 2. Create WIP commit to preserve local changes (including untracked files)
@@ -507,12 +505,19 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 	if didCommit {
 		wipMsg = "Created WIP commit to preserve local changes"
 	}
-	emit(ResolveConflictStep{Action: "wip_commit", Status: "done", Message: wipMsg, Created: &created})
+	emit(ResolveConflictStep{
+		Action:      "rebase_context",
+		Status:      "done",
+		Message:     []string{fmt.Sprintf("Beginning %d commits behind origin/%s HEAD", len(lines), defaultBranch), wipMsg},
+		Hash:        hash,
+		HashMessage: hashMessage,
+		Created:     &created,
+	})
 	fmt.Printf("[workspace] linear-sync-resolve-conflict: %s\n", wipMsg)
 
 	// Helper to abort rebase and unwind WIP commit
 	abortAndUnwind := func(reason string) {
-		emit(ResolveConflictStep{Action: "abort", Status: "in_progress", Message: fmt.Sprintf("Aborting: %s", reason)})
+		emit(ResolveConflictStep{Action: "abort", Status: "in_progress", Message: []string{fmt.Sprintf("Aborting: %s", reason)}})
 		abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
 		abortCmd.Dir = workspacePath
 		if out, err := abortCmd.CombinedOutput(); err != nil {
@@ -525,26 +530,25 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 				fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
 			}
 		}
-		emit(ResolveConflictStep{Action: "abort", Status: "failed", Message: fmt.Sprintf("Aborted: %s", reason)})
+		emit(ResolveConflictStep{Action: "abort", Status: "failed", Message: []string{fmt.Sprintf("Aborted: %s", reason)}})
 	}
 
 	// Helper to unwind WIP commit (after successful rebase)
 	unwindWIP := func() {
 		if didCommit {
-			emit(ResolveConflictStep{Action: "wip_unwind", Status: "in_progress", Message: "Unwinding WIP commit"})
+			emit(ResolveConflictStep{Action: "wip_unwind", Status: "in_progress", Message: []string{"Unwinding WIP commit"}})
 			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 			resetCmd.Dir = workspacePath
 			if output, err := resetCmd.CombinedOutput(); err != nil {
 				fmt.Printf("[workspace] linear-sync-resolve-conflict: warning: git reset --mixed failed: %s\n", string(output))
-				emit(ResolveConflictStep{Action: "wip_unwind", Status: "failed", Message: fmt.Sprintf("Warning: git reset --mixed failed: %s", string(output))})
+				emit(ResolveConflictStep{Action: "wip_unwind", Status: "failed", Message: []string{fmt.Sprintf("Warning: git reset --mixed failed: %s", string(output))}})
 			} else {
-				emit(ResolveConflictStep{Action: "wip_unwind", Status: "done", Message: "Restored local changes"})
+				emit(ResolveConflictStep{Action: "wip_unwind", Status: "done", Message: []string{"Restored local changes"}})
 			}
 		}
 	}
 
 	// 3. git rebase <hash>
-	emit(ResolveConflictStep{Action: "rebase_start", Status: "in_progress", Message: fmt.Sprintf("git rebase %s", hash)})
 	rebaseCmd := exec.CommandContext(ctx, "git", "rebase", hash)
 	rebaseCmd.Dir = workspacePath
 	rebaseOutput, rebaseErr := rebaseCmd.CombinedOutput()
@@ -553,7 +557,6 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 
 	if rebaseErr == nil {
 		// Clean rebase - no conflicts
-		emit(ResolveConflictStep{Action: "rebase_start", Status: "done", Message: fmt.Sprintf("Rebased %s cleanly", hash)})
 		unwindWIP()
 		return &LinearSyncResolveConflictResult{
 			Success:     true,
@@ -569,7 +572,6 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			msg = rebaseErr.Error()
 		}
 		fullMsg := fmt.Sprintf("git rebase %s failed: %s", hash, msg)
-		emit(ResolveConflictStep{Action: "rebase_start", Status: "failed", Message: fullMsg})
 		abortAndUnwind(fullMsg)
 		return &LinearSyncResolveConflictResult{
 			Success:     false,
@@ -579,8 +581,6 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		}, nil
 	}
 
-	emit(ResolveConflictStep{Action: "rebase_start", Status: "done", Message: fmt.Sprintf("git rebase %s — conflict detected", hash)})
-
 	// 4. Conflict loop
 	for {
 		// Get unmerged files
@@ -589,29 +589,29 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			// No unmerged files but rebase is in progress — git may have auto-resolved
 			// content conflicts and just needs a continue.
 			if rebaseInProgress(workspacePath) {
-				emit(ResolveConflictStep{Action: "rebase_continue", Status: "in_progress", Message: "No unmerged files, attempting git rebase --continue"})
+				emit(ResolveConflictStep{Action: "rebase_continue", Status: "in_progress", Message: []string{"No unmerged files, attempting git rebase --continue"}})
 				autoContinueCmd := exec.CommandContext(ctx, "git", "rebase", "--continue")
 				autoContinueCmd.Dir = workspacePath
 				autoContinueCmd.Env = append(os.Environ(), "GIT_EDITOR=true")
 				autoContinueOutput, autoContinueErr := autoContinueCmd.CombinedOutput()
 				if autoContinueErr == nil {
 					if !rebaseInProgress(workspacePath) {
-						emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Rebase complete (auto-resolved)"})
+						emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Rebase complete (auto-resolved)"}})
 						break
 					}
-					emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Continuing to next commit"})
+					emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Continuing to next commit"}})
 					continue
 				}
 				// Continue failed — check if there are now unmerged files (new conflict)
 				if rebaseInProgress(workspacePath) {
 					nextUnmerged := m.getUnmergedFiles(ctx, workspacePath)
 					if len(nextUnmerged) > 0 {
-						emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Next commit has conflicts"})
+						emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Next commit has conflicts"}})
 						continue
 					}
 				}
 				msg := fmt.Sprintf("git rebase --continue failed: %s", string(autoContinueOutput))
-				emit(ResolveConflictStep{Action: "rebase_continue", Status: "failed", Message: msg})
+				emit(ResolveConflictStep{Action: "rebase_continue", Status: "failed", Message: []string{msg}})
 				abortAndUnwind(msg)
 				return &LinearSyncResolveConflictResult{
 					Success:     false,
@@ -635,13 +635,22 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		localCommitHash := m.getRebaseHead(ctx, workspacePath)
 		localCommitMessage := m.getRebaseMessage(ctx, workspacePath)
 
+		// Extract conflict hunks from each file before calling LLM
+		conflictDiffs := make(map[string][]string, len(unmergedFiles))
+		for _, f := range unmergedFiles {
+			if hunks, err := extractConflictHunks(filepath.Join(workspacePath, f)); err == nil && len(hunks) > 0 {
+				conflictDiffs[f] = hunks
+			}
+		}
+
 		emit(ResolveConflictStep{
 			Action:             "conflict_detected",
 			Status:             "done",
-			Message:            fmt.Sprintf("Conflict on %s — %d file(s)", localCommitHash[:min(len(localCommitHash), 7)], len(unmergedFiles)),
+			Message:            []string{"Conflict:"},
 			LocalCommit:        localCommitHash,
 			LocalCommitMessage: localCommitMessage,
 			Files:              unmergedFiles,
+			ConflictDiffs:      conflictDiffs,
 		})
 		fmt.Printf("[workspace] linear-sync-resolve-conflict: conflict on files: %v\n", unmergedFiles)
 
@@ -649,7 +658,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		emit(ResolveConflictStep{
 			Action:      "llm_call",
 			Status:      "in_progress",
-			Message:     fmt.Sprintf("Calling LLM to resolve %d file(s)...", len(unmergedFiles)),
+			Message:     []string{fmt.Sprintf("Resolving %d file(s)...", len(unmergedFiles))},
 			LocalCommit: localCommitHash,
 			Files:       unmergedFiles,
 		})
@@ -673,7 +682,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			resolutions = append(resolutions, resolution)
 			msg := fmt.Sprintf("Could not resolve conflict on local commit %s: %v", localCommitHash, err)
 			stepSummary := truncateString(rawResponse, 2000)
-			emit(ResolveConflictStep{Action: "llm_call", Status: "failed", Message: msg, LocalCommit: localCommitHash, Files: unmergedFiles, Summary: stepSummary})
+			emit(ResolveConflictStep{Action: "llm_call", Status: "failed", Message: []string{msg}, LocalCommit: localCommitHash, Files: unmergedFiles, Summary: stepSummary})
 			abortAndUnwind(msg)
 			return &LinearSyncResolveConflictResult{
 				Success:     false,
@@ -699,7 +708,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			emit(ResolveConflictStep{
 				Action:      "llm_call",
 				Status:      "failed",
-				Message:     msg,
+				Message:     []string{msg},
 				LocalCommit: localCommitHash,
 				Files:       unmergedFiles,
 				Confidence:  oneshotResult.Confidence,
@@ -717,7 +726,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		emit(ResolveConflictStep{
 			Action:      "llm_call",
 			Status:      "done",
-			Message:     oneshotResult.Summary,
+			Message:     []string{"Resolved:"},
 			LocalCommit: localCommitHash,
 			Files:       unmergedFiles,
 			Confidence:  oneshotResult.Confidence,
@@ -829,7 +838,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		}
 
 		// git rebase --continue
-		emit(ResolveConflictStep{Action: "rebase_continue", Status: "in_progress", Message: "git rebase --continue"})
+		emit(ResolveConflictStep{Action: "rebase_continue", Status: "in_progress", Message: []string{"git rebase --continue"}})
 		continueCmd := exec.CommandContext(ctx, "git", "rebase", "--continue")
 		continueCmd.Dir = workspacePath
 		continueCmd.Env = append(os.Environ(), "GIT_EDITOR=true")
@@ -838,10 +847,10 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		if continueErr == nil {
 			// Continue succeeded
 			if !rebaseInProgress(workspacePath) {
-				emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Rebase complete"})
+				emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Rebase complete"}})
 				break
 			}
-			emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Continuing to next commit"})
+			emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Continuing to next commit"}})
 			nextUnmerged := m.getUnmergedFiles(ctx, workspacePath)
 			if len(nextUnmerged) == 0 {
 				fmt.Printf("[workspace] linear-sync-resolve-conflict: rebase in progress with no conflicts; continuing\n")
@@ -854,12 +863,12 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		if rebaseInProgress(workspacePath) {
 			nextUnmerged := m.getUnmergedFiles(ctx, workspacePath)
 			if len(nextUnmerged) > 0 {
-				emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: "Next commit also has conflicts"})
+				emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Next commit also has conflicts"}})
 				continue
 			}
 		}
 		msg := fmt.Sprintf("git rebase --continue failed: %s", string(continueOutput))
-		emit(ResolveConflictStep{Action: "rebase_continue", Status: "failed", Message: msg})
+		emit(ResolveConflictStep{Action: "rebase_continue", Status: "failed", Message: []string{msg}})
 		abortAndUnwind(msg)
 		return &LinearSyncResolveConflictResult{
 			Success: false, Message: msg, Hash: hash, Resolutions: resolutions,
@@ -875,6 +884,58 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		Hash:        hash,
 		Resolutions: resolutions,
 	}, nil
+}
+
+// extractConflictHunks reads a file and returns all conflict marker blocks
+// (from <<<<<<< to >>>>>>> inclusive) with 2 lines of context on each side.
+func extractConflictHunks(filePath string) ([]string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	const contextLines = 2
+
+	lines := strings.Split(string(data), "\n")
+	var hunks []string
+	var currentHunk []string
+	inConflict := false
+	conflictStart := 0
+
+	for i, line := range lines {
+		if strings.HasPrefix(line, "<<<<<<<") {
+			inConflict = true
+			conflictStart = i
+			// Add context lines before the conflict marker
+			start := i - contextLines
+			if start < 0 {
+				start = 0
+			}
+			currentHunk = make([]string, 0, contextLines+1)
+			for j := start; j < i; j++ {
+				currentHunk = append(currentHunk, lines[j])
+			}
+			currentHunk = append(currentHunk, line)
+		} else if strings.HasPrefix(line, ">>>>>>>") && inConflict {
+			currentHunk = append(currentHunk, line)
+			// Add context lines after the conflict marker
+			end := i + contextLines
+			if end >= len(lines) {
+				end = len(lines) - 1
+			}
+			for j := i + 1; j <= end; j++ {
+				currentHunk = append(currentHunk, lines[j])
+			}
+			hunks = append(hunks, strings.Join(currentHunk, "\n"))
+			currentHunk = nil
+			inConflict = false
+			_ = conflictStart
+		} else if inConflict {
+			currentHunk = append(currentHunk, line)
+		}
+	}
+
+	return hunks, nil
 }
 
 // truncateString returns s truncated to maxLen characters, appending "..." if truncated.
