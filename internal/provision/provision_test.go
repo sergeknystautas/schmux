@@ -1195,3 +1195,53 @@ func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 		t.Error("Schmux notification hook should be appended last")
 	}
 }
+
+func TestClaudeHooksIncludeLoreHooks(t *testing.T) {
+	hooks := buildClaudeHooksMap()
+
+	// PostToolUseFailure hook should exist
+	ptuf, ok := hooks["PostToolUseFailure"]
+	if !ok {
+		t.Fatal("PostToolUseFailure hook not found")
+	}
+	if len(ptuf) == 0 || len(ptuf[0].Hooks) == 0 {
+		t.Fatal("PostToolUseFailure should have at least one handler")
+	}
+	if !strings.Contains(ptuf[0].Hooks[0].Command, "capture-failure") {
+		t.Errorf("PostToolUseFailure command should reference capture-failure script, got: %s", ptuf[0].Hooks[0].Command)
+	}
+
+	// Stop hook should exist and reference stop-gate
+	stop, ok := hooks["Stop"]
+	if !ok {
+		t.Fatal("Stop hook not found")
+	}
+	foundStopGate := false
+	for _, group := range stop {
+		for _, h := range group.Hooks {
+			if strings.Contains(h.Command, "stop-gate") {
+				foundStopGate = true
+			}
+		}
+	}
+	if !foundStopGate {
+		t.Error("Stop hook should include stop-gate handler")
+	}
+}
+
+func TestEnsureLoreHookScripts(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := EnsureLoreHookScripts(tmpDir); err != nil {
+		t.Fatalf("EnsureLoreHookScripts failed: %v", err)
+	}
+	for _, name := range []string{"capture-failure.sh", "stop-gate.sh"} {
+		path := filepath.Join(tmpDir, ".schmux", "hooks", name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("script %s not found: %v", name, err)
+		}
+		if info.Mode()&0111 == 0 {
+			t.Errorf("script %s should be executable", name)
+		}
+	}
+}

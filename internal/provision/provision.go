@@ -2,6 +2,7 @@
 package provision
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -337,7 +338,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommand("completed"),
+						Command:       `"$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-gate.sh`,
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -351,6 +352,17 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 						Type:          "command",
 						Command:       signalCommandWithContext("needs_input", "message"),
 						StatusMessage: "schmux: signaling",
+					},
+				},
+			},
+		},
+		"PostToolUseFailure": {
+			{
+				Hooks: []claudeHookHandler{
+					{
+						Type:          "command",
+						Command:       `"$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh`,
+						StatusMessage: "schmux: lore capture",
 					},
 				},
 			},
@@ -492,4 +504,29 @@ func WrapCommandWithHooksProvisioning(command string) (string, error) {
 	}
 	// JSON uses double quotes only, safe to wrap in single quotes for shell
 	return fmt.Sprintf("mkdir -p .claude && printf '%%s\\n' '%s' > .claude/settings.local.json && %s", string(jsonBytes), command), nil
+}
+
+//go:embed hooks/capture-failure.sh
+var captureFailureScript []byte
+
+//go:embed hooks/stop-gate.sh
+var stopGateScript []byte
+
+// EnsureLoreHookScripts writes the lore hook scripts to <workspace>/.schmux/hooks/.
+func EnsureLoreHookScripts(workspacePath string) error {
+	hooksDir := filepath.Join(workspacePath, ".schmux", "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks directory: %w", err)
+	}
+	scripts := map[string][]byte{
+		"capture-failure.sh": captureFailureScript,
+		"stop-gate.sh":       stopGateScript,
+	}
+	for name, content := range scripts {
+		path := filepath.Join(hooksDir, name)
+		if err := os.WriteFile(path, content, 0755); err != nil {
+			return fmt.Errorf("failed to write %s: %w", name, err)
+		}
+	}
+	return nil
 }
