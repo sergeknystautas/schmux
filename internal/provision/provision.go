@@ -65,6 +65,18 @@ echo "working Refactoring auth module" > $SCHMUX_STATUS_FILE
 3. **Signal error** for failures that block progress
 4. **Signal working** when starting a new task (describe what you're doing)
 5. Keep messages concise (under 100 characters)
+
+## Friction Capture
+
+When you hit a wall — wrong command, missing file, failed build, wrong assumption —
+append what went wrong and the fix to ` + "`.schmux/lore.jsonl`" + `. One JSON line:
+
+` + "```" + `
+{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<your-agent-type>","type":"friction","text":"When <what triggered the mistake>, do <the correct approach> instead"}
+` + "```" + `
+
+Only write when something tripped you up. Don't write what you built or learned —
+write what would have saved you time if you'd known it before starting.
 `
 
 // EnsureAgentInstructions ensures the signaling instructions are present
