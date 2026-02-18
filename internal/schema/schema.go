@@ -17,6 +17,7 @@ const (
 	LabelConflictResolve = "conflict-resolve"
 	LabelNudgeNik        = "nudgenik"
 	LabelBranchSuggest   = "branch-suggest"
+	LabelLoreCurator     = "lore-curator"
 )
 
 // schemaEntry holds a type and optional skip fields for schema generation.

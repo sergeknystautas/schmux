@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 func TestBuildCuratorPrompt(t *testing.T) {
@@ -136,5 +138,33 @@ func TestReadFileFromBareRepo_NotFound(t *testing.T) {
 	_, err := ReadFileFromRepo(context.Background(), bareDir, "NONEXISTENT.md")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestCuratorResponseSchemaRegistered(t *testing.T) {
+	// Verify the lore-curator schema is registered (via init()) and produces valid JSON
+	schemaJSON, err := schema.Get(schema.LabelLoreCurator)
+	if err != nil {
+		t.Fatalf("lore-curator schema not registered: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(schemaJSON), &parsed); err != nil {
+		t.Fatalf("schema is not valid JSON: %v", err)
+	}
+
+	if parsed["type"] != "object" {
+		t.Errorf("expected schema type=object, got %v", parsed["type"])
+	}
+
+	// Verify all CuratorResponse fields appear in the schema properties
+	props, ok := parsed["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected properties to be an object")
+	}
+	for _, field := range []string{"proposed_files", "diff_summary", "entries_used", "entries_discarded"} {
+		if _, exists := props[field]; !exists {
+			t.Errorf("expected property %q in schema", field)
+		}
 	}
 }
