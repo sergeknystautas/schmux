@@ -452,6 +452,7 @@ export default function HomePage() {
                     <button
                       key={`${branch.repo_name}-${branch.branch}-${idx}`}
                       className={styles.branchItem}
+                      data-testid="branch-item"
                       onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
                       title={`Spawn session on ${branch.branch}`}
                       disabled={!!preparingBranch}

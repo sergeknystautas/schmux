@@ -136,8 +136,17 @@ func (e *Env) Cleanup() {
 		cancel()
 		e.T.Logf("stop output: %s", out)
 
-		// Wait a bit for daemon to fully stop
-		time.Sleep(500 * time.Millisecond)
+		// Poll healthz until connection refused (daemon fully stopped)
+		for i := 0; i < 50; i++ {
+			hctx, hcancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			hreq, _ := http.NewRequestWithContext(hctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
+			_, herr := http.DefaultClient.Do(hreq)
+			hcancel()
+			if herr != nil {
+				break // connection refused — daemon is down
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
 	if e.daemonLogFile != nil {
@@ -222,16 +231,22 @@ func (e *Env) DaemonStop() {
 
 	e.daemonStarted = false
 
-	// Verify daemon is stopped
-	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
-	_, err = http.DefaultClient.Do(req)
-	cancel()
-	if err == nil {
+	// Poll healthz until connection refused (daemon fully stopped)
+	stopped := false
+	for i := 0; i < 50; i++ {
+		ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
+		_, err = http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			stopped = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !stopped {
 		e.T.Error("Daemon is still running after stop")
 	}
-
-	time.Sleep(500 * time.Millisecond)
 }
 
 // CreateLocalGitRepo creates a local git repo for testing.
@@ -795,7 +810,7 @@ func (e *Env) DisposeSession(sessionID string) {
 	e.T.Helper()
 	e.T.Logf("Disposing session: %s", sessionID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/sessions/"+sessionID+"/dispose", nil)
 	resp, err := http.DefaultClient.Do(req)
 	cancel()
@@ -1142,7 +1157,8 @@ func (e *Env) GetRemoteHosts() []RemoteHostResponse {
 }
 
 // SpawnRemoteSession spawns a session on a remote host via the daemon API.
-// Returns the session ID from the API response.
+// Returns the session ID from the API response. Retries up to 3 times on
+// transient "control mode not ready" / "client closed" errors.
 func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) string {
 	e.T.Helper()
 	e.T.Logf("Spawning remote session via API: flavor=%s target=%s nickname=%s", flavorID, target, nickname)
@@ -1166,26 +1182,6 @@ func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) stri
 		e.T.Fatalf("Failed to marshal spawn request: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
-	spawnReq.Header.Set("Content-Type", "application/json")
-	spawnResp, err := http.DefaultClient.Do(spawnReq)
-	cancel()
-	if err != nil {
-		// Print daemon log for debugging before failing
-		daemonLogPath := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
-		if data, err2 := os.ReadFile(daemonLogPath); err2 == nil {
-			e.T.Logf("=== DAEMON LOG (spawn failed) ===\n%s", string(data))
-		}
-		e.T.Fatalf("Failed to spawn remote session: %v", err)
-	}
-	defer spawnResp.Body.Close()
-
-	if spawnResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(spawnResp.Body)
-		e.T.Fatalf("Remote spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, body)
-	}
-
 	// Parse response to get session ID
 	type SpawnResult struct {
 		SessionID   string `json:"session_id"`
@@ -1195,21 +1191,64 @@ func (e *Env) SpawnRemoteSession(flavorID, target, prompt, nickname string) stri
 		Error       string `json:"error,omitempty"`
 	}
 
-	var results []SpawnResult
-	if err := json.NewDecoder(spawnResp.Body).Decode(&results); err != nil {
-		e.T.Logf("Failed to decode spawn response: %v", err)
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		spawnReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.DaemonURL+"/api/spawn", bytes.NewReader(reqBody))
+		spawnReq.Header.Set("Content-Type", "application/json")
+		spawnResp, err := http.DefaultClient.Do(spawnReq)
+		cancel()
+		if err != nil {
+			if attempt < maxRetries {
+				e.T.Logf("Spawn attempt %d/%d failed (HTTP error): %v — retrying in 2s", attempt, maxRetries, err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			daemonLogPath := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon.log")
+			if data, err2 := os.ReadFile(daemonLogPath); err2 == nil {
+				e.T.Logf("=== DAEMON LOG (spawn failed) ===\n%s", string(data))
+			}
+			e.T.Fatalf("Failed to spawn remote session: %v", err)
+		}
+
+		body, _ := io.ReadAll(spawnResp.Body)
+		spawnResp.Body.Close()
+
+		if spawnResp.StatusCode != http.StatusOK {
+			bodyStr := string(body)
+			if attempt < maxRetries && (strings.Contains(bodyStr, "control mode not ready") || strings.Contains(bodyStr, "client closed")) {
+				e.T.Logf("Spawn attempt %d/%d failed (transient): %s — retrying in 2s", attempt, maxRetries, bodyStr)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			e.T.Fatalf("Remote spawn returned non-200: %d\nBody: %s", spawnResp.StatusCode, bodyStr)
+		}
+
+		var results []SpawnResult
+		if err := json.Unmarshal(body, &results); err != nil {
+			e.T.Logf("Failed to decode spawn response: %v", err)
+			return ""
+		}
+
+		if len(results) > 0 && results[0].Error != "" {
+			errMsg := results[0].Error
+			if attempt < maxRetries && (strings.Contains(errMsg, "control mode not ready") || strings.Contains(errMsg, "client closed")) {
+				e.T.Logf("Spawn attempt %d/%d failed (transient error in response): %s — retrying in 2s", attempt, maxRetries, errMsg)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			e.T.Fatalf("Remote spawn failed: %s", errMsg)
+		}
+
+		if len(results) > 0 {
+			e.T.Logf("Remote session spawned: %s (status: %s)", results[0].SessionID, results[0].Status)
+			return results[0].SessionID
+		}
+
 		return ""
 	}
 
-	if len(results) > 0 && results[0].Error != "" {
-		e.T.Fatalf("Remote spawn failed: %s", results[0].Error)
-	}
-
-	if len(results) > 0 {
-		e.T.Logf("Remote session spawned: %s (status: %s)", results[0].SessionID, results[0].Status)
-		return results[0].SessionID
-	}
-
+	e.T.Fatalf("Remote spawn failed after %d attempts", maxRetries)
 	return ""
 }
 

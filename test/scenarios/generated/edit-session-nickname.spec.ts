@@ -6,7 +6,7 @@ import {
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
-  sleep,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe.serial('Edit a session nickname', () => {
@@ -37,7 +37,7 @@ test.describe.serial('Edit a session nickname', () => {
     sessionId = results[0].session_id;
 
     // Wait for the session to be fully running
-    await sleep(2000);
+    await waitForSessionRunning(sessionId);
   });
 
   test('edit session nickname via the UI', async ({ page }) => {
