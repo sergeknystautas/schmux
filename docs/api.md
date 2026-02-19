@@ -15,6 +15,7 @@ General conventions:
 - CORS: when auth is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When `bind_address` is `0.0.0.0`, any origin is allowed.
 - When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
+- Trusted request bypass: when `remote_access` is not enabled in config, all requests are considered trusted and bypass tunnel auth checks. When `remote_access` is enabled, only loopback requests without tunnel forwarding headers (`Cf-Connecting-IP`, `X-Forwarded-For`) are trusted.
 
 ## Auth Endpoints
 

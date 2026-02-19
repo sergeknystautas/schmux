@@ -52,7 +52,7 @@ beforeEach(() => {
 
 describe('useSync', () => {
   describe('handleLinearSyncFromMain', () => {
-    it('shows a success dialog when sync succeeds', async () => {
+    it('shows a success alert when sync succeeds', async () => {
       mockLinearSyncFromMain.mockResolvedValue({
         success: true,
         branch: 'main',
