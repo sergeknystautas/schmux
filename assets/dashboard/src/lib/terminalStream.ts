@@ -143,7 +143,7 @@ export default class TerminalStream {
         brightCyan: '#29b8db',
         brightWhite: '#ffffff',
       },
-      scrollback: 1000,
+      scrollback: 5000,
       convertEol: true,
     });
 

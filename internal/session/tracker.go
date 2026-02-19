@@ -235,7 +235,8 @@ func (t *SessionTracker) attachAndRead() error {
 	defer t.closePTY()
 
 	buf := make([]byte, 8192)
-	var pending []byte // Holds incomplete UTF-8 sequence from previous read
+	var pending []byte  // Holds incomplete UTF-8 sequence from previous read
+	var coalesce []byte // Accumulates chunks when channel is full (never drops data)
 
 	for {
 		n, err := ptmx.Read(buf)
@@ -286,10 +287,7 @@ func (t *SessionTracker) attachAndRead() error {
 					}
 				}
 				if clientCh != nil {
-					select {
-					case clientCh <- chunk:
-					default:
-					}
+					coalesce = sendCoalesced(clientCh, chunk, coalesce)
 				}
 				if t.outputCallback != nil {
 					t.outputCallback(chunk)
@@ -298,14 +296,19 @@ func (t *SessionTracker) attachAndRead() error {
 		}
 
 		if err != nil {
-			// Flush any remaining pending bytes on error/EOF
-			if len(pending) > 0 {
-				t.mu.RLock()
-				clientCh := t.clientCh
-				t.mu.RUnlock()
-				if clientCh != nil {
+			// Flush any remaining data on error/EOF
+			t.mu.RLock()
+			clientCh := t.clientCh
+			t.mu.RUnlock()
+			if clientCh != nil {
+				// Merge pending UTF-8 bytes with coalesced data
+				flush := coalesce
+				if len(pending) > 0 {
+					flush = append(flush, pending...)
+				}
+				if len(flush) > 0 {
 					select {
-					case clientCh <- pending:
+					case clientCh <- flush:
 					default:
 					}
 				}
@@ -318,6 +321,32 @@ func (t *SessionTracker) attachAndRead() error {
 			return io.EOF
 		default:
 		}
+	}
+}
+
+// sendCoalesced attempts a non-blocking send of chunk (merged with any previously
+// buffered coalesce data) to ch. If the channel is full, the data is kept in the
+// returned coalesce buffer for the next call. When the merged payload exceeds 1 MB,
+// a blocking send is used to apply backpressure instead of buffering unboundedly.
+// Returns the updated coalesce buffer (nil when the send succeeded).
+func sendCoalesced(ch chan []byte, chunk, coalesce []byte) []byte {
+	if len(coalesce) > 0 {
+		coalesce = append(coalesce, chunk...)
+		chunk = coalesce
+		coalesce = nil
+	}
+	if len(chunk) > 1<<20 {
+		// Blocking send — backpressure when coalesced payload is very large.
+		ch <- chunk
+		return nil
+	}
+	select {
+	case ch <- chunk:
+		return nil
+	default:
+		out := make([]byte, len(chunk))
+		copy(out, chunk)
+		return out
 	}
 }
 

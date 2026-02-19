@@ -228,3 +228,117 @@ func TestSendInputFallbackComment(t *testing.T) {
 		t.Fatal("expected error from SendInput without PTY or tmux")
 	}
 }
+
+func TestSendCoalesced_ImmediateSend(t *testing.T) {
+	// When the channel has capacity, chunks are sent immediately with no buffering.
+	ch := make(chan []byte, 4)
+	data := []byte("hello")
+
+	coalesce := sendCoalesced(ch, data, nil)
+	if coalesce != nil {
+		t.Fatal("expected nil coalesce buffer after successful send")
+	}
+
+	select {
+	case got := <-ch:
+		if string(got) != "hello" {
+			t.Fatalf("got %q, want %q", got, "hello")
+		}
+	default:
+		t.Fatal("expected chunk in channel")
+	}
+}
+
+func TestSendCoalesced_BuffersWhenFull(t *testing.T) {
+	// When the channel is full, the chunk is buffered (not dropped).
+	ch := make(chan []byte, 1)
+	ch <- []byte("filler") // fill the channel
+
+	coalesce := sendCoalesced(ch, []byte("buffered"), nil)
+	if coalesce == nil {
+		t.Fatal("expected non-nil coalesce buffer when channel is full")
+	}
+	if string(coalesce) != "buffered" {
+		t.Fatalf("coalesce = %q, want %q", coalesce, "buffered")
+	}
+}
+
+func TestSendCoalesced_MergesBufferedData(t *testing.T) {
+	// Previously buffered data is merged with the new chunk and sent together.
+	ch := make(chan []byte, 4)
+	prev := []byte("first-")
+
+	coalesce := sendCoalesced(ch, []byte("second"), prev)
+	if coalesce != nil {
+		t.Fatal("expected nil coalesce after successful merged send")
+	}
+
+	got := <-ch
+	if string(got) != "first-second" {
+		t.Fatalf("got %q, want %q", got, "first-second")
+	}
+}
+
+func TestSendCoalesced_NoDataLostUnderBackpressure(t *testing.T) {
+	// Simulates rapid output: multiple chunks arrive while channel is full.
+	// All data must be preserved — none dropped.
+	ch := make(chan []byte, 1)
+	ch <- []byte("blocking") // fill the channel
+
+	// Three chunks arrive while channel is full
+	var coalesce []byte
+	coalesce = sendCoalesced(ch, []byte("chunk1-"), coalesce)
+	coalesce = sendCoalesced(ch, []byte("chunk2-"), coalesce)
+	coalesce = sendCoalesced(ch, []byte("chunk3"), coalesce)
+
+	if coalesce == nil {
+		t.Fatal("expected buffered coalesce data")
+	}
+	if string(coalesce) != "chunk1-chunk2-chunk3" {
+		t.Fatalf("coalesce = %q, want %q", coalesce, "chunk1-chunk2-chunk3")
+	}
+
+	// Drain the blocking item to make room
+	<-ch
+
+	// Next send should flush the merged data
+	coalesce = sendCoalesced(ch, []byte("-chunk4"), coalesce)
+	if coalesce != nil {
+		t.Fatal("expected nil coalesce after flush")
+	}
+
+	got := <-ch
+	if string(got) != "chunk1-chunk2-chunk3-chunk4" {
+		t.Fatalf("flushed = %q, want %q", got, "chunk1-chunk2-chunk3-chunk4")
+	}
+}
+
+func TestSendCoalesced_BackpressureOnLargePayload(t *testing.T) {
+	// When coalesced data exceeds 1MB, sendCoalesced blocks until the
+	// channel drains, applying backpressure to the producer.
+	ch := make(chan []byte, 1)
+
+	// Create a >1MB payload
+	large := make([]byte, 1<<20+1)
+	for i := range large {
+		large[i] = 'A'
+	}
+
+	done := make(chan struct{})
+	var coalesce []byte
+	go func() {
+		coalesce = sendCoalesced(ch, large, nil)
+		close(done)
+	}()
+
+	// The send should block because it's >1MB — read from channel to unblock
+	got := <-ch
+	<-done
+
+	if coalesce != nil {
+		t.Fatal("expected nil coalesce after blocking send")
+	}
+	if len(got) != 1<<20+1 {
+		t.Fatalf("got %d bytes, want %d", len(got), 1<<20+1)
+	}
+}
