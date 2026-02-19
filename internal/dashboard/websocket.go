@@ -17,7 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
-const bootstrapCaptureLines = 1000
+const bootstrapCaptureLines = 5000
 
 // Terminal query response prefixes to filter from input.
 // These are responses from xterm.js to queries from tmux - we don't send them back.
