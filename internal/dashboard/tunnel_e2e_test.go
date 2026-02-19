@@ -306,8 +306,8 @@ func TestTunnelE2E_Attack_ForgedCfHeaderWithoutTunnel(t *testing.T) {
 		t.Fatal("auth should not be required without tunnel")
 	}
 
-	// isLocalRequest should return true even with forged header when no tunnel
-	if !tts.server.isLocalRequest(req) {
+	// isTrustedRequest should return true even with forged header when no tunnel
+	if !tts.server.isTrustedRequest(req) {
 		t.Error("forged Cf-Connecting-IP should be ignored when no tunnel is active")
 	}
 }
@@ -320,7 +320,7 @@ func TestTunnelE2E_Attack_ForgedCfHeaderWithTunnel(t *testing.T) {
 	req := localRequest("GET", "/api/healthz")
 	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
 
-	if tts.server.isLocalRequest(req) {
+	if tts.server.isTrustedRequest(req) {
 		t.Error("request with Cf-Connecting-IP should NOT be local when tunnel is active")
 	}
 

@@ -157,6 +157,8 @@ func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
 func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	// Build a valid remote cookie
@@ -281,6 +283,8 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 func TestRequireAuthOrRedirect_DoesNotLeakToken(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	// Unauthenticated request to /
@@ -538,49 +542,70 @@ func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 	}
 }
 
-func TestIsLocalRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
+func TestIsTrustedRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 
-	if !server.isLocalRequest(req) {
-		t.Error("loopback request should be local when no tunnel is active")
+	if !server.isTrustedRequest(req) {
+		t.Error("loopback request should be trusted when no tunnel is active")
 	}
 }
 
-func TestIsLocalRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testing.T) {
+func TestIsTrustedRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
 
-	if server.isLocalRequest(req) {
-		t.Error("loopback + Cf-Connecting-IP + tunnel should NOT be local")
+	if server.isTrustedRequest(req) {
+		t.Error("loopback + Cf-Connecting-IP + tunnel should NOT be trusted")
 	}
 }
 
-func TestIsLocalRequest_TunnelActive_LoopbackNoCfHeader_IsLocal(t *testing.T) {
+func TestIsTrustedRequest_TunnelActive_LoopbackNoCfHeader_IsLocal(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	// No Cf-Connecting-IP or X-Forwarded-For headers
 
-	if !server.isLocalRequest(req) {
-		t.Error("loopback without forwarding headers should be local even with tunnel active")
+	if !server.isTrustedRequest(req) {
+		t.Error("loopback without forwarding headers should be trusted even with tunnel active")
+	}
+}
+
+func TestIsTrustedRequest_RemoteAccessDisabled_AlwaysTrusted(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	defer server.CloseForTest()
+	// remote_access not enabled — no untrusted path exists
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.50:12345"
+
+	if !server.isTrustedRequest(req) {
+		t.Error("all requests should be trusted when remote_access is disabled")
 	}
 }
 
 func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	// Build a valid remote cookie
@@ -684,6 +709,8 @@ func TestSetPassword_WithoutTunnel_DoesNotActivateAuth(t *testing.T) {
 func TestLocalRequestBypassesAuth_WhenTunnelActive(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	// Auth is required (tunnel active)
@@ -719,6 +746,8 @@ func TestLocalRequestBypassesAuth_WhenTunnelActive(t *testing.T) {
 func TestRequireAuthOrRedirect_LocalBypassesTunnelAuth(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
 	defer server.CloseForTest()
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
 	// Local request — should pass through without redirect
