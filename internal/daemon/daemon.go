@@ -757,13 +757,17 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
 
+				fmt.Printf("[lore] auto-curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
+				start := time.Now()
+
 				proposal, err := loreCurator.CurateWithEntries(shutdownCtx, repoName, bareDir, rawEntries)
+				elapsed := time.Since(start)
 				if err != nil {
-					fmt.Printf("[lore] curation failed: %v\n", err)
+					fmt.Printf("[lore] auto-curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
 					return
 				}
 				if proposal == nil {
-					fmt.Printf("[lore] no raw entries to curate for %s\n", repoName)
+					fmt.Printf("[lore] auto-curate %s: LLM returned no proposal (%s)\n", repoName, elapsed.Round(time.Millisecond))
 					return
 				}
 
@@ -771,7 +775,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					fmt.Printf("[lore] failed to save proposal: %v\n", err)
 					return
 				}
-				fmt.Printf("[lore] proposal %s created for %s: %s\n", proposal.ID, repoName, proposal.DiffSummary)
+				fmt.Printf("[lore] auto-curate %s: proposal %s created (%d files, %d entries used, %s)\n",
+					repoName, proposal.ID, len(proposal.ProposedFiles), len(proposal.EntriesUsed), elapsed.Round(time.Millisecond))
 
 				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
