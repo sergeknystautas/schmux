@@ -410,6 +410,7 @@ export interface RemoteSpawnRequest {
 export interface LoreEntry {
   ts: string;
   ws?: string;
+  session?: string;
   agent?: string;
   type?: string;
   text?: string;

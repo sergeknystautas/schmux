@@ -52,11 +52,17 @@ case "$ERROR" in
     CATEGORY="timeout" ;;
 esac
 
-# Read workspace ID from env (set by schmux at session spawn)
+# Read workspace and session IDs from env (set by schmux at session spawn)
 WS_ID="${SCHMUX_WORKSPACE_ID:-unknown}"
+SESSION_ID="${SCHMUX_SESSION_ID:-unknown}"
 
 # Build and append the lore entry
-LORE_FILE=".schmux/lore.jsonl"
+# Use CLAUDE_PROJECT_DIR for absolute path; fall back to relative if not set
+if [ -n "$CLAUDE_PROJECT_DIR" ]; then
+  LORE_FILE="$CLAUDE_PROJECT_DIR/.schmux/lore.jsonl"
+else
+  LORE_FILE=".schmux/lore.jsonl"
+fi
 mkdir -p "$(dirname "$LORE_FILE")"
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -64,11 +70,12 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 jq -n -c \
   --arg ts "$TIMESTAMP" \
   --arg ws "$WS_ID" \
+  --arg session "$SESSION_ID" \
   --arg tool "$TOOL" \
   --arg input_summary "$INPUT_SUMMARY" \
   --arg error_summary "$ERROR" \
   --arg category "$CATEGORY" \
-  '{ts: $ts, ws: $ws, agent: "claude-code", type: "failure", tool: $tool, input_summary: $input_summary, error_summary: $error_summary, category: $category}' \
+  '{ts: $ts, ws: $ws, session: $session, agent: "claude-code", type: "failure", tool: $tool, input_summary: $input_summary, error_summary: $error_summary, category: $category}' \
   >> "$LORE_FILE"
 
 exit 0

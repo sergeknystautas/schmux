@@ -18,6 +18,7 @@ var scratchpadMu sync.Mutex
 type Entry struct {
 	Timestamp    time.Time `json:"ts"`
 	Workspace    string    `json:"ws,omitempty"`
+	Session      string    `json:"session,omitempty"` // session ID for per-session tracking
 	Agent        string    `json:"agent,omitempty"`
 	Type         string    `json:"type,omitempty"` // "failure", "reflection", "friction", "operational", "codebase" (legacy)
 	Text         string    `json:"text,omitempty"`
