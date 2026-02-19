@@ -73,7 +73,7 @@ Authentication uses a three-step token → nonce → password flow designed spec
 
 - `withAuth` — checks GitHub OAuth or remote session cookie
 - `withAuthAndCSRF` — adds CSRF validation for state-changing endpoints
-- `isLocalRequest` — distinguishes local from tunneled requests
+- `isTrustedRequest` — distinguishes trusted from untrusted requests
 
 ---
 
@@ -294,30 +294,36 @@ All other origins are rejected with 403 Forbidden — even if `network_access` i
 - After 5 failed password attempts (`maxPasswordAttempts`), all nonces are deleted and the session is locked
 - Lockout counter resets only when the tunnel restarts
 
-### Layer 7: Local Request Bypass
+### Layer 7: Trusted Request Bypass
 
-Local requests bypass tunnel-only auth. The local user always has unrestricted access.
+Trusted requests bypass tunnel-only auth. When remote access is not enabled, all requests are trusted (the LAN is the trust boundary). When remote access is enabled, only genuine loopback requests are trusted.
 
-**Detection logic (`isLocalRequest`):**
+**Detection logic (`isTrustedRequest`):**
 
 ```
                   ┌────────────────────────┐
-    Request ─────▶│ RemoteAddr is loopback?│
+    Request ─────▶│ remote_access enabled? │
                   └───────────┬────────────┘
                         no    │    yes
                   ┌───────────┘    │
                   ▼                ▼
-             NOT LOCAL    ┌────────────────────┐
-                          │ Tunnel active AND  │
-                          │ Cf-Connecting-IP   │
-                          │ or X-Forwarded-For │
-                          │ header present?    │
-                          └────────┬───────────┘
-                            yes    │    no
-                          ┌────────┘    │
-                          ▼             ▼
-                     NOT LOCAL        LOCAL
-                     (tunneled)     (genuine)
+              TRUSTED    ┌────────────────────────┐
+                         │ RemoteAddr is loopback? │
+                         └───────────┬─────────────┘
+                               no    │    yes
+                         ┌───────────┘    │
+                         ▼                ▼
+                     NOT TRUSTED  ┌────────────────────┐
+                                  │ Tunnel active AND  │
+                                  │ Cf-Connecting-IP   │
+                                  │ or X-Forwarded-For │
+                                  │ header present?    │
+                                  └────────┬───────────┘
+                                    yes    │    no
+                                  ┌────────┘    │
+                                  ▼             ▼
+                             NOT TRUSTED     TRUSTED
+                             (tunneled)    (genuine)
 ```
 
 Applied consistently to: HTTP API handlers, dashboard WebSocket, terminal WebSocket, provision WebSocket, and CSRF validation.

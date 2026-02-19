@@ -81,7 +81,7 @@ func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request)
 	}
 
 	// In network access mode, preview URLs only work for local clients. Block non-local callers.
-	if s.config.GetNetworkAccess() && !s.isLocalRequest(r) {
+	if s.config.GetNetworkAccess() && !s.isTrustedRequest(r) {
 		http.Error(w, "preview is only available to local clients in network-access mode", http.StatusForbidden)
 		return
 	}
