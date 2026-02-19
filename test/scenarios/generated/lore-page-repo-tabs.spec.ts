@@ -57,47 +57,51 @@ test.describe.serial('Lore page with repo tabs', () => {
     // Page heading
     await expect(page.locator('h2', { hasText: 'Lore' })).toBeVisible();
 
-    // Tab bar with both repos
-    const tabs = page.locator('.repo-tabs .repo-tab');
+    // Tab bar with both repos (uses session-tabs classes)
+    const tabs = page.locator('.session-tabs .session-tab');
     await expect(tabs).toHaveCount(2);
-    await expect(tabs.nth(0)).toHaveText(repoNameA);
-    await expect(tabs.nth(1)).toHaveText(repoNameB);
+    await expect(tabs.nth(0)).toContainText(repoNameA);
+    await expect(tabs.nth(1)).toContainText(repoNameB);
 
     // First tab is active by default
-    await expect(tabs.nth(0)).toHaveClass(/repo-tab--active/);
-    await expect(tabs.nth(1)).not.toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(0)).toHaveClass(/session-tab--active/);
+    await expect(tabs.nth(1)).not.toHaveClass(/session-tab--active/);
   });
 
-  test('page shows proposals and raw entries sections', async ({ page }) => {
+  test('page shows proposals and raw signals sections', async ({ page }) => {
     await page.goto('/lore');
     await waitForDashboardLive(page);
 
-    // Proposals section
-    await expect(page.locator('h3', { hasText: 'Proposals' })).toBeVisible();
+    // Empty state for proposals
+    await expect(
+      page.locator('.empty-state__description', { hasText: /No pending proposals/ })
+    ).toBeVisible();
 
-    // Raw Entries toggle
-    await expect(page.locator('button', { hasText: /Raw Entries/ })).toBeVisible();
+    // Raw Signals toggle
+    await expect(page.locator('button', { hasText: /Raw Signals/ })).toBeVisible();
   });
 
   test('switching tabs changes active state and reloads data', async ({ page }) => {
     await page.goto('/lore');
     await waitForDashboardLive(page);
 
-    const tabs = page.locator('.repo-tabs .repo-tab');
+    const tabs = page.locator('.session-tabs .session-tab');
 
     // Click second tab
     await tabs.nth(1).click();
 
     // Second tab should now be active
-    await expect(tabs.nth(1)).toHaveClass(/repo-tab--active/);
-    await expect(tabs.nth(0)).not.toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(1)).toHaveClass(/session-tab--active/);
+    await expect(tabs.nth(0)).not.toHaveClass(/session-tab--active/);
 
-    // Proposals section should still be visible (data reloaded for new repo)
-    await expect(page.locator('h3', { hasText: 'Proposals' })).toBeVisible();
+    // Empty state should still be visible (data reloaded for new repo)
+    await expect(
+      page.locator('.empty-state__description', { hasText: /No pending proposals/ })
+    ).toBeVisible();
 
     // Click first tab again
     await tabs.nth(0).click();
-    await expect(tabs.nth(0)).toHaveClass(/repo-tab--active/);
+    await expect(tabs.nth(0)).toHaveClass(/session-tab--active/);
   });
 
   test('API returns proposals for each repo', async () => {
