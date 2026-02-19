@@ -30,6 +30,20 @@ type Entry struct {
 	ProposalID   string    `json:"proposal_id,omitempty"`
 }
 
+// EntryKey returns a canonical identifier string for matching entries across
+// curator validation, state marking, and deduplication.
+// For text-based entries (reflection, friction, operational, codebase): returns Text.
+// For failure entries: returns "Tool: InputSummary" (or just InputSummary if Tool is empty).
+func (e Entry) EntryKey() string {
+	if e.Type == "failure" {
+		if e.Tool != "" {
+			return e.Tool + ": " + e.InputSummary
+		}
+		return e.InputSummary
+	}
+	return e.Text
+}
+
 // EntryFilter controls which entries are returned by ReadEntries.
 type EntryFilter func(entries []Entry) []Entry
 
@@ -171,7 +185,7 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 		if e.StateChange != "" {
 			continue
 		}
-		if textSet[e.Text] {
+		if textSet[e.EntryKey()] {
 			if err := appendEntryToFile(path, Entry{
 				Timestamp:   time.Now().UTC(),
 				StateChange: stateChange,
@@ -210,8 +224,9 @@ func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange s
 			if e.StateChange != "" {
 				continue
 			}
-			if textSet[e.Text] && !marked[e.Text] {
-				marked[e.Text] = true
+			key := e.EntryKey()
+			if textSet[key] && !marked[key] {
+				marked[key] = true
 				if err := appendEntryToFile(destPath, Entry{
 					Timestamp:   time.Now().UTC(),
 					StateChange: stateChange,
@@ -459,9 +474,9 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 // Files that don't exist are silently skipped.
 func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 	type dedupKey struct {
-		ts   string
-		ws   string
-		text string
+		ts  string
+		ws  string
+		key string
 	}
 	seen := make(map[dedupKey]bool)
 	var all []Entry
@@ -473,9 +488,9 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 		}
 		for _, e := range entries {
 			key := dedupKey{
-				ts:   e.Timestamp.Format(time.RFC3339),
-				ws:   e.Workspace,
-				text: e.Text,
+				ts:  e.Timestamp.Format(time.RFC3339),
+				ws:  e.Workspace,
+				key: e.EntryKey(),
 			}
 			// State-change records (no text, have StateChange) are always included
 			// since they reference entries by EntryTS and don't have a text-based key.

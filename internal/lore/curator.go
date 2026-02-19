@@ -108,13 +108,13 @@ func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir strin
 	}
 
 	// Validate LLM response: entries_used must exist in input entries
-	entryTextSet := make(map[string]bool, len(entries))
+	entryKeySet := make(map[string]bool, len(entries))
 	for _, e := range entries {
-		entryTextSet[e.Text] = true
+		entryKeySet[e.EntryKey()] = true
 	}
-	for _, usedText := range result.EntriesUsed {
-		if !entryTextSet[usedText] {
-			return nil, fmt.Errorf("curator referenced unknown entry: %s", usedText)
+	for _, usedKey := range result.EntriesUsed {
+		if !entryKeySet[usedKey] {
+			return nil, fmt.Errorf("curator referenced unknown entry: %s", usedKey)
 		}
 	}
 
@@ -187,7 +187,7 @@ Output schema:
 {
   "proposed_files": {"<filename>": "<full proposed content>", ...},
   "diff_summary": "<one-line summary of changes>",
-  "entries_used": ["<entry text or input_summary that was incorporated>", ...],
+  "entries_used": ["<for reflections: the text; for failures: 'Tool: input_summary'>", ...],
   "entries_discarded": {"<entry text or input_summary>": "<reason for discarding>", ...}
 }
 
