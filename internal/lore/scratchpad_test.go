@@ -727,6 +727,134 @@ func TestParseFailureEntry(t *testing.T) {
 	}
 }
 
+func TestEntryKey_ReflectionEntry(t *testing.T) {
+	e := Entry{Type: "reflection", Text: "use go run ./cmd/build-dashboard"}
+	key := e.EntryKey()
+	if key != "use go run ./cmd/build-dashboard" {
+		t.Errorf("expected text as key, got %q", key)
+	}
+}
+
+func TestEntryKey_FailureEntry(t *testing.T) {
+	e := Entry{Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script"}
+	key := e.EntryKey()
+	if key != "Bash: npm run build" {
+		t.Errorf("expected 'Bash: npm run build', got %q", key)
+	}
+}
+
+func TestEntryKey_FailureEntryNoTool(t *testing.T) {
+	e := Entry{Type: "failure", InputSummary: "something"}
+	key := e.EntryKey()
+	if key != "something" {
+		t.Errorf("expected 'something', got %q", key)
+	}
+}
+
+func TestReadEntriesMulti_FailureDedup(t *testing.T) {
+	dir := t.TempDir()
+	ws1 := filepath.Join(dir, "ws1.jsonl")
+	ws2 := filepath.Join(dir, "ws2.jsonl")
+	content1 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}
+`
+	content2 := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Read","input_summary":"/nonexistent","error_summary":"No such file","category":"not_found"}
+`
+	if err := os.WriteFile(ws1, []byte(content1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ws2, []byte(content2), 0644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntriesMulti([]string{ws1, ws2}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (different failures), got %d", len(entries))
+	}
+}
+
+func TestReadEntriesMulti_FailureDedupSame(t *testing.T) {
+	dir := t.TempDir()
+	ws1 := filepath.Join(dir, "ws1.jsonl")
+	ws2 := filepath.Join(dir, "ws2.jsonl")
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}
+`
+	if err := os.WriteFile(ws1, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ws2, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntriesMulti([]string{ws1, ws2}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry (same failure deduplicated), got %d", len(entries))
+	}
+}
+
+func TestMarkEntriesByText_FailureEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lore.jsonl")
+	content := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}
+{"ts":"2026-02-13T14:33:00Z","ws":"ws-abc","agent":"claude-code","type":"reflection","text":"use go run instead"}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := MarkEntriesByText(path, "proposed", []string{"Bash: npm run build"}, "prop-fail")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	all, err := ReadEntries(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateChanges := 0
+	for _, e := range all {
+		if e.StateChange == "proposed" {
+			stateChanges++
+		}
+	}
+	if stateChanges != 1 {
+		t.Errorf("expected 1 state change for failure entry, got %d", stateChanges)
+	}
+	raw, err := ReadEntries(path, FilterRaw())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 1 || raw[0].Text != "use go run instead" {
+		t.Errorf("expected reflection entry to remain raw, got %d entries", len(raw))
+	}
+}
+
+func TestMarkEntriesByTextMulti_FailureEntries(t *testing.T) {
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "ws1.jsonl")
+	srcContent := `{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}
+`
+	if err := os.WriteFile(srcFile, []byte(srcContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	destFile := filepath.Join(dir, "state.jsonl")
+	err := MarkEntriesByTextMulti([]string{srcFile}, destFile, "applied", []string{"Bash: npm run build"}, "prop-fail")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	entries, err := ReadEntries(destFile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 state-change record, got %d", len(entries))
+	}
+	if entries[0].StateChange != "applied" {
+		t.Errorf("expected state_change 'applied', got %s", entries[0].StateChange)
+	}
+}
+
 func TestMarkEntriesByTextMulti_DeduplicatesAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 

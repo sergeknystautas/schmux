@@ -172,6 +172,59 @@ func TestCuratorResponseSchemaRegistered(t *testing.T) {
 	}
 }
 
+func TestCurate_WithFailureEntries(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := filepath.Join(dir, "repo")
+	os.MkdirAll(repoDir, 0755)
+	os.WriteFile(filepath.Join(repoDir, "CLAUDE.md"), []byte("# Project"), 0644)
+
+	lorePath := filepath.Join(dir, "lore.jsonl")
+	AppendEntry(lorePath, Entry{
+		Timestamp:    time.Now().UTC(),
+		Workspace:    "ws-1",
+		Agent:        "claude-code",
+		Type:         "failure",
+		Tool:         "Bash",
+		InputSummary: "npm run build",
+		ErrorSummary: "Missing script",
+		Category:     "wrong_command",
+	})
+	AppendEntry(lorePath, Entry{
+		Timestamp: time.Now().Add(time.Second).UTC(),
+		Workspace: "ws-1",
+		Agent:     "claude-code",
+		Type:      "reflection",
+		Text:      "use go run ./cmd/build-dashboard",
+	})
+
+	mockExecutor := func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+		resp := CuratorResponse{
+			ProposedFiles:    map[string]string{"CLAUDE.md": "# Project\n\nUse go run ./cmd/build-dashboard"},
+			DiffSummary:      "Added build command",
+			EntriesUsed:      []string{"Bash: npm run build", "use go run ./cmd/build-dashboard"},
+			EntriesDiscarded: map[string]string{},
+		}
+		data, _ := json.Marshal(resp)
+		return string(data), nil
+	}
+
+	c := &Curator{
+		InstructionFiles: []string{"CLAUDE.md"},
+		Executor:         mockExecutor,
+	}
+
+	proposal, err := c.Curate(context.Background(), "myrepo", repoDir, lorePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if proposal == nil {
+		t.Fatal("expected non-nil proposal")
+	}
+	if len(proposal.EntriesUsed) != 2 {
+		t.Errorf("expected 2 entries_used, got %d", len(proposal.EntriesUsed))
+	}
+}
+
 func TestBuildCuratorPrompt_SeparatesFailuresAndReflections(t *testing.T) {
 	files := map[string]string{
 		"CLAUDE.md": "# Project\n\n## Build\ngo build",
