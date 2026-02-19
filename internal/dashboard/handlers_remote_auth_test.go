@@ -814,3 +814,67 @@ func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
 		t.Error("old cookie should be invalid after password change")
 	}
 }
+
+// TestDisablingRemoteAccess_ClearsAuthState tests that when remote_access.enabled
+// transitions to false while auth state exists, calling ClearRemoteAuth clears
+// the state properly. The actual trigger (config save handler) is tested separately.
+func TestDisablingRemoteAccess_ClearsAuthState(t *testing.T) {
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	server := newTestServerWithTunnel(t, mgr)
+	defer server.CloseForTest()
+
+	// Enable remote access and simulate tunnel connection
+	enabled := true
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	// Verify tunnel auth state exists
+	server.remoteTokenMu.Lock()
+	hasSecret := len(server.remoteSessionSecret) > 0
+	hasToken := server.remoteToken != ""
+	server.remoteTokenMu.Unlock()
+
+	if !hasSecret {
+		t.Error("expected session secret to exist after tunnel connects")
+	}
+	if !hasToken {
+		t.Error("expected token to exist after tunnel connects")
+	}
+
+	// Verify requiresAuth returns true (tunnel is active)
+	if !server.requiresAuth() {
+		t.Error("expected requiresAuth to return true when tunnel is active")
+	}
+
+	// Now disable remote access - this is what happens in the config save handler
+	// when remote_access.enabled is set to false
+	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
+	enabled = false
+	server.config.RemoteAccess.Enabled = &enabled
+	server.ClearRemoteAuth()
+
+	// Verify tunnel auth state is cleared
+	server.remoteTokenMu.Lock()
+	hasSecretAfter := len(server.remoteSessionSecret) > 0
+	hasTokenAfter := server.remoteToken != ""
+	server.remoteTokenMu.Unlock()
+
+	if hasSecretAfter {
+		t.Error("expected session secret to be cleared after ClearRemoteAuth")
+	}
+	if hasTokenAfter {
+		t.Error("expected token to be cleared after ClearRemoteAuth")
+	}
+
+	// Verify requiresAuth returns false (tunnel state is cleared)
+	if server.requiresAuth() {
+		t.Error("expected requiresAuth to return false after auth cleared")
+	}
+
+	// Verify all requests are now trusted (no untrusted path exists)
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "1.2.3.4:12345" // Non-loopback
+	if !server.isTrustedRequest(req) {
+		t.Error("expected all requests to be trusted when remote_access is disabled")
+	}
+}
