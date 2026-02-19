@@ -29,6 +29,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -1695,6 +1696,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[config] failed to save config: %v\n", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If remote access is disabled but a tunnel is active, stop it immediately.
+	// This prevents a security hole where an active tunnel could bypass auth
+	// after the config is reloaded with remote_access.enabled = false.
+	if !cfg.GetRemoteAccessEnabled() && s.tunnelManager != nil {
+		status := s.tunnelManager.Status()
+		if status.State == tunnel.StateConnected || status.State == tunnel.StateStarting {
+			fmt.Printf("[remote-access] stopping tunnel because remote_access is disabled\n")
+			s.tunnelManager.Stop()
+			s.ClearRemoteAuth()
+		}
 	}
 
 	// Update PR discovery polling based on new config
