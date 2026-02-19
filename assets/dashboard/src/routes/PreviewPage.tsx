@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import Tooltip from '../components/Tooltip';
 import { useSessions } from '../contexts/SessionsContext';
-import { hidePreviewIframes, showPreviewIframe } from '../lib/previewKeepAlive';
+import {
+  goBackPreviewIframe,
+  hidePreviewIframes,
+  refreshPreviewIframe,
+  showPreviewIframe,
+} from '../lib/previewKeepAlive';
 
 export default function PreviewPage() {
   const { workspaceId, previewId } = useParams();
@@ -62,6 +68,14 @@ export default function PreviewPage() {
     };
   }, [previewId_, previewUrl]);
 
+  const handleBack = useCallback(() => {
+    if (previewId_) goBackPreviewIframe(previewId_);
+  }, [previewId_]);
+
+  const handleRefresh = useCallback(() => {
+    if (previewId_) refreshPreviewIframe(previewId_);
+  }, [previewId_]);
+
   if (!workspace) {
     return (
       <div className="loading-state">
@@ -79,8 +93,82 @@ export default function PreviewPage() {
         workspace={workspace}
         activePreviewId={preview?.id}
       />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--spacing-sm)',
+            padding: 'var(--spacing-xs) var(--spacing-sm)',
+            background: 'var(--color-surface-alt)',
+            borderBottom: '1px solid var(--color-border-subtle)',
+          }}
+        >
+          <Tooltip content="Go back">
+            <button onClick={handleBack} className="btn btn--sm">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </button>
+          </Tooltip>
+          <Tooltip content="Refresh">
+            <button onClick={handleRefresh} className="btn btn--sm">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+          </Tooltip>
+          {previewUrl && (
+            <Tooltip content="Open in new tab">
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  flex: 1,
+                  padding: 'var(--spacing-xs) var(--spacing-sm)',
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  color: 'var(--color-text-muted)',
+                  textDecoration: 'none',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {previewUrl}
+              </a>
+            </Tooltip>
+          )}
+        </div>
+        <div ref={mountRef} style={{ flex: 1, minHeight: 0 }} />
       </div>
     </>
   );
