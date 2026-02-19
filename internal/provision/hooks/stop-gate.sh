@@ -21,16 +21,26 @@ if [ -f "$SCHMUX_STATUS_FILE" ]; then
   CONTENT=$(cat "$SCHMUX_STATUS_FILE" 2>/dev/null || true)
   # Status file must contain something other than just "working" (the SessionStart default)
   case "$CONTENT" in
-    working*) STATUS_OK=true ;;
-    completed*|needs_input*|needs_testing*|error*) STATUS_OK=true ;;
+    completed*|needs_input*|needs_testing*|error*|working\ *) STATUS_OK=true ;;
   esac
 fi
 
-# Check 2: reflection entry exists in lore.jsonl
-LORE_FILE=".schmux/lore.jsonl"
+# Check 2: reflection entry exists in lore.jsonl from THIS session
+# Use CLAUDE_PROJECT_DIR for absolute path; fall back to relative if not set
+if [ -n "$CLAUDE_PROJECT_DIR" ]; then
+  LORE_FILE="$CLAUDE_PROJECT_DIR/.schmux/lore.jsonl"
+else
+  LORE_FILE=".schmux/lore.jsonl"
+fi
+SESSION_ID="${SCHMUX_SESSION_ID:-}"
 REFLECTION_OK=false
-if [ -f "$LORE_FILE" ]; then
-  # Check if any reflection entry exists (from this agent)
+if [ -f "$LORE_FILE" ] && [ -n "$SESSION_ID" ]; then
+  # Check for a reflection entry that belongs to this session
+  if grep "\"session\":\"$SESSION_ID\"" "$LORE_FILE" 2>/dev/null | grep -q "\"type\":\"reflection\"" 2>/dev/null; then
+    REFLECTION_OK=true
+  fi
+elif [ -f "$LORE_FILE" ] && [ -z "$SESSION_ID" ]; then
+  # Fallback: no session ID available, accept any reflection (backwards compat)
   if grep -q '"type":"reflection"' "$LORE_FILE" 2>/dev/null || grep -q '"type": "reflection"' "$LORE_FILE" 2>/dev/null; then
     REFLECTION_OK=true
   fi
@@ -51,8 +61,8 @@ if [ "$REFLECTION_OK" != "true" ]; then
   [ -n "$MSG" ] && MSG="$MSG
 "
   MSG="${MSG}2. Lore: Append a friction reflection to .schmux/lore.jsonl — what tripped you up this session.
-{\"ts\":\"<ISO8601>\",\"ws\":\"$WS_ID\",\"agent\":\"claude-code\",\"type\":\"reflection\",\"text\":\"When <trigger>, do <correction> instead\"}
-If nothing tripped you up, use {\"ts\":\"<ISO8601>\",\"ws\":\"$WS_ID\",\"agent\":\"claude-code\",\"type\":\"reflection\",\"text\":\"none\"}"
+{\"ts\":\"<ISO8601>\",\"ws\":\"$WS_ID\",\"session\":\"${SESSION_ID:-unknown}\",\"agent\":\"claude-code\",\"type\":\"reflection\",\"text\":\"When <trigger>, do <correction> instead\"}
+If nothing tripped you up, use {\"ts\":\"<ISO8601>\",\"ws\":\"$WS_ID\",\"session\":\"${SESSION_ID:-unknown}\",\"agent\":\"claude-code\",\"type\":\"reflection\",\"text\":\"none\"}"
 fi
 
 echo "Update your schmux status and write a friction reflection before finishing.
