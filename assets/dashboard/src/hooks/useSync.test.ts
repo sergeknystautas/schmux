@@ -52,7 +52,7 @@ beforeEach(() => {
 
 describe('useSync', () => {
   describe('handleLinearSyncFromMain', () => {
-    it('does not show a success dialog when sync succeeds', async () => {
+    it('shows a success dialog when sync succeeds', async () => {
       mockLinearSyncFromMain.mockResolvedValue({
         success: true,
         branch: 'main',
@@ -62,7 +62,7 @@ describe('useSync', () => {
       const { result } = renderHook(() => useSync());
       await act(() => result.current.handleLinearSyncFromMain('ws-1', 'abc123'));
 
-      expect(alert).not.toHaveBeenCalled();
+      expect(alert).toHaveBeenCalledWith('Success', 'Synced 3 commits from main.');
       expect(show).not.toHaveBeenCalled();
     });
 
