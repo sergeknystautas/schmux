@@ -547,7 +547,12 @@ func (s *Server) CloseForTest() {
 	s.remoteAuthLimiter.Stop()
 }
 
-func (s *Server) isLocalRequest(r *http.Request) bool {
+func (s *Server) isTrustedRequest(r *http.Request) bool {
+	// If remote access is not enabled, there's no untrusted path — all requests are trusted
+	if !s.config.GetRemoteAccessEnabled() {
+		return true
+	}
+
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err != nil {
 		host = strings.TrimSpace(r.RemoteAddr)
@@ -1099,7 +1104,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 	// Authenticate if auth is required (GitHub OAuth or tunnel active)
 	if s.requiresAuth() {
 		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
-		if s.authEnabled() || !s.isLocalRequest(r) {
+		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return

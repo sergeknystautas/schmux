@@ -105,7 +105,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	if s.requiresAuth() {
 		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
-		if s.authEnabled() || !s.isLocalRequest(r) {
+		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -656,7 +656,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 
 	if s.requiresAuth() {
 		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
-		if s.authEnabled() || !s.isLocalRequest(r) {
+		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
