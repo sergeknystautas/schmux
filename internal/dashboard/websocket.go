@@ -38,7 +38,7 @@ func isTerminalResponse(data string) bool {
 	return false
 }
 
-// Sequences to filter out so xterm.js handles scrolling locally.
+// Sequences to strip so xterm.js handles scrolling locally.
 var filterSequences = [][]byte{
 	// Mouse mode sequences
 	[]byte("\x1b[?1000h"), // X11 mouse tracking
@@ -48,13 +48,25 @@ var filterSequences = [][]byte{
 	[]byte("\x1b[?1015h"), // urxvt mouse mode
 	// Alternate screen mode - disables scrollback in xterm.js
 	[]byte("\x1b[?1049h"), // Enable alternate screen
+	// Erase scrollback - prevents tmux from clearing xterm.js scrollback
+	[]byte("\x1b[3J"), // ED 3 (Erase Scrollback)
 }
 
-// filterMouseMode removes sequences that interfere with xterm.js scrollback.
+// Erase Display → Scroll Up replacement.
+// tmux sends \x1b[2J during full-screen redraws which erases viewport content
+// without pushing it into scrollback. Replacing with \x1b[999S (Scroll Up)
+// pushes viewport lines into scrollback so they remain accessible.
+var (
+	eraseDisplay = []byte("\x1b[2J")
+	scrollUp999  = []byte("\x1b[999S")
+)
+
+// filterMouseMode removes or replaces sequences that interfere with xterm.js scrollback.
 func filterMouseMode(data []byte) []byte {
 	for _, seq := range filterSequences {
 		data = bytes.ReplaceAll(data, seq, nil)
 	}
+	data = bytes.ReplaceAll(data, eraseDisplay, scrollUp999)
 	return data
 }
 
@@ -251,6 +263,23 @@ drained:
 		}
 	}()
 
+	// Scrollback sync: tmux attach-session sends rendered screen snapshots
+	// during rapid output, not the raw scrolling content. When output exceeds
+	// one screen, tmux only sends the final visible rows — earlier lines exist
+	// in tmux's internal scrollback but are never sent to our PTY. After a
+	// burst ends (no output for scrollbackSyncDelay), we do a capture-pane to
+	// resync the client with the full scrollback.
+	const scrollbackSyncThreshold = 4096               // bytes before considering a sync
+	const scrollbackSyncDelay = 300 * time.Millisecond // quiet period after burst
+	var outputSinceSync int
+	var syncTimer *time.Timer
+	var syncCh <-chan time.Time
+	defer func() {
+		if syncTimer != nil {
+			syncTimer.Stop()
+		}
+	}()
+
 	for {
 		select {
 		case chunk, ok := <-outputCh:
@@ -261,6 +290,28 @@ drained:
 			filtered := filterMouseMode(chunk)
 			if len(filtered) > 0 {
 				if err := sendOutput("append", string(filtered)); err != nil {
+					return
+				}
+				outputSinceSync += len(filtered)
+				if outputSinceSync >= scrollbackSyncThreshold {
+					if syncTimer != nil {
+						syncTimer.Stop()
+					}
+					syncTimer = time.NewTimer(scrollbackSyncDelay)
+					syncCh = syncTimer.C
+				}
+			}
+		case <-syncCh:
+			// Burst ended — resync scrollback from tmux's internal buffer.
+			syncCh = nil
+			syncTimer = nil
+			outputSinceSync = 0
+			capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
+			snapshot, err := tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+			capCancel()
+			if err == nil {
+				filtered := string(filterMouseMode([]byte(snapshot)))
+				if err := sendOutput("full", filtered); err != nil {
 					return
 				}
 			}
