@@ -946,12 +946,15 @@ export async function getLoreEntries(
   return res.json();
 }
 
-export async function triggerLoreCuration(repoName: string): Promise<void> {
+export async function triggerLoreCuration(
+  repoName: string
+): Promise<{ status: string; proposal_id?: string }> {
   const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
 export async function getLoreStatus(): Promise<LoreStatusResponse> {

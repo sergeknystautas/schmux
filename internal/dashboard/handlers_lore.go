@@ -441,23 +441,37 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(rawEntries) == 0 {
+		fmt.Printf("[lore] curate %s: no raw entries to process\n", repoName)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
+	fmt.Printf("[lore] curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
+	start := time.Now()
+
+	// Use a detached context with its own timeout — the LLM call can take
+	// 30-120s and we don't want it cancelled if the browser disconnects.
+	curateCtx, curateCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer curateCancel()
+
 	// Use CurateWithEntries so we pass the pre-aggregated entries
-	proposal, err := s.loreCurator.CurateWithEntries(r.Context(), repoName, bareDir, rawEntries)
+	proposal, err := s.loreCurator.CurateWithEntries(curateCtx, repoName, bareDir, rawEntries)
+	elapsed := time.Since(start)
 	if err != nil {
-		fmt.Printf("[lore] curation failed: %v\n", err)
+		fmt.Printf("[lore] curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
 		http.Error(w, "curation failed", http.StatusInternalServerError)
 		return
 	}
 	if proposal == nil {
+		fmt.Printf("[lore] curate %s: LLM returned no proposal (%s)\n", repoName, elapsed.Round(time.Millisecond))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
 		return
 	}
+
+	fmt.Printf("[lore] curate %s: proposal %s created (%d files, %d entries used, %s)\n",
+		repoName, proposal.ID, len(proposal.ProposedFiles), len(proposal.EntriesUsed), elapsed.Round(time.Millisecond))
 
 	if err := s.loreStore.Save(proposal); err != nil {
 		fmt.Printf("[lore] save proposal error: %v\n", err)

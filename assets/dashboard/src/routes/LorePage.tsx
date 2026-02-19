@@ -310,8 +310,12 @@ export default function LorePage() {
     if (!activeRepo) return;
     setCurating(true);
     try {
-      await triggerLoreCuration(activeRepo);
-      toastSuccess('Re-curation triggered');
+      const result = await triggerLoreCuration(activeRepo);
+      if (result.status === 'no_raw_entries') {
+        toastError('No raw entries to curate');
+      } else {
+        toastSuccess('Curation complete — new proposal created');
+      }
       loadData();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to trigger curation'));
@@ -483,6 +487,13 @@ export default function LorePage() {
                     </option>
                   ))}
                 </select>
+                <button
+                  className={styles.curateButton}
+                  onClick={handleReCurate}
+                  disabled={curating}
+                >
+                  {curating ? 'Curating...' : 'Trigger Curation'}
+                </button>
               </div>
               <div className={styles.entriesList} data-testid="lore-entries">
                 {rawEntries.length === 0 ? (
@@ -506,9 +517,6 @@ export default function LorePage() {
                   ))
                 )}
               </div>
-              <button className={styles.curateButton} onClick={handleReCurate} disabled={curating}>
-                {curating ? 'Curating...' : 'Trigger Curation'}
-              </button>
             </>
           )}
         </section>
