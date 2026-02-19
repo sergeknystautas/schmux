@@ -16,13 +16,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
-	"github.com/sergeknystautas/schmux/internal/provision"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
@@ -415,8 +415,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	// For Claude targets, prepend hooks provisioning to the command so hooks
 	// are in place before Claude Code starts (it captures hooks at startup).
 	baseTool := detect.GetBaseToolName(targetName)
-	if provision.SupportsHooks(baseTool) {
-		command, err = provision.WrapCommandWithHooksProvisioning(command)
+	if ensure.SupportsHooks(baseTool) {
+		command, err = ensure.WrapCommandWithHooks(command)
 		if err != nil {
 			fmt.Printf("[session] warning: failed to wrap command with hooks provisioning: %v\n", err)
 		}
@@ -605,20 +605,20 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Provision agent signaling mechanism
 	baseTool := detect.GetBaseToolName(opts.TargetName)
-	if provision.SupportsHooks(baseTool) {
+	if ensure.SupportsHooks(baseTool) {
 		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
-		if err := provision.EnsureClaudeHooks(w.Path); err != nil {
+		if err := ensure.ClaudeHooks(w.Path); err != nil {
 			fmt.Printf("[session] warning: failed to provision Claude hooks: %v\n", err)
 		}
-		if err := provision.EnsureLoreHookScripts(w.Path); err != nil {
+		if err := ensure.LoreHookScripts(w.Path); err != nil {
 			fmt.Printf("[session] warning: failed to write lore hook scripts: %v\n", err)
 		}
-	} else if provision.SupportsSystemPromptFlag(baseTool) {
-		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
+	} else if ensure.SupportsSystemPromptFlag(baseTool) {
+		if err := ensure.SignalingInstructionsFile(); err != nil {
 			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
 		}
 	} else {
-		if err := provision.EnsureAgentInstructions(w.Path, opts.TargetName); err != nil {
+		if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
 			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
 		}
 	}
@@ -938,18 +938,18 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // paths like ~/.schmux/signaling.md don't exist on the remote host.
 // Claude is skipped here because it uses hooks for signaling instead.
 func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
-	if provision.SupportsHooks(baseTool) {
+	if ensure.SupportsHooks(baseTool) {
 		// Claude uses hooks for signaling, no CLI flag needed
 		return cmd
 	}
-	if !provision.SupportsSystemPromptFlag(baseTool) {
+	if !ensure.SupportsSystemPromptFlag(baseTool) {
 		return cmd
 	}
 	if isRemote {
 		// Remote mode: always use inline content (file paths are local-only)
 		switch baseTool {
 		case "claude":
-			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
+			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
 		default:
 			// Codex and others: no reliable remote inline injection mechanism
 			return cmd
@@ -958,11 +958,11 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	// Local mode: use file-based injection
 	switch baseTool {
 	case "claude":
-		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(ensure.SignalingInstructionsFilePath()))
 	case "codex":
-		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+ensure.SignalingInstructionsFilePath()))
 	default:
-		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
+		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
 	}
 }
 

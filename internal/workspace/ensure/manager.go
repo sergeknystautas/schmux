@@ -1,5 +1,5 @@
-// Package provision handles automatic provisioning of agent instruction files.
-package provision
+// Package ensure handles ensuring workspaces have the necessary schmux configuration.
+package ensure
 
 import (
 	_ "embed"
@@ -79,10 +79,23 @@ Only write when something tripped you up. Don't write what you built or learned 
 write what would have saved you time if you'd known it before starting.
 `
 
-// EnsureAgentInstructions ensures the signaling instructions are present
+// Workspace ensures a workspace has all necessary schmux-managed configuration.
+// This is the main entry point called both during session spawn and overlay refresh.
+func Workspace(workspacePath string) error {
+	// Ensure Claude hooks and lore scripts for Claude-based workspaces
+	if err := ClaudeHooks(workspacePath); err != nil {
+		fmt.Printf("[ensure] warning: failed to ensure Claude hooks: %v\n", err)
+	}
+	if err := LoreHookScripts(workspacePath); err != nil {
+		fmt.Printf("[ensure] warning: failed to ensure lore hook scripts: %v\n", err)
+	}
+	return nil
+}
+
+// AgentInstructions ensures the signaling instructions are present
 // in the appropriate instruction file for the given target.
 // Returns nil if the target doesn't have a known instruction file.
-func EnsureAgentInstructions(workspacePath, targetName string) error {
+func AgentInstructions(workspacePath, targetName string) error {
 	config, ok := detect.GetAgentInstructionConfigForTarget(targetName)
 	if !ok {
 		// Target doesn't have a known instruction file, nothing to do
@@ -109,7 +122,7 @@ func EnsureAgentInstructions(workspacePath, targetName string) error {
 			if err := os.WriteFile(instructionPath, []byte(schmuxBlock), 0644); err != nil {
 				return fmt.Errorf("failed to create instruction file %s: %w", instructionPath, err)
 			}
-			fmt.Printf("[provision] created %s with signaling instructions\n", instructionPath)
+			fmt.Printf("[ensure] created %s with signaling instructions\n", instructionPath)
 			return nil
 		}
 		return fmt.Errorf("failed to read instruction file %s: %w", instructionPath, err)
@@ -124,7 +137,7 @@ func EnsureAgentInstructions(workspacePath, targetName string) error {
 			if err := os.WriteFile(instructionPath, []byte(newContent), 0644); err != nil {
 				return fmt.Errorf("failed to update instruction file %s: %w", instructionPath, err)
 			}
-			fmt.Printf("[provision] updated signaling instructions in %s\n", instructionPath)
+			fmt.Printf("[ensure] updated signaling instructions in %s\n", instructionPath)
 		}
 		return nil
 	}
@@ -139,7 +152,7 @@ func EnsureAgentInstructions(workspacePath, targetName string) error {
 	if err := os.WriteFile(instructionPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to append to instruction file %s: %w", instructionPath, err)
 	}
-	fmt.Printf("[provision] appended signaling instructions to %s\n", instructionPath)
+	fmt.Printf("[ensure] appended signaling instructions to %s\n", instructionPath)
 	return nil
 }
 
@@ -243,8 +256,8 @@ func SignalingInstructionsFilePath() string {
 	return filepath.Join(homeDir, ".schmux", "signaling.md")
 }
 
-// EnsureSignalingInstructionsFile writes signaling instructions to ~/.schmux/signaling.md.
-func EnsureSignalingInstructionsFile() error {
+// SignalingInstructionsFile writes signaling instructions to ~/.schmux/signaling.md.
+func SignalingInstructionsFile() error {
 	path := SignalingInstructionsFilePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create signaling directory: %w", err)
@@ -350,7 +363,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       `"$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-gate.sh`,
+						Command:       `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-gate.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-gate.sh || true`,
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -373,7 +386,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       `"$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh`,
+						Command:       `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/capture-failure.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh || true`,
 						StatusMessage: "schmux: lore capture",
 					},
 				},
@@ -422,11 +435,11 @@ func mergeHooksForEvent(existing, schmux []claudeHookMatcherGroup) []claudeHookM
 	return merged
 }
 
-// EnsureClaudeHooks creates or updates .claude/settings.local.json in the
+// ClaudeHooks creates or updates .claude/settings.local.json in the
 // workspace with Claude Code hooks for automatic schmux signaling.
 // Preserves all non-hooks settings and merges with existing user hooks
 // (schmux hooks are identified by statusMessage prefix and replaced in-place).
-func EnsureClaudeHooks(workspacePath string) error {
+func ClaudeHooks(workspacePath string) error {
 	settingsDir := filepath.Join(workspacePath, ".claude")
 	settingsPath := filepath.Join(settingsDir, "settings.local.json")
 
@@ -501,15 +514,15 @@ func EnsureClaudeHooks(workspacePath string) error {
 	if err := os.WriteFile(settingsPath, append(data, '\n'), 0644); err != nil {
 		return fmt.Errorf("failed to write settings file: %w", err)
 	}
-	fmt.Printf("[provision] configured Claude hooks in %s\n", settingsPath)
+	fmt.Printf("[ensure] configured Claude hooks in %s\n", settingsPath)
 	return nil
 }
 
-// WrapCommandWithHooksProvisioning prepends hooks file creation to a command.
+// WrapCommandWithHooks prepends hooks file creation to a command.
 // Used for remote sessions where we can't write files via local I/O.
 // The hooks file is created in the working directory before the agent starts,
 // ensuring hooks are captured at Claude Code startup.
-func WrapCommandWithHooksProvisioning(command string) (string, error) {
+func WrapCommandWithHooks(command string) (string, error) {
 	jsonBytes, err := ClaudeHooksJSON()
 	if err != nil {
 		return command, fmt.Errorf("failed to build hooks JSON: %w", err)
@@ -524,8 +537,8 @@ var captureFailureScript []byte
 //go:embed hooks/stop-gate.sh
 var stopGateScript []byte
 
-// EnsureLoreHookScripts writes the lore hook scripts to <workspace>/.schmux/hooks/.
-func EnsureLoreHookScripts(workspacePath string) error {
+// LoreHookScripts writes the lore hook scripts to <workspace>/.schmux/hooks/.
+func LoreHookScripts(workspacePath string) error {
 	hooksDir := filepath.Join(workspacePath, ".schmux", "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		return fmt.Errorf("failed to create hooks directory: %w", err)

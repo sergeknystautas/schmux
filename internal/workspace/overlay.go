@@ -11,6 +11,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 )
 
 // OverlayDir returns the overlay directory path for a given repo name.
@@ -210,7 +211,8 @@ func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath 
 	return manifest, nil
 }
 
-// RefreshOverlay reapplies overlay files to an existing workspace.
+// RefreshOverlay reapplies overlay files to an existing workspace
+// and ensures schmux-managed configuration is up to date.
 func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
@@ -232,6 +234,11 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 
 	if manifest != nil {
 		m.state.UpdateOverlayManifest(workspaceID, manifest)
+	}
+
+	// Ensure schmux-managed configuration (hooks, scripts, etc.)
+	if err := ensure.Workspace(w.Path); err != nil {
+		fmt.Printf("[workspace] warning: failed to ensure workspace config: %v\n", err)
 	}
 
 	fmt.Printf("[workspace] overlay refreshed successfully: %s\n", workspaceID)
