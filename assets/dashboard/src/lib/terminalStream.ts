@@ -45,6 +45,11 @@ export default class TerminalStream {
   private disposed = false;
   private wasDisplaced = false;
 
+  // Write batching — accumulates append data and flushes once per animation
+  // frame to reduce xterm.js render pressure during rapid output.
+  private pendingAppend = '';
+  private flushHandle: number | null = null;
+
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
   private windowResizeHandler: (() => void) | null = null;
@@ -377,6 +382,11 @@ export default class TerminalStream {
 
   disconnect() {
     this.disposed = true;
+    if (this.flushHandle !== null) {
+      cancelAnimationFrame(this.flushHandle);
+      this.flushHandle = null;
+    }
+    this.pendingAppend = '';
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -406,7 +416,6 @@ export default class TerminalStream {
   }
 
   handleOutput(data: string) {
-    const renderStart = performance.now();
     let msg: TerminalOutputMessage;
     try {
       msg = JSON.parse(data);
@@ -420,30 +429,57 @@ export default class TerminalStream {
 
     switch (msg.type) {
       case 'append':
-        this.terminal.write(msg.content);
+        // Batch append writes: accumulate data and flush once per animation
+        // frame. This reduces xterm.js render operations from potentially
+        // hundreds per second to at most 60, preventing the browser from
+        // falling behind on WebSocket reads (which causes the Go channel
+        // to overflow and drop data on the backend).
+        this.pendingAppend += msg.content;
+        if (this.flushHandle === null) {
+          this.flushHandle = requestAnimationFrame(() => {
+            this.flushPendingWrites();
+          });
+        }
         break;
       case 'full':
+        this.flushPendingWrites();
         this.terminal.reset();
         this.terminal.write(msg.content);
+        if (this.followTail) {
+          this.terminal.scrollToBottom();
+        }
         break;
       case 'displaced':
+        this.flushPendingWrites();
         this.wasDisplaced = true;
         this.terminal.writeln(
           `\r\n\x1b[33m${msg.content}\x1b[0m\r\n\x1b[33m[Refresh to reconnect]\x1b[0m`
         );
         break;
       default:
+        this.flushPendingWrites();
         this.terminal.reset();
         this.terminal.write(msg.content || data);
     }
+  }
+
+  private flushPendingWrites() {
+    if (this.flushHandle !== null) {
+      cancelAnimationFrame(this.flushHandle);
+      this.flushHandle = null;
+    }
+    if (this.pendingAppend.length === 0) return;
+
+    const renderStart = performance.now();
+    const batch = this.pendingAppend;
+    this.pendingAppend = '';
+    this.terminal.write(batch);
 
     if (this.followTail) {
       this.terminal.scrollToBottom();
     }
 
-    if (msg.type === 'append') {
-      inputLatency.markRenderTime(performance.now() - renderStart);
-    }
+    inputLatency.markRenderTime(performance.now() - renderStart);
   }
 
   setFollow(follow: boolean) {
