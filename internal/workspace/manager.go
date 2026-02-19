@@ -723,6 +723,11 @@ func extractWorkspaceNumber(id string) (int, error) {
 // UpdateGitStatus refreshes the git status for a single workspace.
 // Returns the updated workspace or an error.
 func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
+	// Bail out early if context is already cancelled (e.g. during shutdown)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -791,6 +796,11 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 
 	for _, w := range workspaces {
+		// Stop iterating if context is cancelled (shutdown in progress)
+		if ctx.Err() != nil {
+			return
+		}
+
 		// Skip remote workspaces - they don't have local git repos
 		if w.RemoteHostID != "" {
 			continue
@@ -802,6 +812,10 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
+			}
+			// Suppress errors during shutdown — context cancellation is expected
+			if ctx.Err() != nil {
+				return
 			}
 			fmt.Printf("[workspace] failed to update git status for %s: %v\n", w.ID, err)
 		}

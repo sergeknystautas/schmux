@@ -237,6 +237,13 @@ func (gw *GitWatcher) resetDebounce(workspaceID string) {
 // refreshWorkspace runs a git status update for the workspace and broadcasts
 // only if the git status actually changed.
 func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
+	// Skip if watcher has been stopped (timer may fire after Stop)
+	select {
+	case <-gw.stopCh:
+		return
+	default:
+	}
+
 	if gw.onRefresh != nil {
 		gw.onRefresh(workspaceID)
 		return
