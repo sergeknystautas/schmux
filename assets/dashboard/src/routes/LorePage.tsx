@@ -353,7 +353,9 @@ export default function LorePage() {
   const historyProposals = proposals.filter(
     (p) => p.status === 'applied' || p.status === 'dismissed'
   );
-  const rawEntries = entries.filter((e) => !e.state_change);
+  const rawEntries = entries.filter(
+    (e) => !e.state_change && !(e.type === 'reflection' && (!e.text || e.text === 'none'))
+  );
 
   return (
     <div className={styles.container} data-testid="lore-page">
@@ -389,124 +391,128 @@ export default function LorePage() {
         </div>
       )}
 
-      {/* Pending proposals */}
-      {pendingProposals.length > 0 ? (
-        <div className={styles.proposalList}>
-          {pendingProposals.map((p) => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              onApply={handleApply}
-              onDismiss={handleDismiss}
-              applying={applyingId === p.id}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <p className="empty-state__description">
-            No pending proposals. Learnings will appear here when agents encounter friction.
-          </p>
-        </div>
-      )}
+      <div className={repos.length > 1 ? styles.tabPanel : undefined}>
+        {/* Pending proposals */}
+        {pendingProposals.length > 0 ? (
+          <div className={styles.proposalList}>
+            {pendingProposals.map((p) => (
+              <ProposalCard
+                key={p.id}
+                proposal={p}
+                onApply={handleApply}
+                onDismiss={handleDismiss}
+                applying={applyingId === p.id}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p className="empty-state__description">
+              No pending proposals. Learnings will appear here when agents encounter friction.
+            </p>
+          </div>
+        )}
 
-      {/* History — collapsed by default */}
-      {historyProposals.length > 0 && (
+        {/* History — collapsed by default */}
+        {historyProposals.length > 0 && (
+          <section className={styles.section}>
+            <button className={styles.toggleButton} onClick={() => setShowHistory(!showHistory)}>
+              {showHistory ? '\u25BC' : '\u25B6'} History ({historyProposals.length})
+            </button>
+            {showHistory && (
+              <div className={styles.historyList}>
+                {historyProposals.map((p) => (
+                  <div key={p.id} className={styles.historyItem}>
+                    <span className={styles.historyIcon}>
+                      {p.status === 'applied' ? '\u2713' : '\u2717'}
+                    </span>
+                    <span className={styles.historyStatus}>{p.status}</span>
+                    <span className={styles.historyDate}>
+                      {new Date(p.created_at).toLocaleDateString()}
+                    </span>
+                    <span className={styles.historySummary}>{p.diff_summary}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Raw Signals — collapsed, persisted to localStorage */}
         <section className={styles.section}>
-          <button className={styles.toggleButton} onClick={() => setShowHistory(!showHistory)}>
-            {showHistory ? '\u25BC' : '\u25B6'} History ({historyProposals.length})
+          <button
+            className={styles.toggleButton}
+            onClick={() => {
+              const next = !showSignals;
+              setShowSignals(next);
+              localStorage.setItem('lore-signals-open', String(next));
+            }}
+          >
+            {showSignals ? '\u25BC' : '\u25B6'} Raw Signals ({rawEntries.length})
           </button>
-          {showHistory && (
-            <div className={styles.historyList}>
-              {historyProposals.map((p) => (
-                <div key={p.id} className={styles.historyItem}>
-                  <span className={styles.historyIcon}>
-                    {p.status === 'applied' ? '\u2713' : '\u2717'}
-                  </span>
-                  <span className={styles.historyStatus}>{p.status}</span>
-                  <span className={styles.historyDate}>
-                    {new Date(p.created_at).toLocaleDateString()}
-                  </span>
-                  <span className={styles.historySummary}>{p.diff_summary}</span>
-                </div>
-              ))}
-            </div>
+          {showSignals && (
+            <>
+              <div className={styles.filterBar} data-testid="lore-filter-bar">
+                <select
+                  className={styles.filterSelect}
+                  data-testid="lore-filter-type"
+                  value={entryFilters.type || ''}
+                  onChange={(e) =>
+                    setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
+                  }
+                >
+                  <option value="">All types</option>
+                  {uniqueTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={styles.filterSelect}
+                  data-testid="lore-filter-agent"
+                  value={entryFilters.agent || ''}
+                  onChange={(e) =>
+                    setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
+                  }
+                >
+                  <option value="">All agents</option>
+                  {uniqueAgents.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.entriesList} data-testid="lore-entries">
+                {rawEntries.length === 0 ? (
+                  <p className={styles.empty}>No raw signal entries yet.</p>
+                ) : (
+                  rawEntries.map((e, i) => (
+                    <div key={i} className={styles.entryCard} data-entry-type={e.type}>
+                      <div className={styles.entryMeta}>
+                        <span className={styles.entryType}>{e.type}</span>
+                        <span className={styles.entryAgent}>{e.agent}</span>
+                        {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
+                        {e.category && <span className={styles.entryCategory}>{e.category}</span>}
+                        <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+                      </div>
+                      <div className={styles.entryText}>
+                        {e.type === 'failure'
+                          ? `${e.input_summary} → "${e.error_summary}"`
+                          : e.text}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <button className={styles.curateButton} onClick={handleReCurate} disabled={curating}>
+                {curating ? 'Curating...' : 'Trigger Curation'}
+              </button>
+            </>
           )}
         </section>
-      )}
-
-      {/* Raw Signals — collapsed, persisted to localStorage */}
-      <section className={styles.section}>
-        <button
-          className={styles.toggleButton}
-          onClick={() => {
-            const next = !showSignals;
-            setShowSignals(next);
-            localStorage.setItem('lore-signals-open', String(next));
-          }}
-        >
-          {showSignals ? '\u25BC' : '\u25B6'} Raw Signals ({rawEntries.length})
-        </button>
-        {showSignals && (
-          <>
-            <div className={styles.filterBar} data-testid="lore-filter-bar">
-              <select
-                className={styles.filterSelect}
-                data-testid="lore-filter-type"
-                value={entryFilters.type || ''}
-                onChange={(e) =>
-                  setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
-                }
-              >
-                <option value="">All types</option>
-                {uniqueTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={styles.filterSelect}
-                data-testid="lore-filter-agent"
-                value={entryFilters.agent || ''}
-                onChange={(e) =>
-                  setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
-                }
-              >
-                <option value="">All agents</option>
-                {uniqueAgents.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className={styles.entriesList} data-testid="lore-entries">
-              {rawEntries.length === 0 ? (
-                <p className={styles.empty}>No raw signal entries yet.</p>
-              ) : (
-                rawEntries.map((e, i) => (
-                  <div key={i} className={styles.entryCard} data-entry-type={e.type}>
-                    <div className={styles.entryMeta}>
-                      <span className={styles.entryType}>{e.type}</span>
-                      <span className={styles.entryAgent}>{e.agent}</span>
-                      {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
-                      {e.category && <span className={styles.entryCategory}>{e.category}</span>}
-                      <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
-                    </div>
-                    <div className={styles.entryText}>
-                      {e.type === 'failure' ? `${e.input_summary} → "${e.error_summary}"` : e.text}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <button className={styles.curateButton} onClick={handleReCurate} disabled={curating}>
-              {curating ? 'Curating...' : 'Trigger Curation'}
-            </button>
-          </>
-        )}
-      </section>
+      </div>
     </div>
   );
 }
