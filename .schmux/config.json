@@ -7,6 +7,10 @@
     {
       "name": "shell",
       "command": "/bin/zsh"
+    },
+    {
+      "name": "test all",
+      "command": "./test.sh --all; npx playwright show-report test/scenarios/artifacts/playwright-report"
     }
   ]
 }
