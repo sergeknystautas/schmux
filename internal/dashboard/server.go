@@ -511,7 +511,11 @@ func (s *Server) Stop() error {
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown server: %w", err)
+		// Graceful shutdown timed out (e.g. active WebSocket/proxy connections
+		// in dev mode). Force-close and continue cleanup instead of failing
+		// the entire shutdown — failing here blocks dev restart (exit code 42).
+		fmt.Printf("[daemon] graceful shutdown timed out, forcing close: %v\n", err)
+		s.httpServer.Close()
 	}
 	if s.previewManager != nil {
 		s.previewManager.Stop()
@@ -713,6 +717,9 @@ func createDevProxyHandler(targetURL string) http.Handler {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		DisableKeepAlives: true,
+	}
 
 	// Customize the director to handle WebSocket upgrade for Vite HMR
 	originalDirector := proxy.Director

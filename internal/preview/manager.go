@@ -288,7 +288,9 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	proxy.Transport = http.DefaultTransport
+	proxy.Transport = &http.Transport{
+		DisableKeepAlives: true,
+	}
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.touch(preview.ID)
 		proxy.ServeHTTP(w, r)
