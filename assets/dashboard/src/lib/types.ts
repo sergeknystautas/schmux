@@ -259,7 +259,10 @@ export interface ScanResult {
 
 export type ApiError = Error & { isConflict?: boolean };
 
-export type PendingNavigation = { type: 'session'; id: string } | { type: 'workspace'; id: string };
+export type PendingNavigation =
+  | { type: 'session'; id: string }
+  | { type: 'workspace'; id: string }
+  | { type: 'preview'; workspaceId: string; previewId: string };
 
 export interface LinearSyncResponse {
   success: boolean;

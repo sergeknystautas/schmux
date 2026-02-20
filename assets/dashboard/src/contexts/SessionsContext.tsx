@@ -53,6 +53,7 @@ const SessionsContext = createContext<SessionsContextValue | null>(null);
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { config } = useConfig();
+  const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
   const {
     workspaces,
     loading,
@@ -65,8 +66,11 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,
-  } = useSessionsWebSocket();
-  const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+  } = useSessionsWebSocket({
+    onPreviewDetected: (workspaceId, previewId) => {
+      setPendingNavigationState({ type: 'preview', workspaceId, previewId });
+    },
+  });
   const [overlayReadCount, setOverlayReadCount] = useState(0);
   const [simulateRemote, setSimulateRemote] = useState(false);
   const overlayUnreadCount = Math.max(0, overlayEvents.length - overlayReadCount);
@@ -209,6 +213,14 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       const session = sessionsById[pendingNavigation.id];
       if (session) {
         navigate(`/sessions/${pendingNavigation.id}`);
+        setPendingNavigationState(null);
+      }
+    } else if (pendingNavigation.type === 'preview') {
+      const workspace = workspaces.find((ws) =>
+        (ws.previews || []).some((p) => p.id === pendingNavigation.previewId)
+      );
+      if (workspace) {
+        navigate(`/preview/${pendingNavigation.workspaceId}/${pendingNavigation.previewId}`);
         setPendingNavigationState(null);
       }
     } else if (pendingNavigation.type === 'workspace') {

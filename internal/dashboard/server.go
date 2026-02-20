@@ -1099,6 +1099,35 @@ func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
 	}
 }
 
+// BroadcastPendingNavigation sends a pending navigation event to all dashboard WebSocket clients.
+// navType is "preview", and id1/id2 are workspaceId/previewId for preview navigation.
+func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
+	msg := map[string]interface{}{
+		"type":    "pending_navigation",
+		"navType": navType,
+		"id1":     id1,
+		"id2":     id2,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is required (GitHub OAuth or tunnel active)

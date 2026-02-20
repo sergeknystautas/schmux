@@ -26,7 +26,9 @@ type SessionsWebSocketState = {
   remoteAccessStatus: RemoteAccessStatus;
 };
 
-export default function useSessionsWebSocket(): SessionsWebSocketState {
+export default function useSessionsWebSocket(opts?: {
+  onPreviewDetected?: (workspaceId: string, previewId: string) => void;
+}): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,6 +44,8 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
   const [remoteAccessStatus, setRemoteAccessStatus] = useState<RemoteAccessStatus>({
     state: 'off',
   });
+  const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
+  onPreviewDetectedRef.current = opts?.onPreviewDetected;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_MS);
@@ -175,6 +179,8 @@ export default function useSessionsWebSocket(): SessionsWebSocketState {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
         } else if (data.type === 'remote_access_status' && data.data) {
           setRemoteAccessStatus(data.data as RemoteAccessStatus);
+        } else if (data.type === 'pending_navigation' && data.navType === 'preview') {
+          onPreviewDetectedRef.current?.(data.id1 as string, data.id2 as string);
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
