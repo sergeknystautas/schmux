@@ -81,9 +81,10 @@ Dashboard also supports:
 The spawn wizard is a single-page interface that prioritizes your task description:
 
 - **Prompt first**: Large textarea at the top for your task description
-- **Slash commands**: Type `/command` or `/resume` in the textarea to switch modes via autocomplete
+- **Slash commands**: Type `/command`, `/resume`, or `/quick` in the textarea to switch modes via autocomplete
   - `/command`: Run a raw shell command instead of a promptable target
   - `/resume`: Resume the agent's last conversation in an existing workspace (requires workspace selection)
+  - `/quick`: Run a quick launch preset (workspace mode only; shows dropdown of available quick commands)
 - **Parallel target configuration**: Select agents and configure targets in parallel below the prompt
 - **AI-powered branch suggestions**: Branch name and nickname are auto-generated from your prompt (when creating new workspaces)
 - **One-click engage**: The "Engage" button handles branch naming and spawning in sequence
