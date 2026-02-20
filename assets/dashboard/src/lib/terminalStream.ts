@@ -40,6 +40,7 @@ export default class TerminalStream {
   private disposed = false;
   private wasDisplaced = false;
   private bootstrapped = false;
+  private utf8Decoder = new TextDecoder();
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -312,9 +313,10 @@ export default class TerminalStream {
     this.ws = new WebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
 
-    // Reset displaced flag on new connection attempt (e.g., after page refresh)
+    // Reset state for new connection attempt
     this.wasDisplaced = false;
     this.bootstrapped = false;
+    this.utf8Decoder = new TextDecoder();
 
     this.ws.onopen = () => {
       this.connected = true;
@@ -407,8 +409,9 @@ export default class TerminalStream {
     const renderStart = performance.now();
 
     // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
+    // Use streaming decode to handle UTF-8 characters split across frames
     if (data instanceof ArrayBuffer) {
-      const text = new TextDecoder().decode(data);
+      const text = this.utf8Decoder.decode(data, { stream: true });
       if (!this.bootstrapped) {
         this.bootstrapped = true;
         this.terminal.reset();
