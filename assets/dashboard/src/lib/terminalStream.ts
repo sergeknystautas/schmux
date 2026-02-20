@@ -161,6 +161,11 @@ export default class TerminalStream {
     // This ensures we have correct dimensions before WebSocket connects
     this.fitTerminalSync();
 
+    // Expose for Playwright fidelity tests (scenario tests run against production builds)
+    if (typeof window !== 'undefined') {
+      (window as any).__schmuxTerminal = this.terminal;
+    }
+
     return this.terminal;
   }
 
