@@ -439,27 +439,6 @@
   flex-direction: column;
 }
 
-.tableHeader {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 var(--spacing-sm) var(--spacing-sm) var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border-subtle);
-  margin-bottom: var(--spacing-xs);
-}
-
-.headerCell {
-  font-size: 0.65rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-faint);
-}
-
-.headerCellRight {
-  composes: headerCell;
-  text-align: right;
-}
-
 .tableBody {
   display: flex;
   flex-direction: column;
@@ -523,19 +502,15 @@
   flex-shrink: 0;
 }
 
-.sessionCount {
-  font-size: 0.875rem;
-  font-weight: 600;
+.gitStats {
+  font-size: 0.7rem;
   font-family: var(--font-mono);
-  color: var(--color-text-muted);
-  min-width: 24px;
-  text-align: center;
+  color: var(--color-text-faint);
 }
 
 .runningBadge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   padding: 2px 6px;
   background-color: var(--color-success-subtle);
   border-radius: var(--radius-sm);
@@ -543,14 +518,6 @@
   font-weight: 500;
   font-family: var(--font-mono);
   color: var(--color-success);
-}
-
-.runningDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--color-success);
-  animation: pulse 2s infinite;
 }
 
 @keyframes pulse {

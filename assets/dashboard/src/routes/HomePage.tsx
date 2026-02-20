@@ -625,10 +625,6 @@ export default function HomePage() {
               </div>
             ) : (
               <div className={styles.workspaceTable} data-testid="workspace-list">
-                <div className={styles.tableHeader}>
-                  <span className={styles.headerCell}>Workspace</span>
-                  <span className={styles.headerCellRight}>Sessions</span>
-                </div>
                 <div className={styles.tableBody}>
                   {workspaces.map((ws) => {
                     const runningCount = ws.sessions.filter((s) => s.running).length;
@@ -645,12 +641,11 @@ export default function HomePage() {
                           <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
                         </div>
                         <div className={styles.workspaceStats}>
-                          <span className={styles.sessionCount}>{ws.session_count}</span>
+                          <span className={styles.gitStats}>
+                            {ws.git_behind} | {ws.git_ahead}
+                          </span>
                           {runningCount > 0 && (
-                            <span className={styles.runningBadge} title={`${runningCount} running`}>
-                              <span className={styles.runningDot} />
-                              {runningCount}
-                            </span>
+                            <span className={styles.runningBadge}>{runningCount}</span>
                           )}
                         </div>
                       </button>
