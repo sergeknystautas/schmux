@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
+import Tooltip from '../components/Tooltip';
 import {
   scanWorkspaces,
   getRecentBranches,
@@ -14,6 +15,8 @@ import {
   getOverlays,
   dismissOverlayNudge,
   getErrorMessage,
+  linearSyncFromMain,
+  getGitGraph,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
 import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
@@ -355,6 +358,39 @@ export default function HomePage() {
     }
   };
 
+  // Handle pull all workspaces that are behind
+  const [pulling, setPulling] = useState(false);
+  const handlePull = async () => {
+    const behindWorkspaces = workspaces.filter((ws) => ws.git_behind > 0);
+    if (behindWorkspaces.length === 0) {
+      success('No workspaces behind');
+      return;
+    }
+    setPulling(true);
+    let pulled = 0;
+    let failed = 0;
+    for (const ws of behindWorkspaces) {
+      try {
+        const graph = await getGitGraph(ws.id, { maxTotal: 1, mainContext: 1 });
+        const hash = graph.main_ahead_next_hash;
+        if (!hash) {
+          failed++;
+          continue;
+        }
+        await linearSyncFromMain(ws.id, hash);
+        pulled++;
+      } catch {
+        failed++;
+      }
+    }
+    setPulling(false);
+    if (failed > 0) {
+      toastError(`Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}, ${failed} failed`);
+    } else {
+      success(`Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}`);
+    }
+  };
+
   const handleBranchClick = async (repoName: string, branchName: string) => {
     const key = `${repoName}:${branchName}`;
     setPreparingBranch(key);
@@ -598,16 +634,33 @@ export default function HomePage() {
               <FolderIcon />
               Active Workspaces ({workspaces.length})
             </h2>
-            <button
-              className={styles.scanButton}
-              onClick={handleScan}
-              disabled={scanning}
-              title="Scan for workspace changes"
-              data-testid="scan-workspaces"
-            >
-              <ScanIcon />
-              {scanning ? 'Scanning...' : 'Scan'}
-            </button>
+            <div className={styles.headerActions}>
+              <Tooltip content="Sync workspaces that are behind main">
+                <span>
+                  <button
+                    className={styles.scanButton}
+                    onClick={handlePull}
+                    disabled={pulling || workspaces.filter((ws) => ws.git_behind > 0).length === 0}
+                    data-testid="pull-workspaces"
+                  >
+                    {pulling ? 'Pulling...' : 'Pull'}
+                  </button>
+                </span>
+              </Tooltip>
+              <Tooltip content="Scan for workspace changes">
+                <span>
+                  <button
+                    className={styles.scanButton}
+                    onClick={handleScan}
+                    disabled={scanning}
+                    data-testid="scan-workspaces"
+                  >
+                    <ScanIcon />
+                    {scanning ? 'Scanning...' : 'Scan'}
+                  </button>
+                </span>
+              </Tooltip>
+            </div>
           </div>
 
           <div className={styles.sectionContent}>
