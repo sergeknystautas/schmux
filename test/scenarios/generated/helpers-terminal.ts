@@ -2,7 +2,35 @@ import { type Page } from '@playwright/test';
 import { execSync } from 'child_process';
 import { waitForTerminalOutput } from './helpers';
 
+const BASE_URL = 'http://localhost:7337';
 let sentinelCounter = 0;
+
+/**
+ * Resolve the tmux session name for a given API session ID.
+ * The API session ID differs from the tmux session name when nicknames are used.
+ * Parses the `attach_cmd` field from GET /api/sessions.
+ */
+export async function getTmuxSessionName(sessionId: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/sessions`);
+  if (!res.ok) {
+    throw new Error(`Failed to get sessions: ${res.status}`);
+  }
+  const workspaces = (await res.json()) as Array<{
+    sessions: Array<{ id: string; attach_cmd: string }>;
+  }>;
+  for (const ws of workspaces) {
+    for (const sess of ws.sessions) {
+      if (sess.id === sessionId) {
+        const match = sess.attach_cmd.match(/tmux attach -t "=(.+)"/);
+        if (!match) {
+          throw new Error(`Could not parse tmux session name from attach_cmd: ${sess.attach_cmd}`);
+        }
+        return match[1];
+      }
+    }
+  }
+  throw new Error(`Session ${sessionId} not found in API response`);
+}
 
 /**
  * Send a command to a tmux session via `tmux send-keys`.
@@ -55,9 +83,13 @@ export async function readXtermBuffer(
     const lines: string[] = [];
 
     if (opts?.scrollbackLines) {
-      const totalLines = buffer.length;
-      const startLine = Math.max(0, totalLines - opts.scrollbackLines);
-      for (let i = startLine; i < totalLines; i++) {
+      // Match tmux's `-S -N` semantics: capture N lines of scrollback
+      // plus all visible rows. tmux's `-S -N` starts N lines above
+      // the top of the visible pane, so it captures N + rows lines total.
+      const baseY = buffer.baseY; // scrollback line count
+      const rows = terminal.rows; // visible rows
+      const scrollStart = Math.max(0, baseY - opts.scrollbackLines);
+      for (let i = scrollStart; i < baseY + rows; i++) {
         const line = buffer.getLine(i);
         lines.push(line ? line.translateToString(true) : '');
       }
@@ -134,6 +166,20 @@ export async function waitForSentinel(
   await new Promise((r) => setTimeout(r, 200));
 }
 
+/**
+ * Clear the tmux scrollback history for a session.
+ * Use after `clear` to sync scrollback between tmux and xterm.js,
+ * since tmux ignores \033[3J (sent by `clear`) for its own buffer
+ * while xterm.js honors it and clears scrollback.
+ */
+export function clearTmuxHistory(tmuxSession: string): void {
+  execSync(`tmux clear-history -t '${tmuxSession}'`);
+}
+
 function shellQuote(s: string): string {
-  return "$'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+  return (
+    '"' +
+    s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`') +
+    '"'
+  );
 }
