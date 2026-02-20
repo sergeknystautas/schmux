@@ -60,12 +60,12 @@ test.describe.serial('View active workspaces on the home page', () => {
     const count = await workspaceRows.count();
     expect(count).toBeGreaterThanOrEqual(2);
 
-    // Verify each row shows a session count (CSS module class names are hashed,
+    // Verify each row shows git stats (CSS module class names are hashed,
     // so match with attribute substring selector)
     for (let i = 0; i < count; i++) {
       const row = workspaceRows.nth(i);
-      const sessionCount = row.locator('[class*="sessionCount"]');
-      await expect(sessionCount).toBeVisible();
+      const gitStats = row.locator('[class*="gitStats"]');
+      await expect(gitStats).toBeVisible();
     }
   });
 
