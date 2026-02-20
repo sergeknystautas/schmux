@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/benchutil"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // benchSetup creates a tmux session running `cat` (pure echo), a
-// SessionTracker wired to it, and an attached output channel. The
+// SessionTracker wired to it, and a subscribed output channel. The
 // returned cleanup function kills the tmux session and stops the tracker.
-func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh chan []byte, tmuxName string, cleanup func()) {
+func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan controlmode.OutputEvent, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
@@ -30,9 +31,8 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh chan []byte, t
 	st := state.New("")
 	tracker = NewSessionTracker("bench-session", tmuxName, st, "", nil, nil)
 	tracker.Start()
-	outputCh = tracker.AttachWebSocket()
 
-	// Wait for tracker to attach to the PTY.
+	// Wait for tracker to attach to control mode.
 	deadline := time.Now().Add(5 * time.Second)
 	for !tracker.IsAttached() {
 		if time.Now().After(deadline) {
@@ -42,6 +42,8 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh chan []byte, t
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
+	outputCh = tracker.SubscribeOutput()
 
 	// Drain bootstrap noise (tmux attach produces some initial output).
 	drainTimeout := time.After(200 * time.Millisecond)
@@ -55,6 +57,7 @@ drain:
 	}
 
 	cleanup = func() {
+		tracker.UnsubscribeOutput(outputCh)
 		tracker.Stop()
 		_ = tmux.KillSession(ctx, tmuxName)
 	}
@@ -62,8 +65,8 @@ drain:
 }
 
 // benchSetupStressed is like benchSetup but runs a background output flood
-// in the same tmux session to create realistic PTY read-loop contention.
-func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh chan []byte, tmuxName string, cleanup func()) {
+// in the same tmux session to create realistic contention.
+func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan controlmode.OutputEvent, tmuxName string, cleanup func()) {
 	tb.Helper()
 
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
@@ -77,7 +80,6 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh chan [
 	st := state.New("")
 	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, "", nil, nil)
 	tracker.Start()
-	outputCh = tracker.AttachWebSocket()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for !tracker.IsAttached() {
@@ -88,6 +90,8 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh chan [
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
+	outputCh = tracker.SubscribeOutput()
 
 	// Drain initial output (more here because of the flood).
 	drainTimeout := time.After(500 * time.Millisecond)
@@ -101,6 +105,7 @@ drain:
 	}
 
 	cleanup = func() {
+		tracker.UnsubscribeOutput(outputCh)
 		tracker.Stop()
 		_ = tmux.KillSession(ctx, tmuxName)
 	}
@@ -188,13 +193,6 @@ func TestLatencyPercentilesStressed(t *testing.T) {
 
 	tracker, outputCh, _, cleanup := benchSetupStressed(t)
 	defer cleanup()
-
-	// Under flood, the tracker's clientCh (buffer 64) can overflow and drop
-	// chunks. Instead of trying to detect a specific marker through the
-	// lossy channel, we measure how long it takes for *any* output to appear
-	// after SendInput. This captures the real contention: the PTY read loop
-	// must interleave our echo with flood data. We drain stale chunks before
-	// each send to ensure we're timing fresh output.
 
 	const warmup = 10
 	const measured = 1000

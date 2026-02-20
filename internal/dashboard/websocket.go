@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
-const bootstrapCaptureLines = 1000
+const bootstrapCaptureLines = 5000
 
 // Terminal query response prefixes to filter from input.
 // These are responses from xterm.js to queries from tmux - we don't send them back.
@@ -38,33 +37,13 @@ func isTerminalResponse(data string) bool {
 	return false
 }
 
-// Sequences to filter out so xterm.js handles scrolling locally.
-var filterSequences = [][]byte{
-	// Mouse mode sequences
-	[]byte("\x1b[?1000h"), // X11 mouse tracking
-	[]byte("\x1b[?1002h"), // Button event tracking
-	[]byte("\x1b[?1003h"), // Any event tracking
-	[]byte("\x1b[?1006h"), // SGR extended mouse mode
-	[]byte("\x1b[?1015h"), // urxvt mouse mode
-	// Alternate screen mode - disables scrollback in xterm.js
-	[]byte("\x1b[?1049h"), // Enable alternate screen
-}
-
-// filterMouseMode removes sequences that interfere with xterm.js scrollback.
-func filterMouseMode(data []byte) []byte {
-	for _, seq := range filterSequences {
-		data = bytes.ReplaceAll(data, seq, nil)
-	}
-	return data
-}
-
 // WSMessage represents a WebSocket message from the client.
 type WSMessage struct {
 	Type string `json:"type"`
 	Data string `json:"data"`
 }
 
-// WSOutputMessage represents a WebSocket message to the client.
+// WSOutputMessage represents a WebSocket message to the client (used by remote sessions).
 type WSOutputMessage struct {
 	Type    string `json:"type"` // "full", "append"
 	Content string `json:"content"`
@@ -82,9 +61,9 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 	return s.isAllowedOrigin(origin)
 }
 
-// handleTerminalWebSocket streams tmux output to websocket clients.
+// handleTerminalWebSocket streams tmux output to websocket clients via binary frames.
 // It sends a bootstrap snapshot from capture-pane and then forwards live bytes
-// from the per-session tracker PTY.
+// from the per-session control mode output subscription.
 func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
 	if sessionID == "" {
@@ -92,7 +71,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if s.requiresAuth() {
-		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -101,13 +79,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Check if this is a conflict resolution ephemeral session (not in state store)
+	// Check if this is a conflict resolution ephemeral session
 	if tracker := s.getCRTracker(sessionID); tracker != nil {
 		s.handleCRTerminalWebSocket(w, r, sessionID, tracker)
 		return
 	}
 
-	// Check if session is already dead before upgrading.
+	// Check if session is running
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 	if !s.session.IsRunning(ctx, sessionID) {
 		cancel()
@@ -116,7 +94,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	cancel()
 
-	// Get session and check if this is a remote session
 	sess, err := s.session.GetSession(sessionID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
@@ -134,7 +111,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
-		WriteBufferSize: 4096,
+		WriteBufferSize: 8192,
 		CheckOrigin:     s.checkWSOrigin,
 	}
 
@@ -142,7 +119,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return
 	}
-
 	conn := &wsConn{conn: rawConn}
 	s.RegisterWebSocket(sessionID, conn)
 	defer func() {
@@ -150,59 +126,42 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		conn.Close()
 	}()
 
-	sendOutput := func(msgType, content string) error {
-		msg := WSOutputMessage{Type: msgType, Content: content}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			return err
-		}
-		return conn.WriteMessage(websocket.TextMessage, data)
-	}
-
-	// Attach output stream immediately after websocket upgrade to avoid
-	// dropping output generated during bootstrap capture/status setup.
-	outputCh := tracker.AttachWebSocket()
-	defer tracker.DetachWebSocket(outputCh)
-
-	// A websocket can connect before the tracker finishes its first attach retry.
-	// Give it a short window to come up so early pane output is not missed.
-	// Use a short timeout (2s) rather than the full operation timeout — the bootstrap
-	// capture (tmux capture-pane) works independently of the tracker's PTY attachment,
-	// so blocking longer just delays sending the bootstrap to the client.
-	attachWait := 2 * time.Second
-	attachDeadline := time.Now().Add(attachWait)
+	// Wait for tracker to attach before subscribing
+	attachDeadline := time.Now().Add(2 * time.Second)
 	for !tracker.IsAttached() && time.Now().Before(attachDeadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Bootstrap with recent scrollback to avoid a blank terminal on connect.
+	// Subscribe to output — multiple clients can subscribe simultaneously
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
+
+	// Bootstrap with scrollback — send as binary frame
+	// Use tracker's control mode capture if attached, fall back to tmux CLI
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	bootstrap, err := tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
-	capCancel()
+	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
 	if err != nil {
-		fmt.Printf("[ws %s] bootstrap capture failed: %v\n", sessionID[:8], err)
-		bootstrap = ""
+		// Fallback to direct tmux CLI capture
+		bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
+		if err != nil {
+			fmt.Printf("[ws %s] bootstrap capture failed: %v\n", sessionID[:8], err)
+			bootstrap = ""
+		}
 	}
-	filteredBootstrap := string(filterMouseMode([]byte(bootstrap)))
-	if err := sendOutput("full", filteredBootstrap); err != nil {
+	capCancel()
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap)); err != nil {
 		return
 	}
 
-	// Configure status bar on connect (for existing sessions or future config changes)
-	statusCtx, statusCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-	tmux.ConfigureStatusBar(statusCtx, sess.TmuxSession)
-	statusCancel()
-
-	// Flush any output that arrived while bootstrap/status setup was running.
+	// Flush any output that arrived during bootstrap
 	for {
 		select {
-		case chunk, ok := <-outputCh:
+		case event, ok := <-outputCh:
 			if !ok {
 				return
 			}
-			filtered := filterMouseMode(chunk)
-			if len(filtered) > 0 {
-				if err := sendOutput("append", string(filtered)); err != nil {
+			if len(event.Data) > 0 {
+				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
 					return
 				}
 			}
@@ -212,6 +171,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 drained:
 
+	// Read client messages (input, resize)
 	controlChan := make(chan WSMessage, 10)
 	go func() {
 		defer close(controlChan)
@@ -229,8 +189,7 @@ drained:
 		}
 	}()
 
-	// Run IsRunning checks in a background goroutine so they never block
-	// the main select loop (tmux has-session can take 50-250ms).
+	// Session liveness check
 	sessionDead := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
@@ -253,34 +212,31 @@ drained:
 
 	for {
 		select {
-		case chunk, ok := <-outputCh:
+		case event, ok := <-outputCh:
 			if !ok {
+				conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(1000, "session ended"))
 				return
 			}
-			// Filter terminal mode sequences that interfere with xterm.js scrollback
-			filtered := filterMouseMode(chunk)
-			if len(filtered) > 0 {
-				if err := sendOutput("append", string(filtered)); err != nil {
+			if len(event.Data) > 0 {
+				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
 					return
 				}
 			}
 		case <-sessionDead:
-			sendOutput("append", "\n[Session ended]")
+			conn.WriteMessage(websocket.BinaryMessage, []byte("\n[Session ended]"))
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(1000, "session ended"))
 			return
 		case msg, ok := <-controlChan:
 			if !ok {
 				return
 			}
-
 			switch msg.Type {
 			case "input":
-				// Skip terminal query responses - these are xterm.js responding to tmux queries
 				if isTerminalResponse(msg.Data) {
 					continue
 				}
-				// Clear nudge atomically — avoid using stale sess pointer.
-				// Escape (\x1b alone) also clears nudge so the spinner stops
-				// immediately when the user presses Esc to interrupt an agent.
 				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
 					if s.state.ClearSessionNudge(sessionID) {
 						go func() {
@@ -293,8 +249,7 @@ drained:
 					}
 				}
 				if err := tracker.SendInput(msg.Data); err != nil {
-					fmt.Printf("[terminal] error sending keys to tmux: %v\n", err)
-					// Don't return - input failure shouldn't kill connection
+					fmt.Printf("[terminal] error sending input: %v\n", err)
 				}
 			case "resize":
 				var resizeData struct {
@@ -302,30 +257,13 @@ drained:
 					Rows int `json:"rows"`
 				}
 				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err != nil {
-					fmt.Printf("[terminal] error parsing resize data: %v\n", err)
 					continue
 				}
 				if resizeData.Cols <= 0 || resizeData.Rows <= 0 {
 					continue
 				}
-				// Query tmux as source of truth and skip duplicate resize requests.
-				queryCtx, queryCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
-				currentCols, currentRows, err := tmux.GetWindowSize(queryCtx, sess.TmuxSession)
-				queryCancel()
-				if err != nil {
-					fmt.Printf("[terminal] error querying tmux window size: %v\n", err)
-				} else if currentCols == resizeData.Cols && currentRows == resizeData.Rows {
-					continue
-				}
-
-				// Resize tmux and attached tracker PTY.
-				resizeCtx, resizeCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
-				if err := tmux.ResizeWindow(resizeCtx, sess.TmuxSession, resizeData.Cols, resizeData.Rows); err != nil {
-					fmt.Printf("[terminal] error resizing tmux window: %v\n", err)
-				}
-				resizeCancel()
 				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
-					fmt.Printf("[terminal] error resizing PTY: %v\n", err)
+					fmt.Printf("[terminal] error resizing: %v\n", err)
 				}
 			}
 		}
@@ -333,14 +271,13 @@ drained:
 }
 
 // handleCRTerminalWebSocket handles WebSocket connections for ephemeral conflict resolution
-// tmux sessions. Unlike handleTerminalWebSocket, this is read-only (client input is ignored)
-// and uses a directly-provided tracker rather than looking up sessions in the state store.
+// tmux sessions. Read-only (client input is ignored), uses control mode API and binary frames.
 func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
 	tmuxName string, tracker *session.SessionTracker) {
 
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
-		WriteBufferSize: 4096,
+		WriteBufferSize: 8192,
 		CheckOrigin:     s.checkWSOrigin,
 	}
 
@@ -351,23 +288,26 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
-	outputCh := tracker.AttachWebSocket()
-	defer tracker.DetachWebSocket(outputCh)
-
-	// Wait briefly for tracker to attach
+	// Wait briefly for tracker to attach before subscribing
 	deadline := time.Now().Add(2 * time.Second)
 	for !tracker.IsAttached() && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Bootstrap with scrollback
+	// Subscribe to output
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
+
+	// Bootstrap with scrollback — send as binary frame
+	// Fall back to tmux CLI capture if control mode not attached
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	bootstrap, _ := tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
+	if err != nil {
+		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+	}
 	capCancel()
 	if bootstrap != "" {
-		filtered := string(filterMouseMode([]byte(bootstrap)))
-		msg, _ := json.Marshal(WSOutputMessage{Type: "full", Content: filtered})
-		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap))
 	}
 
 	// Read-only: drain client messages (required by gorilla) but ignore input
@@ -385,16 +325,14 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	// Stream output until connection closes or tracker stops
 	for {
 		select {
-		case data, ok := <-outputCh:
+		case event, ok := <-outputCh:
 			if !ok {
 				return
 			}
-			filtered := filterMouseMode(data)
-			if len(filtered) == 0 {
+			if len(event.Data) == 0 {
 				continue
 			}
-			msg, _ := json.Marshal(WSOutputMessage{Type: "append", Content: string(filtered)})
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
 				return
 			}
 		case <-controlChan:

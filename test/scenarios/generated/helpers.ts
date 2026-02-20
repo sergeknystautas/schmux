@@ -143,9 +143,20 @@ export async function waitForTerminalOutput(
       );
     }, timeoutMs);
 
-    ws.on('message', (data: WS.Data) => {
-      const msg = JSON.parse(data.toString());
-      if (msg.content) buffer += msg.content;
+    ws.on('message', (data: WS.Data, isBinary: boolean) => {
+      if (isBinary) {
+        // Binary frame: raw terminal bytes
+        buffer += data.toString();
+      } else {
+        // Text frame: JSON control message (legacy/fallback)
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.content) buffer += msg.content;
+        } catch {
+          // Non-JSON text, append as-is
+          buffer += data.toString();
+        }
+      }
       if (buffer.includes(substring)) {
         clearTimeout(timer);
         ws.close();

@@ -1,67 +1,59 @@
 package session
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/creack/pty"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 const trackerRestartDelay = 500 * time.Millisecond
 const trackerActivityDebounce = 500 * time.Millisecond
 const trackerRetryLogInterval = 15 * time.Second
 
-var trackerIgnorePrefixes = [][]byte{
-	[]byte("\x1b[?"),
-	[]byte("\x1b[>"),
-	[]byte("\x1b]10;"),
-	[]byte("\x1b]11;"),
-}
-
-// SessionTracker maintains a long-lived PTY attachment for a tmux session.
-// It tracks output activity and forwards terminal output to one active websocket client.
+// SessionTracker maintains a long-lived control mode attachment for a tmux session.
+// It tracks output activity and forwards terminal output to subscribers via fan-out.
+// Subscribers survive control mode reconnections — the tracker-level fan-out
+// re-subscribes to the new control mode client automatically.
 type SessionTracker struct {
 	sessionID      string
 	tmuxSession    string
+	paneID         string
 	state          state.StateStore
 	fileWatcher    *signal.FileWatcher
 	outputCallback func([]byte)
 
 	mu        sync.RWMutex
-	clientCh  chan []byte
-	ptmx      *os.File
-	attachCmd *exec.Cmd
+	cmClient  *controlmode.Client
+	cmParser  *controlmode.Parser
+	cmCmd     *exec.Cmd
+	cmStdin   io.WriteCloser
 	lastEvent time.Time
+
+	// Tracker-level subscriber fan-out (survives reconnections)
+	subsMu sync.Mutex
+	subs   []chan controlmode.OutputEvent
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
 	doneCh   chan struct{}
 
 	lastRetryLog time.Time
-
-	// Drop tracking — logs when output is lost due to channel backpressure.
-	droppedBytes int
-	droppedCount int
-	lastDropLog  time.Time
 }
 
-// IsAttached reports whether the tracker currently has an active PTY attachment.
+// IsAttached reports whether the tracker currently has an active control mode attachment.
 func (t *SessionTracker) IsAttached() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.ptmx != nil
+	return t.cmClient != nil
 }
 
 // NewSessionTracker creates a tracker for a session.
@@ -92,14 +84,21 @@ func (t *SessionTracker) Start() {
 	go t.run()
 }
 
-// Stop terminates the tracker and closes the active websocket output channel.
+// Stop terminates the tracker and closes the control mode connection.
 func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
-		t.closePTY()
+		t.closeControlMode()
 		if t.fileWatcher != nil {
 			t.fileWatcher.Stop()
 		}
+		// Close all subscriber channels
+		t.subsMu.Lock()
+		for _, ch := range t.subs {
+			close(ch)
+		}
+		t.subs = nil
+		t.subsMu.Unlock()
 		<-t.doneCh
 	})
 }
@@ -111,76 +110,86 @@ func (t *SessionTracker) SetTmuxSession(name string) {
 	t.tmuxSession = name
 }
 
-// AttachWebSocket registers the active websocket stream and returns its output channel.
-// If a client is already attached, it is replaced and its channel is closed.
-func (t *SessionTracker) AttachWebSocket() chan []byte {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.clientCh != nil {
-		close(t.clientCh)
-	}
-	t.clientCh = make(chan []byte, 64)
-	return t.clientCh
+// SubscribeOutput returns a buffered channel that receives output events for this session.
+// Multiple subscribers are supported. Subscriptions survive control mode reconnections.
+func (t *SessionTracker) SubscribeOutput() <-chan controlmode.OutputEvent {
+	ch := make(chan controlmode.OutputEvent, 100)
+	t.subsMu.Lock()
+	t.subs = append(t.subs, ch)
+	t.subsMu.Unlock()
+	return ch
 }
 
-// DetachWebSocket clears the websocket stream if it matches the currently registered one.
-func (t *SessionTracker) DetachWebSocket(ch chan []byte) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.clientCh == ch {
-		close(t.clientCh)
-		t.clientCh = nil
-	}
-}
-
-// SendInput writes terminal input bytes to the tracker PTY.
-// Falls back to tmux send-keys if the PTY is not currently attached,
-// avoiding a multi-second blocking wait during tracker reconnects.
-func (t *SessionTracker) SendInput(data string) error {
-	ptmx := t.currentPTY()
-	if ptmx == nil {
-		// Brief wait for in-flight attachment (covers startup race).
-		deadline := time.Now().Add(100 * time.Millisecond)
-		for ptmx == nil && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-			ptmx = t.currentPTY()
+// UnsubscribeOutput removes an output subscription and closes its channel.
+func (t *SessionTracker) UnsubscribeOutput(ch <-chan controlmode.OutputEvent) {
+	t.subsMu.Lock()
+	defer t.subsMu.Unlock()
+	for i, sub := range t.subs {
+		if sub == ch {
+			close(sub)
+			t.subs = append(t.subs[:i], t.subs[i+1:]...)
+			return
 		}
 	}
-	if ptmx != nil {
-		_, err := io.WriteString(ptmx, data)
-		return err
-	}
+}
 
-	// PTY unavailable — fall back to tmux send-keys so input is not lost.
+// fanOut sends an output event to all subscribers. Slow consumers are skipped
+// (non-blocking send) to avoid one client blocking others.
+func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
+	t.subsMu.Lock()
+	subs := make([]chan controlmode.OutputEvent, len(t.subs))
+	copy(subs, t.subs)
+	t.subsMu.Unlock()
+
+	for _, ch := range subs {
+		select {
+		case ch <- event:
+		default:
+			// Slow consumer — drop event to avoid blocking
+		}
+	}
+}
+
+// SendInput sends terminal input to the session via control mode.
+func (t *SessionTracker) SendInput(data string) error {
 	t.mu.RLock()
-	target := t.tmuxSession
+	client := t.cmClient
+	paneID := t.paneID
 	t.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("not attached")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return tmux.SendLiteral(ctx, target, data)
+	return client.SendKeys(ctx, paneID, data)
 }
 
-func (t *SessionTracker) currentPTY() *os.File {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.ptmx
-}
-
-// Resize updates the tracker PTY dimensions.
+// Resize updates the terminal dimensions via control mode.
 func (t *SessionTracker) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("invalid size %dx%d", cols, rows)
 	}
-
 	t.mu.RLock()
-	ptmx := t.ptmx
+	client := t.cmClient
 	t.mu.RUnlock()
-	if ptmx == nil {
-		return fmt.Errorf("terminal not attached")
+	if client == nil {
+		return fmt.Errorf("not attached")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return client.ResizeWindow(ctx, t.paneID, cols, rows)
+}
 
-	return pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+// CaptureLastLines captures scrollback from tmux via control mode.
+func (t *SessionTracker) CaptureLastLines(ctx context.Context, lines int) (string, error) {
+	t.mu.RLock()
+	client := t.cmClient
+	paneID := t.paneID
+	t.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("not attached")
+	}
+	return client.CapturePaneLines(ctx, paneID, lines)
 }
 
 func (t *SessionTracker) run() {
@@ -193,10 +202,10 @@ func (t *SessionTracker) run() {
 		default:
 		}
 
-		if err := t.attachAndRead(); err != nil && err != io.EOF {
+		if err := t.attachControlMode(); err != nil && err != io.EOF {
 			now := time.Now()
 			if t.shouldLogRetry(now) {
-				fmt.Printf("[tracker] %s attach/read failed: %v\n", t.sessionID, err)
+				fmt.Printf("[tracker] %s control mode failed: %v\n", t.sessionID, err)
 			}
 		}
 
@@ -206,7 +215,7 @@ func (t *SessionTracker) run() {
 	}
 }
 
-func (t *SessionTracker) attachAndRead() error {
+func (t *SessionTracker) attachControlMode() error {
 	t.mu.RLock()
 	target := t.tmuxSession
 	t.mu.RUnlock()
@@ -214,229 +223,166 @@ func (t *SessionTracker) attachAndRead() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if !tmux.SessionExists(ctx, target) {
-		return fmt.Errorf("tmux session does not exist: %s", target)
-	}
-
-	// Query tmux window size to initialize PTY with correct dimensions.
-	// Retry a few times to handle a timing condition where a freshly spawned
-	// session hasn't fully initialized its window yet.
-	width, height, err := t.getWindowSizeWithRetry(ctx, target)
+	// Start tmux in control mode (-C, canonical mode with echo)
+	// Note: -CC (non-canonical) requires a TTY via tcgetattr, which fails
+	// when launched from exec.Command. -C works without a TTY, and the parser
+	// ignores command echo since it only processes %-prefixed protocol lines.
+	cmd := exec.CommandContext(ctx, "tmux", "-C", "attach-session", "-t", "="+target)
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return fmt.Errorf("failed to get window size: %w", err)
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
-
-	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", "="+target)
-	ptmx, err := pty.StartWithSize(attachCmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		stdin.Close()
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		return fmt.Errorf("failed to start control mode: %w", err)
+	}
+
+	// Create parser and client
+	parser := controlmode.NewParser(stdout, t.sessionID)
+	go parser.Run()
+	client := controlmode.NewClient(stdin, parser)
+	client.Start()
+
+	// Wait for control mode to be ready
+	readyCtx, readyCancel := context.WithTimeout(ctx, 10*time.Second)
+	select {
+	case <-parser.ControlModeReady():
+		readyCancel()
+	case <-readyCtx.Done():
+		readyCancel()
+		stdin.Close()
+		cmd.Process.Kill()
+		cmd.Wait()
+		return fmt.Errorf("control mode not ready within timeout")
+	}
+
+	// Synchronize the FIFO command queue. When tmux enters control mode
+	// via attach-session, it may send an implicit initial response (for the
+	// attach itself). If this response arrives after we've already queued our
+	// first command, it shifts the queue — each command receives the previous
+	// command's response. We detect and absorb this offset by sending a
+	// sentinel command and verifying its response content.
+	const sentinel = "__SCHMUX_SYNC__"
+	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
+	for attempts := 0; attempts < 3; attempts++ {
+		output, err := client.Execute(syncCtx, fmt.Sprintf("display-message -p '%s'", sentinel))
+		if err != nil {
+			syncCancel()
+			stdin.Close()
+			cmd.Process.Kill()
+			cmd.Wait()
+			return fmt.Errorf("control mode sync failed: %w", err)
+		}
+		if strings.TrimSpace(output) == sentinel {
+			break // FIFO queue is synchronized
+		}
+		// Got a stale response (implicit attach response), try again
+	}
+	syncCancel()
+
+	// Discover pane ID
+	paneID, err := t.discoverPaneID(ctx, client)
+	if err != nil {
+		stdin.Close()
+		cmd.Process.Kill()
+		cmd.Wait()
+		return fmt.Errorf("failed to discover pane ID: %w", err)
+	}
+
+	// Store references
 	t.mu.Lock()
-	t.ptmx = ptmx
-	t.attachCmd = attachCmd
+	t.cmClient = client
+	t.cmParser = parser
+	t.cmCmd = cmd
+	t.cmStdin = stdin
+	t.paneID = paneID
 	t.mu.Unlock()
 
-	defer t.closePTY()
+	defer t.closeControlMode()
 
-	buf := make([]byte, 8192)
-	var pending []byte // Holds incomplete UTF-8 sequence from previous read
+	// Subscribe to output from the control mode client and fan out to
+	// tracker-level subscribers (which survive reconnections)
+	outputCh := client.SubscribeOutput(paneID)
+	defer client.UnsubscribeOutput(paneID, outputCh)
 
 	for {
-		n, err := ptmx.Read(buf)
-		if n > 0 {
-			// Prepend any pending bytes from previous read
-			var data []byte
-			if len(pending) > 0 {
-				data = make([]byte, len(pending)+n)
-				copy(data, pending)
-				copy(data[len(pending):], buf[:n])
-				pending = nil
-			} else {
-				data = buf[:n]
-			}
-
-			// Find the last valid UTF-8 boundary
-			validLen := findValidUTF8Boundary(data)
-
-			// Keep incomplete sequence for next read
-			if validLen < len(data) {
-				pending = make([]byte, len(data)-validLen)
-				copy(pending, data[validLen:])
-				data = data[:validLen]
-			}
-
-			// Only process if we have complete UTF-8 sequences
-			if len(data) > 0 {
-				chunk := make([]byte, len(data))
-				copy(chunk, data)
-
-				now := time.Now()
-
-				t.mu.Lock()
-				// Small chunks (echo, <=8 bytes without newline) are always meaningful.
-				// Larger chunks need ANSI stripping to check for printable content.
-				isSmallChunk := len(chunk) <= 8 && !bytes.Contains(chunk, []byte("\n"))
-				meaningful := isSmallChunk || isMeaningfulTerminalChunk(chunk)
-				shouldUpdate := meaningful && (t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce)
-				if shouldUpdate {
-					t.lastEvent = now
-				}
-				clientCh := t.clientCh
-				t.mu.Unlock()
-
-				if shouldUpdate {
-					if t.state != nil {
-						t.state.UpdateSessionLastOutput(t.sessionID, now)
-					}
-				}
-				if clientCh != nil {
-					select {
-					case clientCh <- chunk:
-						// Chunk delivered — if we were dropping, log a summary.
-						if t.droppedCount > 0 {
-							fmt.Printf("[tracker] %s output resumed — dropped %d chunks (%d bytes)\n",
-								t.sessionID, t.droppedCount, t.droppedBytes)
-							t.droppedCount = 0
-							t.droppedBytes = 0
-						}
-					default:
-						t.droppedCount++
-						t.droppedBytes += len(chunk)
-						if t.lastDropLog.IsZero() || now.Sub(t.lastDropLog) >= 5*time.Second {
-							t.lastDropLog = now
-							fmt.Printf("[tracker] %s output dropping — channel full (%d chunks, %d bytes dropped so far)\n",
-								t.sessionID, t.droppedCount, t.droppedBytes)
-						}
-					}
-				}
-				if t.outputCallback != nil {
-					t.outputCallback(chunk)
-				}
-			}
-		}
-
-		if err != nil {
-			// Log final drop summary on exit if we were still dropping.
-			if t.droppedCount > 0 {
-				fmt.Printf("[tracker] %s detaching — dropped %d chunks (%d bytes) total\n",
-					t.sessionID, t.droppedCount, t.droppedBytes)
-				t.droppedCount = 0
-				t.droppedBytes = 0
-			}
-			// Flush any remaining pending bytes on error/EOF
-			if len(pending) > 0 {
-				t.mu.RLock()
-				clientCh := t.clientCh
-				t.mu.RUnlock()
-				if clientCh != nil {
-					select {
-					case clientCh <- pending:
-					default:
-						fmt.Printf("[tracker] %s dropped pending flush (%d bytes) on EOF\n",
-							t.sessionID, len(pending))
-					}
-				}
-			}
-			return err
-		}
-
 		select {
+		case event, ok := <-outputCh:
+			if !ok {
+				return io.EOF
+			}
+
+			// Activity tracking (debounced)
+			now := time.Now()
+			shouldUpdate := t.lastEvent.IsZero() || now.Sub(t.lastEvent) >= trackerActivityDebounce
+			if shouldUpdate {
+				t.lastEvent = now
+				if t.state != nil {
+					t.state.UpdateSessionLastOutput(t.sessionID, now)
+				}
+			}
+
+			// Fan out to all tracker-level subscribers
+			t.fanOut(event)
+
+			// Also invoke the output callback (preview autodetect)
+			if t.outputCallback != nil {
+				t.outputCallback([]byte(event.Data))
+			}
+
 		case <-t.stopCh:
 			return io.EOF
-		default:
 		}
 	}
 }
 
-// getWindowSizeWithRetry retries GetWindowSize to handle timing issues with freshly spawned sessions.
-func (t *SessionTracker) getWindowSizeWithRetry(ctx context.Context, target string) (width, height int, err error) {
-	const maxAttempts = 10
-	const retryDelay = 100 * time.Millisecond
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		width, height, err = tmux.GetWindowSize(ctx, target)
-		if err == nil {
-			return width, height, nil
-		}
-
-		// Check if we should stop retrying
-		select {
-		case <-t.stopCh:
-			return 0, 0, fmt.Errorf("tracker stopped while waiting for session ready")
-		case <-ctx.Done():
-			return 0, 0, fmt.Errorf("context cancelled while waiting for session ready")
-		default:
-		}
-
-		// Don't sleep on the last attempt
-		if attempt < maxAttempts-1 {
-			time.Sleep(retryDelay)
-		}
+func (t *SessionTracker) discoverPaneID(ctx context.Context, client *controlmode.Client) (string, error) {
+	output, err := client.Execute(ctx, "list-panes -F '#{pane_id}'")
+	if err != nil {
+		return "", err
 	}
-
-	return 0, 0, fmt.Errorf("session window not ready after %d attempts: %w", maxAttempts, err)
+	paneID := strings.TrimSpace(output)
+	if paneID == "" {
+		return "", fmt.Errorf("no pane found")
+	}
+	// Return first pane if multiple
+	if idx := strings.Index(paneID, "\n"); idx > 0 {
+		paneID = paneID[:idx]
+	}
+	// Validate pane ID format (%N where N is a number)
+	if len(paneID) < 2 || paneID[0] != '%' {
+		return "", fmt.Errorf("invalid pane ID format: %q", paneID)
+	}
+	return paneID, nil
 }
 
-// findValidUTF8Boundary returns the length of data up to the last complete UTF-8 character.
-// If data ends mid-character, those trailing bytes are excluded.
-func findValidUTF8Boundary(data []byte) int {
-	if len(data) == 0 {
-		return 0
+func (t *SessionTracker) closeControlMode() {
+	t.mu.Lock()
+	stdin := t.cmStdin
+	cmd := t.cmCmd
+	client := t.cmClient
+	t.cmClient = nil
+	t.cmParser = nil
+	t.cmCmd = nil
+	t.cmStdin = nil
+	t.mu.Unlock()
+
+	if client != nil {
+		client.Close()
 	}
-
-	// If the entire slice is valid UTF-8, return its full length
-	if utf8.Valid(data) {
-		return len(data)
+	if stdin != nil {
+		stdin.Close()
 	}
-
-	// Find where the incomplete sequence starts by checking trailing bytes.
-	// UTF-8 continuation bytes are 10xxxxxx (0x80-0xBF).
-	// A leading byte indicates the start of a multi-byte sequence.
-	//
-	// Walk backwards to find the start of an incomplete sequence:
-	// - If we find a leading byte, check if enough bytes follow for a complete character
-	// - The leading byte pattern tells us how many bytes the character needs
-
-	for i := len(data) - 1; i >= 0 && i >= len(data)-4; i-- {
-		b := data[i]
-
-		// Check if this is a leading byte (not a continuation byte)
-		if b&0xC0 != 0x80 {
-			// This is either ASCII (0xxxxxxx) or a leading byte (11xxxxxx)
-			if b < 0x80 {
-				// ASCII byte - everything up to and including this is valid
-				return i + 1
-			}
-
-			// It's a leading byte - determine expected sequence length
-			var seqLen int
-			switch {
-			case b&0xE0 == 0xC0:
-				seqLen = 2 // 110xxxxx
-			case b&0xF0 == 0xE0:
-				seqLen = 3 // 1110xxxx
-			case b&0xF8 == 0xF0:
-				seqLen = 4 // 11110xxx
-			default:
-				// Invalid leading byte, skip it
-				continue
-			}
-
-			// Check if we have enough bytes for this sequence
-			remaining := len(data) - i
-			if remaining >= seqLen {
-				// Sequence is complete, include it
-				return i + seqLen
-			}
-			// Sequence is incomplete, exclude it
-			return i
-		}
+	if cmd != nil && cmd.Process != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
 	}
-
-	// If we get here, we only have continuation bytes (shouldn't happen in valid streams)
-	// Return 0 to buffer everything
-	return 0
 }
 
 func (t *SessionTracker) shouldLogRetry(now time.Time) bool {
@@ -447,42 +393,6 @@ func (t *SessionTracker) shouldLogRetry(now time.Time) bool {
 		return true
 	}
 	return false
-}
-
-func isMeaningfulTerminalChunk(chunk []byte) bool {
-	for _, prefix := range trackerIgnorePrefixes {
-		if bytes.HasPrefix(chunk, prefix) {
-			return false
-		}
-	}
-
-	clean := signal.StripANSIBytes(nil, chunk)
-	if len(clean) == 0 {
-		return false
-	}
-	for _, r := range string(clean) {
-		if unicode.IsPrint(r) && !unicode.IsSpace(r) {
-			return true
-		}
-	}
-	return false
-}
-
-func (t *SessionTracker) closePTY() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.ptmx != nil {
-		_ = t.ptmx.Close()
-		t.ptmx = nil
-	}
-	if t.attachCmd != nil {
-		if t.attachCmd.Process != nil {
-			_ = t.attachCmd.Process.Kill()
-		}
-		_ = t.attachCmd.Wait()
-		t.attachCmd = nil
-	}
 }
 
 func (t *SessionTracker) waitOrStop(d time.Duration) bool {
