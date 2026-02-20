@@ -467,6 +467,7 @@ func (e *Env) WaitForSessionNudgeState(conn *websocket.Conn, sessionID, expected
 }
 
 // WaitForWebSocketContent reads websocket output until it finds the substring or times out.
+// Handles both binary frames (raw terminal bytes) and JSON text frames.
 func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	var buffer strings.Builder
@@ -476,7 +477,7 @@ func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeo
 		if err := conn.SetReadDeadline(deadline); err != nil {
 			return buffer.String(), err
 		}
-		_, data, err := conn.ReadMessage()
+		msgType, data, err := conn.ReadMessage()
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
 				e.T.Logf("WaitForWebSocketContent timeout waiting for %q, received %d messages, buffer: %q", substr, msgCount, buffer.String())
@@ -486,17 +487,26 @@ func (e *Env) WaitForWebSocketContent(conn *websocket.Conn, substr string, timeo
 		}
 		msgCount++
 
-		var msg WSOutputMessage
-		if err := json.Unmarshal(data, &msg); err != nil {
-			e.T.Logf("WaitForWebSocketContent received non-JSON message %d: %s", msgCount, string(data))
-			continue
-		}
-		e.T.Logf("WaitForWebSocketContent received message %d: type=%q content=%q", msgCount, msg.Type, msg.Content)
-		if msg.Content != "" {
-			buffer.WriteString(msg.Content)
-			if strings.Contains(buffer.String(), substr) {
-				return buffer.String(), nil
+		if msgType == websocket.BinaryMessage {
+			// Binary frame: raw terminal bytes
+			content := string(data)
+			e.T.Logf("WaitForWebSocketContent received binary message %d: %q", msgCount, content)
+			buffer.WriteString(content)
+		} else {
+			// Text frame: JSON message (legacy or control)
+			var msg WSOutputMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				e.T.Logf("WaitForWebSocketContent received non-JSON text message %d: %s", msgCount, string(data))
+				continue
 			}
+			e.T.Logf("WaitForWebSocketContent received JSON message %d: type=%q content=%q", msgCount, msg.Type, msg.Content)
+			if msg.Content != "" {
+				buffer.WriteString(msg.Content)
+			}
+		}
+
+		if strings.Contains(buffer.String(), substr) {
+			return buffer.String(), nil
 		}
 	}
 

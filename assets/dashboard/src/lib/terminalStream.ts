@@ -11,11 +11,6 @@ type TerminalStreamOptions = {
   onSelectedLinesChange?: (lines: string[]) => void;
 };
 
-type TerminalOutputMessage = {
-  type?: 'append' | 'full' | string;
-  content?: string;
-};
-
 type SelectedLine = {
   bufferLine: number;
   markerId: number;
@@ -44,6 +39,7 @@ export default class TerminalStream {
   private maxReconnectAttempt = 10;
   private disposed = false;
   private wasDisplaced = false;
+  private bootstrapped = false;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -143,7 +139,7 @@ export default class TerminalStream {
         brightCyan: '#29b8db',
         brightWhite: '#ffffff',
       },
-      scrollback: 1000,
+      scrollback: 5000,
       convertEol: true,
     });
 
@@ -314,9 +310,11 @@ export default class TerminalStream {
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${this.sessionId}`;
 
     this.ws = new WebSocket(wsUrl);
+    this.ws.binaryType = 'arraybuffer';
 
     // Reset displaced flag on new connection attempt (e.g., after page refresh)
     this.wasDisplaced = false;
+    this.bootstrapped = false;
 
     this.ws.onopen = () => {
       this.connected = true;
@@ -405,27 +403,37 @@ export default class TerminalStream {
     }
   }
 
-  handleOutput(data: string) {
+  handleOutput(data: string | ArrayBuffer) {
     const renderStart = performance.now();
-    let msg: TerminalOutputMessage;
+
+    // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
+    if (data instanceof ArrayBuffer) {
+      const text = new TextDecoder().decode(data);
+      if (!this.bootstrapped) {
+        this.bootstrapped = true;
+        this.terminal.reset();
+        this.terminal.write(text);
+      } else {
+        inputLatency.markReceived();
+        this.terminal.write(text);
+        inputLatency.markRenderTime(performance.now() - renderStart);
+      }
+      if (this.followTail) {
+        this.terminal.scrollToBottom();
+      }
+      return;
+    }
+
+    // Text frame: JSON control messages (displaced, legacy fallback)
+    let msg: { type?: string; content?: string };
     try {
       msg = JSON.parse(data);
     } catch {
-      msg = { type: 'full', content: data };
-    }
-
-    if (msg.type === 'append') {
-      inputLatency.markReceived();
+      this.terminal.write(data);
+      return;
     }
 
     switch (msg.type) {
-      case 'append':
-        this.terminal.write(msg.content);
-        break;
-      case 'full':
-        this.terminal.reset();
-        this.terminal.write(msg.content);
-        break;
       case 'displaced':
         this.wasDisplaced = true;
         this.terminal.writeln(
@@ -433,16 +441,13 @@ export default class TerminalStream {
         );
         break;
       default:
-        this.terminal.reset();
-        this.terminal.write(msg.content || data);
+        if (msg.content) {
+          this.terminal.write(msg.content);
+        }
     }
 
     if (this.followTail) {
       this.terminal.scrollToBottom();
-    }
-
-    if (msg.type === 'append') {
-      inputLatency.markRenderTime(performance.now() - renderStart);
     }
   }
 

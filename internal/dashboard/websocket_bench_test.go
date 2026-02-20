@@ -16,12 +16,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/benchutil"
 )
 
-// wsOutputMessage mirrors dashboard.WSOutputMessage for decoding.
-type wsOutputMessage struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-}
-
 // wsBenchSetup connects to a running schmux daemon via WebSocket, matching
 // the same path the browser takes. It returns the WebSocket connection and
 // a cleanup function.
@@ -56,20 +50,15 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 		tb.Fatalf("failed to dial WebSocket at %s: %v", wsURL, err)
 	}
 
-	// Read until we get the bootstrap "full" message and discard it.
-	for {
-		_, rawMsg, err := c.ReadMessage()
-		if err != nil {
-			c.Close()
-			tb.Fatalf("error reading bootstrap message: %v", err)
-		}
-		var msg wsOutputMessage
-		if err := json.Unmarshal(rawMsg, &msg); err != nil {
-			continue // skip non-JSON frames
-		}
-		if msg.Type == "full" {
-			break
-		}
+	// Read the bootstrap binary message and discard it.
+	msgType, _, err := c.ReadMessage()
+	if err != nil {
+		c.Close()
+		tb.Fatalf("error reading bootstrap message: %v", err)
+	}
+	if msgType != websocket.BinaryMessage {
+		c.Close()
+		tb.Fatalf("expected binary bootstrap message, got type %d", msgType)
 	}
 
 	cleanup = func() {
@@ -79,7 +68,7 @@ func wsBenchSetup(tb testing.TB) (conn *websocket.Conn, cleanup func()) {
 }
 
 // sendInputAndWaitForAppend sends a keystroke over WebSocket and waits for
-// the next "append" output message. Returns the round-trip duration.
+// the next binary output message. Returns the round-trip duration.
 func sendInputAndWaitForAppend(tb testing.TB, conn *websocket.Conn, key string) time.Duration {
 	tb.Helper()
 
@@ -92,15 +81,11 @@ func sendInputAndWaitForAppend(tb testing.TB, conn *websocket.Conn, key string) 
 
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	for {
-		_, rawMsg, err := conn.ReadMessage()
+		msgType, _, err := conn.ReadMessage()
 		if err != nil {
 			tb.Fatalf("timeout or error waiting for output: %v", err)
 		}
-		var msg wsOutputMessage
-		if err := json.Unmarshal(rawMsg, &msg); err != nil {
-			continue
-		}
-		if msg.Type == "append" {
+		if msgType == websocket.BinaryMessage {
 			conn.SetReadDeadline(time.Time{}) // clear deadline
 			return time.Since(start)
 		}
@@ -145,13 +130,6 @@ func TestWSLatencyPercentiles(t *testing.T) {
 
 // TestWSLatencyPercentilesStressed measures WebSocket round-trip latency
 // against a session with background output flood.
-//
-// Unlike the idle test, we do NOT drain pending messages before each send.
-// Deadline-based draining can corrupt a gorilla/websocket connection if a
-// timeout fires mid-frame (which is inevitable under continuous flood).
-// Instead, like the PTY stressed benchmark, we measure how long it takes
-// for *any* output to arrive after SendInput — this captures the real
-// contention without risking connection corruption.
 func TestWSLatencyPercentilesStressed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping benchmark in short mode")
@@ -221,15 +199,11 @@ func BenchmarkWSEcho(b *testing.B) {
 
 		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		for {
-			_, rawMsg, err := conn.ReadMessage()
+			msgType, _, err := conn.ReadMessage()
 			if err != nil {
 				b.Fatalf("timeout or error waiting for output: %v", err)
 			}
-			var msg wsOutputMessage
-			if err := json.Unmarshal(rawMsg, &msg); err != nil {
-				continue
-			}
-			if msg.Type == "append" {
+			if msgType == websocket.BinaryMessage {
 				conn.SetReadDeadline(time.Time{})
 				break
 			}

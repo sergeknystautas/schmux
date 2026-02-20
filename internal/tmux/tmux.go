@@ -62,6 +62,11 @@ func CreateSession(ctx context.Context, name, dir, command string) error {
 		return fmt.Errorf("failed to create tmux session: %w: %s", err, string(output))
 	}
 
+	// Set scrollback to 10000 lines (tmux default is 2000)
+	if err := SetOption(ctx, name, "history-limit", "10000"); err != nil {
+		fmt.Printf("[tmux] warning: failed to set history-limit for %s: %v\n", name, err)
+	}
+
 	return nil
 }
 
