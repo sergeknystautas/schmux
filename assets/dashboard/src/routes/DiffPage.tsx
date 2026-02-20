@@ -41,7 +41,7 @@ export default function DiffPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { config } = useConfig();
-  const { workspaces, simulateRemote } = useSessions();
+  const { workspaces, loading: sessionsLoading, simulateRemote } = useSessions();
   const { alert } = useModal();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,10 +70,10 @@ export default function DiffPage() {
 
   // Navigate home if workspace was disposed
   useEffect(() => {
-    if (!loading && workspaceId && !workspaceExists) {
+    if (!loading && !sessionsLoading && workspaceId && !workspaceExists) {
       navigate('/');
     }
-  }, [loading, workspaceId, workspaceExists, navigate]);
+  }, [loading, sessionsLoading, workspaceId, workspaceExists, navigate]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
