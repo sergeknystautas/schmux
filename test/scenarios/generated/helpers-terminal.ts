@@ -183,3 +183,96 @@ function shellQuote(s: string): string {
     '"'
   );
 }
+
+/**
+ * Get the tmux cursor position for a session.
+ * Returns { x, y } matching tmux's #{cursor_x} #{cursor_y} (0-indexed).
+ */
+export function getTmuxCursorPosition(tmuxSession: string): { x: number; y: number } {
+  const output = execSync(`tmux display-message -p -t '${tmuxSession}' '#{cursor_x} #{cursor_y}'`, {
+    encoding: 'utf-8',
+  }).trim();
+  const [x, y] = output.split(' ').map(Number);
+  return { x, y };
+}
+
+/**
+ * Get the xterm.js cursor position via Playwright page.evaluate().
+ * Returns { x, y } matching the active buffer's cursorX/cursorY (0-indexed).
+ */
+export async function getXtermCursorPosition(page: Page): Promise<{ x: number; y: number }> {
+  return page.evaluate(() => {
+    const terminal = (window as any).__schmuxTerminal;
+    if (!terminal) {
+      throw new Error('__schmuxTerminal not found on window');
+    }
+    const buffer = terminal.buffer.active;
+    return { x: buffer.cursorX, y: buffer.cursorY };
+  });
+}
+
+/**
+ * Assert that the xterm.js cursor position matches tmux's cursor position.
+ * Both use 0-indexed coordinates.
+ */
+export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): Promise<void> {
+  const tmuxCursor = getTmuxCursorPosition(tmuxSession);
+  const xtermCursor = await getXtermCursorPosition(page);
+
+  if (tmuxCursor.x !== xtermCursor.x || tmuxCursor.y !== xtermCursor.y) {
+    throw new Error(
+      `Cursor position mismatch:\n` +
+        `  tmux:  (${tmuxCursor.x}, ${tmuxCursor.y})\n` +
+        `  xterm: (${xtermCursor.x}, ${xtermCursor.y})`
+    );
+  }
+}
+
+/**
+ * Get the tmux cursor visibility for a session.
+ * Returns true if cursor is visible (cursor_flag=1), false if hidden (cursor_flag=0).
+ */
+export function getTmuxCursorVisible(tmuxSession: string): boolean {
+  const output = execSync(`tmux display-message -p -t '${tmuxSession}' '#{cursor_flag}'`, {
+    encoding: 'utf-8',
+  }).trim();
+  return output === '1';
+}
+
+/**
+ * Get the xterm.js cursor visibility via Playwright page.evaluate().
+ * Accesses _core.coreService.isCursorHidden (internal API, matches codebase pattern).
+ * Returns true if cursor is visible, false if hidden.
+ */
+export async function getXtermCursorVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const terminal = (window as any).__schmuxTerminal;
+    if (!terminal) {
+      throw new Error('__schmuxTerminal not found on window');
+    }
+    const core = (terminal as any)._core;
+    if (!core?.coreService) {
+      throw new Error('xterm.js _core.coreService not available');
+    }
+    return !core.coreService.isCursorHidden;
+  });
+}
+
+/**
+ * Assert that the xterm.js cursor visibility matches tmux's cursor_flag.
+ */
+export async function assertCursorVisibilityMatchesTmux(
+  page: Page,
+  tmuxSession: string
+): Promise<void> {
+  const tmuxVisible = getTmuxCursorVisible(tmuxSession);
+  const xtermVisible = await getXtermCursorVisible(page);
+
+  if (tmuxVisible !== xtermVisible) {
+    throw new Error(
+      `Cursor visibility mismatch:\n` +
+        `  tmux:  ${tmuxVisible ? 'visible' : 'hidden'}\n` +
+        `  xterm: ${xtermVisible ? 'visible' : 'hidden'}`
+    );
+  }
+}

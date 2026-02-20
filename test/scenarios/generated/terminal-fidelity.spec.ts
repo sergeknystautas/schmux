@@ -13,6 +13,8 @@ import {
   sendTmuxCommandWithSentinel,
   waitForSentinel,
   assertTerminalMatchesTmux,
+  assertCursorMatchesTmux,
+  assertCursorVisibilityMatchesTmux,
   getTmuxSessionName,
   clearTmuxHistory,
 } from './helpers-terminal';
@@ -257,6 +259,33 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
+
+  test('cursor hiding preserved after bootstrap', async ({ page }) => {
+    test.setTimeout(60_000);
+
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Hide the cursor via DECTCEM reset (same escape Claude Code uses)
+    const sentinel = sendTmuxCommandWithSentinel(tmuxName, "printf '\\033[?25l'");
+    await waitForSentinel(sessionId, sentinel);
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Verify cursor is hidden in both tmux and xterm.js (live stream)
+    await assertCursorVisibilityMatchesTmux(page, tmuxName);
+
+    // Reload triggers a new WebSocket bootstrap with capture-pane + DECTCEM
+    await page.reload();
+    await waitForDashboardLive(page);
+    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Verify cursor remains hidden after bootstrap
+    await assertCursorVisibilityMatchesTmux(page, tmuxName);
+
+    // Clean up: show cursor again so subsequent tests aren't affected
+    sendTmuxCommand(tmuxName, "printf '\\033[?25h'");
+    await new Promise((r) => setTimeout(r, 200));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -432,6 +461,33 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
 
     // Verify after reload
     await assertTerminalMatchesTmux(page, tmuxName);
+  });
+
+  test('cursor position correct after bootstrap', async ({ page }) => {
+    test.setTimeout(60_000);
+
+    await openTerminal(page, sessionId, tmuxName);
+
+    // Output some content so the prompt ends up partway down the screen
+    // with the cursor after "$ " (or wherever the shell leaves it)
+    const sentinel = sendTmuxCommandWithSentinel(
+      tmuxName,
+      'for i in $(seq 1 5); do echo "cursor-test-line-$i"; done'
+    );
+    await waitForSentinel(sessionId, sentinel);
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Verify cursor matches before reload (live stream)
+    await assertCursorMatchesTmux(page, tmuxName);
+
+    // Reload triggers a new WebSocket bootstrap with capture-pane + CSI H
+    await page.reload();
+    await waitForDashboardLive(page);
+    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Verify cursor position matches after bootstrap
+    await assertCursorMatchesTmux(page, tmuxName);
   });
 });
 
