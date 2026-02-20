@@ -1,0 +1,18 @@
+# deps.toml
+# Project tool dependencies for schmux
+
+[bundles]
+# No bundles - we declare exactly what the project needs
+
+[tools]
+# Core build toolchain
+go = "1.24"          # Match go.mod (go 1.24.0)
+nodejs = "22"        # React dashboard: Vite, Vitest, Prettier
+tmux = true          # Core runtime: session management
+
+# Dev/test utilities
+jq = true            # JSON parsing in dev.sh, scripts
+curl = true          # Health checks, benchmark HTTP calls
+python3 = true       # Benchmarks (test.sh --bench), JSON fallback in dev.sh
+git = true           # Worktrees, hooks, pre-commit
+lsof = true          # Port management in dev.sh (kill_port)
