@@ -50,6 +50,11 @@ type SessionTracker struct {
 	doneCh   chan struct{}
 
 	lastRetryLog time.Time
+
+	// Drop tracking — logs when output is lost due to channel backpressure.
+	droppedBytes int
+	droppedCount int
+	lastDropLog  time.Time
 }
 
 // IsAttached reports whether the tracker currently has an active PTY attachment.
@@ -288,7 +293,21 @@ func (t *SessionTracker) attachAndRead() error {
 				if clientCh != nil {
 					select {
 					case clientCh <- chunk:
+						// Chunk delivered — if we were dropping, log a summary.
+						if t.droppedCount > 0 {
+							fmt.Printf("[tracker] %s output resumed — dropped %d chunks (%d bytes)\n",
+								t.sessionID, t.droppedCount, t.droppedBytes)
+							t.droppedCount = 0
+							t.droppedBytes = 0
+						}
 					default:
+						t.droppedCount++
+						t.droppedBytes += len(chunk)
+						if t.lastDropLog.IsZero() || now.Sub(t.lastDropLog) >= 5*time.Second {
+							t.lastDropLog = now
+							fmt.Printf("[tracker] %s output dropping — channel full (%d chunks, %d bytes dropped so far)\n",
+								t.sessionID, t.droppedCount, t.droppedBytes)
+						}
 					}
 				}
 				if t.outputCallback != nil {
@@ -298,6 +317,13 @@ func (t *SessionTracker) attachAndRead() error {
 		}
 
 		if err != nil {
+			// Log final drop summary on exit if we were still dropping.
+			if t.droppedCount > 0 {
+				fmt.Printf("[tracker] %s detaching — dropped %d chunks (%d bytes) total\n",
+					t.sessionID, t.droppedCount, t.droppedBytes)
+				t.droppedCount = 0
+				t.droppedBytes = 0
+			}
 			// Flush any remaining pending bytes on error/EOF
 			if len(pending) > 0 {
 				t.mu.RLock()
@@ -307,6 +333,8 @@ func (t *SessionTracker) attachAndRead() error {
 					select {
 					case clientCh <- pending:
 					default:
+						fmt.Printf("[tracker] %s dropped pending flush (%d bytes) on EOF\n",
+							t.sessionID, len(pending))
 					}
 				}
 			}
