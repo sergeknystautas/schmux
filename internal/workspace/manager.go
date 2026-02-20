@@ -752,6 +752,9 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 		return nil, ErrWorkspaceLocked
 	}
 
+	// Refresh workspace config (respects lock, safe during sync)
+	m.RefreshWorkspaceConfig(w)
+
 	// Calculate git status (safe to run even with active sessions)
 	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced := m.gitStatus(ctx, w.Path, w.Repo)
 
@@ -805,9 +808,6 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 		if w.RemoteHostID != "" {
 			continue
 		}
-
-		// Refresh workspace config for this workspace
-		m.RefreshWorkspaceConfig(w)
 
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
