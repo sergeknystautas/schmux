@@ -342,7 +342,7 @@ export default function DiffPage() {
             <SessionTabs sessions={workspace.sessions || []} workspace={workspace} activeDiffTab />
           </>
         )}
-        <div className="empty-state">
+        <div className="empty-state diff-tab-empty">
           <h3 className="empty-state__title">No changes in workspace</h3>
           <p className="empty-state__description">This workspace has no uncommitted changes</p>
           <Link to="/" className="btn btn--primary">
