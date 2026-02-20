@@ -218,8 +218,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		st,
 		cfg.GetPreviewMaxPerWorkspace(),
 		cfg.GetPreviewMaxGlobal(),
-		time.Duration(cfg.GetPreviewIdleTimeoutMs())*time.Millisecond,
 		cfg.GetNetworkAccess(),
+		cfg.GetPreviewPortBase(),
+		cfg.GetPreviewPortBlockSize(),
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 	if mgr, ok := wm.(*workspace.Manager); ok {

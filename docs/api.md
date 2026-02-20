@@ -173,7 +173,7 @@ Response:
         "workspace_id": "workspace-id",
         "target_host": "127.0.0.1",
         "target_port": 5173,
-        "proxy_port": 51853,
+        "proxy_port": 53000,
         "status": "ready"
       }
     ]
@@ -239,7 +239,7 @@ Response:
   "workspace_id": "schmux-005",
   "target_host": "127.0.0.1",
   "target_port": 5173,
-  "proxy_port": 51853,
+  "proxy_port": 53000,
   "status": "ready"
 }
 ```
@@ -248,10 +248,11 @@ The frontend constructs the preview URL using `window.location.hostname` and `pr
 
 Notes:
 
-- Target host must resolve only to loopback addresses (`127.0.0.1`, `::1`, `localhost`).
-- Remote workspaces are blocked in Phase 1 (422).
-- In network-access mode, preview proxies bind to `0.0.0.0` for external access.
-- `status` can be `degraded` when upstream target is not yet reachable.
+- `proxy_port` is stable: each workspace gets a fixed port block and the same `(workspace, target_host, target_port)` tuple always maps to the same port, surviving daemon restarts.
+- Target host must be loopback only (`127.0.0.1`, `::1`, `localhost`).
+- Remote workspaces return 422.
+- Preview listeners follow the daemon's `bind_address`: loopback in default mode, `0.0.0.0` in network-access mode.
+- `status` is `ready` when upstream is reachable, `degraded` when not.
 
 ### GET /api/workspaces/{workspaceId}/previews
 

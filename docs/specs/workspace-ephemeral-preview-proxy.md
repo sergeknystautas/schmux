@@ -1,10 +1,10 @@
 # Workspace Ephemeral Preview Proxy
 
-**Status**: In Progress
+**Status**: Complete
 
 ## Summary
 
-Automatically detect and proxy workspace web servers via ephemeral ports, with stable preview URLs in the dashboard.
+Automatically detect and proxy workspace web servers via stable per-workspace port blocks, so preview URLs persist across daemon restarts and browser storage (cookies, localStorage) survives session churn.
 
 ---
 
@@ -12,7 +12,7 @@ Automatically detect and proxy workspace web servers via ephemeral ports, with s
 
 - **Automatic port detection**: detect when a session starts a web server by monitoring terminal output and process listening ports.
 - Let users open workspace web servers without manually tracking target ports.
-- Use daemon-assigned ephemeral ports (e.g. `127.0.0.1:51853`) that forward to workspace-local targets (e.g. `127.0.0.1:3000`).
+- **Stable port allocation**: each workspace gets a fixed block of ports; preview proxy ports are deterministic and survive daemon restarts, so browser storage (cookies, localStorage) persists.
 - Reuse proxy allocations for the same `(workspace, target host, target port)`.
 - Support common dev servers (Vite/Next/etc.), including WebSocket upgrades.
 - Clean up previews when sessions are disposed or servers stop listening.
@@ -21,7 +21,7 @@ Automatically detect and proxy workspace web servers via ephemeral ports, with s
 
 - Embedded browser tab in dashboard.
 - TLS termination/custom certificates.
-- Public/non-local exposure.
+- Public internet tunneling / ngrok-style exposure.
 - Remote-host workspace preview support.
 
 ---
@@ -29,13 +29,13 @@ Automatically detect and proxy workspace web servers via ephemeral ports, with s
 ## Design Decisions
 
 1. **Remote workspaces**: not supported; API returns explicit unsupported error.
-2. **Network-access dashboard mode** (`bind_address=0.0.0.0`): preview UX disabled unless user is local to daemon host.
+2. **Network-access dashboard mode** (`bind_address=0.0.0.0`): preview listeners also bind to `0.0.0.0`, making proxied servers reachable externally. This is the intended behavior.
 3. **Persisted mapping location**: top-level preview collection (not nested under workspace object).
 4. **State schema style**: persisted fields use existing `snake_case` conventions.
 5. **Lifecycle ownership**: daemon preview manager is single owner for create/reuse/health/recreate/cleanup.
 6. **API routing**: introduce a dedicated workspace subrouter for preview endpoints.
 7. **Create/get idempotency**: if listener exists but upstream target is down, return existing mapping with degraded status.
-8. **Restart contract**: `preview_id` is stable identity; `proxy_port`/URL may change after restart or recreation.
+8. **Stable ports**: each workspace is assigned a fixed block of 10 ports on first use; `proxy_port` is deterministic and never changes for a given slot, even across daemon restarts.
 9. **Loopback validation**: allow `127.0.0.1`, `::1`, `localhost`; require resolved addresses to be loopback-only.
 10. **Resource limits**: enforce configurable per-workspace and global active-preview caps.
 11. **Test bar**: include unit, handler, integration (HTTP+WS), and lifecycle cleanup coverage.
@@ -61,16 +61,16 @@ Automatically detect and proxy workspace web servers via ephemeral ports, with s
 
 ### Reuse behavior
 
-- Re-requesting preview for same workspace + target returns the existing ephemeral port.
-- If proxy is unhealthy/stale, daemon recreates it and returns a new port.
+- Re-requesting preview for same workspace + target returns the same stable port.
+- If proxy listener is dead, daemon rebinds to the same port and returns it.
+- Browser storage persists because the port never changes for a given workspace slot.
 
 ---
 
 ## Security Model
 
-- Preview proxies must bind to `127.0.0.1` only.
-- Proxy targets allowed only to loopback destinations (`127.0.0.1` / `localhost`).
-- Requests are local-only and not exposed on LAN.
+- Preview proxy listeners follow the daemon's `bind_address`: local-only (`127.0.0.1`) in default mode, network-exposed (`0.0.0.0`) in network-access mode. This is the intended exposure mechanism.
+- Proxy targets must be loopback-only (`127.0.0.1` / `::1` / `localhost`). You control what gets proxied, not who can reach the proxy.
 - Daemon validates workspace ownership for all preview API operations.
 
 ---
@@ -84,23 +84,29 @@ Add preview proxy manager in daemon process:
 - Owns active proxy listeners.
 - Maintains in-memory index by `(workspaceID, targetHost, targetPort)`.
 - Creates HTTP reverse proxy with WebSocket/upgrade support.
-- Tracks last access timestamp for idle cleanup.
+- Tracks last access timestamp for observability.
 
 Suggested package: `internal/preview/`.
 
 ### Data model (runtime + persisted metadata)
 
-Persist minimal metadata in state for dashboard visibility and restart recovery intent.
+Persist minimal metadata in state for dashboard visibility and restart recovery.
 
 ```go
 // internal/state/state.go
-// Metadata only; live listeners recreated lazily on demand.
+
+type Workspace struct {
+    // existing fields...
+    PortBlock int `json:"port_block,omitempty"` // 0 = unassigned; assigned on first preview request
+}
+
+// Live listeners recreated lazily on demand; only identity/routing fields matter at rest.
 type WorkspacePreview struct {
     ID            string    `json:"id"`
     WorkspaceID   string    `json:"workspace_id"`
-    TargetHost    string    `json:"target_host"` // default loopback
+    TargetHost    string    `json:"target_host"`
     TargetPort    int       `json:"target_port"`
-    ProxyPort     int       `json:"proxy_port"`  // assigned ephemeral local port
+    ProxyPort     int       `json:"proxy_port"`  // stable; derived from port block, never changes
     Status        string    `json:"status"`      // ready | degraded
     LastError     string    `json:"last_error,omitempty"`
     CreatedAt     time.Time `json:"created_at"`
@@ -109,14 +115,21 @@ type WorkspacePreview struct {
 }
 ```
 
-Persist previews in a top-level collection (avoid nested workspace slices):
+`State.Previews` is persisted (`json:"previews,omitempty"`). On restart, the stored `ProxyPort` is used to rebind the listener to the exact same port. Listeners are recreated lazily on first request.
 
-```go
-type State struct {
-    // existing fields...
-    Previews map[string]WorkspacePreview `json:"previews,omitempty"` // keyed by preview ID
-}
+### Port block allocation
+
 ```
+Base port:  53000  (config: network.preview_port_base)
+Block size: 10     (config: network.preview_port_block_size)
+
+Blocks are 1-indexed: PortBlock=0 means unassigned, first real block is 1.
+Formula: proxyPort = basePort + (workspace.PortBlock - 1) * blockSize + slotOffset
+```
+
+The next block to assign is derived at runtime: `max(PortBlock across all workspaces) + 1`. No counter needed in state — the workspace records are the source of truth.
+
+A workspace's `PortBlock` is assigned the first time it needs a preview and persisted immediately. Old workspaces without a block go through the same path — no special migration needed.
 
 ### API
 
@@ -141,10 +154,8 @@ Response (`200`):
   "workspaceId": "schmux-005",
   "targetHost": "127.0.0.1",
   "targetPort": 5173,
-  "proxyPort": 51853,
-  "url": "http://127.0.0.1:51853",
-  "status": "ready",
-  "stableIdentity": "preview_id"
+  "proxyPort": 53000,
+  "status": "ready"
 }
 ```
 
@@ -152,7 +163,7 @@ Semantics:
 
 - Idempotent by `(workspaceId, targetHost, targetPort)`.
 - If mapping exists and listener is healthy, return existing mapping (`status=ready` or `degraded`).
-- If mapping exists but listener is dead, recreate listener (may change `proxyPort`).
+- If mapping exists but listener is dead, recreate listener on the same stable port.
 - If upstream is down but listener is healthy, do **not** recreate eagerly; return existing mapping with `status=degraded`.
 
 #### List previews for workspace
@@ -177,17 +188,19 @@ Stops listener and removes mapping.
 
 ### Port allocation
 
-- Use OS ephemeral allocation (`net.Listen("tcp", "127.0.0.1:0")`).
-- Record assigned port from listener address.
+- Calculate desired port from the workspace's block: `basePort + (portBlock-1)*blockSize + slotOffset`.
+- `slotOffset` is the lowest index not already occupied by an active preview in this workspace.
+- Bind to that specific port (not `:0`).
+- If the port is in use by an external process, try the next slot in the block.
+- Fail with 409 only if all slots in the block are exhausted.
 - Keep listener alive while mapping is active.
 
 ### Cleanup
 
 - Remove all preview mappings when workspace is disposed.
 - Also remove mappings/listeners when workspace is removed by non-dispose reconciliation paths (e.g., scanner/state sync).
-- Optional idle GC: close listeners not used for configurable duration (e.g. 60 min).
-- On daemon restart, mappings may be restored lazily (rebind on first request) to avoid startup failures.
-- UI must treat persisted URLs as stale-prone and fetch fresh mapping before open.
+- On daemon restart, listeners are recreated lazily on first request to the same stable port. The URL never changes, so the UI needs no special handling.
+- Listeners are closed only when a workspace is disposed or a preview is explicitly deleted. No idle timeout — breaking a URL because nobody used it for an hour is worse than holding a socket open.
 
 ### Validation rules
 
@@ -205,12 +218,29 @@ Stops listener and removes mapping.
 
 ---
 
+## Configuration
+
+New fields in the `network` config section:
+
+```json
+{
+  "network": {
+    "preview_port_base": 53000,
+    "preview_port_block_size": 10
+  }
+}
+```
+
+Treat these as write-once: changing them after workspaces have been allocated invalidates existing port assignments.
+
+---
+
 ## Frontend Changes
 
 - Display detected preview URLs in workspace/session UI automatically.
 - Click to open preview in external browser (`window.open(url, "_blank")`).
 - Show preview status (ready/degraded) with visual indicator.
-- In network-access mode, show explicit message when preview open is unavailable for remote clients.
+- In network-access mode, preview URLs are externally reachable — this is expected behavior, not an error.
 
 ---
 
@@ -253,6 +283,9 @@ Add daemon logs/metrics:
 - Listener recreation when stale.
 - State persistence serialization.
 - Resource limit enforcement.
+- Port block assignment on first preview request (including workspaces that predate the feature).
+- Next block derived correctly from max across existing workspaces.
+- Slot offset selection skips occupied ports within block.
 
 ### Handler tests
 
@@ -266,14 +299,17 @@ Add daemon logs/metrics:
 - Verify WebSocket upgrade passthrough.
 - Verify workspace dispose cleans all previews.
 - Verify non-dispose workspace removal paths clean listeners.
+- Verify proxy port is identical after simulated daemon restart (same block + slot → same port).
+- Verify two workspaces receive non-overlapping port blocks.
 
 ### Manual verification
 
 1. Run workspace server on `5173`.
 2. Create preview via dashboard.
 3. Open returned URL and confirm app loads + HMR works.
-4. Repeat create request; verify same proxy reused.
-5. Dispose workspace; verify preview URL no longer serves target.
+4. Repeat create request; verify same proxy port reused.
+5. Restart daemon; verify preview URL still works on the same port.
+6. Dispose workspace; verify preview URL no longer serves target.
 
 ---
 
@@ -282,9 +318,10 @@ Add daemon logs/metrics:
 1. ~~Backend preview manager + create/get endpoint.~~ ✓
 2. ~~Dedicated workspace subrouter for preview endpoints.~~ ✓
 3. ~~Automatic port detection from terminal output and process listening ports.~~ ✓
-4. Dashboard preview display with automatic updates.
-5. Health checking and degraded status handling.
-6. Add idle GC and restart-lazy-restore hardening.
+4. ~~Dashboard preview display with automatic updates.~~ ✓
+5. ~~Health checking and degraded status handling.~~ ✓
+6. ~~Stable port blocks per workspace.~~ ✓
+7. ~~Add idle GC and restart-lazy-restore hardening.~~ ✓ (idle GC removed; restart handled by persisted proxy ports)
 
 ---
 
