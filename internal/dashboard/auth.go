@@ -53,6 +53,19 @@ func (s *Server) authEnabled() bool {
 	return s.config.GetAuthEnabled()
 }
 
+// requiresAuth returns true if requests must be authenticated.
+// This is true when GitHub OAuth is enabled OR when a remote tunnel is active.
+func (s *Server) requiresAuth() bool {
+	if s.authEnabled() {
+		return true
+	}
+	// If tunnel is active (session secret exists), require auth
+	s.remoteTokenMu.Lock()
+	hasSecret := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+	return hasSecret
+}
+
 func (s *Server) authRedirectURI() (string, error) {
 	base := strings.TrimRight(s.config.GetPublicBaseURL(), "/")
 	if base == "" {
@@ -75,7 +88,13 @@ func (s *Server) authCookieSecure() bool {
 
 func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.authEnabled() {
+		if !s.requiresAuth() {
+			h(w, r)
+			return
+		}
+		// Local requests bypass tunnel-only auth (but not GitHub OAuth).
+		// The local user should always have unrestricted access.
+		if !s.authEnabled() && s.isTrustedRequest(r) {
 			h(w, r)
 			return
 		}
@@ -87,9 +106,28 @@ func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// withAuthAndCSRF wraps a handler with both auth and CSRF validation.
+// Used for state-changing endpoints that need cross-site request forgery protection.
+// Local requests (from loopback) are exempt from CSRF checks.
+func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
+	return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if !s.isTrustedRequest(r) && !s.validateCSRF(r) {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		h(w, r)
+	})
+}
+
 func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.authEnabled() {
+		if !s.requiresAuth() {
+			h.ServeHTTP(w, r)
+			return
+		}
+		if !s.authEnabled() && s.isTrustedRequest(r) {
 			h.ServeHTTP(w, r)
 			return
 		}
@@ -102,10 +140,24 @@ func (s *Server) withAuthHandler(h http.Handler) http.Handler {
 }
 
 func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) bool {
-	if !s.authEnabled() {
+	if !s.requiresAuth() {
+		return true
+	}
+	if !s.authEnabled() && s.isTrustedRequest(r) {
 		return true
 	}
 	if _, err := s.authenticateRequest(r); err != nil {
+		// If tunnel is active but GitHub OAuth is not enabled,
+		// redirect to the remote PIN auth page instead of /auth/login.
+		if !s.authEnabled() {
+			s.remoteTokenMu.Lock()
+			hasSecret := len(s.remoteSessionSecret) > 0
+			s.remoteTokenMu.Unlock()
+			if hasSecret {
+				http.Redirect(w, r, "/remote-auth", http.StatusFound)
+				return false
+			}
+		}
 		http.Redirect(w, r, "/auth/login", http.StatusFound)
 		return false
 	}
@@ -113,11 +165,21 @@ func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) b
 }
 
 func (s *Server) authenticateRequest(r *http.Request) (*authSession, error) {
+	// Try GitHub OAuth cookie first
 	cookie, err := r.Cookie(authCookieName)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		return s.parseSessionCookie(cookie.Value)
 	}
-	return s.parseSessionCookie(cookie.Value)
+
+	// Try remote session cookie
+	remoteCookie, err := r.Cookie("schmux_remote")
+	if err == nil {
+		if s.validateRemoteCookie(remoteCookie.Value) {
+			return &authSession{Login: "remote"}, nil
+		}
+	}
+
+	return nil, errors.New("no valid auth session")
 }
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {

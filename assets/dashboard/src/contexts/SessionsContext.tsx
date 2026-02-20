@@ -16,8 +16,11 @@ import type {
   SessionWithWorkspace,
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
+  WorkspaceLockState,
   PendingNavigation,
   OverlayChangeEvent,
+  RemoteAccessStatus,
+  WorkspaceSyncResultEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -30,6 +33,9 @@ type SessionsContextValue = {
   ackSession: (sessionId: string) => void;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
+  workspaceLockStates: Record<string, WorkspaceLockState>;
+  syncResultEvents: WorkspaceSyncResultEvent[];
+  clearSyncResultEvents: () => void;
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
@@ -37,6 +43,9 @@ type SessionsContextValue = {
   overlayUnreadCount: number;
   clearOverlayEvents: () => void;
   markOverlaysRead: () => void;
+  remoteAccessStatus: RemoteAccessStatus;
+  simulateRemote: boolean;
+  setSimulateRemote: (value: boolean) => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -44,27 +53,68 @@ const SessionsContext = createContext<SessionsContextValue | null>(null);
 export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { config } = useConfig();
+  const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
   const {
     workspaces,
     loading,
     connected,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
+    workspaceLockStates,
+    syncResultEvents,
+    clearSyncResultEvents,
     overlayEvents,
     clearOverlayEvents,
-  } = useSessionsWebSocket();
-  const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+    remoteAccessStatus,
+  } = useSessionsWebSocket({
+    onPreviewDetected: (workspaceId, previewId) => {
+      setPendingNavigationState({ type: 'preview', workspaceId, previewId });
+    },
+  });
   const [overlayReadCount, setOverlayReadCount] = useState(0);
+  const [simulateRemote, setSimulateRemote] = useState(false);
   const overlayUnreadCount = Math.max(0, overlayEvents.length - overlayReadCount);
   const markOverlaysRead = useCallback(() => {
     setOverlayReadCount(overlayEvents.length);
   }, [overlayEvents.length]);
   const lastProcessedNudgeRef = useRef<Record<string, number>>({});
   const lastCleanupRef = useRef(0);
+  const prevLockedWorkspaceIdsRef = useRef<Set<string>>(new Set());
+  const workspaceLockSoundInitRef = useRef(false);
 
   useEffect(() => {
     warmupAudioContext();
   }, []);
+
+  // Play a sound when a workspace lock is cleared (sync finishes).
+  useEffect(() => {
+    const currentLockedIds = new Set(
+      Object.entries(workspaceLockStates)
+        .filter(([, state]) => state.locked)
+        .map(([id]) => id)
+    );
+
+    // Initialize baseline without playing sound on first render.
+    if (!workspaceLockSoundInitRef.current) {
+      workspaceLockSoundInitRef.current = true;
+      prevLockedWorkspaceIdsRef.current = currentLockedIds;
+      return;
+    }
+
+    let unlocked = false;
+    for (const prevId of prevLockedWorkspaceIdsRef.current) {
+      if (!currentLockedIds.has(prevId)) {
+        unlocked = true;
+        break;
+      }
+    }
+
+    prevLockedWorkspaceIdsRef.current = currentLockedIds;
+
+    if (unlocked && !config?.notifications?.sound_disabled) {
+      playAttentionSound();
+    }
+  }, [workspaceLockStates, config?.notifications?.sound_disabled]);
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -165,6 +215,14 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         navigate(`/sessions/${pendingNavigation.id}`);
         setPendingNavigationState(null);
       }
+    } else if (pendingNavigation.type === 'preview') {
+      const workspace = workspaces.find((ws) =>
+        (ws.previews || []).some((p) => p.id === pendingNavigation.previewId)
+      );
+      if (workspace) {
+        navigate(`/preview/${pendingNavigation.workspaceId}/${pendingNavigation.previewId}`);
+        setPendingNavigationState(null);
+      }
     } else if (pendingNavigation.type === 'workspace') {
       const workspace = workspaces.find((ws) => ws.id === pendingNavigation.id);
       if (workspace) {
@@ -244,13 +302,19 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
+      workspaceLockStates,
+      syncResultEvents,
+      clearSyncResultEvents,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
       overlayEvents,
       overlayUnreadCount,
       clearOverlayEvents,
+      remoteAccessStatus,
       markOverlaysRead,
+      simulateRemote,
+      setSimulateRemote,
     }),
     [
       workspaces,
@@ -261,13 +325,19 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       ackSession,
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
+      workspaceLockStates,
+      syncResultEvents,
+      clearSyncResultEvents,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
       overlayEvents,
       overlayUnreadCount,
       clearOverlayEvents,
+      remoteAccessStatus,
       markOverlaysRead,
+      simulateRemote,
+      setSimulateRemote,
     ]
   );
 

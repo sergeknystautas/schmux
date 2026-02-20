@@ -35,11 +35,16 @@ export function useSync() {
   );
 
   const handleLinearSyncFromMain = useCallback(
-    async (workspaceId: string): Promise<void> => {
+    async (workspaceId: string, hash: string): Promise<void> => {
       try {
-        const result = await linearSyncFromMain(workspaceId);
+        const result = await linearSyncFromMain(workspaceId, hash);
+        if (result.in_progress) {
+          return;
+        }
         if (result.success) {
-          // No dialog — the git graph updates via WebSocket to reflect the sync.
+          const branch = result.branch || 'main';
+          const count = result.success_count ?? 0;
+          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
         } else if (result.conflicting_hash) {
           const commitCount = result.success_count ?? 0;
           const resolveConfirmed = await show(
@@ -143,7 +148,7 @@ export function useSync() {
 
   // Smart sync: chooses clean or conflict resolution based on workspace state
   const handleSmartSync = useCallback(
-    async (workspace: WorkspaceResponse): Promise<void> => {
+    async (workspace: WorkspaceResponse, hash: string): Promise<void> => {
       const hasKnownConflict =
         workspace.conflict_on_branch && workspace.conflict_on_branch === workspace.branch;
 
@@ -152,7 +157,7 @@ export function useSync() {
         await startConflictResolution(workspace.id);
       } else {
         // Try clean sync first
-        await handleLinearSyncFromMain(workspace.id);
+        await handleLinearSyncFromMain(workspace.id, hash);
       }
     },
     [startConflictResolution, handleLinearSyncFromMain]

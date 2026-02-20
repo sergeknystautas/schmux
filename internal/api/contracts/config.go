@@ -132,6 +132,7 @@ type ConfigResponse struct {
 	CommitMessage              CommitMessage         `json:"commit_message"`
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
+	RemoteAccess               RemoteAccess          `json:"remote_access"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
@@ -224,6 +225,7 @@ type ConfigUpdateRequest struct {
 	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
+	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
 
@@ -257,4 +259,31 @@ type LoreUpdate struct {
 	LLMTarget       *string `json:"llm_target,omitempty"`
 	CurateOnDispose *string `json:"curate_on_dispose,omitempty"`
 	AutoPR          *bool   `json:"auto_pr,omitempty"`
+}
+
+// RemoteAccess represents remote access configuration in the API response.
+type RemoteAccess struct {
+	Enabled         bool               `json:"enabled"`
+	TimeoutMinutes  int                `json:"timeout_minutes"`
+	PasswordHashSet bool               `json:"password_hash_set"`
+	Notify          RemoteAccessNotify `json:"notify"`
+}
+
+// RemoteAccessNotify represents notification settings.
+type RemoteAccessNotify struct {
+	NtfyTopic string `json:"ntfy_topic"`
+	Command   string `json:"command"`
+}
+
+// RemoteAccessUpdate represents partial remote access config updates.
+type RemoteAccessUpdate struct {
+	Enabled        *bool                     `json:"enabled,omitempty"`
+	TimeoutMinutes *int                      `json:"timeout_minutes,omitempty"`
+	Notify         *RemoteAccessNotifyUpdate `json:"notify,omitempty"`
+}
+
+// RemoteAccessNotifyUpdate represents partial notification config updates.
+type RemoteAccessNotifyUpdate struct {
+	NtfyTopic *string `json:"ntfy_topic,omitempty"`
+	Command   *string `json:"command,omitempty"`
 }

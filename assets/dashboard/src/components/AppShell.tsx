@@ -11,11 +11,13 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
+import { useSync } from '../hooks/useSync';
 import {
   formatRelativeTime,
   nudgeStateEmoji,
   formatNudgeSummary,
   WorkingSpinner,
+  isRemoteClient,
 } from '../lib/utils';
 import { navigateToWorkspace } from '../lib/navigation';
 import { useModal } from './ModalProvider';
@@ -30,7 +32,7 @@ import {
   getLoreProposals,
   type DevStatus,
 } from '../lib/api';
-import type { WorkspaceResponse, SessionWithWorkspace } from '../lib/types';
+import RemoteAccessPanel from './RemoteAccessPanel';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -41,9 +43,15 @@ export default function AppShell() {
   const {
     workspaces,
     connected,
+    sessionsById,
     linearSyncResolveConflictStates,
+    workspaceLockStates,
+    syncResultEvents,
+    clearSyncResultEvents,
     overlayUnreadCount,
     markOverlaysRead,
+    remoteAccessStatus,
+    simulateRemote,
   } = useSessions();
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,8 +59,10 @@ export default function AppShell() {
   const [navCollapsed, setNavCollapsed] = useLocalStorage(NAV_COLLAPSED_KEY, false);
   const { mode, registerAction, unregisterAction, context } = useKeyboardMode();
   const { show: showHelp } = useHelpModal();
-  const { alert, confirm } = useModal();
+  const { alert, confirm, show } = useModal();
   const { success, error: toastError } = useToast();
+  const { startConflictResolution } = useSync();
+  const syncResultProcessingRef = useRef(false);
 
   // State for reconnect modal (used by sidebar Reconnect button)
   const [reconnectModal, setReconnectModal] = useState<{
@@ -64,12 +74,49 @@ export default function AppShell() {
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
+  const isRemoteAccess = isRemoteClient() || simulateRemote;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
   const [devRebuildTarget, setDevRebuildTarget] = useState<string | null>(null);
   const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting' | null>(
     'building'
   );
+
+  useEffect(() => {
+    if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;
+    syncResultProcessingRef.current = true;
+
+    const process = async () => {
+      for (const event of syncResultEvents) {
+        if (event.conflicting_hash) {
+          const commitCount = event.success_count ?? 0;
+          const resolveConfirmed = await show(
+            'Unable to fully sync',
+            `We were able to fast forward ${commitCount} commits cleanly. You can have an agent resolve the conflict at ${event.conflicting_hash}.`,
+            {
+              confirmText: 'Resolve',
+              cancelText: 'Close',
+              danger: true,
+            }
+          );
+          if (resolveConfirmed) {
+            await startConflictResolution(event.workspace_id);
+          }
+        } else if (event.success) {
+          const branch = event.branch || 'main';
+          const count = event.success_count ?? 0;
+          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
+        } else {
+          await alert('Error', event.message || 'Failed to sync from main');
+        }
+      }
+      clearSyncResultEvents();
+    };
+
+    process().finally(() => {
+      syncResultProcessingRef.current = false;
+    });
+  }, [syncResultEvents, clearSyncResultEvents, alert, show, startConflictResolution]);
 
   useEffect(() => {
     if (!isDevMode) return;
@@ -143,26 +190,6 @@ export default function AppShell() {
     }
   }, [connected, devRebuilding]);
 
-  // Helper to get sessionsById from workspaces
-  function sessionsById(
-    wsList: WorkspaceResponse[] | null | undefined
-  ): Record<string, SessionWithWorkspace> {
-    if (!wsList) return {};
-    const result: Record<string, SessionWithWorkspace> = {};
-    for (const ws of wsList) {
-      for (const sess of ws.sessions || []) {
-        result[sess.id] = {
-          ...sess,
-          workspace_id: ws.id,
-          workspace_path: ws.path,
-          repo: ws.repo,
-          branch: ws.branch,
-        };
-      }
-    }
-    return result;
-  }
-
   // Check if we're on a workspace-scoped page
   const diffMatch = location.pathname.match(/^\/diff\/(.+)$/);
   const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
@@ -173,7 +200,7 @@ export default function AppShell() {
 
   // Check if we're on a session detail page and get workspace info
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
-  const currentSession = sessionMatch && sessionId ? sessionsById(workspaces)[sessionId] : null;
+  const currentSession = sessionMatch && sessionId ? sessionsById[sessionId] : null;
   const currentWorkspaceId = currentSession?.workspace_id || activeWorkspaceId || previewMatch?.[1];
   const currentWorkspace = currentWorkspaceId
     ? workspaces?.find((ws) => ws.id === currentWorkspaceId)
@@ -238,6 +265,20 @@ export default function AppShell() {
       unregisterAction('h');
     };
   }, [registerAction, unregisterAction, navigate, showHelp, context.workspaceId]);
+
+  // Deprecation notice for Cmd+K (changed to Cmd+/)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) {
+        e.preventDefault();
+        const modKey = e.metaKey ? '⌘' : 'Ctrl';
+        success(`${modKey}+K has been changed to ${modKey}+/`, 5000);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [success]);
 
   // beforeunload prevents accidental tab close (Cmd+W, browser X button, etc.)
   const confirmBeforeClose = config?.notifications?.confirm_before_close ?? false;
@@ -354,22 +395,24 @@ export default function AppShell() {
       scope,
     });
 
-    // V - open workspace in VS Code
-    registerAction({
-      key: 'v',
-      description: 'Open workspace in VS Code',
-      handler: async () => {
-        try {
-          const result = await openVSCode(workspace.id);
-          if (!result.success) {
-            await alert('Unable to open VS Code', result.message);
+    // V - open workspace in VS Code (local only)
+    if (!isRemoteAccess) {
+      registerAction({
+        key: 'v',
+        description: 'Open workspace in VS Code',
+        handler: async () => {
+          try {
+            const result = await openVSCode(workspace.id);
+            if (!result.success) {
+              await alert('Unable to open VS Code', result.message);
+            }
+          } catch (err) {
+            await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
           }
-        } catch (err) {
-          await alert('Unable to open VS Code', getErrorMessage(err, 'Failed to open VS Code'));
-        }
-      },
-      scope,
-    });
+        },
+        scope,
+      });
+    }
 
     // Shift+W - dispose workspace (same restrictions as dispose button)
     registerAction({
@@ -383,6 +426,8 @@ export default function AppShell() {
         const isDevLive =
           devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace;
         if (isDevLive) return;
+        const hasRunningSessions = workspace.sessions?.some((s) => s.running) ?? false;
+        if (hasRunningSessions) return;
         const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
         if (!accepted) return;
 
@@ -400,12 +445,13 @@ export default function AppShell() {
     return () => {
       unregisterAction('d');
       unregisterAction('g');
-      unregisterAction('v');
+      if (!isRemoteAccess) unregisterAction('v');
       unregisterAction('w', true);
     };
   }, [
     context.workspaceId,
     workspaces,
+    isRemoteAccess,
     registerAction,
     unregisterAction,
     navigate,
@@ -422,6 +468,25 @@ export default function AppShell() {
       <KeyboardModeIndicator />
       <nav className="app-shell__nav">
         <div className="nav-top">
+          {(remoteAccessStatus.state === 'connected' || simulateRemote) && (
+            <div className="remote-banner" data-testid="remote-banner">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+                <line x1="8" y1="2" x2="8" y2="18" />
+                <line x1="16" y1="6" x2="16" y2="22" />
+              </svg>
+              Remote Access
+            </div>
+          )}
           <div className="nav-header">
             <div className="nav-header__left">
               <NavLink to="/" className="logo">
@@ -527,6 +592,9 @@ export default function AppShell() {
               </div>
             )}
             {workspaces?.map((workspace) => {
+              const wsLockState = workspaceLockStates[workspace.id];
+              const wsResolveState = linearSyncResolveConflictStates[workspace.id];
+              const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
               const linesAdded = workspace.git_lines_added ?? 0;
               const linesRemoved = workspace.git_lines_removed ?? 0;
               const isGit = !workspace.vcs || workspace.vcs === 'git';
@@ -586,7 +654,11 @@ export default function AppShell() {
                         )}
                         {displayBranch}
                       </span>
-                      {hasChanges && (
+                      {wsLocked ? (
+                        <span className="nav-workspace__changes">
+                          <WorkingSpinner />
+                        </span>
+                      ) : hasChanges ? (
                         <span className="nav-workspace__changes">
                           {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
                           {linesRemoved > 0 && (
@@ -598,7 +670,7 @@ export default function AppShell() {
                             </span>
                           )}
                         </span>
-                      )}
+                      ) : null}
                       {isDevEligible && (
                         <button
                           className="nav-workspace__dev-btn"
@@ -725,7 +797,11 @@ export default function AppShell() {
                           }}
                         >
                           <div className="nav-session__row1">
-                            {isWorkingState && <WorkingSpinner />}
+                            {wsLocked ? (
+                              <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
+                            ) : (
+                              isWorkingState && <WorkingSpinner />
+                            )}
                             <span className="nav-session__name">
                               {sess.remote_host_id && (
                                 <svg
@@ -750,7 +826,7 @@ export default function AppShell() {
                             </span>
                             <span className="nav-session__activity">{activityDisplay}</span>
                           </div>
-                          {nudgePreviewElement && (
+                          {!wsLocked && nudgePreviewElement && (
                             <div className="nav-session__row2">{nudgePreviewElement}</div>
                           )}
                         </div>
@@ -762,6 +838,7 @@ export default function AppShell() {
             })}
           </div>
 
+          {isDevMode && <TypingPerformance />}
           <div className="nav-links">
             {config?.repos?.length > 0 && (
               <NavLink
@@ -865,7 +942,7 @@ export default function AppShell() {
               </NavLink>
             </div>
           </div>
-          {isDevMode && <TypingPerformance />}
+          <RemoteAccessPanel />
         </div>
       </nav>
 

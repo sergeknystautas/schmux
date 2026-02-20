@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+// viteClient is used for pause/resume requests to the Vite dev server.
+// Keep-alives are disabled because Vite restarts frequently during
+// workspace switching, which leaves stale pooled connections.
+var viteClient = &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		DisableKeepAlives: true,
+	},
+}
+
 // devRestartManifest is written to ~/.schmux/dev-restart.json before triggering
 // a dev restart. The wrapper script reads this to know what to build/restart.
 type devRestartManifest struct {
@@ -173,7 +183,7 @@ func (s *Server) pauseViteWatch() {
 	if !s.devMode {
 		return
 	}
-	resp, err := http.Post("http://localhost:5173/__dev/pause-watch", "", strings.NewReader(""))
+	resp, err := viteClient.Post("http://localhost:5173/__dev/pause-watch", "", strings.NewReader(""))
 	if err != nil {
 		fmt.Printf("[dev] failed to pause Vite watch: %v\n", err)
 		return
@@ -187,10 +197,60 @@ func (s *Server) resumeViteWatch() {
 	if !s.devMode {
 		return
 	}
-	resp, err := http.Post("http://localhost:5173/__dev/resume-watch", "", strings.NewReader(""))
+	resp, err := viteClient.Post("http://localhost:5173/__dev/resume-watch", "", strings.NewReader(""))
 	if err != nil {
 		fmt.Printf("[dev] failed to resume Vite watch: %v\n", err)
 		return
 	}
 	resp.Body.Close()
+}
+
+func (s *Server) handleDevSimulateTunnel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tunnelURL := fmt.Sprintf("https://fake-tunnel-%d.trycloudflare.com", time.Now().UnixNano())
+	s.HandleTunnelConnected(tunnelURL)
+
+	s.remoteTokenMu.Lock()
+	token := s.remoteToken
+	s.remoteTokenMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":   tunnelURL,
+		"token": token,
+	})
+}
+
+func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.ClearRemoteAuth()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+}
+
+func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.config.RemoteAccess != nil {
+		s.config.RemoteAccess.PasswordHash = ""
+		if err := s.config.Save(); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
 }

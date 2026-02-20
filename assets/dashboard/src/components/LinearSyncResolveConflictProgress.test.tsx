@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import LinearSyncResolveConflictProgress from './LinearSyncResolveConflictProgress';
 import type { LinearSyncResolveConflictStatePayload, WorkspaceResponse } from '../lib/types';
 
@@ -31,22 +31,6 @@ vi.mock('../contexts/SessionsContext', () => ({
 vi.mock('../hooks/useSync', () => ({
   useSync: () => ({
     handleLinearSyncFromMain: vi.fn(),
-  }),
-}));
-
-vi.mock('../lib/terminalStream', () => ({
-  default: vi.fn().mockImplementation(function () {
-    this.initialized = Promise.resolve(null);
-    this.connect = vi.fn();
-    this.disconnect = vi.fn();
-    this.focus = vi.fn();
-  }),
-}));
-
-vi.mock('../contexts/ConfigContext', () => ({
-  useConfig: () => ({
-    config: { terminal: { width: 120, height: 40 } },
-    loading: false,
   }),
 }));
 
@@ -91,7 +75,7 @@ function makeState(
       {
         action: 'cherry-pick',
         status: 'in_progress',
-        message: 'Cherry-picking commit',
+        message: ['Cherry-picking commit'],
         at: new Date().toISOString(),
       },
     ],
@@ -184,45 +168,7 @@ describe('LinearSyncResolveConflictProgress', () => {
     expect(screen.getByText('Conflict resolution failed')).toBeInTheDocument();
   });
 
-  it('shows dismiss button for failed state', () => {
-    const state = makeState({ status: 'failed' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace({ git_behind: 0 })];
-
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
-
-    expect(screen.getByText('dismiss')).toBeInTheDocument();
-  });
-
-  it('clicking dismiss navigates to first session', async () => {
-    const state = makeState({ status: 'failed' });
-    mockLinearSyncResolveConflictStates = { 'ws-1': state };
-    mockWorkspaces = [makeWorkspace()];
-
-    render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
-
-    await act(async () => {
-      screen.getByText('dismiss').click();
-    });
-
-    expect(clearLinearSyncResolveConflictState).toHaveBeenCalledWith('ws-1');
-    expect(navigate).toHaveBeenCalledWith('/sessions/session-1');
-  });
-
   describe('terminal panel', () => {
-    it('renders terminal panel header when tmux_session is present and in_progress', () => {
-      const state = makeState({
-        status: 'in_progress',
-        tmux_session: 'cr-ws-1-abc1234',
-      });
-      mockLinearSyncResolveConflictStates = { 'ws-1': state };
-      mockWorkspaces = [makeWorkspace()];
-
-      render(<LinearSyncResolveConflictProgress workspaceId="ws-1" />);
-
-      expect(screen.getByText('Agent output')).toBeInTheDocument();
-    });
-
     it('does not render terminal panel when tmux_session is absent', () => {
       const state = makeState({ status: 'in_progress' });
       mockLinearSyncResolveConflictStates = { 'ws-1': state };

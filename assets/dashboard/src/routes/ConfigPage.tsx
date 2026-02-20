@@ -9,11 +9,15 @@ import {
   getBuiltinQuickLaunch,
   getAuthSecretsStatus,
   saveAuthSecrets,
+  setRemoteAccessPassword,
+  testRemoteAccessNotification,
   getErrorMessage,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
+import { NtfyTopicGenerateButton, NtfyTopicQRDisplay } from '../components/NtfyTopicGenerator';
+import { passwordStrength } from '../lib/passwordStrength';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 import type {
   BuiltinQuickLaunchCookbook,
@@ -26,11 +30,11 @@ import type {
   RunTargetResponse,
 } from '../lib/types';
 
-const TOTAL_STEPS = 5;
-const TABS = ['Workspaces', 'Sessions', 'Quick Launch', 'Code Review', 'Advanced'];
+const TOTAL_STEPS = 6;
+const TABS = ['Workspaces', 'Sessions', 'Quick Launch', 'Code Review', 'Access', 'Advanced'];
 
 // Map step number to URL slug
-const TAB_SLUGS = ['workspaces', 'sessions', 'quicklaunch', 'codereview', 'advanced'];
+const TAB_SLUGS = ['workspaces', 'sessions', 'quicklaunch', 'codereview', 'access', 'advanced'];
 
 // Helper: step number -> slug
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
@@ -85,6 +89,10 @@ type ConfigSnapshot = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  remoteAccessEnabled: boolean;
+  remoteAccessTimeoutMinutes: number;
+  remoteAccessNtfyTopic: string;
+  remoteAccessNotifyCommand: string;
 };
 
 type RunTargetEditModalState = {
@@ -193,6 +201,18 @@ export default function ConfigPage() {
   const [loreCurateOnDispose, setLoreCurateOnDispose] = useState('session');
   const [loreAutoPR, setLoreAutoPR] = useState(false);
 
+  // Remote access state
+  const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false);
+  const [remoteAccessTimeoutMinutes, setRemoteAccessTimeoutMinutes] = useState(0);
+  const [remoteAccessNtfyTopic, setRemoteAccessNtfyTopic] = useState('');
+  const [remoteAccessNotifyCommand, setRemoteAccessNotifyCommand] = useState('');
+  const [remoteAccessPasswordHashSet, setRemoteAccessPasswordHashSet] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
@@ -241,6 +261,10 @@ export default function ConfigPage() {
       loreLLMTarget,
       loreCurateOnDispose,
       loreAutoPR,
+      remoteAccessEnabled,
+      remoteAccessTimeoutMinutes,
+      remoteAccessNtfyTopic,
+      remoteAccessNotifyCommand,
     };
 
     // Deep comparison for arrays
@@ -283,7 +307,11 @@ export default function ConfigPage() {
       current.loreEnabled !== originalConfig.loreEnabled ||
       current.loreLLMTarget !== originalConfig.loreLLMTarget ||
       current.loreCurateOnDispose !== originalConfig.loreCurateOnDispose ||
-      current.loreAutoPR !== originalConfig.loreAutoPR
+      current.loreAutoPR !== originalConfig.loreAutoPR ||
+      current.remoteAccessEnabled !== originalConfig.remoteAccessEnabled ||
+      current.remoteAccessTimeoutMinutes !== originalConfig.remoteAccessTimeoutMinutes ||
+      current.remoteAccessNtfyTopic !== originalConfig.remoteAccessNtfyTopic ||
+      current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand
     );
   };
 
@@ -307,6 +335,7 @@ export default function ConfigPage() {
     3: null,
     4: null,
     5: null,
+    6: null,
   });
 
   const localAuthWarnings: string[] = [];
@@ -396,6 +425,11 @@ export default function ConfigPage() {
         setLoreLLMTarget(data.lore?.llm_target || '');
         setLoreCurateOnDispose(data.lore?.curate_on_dispose || 'session');
         setLoreAutoPR(data.lore?.auto_pr || false);
+        setRemoteAccessEnabled(data.remote_access?.enabled || false);
+        setRemoteAccessTimeoutMinutes(data.remote_access?.timeout_minutes || 0);
+        setRemoteAccessNtfyTopic(data.remote_access?.notify?.ntfy_topic || '');
+        setRemoteAccessNotifyCommand(data.remote_access?.notify?.command || '');
+        setRemoteAccessPasswordHashSet(data.remote_access?.password_hash_set || false);
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -438,6 +472,10 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
+            remoteAccessEnabled: data.remote_access?.enabled || false,
+            remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
+            remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
+            remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
           });
         }
 
@@ -539,6 +577,17 @@ export default function ConfigPage() {
       // Models are optional
     } else if (step === 4) {
       // Quick launch is optional
+    } else if (step === 5) {
+      // Access settings are always valid
+    } else if (step === 6) {
+      if (
+        !xtermQueryTimeout ||
+        !xtermOperationTimeout ||
+        xtermQueryTimeout <= 0 ||
+        xtermOperationTimeout <= 0
+      ) {
+        error = 'xterm settings must be greater than 0';
+      }
     }
 
     setStepErrors((prev) => ({ ...prev, [step]: error }));
@@ -624,6 +673,14 @@ export default function ConfigPage() {
           auto_pr: loreAutoPR,
         },
         model_versions: modelVersions,
+        remote_access: {
+          enabled: remoteAccessEnabled,
+          timeout_minutes: remoteAccessTimeoutMinutes,
+          notify: {
+            ntfy_topic: remoteAccessNtfyTopic,
+            command: remoteAccessNotifyCommand,
+          },
+        },
       };
 
       const result = await updateConfig(updateRequest);
@@ -674,6 +731,10 @@ export default function ConfigPage() {
           loreLLMTarget,
           loreCurateOnDispose,
           loreAutoPR,
+          remoteAccessEnabled,
+          remoteAccessTimeoutMinutes,
+          remoteAccessNtfyTopic,
+          remoteAccessNotifyCommand,
         });
       }
 
@@ -1098,6 +1159,36 @@ export default function ConfigPage() {
     error: string;
   } | null>(null);
 
+  const handleSetPassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (!passwordInput.trim()) {
+      setPasswordError('Password cannot be empty');
+      return;
+    }
+    if (passwordInput.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
+      return;
+    }
+    if (passwordInput !== passwordConfirm) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await setRemoteAccessPassword(passwordInput);
+      setRemoteAccessPasswordHashSet(true);
+      setPasswordInput('');
+      setPasswordConfirm('');
+      setPasswordSuccess('Password updated');
+      reloadConfig();
+    } catch (err) {
+      setPasswordError(getErrorMessage(err, 'Failed to set password'));
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   const openAuthSecretsModal = () => {
     setAuthSecretsModal({ clientId: '', clientSecret: '', error: '' });
   };
@@ -1160,7 +1251,8 @@ export default function ConfigPage() {
     2: true, // Run targets (now includes models) are optional
     3: true, // Quick launch is optional
     4: true, // External diff is optional
-    5: true, // Advanced step is always valid (has defaults)
+    5: true, // Access step is always valid (has defaults)
+    6: true, // Advanced step is always valid (has defaults)
   };
 
   if (loading) {
@@ -2147,6 +2239,454 @@ export default function ConfigPage() {
 
           {currentTab === 5 && (
             <div className="wizard-step-content" data-step="5">
+              <h2 className="wizard-step-content__title">Access</h2>
+              <p className="wizard-step-content__description">
+                Control how the dashboard is accessed — local network, remote tunneling, and
+                authentication.
+              </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Network</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label className="form-group__label">Dashboard Access</label>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 'var(--spacing-md)',
+                        alignItems: 'center',
+                        fontSize: '0.9rem',
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          cursor: 'pointer',
+                          fontSize: 'inherit',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="networkAccess"
+                          checked={!networkAccess}
+                          onChange={() => setNetworkAccess(false)}
+                        />
+                        <span>Local access only</span>
+                      </label>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--spacing-xs)',
+                          cursor: 'pointer',
+                          fontSize: 'inherit',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="networkAccess"
+                          checked={networkAccess}
+                          onChange={() => setNetworkAccess(true)}
+                        />
+                        <span>Local network access</span>
+                      </label>
+                    </div>
+                    <p className="form-group__hint">
+                      {!networkAccess
+                        ? 'Dashboard accessible only from this computer (localhost).'
+                        : 'Dashboard accessible from other devices on your local network.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Remote Access</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={remoteAccessEnabled}
+                        onChange={(e) => setRemoteAccessEnabled(e.target.checked)}
+                      />
+                      <span>Enable remote access</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Allow accessing the dashboard remotely via a Cloudflare tunnel.
+                    </p>
+                  </div>
+
+                  {remoteAccessEnabled && (
+                    <div className="remote-access-grid">
+                      <div className="remote-access-grid__fields">
+                        <div className="form-group">
+                          <label className="form-group__label">Access Password</label>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 'var(--spacing-xs)',
+                            }}
+                          >
+                            {remoteAccessPasswordHashSet && (
+                              <p
+                                className="form-group__hint"
+                                style={{ color: 'var(--color-success)' }}
+                              >
+                                Password is configured
+                              </p>
+                            )}
+                            <input
+                              type="password"
+                              className="input"
+                              placeholder={
+                                remoteAccessPasswordHashSet
+                                  ? 'New password (leave blank to keep)'
+                                  : 'Enter password'
+                              }
+                              value={passwordInput}
+                              onChange={(e) => setPasswordInput(e.target.value)}
+                            />
+                            {passwordInput && passwordInput.length >= 6 && (
+                              <span
+                                className={`password-strength password-strength--${passwordStrength(passwordInput)}`}
+                              >
+                                {passwordStrength(passwordInput) === 'weak'
+                                  ? 'Weak password'
+                                  : passwordStrength(passwordInput) === 'ok'
+                                    ? 'OK'
+                                    : 'Strong'}
+                              </span>
+                            )}
+                            {passwordInput && (
+                              <input
+                                type="password"
+                                className="input"
+                                placeholder="Confirm password"
+                                value={passwordConfirm}
+                                onChange={(e) => setPasswordConfirm(e.target.value)}
+                              />
+                            )}
+                            {passwordInput && (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ alignSelf: 'flex-start' }}
+                                onClick={handleSetPassword}
+                                disabled={passwordSaving}
+                              >
+                                {passwordSaving
+                                  ? 'Saving...'
+                                  : remoteAccessPasswordHashSet
+                                    ? 'Update Password'
+                                    : 'Set Password'}
+                              </button>
+                            )}
+                            {passwordError && <p className="form-group__error">{passwordError}</p>}
+                            {passwordSuccess && (
+                              <p
+                                className="form-group__hint"
+                                style={{ color: 'var(--color-success)' }}
+                              >
+                                {passwordSuccess}
+                              </p>
+                            )}
+                          </div>
+                          <p className="form-group__hint">
+                            Required to start a remote tunnel. You&apos;ll enter this password when
+                            connecting from another device.
+                          </p>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-group__label">Timeout (minutes)</label>
+                          <input
+                            type="number"
+                            className="input input--compact"
+                            style={{ maxWidth: '120px' }}
+                            min="0"
+                            value={remoteAccessTimeoutMinutes}
+                            onChange={(e) =>
+                              setRemoteAccessTimeoutMinutes(parseInt(e.target.value) || 0)
+                            }
+                          />
+                          <p className="form-group__hint">
+                            Auto-stop the tunnel after this many minutes. 0 means no timeout.
+                          </p>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-group__label">ntfy Topic</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="my-schmux-notifications"
+                            value={remoteAccessNtfyTopic}
+                            onChange={(e) => setRemoteAccessNtfyTopic(e.target.value)}
+                          />
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: 'var(--spacing-sm)',
+                              marginTop: 'var(--spacing-xs)',
+                            }}
+                          >
+                            <NtfyTopicGenerateButton onChange={setRemoteAccessNtfyTopic} />
+                            <button
+                              type="button"
+                              className="btn btn--secondary btn--sm"
+                              disabled={!remoteAccessNtfyTopic}
+                              onClick={async () => {
+                                try {
+                                  await testRemoteAccessNotification();
+                                  success('Test notification sent!');
+                                } catch (err) {
+                                  toastError(
+                                    getErrorMessage(err, 'Failed to send test notification')
+                                  );
+                                }
+                              }}
+                            >
+                              Send test notification
+                            </button>
+                          </div>
+                          <p className="form-group__hint">
+                            This topic receives your auth URL. <strong>Treat it as a secret</strong>{' '}
+                            — anyone who knows it can see your auth links. Use a randomly generated
+                            value.
+                          </p>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-group__label">Notify Command</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="echo $SCHMUX_REMOTE_URL | pbcopy"
+                            value={remoteAccessNotifyCommand}
+                            onChange={(e) => setRemoteAccessNotifyCommand(e.target.value)}
+                          />
+                          <p className="form-group__hint">
+                            Shell command to run when the tunnel connects. The URL is available as{' '}
+                            <code>$SCHMUX_REMOTE_URL</code>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="remote-access-grid__qr">
+                        <NtfyTopicQRDisplay topic={remoteAccessNtfyTopic} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Authentication</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={authEnabled}
+                        onChange={(e) => setAuthEnabled(e.target.checked)}
+                      />
+                      <span>Enable GitHub authentication</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Require GitHub login to access the dashboard. Requires HTTPS.
+                    </p>
+                  </div>
+
+                  {authEnabled && (
+                    <>
+                      <div className="form-group">
+                        <label className="form-group__label">Dashboard URL</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="https://schmux.local:7337"
+                          value={authPublicBaseURL}
+                          onChange={(e) => setAuthPublicBaseURL(e.target.value)}
+                        />
+                        <p className="form-group__hint">
+                          The URL users will type to access schmux. Must be https.
+                        </p>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-group__label">TLS Cert Path</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="~/.schmux/tls/schmux.local.pem"
+                            value={authTlsCertPath}
+                            onChange={(e) => setAuthTlsCertPath(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-group__label">TLS Key Path</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="~/.schmux/tls/schmux.local-key.pem"
+                            value={authTlsKeyPath}
+                            onChange={(e) => setAuthTlsKeyPath(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <p
+                        className="form-group__hint"
+                        style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
+                      >
+                        Use <code>mkcert</code> to generate local certificates, or run{' '}
+                        <code>schmux auth github</code> for guided setup.
+                      </p>
+
+                      <div className="form-group">
+                        <label className="form-group__label">Session TTL (minutes)</label>
+                        <input
+                          type="number"
+                          className="input input--compact"
+                          style={{ maxWidth: '120px' }}
+                          min="1"
+                          value={authSessionTTLMinutes}
+                          onChange={(e) =>
+                            setAuthSessionTTLMinutes(parseInt(e.target.value) || 1440)
+                          }
+                        />
+                        <p className="form-group__hint">
+                          How long before requiring re-authentication.
+                        </p>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-group__label">GitHub OAuth Credentials</label>
+                        <div className="item-list" style={{ marginTop: 'var(--spacing-xs)' }}>
+                          <div className="item-list__item">
+                            <div className="item-list__item-primary">
+                              <span className="item-list__item-name">
+                                {authClientIdSet && authClientSecretSet ? (
+                                  <span style={{ color: 'var(--color-success)' }}>Configured</span>
+                                ) : (
+                                  <span style={{ color: 'var(--color-warning)' }}>
+                                    Not configured
+                                  </span>
+                                )}
+                              </span>
+                              <span className="item-list__item-detail">
+                                Create at github.com/settings/developers
+                              </span>
+                            </div>
+                            {authClientIdSet && authClientSecretSet ? (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={openAuthSecretsModal}
+                              >
+                                Update
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn--primary"
+                                onClick={openAuthSecretsModal}
+                              >
+                                Add
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div
+                          className="form-group__hint"
+                          style={{ marginTop: 'var(--spacing-sm)' }}
+                        >
+                          <p
+                            className="form-group__hint"
+                            style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
+                          >
+                            To create or check on your GitHub OAuth credentials, follow these steps:
+                          </p>
+                          <ol style={{ margin: 0, paddingLeft: 'var(--spacing-lg)' }}>
+                            <li>
+                              Go to{' '}
+                              <a
+                                href="https://github.com/settings/developers"
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                github.com/settings/developers
+                              </a>
+                            </li>
+                            <li>Click "New OAuth App" (or edit existing)</li>
+                            <li>
+                              Use these values:
+                              <ul style={{ marginTop: 'var(--spacing-xs)' }}>
+                                <li>
+                                  Application name: <code>schmux</code>
+                                </li>
+                                <li>
+                                  Homepage URL:{' '}
+                                  <code>{authPublicBaseURL || 'https://schmux.local:7337'}</code>
+                                </li>
+                                <li>
+                                  Callback URL:{' '}
+                                  <code>
+                                    {authPublicBaseURL
+                                      ? `${authPublicBaseURL.replace(/\/+$/, '')}/auth/callback`
+                                      : 'https://schmux.local:7337/auth/callback'}
+                                  </code>
+                                </li>
+                              </ul>
+                            </li>
+                            <li>Copy the Client ID and Client Secret</li>
+                          </ol>
+                        </div>
+                      </div>
+
+                      {combinedAuthWarnings.length > 0 && (
+                        <div className="form-group">
+                          <p className="form-group__error">Configuration issues:</p>
+                          <ul className="form-group__hint" style={{ color: 'var(--color-error)' }}>
+                            {combinedAuthWarnings.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentTab === 6 && (
+            <div className="wizard-step-content" data-step="6">
               <h2 className="wizard-step-content__title">Advanced Settings</h2>
               <p className="wizard-step-content__description">
                 Terminal dimensions and advanced timing controls. You can leave these as defaults
@@ -2440,253 +2980,6 @@ export default function ConfigPage() {
                       </p>
                     )}
                   </div>
-                </div>
-              </div>
-
-              <div className="settings-section">
-                <div className="settings-section__header">
-                  <h3 className="settings-section__title">Network</h3>
-                </div>
-                <div className="settings-section__body">
-                  <div className="form-group">
-                    <label className="form-group__label">Dashboard Access</label>
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: 'var(--spacing-md)',
-                        alignItems: 'center',
-                        fontSize: '0.9rem',
-                      }}
-                    >
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--spacing-xs)',
-                          cursor: 'pointer',
-                          fontSize: 'inherit',
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="networkAccess"
-                          checked={!networkAccess}
-                          onChange={() => setNetworkAccess(false)}
-                        />
-                        <span>Local access only</span>
-                      </label>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--spacing-xs)',
-                          cursor: 'pointer',
-                          fontSize: 'inherit',
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="networkAccess"
-                          checked={networkAccess}
-                          onChange={() => setNetworkAccess(true)}
-                        />
-                        <span>Local network access</span>
-                      </label>
-                    </div>
-                    <p className="form-group__hint">
-                      {!networkAccess
-                        ? 'Dashboard accessible only from this computer (localhost).'
-                        : 'Dashboard accessible from other devices on your local network.'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="settings-section">
-                <div className="settings-section__header">
-                  <h3 className="settings-section__title">Authentication</h3>
-                </div>
-                <div className="settings-section__body">
-                  <div className="form-group">
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--spacing-xs)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={authEnabled}
-                        onChange={(e) => setAuthEnabled(e.target.checked)}
-                      />
-                      <span>Enable GitHub authentication</span>
-                    </label>
-                    <p className="form-group__hint">
-                      Require GitHub login to access the dashboard. Requires HTTPS.
-                    </p>
-                  </div>
-
-                  {authEnabled && (
-                    <>
-                      <div className="form-group">
-                        <label className="form-group__label">Dashboard URL</label>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="https://schmux.local:7337"
-                          value={authPublicBaseURL}
-                          onChange={(e) => setAuthPublicBaseURL(e.target.value)}
-                        />
-                        <p className="form-group__hint">
-                          The URL users will type to access schmux. Must be https.
-                        </p>
-                      </div>
-
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label className="form-group__label">TLS Cert Path</label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="~/.schmux/tls/schmux.local.pem"
-                            value={authTlsCertPath}
-                            onChange={(e) => setAuthTlsCertPath(e.target.value)}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-group__label">TLS Key Path</label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="~/.schmux/tls/schmux.local-key.pem"
-                            value={authTlsKeyPath}
-                            onChange={(e) => setAuthTlsKeyPath(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <p
-                        className="form-group__hint"
-                        style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
-                      >
-                        Use <code>mkcert</code> to generate local certificates, or run{' '}
-                        <code>schmux auth github</code> for guided setup.
-                      </p>
-
-                      <div className="form-group">
-                        <label className="form-group__label">Session TTL (minutes)</label>
-                        <input
-                          type="number"
-                          className="input input--compact"
-                          style={{ maxWidth: '120px' }}
-                          min="1"
-                          value={authSessionTTLMinutes}
-                          onChange={(e) =>
-                            setAuthSessionTTLMinutes(parseInt(e.target.value) || 1440)
-                          }
-                        />
-                        <p className="form-group__hint">
-                          How long before requiring re-authentication.
-                        </p>
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-group__label">GitHub OAuth Credentials</label>
-                        <div className="item-list" style={{ marginTop: 'var(--spacing-xs)' }}>
-                          <div className="item-list__item">
-                            <div className="item-list__item-primary">
-                              <span className="item-list__item-name">
-                                {authClientIdSet && authClientSecretSet ? (
-                                  <span style={{ color: 'var(--color-success)' }}>Configured</span>
-                                ) : (
-                                  <span style={{ color: 'var(--color-warning)' }}>
-                                    Not configured
-                                  </span>
-                                )}
-                              </span>
-                              <span className="item-list__item-detail">
-                                Create at github.com/settings/developers
-                              </span>
-                            </div>
-                            {authClientIdSet && authClientSecretSet ? (
-                              <button
-                                type="button"
-                                className="btn btn--primary"
-                                onClick={openAuthSecretsModal}
-                              >
-                                Update
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn--primary"
-                                onClick={openAuthSecretsModal}
-                              >
-                                Add
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div
-                          className="form-group__hint"
-                          style={{ marginTop: 'var(--spacing-sm)' }}
-                        >
-                          <p
-                            className="form-group__hint"
-                            style={{ marginTop: 'calc(-1 * var(--spacing-sm))' }}
-                          >
-                            To create or check on your GitHub OAuth credentials, follow these steps:
-                          </p>
-                          <ol style={{ margin: 0, paddingLeft: 'var(--spacing-lg)' }}>
-                            <li>
-                              Go to{' '}
-                              <a
-                                href="https://github.com/settings/developers"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                github.com/settings/developers
-                              </a>
-                            </li>
-                            <li>Click "New OAuth App" (or edit existing)</li>
-                            <li>
-                              Use these values:
-                              <ul style={{ marginTop: 'var(--spacing-xs)' }}>
-                                <li>
-                                  Application name: <code>schmux</code>
-                                </li>
-                                <li>
-                                  Homepage URL:{' '}
-                                  <code>{authPublicBaseURL || 'https://schmux.local:7337'}</code>
-                                </li>
-                                <li>
-                                  Callback URL:{' '}
-                                  <code>
-                                    {authPublicBaseURL
-                                      ? `${authPublicBaseURL.replace(/\/+$/, '')}/auth/callback`
-                                      : 'https://schmux.local:7337/auth/callback'}
-                                  </code>
-                                </li>
-                              </ul>
-                            </li>
-                            <li>Copy the Client ID and Client Secret</li>
-                          </ol>
-                        </div>
-                      </div>
-
-                      {combinedAuthWarnings.length > 0 && (
-                        <div className="form-group">
-                          <p className="form-group__error">Configuration issues:</p>
-                          <ul className="form-group__hint" style={{ color: 'var(--color-error)' }}>
-                            {combinedAuthWarnings.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </>
-                  )}
                 </div>
               </div>
 

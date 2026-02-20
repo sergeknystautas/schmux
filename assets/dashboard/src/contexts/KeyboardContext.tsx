@@ -235,11 +235,18 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
       exitMode();
     };
 
+    // Exit mode on mouse click (user switched to mouse input)
+    const handleClick = () => {
+      exitMode();
+    };
+
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('mousedown', handleClick);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('mousedown', handleClick);
     };
   }, [mode, actions, exitMode, modifierKeys]);
 
@@ -263,11 +270,11 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
     });
   }, [context.workspaceId, context.sessionId]);
 
-  // Global Cmd+K listener to enter mode
+  // Global Cmd+/ listener to enter mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+K or Ctrl+K (for Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !e.shiftKey) {
+      // Cmd+/ or Ctrl+/ (for Windows/Linux) - toggle keyboard mode
+      if ((e.metaKey || e.ctrlKey) && e.key === '/' && !e.shiftKey) {
         e.preventDefault();
         if (mode === 'inactive') {
           enterMode();

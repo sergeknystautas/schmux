@@ -118,3 +118,19 @@ export function removePreviewIframe(previewId: string): void {
   entry.iframe.remove();
   iframeRegistry.delete(previewId);
 }
+
+export function refreshPreviewIframe(previewId: string): void {
+  const entry = iframeRegistry.get(previewId);
+  if (!entry) return;
+  entry.iframe.src = entry.url;
+}
+
+export function goBackPreviewIframe(previewId: string): void {
+  const entry = iframeRegistry.get(previewId);
+  if (!entry) return;
+  try {
+    entry.iframe.contentWindow?.history.back();
+  } catch {
+    // Cross-origin restriction - ignore
+  }
+}

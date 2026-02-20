@@ -82,7 +82,7 @@ Expected JSON format:
 {
   "all_resolved": true,
   "confidence": "high",
-  "summary": "Detailed explanation of what the conflict was, the approach taken to resolve it, and any concerns or trade-offs involved. Include specifics about what each side was trying to do and how you merged them.",
+  "summary": "Detailed explanation of what the conflict was, the approach taken to resolve it, and any concerns or trade-offs involved.\nInclude specifics about what each side was trying to do and how you merged them.\nUse \\n newlines to separate paragraphs or logical sections for readability.",
   "files": {
     "path/to/file.go": {"action": "modified", "description": "Merged both changes"},
     "path/to/obsolete.go": {"action": "deleted", "description": "File was removed by incoming commit"}
@@ -98,6 +98,7 @@ Rules:
 - If "modified", the file on disk must contain the resolved contents with NO conflict markers
 - If "deleted", you must have deleted the file from disk
 - The "action" field is used to stage changes: "modified" -> git add, "deleted" -> git rm
+- The "summary" field should use \n newlines to separate paragraphs or sections for readability
 - Do NOT include any text outside the JSON object
 - Output MUST be valid JSON only
 `)
@@ -154,6 +155,7 @@ func ParseResult(raw string) (OneshotResult, error) {
 	// Try direct parse as OneshotResult.
 	var result OneshotResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err == nil && result.Confidence != "" {
+		normalizeSummary(&result)
 		return result, nil
 	}
 
@@ -162,12 +164,23 @@ func ParseResult(raw string) (OneshotResult, error) {
 	if ok {
 		var envResult OneshotResult
 		if err := json.Unmarshal([]byte(extracted), &envResult); err == nil {
+			normalizeSummary(&envResult)
 			return envResult, nil
 		}
 	}
 
 	// JSON was found but doesn't contain the expected fields.
 	return OneshotResult{}, fmt.Errorf("%w: response JSON does not contain expected fields", ErrInvalidResponse)
+}
+
+// normalizeSummary replaces literal "\n" text (which LLMs often produce in JSON
+// strings instead of actual newlines) with real newlines.
+func normalizeSummary(r *OneshotResult) {
+	r.Summary = strings.ReplaceAll(r.Summary, `\n`, "\n")
+	for k, f := range r.Files {
+		f.Description = strings.ReplaceAll(f.Description, `\n`, "\n")
+		r.Files[k] = f
+	}
 }
 
 // findJSON locates the first valid JSON object in s, skipping any leading

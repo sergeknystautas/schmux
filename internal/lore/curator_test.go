@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schema"
 )
 
 func TestBuildCuratorPrompt(t *testing.T) {
@@ -15,7 +17,7 @@ func TestBuildCuratorPrompt(t *testing.T) {
 		"CLAUDE.md": "# Project\n\n## Build\ngo build",
 	}
 	entries := []Entry{
-		{Text: "use go run ./cmd/build-dashboard", Type: "operational"},
+		{Text: "use go run ./cmd/build-dashboard", Type: "reflection", Agent: "claude-code"},
 	}
 	prompt := BuildCuratorPrompt(files, entries)
 	if !strings.Contains(prompt, "CLAUDE.md") {
@@ -81,7 +83,7 @@ func TestCurate_WithEntries(t *testing.T) {
 		Timestamp: time.Now().UTC(),
 		Workspace: "ws-1",
 		Agent:     "claude-code",
-		Type:      "operational",
+		Type:      "reflection",
 		Text:      "always run tests with --race",
 	})
 
@@ -118,6 +120,9 @@ func TestCurate_WithEntries(t *testing.T) {
 	if proposal.Repo != "myrepo" {
 		t.Errorf("expected repo=myrepo, got %s", proposal.Repo)
 	}
+	if proposal.CurrentFiles["CLAUDE.md"] != "# Project" {
+		t.Errorf("expected current file content '# Project', got %q", proposal.CurrentFiles["CLAUDE.md"])
+	}
 }
 
 func TestReadFileFromBareRepo(t *testing.T) {
@@ -136,5 +141,127 @@ func TestReadFileFromBareRepo_NotFound(t *testing.T) {
 	_, err := ReadFileFromRepo(context.Background(), bareDir, "NONEXISTENT.md")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestCuratorResponseSchemaRegistered(t *testing.T) {
+	// Verify the lore-curator schema is registered (via init()) and produces valid JSON
+	schemaJSON, err := schema.Get(schema.LabelLoreCurator)
+	if err != nil {
+		t.Fatalf("lore-curator schema not registered: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(schemaJSON), &parsed); err != nil {
+		t.Fatalf("schema is not valid JSON: %v", err)
+	}
+
+	if parsed["type"] != "object" {
+		t.Errorf("expected schema type=object, got %v", parsed["type"])
+	}
+
+	// Verify all CuratorResponse fields appear in the schema properties
+	props, ok := parsed["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected properties to be an object")
+	}
+	for _, field := range []string{"proposed_files", "diff_summary", "entries_used", "entries_discarded"} {
+		if _, exists := props[field]; !exists {
+			t.Errorf("expected property %q in schema", field)
+		}
+	}
+}
+
+func TestCurate_WithFailureEntries(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := filepath.Join(dir, "repo")
+	os.MkdirAll(repoDir, 0755)
+	os.WriteFile(filepath.Join(repoDir, "CLAUDE.md"), []byte("# Project"), 0644)
+
+	lorePath := filepath.Join(dir, "lore.jsonl")
+	AppendEntry(lorePath, Entry{
+		Timestamp:    time.Now().UTC(),
+		Workspace:    "ws-1",
+		Agent:        "claude-code",
+		Type:         "failure",
+		Tool:         "Bash",
+		InputSummary: "npm run build",
+		ErrorSummary: "Missing script",
+		Category:     "wrong_command",
+	})
+	AppendEntry(lorePath, Entry{
+		Timestamp: time.Now().Add(time.Second).UTC(),
+		Workspace: "ws-1",
+		Agent:     "claude-code",
+		Type:      "reflection",
+		Text:      "use go run ./cmd/build-dashboard",
+	})
+
+	mockExecutor := func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+		resp := CuratorResponse{
+			ProposedFiles:    map[string]string{"CLAUDE.md": "# Project\n\nUse go run ./cmd/build-dashboard"},
+			DiffSummary:      "Added build command",
+			EntriesUsed:      []string{"Bash: npm run build", "use go run ./cmd/build-dashboard"},
+			EntriesDiscarded: map[string]string{},
+		}
+		data, _ := json.Marshal(resp)
+		return string(data), nil
+	}
+
+	c := &Curator{
+		InstructionFiles: []string{"CLAUDE.md"},
+		Executor:         mockExecutor,
+	}
+
+	proposal, err := c.Curate(context.Background(), "myrepo", repoDir, lorePath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if proposal == nil {
+		t.Fatal("expected non-nil proposal")
+	}
+	if len(proposal.EntriesUsed) != 2 {
+		t.Errorf("expected 2 entries_used, got %d", len(proposal.EntriesUsed))
+	}
+}
+
+func TestBuildCuratorPrompt_SeparatesFailuresAndReflections(t *testing.T) {
+	files := map[string]string{
+		"CLAUDE.md": "# Project\n\n## Build\ngo build",
+	}
+	entries := []Entry{
+		{Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm run build", ErrorSummary: "Missing script", Category: "wrong_command", Workspace: "ws-1"},
+		{Agent: "claude-code", Type: "reflection", Text: "Use go run ./cmd/build-dashboard", Workspace: "ws-1"},
+		{Agent: "codex", Type: "friction", Text: "Session manager is in internal/session/", Workspace: "ws-2"},
+	}
+	prompt := BuildCuratorPrompt(files, entries)
+
+	// Should have separate sections
+	if !strings.Contains(prompt, "FAILURE RECORDS:") {
+		t.Error("prompt should contain FAILURE RECORDS section")
+	}
+	if !strings.Contains(prompt, "FRICTION REFLECTIONS:") {
+		t.Error("prompt should contain FRICTION REFLECTIONS section")
+	}
+
+	// Failures should be formatted with tool and category
+	if !strings.Contains(prompt, "[Bash]") {
+		t.Error("prompt should contain tool name in failure record")
+	}
+	if !strings.Contains(prompt, "[wrong_command]") {
+		t.Error("prompt should contain category in failure record")
+	}
+	if !strings.Contains(prompt, "npm run build") {
+		t.Error("prompt should contain input summary")
+	}
+
+	// Reflections should contain text
+	if !strings.Contains(prompt, "Use go run ./cmd/build-dashboard") {
+		t.Error("prompt should contain reflection text")
+	}
+
+	// Should contain synthesize rule in system prompt
+	if !strings.Contains(prompt, "SYNTHESIZE") {
+		t.Error("prompt should contain SYNTHESIZE instruction")
 	}
 }

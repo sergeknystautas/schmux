@@ -207,6 +207,17 @@ func TestExecuteInputValidation(t *testing.T) {
 	}
 }
 
+func TestExecuteRejectsEmptySchemaLabel(t *testing.T) {
+	ctx := context.Background()
+	_, err := Execute(ctx, "claude", "claude", "test prompt", "", nil, "", nil)
+	if err == nil {
+		t.Fatal("expected error when schemaLabel is empty")
+	}
+	if !contains(err.Error(), "schema label cannot be empty") {
+		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
+	}
+}
+
 func TestParseClaudeStructuredOutput(t *testing.T) {
 	tests := []struct {
 		name     string

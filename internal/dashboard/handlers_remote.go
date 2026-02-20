@@ -300,7 +300,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Rate limiting by user (if auth enabled) or IP (without port)
-	rateLimitKey := s.normalizeIPForRateLimit(r.RemoteAddr)
+	rateLimitKey := s.normalizeIPForRateLimit(r)
 	if s.config.GetAuthEnabled() {
 		if user, err := s.authenticateRequest(r); err == nil && user != nil {
 			rateLimitKey = user.Login
@@ -610,11 +610,10 @@ func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Set SSE headers
+	// Set SSE headers (CORS is handled by the withCORS wrapper at route registration)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

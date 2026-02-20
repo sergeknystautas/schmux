@@ -5,7 +5,7 @@ import {
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
-  sleep,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe.serial('View active workspaces on the home page', () => {
@@ -43,7 +43,7 @@ test.describe.serial('View active workspaces on the home page', () => {
     });
 
     // Wait for sessions to be fully running
-    await sleep(2000);
+    await waitForSessionRunning();
   });
 
   test('home page shows workspace list', async ({ page }) => {

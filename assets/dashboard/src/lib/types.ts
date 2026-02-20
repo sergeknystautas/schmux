@@ -259,10 +259,15 @@ export interface ScanResult {
 
 export type ApiError = Error & { isConflict?: boolean };
 
-export type PendingNavigation = { type: 'session'; id: string } | { type: 'workspace'; id: string };
+export type PendingNavigation =
+  | { type: 'session'; id: string }
+  | { type: 'workspace'; id: string }
+  | { type: 'preview'; workspaceId: string; previewId: string };
 
 export interface LinearSyncResponse {
   success: boolean;
+  in_progress?: boolean;
+  message?: string;
   success_count?: number;
   conflicting_hash?: string;
   branch?: string;
@@ -288,11 +293,12 @@ export interface LinearSyncResolveConflictResponse {
 export interface LinearSyncResolveConflictStep {
   action: string;
   status: string;
-  message: string;
+  message: string[];
   at: string;
   local_commit?: string;
   local_commit_message?: string;
   files?: string[];
+  conflict_diffs?: Record<string, string[]>;
   confidence?: string;
   summary?: string;
   created?: boolean;
@@ -303,12 +309,28 @@ export interface LinearSyncResolveConflictStatePayload {
   workspace_id: string;
   status: 'in_progress' | 'done' | 'failed';
   hash?: string;
+  hash_message?: string;
   tmux_session?: string;
   started_at: string;
   finished_at?: string;
   message?: string;
   steps: LinearSyncResolveConflictStep[];
   resolutions?: ConflictResolution[];
+}
+
+export interface WorkspaceLockState {
+  locked: boolean;
+  syncProgress?: { current: number; total: number };
+}
+
+export interface WorkspaceSyncResultEvent {
+  id: string;
+  workspace_id: string;
+  success: boolean;
+  success_count?: number;
+  conflicting_hash?: string;
+  branch?: string;
+  message?: string;
 }
 
 export interface RecentBranch {
@@ -391,9 +413,14 @@ export interface RemoteSpawnRequest {
 export interface LoreEntry {
   ts: string;
   ws?: string;
+  session?: string;
   agent?: string;
   type?: string;
   text?: string;
+  tool?: string;
+  input_summary?: string;
+  error_summary?: string;
+  category?: string;
   state_change?: string;
   entry_ts?: string;
   proposal_id?: string;
@@ -407,6 +434,7 @@ export interface LoreProposal {
   source_count: number;
   sources: string[];
   file_hashes: Record<string, string>;
+  current_files?: Record<string, string>;
   proposed_files: Record<string, string>;
   diff_summary: string;
   entries_used: string[];
@@ -433,3 +461,9 @@ export interface LoreStatusResponse {
   llm_target: string;
   issues: string[];
 }
+
+export type RemoteAccessStatus = {
+  state: 'off' | 'starting' | 'connected' | 'error';
+  url?: string;
+  error?: string;
+};

@@ -16,14 +16,33 @@ var scratchpadMu sync.Mutex
 
 // Entry represents a single lore scratchpad entry or state-change record.
 type Entry struct {
-	Timestamp   time.Time `json:"ts"`
-	Workspace   string    `json:"ws,omitempty"`
-	Agent       string    `json:"agent,omitempty"`
-	Type        string    `json:"type,omitempty"` // "operational" or "codebase"
-	Text        string    `json:"text,omitempty"`
-	StateChange string    `json:"state_change,omitempty"` // "proposed", "applied", "dismissed"
-	EntryTS     string    `json:"entry_ts,omitempty"`     // references the ts of the entry being changed
-	ProposalID  string    `json:"proposal_id,omitempty"`
+	Timestamp    time.Time `json:"ts"`
+	Workspace    string    `json:"ws,omitempty"`
+	Session      string    `json:"session,omitempty"` // session ID for per-session tracking
+	Agent        string    `json:"agent,omitempty"`
+	Type         string    `json:"type,omitempty"` // "failure", "reflection", "friction", "operational", "codebase" (legacy)
+	Text         string    `json:"text,omitempty"`
+	Tool         string    `json:"tool,omitempty"`          // tool name for failure entries
+	InputSummary string    `json:"input_summary,omitempty"` // summarized tool input for failure entries
+	ErrorSummary string    `json:"error_summary,omitempty"` // summarized error for failure entries
+	Category     string    `json:"category,omitempty"`      // error category for failure entries
+	StateChange  string    `json:"state_change,omitempty"`  // "proposed", "applied", "dismissed"
+	EntryTS      string    `json:"entry_ts,omitempty"`      // references the ts of the entry being changed
+	ProposalID   string    `json:"proposal_id,omitempty"`
+}
+
+// EntryKey returns a canonical identifier string for matching entries across
+// curator validation, state marking, and deduplication.
+// For text-based entries (reflection, friction, operational, codebase): returns Text.
+// For failure entries: returns "Tool: InputSummary" (or just InputSummary if Tool is empty).
+func (e Entry) EntryKey() string {
+	if e.Type == "failure" {
+		if e.Tool != "" {
+			return e.Tool + ": " + e.InputSummary
+		}
+		return e.InputSummary
+	}
+	return e.Text
 }
 
 // EntryFilter controls which entries are returned by ReadEntries.
@@ -122,6 +141,9 @@ func appendEntryToFile(path string, entry Entry) error {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return err
 	}
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync entry: %w", err)
+	}
 	return nil
 }
 
@@ -164,7 +186,7 @@ func MarkEntriesByText(path string, stateChange string, entryTexts []string, pro
 		if e.StateChange != "" {
 			continue
 		}
-		if textSet[e.Text] {
+		if textSet[e.EntryKey()] {
 			if err := appendEntryToFile(path, Entry{
 				Timestamp:   time.Now().UTC(),
 				StateChange: stateChange,
@@ -203,8 +225,9 @@ func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange s
 			if e.StateChange != "" {
 				continue
 			}
-			if textSet[e.Text] && !marked[e.Text] {
-				marked[e.Text] = true
+			key := e.EntryKey()
+			if textSet[key] && !marked[key] {
+				marked[key] = true
 				if err := appendEntryToFile(destPath, Entry{
 					Timestamp:   time.Now().UTC(),
 					StateChange: stateChange,
@@ -452,9 +475,9 @@ func PruneEntries(path string, maxAge time.Duration) (pruned int, err error) {
 // Files that don't exist are silently skipped.
 func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 	type dedupKey struct {
-		ts   string
-		ws   string
-		text string
+		ts  string
+		ws  string
+		key string
 	}
 	seen := make(map[dedupKey]bool)
 	var all []Entry
@@ -466,9 +489,9 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 		}
 		for _, e := range entries {
 			key := dedupKey{
-				ts:   e.Timestamp.Format(time.RFC3339),
-				ws:   e.Workspace,
-				text: e.Text,
+				ts:  e.Timestamp.Format(time.RFC3339),
+				ws:  e.Workspace,
+				key: e.EntryKey(),
 			}
 			// State-change records (no text, have StateChange) are always included
 			// since they reference entries by EntryTS and don't have a text-based key.
@@ -488,6 +511,10 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 // LoreStateDir returns the central lore state directory for a repo: ~/.schmux/lore/<repoName>/.
 // Creates the directory if it doesn't exist.
 func LoreStateDir(repoName string) (string, error) {
+	// Validate repoName to prevent path traversal
+	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid repo name: %s", repoName)
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -503,6 +530,10 @@ func LoreStateDir(repoName string) (string, error) {
 // ~/.schmux/lore/<repoName>/state.jsonl.
 // Creates the parent directory if it doesn't exist.
 func LoreStatePath(repoName string) (string, error) {
+	// Validate repoName to prevent path traversal
+	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid repo name: %s", repoName)
+	}
 	dir, err := LoreStateDir(repoName)
 	if err != nil {
 		return "", err

@@ -67,6 +67,15 @@ const DEFAULT_CONFIG: ConfigResponse = {
     curate_on_dispose: 'session',
     auto_pr: false,
   },
+  remote_access: {
+    enabled: true,
+    timeout_minutes: 0,
+    password_hash_set: false,
+    notify: {
+      ntfy_topic: '',
+      command: '',
+    },
+  },
   needs_restart: false,
 };
 

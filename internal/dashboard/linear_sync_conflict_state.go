@@ -8,17 +8,18 @@ import (
 
 // LinearSyncResolveConflictStep represents a single step in the conflict resolution process.
 type LinearSyncResolveConflictStep struct {
-	Action             string   `json:"action"`
-	Status             string   `json:"status"` // "in_progress", "done", "failed"
-	Message            string   `json:"message"`
-	At                 string   `json:"at"`
-	LocalCommit        string   `json:"local_commit,omitempty"`
-	LocalCommitMessage string   `json:"local_commit_message,omitempty"`
-	Files              []string `json:"files,omitempty"`
-	Confidence         string   `json:"confidence,omitempty"`
-	Summary            string   `json:"summary,omitempty"`
-	Created            *bool    `json:"created,omitempty"` // for wip_commit step
-	TmuxSession        string   `json:"tmux_session,omitempty"`
+	Action             string              `json:"action"`
+	Status             string              `json:"status"` // "in_progress", "done", "failed"
+	Message            []string            `json:"message"`
+	At                 string              `json:"at"`
+	LocalCommit        string              `json:"local_commit,omitempty"`
+	LocalCommitMessage string              `json:"local_commit_message,omitempty"`
+	Files              []string            `json:"files,omitempty"`
+	ConflictDiffs      map[string][]string `json:"conflict_diffs,omitempty"` // file path -> conflict marker hunks
+	Confidence         string              `json:"confidence,omitempty"`
+	Summary            string              `json:"summary,omitempty"`
+	Created            *bool               `json:"created,omitempty"` // for wip_commit step
+	TmuxSession        string              `json:"tmux_session,omitempty"`
 }
 
 // LinearSyncResolveConflictResolution is the per-conflict summary included in the final state.
@@ -38,6 +39,7 @@ type LinearSyncResolveConflictState struct {
 	WorkspaceID string                                `json:"workspace_id"`
 	Status      string                                `json:"status"` // "in_progress", "done", "failed"
 	Hash        string                                `json:"hash,omitempty"`
+	HashMessage string                                `json:"hash_message,omitempty"`
 	TmuxSession string                                `json:"tmux_session,omitempty"`
 	StartedAt   string                                `json:"started_at"`
 	FinishedAt  string                                `json:"finished_at,omitempty"`
@@ -95,8 +97,8 @@ func (s *LinearSyncResolveConflictState) Finish(status, message string, resoluti
 	s.Resolutions = resolutions
 }
 
-// SetHash sets the rebased hash if it hasn't been set yet.
-func (s *LinearSyncResolveConflictState) SetHash(hash string) {
+// SetHash sets the rebased hash and its commit message if not already set.
+func (s *LinearSyncResolveConflictState) SetHash(hash, hashMessage string) {
 	if hash == "" {
 		return
 	}
@@ -104,6 +106,7 @@ func (s *LinearSyncResolveConflictState) SetHash(hash string) {
 	defer s.mu.Unlock()
 	if s.Hash == "" {
 		s.Hash = hash
+		s.HashMessage = hashMessage
 	}
 }
 

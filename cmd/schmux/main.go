@@ -14,7 +14,6 @@ import (
 
 // parseDaemonRunFlags parses the flags for daemon-run command.
 // Returns (devProxy, background, devMode) flags.
-// --dev-mode implies --dev-proxy.
 func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode bool) {
 	for _, arg := range args {
 		switch arg {
@@ -24,7 +23,6 @@ func parseDaemonRunFlags(args []string) (devProxy bool, background bool, devMode
 			background = true
 		case "--dev-mode":
 			devMode = true
-			devProxy = true // dev-mode implies dev-proxy
 		}
 	}
 	return
@@ -165,6 +163,14 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "remote":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewRemoteCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -192,6 +198,11 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
+	fmt.Println()
+	fmt.Println("Remote Commands:")
+	fmt.Println("  remote on       Start remote access tunnel")
+	fmt.Println("  remote off      Stop remote access tunnel")
+	fmt.Println("  remote status   Show remote access tunnel status")
 	fmt.Println()
 	fmt.Println("Other:")
 	fmt.Println("  auth github  Configure GitHub auth")

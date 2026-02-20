@@ -622,6 +622,10 @@ func (m *mockStateStore) UpdateSession(s state.Session) error {
 	return m.state.UpdateSession(s)
 }
 
+func (m *mockStateStore) UpdateSessionFunc(id string, fn func(sess *state.Session)) bool {
+	return m.state.UpdateSessionFunc(id, fn)
+}
+
 func (m *mockStateStore) RemoveSession(id string) error {
 	return m.state.RemoveSession(id)
 }

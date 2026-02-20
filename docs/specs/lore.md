@@ -12,18 +12,19 @@ This knowledge is lost when the agent session ends. Other agents working on the 
 
 ## Solution
 
-A three-stage feedback loop that captures project lore from agents, curates it via LLM, and surfaces merge proposals for human approval:
+A three-stage feedback loop that captures friction from agents via hooks and self-capture, curates it via LLM, and surfaces merge proposals for human approval:
 
 ```
 Agent Work Session           Curator Process            Human Review
 ──────────────────          ────────────────           ──────────────
 
- Agent discovers fact
- → appends to scratchpad
- (zero-cost, no eval)
+ Claude Code: hooks fire
+ on tool failures (auto)
+ and session stop (reflection)
 
- Session ends / checkpoint
- → scratchpad persisted
+ Other agents: self-capture
+ friction entries per
+ instruction file template
                              Curator agent wakes up
                              → reads all scratchpads
                              → reads all instruction files
@@ -39,63 +40,75 @@ Agent Work Session           Curator Process            Human Review
 
 **Key properties:**
 
-- Zero-cost capture — agents append raw text, no evaluation overhead
+- Zero-cost capture for Claude Code — hooks run outside the agent's context window
+- Friction-focused — captures what went wrong, not general knowledge
 - One-directional flow — agents write to workspace scratchpads, backend reads and aggregates
 - Multi-file aware — curator routes lore to the correct instruction file(s)
 - Human control — nothing touches git without explicit approval
 
-## Stage 1: Scratchpad Capture
+## Stage 1: Friction Capture
+
+### Capture Mechanism
+
+Lore capture is split by agent type:
+
+**Claude Code (hook-based, automatic):**
+Two Claude Code hooks capture friction automatically — no agent instruction needed:
+
+1. **`PostToolUseFailure` hook** (`capture-failure.sh`) — fires on every tool failure. Classifies the error, extracts input/error summaries, and appends a structured `failure` entry to `.schmux/lore.jsonl`.
+2. **`Stop` hook** (`stop-gate.sh`) — gates agent completion on writing a friction `reflection` entry. The agent must append a one-line "When X, do Y instead" entry before it can finish.
+
+Hook scripts are embedded in the Go binary and installed to `<workspace>/.schmux/hooks/` at session spawn via `provision.EnsureLoreHookScripts`.
+
+**Other agents (self-capture via instruction files):**
+Non-Claude agents (Codex, Gemini, Cursor) receive a "Friction Capture" section in their instruction files (AGENTS.md, .cursorrules, etc.) that instructs them to append `friction` entries when they hit walls.
 
 ### File Format
 
 Each workspace gets `.schmux/lore.jsonl` — a gitignored, append-only JSONL file. Each line is one lore entry:
 
 ```jsonl
-{"ts":"2026-02-13T14:32:00Z","ws":"ws-abc123","agent":"claude-code","type":"operational","text":"Must run go run ./cmd/build-dashboard instead of npm directly — the Go wrapper handles deps and output paths"}
-{"ts":"2026-02-13T14:45:00Z","ws":"ws-abc123","agent":"claude-code","type":"codebase","text":"Overlay files must be gitignored — CopyOverlay skips tracked files silently (internal/workspace/overlay.go:91)"}
-{"ts":"2026-02-13T15:01:00Z","ws":"ws-def456","agent":"codex","type":"operational","text":"Tests need --race flag for compound package tests to catch race conditions"}
+{"ts":"2026-02-18T10:30:00Z","ws":"ws-abc123","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script: build","category":"wrong_command"}
+{"ts":"2026-02-18T10:31:00Z","ws":"ws-abc123","agent":"claude-code","type":"reflection","text":"When building dashboard, use go run ./cmd/build-dashboard not npm directly"}
+{"ts":"2026-02-18T11:00:00Z","ws":"ws-def456","agent":"codex","type":"friction","text":"When looking for session logic, check internal/session/ not internal/daemon/"}
 ```
 
 ### Schema
 
-| Field   | Type   | Description                                                          |
-| ------- | ------ | -------------------------------------------------------------------- |
-| `ts`    | string | ISO 8601 timestamp                                                   |
-| `ws`    | string | Workspace ID                                                         |
-| `agent` | string | Agent type: `claude-code`, `codex`, `cursor`, `copilot`, etc.        |
-| `type`  | string | `operational` (how-to patterns) or `codebase` (structural knowledge) |
-| `text`  | string | The raw lore entry, free-form text                                   |
+| Field           | Type   | Description                                                                                                                                      |
+| --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ts`            | string | ISO 8601 timestamp                                                                                                                               |
+| `ws`            | string | Workspace ID                                                                                                                                     |
+| `agent`         | string | Agent type: `claude-code`, `codex`, `cursor`, `copilot`, etc.                                                                                    |
+| `type`          | string | `failure` (auto-captured), `reflection` (stop-gate), `friction` (self-capture)                                                                   |
+| `text`          | string | Free-form description (used by `reflection` and `friction` types)                                                                                |
+| `tool`          | string | Tool name, e.g. `Bash`, `Read` (failure entries only)                                                                                            |
+| `input_summary` | string | Summarized tool input (failure entries only)                                                                                                     |
+| `error_summary` | string | Summarized error message (failure entries only)                                                                                                  |
+| `category`      | string | Error category (failure entries only): `not_found`, `permission`, `syntax`, `wrong_command`, `build_failure`, `test_failure`, `timeout`, `other` |
 
 ### How Agents Know to Capture
 
-The instruction to capture lore is self-bootstrapping — it lives in the instruction files themselves. Each file gets an equivalent section adapted to its conventions:
+**Claude Code:** Capture is fully automatic via hooks installed at session spawn. No instruction file modification needed for Claude Code agents.
 
-**CLAUDE.md:**
-
-```markdown
-## Lore Capture
-
-As you work, append discoveries to `.schmux/lore.jsonl` — things you learned
-that aren't already documented in this file. One JSON line per entry:
-{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"claude-code","type":"operational|codebase","text":"<what you learned>"}
-
-Don't evaluate importance. Don't read the file first. Just append.
-```
-
-**AGENTS.md:**
+**Other agents:** The instruction file template (`SignalingInstructions` in `internal/provision/provision.go`) includes a "Friction Capture" section that instructs agents to append entries when they hit walls:
 
 ```markdown
-## Lore Capture
+## Friction Capture
 
-Append discoveries to `.schmux/lore.jsonl` as you work. One JSON line per entry:
-{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<your-agent-type>","type":"operational|codebase","text":"<what you learned>"}
+When you hit a wall — wrong command, missing file, failed build, wrong assumption —
+append what went wrong and the fix to `.schmux/lore.jsonl`. One JSON line:
+{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<your-agent-type>","type":"friction","text":"When <trigger>, do <correction> instead"}
 
-Append only. Do not read or parse the file.
+Only write when something tripped you up. Don't write what you built or learned —
+write what would have saved you time if you'd known it before starting.
 ```
 
 ### Capture Cost
 
-The agent performs one file append per lore entry. No reading the file, no diffing against existing instructions, no formatting, no evaluation of importance. The separation of recording from evaluating is deliberate — it avoids context-switching during focused work and avoids information loss from context compression in long sessions.
+For Claude Code, capture is zero-cost to the agent — hooks run outside the agent's context window. The `PostToolUseFailure` hook fires automatically on failures. The `Stop` hook adds one reflection prompt per session.
+
+For other agents, the cost is one file append per friction event — the same as the previous approach, but focused on friction (what went wrong) rather than general knowledge capture.
 
 ### Data Architecture
 
@@ -162,24 +175,27 @@ Only files that actually exist in the repo are included. The curator adapts to w
 You are a curator for a software project's agent instruction files.
 
 You will receive:
-1. A list of raw lore entries discovered by AI agents working on this project
-2. The current content of all instruction files
+1. Failure records: tool calls that failed during agent work sessions
+2. Friction reflections: agent-reported papercuts and wrong assumptions
+3. The current content of all instruction files
 
 Your job is to produce a merge proposal — changes to the instruction files that
-incorporate the new lore.
+prevent future agents from repeating these mistakes.
 
 Rules:
-- DEDUPLICATE: Collapse similar entries from different agents into one
-- FILTER: Discard entries already covered by existing content
-- ROUTE: Decide which file(s) each entry belongs in:
-  - Universal lore (applies to any agent) → add to ALL instruction files,
-    adapted to each file's style
-  - Agent-specific lore → add to that agent's file only
-- CATEGORIZE: Place each entry under the appropriate existing section,
-  or propose a new section if none fits
-- PRESERVE VOICE: Match the tone, formatting, and style of each file
+- SYNTHESIZE: Turn failure patterns into actionable rules
+  (e.g., 5 "npm run build" failures → "Always use go run ./cmd/build-dashboard")
+- DEDUPLICATE: Multiple agents hitting the same wall → one rule
+- FILTER: Discard one-off failures that don't indicate systemic issues
+- FILTER: Discard failures already covered by existing instructions
+- ROUTE: Universal rules → all instruction files. Agent-specific → that file only
+- CATEGORIZE: Place under appropriate existing section, or propose new section
+- PRESERVE VOICE: Match tone, formatting, and style of each file
 - NEVER REMOVE existing content — only add or refine
-- Output the full proposed content for each modified file
+- Write rules as imperatives: "Use X, not Y" / "Always run X before Y"
+- Output ONLY valid JSON matching the schema below, no markdown fencing
+
+Output schema: { ... }
 
 INSTRUCTION FILES:
 <for each file>
@@ -187,8 +203,11 @@ INSTRUCTION FILES:
 <content>
 </for each>
 
-RAW LORE:
-<entries>
+FAILURE RECORDS:
+- [<agent>] [<tool>] [<category>] [<workspace>] command: "<input>" → error: "<error>"
+
+FRICTION REFLECTIONS:
+- [<agent>] [<type>] [<workspace>] <text>
 ```
 
 ### Curator Output
@@ -276,7 +295,7 @@ Scratchpad entries track their lifecycle:
 Only `raw` entries are fed to the curator. The state is tracked by appending state-change records to the scratchpad (preserving append-only semantics):
 
 ```jsonl
-{"ts":"...","ws":"ws-abc","agent":"claude-code","type":"operational","text":"Must use go run ./cmd/build-dashboard"}
+{"ts":"...","ws":"ws-abc","agent":"claude-code","type":"failure","tool":"Bash","input_summary":"npm run build","error_summary":"Missing script","category":"wrong_command"}
 {"ts":"...","state_change":"proposed","entry_ts":"...","proposal_id":"prop-20260213-143200"}
 ```
 
@@ -340,7 +359,7 @@ A scrollable log of all scratchpad entries across workspaces, with filters:
 
 - By workspace
 - By agent type
-- By lore type (operational / codebase)
+- By lore type (failure / reflection / friction)
 - By state (raw / proposed / applied / dismissed)
 - By time range
 
@@ -530,8 +549,10 @@ New config fields in `~/.schmux/config.json`:
 ```
  Agent in ws-abc (claude-code)         Agent in ws-def (codex)
  ─────────────────────────            ────────────────────────
- discovers: "tests need               discovers: "tests need
- --race flag for overlay tests"       --race for compound tests"
+ PostToolUseFailure hook fires:       self-captures friction:
+ "npm run build" → wrong_command      "tests need --race for
+ Stop hook captures reflection:        compound package tests"
+ "use go run ./cmd/build-dashboard"
       │                                    │
       ▼                                    ▼
  appends to                           appends to
@@ -554,10 +575,11 @@ New config fields in `~/.schmux/config.json`:
       ▼
  ┌──────────────────────────────────────────────┐
  │  Curator (headless LLM call)                 │
- │  reads: aggregated raw entries               │
+ │  reads: aggregated failure + reflection entries│
  │  reads: CLAUDE.md from bare repo             │
  │  reads: AGENTS.md from bare repo             │
- │  deduplicates: both --race entries → one     │
+ │  synthesizes: failure patterns → rules       │
+ │  deduplicates: similar friction → one rule   │
  │  routes: universal → both files              │
  │  produces: multi-file merge proposal         │
  └──────────────────────────────────────────────┘

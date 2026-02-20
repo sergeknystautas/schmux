@@ -15,6 +15,7 @@ General conventions:
 - CORS: when auth is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When `bind_address` is `0.0.0.0`, any origin is allowed.
 - When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
+- Trusted request bypass: when `remote_access` is not enabled in config, all requests are considered trusted and bypass tunnel auth checks. When `remote_access` is enabled, only loopback requests without tunnel forwarding headers (`Cf-Connecting-IP`, `X-Forwarded-For`) are trusted.
 
 ## Auth Endpoints
 
@@ -611,6 +612,15 @@ Response:
   },
   "telemetry_enabled": true,
   "installation_id": "uuid-string",
+  "remote_access": {
+    "disabled": false,
+    "timeout_minutes": 0,
+    "password_hash_set": false,
+    "notify": {
+      "ntfy_topic": "",
+      "command": ""
+    }
+  },
   "needs_restart": false
 }
 ```
@@ -674,6 +684,14 @@ Request:
     "curate_debounce_ms": 30000,
     "prune_after_days": 30,
     "instruction_files": ["CLAUDE.md", "AGENTS.md"]
+  },
+  "remote_access": {
+    "disabled": false,
+    "timeout_minutes": 30,
+    "notify": {
+      "ntfy_topic": "my-schmux-topic",
+      "command": ""
+    }
   }
 }
 ```
@@ -913,21 +931,35 @@ Errors:
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-from-main
 
-Syncs commits from `origin/main` into the workspace's current branch via iterative cherry-pick.
+Syncs commits from `origin/main` into the workspace's current branch via iterative rebase.
 
-Response:
+Request body:
+
+```json
+{
+  "hash": "abc123..."
+}
+```
+
+- `hash` is required and must match the current next commit hash to sync from main.
+
+Response (accepted immediately):
 
 ```json
 {
   "success": true,
-  "message": "Synced 3 commits from main into feature-branch"
+  "message": "sync started",
+  "in_progress": true
 }
 ```
 
 Errors:
 
 - 400: "workspace ID is required"
+- 400 with JSON: `{"success":false,"message":"hash is required"}`
 - 404 with JSON: `{"success":false,"message":"workspace {id} not found"}`
+- 409 with JSON: `{"success":false,"message":"workspace is locked by another sync operation"}`
+- 409 with JSON on hash mismatch: `{"success":false,"message":"hash mismatch: ...","hash":"...","actual_hash":"..."}`
 - 500 with JSON: `{"success":false,"message":"Failed to sync from main: ..."}`
 
 Notes:
@@ -936,6 +968,9 @@ Notes:
 - Aborts if conflicts are detected during cherry-pick
 - Preserves local changes via temporary WIP commit
 - Updates workspace git status after sync
+- Lock state changes are broadcast in real-time via the `workspace_locked` WebSocket message
+- Rebase progress (current/total commits) is streamed via `workspace_locked` messages with `sync_progress`
+- This endpoint now returns immediately (HTTP 202) and runs the sync in the background
 
 ### POST /api/workspaces/{workspaceId}/linear-sync-to-main
 
@@ -1024,6 +1059,7 @@ Response:
     }
   },
   "main_ahead_count": 3,
+  "main_ahead_next_hash": "abc123...",
   "dirty_state": {
     "files_changed": 2,
     "lines_added": 10,
@@ -1459,6 +1495,131 @@ Errors:
 
 - 503: "lore curator not configured (no LLM target)" or "lore system not enabled"
 
+## Remote Access
+
+### GET /remote-auth
+
+Unauthenticated. Renders the password entry page for remote access authentication.
+
+Query Parameters:
+
+- `token` (required): One-time authentication token from the notification URL
+
+Response: HTML page with password entry form.
+
+Notes:
+
+- Returns an error page if token is missing, invalid, or expired
+- Returns a lockout page after 5 failed password attempts
+- The token is generated when the tunnel connects and included in the notification URL
+
+### POST /remote-auth
+
+Unauthenticated. Validates the password against the bcrypt hash stored in config.
+
+Form Parameters:
+
+- `nonce`: Short-lived nonce (obtained by exchanging the one-time token)
+- `password`: User-entered password
+
+On success: Sets `schmux_remote` cookie (HMAC-signed timestamp) and redirects to `/`.
+
+On failure: Re-renders password page with error message and remaining attempts count.
+
+Notes:
+
+- Maximum 5 password attempts per nonce; after that the nonce is invalidated
+- On first GET with token, the token is consumed and replaced with a short-lived nonce
+- The `schmux_remote` cookie is HttpOnly, Secure, SameSite=Lax
+
+### POST /api/remote-access/set-password
+
+Sets the remote access password. Requires authentication (local dashboard access).
+
+Request:
+
+```json
+{
+  "password": "my-secret-password"
+}
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+Errors:
+
+- 400: "Password cannot be empty" / "Invalid request body"
+- 405: "Method not allowed"
+- 500: "Failed to hash password" / "Failed to save config: ..."
+
+Notes:
+
+- The password is bcrypt-hashed before storage; plaintext is never persisted
+- Stored in `config.json` as `remote_access.password_hash`
+
+### POST /api/remote-access/on
+
+Start a Cloudflare quick tunnel for remote access.
+
+Response (200):
+
+```json
+{ "state": "starting" }
+```
+
+Errors:
+
+- 403: "remote access is disabled in config"
+- 400: "remote access requires a password (run: schmux remote set-password)"
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
+Notes:
+
+- Requires a password to be set (`remote_access.password_hash` in config)
+- On tunnel connect, a one-time auth token is generated and sent via notification
+- The tunnel URL is broadcast via WebSocket once connected
+
+### POST /api/remote-access/off
+
+Stop the remote access tunnel.
+
+Response (200):
+
+```json
+{ "state": "off" }
+```
+
+Errors:
+
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
+### GET /api/remote-access/status
+
+Get the current remote access tunnel status.
+
+Response:
+
+```json
+{
+  "state": "connected",
+  "url": "https://abc123.trycloudflare.com",
+  "error": ""
+}
+```
+
+`state` can be: `"off"`, `"starting"`, `"connected"`, or `"error"`.
+
+Errors:
+
+- 405: "Method not allowed"
+- 500: "remote access not available" (tunnel manager not initialized)
+
 ## WebSocket
 
 ### WS /ws/terminal/{sessionId}
@@ -1533,10 +1694,56 @@ Conflict resolution progress (sent as separate messages when active):
 }
 ```
 
+Workspace lock state (sent in real-time, not debounced, when lock state changes or sync progress updates):
+
+```json
+{
+  "type": "workspace_locked",
+  "workspace_id": "workspace-id",
+  "locked": true,
+  "sync_progress": { "current": 5, "total": 496 }
+}
+```
+
+Unlock with sync completion metadata (sent when `linear-sync-from-main` finishes):
+
+```json
+{
+  "type": "workspace_locked",
+  "workspace_id": "workspace-id",
+  "locked": false,
+  "sync_result": {
+    "success": true,
+    "success_count": 23,
+    "branch": "main",
+    "conflicting_hash": ""
+  }
+}
+```
+
+- `locked: true` sent when a sync operation acquires the workspace lock
+- `locked: false` sent when the lock is released
+- `sync_progress` is optional; included during `linear-sync-from-main` rebase with current/total commit counts
+- `sync_result` is optional; included on unlock after `linear-sync-from-main` completes
+
 Notes:
 
-- Uses trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+- Sessions updates use trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+- `workspace_locked` messages are sent immediately (not debounced)
 - No client-to-server messages expected; the connection is kept alive by reading
+
+Remote access status update:
+
+```json
+{
+  "type": "remote_access_status",
+  "data": {
+    "state": "connected",
+    "url": "https://abc123.trycloudflare.com",
+    "error": ""
+  }
+}
+```
 
 ### WS /ws/provision/{provisionId}
 

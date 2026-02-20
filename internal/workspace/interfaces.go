@@ -58,17 +58,19 @@ type LinearSyncResolveConflictResult struct {
 
 // ResolveConflictStep represents a progress step emitted during conflict resolution.
 type ResolveConflictStep struct {
-	Action             string   `json:"action"`
-	Status             string   `json:"status"` // "in_progress", "done", "failed"
-	Message            string   `json:"message"`
-	Hash               string   `json:"hash,omitempty"`
-	LocalCommit        string   `json:"local_commit,omitempty"`
-	LocalCommitMessage string   `json:"local_commit_message,omitempty"`
-	Files              []string `json:"files,omitempty"`
-	Confidence         string   `json:"confidence,omitempty"`
-	Summary            string   `json:"summary,omitempty"`
-	TmuxSession        string   `json:"tmux_session,omitempty"` // tmux session name for live terminal streaming
-	Created            *bool    `json:"created,omitempty"`
+	Action             string              `json:"action"`
+	Status             string              `json:"status"` // "in_progress", "done", "failed"
+	Message            []string            `json:"message"`
+	Hash               string              `json:"hash,omitempty"`
+	HashMessage        string              `json:"hash_message,omitempty"`
+	LocalCommit        string              `json:"local_commit,omitempty"`
+	LocalCommitMessage string              `json:"local_commit_message,omitempty"`
+	Files              []string            `json:"files,omitempty"`
+	ConflictDiffs      map[string][]string `json:"conflict_diffs,omitempty"` // file path -> conflict marker hunks
+	Confidence         string              `json:"confidence,omitempty"`
+	Summary            string              `json:"summary,omitempty"`
+	TmuxSession        string              `json:"tmux_session,omitempty"` // tmux session name for live terminal streaming
+	Created            *bool               `json:"created,omitempty"`
 }
 
 // ResolveConflictStepFunc is a callback invoked at each step of the conflict resolution process.
@@ -170,6 +172,9 @@ type WorkspaceManager interface {
 
 	// GetCommitDetail returns detailed information about a specific commit.
 	GetCommitDetail(ctx context.Context, workspaceID, commitHash string) (*contracts.GitCommitDetailResponse, error)
+
+	// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
+	IsWorkspaceLocked(workspaceID string) bool
 }
 
 // Ensure *Manager implements WorkspaceManager at compile time.

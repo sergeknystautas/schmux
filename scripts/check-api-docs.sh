@@ -3,7 +3,11 @@ set -euo pipefail
 
 base_ref="${GITHUB_BASE_REF:-main}"
 
-git fetch --no-tags origin "${base_ref}" --depth=1 >/dev/null 2>&1 || true
+# Note: We intentionally do NOT use --depth=1 here because in a shared gitdir
+# setup (which schmux uses), shallow fetch leaves behind a persistent shallow
+# file that corrupts merge-base operations for all worktrees. A full fetch of
+# the ref is safe and fast if the ref is already present locally.
+git fetch --no-tags origin "${base_ref}" >/dev/null 2>&1 || true
 
 base_commit="$(git merge-base HEAD "origin/${base_ref}" 2>/dev/null || true)"
 if [[ -z "${base_commit}" ]]; then

@@ -5,7 +5,7 @@ import {
   getSessions,
   waitForDashboardLive,
   waitForHealthy,
-  sleep,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe.serial('Spawn multiple agents on the same task', () => {
@@ -74,7 +74,7 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
 
   test('both sessions are navigable', async ({ page }) => {
     // Wait for sessions to be fully available
-    await sleep(2000);
+    await waitForSessionRunning();
 
     // Get the workspaces via API to find the session IDs
     const workspaces = await getSessions();

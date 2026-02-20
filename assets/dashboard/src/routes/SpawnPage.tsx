@@ -5,6 +5,7 @@ import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { usePendingNavigation } from '../lib/navigation';
+import { getQuickLaunchItems } from '../lib/quicklaunch';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
@@ -27,8 +28,9 @@ import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 interface SpawnDraft {
   prompt: string;
-  spawnMode: 'promptable' | 'command' | 'resume';
+  spawnMode: 'promptable' | 'command' | 'resume' | 'quick';
   selectedCommand: string;
+  selectedQuickLaunch: string;
   targetCounts: Record<string, number>;
   modelSelectionMode: 'single' | 'multiple' | 'advanced';
   // Only for fresh spawns (no workspace_id)
@@ -155,7 +157,10 @@ export default function SpawnPage() {
   const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [selectedCommand, setSelectedCommand] = useState('');
-  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command' | 'resume'>('promptable');
+  const [selectedQuickLaunch, setSelectedQuickLaunch] = useState('');
+  const [spawnMode, setSpawnMode] = useState<'promptable' | 'command' | 'resume' | 'quick'>(
+    'promptable'
+  );
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
@@ -205,6 +210,7 @@ export default function SpawnPage() {
   const initialized = useRef(false);
 
   const isMounted = useRef(true);
+  const quickLaunchSelectRef = useRef<HTMLSelectElement>(null);
   const navigate = useNavigate();
   const inExistingWorkspace = mode === 'workspace';
 
@@ -239,6 +245,16 @@ export default function SpawnPage() {
       isMounted.current = false;
     };
   }, []);
+
+  // Focus quick launch dropdown when switching to quick mode
+  useEffect(() => {
+    if (spawnMode === 'quick') {
+      // Small delay to ensure the element is rendered
+      setTimeout(() => {
+        quickLaunchSelectRef.current?.focus();
+      }, 0);
+    }
+  }, [spawnMode]);
 
   // Load config and data
   useEffect(() => {
@@ -340,6 +356,8 @@ export default function SpawnPage() {
       setModelSelectionMode(draft?.modelSelectionMode || lastModelSelectionMode || 'single');
       // selectedCommand: draft → default
       if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      // selectedQuickLaunch: draft → default
+      if (draft?.selectedQuickLaunch) setSelectedQuickLaunch(draft.selectedQuickLaunch);
       // targetCounts: draft → localStorage → default
       if (draft?.targetCounts) {
         setTargetCounts(draft.targetCounts);
@@ -363,6 +381,8 @@ export default function SpawnPage() {
       setModelSelectionMode(draft?.modelSelectionMode || lastModelSelectionMode || 'single');
       // selectedCommand: draft → default
       if (draft?.selectedCommand) setSelectedCommand(draft.selectedCommand);
+      // selectedQuickLaunch: draft → default
+      if (draft?.selectedQuickLaunch) setSelectedQuickLaunch(draft.selectedQuickLaunch);
       // targetCounts: draft → localStorage → default
       if (draft?.targetCounts) {
         setTargetCounts(draft.targetCounts);
@@ -448,6 +468,7 @@ export default function SpawnPage() {
       prompt,
       spawnMode,
       selectedCommand,
+      selectedQuickLaunch,
       targetCounts,
       modelSelectionMode,
     };
@@ -465,6 +486,7 @@ export default function SpawnPage() {
     prompt,
     spawnMode,
     selectedCommand,
+    selectedQuickLaunch,
     targetCounts,
     modelSelectionMode,
     repo,
@@ -540,6 +562,14 @@ export default function SpawnPage() {
       return true;
     }
 
+    if (spawnMode === 'quick') {
+      if (!selectedQuickLaunch) {
+        toastError('Please select a quick command');
+        return false;
+      }
+      return true;
+    }
+
     // Remote spawns don't require repo/branch - they use the remote host's workspace
     const isRemote = environment.type === 'remote';
 
@@ -583,6 +613,7 @@ export default function SpawnPage() {
     branch,
     prompt,
     selectedCommand,
+    selectedQuickLaunch,
     environment.type,
     toastError,
   ]);
@@ -592,6 +623,11 @@ export default function SpawnPage() {
     if (command === '/resume') {
       setModelSelectionMode('single'); // Resume only supports single agent
       setSpawnMode('resume');
+      setPrompt('');
+      setNickname('');
+    } else if (command === '/quick') {
+      setSpawnMode('quick');
+      setSelectedQuickLaunch('');
       setPrompt('');
       setNickname('');
     } else {
@@ -610,6 +646,48 @@ export default function SpawnPage() {
 
   const handleEngage = useCallback(async () => {
     if (!validateForm()) return;
+
+    // Quick launch mode - spawn with quick_launch_name
+    if (spawnMode === 'quick') {
+      setEngagePhase('spawning');
+      try {
+        const response = await spawnSessions({
+          repo: '',
+          branch: '',
+          prompt: '',
+          nickname: '',
+          targets: {},
+          workspace_id: prefillWorkspaceId || '',
+          quick_launch_name: selectedQuickLaunch,
+        });
+        const hasSuccess = response.some((r) => !r.error);
+        if (!hasSuccess) {
+          const errors = response.filter((r) => r.error).map((r) => r.error);
+          const unique = [...new Set(errors)];
+          toastError(`Spawn failed: ${unique.join('; ')}`);
+          setEngagePhase('idle');
+          return;
+        }
+        clearSpawnDraft(urlWorkspaceId);
+
+        // Navigate to the spawned session
+        const successfulResults = response.filter((r) => !r.error);
+        if (successfulResults.length === 1 && successfulResults[0].session_id) {
+          setPendingNavigation({ type: 'session', id: successfulResults[0].session_id });
+        } else if (successfulResults.length > 0) {
+          const workspaceId = successfulResults[0].workspace_id;
+          if (workspaceId) {
+            setPendingNavigation({ type: 'workspace', id: workspaceId });
+          }
+        }
+        setEngagePhase('waiting');
+      } catch (err) {
+        const errorMsg = getErrorMessage(err, 'Unknown error');
+        toastError(`Failed to spawn: ${errorMsg}`);
+        setEngagePhase('idle');
+      }
+      return;
+    }
 
     const selectedTargets: Record<string, number> = {};
     if (spawnMode === 'command') {
@@ -786,6 +864,7 @@ export default function SpawnPage() {
     generateBranchName,
     toastError,
     setPendingNavigation,
+    selectedQuickLaunch,
   ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
@@ -863,7 +942,11 @@ export default function SpawnPage() {
                 value={prompt}
                 onChange={setPrompt}
                 placeholder="Describe the task you want the targets to work on... (Type / for commands, ⌘↩ to submit)"
-                commands={[...commandTargets.map((t) => t.name), '/resume']}
+                commands={[
+                  ...commandTargets.map((t) => t.name),
+                  '/resume',
+                  ...(mode === 'workspace' ? ['/quick'] : []),
+                ]}
                 onSelectCommand={handleSlashCommandSelect}
                 onSubmit={handleEngage}
                 data-testid="spawn-prompt"
@@ -889,6 +972,34 @@ export default function SpawnPage() {
               {commandTargets.map((cmd) => (
                 <option key={cmd.name} value={cmd.name}>
                   {cmd.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : spawnMode === 'quick' ? (
+          <div
+            className="card"
+            style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}
+          >
+            <label htmlFor="quick-launch" className="form-group__label">
+              Quick Command
+            </label>
+            <select
+              id="quick-launch"
+              ref={quickLaunchSelectRef}
+              className="select"
+              required
+              value={selectedQuickLaunch}
+              onChange={(event) => setSelectedQuickLaunch(event.target.value)}
+              data-testid="quick-launch-select"
+            >
+              <option value="">Select quick command...</option>
+              {getQuickLaunchItems(
+                (config?.quick_launch || []).map((ql) => ql.name),
+                currentWorkspace?.quick_launch || []
+              ).map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.name} {item.scope === 'workspace' ? '(workspace)' : ''}
                 </option>
               ))}
             </select>
@@ -1279,7 +1390,7 @@ export default function SpawnPage() {
               )}
             </div>
           )}
-          {(spawnMode === 'command' || spawnMode === 'resume') && (
+          {(spawnMode === 'command' || spawnMode === 'resume' || spawnMode === 'quick') && (
             <button
               className="btn"
               onClick={handlePromptMode}

@@ -68,3 +68,8 @@ export function formatNudgeSummary(summary?: string, maxLength = 100): string | 
 export function WorkingSpinner(): React.ReactElement {
   return React.createElement('span', { className: 'working-spinner' });
 }
+
+/** Returns true if the dashboard is being accessed from a remote client (not localhost). */
+export function isRemoteClient(): boolean {
+  return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+}

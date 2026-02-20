@@ -33,7 +33,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(na
 const modKey = isMac ? 'Cmd' : 'Ctrl';
 
 const directShortcuts = [
-  { key: `${modKey}+K`, description: 'Toggle keyboard mode' },
+  { key: `${modKey}+/`, description: 'Toggle keyboard mode' },
   { key: `${modKey}+←`, description: 'Previous tab in workspace' },
   { key: `${modKey}+→`, description: 'Next tab in workspace' },
   { key: `${modKey}+↑`, description: 'Previous workspace' },
@@ -87,7 +87,7 @@ export default function HelpModalProvider({ children }: { children: React.ReactN
             </div>
             <div className="modal__body">
               <p style={{ marginBottom: 'var(--spacing-md)' }}>
-                Press <kbd>{modKey}</kbd> + <kbd>K</kbd> to enter keyboard mode, then press a key to
+                Press <kbd>{modKey}</kbd> + <kbd>/</kbd> to enter keyboard mode, then press a key to
                 execute an action.
               </p>
               <table className="keyboard-shortcuts-table keyboard-shortcuts-table--two-col">

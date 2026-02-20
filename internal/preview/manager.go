@@ -39,6 +39,7 @@ type Manager struct {
 	entries  map[string]*entry // preview_id -> listener entry
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	doneCh   chan struct{}
 }
 
 type entry struct {
@@ -65,6 +66,7 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout
 		networkAccess:   networkAccess,
 		entries:         map[string]*entry{},
 		stopCh:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 	go m.cleanupLoop()
 	return m
@@ -74,6 +76,7 @@ func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
 		close(m.stopCh)
 	})
+	<-m.doneCh
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id := range m.entries {
@@ -285,7 +288,9 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	proxy.Transport = http.DefaultTransport
+	proxy.Transport = &http.Transport{
+		DisableKeepAlives: true,
+	}
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.touch(preview.ID)
 		proxy.ServeHTTP(w, r)
@@ -379,6 +384,7 @@ func (m *Manager) touch(previewID string) {
 }
 
 func (m *Manager) cleanupLoop() {
+	defer close(m.doneCh)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {

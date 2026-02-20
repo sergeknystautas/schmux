@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -79,7 +80,7 @@ func ExecuteMerge(ctx context.Context, action MergeAction, wsPath, overlayPath s
 		if err != nil {
 			return nil, fmt.Errorf("failed to read workspace file: %w", err)
 		}
-		if err := os.WriteFile(overlayPath, content, 0644); err != nil {
+		if err := atomicWriteFile(overlayPath, content, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
 		return content, nil
@@ -105,7 +106,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	if strings.HasSuffix(wsPath, ".jsonl") {
 		if len(wsContent)+len(overlayContent) > maxLLMMergeFileSize {
 			fmt.Printf("[compound] JSONL file too large for merge (%d bytes), using last-write-wins: %s\n", len(wsContent)+len(overlayContent), wsPath)
-			if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
+			if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write overlay file: %w", err)
 			}
 			return wsContent, nil
@@ -116,7 +117,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	// Safety: binary files -> last-write-wins
 	if isBinaryContent(wsContent) || isBinaryContent(overlayContent) {
 		fmt.Printf("[compound] binary file detected, using last-write-wins: %s\n", wsPath)
-		if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
+		if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
 		return wsContent, nil
@@ -125,7 +126,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	// Safety: large files -> last-write-wins
 	if len(wsContent) > maxLLMMergeFileSize {
 		fmt.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", len(wsContent), wsPath)
-		if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
+		if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
 		return wsContent, nil
@@ -137,7 +138,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 		response, err := executor(ctx, prompt, 30*time.Second)
 		if err == nil && strings.TrimSpace(response) != "" {
 			merged := []byte(response)
-			if err := os.WriteFile(overlayPath, merged, 0644); err != nil {
+			if err := atomicWriteFile(overlayPath, merged, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write merged overlay file: %w", err)
 			}
 			fmt.Printf("[compound] LLM merge successful: %s\n", wsPath)
@@ -151,7 +152,7 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	}
 
 	// Fallback: last-write-wins
-	if err := os.WriteFile(overlayPath, wsContent, 0644); err != nil {
+	if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write overlay file (LWW fallback): %w", err)
 	}
 	return wsContent, nil
@@ -210,7 +211,7 @@ func mergeJSONLLines(wsContent, overlayContent []byte, overlayPath string) ([]by
 	}
 
 	result := []byte(strings.Join(merged, "\n") + "\n")
-	if err := os.WriteFile(overlayPath, result, 0644); err != nil {
+	if err := atomicWriteFile(overlayPath, result, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write merged JSONL: %w", err)
 	}
 	fmt.Printf("[compound] JSONL line-union merge: %d unique lines\n", len(merged))
@@ -225,4 +226,24 @@ func isBinaryContent(content []byte) bool {
 		check = check[:8192]
 	}
 	return bytes.Contains(check, []byte{0})
+}
+
+// atomicWriteFile writes data to path atomically using a temp file and rename.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".merge-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

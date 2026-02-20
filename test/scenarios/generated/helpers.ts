@@ -182,6 +182,60 @@ export async function createTestRepo(name: string): Promise<string> {
   return repoDir;
 }
 
+// --- Tunnel simulation helpers ---
+
+interface SimulateTunnelResult {
+  url: string;
+  token: string;
+}
+
+/**
+ * Activates a simulated cloudflared tunnel via the dev-mode API.
+ * Returns the tunnel URL and one-time auth token.
+ * Requires the daemon to be running with --dev-mode (scenario entrypoint does this).
+ */
+export async function simulateTunnel(): Promise<SimulateTunnelResult> {
+  return apiPost<SimulateTunnelResult>('/api/dev/simulate-tunnel');
+}
+
+/**
+ * Stops the simulated tunnel and clears all remote auth state.
+ */
+export async function stopSimulatedTunnel(): Promise<void> {
+  await apiPost('/api/dev/simulate-tunnel-stop');
+}
+
+// --- Session wait helpers ---
+
+/**
+ * Polls GET /api/sessions until the given session shows running: true.
+ * If sessionId is omitted, waits until ALL sessions across all workspaces are running.
+ */
+export async function waitForSessionRunning(
+  sessionId?: string,
+  timeoutMs: number = 15_000
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const workspaces = await apiGet<WorkspaceItem[]>('/api/sessions');
+      const allSessions = workspaces.flatMap((ws) => ws.sessions);
+
+      if (sessionId) {
+        const sess = allSessions.find((s) => s.id === sessionId);
+        if (sess?.running) return;
+      } else {
+        // Wait for at least one session to exist and all to be running
+        if (allSessions.length > 0 && allSessions.every((s) => s.running)) return;
+      }
+    } catch {
+      // API not ready yet
+    }
+    await sleep(500);
+  }
+  throw new Error(`Session${sessionId ? ` ${sessionId}` : 's'} not running after ${timeoutMs}ms`);
+}
+
 // --- Utilities ---
 
 export function sleep(ms: number): Promise<void> {

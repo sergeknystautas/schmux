@@ -40,9 +40,14 @@ type Manager struct {
 	randSuffix           func(length int) string
 	defaultBranchCache   map[string]string // repoURL -> defaultBranch or "unknown"
 	defaultBranchCacheMu sync.RWMutex
-	workspaceLockedFn    func(workspaceID string) bool
-	compoundReconcile    func(workspaceID string) // reconcile overlay before dispose
-	telemetry            telemetry.Telemetry      // optional, for usage tracking
+	lockedWorkspaces     map[string]bool
+	lockedWorkspacesMu   sync.RWMutex
+	workspaceGates       map[string]*sync.RWMutex // per-workspace gate: coordinates git status vs sync operations
+	workspaceGatesMu     sync.Mutex
+	onLockChangeFn       func(workspaceID string, locked bool)        // optional, called when lock state changes
+	compoundReconcile    func(workspaceID string)                     // reconcile overlay before dispose
+	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
+	telemetry            telemetry.Telemetry                          // optional, for usage tracking
 }
 
 // New creates a new workspace manager.
@@ -53,6 +58,8 @@ func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
 		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
 		configStates:     make(map[string]configState),           // track config file mtime to detect changes
 		repoLocks:        make(map[string]*sync.Mutex),
+		lockedWorkspaces: make(map[string]bool),
+		workspaceGates:   make(map[string]*sync.RWMutex),
 		randSuffix:       defaultRandSuffix,
 	}
 	// Pre-load workspace configs so they're available on first API call
@@ -68,9 +75,75 @@ func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
 }
 
-// SetWorkspaceLockedFn sets a predicate to skip workspace updates when locked.
-func (m *Manager) SetWorkspaceLockedFn(fn func(workspaceID string) bool) {
-	m.workspaceLockedFn = fn
+// LockWorkspace attempts to lock a workspace for a sync operation.
+// Returns true if the lock was acquired, false if already locked by another sync.
+// Blocks until any in-flight UpdateGitStatus on this workspace completes.
+func (m *Manager) LockWorkspace(workspaceID string) bool {
+	// Fail-fast if already locked by another sync operation
+	m.lockedWorkspacesMu.RLock()
+	if m.lockedWorkspaces[workspaceID] {
+		m.lockedWorkspacesMu.RUnlock()
+		return false
+	}
+	m.lockedWorkspacesMu.RUnlock()
+
+	// Wait for any in-flight git status to finish
+	gate := m.getWorkspaceGate(workspaceID)
+	gate.Lock()
+	defer gate.Unlock()
+
+	// Re-check: another sync may have locked while we waited on the gate
+	m.lockedWorkspacesMu.Lock()
+	if m.lockedWorkspaces[workspaceID] {
+		m.lockedWorkspacesMu.Unlock()
+		return false
+	}
+	m.lockedWorkspaces[workspaceID] = true
+	m.lockedWorkspacesMu.Unlock()
+
+	if m.onLockChangeFn != nil {
+		m.onLockChangeFn(workspaceID, true)
+	}
+	return true
+}
+
+// getWorkspaceGate returns the per-workspace RWMutex, creating it if needed.
+func (m *Manager) getWorkspaceGate(workspaceID string) *sync.RWMutex {
+	m.workspaceGatesMu.Lock()
+	defer m.workspaceGatesMu.Unlock()
+	gate, ok := m.workspaceGates[workspaceID]
+	if !ok {
+		gate = &sync.RWMutex{}
+		m.workspaceGates[workspaceID] = gate
+	}
+	return gate
+}
+
+// UnlockWorkspace clears the lock on a workspace.
+func (m *Manager) UnlockWorkspace(workspaceID string) {
+	m.lockedWorkspacesMu.Lock()
+	delete(m.lockedWorkspaces, workspaceID)
+	m.lockedWorkspacesMu.Unlock()
+	if m.onLockChangeFn != nil {
+		m.onLockChangeFn(workspaceID, false)
+	}
+}
+
+// IsWorkspaceLocked returns true if a sync operation is running on the workspace.
+func (m *Manager) IsWorkspaceLocked(workspaceID string) bool {
+	m.lockedWorkspacesMu.RLock()
+	defer m.lockedWorkspacesMu.RUnlock()
+	return m.lockedWorkspaces[workspaceID]
+}
+
+// SetOnLockChangeFn sets a callback invoked when workspace lock state changes.
+func (m *Manager) SetOnLockChangeFn(fn func(workspaceID string, locked bool)) {
+	m.onLockChangeFn = fn
+}
+
+// SetSyncProgressFn sets a callback invoked after each commit rebase in LinearSyncFromDefault.
+func (m *Manager) SetSyncProgressFn(fn func(workspaceID string, current, total int)) {
+	m.syncProgressFn = fn
 }
 
 // SetCompoundReconcile sets the callback for reconciling overlay files before workspace disposal.
@@ -650,6 +723,11 @@ func extractWorkspaceNumber(id string) (int, error) {
 // UpdateGitStatus refreshes the git status for a single workspace.
 // Returns the updated workspace or an error.
 func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
+	// Bail out early if context is already cancelled (e.g. during shutdown)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -660,9 +738,22 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 		return &w, nil
 	}
 
-	if m.workspaceLockedFn != nil && m.workspaceLockedFn(workspaceID) {
+	if m.IsWorkspaceLocked(workspaceID) {
 		return nil, ErrWorkspaceLocked
 	}
+
+	// Hold the gate's RLock so LockWorkspace waits for us to finish
+	gate := m.getWorkspaceGate(workspaceID)
+	gate.RLock()
+	defer gate.RUnlock()
+
+	// Re-check: a sync may have locked while we waited for the gate
+	if m.IsWorkspaceLocked(workspaceID) {
+		return nil, ErrWorkspaceLocked
+	}
+
+	// Refresh workspace config (respects lock, safe during sync)
+	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
 	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced := m.gitStatus(ctx, w.Path, w.Repo)
@@ -708,17 +799,23 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
 
 	for _, w := range workspaces {
+		// Stop iterating if context is cancelled (shutdown in progress)
+		if ctx.Err() != nil {
+			return
+		}
+
 		// Skip remote workspaces - they don't have local git repos
 		if w.RemoteHostID != "" {
 			continue
 		}
 
-		// Refresh workspace config for this workspace
-		m.RefreshWorkspaceConfig(w)
-
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
+			}
+			// Suppress errors during shutdown — context cancellation is expected
+			if ctx.Err() != nil {
+				return
 			}
 			fmt.Printf("[workspace] failed to update git status for %s: %v\n", w.ID, err)
 		}

@@ -70,6 +70,18 @@ type WSOutputMessage struct {
 	Content string `json:"content"`
 }
 
+// checkWSOrigin validates WebSocket upgrade origins.
+func (s *Server) checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if s.requiresAuth() {
+		return s.isAllowedOrigin(origin)
+	}
+	if origin == "" {
+		return true
+	}
+	return s.isAllowedOrigin(origin)
+}
+
 // handleTerminalWebSocket streams tmux output to websocket clients.
 // It sends a bootstrap snapshot from capture-pane and then forwards live bytes
 // from the per-session tracker PTY.
@@ -79,10 +91,13 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
-	if s.config.GetAuthEnabled() {
-		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+	if s.requiresAuth() {
+		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		if s.authEnabled() || !s.isTrustedRequest(r) {
+			if _, err := s.authenticateRequest(r); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 	}
 
@@ -120,16 +135,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
-				return s.isAllowedOrigin(origin)
-			}
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin:     s.checkWSOrigin,
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)
@@ -335,16 +341,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
-				return s.isAllowedOrigin(origin)
-			}
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin:     s.checkWSOrigin,
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)
@@ -471,16 +468,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
-				return s.isAllowedOrigin(origin)
-			}
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin:     s.checkWSOrigin,
 	}
 	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -615,10 +603,13 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if s.config.GetAuthEnabled() {
-		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+	if s.requiresAuth() {
+		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		if s.authEnabled() || !s.isTrustedRequest(r) {
+			if _, err := s.authenticateRequest(r); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 	}
 
@@ -667,16 +658,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if s.config.GetAuthEnabled() {
-				return s.isAllowedOrigin(origin)
-			}
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin:     s.checkWSOrigin,
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)

@@ -27,7 +27,7 @@ func TestLoad(t *testing.T) {
 		},
 	}
 
-	data, err := json.MarshalIndent(validConfig, "", "  ")
+	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
 		t.Fatalf("failed to marshal config: %v", err)
 	}
@@ -713,7 +713,7 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 		RunTargets:    []RunTarget{},
 	}
 
-	data, err := json.MarshalIndent(validConfig, "", "  ")
+	data, err := json.MarshalIndent(&validConfig, "", "  ")
 	if err != nil {
 		t.Fatalf("failed to marshal config: %v", err)
 	}
@@ -1679,6 +1679,122 @@ func TestDefaultOverlayPaths_ExcludesLoreJsonl(t *testing.T) {
 			t.Error("DefaultOverlayPaths should NOT include .schmux/lore.jsonl (lore is one-directional, not overlay-synced)")
 		}
 	}
+}
+
+func TestGetRemoteAccessEnabled(t *testing.T) {
+	t.Run("defaults to false when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when RemoteAccess is nil")
+		}
+	})
+
+	t.Run("returns true when explicitly enabled", func(t *testing.T) {
+		enabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true")
+		}
+	})
+
+	t.Run("returns false when explicitly disabled", func(t *testing.T) {
+		enabled := false
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled}}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when explicitly set to false")
+		}
+	})
+
+	t.Run("backward compat: disabled=true means enabled=false", func(t *testing.T) {
+		disabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		if cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = false when Disabled=true (backward compat)")
+		}
+	})
+
+	t.Run("backward compat: disabled=false means enabled=true", func(t *testing.T) {
+		disabled := false
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Disabled: &disabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected GetRemoteAccessEnabled() = true when Disabled=false (backward compat)")
+		}
+	})
+
+	t.Run("enabled takes precedence over disabled", func(t *testing.T) {
+		enabled := true
+		disabled := true
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{Enabled: &enabled, Disabled: &disabled}}
+		if !cfg.GetRemoteAccessEnabled() {
+			t.Error("expected Enabled to take precedence over Disabled")
+		}
+	})
+}
+
+func TestGetRemoteAccessTimeoutMinutes(t *testing.T) {
+	t.Run("defaults to 120 when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 120 {
+			t.Errorf("expected 120, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("defaults to 120 when zero", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 0}}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 120 {
+			t.Errorf("expected 120, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("negative disables timeout", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: -1}}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 0 {
+			t.Errorf("expected 0, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{TimeoutMinutes: 480}}
+		if cfg.GetRemoteAccessTimeoutMinutes() != 480 {
+			t.Errorf("expected 480, got %d", cfg.GetRemoteAccessTimeoutMinutes())
+		}
+	})
+}
+
+func TestGetRemoteAccessNtfyTopic(t *testing.T) {
+	t.Run("defaults to empty when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessNtfyTopic() != "" {
+			t.Errorf("expected empty, got %q", cfg.GetRemoteAccessNtfyTopic())
+		}
+	})
+
+	t.Run("returns trimmed value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+			Notify: &RemoteAccessNotifyConfig{NtfyTopic: "  my-topic  "},
+		}}
+		if cfg.GetRemoteAccessNtfyTopic() != "my-topic" {
+			t.Errorf("expected 'my-topic', got %q", cfg.GetRemoteAccessNtfyTopic())
+		}
+	})
+}
+
+func TestGetRemoteAccessNotifyCommand(t *testing.T) {
+	t.Run("defaults to empty when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetRemoteAccessNotifyCommand() != "" {
+			t.Errorf("expected empty, got %q", cfg.GetRemoteAccessNotifyCommand())
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{RemoteAccess: &RemoteAccessConfig{
+			Notify: &RemoteAccessNotifyConfig{Command: "echo $SCHMUX_REMOTE_URL"},
+		}}
+		if cfg.GetRemoteAccessNotifyCommand() != "echo $SCHMUX_REMOTE_URL" {
+			t.Errorf("unexpected value: %q", cfg.GetRemoteAccessNotifyCommand())
+		}
+	})
 }
 
 func TestPopulateBarePaths_AlreadySet(t *testing.T) {

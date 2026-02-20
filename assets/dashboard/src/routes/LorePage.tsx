@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getLoreProposals,
   getLoreEntries,
@@ -10,13 +11,148 @@ import {
 } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
+import useTheme from '../hooks/useTheme';
 import type { LoreProposal, LoreEntry, LoreStatusResponse } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
-type SelectedProposal = {
+function ProposalCard({
+  proposal,
+  onApply,
+  onDismiss,
+  applying,
+}: {
   proposal: LoreProposal;
-  activeFile: string;
-};
+  onApply: (p: LoreProposal) => void;
+  onDismiss: (p: LoreProposal) => void;
+  applying: boolean;
+}) {
+  const [activeFile, setActiveFile] = useState(Object.keys(proposal.proposed_files)[0] || '');
+  const [showEntries, setShowEntries] = useState(false);
+  const { theme } = useTheme();
+  const files = Object.keys(proposal.proposed_files);
+
+  const entriesUsedCount = proposal.entries_used?.length || 0;
+  const entriesDiscardedCount = proposal.entries_discarded
+    ? Object.keys(proposal.entries_discarded).length
+    : 0;
+
+  return (
+    <div className={styles.proposalCard} data-testid={`lore-proposal-card-${proposal.id}`}>
+      <div className={styles.proposalCardHeader}>
+        <span className={styles.proposalCardBadge} data-status={proposal.status}>
+          {proposal.status}
+        </span>
+        <span className={styles.proposalCardSummary}>{proposal.diff_summary}</span>
+        <span className={styles.proposalCardDate}>
+          {new Date(proposal.created_at).toLocaleDateString()}
+        </span>
+      </div>
+
+      {/* File tabs (only if 2+ files) */}
+      {files.length > 1 && (
+        <div className={styles.fileTabs}>
+          {files.map((file) => (
+            <button
+              key={file}
+              className={`${styles.fileTab} ${activeFile === file ? styles.activeTab : ''}`}
+              onClick={() => setActiveFile(file)}
+            >
+              {file}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* File name (when single file) */}
+      {files.length === 1 && <div className={styles.fileName}>{files[0]}</div>}
+
+      {/* Inline diff */}
+      <div className={styles.diffWrapper}>
+        <ReactDiffViewer
+          oldValue={proposal.current_files?.[activeFile] || ''}
+          newValue={proposal.proposed_files[activeFile] || ''}
+          splitView={false}
+          useDarkTheme={theme === 'dark'}
+          hideLineNumbers={false}
+          showDiffOnly={true}
+          compareMethod={DiffMethod.TRIMMED_LINES}
+          disableWordDiff={true}
+          extraLinesSurroundingDiff={3}
+        />
+      </div>
+
+      {/* Entries toggle */}
+      {(entriesUsedCount > 0 || entriesDiscardedCount > 0) && (
+        <div className={styles.entriesToggle}>
+          <button className={styles.toggleButton} onClick={() => setShowEntries(!showEntries)}>
+            {showEntries ? '\u25BC' : '\u25B6'} {entriesUsedCount} entries used
+            {entriesDiscardedCount > 0 && ` · ${entriesDiscardedCount} discarded`}
+          </button>
+          {showEntries && (
+            <div className={styles.entriesDetail}>
+              {proposal.entries_used?.length > 0 && (
+                <div>
+                  <h5>Used</h5>
+                  <ul>
+                    {proposal.entries_used.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {proposal.entries_discarded && Object.keys(proposal.entries_discarded).length > 0 && (
+                <div>
+                  <h5>Discarded</h5>
+                  <ul>
+                    {Object.entries(proposal.entries_discarded).map(([text, reason], i) => (
+                      <li key={i}>
+                        {text} — <span className={styles.discardReason}>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className={styles.actions} data-testid="lore-actions">
+        {proposal.status === 'pending' && (
+          <>
+            <button
+              className={styles.dismissButton}
+              data-testid="lore-dismiss-button"
+              onClick={() => onDismiss(proposal)}
+            >
+              Dismiss
+            </button>
+            <button
+              className={styles.applyButton}
+              data-testid="lore-apply-button"
+              onClick={() => onApply(proposal)}
+              disabled={applying}
+            >
+              {applying ? 'Applying...' : 'Apply'}
+            </button>
+          </>
+        )}
+        {proposal.status === 'stale' && (
+          <>
+            <button
+              className={styles.dismissButton}
+              data-testid="lore-dismiss-stale-button"
+              onClick={() => onDismiss(proposal)}
+            >
+              Dismiss
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function LorePage() {
   const { config } = useConfig();
@@ -28,16 +164,9 @@ export default function LorePage() {
   const [error, setError] = useState('');
   const [proposals, setProposals] = useState<LoreProposal[]>([]);
   const [entries, setEntries] = useState<LoreEntry[]>([]);
-  // Track all unique agents/types from unfiltered entries so filter dropdowns don't narrow
   const [allAgents, setAllAgents] = useState<string[]>([]);
   const [allTypes, setAllTypes] = useState<string[]>([]);
-  const [selected, setSelected] = useState<SelectedProposal | null>(null);
-  const [applying, setApplying] = useState(false);
-  const [showEntries, setShowEntries] = useState(false);
-
-  // Edit mode state
-  const [editing, setEditing] = useState(false);
-  const [editedFiles, setEditedFiles] = useState<Record<string, string>>({});
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
   // Re-curate state
   const [curating, setCurating] = useState(false);
@@ -45,12 +174,21 @@ export default function LorePage() {
   // Lore system status
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
 
+  // Collapsible sections
+  const [showHistory, setShowHistory] = useState(false);
+  const [showSignals, setShowSignals] = useState(
+    () => localStorage.getItem('lore-signals-open') === 'true'
+  );
+
   // Entry filter state
   const [entryFilters, setEntryFilters] = useState<{
     state?: string;
     agent?: string;
     type?: string;
   }>({});
+
+  // Per-repo pending counts for tab badges
+  const [repoPendingCounts, setRepoPendingCounts] = useState<Record<string, number>>({});
 
   // Sync activeRepo when repos list changes (e.g., config loaded after mount)
   useEffect(() => {
@@ -79,7 +217,7 @@ export default function LorePage() {
     }
   }, [activeRepo, entryFilters]);
 
-  // Load all unique agents/types from unfiltered entries (S10 fix)
+  // Load all unique agents/types from unfiltered entries
   const loadFilterOptions = useCallback(async () => {
     if (!activeRepo) return;
     try {
@@ -100,15 +238,27 @@ export default function LorePage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
-    // Fetch status in parallel with other data
     const statusPromise = getLoreStatus()
       .then(setLoreStatus)
-      .catch(() => {
-        // Status is non-critical; silently ignore errors
-      });
+      .catch(() => {});
     await Promise.all([loadProposals(), loadEntries(), loadFilterOptions(), statusPromise]);
+
+    // Fetch pending counts for all repos (for tab badges)
+    if (repos.length > 1) {
+      const results = await Promise.allSettled(repos.map((r) => getLoreProposals(r.name)));
+      const counts: Record<string, number> = {};
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          counts[repos[i].name] = (result.value.proposals || []).filter(
+            (p: LoreProposal) => p.status === 'pending'
+          ).length;
+        }
+      });
+      setRepoPendingCounts(counts);
+    }
+
     setLoading(false);
-  }, [loadProposals, loadEntries, loadFilterOptions]);
+  }, [loadProposals, loadEntries, loadFilterOptions, repos]);
 
   // Initial load when repo changes
   useEffect(() => {
@@ -127,29 +277,21 @@ export default function LorePage() {
 
   const handleTabChange = (repoName: string) => {
     setActiveRepo(repoName);
-    // Reset per-repo UI state
-    setSelected(null);
-    setEditing(false);
-    setEditedFiles({});
-    setShowEntries(false);
     setEntryFilters({});
     filtersInitialized.current = false;
   };
 
-  const handleApply = async (proposal: LoreProposal, overrides?: Record<string, string>) => {
+  const handleApply = async (proposal: LoreProposal) => {
     if (!activeRepo) return;
-    setApplying(true);
+    setApplyingId(proposal.id);
     try {
-      const result = await applyLoreProposal(activeRepo, proposal.id, overrides);
+      const result = await applyLoreProposal(activeRepo, proposal.id);
       toastSuccess(`Applied! Branch: ${result.branch}`);
-      setEditing(false);
-      setEditedFiles({});
       loadData();
-      setSelected(null);
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to apply proposal'));
     } finally {
-      setApplying(false);
+      setApplyingId(null);
     }
   };
 
@@ -159,7 +301,6 @@ export default function LorePage() {
       await dismissLoreProposal(activeRepo, proposal.id);
       toastSuccess('Proposal dismissed');
       loadData();
-      setSelected(null);
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to dismiss proposal'));
     }
@@ -169,8 +310,12 @@ export default function LorePage() {
     if (!activeRepo) return;
     setCurating(true);
     try {
-      await triggerLoreCuration(activeRepo);
-      toastSuccess('Re-curation triggered');
+      const result = await triggerLoreCuration(activeRepo);
+      if (result.status === 'no_raw_entries') {
+        toastError('No raw entries to curate');
+      } else {
+        toastSuccess('Curation complete — new proposal created');
+      }
       loadData();
     } catch (err) {
       toastError(getErrorMessage(err, 'Failed to trigger curation'));
@@ -179,35 +324,6 @@ export default function LorePage() {
     }
   };
 
-  const handleEditAndApply = () => {
-    if (!selected) return;
-    setEditing(true);
-    setEditedFiles({ ...selected.proposal.proposed_files });
-  };
-
-  const handleCancelEdit = () => {
-    setEditing(false);
-    setEditedFiles({});
-  };
-
-  const handleSaveAndApply = () => {
-    if (!selected) return;
-    handleApply(selected.proposal, editedFiles);
-  };
-
-  const statusBadge = (status: string) => {
-    const cls =
-      status === 'pending'
-        ? styles.badgePending
-        : status === 'applied'
-          ? styles.badgeApplied
-          : status === 'dismissed'
-            ? styles.badgeDismissed
-            : styles.badgeStale;
-    return <span className={cls}>{status}</span>;
-  };
-
-  // Use pre-loaded unfiltered agents/types for filter dropdowns
   const uniqueAgents = allAgents;
   const uniqueTypes = allTypes;
 
@@ -237,44 +353,21 @@ export default function LorePage() {
     );
   }
 
-  const pendingCount = proposals.filter((p) => p.status === 'pending').length;
-  const rawEntries = entries.filter((e) => !e.state_change);
-
-  // Render file content with line numbers and diff-style highlighting
-  const renderFileContent = (content: string) => {
-    const lines = content.split('\n');
-    return (
-      <div className={styles.codeBlock}>
-        <div className={styles.lineNumbers}>
-          {lines.map((_, i) => (
-            <span key={i} className={styles.lineNumber}>
-              {i + 1}
-            </span>
-          ))}
-        </div>
-        <pre className={styles.codeLines}>
-          {lines.map((line, i) => (
-            <span key={i} className={styles.codeLine}>
-              {line}
-              {'\n'}
-            </span>
-          ))}
-        </pre>
-      </div>
-    );
-  };
+  const pendingProposals = proposals.filter((p) => p.status === 'pending' || p.status === 'stale');
+  const historyProposals = proposals.filter(
+    (p) => p.status === 'applied' || p.status === 'dismissed'
+  );
+  const rawEntries = entries.filter(
+    (e) => !e.state_change && !(e.type === 'reflection' && (!e.text || e.text === 'none'))
+  );
 
   return (
     <div className={styles.container} data-testid="lore-page">
       <div className={styles.header}>
         <h2>Lore</h2>
-        <span className={styles.summary}>
-          {pendingCount} pending proposal{pendingCount !== 1 ? 's' : ''} · {rawEntries.length} raw
-          entries
-        </span>
       </div>
 
-      {/* Configuration warning banner */}
+      {/* Warning banner */}
       {loreStatus && loreStatus.issues && loreStatus.issues.length > 0 && (
         <div className={styles.warningBanner} data-testid="lore-warning-banner">
           {loreStatus.issues.map((issue, i) => (
@@ -284,255 +377,150 @@ export default function LorePage() {
         </div>
       )}
 
-      {/* Repo tabs */}
+      {/* Repo tabs — use session-tab classes */}
       {repos.length > 1 && (
-        <div className="repo-tabs">
+        <div className="session-tabs">
           {repos.map((repo) => (
             <button
               key={repo.name}
-              className={`repo-tab${activeRepo === repo.name ? ' repo-tab--active' : ''}`}
+              className={`session-tab ${activeRepo === repo.name ? 'session-tab--active' : ''}`}
               onClick={() => handleTabChange(repo.name)}
             >
-              {repo.name}
+              <div className="session-tab__row1">
+                <span className="session-tab__name">{repo.name}</span>
+                {repoPendingCounts[repo.name] > 0 && <span className={styles.repoBadge} />}
+              </div>
             </button>
           ))}
         </div>
       )}
 
-      {/* Proposals Section */}
-      <section className={styles.section}>
-        <h3>Proposals</h3>
-        {proposals.length === 0 ? (
-          <p className={styles.empty}>
-            No proposals yet. Lore entries will be curated into proposals when sessions are
-            disposed.
-          </p>
-        ) : (
-          <div className={styles.proposalList} data-testid="lore-proposals">
-            {proposals.map((p) => (
-              <div
+      <div className={repos.length > 1 ? styles.tabPanel : undefined}>
+        {/* Pending proposals */}
+        {pendingProposals.length > 0 ? (
+          <div className={styles.proposalList}>
+            {pendingProposals.map((p) => (
+              <ProposalCard
                 key={p.id}
-                data-testid={`lore-proposal-card-${p.id}`}
-                className={`${styles.proposalCard} ${selected?.proposal.id === p.id ? styles.selected : ''}`}
-                onClick={() => {
-                  setEditing(false);
-                  setEditedFiles({});
-                  setSelected({
-                    proposal: p,
-                    activeFile: Object.keys(p.proposed_files)[0] || '',
-                  });
-                }}
-              >
-                <div className={styles.proposalHeader}>
-                  {statusBadge(p.status)}
-                  <span className={styles.proposalDate}>
-                    {new Date(p.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <div className={styles.proposalSummary}>{p.diff_summary}</div>
-                <div className={styles.proposalMeta}>
-                  {p.source_count} entries from {p.sources?.length || 0} workspace
-                  {(p.sources?.length || 0) !== 1 ? 's' : ''}
-                  {' · '}
-                  {Object.keys(p.proposed_files).length} file
-                  {Object.keys(p.proposed_files).length !== 1 ? 's' : ''}
-                </div>
-              </div>
+                proposal={p}
+                onApply={handleApply}
+                onDismiss={handleDismiss}
+                applying={applyingId === p.id}
+              />
             ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p className="empty-state__description">
+              No pending proposals. Learnings will appear here when agents encounter friction.
+            </p>
           </div>
         )}
-      </section>
 
-      {/* Selected Proposal Detail */}
-      {selected && (
+        {/* History — collapsed by default */}
+        {historyProposals.length > 0 && (
+          <section className={styles.section}>
+            <button className={styles.toggleButton} onClick={() => setShowHistory(!showHistory)}>
+              {showHistory ? '\u25BC' : '\u25B6'} History ({historyProposals.length})
+            </button>
+            {showHistory && (
+              <div className={styles.historyList}>
+                {historyProposals.map((p) => (
+                  <div key={p.id} className={styles.historyItem}>
+                    <span className={styles.historyIcon}>
+                      {p.status === 'applied' ? '\u2713' : '\u2717'}
+                    </span>
+                    <span className={styles.historyStatus}>{p.status}</span>
+                    <span className={styles.historyDate}>
+                      {new Date(p.created_at).toLocaleDateString()}
+                    </span>
+                    <span className={styles.historySummary}>{p.diff_summary}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Raw Signals — collapsed, persisted to localStorage */}
         <section className={styles.section}>
-          <h3>Proposal Detail</h3>
-
-          {/* Diff summary banner */}
-          {selected.proposal.diff_summary && (
-            <div className={styles.diffSummaryBanner}>{selected.proposal.diff_summary}</div>
-          )}
-
-          <div className={styles.fileTabs}>
-            {Object.keys(selected.proposal.proposed_files).map((file) => (
-              <button
-                key={file}
-                className={`${styles.fileTab} ${selected.activeFile === file ? styles.activeTab : ''}`}
-                onClick={() => setSelected({ ...selected, activeFile: file })}
-              >
-                {file}
-              </button>
-            ))}
-          </div>
-
-          {editing ? (
-            <textarea
-              className={styles.editTextarea}
-              value={editedFiles[selected.activeFile] || ''}
-              onChange={(e) =>
-                setEditedFiles({ ...editedFiles, [selected.activeFile]: e.target.value })
-              }
-              spellCheck={false}
-            />
-          ) : (
-            renderFileContent(selected.proposal.proposed_files[selected.activeFile] || '')
-          )}
-
-          <div className={styles.actions} data-testid="lore-actions">
-            {selected.proposal.status === 'pending' && !editing && (
-              <>
-                <button
-                  className={styles.applyButton}
-                  data-testid="lore-apply-button"
-                  onClick={() => handleApply(selected.proposal)}
-                  disabled={applying}
+          <button
+            className={styles.toggleButton}
+            onClick={() => {
+              const next = !showSignals;
+              setShowSignals(next);
+              localStorage.setItem('lore-signals-open', String(next));
+            }}
+          >
+            {showSignals ? '\u25BC' : '\u25B6'} Raw Signals ({rawEntries.length})
+          </button>
+          {showSignals && (
+            <>
+              <div className={styles.filterBar} data-testid="lore-filter-bar">
+                <select
+                  className={styles.filterSelect}
+                  data-testid="lore-filter-type"
+                  value={entryFilters.type || ''}
+                  onChange={(e) =>
+                    setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
+                  }
                 >
-                  {applying ? 'Applying...' : 'Apply'}
-                </button>
-                <button
-                  className={styles.editApplyButton}
-                  data-testid="lore-edit-apply-button"
-                  onClick={handleEditAndApply}
+                  <option value="">All types</option>
+                  {uniqueTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={styles.filterSelect}
+                  data-testid="lore-filter-agent"
+                  value={entryFilters.agent || ''}
+                  onChange={(e) =>
+                    setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
+                  }
                 >
-                  Edit & Apply
-                </button>
+                  <option value="">All agents</option>
+                  {uniqueAgents.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
                 <button
-                  className={styles.dismissButton}
-                  data-testid="lore-dismiss-button"
-                  onClick={() => handleDismiss(selected.proposal)}
-                >
-                  Dismiss
-                </button>
-              </>
-            )}
-            {selected.proposal.status === 'pending' && editing && (
-              <>
-                <button
-                  className={styles.applyButton}
-                  data-testid="lore-save-apply-button"
-                  onClick={handleSaveAndApply}
-                  disabled={applying}
-                >
-                  {applying ? 'Applying...' : 'Save & Apply'}
-                </button>
-                <button
-                  className={styles.dismissButton}
-                  data-testid="lore-cancel-edit-button"
-                  onClick={handleCancelEdit}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-            {selected.proposal.status === 'stale' && (
-              <>
-                <button
-                  className={styles.reCurateButton}
-                  data-testid="lore-curate-button"
+                  className={styles.curateButton}
                   onClick={handleReCurate}
                   disabled={curating}
                 >
-                  {curating ? 'Re-curating...' : 'Re-curate'}
+                  {curating ? 'Curating...' : 'Trigger Curation'}
                 </button>
-                <button
-                  className={styles.dismissButton}
-                  data-testid="lore-dismiss-stale-button"
-                  onClick={() => handleDismiss(selected.proposal)}
-                >
-                  Dismiss
-                </button>
-              </>
-            )}
-          </div>
-
-          {selected.proposal.entries_used?.length > 0 && (
-            <div className={styles.entriesUsed}>
-              <h4>Entries Used</h4>
-              <ul>
-                {selected.proposal.entries_used.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
+              </div>
+              <div className={styles.entriesList} data-testid="lore-entries">
+                {rawEntries.length === 0 ? (
+                  <p className={styles.empty}>No raw signal entries yet.</p>
+                ) : (
+                  rawEntries.map((e, i) => (
+                    <div key={i} className={styles.entryCard} data-entry-type={e.type}>
+                      <div className={styles.entryMeta}>
+                        <span className={styles.entryType}>{e.type}</span>
+                        <span className={styles.entryAgent}>{e.agent}</span>
+                        {e.tool && <span className={styles.entryTool}>{e.tool}</span>}
+                        {e.category && <span className={styles.entryCategory}>{e.category}</span>}
+                        <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
+                      </div>
+                      <div className={styles.entryText}>
+                        {e.type === 'failure'
+                          ? `${e.input_summary} → "${e.error_summary}"`
+                          : e.text}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
           )}
         </section>
-      )}
-
-      {/* Raw Entries Section */}
-      <section className={styles.section}>
-        <h3>
-          <button className={styles.toggleButton} onClick={() => setShowEntries(!showEntries)}>
-            {showEntries ? '\u25BC' : '\u25B6'} Raw Entries ({rawEntries.length})
-          </button>
-        </h3>
-        {showEntries && (
-          <>
-            <div className={styles.filterBar} data-testid="lore-filter-bar">
-              <select
-                className={styles.filterSelect}
-                data-testid="lore-filter-state"
-                value={entryFilters.state || ''}
-                onChange={(e) =>
-                  setEntryFilters({ ...entryFilters, state: e.target.value || undefined })
-                }
-              >
-                <option value="">All states</option>
-                <option value="raw">raw</option>
-                <option value="proposed">proposed</option>
-                <option value="applied">applied</option>
-                <option value="dismissed">dismissed</option>
-              </select>
-              <select
-                className={styles.filterSelect}
-                data-testid="lore-filter-agent"
-                value={entryFilters.agent || ''}
-                onChange={(e) =>
-                  setEntryFilters({ ...entryFilters, agent: e.target.value || undefined })
-                }
-              >
-                <option value="">All agents</option>
-                {uniqueAgents.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={styles.filterSelect}
-                data-testid="lore-filter-type"
-                value={entryFilters.type || ''}
-                onChange={(e) =>
-                  setEntryFilters({ ...entryFilters, type: e.target.value || undefined })
-                }
-              >
-                <option value="">All types</option>
-                {uniqueTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className={styles.entriesList} data-testid="lore-entries">
-              {rawEntries.length === 0 ? (
-                <p className={styles.empty}>No raw lore entries yet.</p>
-              ) : (
-                rawEntries.map((e, i) => (
-                  <div key={i} className={styles.entryCard}>
-                    <div className={styles.entryMeta}>
-                      <span className={styles.entryAgent}>{e.agent}</span>
-                      <span className={styles.entryType}>{e.type}</span>
-                      <span className={styles.entryWs}>{e.ws}</span>
-                      <span className={styles.entryTs}>{new Date(e.ts).toLocaleString()}</span>
-                    </div>
-                    <div className={styles.entryText}>{e.text}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </section>
+      </div>
     </div>
   );
 }

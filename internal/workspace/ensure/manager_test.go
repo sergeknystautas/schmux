@@ -1,4 +1,4 @@
-package provision
+package ensure
 
 import (
 	"encoding/json"
@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-func TestEnsureAgentInstructions_CreatesNewFile(t *testing.T) {
+func TestAgentInstructions_CreatesNewFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	err := EnsureAgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude")
 	if err != nil {
-		t.Fatalf("EnsureAgentInstructions failed: %v", err)
+		t.Fatalf("AgentInstructions failed: %v", err)
 	}
 
 	// Check that the file was created
@@ -35,7 +35,7 @@ func TestEnsureAgentInstructions_CreatesNewFile(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentInstructions_AppendsToExisting(t *testing.T) {
+func TestAgentInstructions_AppendsToExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create existing instruction file
@@ -49,9 +49,9 @@ func TestEnsureAgentInstructions_AppendsToExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := EnsureAgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude")
 	if err != nil {
-		t.Fatalf("EnsureAgentInstructions failed: %v", err)
+		t.Fatalf("AgentInstructions failed: %v", err)
 	}
 
 	content, err := os.ReadFile(instructionPath)
@@ -73,7 +73,7 @@ func TestEnsureAgentInstructions_AppendsToExisting(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentInstructions_UpdatesExisting(t *testing.T) {
+func TestAgentInstructions_UpdatesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create existing instruction file with old schmux block
@@ -87,9 +87,9 @@ func TestEnsureAgentInstructions_UpdatesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := EnsureAgentInstructions(tmpDir, "claude")
+	err := AgentInstructions(tmpDir, "claude")
 	if err != nil {
-		t.Fatalf("EnsureAgentInstructions failed: %v", err)
+		t.Fatalf("AgentInstructions failed: %v", err)
 	}
 
 	content, err := os.ReadFile(instructionPath)
@@ -113,7 +113,7 @@ func TestEnsureAgentInstructions_UpdatesExisting(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentInstructions_DifferentAgents(t *testing.T) {
+func TestAgentInstructions_DifferentAgents(t *testing.T) {
 	tests := []struct {
 		target       string
 		expectedDir  string
@@ -130,9 +130,9 @@ func TestEnsureAgentInstructions_DifferentAgents(t *testing.T) {
 		t.Run(tt.target, func(t *testing.T) {
 			tmpDir := t.TempDir()
 
-			err := EnsureAgentInstructions(tmpDir, tt.target)
+			err := AgentInstructions(tmpDir, tt.target)
 			if err != nil {
-				t.Fatalf("EnsureAgentInstructions failed: %v", err)
+				t.Fatalf("AgentInstructions failed: %v", err)
 			}
 
 			instructionPath := filepath.Join(tmpDir, tt.expectedDir, tt.expectedFile)
@@ -143,13 +143,13 @@ func TestEnsureAgentInstructions_DifferentAgents(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentInstructions_UnknownTarget(t *testing.T) {
+func TestAgentInstructions_UnknownTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Unknown target should not create any files
-	err := EnsureAgentInstructions(tmpDir, "unknown-agent")
+	err := AgentInstructions(tmpDir, "unknown-agent")
 	if err != nil {
-		t.Fatalf("EnsureAgentInstructions should not error for unknown target: %v", err)
+		t.Fatalf("AgentInstructions should not error for unknown target: %v", err)
 	}
 
 	// No files should be created
@@ -163,13 +163,13 @@ func TestRemoveAgentInstructions(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// First ensure instructions exist
-	if err := EnsureAgentInstructions(tmpDir, "claude"); err != nil {
+	if err := AgentInstructions(tmpDir, "claude"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify they exist
 	if !HasSignalingInstructions(tmpDir, "claude") {
-		t.Fatal("Instructions should exist after EnsureAgentInstructions")
+		t.Fatal("Instructions should exist after AgentInstructions")
 	}
 
 	// Remove them
@@ -226,7 +226,7 @@ func TestHasSignalingInstructions(t *testing.T) {
 	}
 
 	// Add instructions
-	if err := EnsureAgentInstructions(tmpDir, "claude"); err != nil {
+	if err := AgentInstructions(tmpDir, "claude"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,12 +236,12 @@ func TestHasSignalingInstructions(t *testing.T) {
 	}
 }
 
-func TestEnsureSignalingInstructionsFile(t *testing.T) {
+func TestSignalingInstructionsFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
-	if err := EnsureSignalingInstructionsFile(); err != nil {
-		t.Fatalf("EnsureSignalingInstructionsFile failed: %v", err)
+	if err := SignalingInstructionsFile(); err != nil {
+		t.Fatalf("SignalingInstructionsFile failed: %v", err)
 	}
 
 	path := filepath.Join(tmpHome, ".schmux", "signaling.md")
@@ -275,11 +275,11 @@ func TestSupportsHooks(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_CreatesNewFile(t *testing.T) {
+func TestClaudeHooks_CreatesNewFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
-		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	if err := ClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
@@ -327,7 +327,7 @@ func TestEnsureClaudeHooks_CreatesNewFile(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_PreservesOtherSettings(t *testing.T) {
+func TestClaudeHooks_PreservesOtherSettings(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create existing settings file with other settings
@@ -341,8 +341,8 @@ func TestEnsureClaudeHooks_PreservesOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
-		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	if err := ClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
 	content, err := os.ReadFile(settingsPath)
@@ -369,22 +369,22 @@ func TestEnsureClaudeHooks_PreservesOtherSettings(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_Idempotent(t *testing.T) {
+func TestClaudeHooks_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Run twice
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatalf("First call failed: %v", err)
 	}
 	content1, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatalf("Second call failed: %v", err)
 	}
 	content2, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
 
 	if string(content1) != string(content2) {
-		t.Error("EnsureClaudeHooks should be idempotent")
+		t.Error("ClaudeHooks should be idempotent")
 	}
 }
 
@@ -411,10 +411,10 @@ func TestClaudeHooksJSON(t *testing.T) {
 	}
 }
 
-func TestWrapCommandWithHooksProvisioning(t *testing.T) {
-	wrapped, err := WrapCommandWithHooksProvisioning(`claude "hello world"`)
+func TestWrapCommandWithHooks(t *testing.T) {
+	wrapped, err := WrapCommandWithHooks(`claude "hello world"`)
 	if err != nil {
-		t.Fatalf("WrapCommandWithHooksProvisioning failed: %v", err)
+		t.Fatalf("WrapCommandWithHooks failed: %v", err)
 	}
 
 	// Should start with mkdir
@@ -465,7 +465,7 @@ func TestClaudeHooksNotificationMatcher(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_MergesWithExistingHooks(t *testing.T) {
+func TestClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create existing settings with user-defined hooks
@@ -504,8 +504,8 @@ func TestEnsureClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
-		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	if err := ClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
 	content, err := os.ReadFile(settingsPath)
@@ -554,11 +554,11 @@ func TestEnsureClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
+func TestClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// First provisioning
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -587,7 +587,7 @@ func TestEnsureClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 	os.WriteFile(settingsPath, data, 0644)
 
 	// Second provisioning should replace schmux hooks but keep user hook
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -817,7 +817,7 @@ func TestMergeHooksForEvent(t *testing.T) {
 	})
 }
 
-func TestEnsureClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
+func TestClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create settings with a schmux hook on an event that schmux no longer manages
@@ -855,7 +855,7 @@ func TestEnsureClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -876,7 +876,7 @@ func TestEnsureClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
+func TestClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create settings with a schmux-only hook on an event schmux no longer manages
@@ -904,7 +904,7 @@ func TestEnsureClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -921,7 +921,7 @@ func TestEnsureClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_MalformedExistingHooks(t *testing.T) {
+func TestClaudeHooks_MalformedExistingHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create settings with malformed hooks value
@@ -936,8 +936,8 @@ func TestEnsureClaudeHooks_MalformedExistingHooks(t *testing.T) {
 	}
 
 	// Should not error, just start fresh for hooks
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
-		t.Fatalf("EnsureClaudeHooks should handle malformed hooks: %v", err)
+	if err := ClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("ClaudeHooks should handle malformed hooks: %v", err)
 	}
 
 	content, _ := os.ReadFile(settingsPath)
@@ -1079,11 +1079,11 @@ func TestBuildClaudeHooksMap_SessionEndHook(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_SessionEndOnDisk(t *testing.T) {
+func TestClaudeHooks_SessionEndOnDisk(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
-		t.Fatalf("EnsureClaudeHooks failed: %v", err)
+	if err := ClaudeHooks(tmpDir); err != nil {
+		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
@@ -1118,10 +1118,10 @@ func TestEnsureClaudeHooks_SessionEndOnDisk(t *testing.T) {
 	}
 }
 
-func TestWrapCommandWithHooksProvisioning_IncludesSessionEnd(t *testing.T) {
-	wrapped, err := WrapCommandWithHooksProvisioning("claude test")
+func TestWrapCommandWithHooks_IncludesSessionEnd(t *testing.T) {
+	wrapped, err := WrapCommandWithHooks("claude test")
 	if err != nil {
-		t.Fatalf("WrapCommandWithHooksProvisioning failed: %v", err)
+		t.Fatalf("WrapCommandWithHooks failed: %v", err)
 	}
 
 	if !strings.Contains(wrapped, "SessionEnd") {
@@ -1129,7 +1129,7 @@ func TestWrapCommandWithHooksProvisioning_IncludesSessionEnd(t *testing.T) {
 	}
 }
 
-func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
+func TestClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	settingsDir := filepath.Join(tmpDir, ".claude")
@@ -1167,7 +1167,7 @@ func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1193,5 +1193,55 @@ func TestEnsureClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 	}
 	if !isSchmuxMatcherGroup(notifGroups[2]) {
 		t.Error("Schmux notification hook should be appended last")
+	}
+}
+
+func TestClaudeHooksIncludeLoreHooks(t *testing.T) {
+	hooks := buildClaudeHooksMap()
+
+	// PostToolUseFailure hook should exist
+	ptuf, ok := hooks["PostToolUseFailure"]
+	if !ok {
+		t.Fatal("PostToolUseFailure hook not found")
+	}
+	if len(ptuf) == 0 || len(ptuf[0].Hooks) == 0 {
+		t.Fatal("PostToolUseFailure should have at least one handler")
+	}
+	if !strings.Contains(ptuf[0].Hooks[0].Command, "capture-failure") {
+		t.Errorf("PostToolUseFailure command should reference capture-failure script, got: %s", ptuf[0].Hooks[0].Command)
+	}
+
+	// Stop hook should exist and reference stop-gate
+	stop, ok := hooks["Stop"]
+	if !ok {
+		t.Fatal("Stop hook not found")
+	}
+	foundStopGate := false
+	for _, group := range stop {
+		for _, h := range group.Hooks {
+			if strings.Contains(h.Command, "stop-gate") {
+				foundStopGate = true
+			}
+		}
+	}
+	if !foundStopGate {
+		t.Error("Stop hook should include stop-gate handler")
+	}
+}
+
+func TestLoreHookScripts(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := LoreHookScripts(tmpDir); err != nil {
+		t.Fatalf("LoreHookScripts failed: %v", err)
+	}
+	for _, name := range []string{"capture-failure.sh", "stop-gate.sh"} {
+		path := filepath.Join(tmpDir, ".schmux", "hooks", name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("script %s not found: %v", name, err)
+		}
+		if info.Mode()&0111 == 0 {
+			t.Errorf("script %s should be executable", name)
+		}
 	}
 }

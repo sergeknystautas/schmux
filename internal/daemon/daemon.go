@@ -15,7 +15,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/compound"
@@ -28,11 +27,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
+	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
 	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -252,6 +253,10 @@ func Status() (running bool, url string, startedAt string, err error) {
 
 	url = fmt.Sprintf("http://localhost:%d", dashboardPort)
 	if cfg, err := config.Load(filepath.Join(homeDir, ".schmux", "config.json")); err == nil {
+		// Use configured port if available (may differ from default dashboardPort)
+		if cfgPort := cfg.GetPort(); cfgPort != 0 {
+			url = fmt.Sprintf("http://localhost:%d", cfgPort)
+		}
 		if cfg.GetAuthEnabled() && cfg.GetPublicBaseURL() != "" {
 			url = cfg.GetPublicBaseURL()
 		}
@@ -419,40 +424,29 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
 
+	// Create tunnel manager for remote access
+	tunnelMgr := tunnel.NewManager(tunnel.ManagerConfig{
+		Disabled:          func() bool { return !cfg.GetRemoteAccessEnabled() },
+		PasswordHashSet:   func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
+		Port:              cfg.GetPort(),
+		BindAddress:       cfg.GetBindAddress(),
+		AllowAutoDownload: cfg.GetRemoteAccessAllowAutoDownload(),
+		SchmuxBinDir:      filepath.Join(filepath.Dir(statePath), "bin"),
+		TimeoutMinutes:    cfg.GetRemoteAccessTimeoutMinutes(),
+		OnStatusChange: func(status tunnel.TunnelStatus) {
+			server.BroadcastTunnelStatus(status)
+			if status.State == tunnel.StateConnected && status.URL != "" {
+				server.HandleTunnelConnected(status.URL)
+			}
+		},
+	})
+	server.SetTunnelManager(tunnelMgr)
+
 	// Wire signal detection: file watcher → session manager → dashboard server
 	// MUST happen before tracker creation so trackers capture a non-nil callback.
 	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
 		server.HandleAgentSignal(sessionID, sig)
 	})
-
-	// Wire terminal capture callback: on session dispose, capture scrollback for lore mining
-	if cfg.GetLoreEnabled() {
-		sm.SetTerminalCaptureCallback(func(sessionID, workspaceID, terminalOutput string) {
-			ws, found := st.GetWorkspace(workspaceID)
-			if !found || ws.RemoteHostID != "" {
-				return
-			}
-
-			cleaned := processTerminalCapture(terminalOutput)
-			if cleaned == "" {
-				return
-			}
-
-			lorePath := filepath.Join(ws.Path, ".schmux", "lore.jsonl")
-			entry := lore.Entry{
-				Timestamp: time.Now().UTC(),
-				Workspace: workspaceID,
-				Agent:     "schmux",
-				Type:      "terminal-capture",
-				Text:      cleaned,
-			}
-			if err := lore.AppendEntry(lorePath, entry); err != nil {
-				fmt.Printf("[lore] warning: failed to append terminal capture for %s: %v\n", sessionID, err)
-			} else {
-				fmt.Printf("[lore] captured terminal output for session %s (%d chars)\n", sessionID, len(cleaned))
-			}
-		})
-	}
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
@@ -708,7 +702,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		}
 		if target := cfg.GetLoreTarget(); target != "" {
 			loreCurator.Executor = func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, "", timeout, "")
+				return oneshot.ExecuteTarget(ctx, cfg, target, prompt, schema.LabelLoreCurator, timeout, "")
 			}
 		}
 
@@ -763,13 +757,17 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				}
 				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
 
+				fmt.Printf("[lore] auto-curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
+				start := time.Now()
+
 				proposal, err := loreCurator.CurateWithEntries(shutdownCtx, repoName, bareDir, rawEntries)
+				elapsed := time.Since(start)
 				if err != nil {
-					fmt.Printf("[lore] curation failed: %v\n", err)
+					fmt.Printf("[lore] auto-curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
 					return
 				}
 				if proposal == nil {
-					fmt.Printf("[lore] no raw entries to curate for %s\n", repoName)
+					fmt.Printf("[lore] auto-curate %s: LLM returned no proposal (%s)\n", repoName, elapsed.Round(time.Millisecond))
 					return
 				}
 
@@ -777,7 +775,8 @@ func Run(background bool, devProxy bool, devMode bool) error {
 					fmt.Printf("[lore] failed to save proposal: %v\n", err)
 					return
 				}
-				fmt.Printf("[lore] proposal %s created for %s: %s\n", proposal.ID, repoName, proposal.DiffSummary)
+				fmt.Printf("[lore] auto-curate %s: proposal %s created (%d files, %d entries used, %s)\n",
+					repoName, proposal.ID, len(proposal.ProposedFiles), len(proposal.EntriesUsed), elapsed.Round(time.Millisecond))
 
 				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
@@ -914,6 +913,9 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	// Shutdown telemetry (flush pending events)
 	tel.Shutdown()
 
+	// Stop tunnel manager
+	tunnelMgr.Stop()
+
 	// Stop git watcher
 	if gitWatcher != nil {
 		gitWatcher.Stop()
@@ -933,76 +935,6 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		return ErrDevRestart
 	}
 	return nil
-}
-
-// maxTerminalCaptureLen is the maximum number of characters to keep from terminal output.
-const maxTerminalCaptureLen = 20000
-
-// processTerminalCapture strips ANSI escape sequences, collapses excessive whitespace,
-// truncates to the last maxTerminalCaptureLen characters, and returns empty string
-// if only whitespace remains.
-func processTerminalCapture(raw string) string {
-	cleaned := tmux.StripAnsi(raw)
-
-	// Collapse runs of 3+ newlines to 2 newlines
-	for strings.Contains(cleaned, "\n\n\n") {
-		cleaned = strings.ReplaceAll(cleaned, "\n\n\n", "\n\n")
-	}
-
-	// Collapse runs of spaces/tabs within lines (preserve leading whitespace)
-	lines := strings.Split(cleaned, "\n")
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-		// Find leading whitespace boundary
-		trimmed := strings.TrimLeft(line, " \t")
-		if trimmed == "" {
-			lines[i] = ""
-			continue
-		}
-		leading := line[:len(line)-len(trimmed)]
-		// Collapse interior runs of spaces/tabs to single space
-		collapsed := collapseInnerWhitespace(trimmed)
-		lines[i] = leading + collapsed
-	}
-	cleaned = strings.Join(lines, "\n")
-
-	if len(cleaned) > maxTerminalCaptureLen {
-		cleaned = cleaned[len(cleaned)-maxTerminalCaptureLen:]
-		// Ensure we don't start mid-rune after byte-level truncation.
-		// Find the first valid rune boundary.
-		for i := 0; i < len(cleaned) && i < 4; i++ {
-			if utf8.RuneStart(cleaned[i]) {
-				cleaned = cleaned[i:]
-				break
-			}
-		}
-	}
-	if strings.TrimSpace(cleaned) == "" {
-		return ""
-	}
-	return cleaned
-}
-
-// collapseInnerWhitespace collapses runs of spaces/tabs to a single space
-// within a line of text (leading whitespace should be stripped before calling).
-func collapseInnerWhitespace(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	inSpace := false
-	for _, r := range s {
-		if r == ' ' || r == '\t' {
-			if !inSpace {
-				b.WriteByte(' ')
-				inSpace = true
-			}
-		} else {
-			b.WriteRune(r)
-			inSpace = false
-		}
-	}
-	return b.String()
 }
 
 // Shutdown triggers a graceful shutdown. Safe to call multiple times.

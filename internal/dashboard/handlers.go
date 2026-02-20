@@ -29,6 +29,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -45,6 +46,13 @@ func extractPathSegment(path, prefix, suffix string) string {
 		s = strings.TrimSuffix(s, suffix)
 	}
 	return s
+}
+
+// writeJSONError writes a JSON error response with the given status code.
+func writeJSONError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 // handleApp serves the React application entry point for UI routes.
@@ -391,7 +399,7 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.workspace.Scan()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if s.previewManager != nil {
@@ -497,22 +505,22 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req SpawnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	if req.QuickLaunchName != "" {
 		if req.Command != "" || len(req.Targets) > 0 {
-			http.Error(w, "cannot specify quick_launch_name with command or targets", http.StatusBadRequest)
+			writeJSONError(w, "cannot specify quick_launch_name with command or targets", http.StatusBadRequest)
 			return
 		}
 		if req.WorkspaceID == "" {
-			http.Error(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
+			writeJSONError(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
 			return
 		}
 		resolved, err := s.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Nickname == "" {
@@ -540,32 +548,32 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if req.WorkspaceID == "" && req.RemoteFlavorID == "" {
 		// When not spawning into existing workspace and not remote, repo and branch are required
 		if req.Repo == "" {
-			http.Error(w, "repo is required (when not using --workspace or remote)", http.StatusBadRequest)
+			writeJSONError(w, "repo is required (when not using --workspace or remote)", http.StatusBadRequest)
 			return
 		}
 		if req.Branch == "" {
-			http.Error(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
+			writeJSONError(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
 			return
 		}
 	}
 	// Either command or targets must be provided
 	if req.Command == "" && len(req.Targets) == 0 {
-		http.Error(w, "either command or targets is required", http.StatusBadRequest)
+		writeJSONError(w, "either command or targets is required", http.StatusBadRequest)
 		return
 	}
 	if req.Command != "" && len(req.Targets) > 0 {
-		http.Error(w, "cannot specify both command and targets", http.StatusBadRequest)
+		writeJSONError(w, "cannot specify both command and targets", http.StatusBadRequest)
 		return
 	}
 
 	// Validate resume mode
 	if req.Resume {
 		if req.Command != "" {
-			http.Error(w, "cannot use command mode with resume", http.StatusBadRequest)
+			writeJSONError(w, "cannot use command mode with resume", http.StatusBadRequest)
 			return
 		}
 		if strings.TrimSpace(req.Prompt) != "" {
-			http.Error(w, "cannot use prompt with resume mode", http.StatusBadRequest)
+			writeJSONError(w, "cannot use prompt with resume mode", http.StatusBadRequest)
 			return
 		}
 	}
@@ -575,7 +583,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if req.WorkspaceID == "" && s.config.UseWorktrees() {
 		for _, ws := range s.state.GetWorkspaces() {
 			if ws.Repo == req.Repo && ws.Branch == req.Branch {
-				http.Error(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
+				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
 				return
 			}
 		}
@@ -598,7 +606,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if req.Command != "" {
 		// Remote command spawns are not currently supported
 		if req.RemoteFlavorID != "" {
-			http.Error(w, "remote command spawns are not supported (only target-based spawns work on remote hosts)", http.StatusBadRequest)
+			writeJSONError(w, "remote command spawns are not supported (only target-based spawns work on remote hosts)", http.StatusBadRequest)
 			return
 		}
 
@@ -940,7 +948,7 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL: /api/sessions/{id}/dispose
 	sessionID := extractPathSegment(r.URL.Path, "/api/sessions/", "/dispose")
 	if sessionID == "" {
-		http.Error(w, "session ID is required", http.StatusBadRequest)
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -955,7 +963,7 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
 		fmt.Printf("[session] dispose error: session_id=%s error=%v\n", sessionID, err)
-		http.Error(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	cancel()
@@ -987,7 +995,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	// Extract workspace ID from URL: /api/workspaces/{id}/dispose
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -1032,7 +1040,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	// Extract workspace ID from URL: /api/workspaces/{id}/dispose-all
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose-all")
 	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -1118,13 +1126,13 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL: /api/sessions-nickname/{session-id}
 	sessionID := strings.TrimPrefix(r.URL.Path, "/api/sessions-nickname/")
 	if sessionID == "" {
-		http.Error(w, "session ID is required", http.StatusBadRequest)
+		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	var req UpdateNicknameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -1135,12 +1143,10 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if this is a nickname conflict error
 		if strings.Contains(err.Error(), "already in use") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict) // 409 Conflict
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			writeJSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
+		writeJSONError(w, fmt.Sprintf("Failed to rename session: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1334,6 +1340,15 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			LLMTarget:       s.config.GetLoreTargetRaw(),
 			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
 			AutoPR:          s.config.GetLoreAutoPR(),
+		},
+		RemoteAccess: contracts.RemoteAccess{
+			Enabled:         s.config.GetRemoteAccessEnabled(),
+			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
+			PasswordHashSet: s.config.GetRemoteAccessPasswordHash() != "",
+			Notify: contracts.RemoteAccessNotify{
+				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
+				Command:   s.config.GetRemoteAccessNotifyCommand(),
+			},
 		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
@@ -1638,6 +1653,32 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		cfg.SetModelVersions(*req.ModelVersions)
 	}
 
+	if req.RemoteAccess != nil {
+		if cfg.RemoteAccess == nil {
+			cfg.RemoteAccess = &config.RemoteAccessConfig{}
+		}
+		if req.RemoteAccess.Enabled != nil {
+			enabled := *req.RemoteAccess.Enabled
+			cfg.RemoteAccess.Enabled = &enabled
+			// Clear deprecated field when new field is explicitly set
+			cfg.RemoteAccess.Disabled = nil
+		}
+		if req.RemoteAccess.TimeoutMinutes != nil {
+			cfg.RemoteAccess.TimeoutMinutes = *req.RemoteAccess.TimeoutMinutes
+		}
+		if req.RemoteAccess.Notify != nil {
+			if cfg.RemoteAccess.Notify == nil {
+				cfg.RemoteAccess.Notify = &config.RemoteAccessNotifyConfig{}
+			}
+			if req.RemoteAccess.Notify.NtfyTopic != nil {
+				cfg.RemoteAccess.Notify.NtfyTopic = strings.TrimSpace(*req.RemoteAccess.Notify.NtfyTopic)
+			}
+			if req.RemoteAccess.Notify.Command != nil {
+				cfg.RemoteAccess.Notify.Command = strings.TrimSpace(*req.RemoteAccess.Notify.Command)
+			}
+		}
+	}
+
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
 		fmt.Printf("[config] validation error: %v\n", err)
@@ -1655,6 +1696,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[config] failed to save config: %v\n", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// If remote access is disabled but a tunnel is active, stop it immediately.
+	// This prevents a security hole where an active tunnel could bypass auth
+	// after the config is reloaded with remote_access.enabled = false.
+	if !cfg.GetRemoteAccessEnabled() && s.tunnelManager != nil {
+		status := s.tunnelManager.Status()
+		if status.State == tunnel.StateConnected || status.State == tunnel.StateStarting {
+			fmt.Printf("[remote-access] stopping tunnel because remote_access is disabled\n")
+			s.tunnelManager.Stop()
+			s.ClearRemoteAuth()
+		}
 	}
 
 	// Update PR discovery polling based on new config

@@ -74,12 +74,17 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Check for node_modules
+# Ensure npm dependencies are installed and up to date
 ensure_npm_deps() {
     local dashboard_dir="$1/assets/dashboard"
     if [[ ! -d "$dashboard_dir/node_modules" ]]; then
         echo -e "${YELLOW}[dev]${NC} Installing npm dependencies in ${dashboard_dir}..."
-        (cd "$dashboard_dir" && npm install --silent)
+        (cd "$dashboard_dir" && npm install)
+    else
+        # Always run npm install when switching workspaces — node_modules may
+        # exist but be stale (workspace behind main, different package.json).
+        echo -e "${YELLOW}[dev]${NC} Syncing npm dependencies in ${dashboard_dir}..."
+        (cd "$dashboard_dir" && npm install)
     fi
 }
 
@@ -226,7 +231,7 @@ SEOF
     # Run the daemon (output to terminal with color prefixes + raw log on disk)
     : > "$DEV_LOG_FILE"  # truncate log on each daemon restart
     set +e
-    "$BINARY" daemon-run --dev-mode 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
+    "$BINARY" daemon-run --dev-mode --dev-proxy 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
     EXIT_CODE=${PIPESTATUS[0]}
     DAEMON_PID=""
     set -e

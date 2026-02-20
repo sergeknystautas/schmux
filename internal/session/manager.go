@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -16,13 +14,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
-	"github.com/sergeknystautas/schmux/internal/provision"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
@@ -30,12 +28,6 @@ const (
 	// maxNicknameAttempts is the maximum number of attempts to find a unique nickname
 	// before falling back to a UUID suffix.
 	maxNicknameAttempts = 100
-
-	// processKillPollInterval is how often to check if a process has exited after SIGTERM
-	processKillPollInterval = 100 * time.Millisecond
-
-	// orphanGracePeriod is the grace period for orphaned processes (shorter than main)
-	orphanGracePeriod = 5 * time.Second
 )
 
 // Manager manages sessions.
@@ -46,12 +38,12 @@ type Manager struct {
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	signalCallback          func(sessionID string, sig signal.Signal)
 	outputCallback          func(sessionID string, chunk []byte)
-	terminalCaptureCallback func(sessionID, workspaceID, terminalOutput string) // called on dispose with terminal scrollback
 	trackers                map[string]*SessionTracker
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
 	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
+	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 }
 
@@ -121,10 +113,9 @@ func (m *Manager) SetLoreCallback(cb func(repoName, repoURL string, isLastSessio
 	m.loreCallback = cb
 }
 
-// SetTerminalCaptureCallback sets the callback for capturing terminal output on session dispose.
-// The callback receives the session ID, workspace ID, and the captured terminal scrollback.
+// SetTerminalCaptureCallback sets the callback for capturing terminal output before session dispose.
 // Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, terminalOutput string)) {
+func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, output string)) {
 	m.terminalCaptureCallback = cb
 }
 
@@ -423,8 +414,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	// For Claude targets, prepend hooks provisioning to the command so hooks
 	// are in place before Claude Code starts (it captures hooks at startup).
 	baseTool := detect.GetBaseToolName(targetName)
-	if provision.SupportsHooks(baseTool) {
-		command, err = provision.WrapCommandWithHooksProvisioning(command)
+	if ensure.SupportsHooks(baseTool) {
+		command, err = ensure.WrapCommandWithHooks(command)
 		if err != nil {
 			fmt.Printf("[session] warning: failed to wrap command with hooks provisioning: %v\n", err)
 		}
@@ -474,29 +465,30 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		go func() {
 			select {
 			case result := <-resultCh:
-				// Re-read session from state to avoid overwriting concurrent changes.
-				current, ok := m.state.GetSession(sessionID)
+				var updatedStatus string
+				var updatedSess state.Session
+				ok := m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
+					if result.Error != nil {
+						fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
+						sess.Status = "failed"
+					} else {
+						fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
+							sessionID, result.WindowID, result.PaneID)
+						sess.Status = "running"
+						sess.RemoteWindow = result.WindowID
+						sess.RemotePaneID = result.PaneID
+					}
+					updatedStatus = sess.Status
+					updatedSess = *sess
+				})
 				if !ok {
 					fmt.Printf("[session] queued session %s: session no longer in state\n", sessionID)
 					return
 				}
-				if result.Error != nil {
-					fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
-					current.Status = "failed"
-				} else {
-					fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
-						sessionID, result.WindowID, result.PaneID)
-					current.Status = "running"
-					current.RemoteWindow = result.WindowID
-					current.RemotePaneID = result.PaneID
-				}
-				if err := m.state.UpdateSession(current); err != nil {
-					fmt.Printf("[session] queued session %s: failed to update state: %v\n", sessionID, err)
-				}
 				if err := m.state.Save(); err != nil {
 					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
 				}
-				if current.Status == "running" {
+				if updatedStatus == "running" {
 					// Ensure .schmux/signal directory exists on remote host for file-based signaling
 					qConn := m.remoteManager.GetConnection(host.ID)
 					if qConn != nil && qConn.IsConnected() {
@@ -506,7 +498,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 						}
 						mkCancel()
 					}
-					m.StartRemoteSignalMonitor(current)
+					m.StartRemoteSignalMonitor(updatedSess)
 				}
 			}
 		}()
@@ -612,17 +604,20 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Provision agent signaling mechanism
 	baseTool := detect.GetBaseToolName(opts.TargetName)
-	if provision.SupportsHooks(baseTool) {
+	if ensure.SupportsHooks(baseTool) {
 		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
-		if err := provision.EnsureClaudeHooks(w.Path); err != nil {
+		if err := ensure.ClaudeHooks(w.Path); err != nil {
 			fmt.Printf("[session] warning: failed to provision Claude hooks: %v\n", err)
 		}
-	} else if provision.SupportsSystemPromptFlag(baseTool) {
-		if err := provision.EnsureSignalingInstructionsFile(); err != nil {
+		if err := ensure.LoreHookScripts(w.Path); err != nil {
+			fmt.Printf("[session] warning: failed to write lore hook scripts: %v\n", err)
+		}
+	} else if ensure.SupportsSystemPromptFlag(baseTool) {
+		if err := ensure.SignalingInstructionsFile(); err != nil {
 			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
 		}
 	} else {
-		if err := provision.EnsureAgentInstructions(w.Path, opts.TargetName); err != nil {
+		if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
 			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
 		}
 	}
@@ -942,18 +937,18 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // paths like ~/.schmux/signaling.md don't exist on the remote host.
 // Claude is skipped here because it uses hooks for signaling instead.
 func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
-	if provision.SupportsHooks(baseTool) {
+	if ensure.SupportsHooks(baseTool) {
 		// Claude uses hooks for signaling, no CLI flag needed
 		return cmd
 	}
-	if !provision.SupportsSystemPromptFlag(baseTool) {
+	if !ensure.SupportsSystemPromptFlag(baseTool) {
 		return cmd
 	}
 	if isRemote {
 		// Remote mode: always use inline content (file paths are local-only)
 		switch baseTool {
 		case "claude":
-			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
+			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
 		default:
 			// Codex and others: no reliable remote inline injection mechanism
 			return cmd
@@ -962,11 +957,11 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	// Local mode: use file-based injection
 	switch baseTool {
 	case "claude":
-		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(ensure.SignalingInstructionsFilePath()))
 	case "codex":
-		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+provision.SignalingInstructionsFilePath()))
+		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+ensure.SignalingInstructionsFilePath()))
 	default:
-		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(provision.SignalingInstructions))
+		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
 	}
 }
 
@@ -1046,106 +1041,6 @@ func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	return true
 }
 
-// killProcessGroupGraceful sends SIGTERM to a process group and polls until the
-// process exits or the timeout expires, then escalates to SIGKILL.
-// Respects context cancellation (force-kills immediately on cancel).
-func killProcessGroupGraceful(ctx context.Context, pid int, timeout time.Duration) error {
-	// Try process group first (negative PID)
-	pgKill := func(sig syscall.Signal) error {
-		return syscall.Kill(-pid, sig)
-	}
-	pgAlive := func() bool {
-		return syscall.Kill(-pid, syscall.Signal(0)) == nil
-	}
-
-	// If process group doesn't exist, fall back to direct PID
-	if err := pgKill(syscall.SIGTERM); err != nil {
-		// Check if direct process exists
-		if syscall.Kill(pid, syscall.Signal(0)) != nil {
-			return nil // Process doesn't exist, nothing to do
-		}
-		// Fall back to direct PID
-		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-			return nil // Process already dead
-		}
-		pgKill = func(sig syscall.Signal) error {
-			return syscall.Kill(pid, sig)
-		}
-		pgAlive = func() bool {
-			return syscall.Kill(pid, syscall.Signal(0)) == nil
-		}
-	}
-
-	// Poll until process exits or timeout
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(processKillPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Context cancelled — force kill immediately
-			if pgAlive() {
-				pgKill(syscall.SIGKILL) //nolint:errcheck
-			}
-			return nil
-		case <-deadline:
-			// Timeout — escalate to SIGKILL
-			if pgAlive() {
-				if err := pgKill(syscall.SIGKILL); err != nil {
-					fmt.Printf("[session] warning: failed to send SIGKILL to process %d: %v\n", pid, err)
-				}
-			}
-			return nil
-		case <-ticker.C:
-			if !pgAlive() {
-				return nil // Process exited cleanly
-			}
-		}
-	}
-}
-
-// findProcessesInWorkspace finds all processes with a working directory in the given workspace path.
-// Returns a list of PIDs. Returns empty slice if no processes found (not an error).
-func findProcessesInWorkspace(workspacePath string) ([]int, error) {
-	// Normalize workspace path for proper matching
-	workspacePath = filepath.Clean(workspacePath)
-	// Ensure path ends with separator for proper prefix matching
-	workspacePrefix := workspacePath + string(filepath.Separator)
-
-	// Use ps to find processes with cwd matching the workspace path
-	cmd := exec.Command("ps", "-eo", "pid,cwd")
-	output, err := cmd.Output()
-	// If ps fails, return empty (no processes to kill)
-	// This handles cases where ps returns exit status 1 due to no matches
-	if err != nil {
-		return nil, nil
-	}
-
-	var pids []int
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pidStr := fields[0]
-		cwd := fields[1]
-
-		// Check if the working directory matches or is within the workspace
-		// Use proper path separator to avoid matching similar paths (e.g., /workspace vs /workspace-backup)
-		if cwd == workspacePath || strings.HasPrefix(cwd, workspacePrefix) {
-			pid, err := strconv.Atoi(pidStr)
-			if err != nil {
-				continue
-			}
-			pids = append(pids, pid)
-		}
-	}
-
-	return pids, nil
-}
-
 // Dispose disposes of a session.
 func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
@@ -1158,57 +1053,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return m.disposeRemoteSession(ctx, sess)
 	}
 
-	// Keep the tmux pane alive after the process exits so we can capture
-	// terminal output in step 3. Without this, tmux destroys the pane
-	// immediately when the process exits (remain-on-exit defaults to off).
-	if m.terminalCaptureCallback != nil {
-		tmux.SetOption(ctx, sess.TmuxSession, "remain-on-exit", "on")
-	}
-
-	// Track what we've done for the summary
-	var warnings []string
-	processesKilled := 0
-	orphanKilled := 0
-	tmuxKilled := false
-
-	gracePeriod := m.config.DisposeGracePeriod()
-
-	// Get the workspace for process cleanup fallback
-	ws, found := m.workspace.GetByID(sess.WorkspaceID)
-	if found {
-		// Step 1: Kill the tracked process group gracefully (wait for agent to exit)
-		if sess.Pid > 0 {
-			if err := killProcessGroupGraceful(ctx, sess.Pid, gracePeriod); err != nil {
-				warnings = append(warnings, fmt.Sprintf("failed to kill process group %d: %v", sess.Pid, err))
-			} else {
-				processesKilled = 1
-			}
-		}
-
-		// Step 2: Fallback - find and kill any orphaned processes in the workspace directory
-		// This catches processes that may have escaped the process group
-		// Check context before doing expensive process scan
-		if ctx.Err() == nil {
-			orphanPIDs, _ := findProcessesInWorkspace(ws.Path)
-			for _, pid := range orphanPIDs {
-				// Check context before each kill
-				if ctx.Err() != nil {
-					break
-				}
-				// Skip the tracked PID since we already tried to kill it
-				if sess.Pid > 0 && pid == sess.Pid {
-					continue
-				}
-				if err := killProcessGroupGraceful(ctx, pid, orphanGracePeriod); err != nil {
-					warnings = append(warnings, fmt.Sprintf("failed to kill orphaned process %d: %v", pid, err))
-				} else {
-					orphanKilled++
-				}
-			}
-		}
-	}
-
-	// Step 3: Capture terminal output (tmux pane is still alive after process exit)
+	// Capture terminal output BEFORE killing the session
 	if m.terminalCaptureCallback != nil && ctx.Err() == nil {
 		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
 		output, err := tmux.CaptureOutput(captureCtx, sess.TmuxSession)
@@ -1220,9 +1065,12 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	// Step 4: Kill tmux session (ignore error if already gone - that's success)
-	if err := tmux.KillSession(ctx, sess.TmuxSession); err == nil {
-		tmuxKilled = true
+	// Kill tmux session (tmux sends SIGHUP to all processes - handles cleanup)
+	// If session exists but kill fails, return error to avoid orphaning processes
+	if tmux.SessionExists(ctx, sess.TmuxSession) {
+		if err := tmux.KillSession(ctx, sess.TmuxSession); err != nil {
+			return fmt.Errorf("failed to kill tmux session %s: %w", sess.TmuxSession, err)
+		}
 	}
 
 	m.stopTracker(sessionID)
@@ -1262,20 +1110,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	// Print summary
-	summary := fmt.Sprintf("Disposed session %s: killed %d process group", sessionID, processesKilled)
-	if orphanKilled > 0 {
-		summary += fmt.Sprintf(" + %d orphaned process(es)", orphanKilled)
-	}
-	if tmuxKilled {
-		summary += " + tmux session"
-	}
-	fmt.Printf("[session] %s\n", summary)
-
-	// Print warnings if any
-	for _, w := range warnings {
-		fmt.Printf("[session]   warning: %s\n", w)
-	}
+	fmt.Printf("[session] Disposed session %s\n", sessionID)
 
 	return nil
 }

@@ -24,7 +24,7 @@ mkdir -p /tmp/schmux-test-workspaces
 
 # Start the schmux daemon in the background
 cd /app
-schmux daemon-run &
+schmux daemon-run --dev-mode &
 DAEMON_PID=$!
 
 # Wait for the daemon to become healthy

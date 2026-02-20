@@ -1,11 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import '@xterm/xterm/css/xterm.css';
-import { dismissLinearSyncResolveConflictState } from '../lib/api';
+import { dismissLinearSyncResolveConflictState, getGitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
-import { useConfig } from '../contexts/ConfigContext';
 import { useSync } from '../hooks/useSync';
-import TerminalStream from '../lib/terminalStream';
 import type {
   LinearSyncResolveConflictStatePayload,
   LinearSyncResolveConflictStep,
@@ -70,9 +67,49 @@ function formatElapsed(ms: number) {
   return `${minutes}m ${seconds}s`;
 }
 
+const thinkingMessages = [
+  'Thinking...',
+  'Reading conflict markers...',
+  'Comparing both sides...',
+  'Understanding the intent...',
+  'Analyzing changes...',
+  'Figuring out the merge...',
+  'Resolving differences...',
+  'Almost there...',
+  'Reviewing the resolution...',
+  'Double-checking...',
+];
+
+function ThinkingIndicator() {
+  const [index, setIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      setIndex((prev) => (prev + 1) % thinkingMessages.length);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <div
+      style={{
+        marginTop: 4,
+        padding: '6px 8px',
+        background: 'var(--color-surface-alt, rgba(0, 0, 0, 0.15))',
+        borderRadius: 4,
+        fontSize: '0.7rem',
+        fontFamily: 'var(--font-mono)',
+        color: 'var(--color-text-muted)',
+        animation: 'pulse 2s infinite',
+      }}
+    >
+      {thinkingMessages[index]}
+    </div>
+  );
+}
+
 function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
   const [now, setNow] = React.useState(Date.now());
-  const [expanded, setExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (step.status !== 'in_progress') return;
@@ -86,7 +123,7 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
       ? formatElapsed(now - startedAt)
       : null;
 
-  const showSummary = step.status === 'failed' && step.summary;
+  const showSummary = step.summary && step.status !== 'in_progress';
 
   return (
     <div
@@ -123,116 +160,94 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
         )}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: '0.85rem' }}>{step.message}</span>
-        {step.files && step.files.length > 0 && (
-          <div
+        {step.message.map((line, i) => (
+          <div key={i} style={{ fontSize: '0.85rem' }}>
+            {line}
+          </div>
+        ))}
+        {step.conflict_diffs && step.files && step.files.length > 0 ? (
+          <div style={{ marginTop: 4 }}>
+            {step.files.map((file) => (
+              <div key={file} style={{ marginBottom: 6 }}>
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--color-text-muted)',
+                    marginBottom: 2,
+                  }}
+                >
+                  {file}
+                </div>
+                {step.conflict_diffs![file]?.map((hunk, i) => (
+                  <div key={i} style={{ marginBottom: 4 }}>
+                    <div style={{ fontSize: '0.85rem', marginBottom: 2 }}>Hunk {i + 1}:</div>
+                    <pre
+                      style={{
+                        margin: 0,
+                        marginTop: 2,
+                        marginBottom: 4,
+                        padding: '6px 8px',
+                        background: 'var(--color-surface-alt, rgba(0, 0, 0, 0.15))',
+                        borderRadius: 4,
+                        fontSize: '0.7rem',
+                        fontFamily: 'var(--font-mono)',
+                        lineHeight: 1.4,
+                        color: 'var(--color-text)',
+                        overflowX: 'auto',
+                        overflowY: 'auto',
+                        maxHeight: 200,
+                        whiteSpace: 'pre',
+                      }}
+                    >
+                      {hunk}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          step.files &&
+          step.files.length > 0 && (
+            <div style={{ marginTop: 2 }}>
+              {step.files.map((file) => (
+                <div
+                  key={file}
+                  style={{
+                    fontSize: '0.75rem',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--color-text-muted)',
+                  }}
+                >
+                  {file}
+                </div>
+              ))}
+            </div>
+          )
+        )}
+        {showSummary ? (
+          <pre
             style={{
-              fontSize: '0.75rem',
-              color: 'var(--color-text-muted)',
-              marginTop: 2,
+              margin: 0,
+              marginTop: 4,
+              padding: '6px 8px',
+              background: 'var(--color-surface-alt, rgba(0, 0, 0, 0.15))',
+              borderRadius: 4,
+              fontSize: '0.7rem',
+              fontFamily: 'var(--font-mono)',
+              lineHeight: 1.4,
+              color: 'var(--color-text)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
             }}
           >
-            {step.files.join(', ')}
-          </div>
-        )}
-        {showSummary && (
-          <div style={{ marginTop: 4 }}>
-            <button
-              onClick={() => setExpanded(!expanded)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--color-text-muted)',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                padding: 0,
-                textDecoration: 'underline',
-              }}
-            >
-              {expanded ? 'Hide' : 'Show'} LLM response
-            </button>
-            {expanded && (
-              <pre
-                style={{
-                  marginTop: 4,
-                  padding: '8px 10px',
-                  background: 'rgba(0, 0, 0, 0.15)',
-                  borderRadius: 4,
-                  fontSize: '0.75rem',
-                  fontFamily: 'monospace',
-                  color: 'var(--color-text-muted)',
-                  maxHeight: 200,
-                  overflowY: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {step.summary}
-              </pre>
-            )}
-          </div>
-        )}
+            {step.summary}
+          </pre>
+        ) : step.action === 'llm_call' && step.status === 'in_progress' ? (
+          <ThinkingIndicator />
+        ) : null}
       </div>
-    </div>
-  );
-}
-
-function CRTerminalPanel({ tmuxSession }: { tmuxSession: string }) {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const streamRef = React.useRef<TerminalStream | null>(null);
-  const [collapsed, setCollapsed] = React.useState(false);
-  const { config } = useConfig();
-
-  React.useEffect(() => {
-    if (!containerRef.current || collapsed) return;
-
-    const stream = new TerminalStream(tmuxSession, containerRef.current, {
-      followTail: true,
-      onStatusChange: () => {},
-    });
-    streamRef.current = stream;
-
-    stream.initialized.then(() => {
-      stream.connect();
-    });
-
-    return () => {
-      stream.disconnect();
-      streamRef.current = null;
-    };
-  }, [tmuxSession, collapsed]);
-
-  return (
-    <div style={{ marginTop: 10, borderTop: '1px solid var(--color-border)', paddingTop: 6 }}>
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: 'var(--color-text-muted)',
-          cursor: 'pointer',
-          fontSize: '0.8rem',
-          padding: '2px 0',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
-      >
-        <span style={{ fontSize: '0.7rem' }}>{collapsed ? '\u25B6' : '\u25BC'}</span>
-        Agent output
-      </button>
-      {!collapsed && (
-        <div
-          ref={containerRef}
-          style={{
-            height: 300,
-            marginTop: 4,
-            borderRadius: 4,
-            overflow: 'hidden',
-            background: 'var(--color-bg-terminal, #1a1a2e)',
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -247,6 +262,7 @@ export default function LinearSyncResolveConflictProgress({
     linearSyncResolveConflictStates[workspaceId];
   const [continuing, setContinuing] = useState(false);
   const { handleLinearSyncFromMain } = useSync();
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-dismiss when resolution completes and there are no more commits to sync
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
@@ -267,97 +283,72 @@ export default function LinearSyncResolveConflictProgress({
     workspace?.sessions,
   ]);
 
+  // Auto-scroll to bottom as new steps arrive or existing steps update
+  useEffect(() => {
+    if (bottomRef.current && typeof bottomRef.current.scrollIntoView === 'function') {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [state?.steps]);
+
   if (!state) return null;
 
   const isActive = state.status === 'in_progress';
   const isDone = state.status === 'done';
   const isFailed = state.status === 'failed';
 
-  const handleDismiss = async () => {
-    clearLinearSyncResolveConflictState(workspaceId);
-    const firstSession = workspace?.sessions?.[0];
-    navigate(firstSession ? `/sessions/${firstSession.id}` : '/');
-    try {
-      await dismissLinearSyncResolveConflictState(workspaceId);
-    } catch {
-      // State will be cleared via next WS broadcast
-    }
-  };
-
   const handleContinue = async () => {
     setContinuing(true);
-    await handleLinearSyncFromMain(workspaceId);
-    setContinuing(false);
+    try {
+      const graph = await getGitGraph(workspaceId, { maxTotal: 1 });
+      if (!graph.main_ahead_next_hash) {
+        return;
+      }
+      await handleLinearSyncFromMain(workspaceId, graph.main_ahead_next_hash);
+    } finally {
+      setContinuing(false);
+    }
   };
-
-  const borderColor = isActive
-    ? 'var(--color-border)'
-    : isDone
-      ? 'var(--color-success)'
-      : 'var(--color-error)';
 
   return (
     <div style={{ fontSize: '0.85rem' }}>
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 6,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {isActive && (
-            <div
-              className="spinner spinner--small"
-              style={{ width: 14, height: 14, borderWidth: 2 }}
-            />
-          )}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+        {isActive && (
+          <div
+            className="spinner spinner--small"
+            style={{ width: 14, height: 14, borderWidth: 2, flexShrink: 0, marginTop: 2 }}
+          />
+        )}
+        <div>
           <strong>
             {isActive
-              ? 'Resolving conflicts...'
+              ? (() => {
+                  const conflictFiles = state.steps
+                    .filter((s) => s.action === 'conflict_detected' && s.files)
+                    .flatMap((s) => s.files!);
+                  return conflictFiles.length > 0
+                    ? `Resolving ${conflictFiles.length} file conflict${conflictFiles.length !== 1 ? 's' : ''} with...`
+                    : 'Resolving conflicts...';
+                })()
               : isDone
-                ? 'Conflict resolution complete'
+                ? 'Conflict resolution completed'
                 : 'Conflict resolution failed'}
           </strong>
           {state.hash && (
-            <span
+            <div
               style={{
                 color: 'var(--color-text-muted)',
                 fontFamily: 'monospace',
                 fontSize: '0.8rem',
+                marginTop: 2,
               }}
             >
               {state.hash.substring(0, 7)}
-            </span>
+              {state.hash_message ? ` ${state.hash_message}` : ''}
+            </div>
           )}
         </div>
-        {!isActive && !(isDone && hasMoreCommits) && (
-          <button
-            className="btn btn--sm btn--ghost"
-            onClick={handleDismiss}
-            style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-          >
-            dismiss
-          </button>
-        )}
       </div>
-
-      {/* Final message for done/failed */}
-      {!isActive && state.message && (
-        <div
-          style={{
-            padding: '6px 10px',
-            marginBottom: 6,
-            borderRadius: 4,
-            background: isDone ? 'rgba(0, 180, 100, 0.08)' : 'rgba(220, 50, 50, 0.08)',
-            fontSize: '0.85rem',
-          }}
-        >
-          {state.message}
-        </div>
-      )}
 
       {/* Steps */}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -365,9 +356,6 @@ export default function LinearSyncResolveConflictProgress({
           <StepRow key={step.action} step={step} />
         ))}
       </div>
-
-      {/* Terminal panel */}
-      {state.tmux_session && isActive && <CRTerminalPanel tmuxSession={state.tmux_session} />}
 
       {/* Next steps */}
       {!isActive && isDone && hasMoreCommits && (
@@ -399,6 +387,7 @@ export default function LinearSyncResolveConflictProgress({
           </button>
         </div>
       )}
+      <div ref={bottomRef} />
     </div>
   );
 }

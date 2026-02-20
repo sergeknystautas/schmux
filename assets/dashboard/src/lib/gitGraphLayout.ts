@@ -122,21 +122,39 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
   // These are not included in the nodes array - they're just counted.
   const mainAheadCount = response.main_ahead_count ?? 0;
 
+  // When the graph is disconnected (maxCommits < git_ahead), the backend's
+  // ISL-style DFS sort places context/public commits before draft/branch commits
+  // after reversal. Reorder so the HEAD commit and its branch come first,
+  // with context commits appended after.
+  let orderedNodes = nodes;
+  if (workingCopyParent) {
+    const wcpIdx = nodes.findIndex((n) => n.hash === workingCopyParent);
+    if (wcpIdx > 0) {
+      orderedNodes = [...nodes.slice(wcpIdx), ...nodes.slice(0, wcpIdx)];
+    }
+  }
+
   // Build layout nodes
   const layoutNodes: LayoutNode[] = [];
   let rowIndex = 0;
   const dirtyState = response.dirty_state;
   let youAreHereColumn: number | null = null;
   let syncSummaryInserted = false;
+  let youAreHereInserted = false;
+
+  // Pre-lookup the working copy parent node for reference in virtual nodes.
+  const wcpNode = workingCopyParent
+    ? orderedNodes.find((n) => n.hash === workingCopyParent)
+    : undefined;
 
   // Commit nodes, with virtual nodes inserted at appropriate positions.
-  for (const node of nodes) {
+  for (const node of orderedNodes) {
     // Insert sync summary at the top if there are main-ahead commits.
     // This appears above the local commits.
     if (!syncSummaryInserted && mainAheadCount > 0 && localBranch !== mainBranch) {
       syncSummaryInserted = true;
       // Use the first node as a reference for the sync summary's dummy node
-      const refNode = nodes[0];
+      const refNode = orderedNodes[0];
       layoutNodes.push({
         hash: '__sync-summary__',
         column: 0,
@@ -151,15 +169,19 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
       rowIndex++;
     }
 
-    // Insert virtual nodes right before the working copy parent
-    if (workingCopyParent && node.hash === workingCopyParent) {
+    // Insert you-are-here before the first regular commit node. This ensures
+    // the working directory marker is always at the top of the graph, even
+    // when context commits sort above the HEAD commit in disconnected graphs.
+    if (!youAreHereInserted && workingCopyParent) {
+      youAreHereInserted = true;
       youAreHereColumn = workingCopyColumn;
+      const refNode = wcpNode || node;
 
       layoutNodes.push({
         hash: '__you-are-here__',
         column: workingCopyColumn,
         y: rowIndex * ROW_HEIGHT,
-        node,
+        node: refNode,
         nodeType: 'you-are-here',
       });
       rowIndex++;
@@ -171,7 +193,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
           hash: '__commit-actions__',
           column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
-          node,
+          node: refNode,
           nodeType: 'commit-actions',
           dirtyState: dirtyState
             ? {
@@ -189,7 +211,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
             hash: `__commit-file-${i}__`,
             column: workingCopyColumn,
             y: rowIndex * ROW_HEIGHT,
-            node,
+            node: refNode,
             nodeType: 'commit-file',
             file: files[i],
           });
@@ -201,7 +223,7 @@ export function computeLayout(response: GitGraphResponse, files: FileDiff[] = []
           hash: '__commit-footer__',
           column: workingCopyColumn,
           y: rowIndex * ROW_HEIGHT,
-          node,
+          node: refNode,
           nodeType: 'commit-footer',
         });
         rowIndex++;

@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -24,6 +26,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -139,8 +142,23 @@ type Server struct {
 	previewDetect   map[string]time.Time // workspaceID:port -> last detect time
 	previewDetectMu sync.Mutex
 
+	// Tunnel manager for remote access
+	tunnelManager *tunnel.Manager
+
+	// Remote access auth state
+	remoteToken          string
+	remoteTokenCreatedAt time.Time
+	remoteTokenFailures  map[string]int
+	remoteTokenMu        sync.Mutex
+	remoteSessionSecret  []byte
+	remoteTunnelURL      string
+	remoteNonces         map[string]*remoteNonce
+
 	// Rate limiter for connection endpoint
 	connectLimiter *RateLimiter
+
+	// Rate limiter for remote auth endpoint
+	remoteAuthLimiter *RateLimiter
 
 	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
@@ -192,7 +210,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
 		crTrackers:                      make(map[string]*session.SessionTracker),
 		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		remoteAuthLimiter:               NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 		previewDetect:                   make(map[string]time.Time),
+		remoteNonces:                    make(map[string]*remoteNonce),
 	}
 	s.previewManager = preview.NewManager(
 		st,
@@ -203,15 +223,16 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 	if mgr, ok := wm.(*workspace.Manager); ok {
-		mgr.SetWorkspaceLockedFn(func(workspaceID string) bool {
-			state := s.getLinearSyncResolveConflictState(workspaceID)
-			return state != nil && state.Status == "in_progress"
+		mgr.SetOnLockChangeFn(s.BroadcastWorkspaceLocked)
+		mgr.SetSyncProgressFn(func(workspaceID string, current, total int) {
+			s.BroadcastWorkspaceLockedWithProgress(workspaceID, current, total)
 		})
 	}
 	go s.broadcastLoop()
 	go s.previewReconcileLoop()
-	// Start rate limiter cleanup goroutine
+	// Start rate limiter cleanup goroutines
 	go s.connectLimiter.startCleanup(10 * time.Minute)
+	go s.remoteAuthLimiter.startCleanup(10 * time.Minute)
 	// Scan existing sessions for web server ports
 	go s.scanExistingSessionsForPreviews()
 	return s
@@ -232,6 +253,68 @@ func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 // SetLoreCurator sets the lore curator for manual curation requests.
 func (s *Server) SetLoreCurator(c *lore.Curator) {
 	s.loreCurator = c
+}
+
+// SetTunnelManager sets the tunnel manager for remote access.
+func (s *Server) SetTunnelManager(tm *tunnel.Manager) {
+	s.tunnelManager = tm
+}
+
+// HandleTunnelConnected handles a newly connected tunnel by generating an auth token and sending notifications.
+func (s *Server) HandleTunnelConnected(tunnelURL string) {
+	// Generate one-time token (32 bytes, hex-encoded)
+	tokenBytes := make([]byte, 32)
+	if _, err := crypto_rand.Read(tokenBytes); err != nil {
+		fmt.Printf("[remote-access] failed to generate token: %v\n", err)
+		return
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	// Generate new session secret (32 bytes) — invalidates old remote cookies
+	secretBytes := make([]byte, 32)
+	if _, err := crypto_rand.Read(secretBytes); err != nil {
+		fmt.Printf("[remote-access] failed to generate session secret: %v\n", err)
+		return
+	}
+
+	s.remoteTokenMu.Lock()
+	s.remoteToken = token
+	s.remoteTokenCreatedAt = time.Now()
+	s.remoteTokenFailures = make(map[string]int)
+	s.remoteSessionSecret = secretBytes
+	s.remoteTunnelURL = tunnelURL
+	s.remoteTokenMu.Unlock()
+
+	// Build auth URL
+	authURL := strings.TrimRight(tunnelURL, "/") + "/remote-auth?token=" + token
+	fmt.Printf("[remote-access] auth URL generated\n")
+
+	// Send notifications with auth URL
+	if s.config != nil {
+		ntfyTopic := s.config.GetRemoteAccessNtfyTopic()
+		notifyCmd := s.config.GetRemoteAccessNotifyCommand()
+		nc := tunnel.NotifyConfig{
+			TunnelURL: tunnelURL, // command gets base URL only (no token)
+		}
+		if ntfyTopic != "" {
+			nc.NtfyURL = "https://ntfy.sh/" + ntfyTopic
+		}
+		nc.Command = notifyCmd
+		if err := nc.Send(authURL, "schmux remote access"); err != nil {
+			fmt.Printf("[remote-access] notification error: %v\n", err)
+		}
+	}
+}
+
+// ClearRemoteAuth clears the remote auth state (token, failures). Called when tunnel stops.
+func (s *Server) ClearRemoteAuth() {
+	s.remoteTokenMu.Lock()
+	s.remoteToken = ""
+	s.remoteTokenFailures = make(map[string]int)
+	s.remoteSessionSecret = nil
+	s.remoteTunnelURL = ""
+	s.remoteNonces = make(map[string]*remoteNonce)
+	s.remoteTokenMu.Unlock()
 }
 
 // LogDashboardAssetPath logs where dashboard assets are being served from.
@@ -281,6 +364,9 @@ func (s *Server) Start() error {
 		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
 	}
 
+	// Remote auth route (unauthenticated — token-protected)
+	mux.HandleFunc("/remote-auth", s.handleRemoteAuth)
+
 	// Auth routes
 	mux.HandleFunc("/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
@@ -289,56 +375,66 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
-	mux.HandleFunc("/api/update", s.withCORS(s.withAuth(s.handleUpdate)))
-	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuth(s.handleAuthSecrets)))
+	mux.HandleFunc("/api/update", s.withCORS(s.withAuthAndCSRF(s.handleUpdate)))
+	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuthAndCSRF(s.handleAuthSecrets)))
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
 	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
-	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuth(s.handleWorkspacesScan)))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuth(s.handleWorkspaceRoutes)))
+	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuthAndCSRF(s.handleWorkspacesScan)))
+	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuthAndCSRF(s.handleWorkspaceRoutes)))
 	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
-	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuth(s.handleUpdateNickname)))
-	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
-	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuth(s.handleCheckBranchConflict)))
+	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuthAndCSRF(s.handleUpdateNickname)))
+	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuthAndCSRF(s.handleSpawnPost)))
+	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuthAndCSRF(s.handleCheckBranchConflict)))
 	mux.HandleFunc("/api/recent-branches", s.withCORS(s.withAuth(s.handleRecentBranches)))
-	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuth(s.handleRecentBranchesRefresh)))
-	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuth(s.handleSuggestBranch)))
-	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuth(s.handlePrepareBranchSpawn)))
-	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuth(s.handleDispose)))
-	mux.HandleFunc("/api/config", s.withCORS(s.withAuth(s.handleConfig)))
+	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuthAndCSRF(s.handleRecentBranchesRefresh)))
+	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuthAndCSRF(s.handleSuggestBranch)))
+	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
+	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
+	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
 	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
-	mux.HandleFunc("/api/models/", s.withCORS(s.withAuth(s.handleModel)))
+	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))
 	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
 	mux.HandleFunc("/api/commit/prompt", s.withCORS(s.withAuth(s.handleCommitPrompt)))
-	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuth(s.handleCommitGenerate)))
+	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuthAndCSRF(s.handleCommitGenerate)))
 	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
 	mux.HandleFunc("/api/file/", s.withCORS(s.withAuth(s.handleFile)))
-	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuth(s.handleDiffExternal)))
-	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuth(s.handleOpenVSCode)))
+	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuthAndCSRF(s.handleDiffExternal)))
+	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuthAndCSRF(s.handleOpenVSCode)))
 	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
-	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuth(s.handleOverlayScan)))
-	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuth(s.handleOverlayAdd)))
-	mux.HandleFunc("/api/overlays/dismiss-nudge", s.withCORS(s.withAuth(s.handleDismissNudge)))
+	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuthAndCSRF(s.handleOverlayScan)))
+	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuthAndCSRF(s.handleOverlayAdd)))
+	mux.HandleFunc("/api/overlays/dismiss-nudge", s.withCORS(s.withAuthAndCSRF(s.handleDismissNudge)))
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
-	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuth(s.handlePRRefresh)))
-	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuth(s.handlePRCheckout)))
+	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
+	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
 
 	// Lore routes
-	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuth(s.handleLoreRouter)))
+	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
 
 	// Remote workspace routes
-	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuth(s.handleRemoteFlavors)))
-	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuth(s.handleRemoteFlavor)))
+	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavors)))
+	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavor)))
 	mux.HandleFunc("/api/remote/hosts", s.withCORS(s.withAuth(s.handleRemoteHosts)))
-	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuth(s.handleRemoteHostConnect)))
+	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostConnect)))
 	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
-	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuth(s.handleRemoteHostRoute)))
+	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostRoute)))
 	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
+
+	// Remote access routes
+	mux.HandleFunc("/api/remote-access/on", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOn)))
+	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOff)))
+	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
+	mux.HandleFunc("/api/remote-access/set-password", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessSetPassword)))
+	mux.HandleFunc("/api/remote-access/test-notification", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessTestNotification)))
 
 	// Dev mode routes (only registered when --dev-mode is active)
 	if s.devMode {
 		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))
-		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuth(s.handleDevRebuild)))
+		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuthAndCSRF(s.handleDevRebuild)))
+		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnel)))
+		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnelStop)))
+		mux.HandleFunc("/api/dev/clear-password", s.withCORS(s.withAuthAndCSRF(s.handleDevClearPassword)))
 	}
 
 	// WebSocket for terminal streaming
@@ -415,24 +511,70 @@ func (s *Server) Stop() error {
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown server: %w", err)
+		// Graceful shutdown timed out (e.g. active WebSocket/proxy connections
+		// in dev mode). Force-close and continue cleanup instead of failing
+		// the entire shutdown — failing here blocks dev restart (exit code 42).
+		fmt.Printf("[daemon] graceful shutdown timed out, forcing close: %v\n", err)
+		s.httpServer.Close()
 	}
 	if s.previewManager != nil {
 		s.previewManager.Stop()
 	}
-	// Stop rate limiter cleanup goroutine
+	// Stop rate limiter cleanup goroutines
 	s.connectLimiter.Stop()
+	s.remoteAuthLimiter.Stop()
 
 	return nil
 }
 
-func (s *Server) isLocalRequest(r *http.Request) bool {
+// CloseForTest stops background goroutines without requiring a running HTTP server.
+// This is intended for tests that create a Server via NewServer but don't call ListenAndServe.
+func (s *Server) CloseForTest() {
+	s.broadcastOnce.Do(func() {
+		s.broadcastMu.Lock()
+		s.broadcastStopped = true
+		if s.broadcastTimer != nil {
+			s.broadcastTimer.Stop()
+		}
+		s.broadcastMu.Unlock()
+		close(s.broadcastDone)
+	})
+	<-s.broadcastExited
+	if s.previewManager != nil {
+		s.previewManager.Stop()
+	}
+	s.connectLimiter.Stop()
+	s.remoteAuthLimiter.Stop()
+}
+
+func (s *Server) isTrustedRequest(r *http.Request) bool {
+	// If remote access is not enabled, there's no untrusted path — all requests are trusted
+	if !s.config.GetRemoteAccessEnabled() {
+		return true
+	}
+
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err != nil {
 		host = strings.TrimSpace(r.RemoteAddr)
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	if ip == nil || !ip.IsLoopback() {
+		return false
+	}
+
+	// If tunnel is active and the request has a forwarding header,
+	// it's a remote request proxied through cloudflared, not a genuine local request
+	s.remoteTokenMu.Lock()
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel {
+		if r.Header.Get("Cf-Connecting-IP") != "" || r.Header.Get("X-Forwarded-For") != "" {
+			return false
+		}
+	}
+
+	return true
 }
 
 // withCORS wraps a handler with CORS headers and origin validation.
@@ -452,7 +594,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 		// Set CORS headers
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			if s.config.GetAuthEnabled() {
+			if s.config.GetAuthEnabled() || s.requiresAuth() {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 		}
@@ -480,6 +622,29 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 
 	port := s.config.GetPort()
 	authEnabled := s.config.GetAuthEnabled()
+
+	// When a remote tunnel is active, restrict origins to localhost and the tunnel URL only
+	s.remoteTokenMu.Lock()
+	tunnelURL := s.remoteTunnelURL
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel {
+		// Allow tunnel origin
+		if tunnelURL != "" {
+			if tunnelOrigin, err := normalizeOrigin(tunnelURL); err == nil && origin == tunnelOrigin {
+				return true
+			}
+		}
+		// Allow localhost only (not arbitrary origins)
+		if origin == fmt.Sprintf("http://localhost:%d", port) ||
+			origin == fmt.Sprintf("http://127.0.0.1:%d", port) ||
+			origin == fmt.Sprintf("https://localhost:%d", port) ||
+			origin == fmt.Sprintf("https://127.0.0.1:%d", port) {
+			return true
+		}
+		return false
+	}
 
 	// Allow configured public_base_url
 	if base := s.config.GetPublicBaseURL(); base != "" {
@@ -557,6 +722,9 @@ func createDevProxyHandler(targetURL string) http.Handler {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		DisableKeepAlives: true,
+	}
 
 	// Customize the director to handle WebSocket upgrade for Vite HMR
 	originalDirector := proxy.Director
@@ -798,6 +966,84 @@ type OverlayChangeEvent struct {
 	UnifiedDiff        string   `json:"unified_diff"`
 }
 
+// BroadcastWorkspaceLocked sends a workspace lock state change to all connected dashboard WebSocket clients.
+// Sent in real-time (not debounced) so clients see lock/unlock immediately.
+func (s *Server) BroadcastWorkspaceLocked(workspaceID string, locked bool) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       locked,
+	})
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// BroadcastWorkspaceLockedWithProgress sends a workspace lock message with sync progress info.
+func (s *Server) BroadcastWorkspaceLockedWithProgress(workspaceID string, current, total int) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       true,
+		"sync_progress": map[string]int{
+			"current": current,
+			"total":   total,
+		},
+	})
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// BroadcastWorkspaceUnlockedWithSyncResult sends an unlock message that includes
+// sync completion metadata for linear-sync-from-main.
+func (s *Server) BroadcastWorkspaceUnlockedWithSyncResult(workspaceID string, result *workspace.LinearSyncResult, err error) {
+	syncResult := map[string]interface{}{}
+	if err != nil {
+		syncResult["success"] = false
+		syncResult["message"] = err.Error()
+	} else if result != nil {
+		syncResult["success"] = result.Success
+		syncResult["success_count"] = result.SuccessCount
+		if result.ConflictingHash != "" {
+			syncResult["conflicting_hash"] = result.ConflictingHash
+		}
+		if result.Branch != "" {
+			syncResult["branch"] = result.Branch
+		}
+	}
+
+	payload, marshalErr := json.Marshal(map[string]interface{}{
+		"type":         "workspace_locked",
+		"workspace_id": workspaceID,
+		"locked":       false,
+		"sync_result":  syncResult,
+	})
+	if marshalErr != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// broadcastToAllDashboardConns sends a raw payload to all connected dashboard WebSocket clients.
+func (s *Server) broadcastToAllDashboardConns(payload []byte) {
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
 // BroadcastOverlayChange sends an overlay change event to all connected dashboard WebSocket clients.
 func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 	event.Type = "overlay_change"
@@ -822,13 +1068,76 @@ func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 	}
 }
 
+// BroadcastTunnelStatus sends the current tunnel status to all dashboard WebSocket clients.
+func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
+	// Clear remote auth state when tunnel goes off or errors
+	if status.State == tunnel.StateOff || status.State == tunnel.StateError {
+		s.ClearRemoteAuth()
+	}
+
+	msg := map[string]interface{}{
+		"type": "remote_access_status",
+		"data": status,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
+// BroadcastPendingNavigation sends a pending navigation event to all dashboard WebSocket clients.
+// navType is "preview", and id1/id2 are workspaceId/previewId for preview navigation.
+func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
+	msg := map[string]interface{}{
+		"type":    "pending_navigation",
+		"navType": navType,
+		"id1":     id1,
+		"id2":     id2,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	s.sessionsConnsMu.RLock()
+	conns := make([]*wsConn, 0, len(s.sessionsConns))
+	for conn := range s.sessionsConns {
+		conns = append(conns, conn)
+	}
+	s.sessionsConnsMu.RUnlock()
+
+	for _, conn := range conns {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			s.UnregisterDashboardConn(conn)
+			conn.Close()
+		}
+	}
+}
+
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Authenticate if auth is enabled
-	if s.config.GetAuthEnabled() {
-		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+	// Authenticate if auth is required (GitHub OAuth or tunnel active)
+	if s.requiresAuth() {
+		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		if s.authEnabled() || !s.isTrustedRequest(r) {
+			if _, err := s.authenticateRequest(r); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 	}
 
@@ -976,18 +1285,38 @@ func (rl *RateLimiter) Stop() {
 	close(rl.cleanupCh)
 }
 
-// normalizeIPForRateLimit extracts the IP address from a RemoteAddr string,
-// stripping the port to prevent rate limit bypass via different ports.
-func (s *Server) normalizeIPForRateLimit(remoteAddr string) string {
-	// RemoteAddr format is typically "IP:port" or "[IPv6]:port"
-	// We want to extract just the IP portion
+// normalizeIPForRateLimit extracts the IP address from a request,
+// using forwarding headers when a tunnel is active and the request arrives from loopback.
+func (s *Server) normalizeIPForRateLimit(r *http.Request) string {
+	ip := extractIPFromAddr(r.RemoteAddr)
+
+	// Only trust forwarding headers when tunnel is active AND request is from loopback
+	s.remoteTokenMu.Lock()
+	hasTunnel := len(s.remoteSessionSecret) > 0
+	s.remoteTokenMu.Unlock()
+
+	if hasTunnel && net.ParseIP(ip) != nil && net.ParseIP(ip).IsLoopback() {
+		if cfIP := strings.TrimSpace(r.Header.Get("Cf-Connecting-IP")); cfIP != "" {
+			// Basic validation: reject values that are too long or contain unexpected characters
+			if len(cfIP) <= 45 && net.ParseIP(cfIP) != nil {
+				return cfIP
+			}
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.SplitN(xff, ",", 2)
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	return ip
+}
+
+// extractIPFromAddr extracts the IP portion from a RemoteAddr string (IP:port or [IPv6]:port).
+func extractIPFromAddr(remoteAddr string) string {
 	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
 		ip := remoteAddr[:idx]
-		// Remove IPv6 brackets if present
 		ip = strings.Trim(ip, "[]")
 		return ip
 	}
-	// No port found, return as-is
 	return remoteAddr
 }
 
