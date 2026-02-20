@@ -32,10 +32,13 @@ type RecentBranch struct {
 
 // LinearSyncResult represents the result of a linear sync operation (from or to main).
 type LinearSyncResult struct {
-	Success         bool   `json:"success"`
-	SuccessCount    int    `json:"success_count,omitempty"`    // Number of commits successfully applied
-	ConflictingHash string `json:"conflicting_hash,omitempty"` // The commit hash that caused the conflict, if any
-	Branch          string `json:"branch,omitempty"`           // The branch name synced with
+	Success         bool     `json:"success"`
+	SuccessCount    int      `json:"success_count,omitempty"`    // Number of commits successfully applied
+	ConflictingHash string   `json:"conflicting_hash,omitempty"` // The commit hash that caused the conflict, if any
+	Branch          string   `json:"branch,omitempty"`           // The branch name synced with
+	Message         string   `json:"message,omitempty"`          // Human-readable message (e.g., error context)
+	NeedsConfirm    bool     `json:"needs_confirm,omitempty"`    // True if push needs confirmation before proceeding
+	DivergedCommits []string `json:"diverged_commits,omitempty"` // Commits on origin that would be overwritten
 }
 
 // ConflictResolution represents a single conflict that was resolved during rebase.
@@ -146,9 +149,10 @@ type WorkspaceManager interface {
 	// The optional onStep callback is called at each progress step (may be nil).
 	LinearSyncResolveConflict(ctx context.Context, workspaceID string, onStep ResolveConflictStepFunc) (*LinearSyncResolveConflictResult, error)
 
-	// PushToBranch pushes the current branch to origin, creating it on origin if necessary.
-	// Fails if the remote branch has commits that the local branch does not have.
-	PushToBranch(ctx context.Context, workspaceID string) (*LinearSyncResult, error)
+	// PushToBranch pushes the current branch to origin using --force-with-lease.
+	// If branches have diverged and confirm=false, returns NeedsConfirm=true with divergent commit info.
+	// Fails if local is behind origin.
+	PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error)
 
 	// EnsureOriginQueries ensures origin query repos exist for all configured repos.
 	EnsureOriginQueries(ctx context.Context) error
