@@ -192,6 +192,30 @@ func (t *SessionTracker) CaptureLastLines(ctx context.Context, lines int) (strin
 	return client.CapturePaneLines(ctx, paneID, lines)
 }
 
+// GetCursorState returns the cursor position and visibility for the tracked pane.
+func (t *SessionTracker) GetCursorState(ctx context.Context) (controlmode.CursorState, error) {
+	t.mu.RLock()
+	client := t.cmClient
+	paneID := t.paneID
+	t.mu.RUnlock()
+	if client == nil {
+		return controlmode.CursorState{}, fmt.Errorf("not attached")
+	}
+	return client.GetCursorState(ctx, paneID)
+}
+
+// GetCursorPosition returns the cursor position (x, y) for the tracked pane.
+func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err error) {
+	t.mu.RLock()
+	client := t.cmClient
+	paneID := t.paneID
+	t.mu.RUnlock()
+	if client == nil {
+		return 0, 0, fmt.Errorf("not attached")
+	}
+	return client.GetCursorPosition(ctx, paneID)
+}
+
 func (t *SessionTracker) run() {
 	defer close(t.doneCh)
 

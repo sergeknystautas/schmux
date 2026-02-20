@@ -314,3 +314,142 @@ func TestCloseOrphanedChannels(t *testing.T) {
 	// Close should not panic even if registry is empty
 	client.Close()
 }
+
+// TestGetCursorState verifies the parsing logic of GetCursorState.
+func TestGetCursorState(t *testing.T) {
+	tests := []struct {
+		name        string
+		response    string // What tmux returns from display-message
+		wantX       int
+		wantY       int
+		wantVisible bool
+		wantErr     bool
+		errSubstr   string
+	}{
+		{
+			name:        "cursor at origin, visible",
+			response:    "0 0 1",
+			wantX:       0,
+			wantY:       0,
+			wantVisible: true,
+		},
+		{
+			name:        "cursor at prompt position, visible",
+			response:    "2 23 1",
+			wantX:       2,
+			wantY:       23,
+			wantVisible: true,
+		},
+		{
+			name:        "cursor hidden (Claude Code TUI)",
+			response:    "0 52 0",
+			wantX:       0,
+			wantY:       52,
+			wantVisible: false,
+		},
+		{
+			name:        "large cursor position, hidden",
+			response:    "119 49 0",
+			wantX:       119,
+			wantY:       49,
+			wantVisible: false,
+		},
+		{
+			name:      "empty response",
+			response:  "",
+			wantErr:   true,
+			errSubstr: "unexpected cursor state format",
+		},
+		{
+			name:      "two values (missing flag)",
+			response:  "5 10",
+			wantErr:   true,
+			errSubstr: "unexpected cursor state format",
+		},
+		{
+			name:      "four values",
+			response:  "1 2 3 4",
+			wantErr:   true,
+			errSubstr: "unexpected cursor state format",
+		},
+		{
+			name:      "non-numeric x",
+			response:  "abc 5 1",
+			wantErr:   true,
+			errSubstr: "failed to parse cursor_x",
+		},
+		{
+			name:      "non-numeric y",
+			response:  "5 abc 1",
+			wantErr:   true,
+			errSubstr: "failed to parse cursor_y",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Build a control mode response stream that the parser will deliver
+			stream := "%begin 1234 0 0\n" + tt.response + "\n%end 1234 0 0\n"
+			input := strings.NewReader(stream)
+			parser := NewParser(input)
+
+			var stdin strings.Builder
+			client := NewClient(&stdin, parser)
+			client.Start()
+			defer client.Close()
+
+			// Let the parser process the stream
+			go parser.Run()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			cs, err := client.GetCursorState(ctx, "%0")
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errSubstr)
+				} else if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("expected error containing %q, got %q", tt.errSubstr, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cs.X != tt.wantX {
+				t.Errorf("X = %d, want %d", cs.X, tt.wantX)
+			}
+			if cs.Y != tt.wantY {
+				t.Errorf("Y = %d, want %d", cs.Y, tt.wantY)
+			}
+			if cs.Visible != tt.wantVisible {
+				t.Errorf("Visible = %v, want %v", cs.Visible, tt.wantVisible)
+			}
+		})
+	}
+}
+
+// TestGetCursorPositionExecuteError verifies GetCursorPosition wraps Execute errors.
+func TestGetCursorPositionExecuteError(t *testing.T) {
+	// Parser that never responds — Execute will timeout
+	input := strings.NewReader("")
+	parser := NewParser(input)
+
+	var stdin strings.Builder
+	client := NewClient(&stdin, parser)
+	client.Start()
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, _, err := client.GetCursorPosition(ctx, "%0")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get cursor state") {
+		t.Errorf("expected wrapped error, got %q", err.Error())
+	}
+}

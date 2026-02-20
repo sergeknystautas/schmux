@@ -149,6 +149,39 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	capCancel()
+
+	// Restore cursor state (position + visibility) so xterm.js matches tmux.
+	// capture-pane doesn't preserve terminal modes like cursor visibility,
+	// so without this: (1) the cursor sits at column 0 of the last non-empty
+	// line, and (2) a hidden cursor (e.g. Claude Code's TUI) shows as visible.
+	var curX, curY int
+	var curVisible bool
+	curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	curState, curErr := tracker.GetCursorState(curCtx)
+	curCancel()
+	if curErr == nil {
+		curX, curY, curVisible = curState.X, curState.Y, curState.Visible
+	} else {
+		// Fallback to tmux CLI
+		curCtx2, curCancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		cliState, cliErr := tmux.GetCursorState(curCtx2, sess.TmuxSession)
+		curCancel2()
+		if cliErr == nil {
+			curX, curY, curVisible = cliState.X, cliState.Y, cliState.Visible
+			curErr = nil
+		}
+	}
+	if curErr == nil {
+		// CSI H is 1-indexed
+		bootstrap += fmt.Sprintf("\033[%d;%dH", curY+1, curX+1)
+		// DECTCEM: cursor visibility
+		if curVisible {
+			bootstrap += "\033[?25h"
+		} else {
+			bootstrap += "\033[?25l"
+		}
+	}
+
 	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap)); err != nil {
 		return
 	}
@@ -465,6 +498,18 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 			return
 		}
 	} else {
+		// Restore cursor state (position + visibility)
+		curCtx, curCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		curState, curErr := conn.GetCursorState(curCtx, sess.RemotePaneID)
+		curCancel()
+		if curErr == nil {
+			history += fmt.Sprintf("\033[%d;%dH", curState.Y+1, curState.X+1)
+			if curState.Visible {
+				history += "\033[?25h"
+			} else {
+				history += "\033[?25l"
+			}
+		}
 		// Send captured history as initial full content
 		if err := sendOutput("full", history); err != nil {
 			return

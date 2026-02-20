@@ -315,12 +315,51 @@ func RenameSession(ctx context.Context, oldName, newName string) error {
 	return nil
 }
 
+// CursorState holds the cursor position and visibility for a session.
+type CursorState struct {
+	X       int
+	Y       int
+	Visible bool
+}
+
+// GetCursorState returns the cursor position and visibility for a session.
+// Coordinates are 0-indexed.
+func GetCursorState(ctx context.Context, sessionName string) (CursorState, error) {
+	args := []string{
+		"display-message", "-p", "-t", sessionName,
+		"#{cursor_x} #{cursor_y} #{cursor_flag}",
+	}
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
+	}
+
+	parts := strings.Fields(strings.TrimSpace(stdout.String()))
+	if len(parts) != 3 {
+		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", stdout.String())
+	}
+
+	var cs CursorState
+	_, err := fmt.Sscanf(parts[0], "%d", &cs.X)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_x: %w", err)
+	}
+	_, err = fmt.Sscanf(parts[1], "%d", &cs.Y)
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_y: %w", err)
+	}
+	cs.Visible = parts[2] == "1"
+	return cs, nil
+}
+
 // GetCursorPosition returns the cursor position (x, y) for a session.
 // Coordinates are 0-indexed.
 func GetCursorPosition(ctx context.Context, sessionName string) (x, y int, err error) {
 	args := []string{
 		"display-message", "-p", "-t", sessionName,
-		"#{cursor_x}", "#{cursor_y}",
+		"#{cursor_x} #{cursor_y}",
 	}
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	var stdout bytes.Buffer
@@ -329,8 +368,7 @@ func GetCursorPosition(ctx context.Context, sessionName string) (x, y int, err e
 		return 0, 0, fmt.Errorf("failed to get cursor position: %w", err)
 	}
 
-	// Parse output: "x y" on two lines
-	parts := strings.Split(strings.TrimSpace(stdout.String()), " ")
+	parts := strings.Fields(strings.TrimSpace(stdout.String()))
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("unexpected cursor position format: %q", stdout.String())
 	}

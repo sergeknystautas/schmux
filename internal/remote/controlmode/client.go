@@ -464,6 +464,44 @@ func (c *Client) CapturePaneLines(ctx context.Context, paneID string, lines int)
 	return c.Execute(ctx, cmd)
 }
 
+// CursorState holds the cursor position and visibility for a pane.
+type CursorState struct {
+	X       int
+	Y       int
+	Visible bool
+}
+
+// GetCursorState returns the cursor position and visibility for a pane.
+func (c *Client) GetCursorState(ctx context.Context, paneID string) (CursorState, error) {
+	output, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{cursor_x} #{cursor_y} #{cursor_flag}'", paneID))
+	if err != nil {
+		return CursorState{}, fmt.Errorf("failed to get cursor state: %w", err)
+	}
+	parts := strings.Split(strings.TrimSpace(output), " ")
+	if len(parts) != 3 {
+		return CursorState{}, fmt.Errorf("unexpected cursor state format: %q", output)
+	}
+	var cs CursorState
+	if _, err := fmt.Sscanf(parts[0], "%d", &cs.X); err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_x: %w", err)
+	}
+	if _, err := fmt.Sscanf(parts[1], "%d", &cs.Y); err != nil {
+		return CursorState{}, fmt.Errorf("failed to parse cursor_y: %w", err)
+	}
+	// cursor_flag: 0 = hidden, 1 = visible
+	cs.Visible = parts[2] == "1"
+	return cs, nil
+}
+
+// GetCursorPosition returns the cursor position (x, y) for a pane.
+func (c *Client) GetCursorPosition(ctx context.Context, paneID string) (x, y int, err error) {
+	cs, err := c.GetCursorState(ctx, paneID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return cs.X, cs.Y, nil
+}
+
 // WaitForReady waits for the control mode session to be ready.
 // This is called after connection to ensure tmux is responsive.
 func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error {

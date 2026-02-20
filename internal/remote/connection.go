@@ -810,6 +810,22 @@ func (c *Connection) CapturePaneLines(ctx context.Context, paneID string, lines 
 	return c.client.CapturePaneLines(ctx, paneID, lines)
 }
 
+// GetCursorState returns the cursor position and visibility for a pane.
+func (c *Connection) GetCursorState(ctx context.Context, paneID string) (controlmode.CursorState, error) {
+	if !c.IsConnected() {
+		return controlmode.CursorState{}, fmt.Errorf("not connected")
+	}
+	return c.client.GetCursorState(ctx, paneID)
+}
+
+// GetCursorPosition returns the cursor position (x, y) for a pane.
+func (c *Connection) GetCursorPosition(ctx context.Context, paneID string) (x, y int, err error) {
+	if !c.IsConnected() {
+		return 0, 0, fmt.Errorf("not connected")
+	}
+	return c.client.GetCursorPosition(ctx, paneID)
+}
+
 // RunCommand executes a command on the remote host and returns its output.
 // It uses a hidden tmux window to run the command without stealing focus.
 func (c *Connection) RunCommand(ctx context.Context, workdir, command string) (string, error) {
