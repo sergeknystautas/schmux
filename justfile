@@ -153,9 +153,8 @@ npm-install:
 # --- Build & Run ---
 
 # Build everything and start the daemon
-run: dashboard build
-    ./schmux stop 2>/dev/null || true
-    ./schmux start
+run:
+    ./run.sh
 
 # Start the daemon (binary must already exist)
 start:
@@ -175,7 +174,7 @@ daemon-run:
 
 # --- Testing ---
 
-# Run unit tests (Go + React)
+# Run Go unit tests (default; use test-all for full suite)
 test:
     ./test.sh
 
