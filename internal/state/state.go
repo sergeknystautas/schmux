@@ -21,7 +21,7 @@ type State struct {
 	PublicRepos   []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
 	NeedsRestart  bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
 	RemoteHosts   []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
-	Previews      map[string]WorkspacePreview `json:"-"`                       // ephemeral preview mappings (not persisted)
+	Previews      map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
 	path          string                      // path to the state file
 	mu            sync.RWMutex
 
@@ -81,6 +81,7 @@ type Workspace struct {
 	RemotePath               string            `json:"remote_path,omitempty"`        // Path on remote host
 	ConflictOnBranch         *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
 	OverlayManifest          map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
+	PortBlock                int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
 }
 
 // WorkspacePreview represents a workspace preview proxy mapping.

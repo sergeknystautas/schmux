@@ -37,8 +37,9 @@ const (
 	DefaultConflictResolveTimeoutMs   = 300000  // 5 minutes
 	DefaultPreviewMaxPerWorkspace     = 3
 	DefaultPreviewMaxGlobal           = 20
-	DefaultPreviewIdleTimeoutMs       = 3600000 // 60 minutes
-	DefaultDisposeGracePeriodMs       = 30000   // 30 seconds
+	DefaultPreviewPortBase            = 53000
+	DefaultPreviewPortBlockSize       = 10
+	DefaultDisposeGracePeriodMs       = 30000 // 30 seconds
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
@@ -335,7 +336,8 @@ type NetworkConfig struct {
 	PublicBaseURL          string     `json:"public_base_url,omitempty"`
 	PreviewMaxPerWorkspace int        `json:"preview_max_per_workspace,omitempty"`
 	PreviewMaxGlobal       int        `json:"preview_max_global,omitempty"`
-	PreviewIdleTimeoutMs   int        `json:"preview_idle_timeout_ms,omitempty"`
+	PreviewPortBase        int        `json:"preview_port_base,omitempty"`
+	PreviewPortBlockSize   int        `json:"preview_port_block_size,omitempty"`
 	TLS                    *TLSConfig `json:"tls,omitempty"`
 }
 
@@ -1450,14 +1452,24 @@ func (c *Config) GetPreviewMaxGlobal() int {
 	return c.Network.PreviewMaxGlobal
 }
 
-// GetPreviewIdleTimeoutMs returns preview idle timeout in milliseconds.
-func (c *Config) GetPreviewIdleTimeoutMs() int {
+// GetPreviewPortBase returns the base port for preview port block allocation.
+func (c *Config) GetPreviewPortBase() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.Network == nil || c.Network.PreviewIdleTimeoutMs <= 0 {
-		return DefaultPreviewIdleTimeoutMs
+	if c.Network == nil || c.Network.PreviewPortBase <= 0 {
+		return DefaultPreviewPortBase
 	}
-	return c.Network.PreviewIdleTimeoutMs
+	return c.Network.PreviewPortBase
+}
+
+// GetPreviewPortBlockSize returns the number of ports per workspace preview block.
+func (c *Config) GetPreviewPortBlockSize() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil || c.Network.PreviewPortBlockSize <= 0 {
+		return DefaultPreviewPortBlockSize
+	}
+	return c.Network.PreviewPortBlockSize
 }
 
 // GetPublicBaseURL returns the public base URL for the dashboard.

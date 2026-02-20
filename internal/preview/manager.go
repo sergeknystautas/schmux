@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,7 +21,8 @@ import (
 const (
 	StatusReady    = "ready"
 	StatusDegraded = "degraded"
-	staleGrace     = 3 * time.Second // how long a degraded preview sticks around
+	staleGrace     = 3 * time.Second  // how long a degraded preview sticks around before removal
+	touchDebounce  = 30 * time.Second // minimum interval between LastUsedAt state updates
 )
 
 var (
@@ -32,8 +34,9 @@ type Manager struct {
 	state           state.StateStore
 	maxPerWorkspace int
 	maxGlobal       int
-	idleTimeout     time.Duration
 	networkAccess   bool // if true, bind to 0.0.0.0 for external access
+	portBase        int  // base port for stable block allocation (e.g. 53000)
+	blockSize       int  // ports per workspace block (e.g. 10)
 
 	mu       sync.Mutex
 	entries  map[string]*entry // preview_id -> listener entry
@@ -48,22 +51,26 @@ type entry struct {
 	server      *http.Server
 }
 
-func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, idleTimeout time.Duration, networkAccess bool) *Manager {
+func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int) *Manager {
 	if maxPerWorkspace <= 0 {
 		maxPerWorkspace = 3
 	}
 	if maxGlobal <= 0 {
 		maxGlobal = 20
 	}
-	if idleTimeout <= 0 {
-		idleTimeout = 60 * time.Minute
+	if portBase <= 0 {
+		portBase = 53000
+	}
+	if blockSize <= 0 {
+		blockSize = 10
 	}
 	m := &Manager{
 		state:           st,
 		maxPerWorkspace: maxPerWorkspace,
 		maxGlobal:       maxGlobal,
-		idleTimeout:     idleTimeout,
 		networkAccess:   networkAccess,
+		portBase:        portBase,
+		blockSize:       blockSize,
 		entries:         map[string]*entry{},
 		stopCh:          make(chan struct{}),
 		doneCh:          make(chan struct{}),
@@ -104,12 +111,18 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		return preview, nil
 	}
 
-	// Hold m.mu across the cap check and state upsert to prevent a TOCTOU race
-	// where concurrent CreateOrGet calls could both pass the cap check before
-	// either registers its preview. We release the lock before ensureListener
-	// to avoid holding it during blocking network I/O (net.Listen).
+	// Hold m.mu across cap check, port assignment, and state upsert to prevent
+	// TOCTOU races where concurrent calls could pick the same port slot or both
+	// pass the cap check. Lock is released before ensureListener to avoid
+	// holding it during net.Listen.
 	m.mu.Lock()
 	if err := m.enforceCaps(ws.ID); err != nil {
+		m.mu.Unlock()
+		return state.WorkspacePreview{}, err
+	}
+
+	proxyPort, err := m.pickStablePortLocked(ws.ID)
+	if err != nil {
 		m.mu.Unlock()
 		return state.WorkspacePreview{}, err
 	}
@@ -120,12 +133,20 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 		WorkspaceID: ws.ID,
 		TargetHost:  host,
 		TargetPort:  targetPort,
+		ProxyPort:   proxyPort,
 		CreatedAt:   now,
 		LastUsedAt:  now,
 	}
 	// Reserve the slot in state before releasing the lock so subsequent
-	// cap checks see this preview counted.
+	// cap checks and port picks see this preview counted.
 	if err := m.state.UpsertPreview(preview); err != nil {
+		m.mu.Unlock()
+		return state.WorkspacePreview{}, err
+	}
+	if err := m.state.Save(); err != nil {
+		if removeErr := m.state.RemovePreview(preview.ID); removeErr != nil {
+			fmt.Printf("[preview] failed to roll back preview reservation %s: %v\n", preview.ID, removeErr)
+		}
 		m.mu.Unlock()
 		return state.WorkspacePreview{}, err
 	}
@@ -135,6 +156,7 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	if err != nil {
 		// Roll back the reservation on listener failure.
 		_ = m.state.RemovePreview(preview.ID)
+		_ = m.state.Save()
 		return state.WorkspacePreview{}, err
 	}
 	return result, nil
@@ -288,22 +310,24 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	proxy.Transport = &http.Transport{
-		DisableKeepAlives: true,
-	}
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.touch(preview.ID)
+		if isWebSocketUpgrade(r) {
+			tunnelWebSocket(w, r, preview.TargetHost, preview.TargetPort)
+			return
+		}
 		proxy.ServeHTTP(w, r)
 	})
 
-	// Bind to 0.0.0.0 for network access, or 127.0.0.1 for local only
-	bindAddr := "127.0.0.1:0"
+	// Bind to the stable port. Follow bind_address: 0.0.0.0 in network-access
+	// mode so remote clients can reach the proxied server.
+	bindAddr := fmt.Sprintf("127.0.0.1:%d", preview.ProxyPort)
 	if m.networkAccess {
-		bindAddr = "0.0.0.0:0"
+		bindAddr = fmt.Sprintf("0.0.0.0:%d", preview.ProxyPort)
 	}
 	listener, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		return state.WorkspacePreview{}, fmt.Errorf("failed to allocate proxy listener: %w", err)
+		return state.WorkspacePreview{}, fmt.Errorf("failed to bind proxy listener on port %d: %w", preview.ProxyPort, err)
 	}
 
 	server := &http.Server{Handler: proxyHandler}
@@ -313,13 +337,6 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 		}
 	}()
 
-	addr, _ := listener.Addr().(*net.TCPAddr)
-	if addr == nil {
-		listener.Close()
-		return state.WorkspacePreview{}, fmt.Errorf("failed to resolve listener address")
-	}
-
-	preview.ProxyPort = addr.Port
 	preview.LastUsedAt = time.Now().UTC()
 
 	m.mu.Lock()
@@ -363,7 +380,7 @@ func (m *Manager) touch(previewID string) {
 	}
 	now := time.Now().UTC()
 	// Debounce: only update state if more than 30 seconds since last touch
-	if now.Sub(preview.LastUsedAt) < 30*time.Second {
+	if now.Sub(preview.LastUsedAt) < touchDebounce {
 		return
 	}
 	preview.LastUsedAt = now
@@ -380,37 +397,13 @@ func (m *Manager) touch(previewID string) {
 		}
 	}
 	_ = m.state.UpsertPreview(preview)
-	// No Save() needed — previews are ephemeral (json:"-") and not persisted to disk.
+	// LastUsedAt is low-priority; skip Save() here to avoid write amplification
+	// on every proxied request. It will be persisted on the next status change.
 }
 
 func (m *Manager) cleanupLoop() {
 	defer close(m.doneCh)
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			m.cleanupIdle()
-		case <-m.stopCh:
-			return
-		}
-	}
-}
-
-func (m *Manager) cleanupIdle() {
-	previews := m.state.GetPreviews()
-	now := time.Now().UTC()
-	for _, preview := range previews {
-		if preview.LastUsedAt.IsZero() {
-			continue
-		}
-		if now.Sub(preview.LastUsedAt) < m.idleTimeout {
-			continue
-		}
-		if err := m.Delete(preview.WorkspaceID, preview.ID); err != nil {
-			fmt.Printf("[preview] failed to delete idle preview %s: %v\n", preview.ID, err)
-		}
-	}
+	<-m.stopCh
 }
 
 func (m *Manager) stopEntryLocked(previewID string) {
@@ -446,6 +439,125 @@ func checkUpstream(ctx context.Context, host string, port int) (bool, error) {
 	}
 	_ = conn.Close()
 	return true, nil
+}
+
+// assignPortBlockLocked returns the port block for a workspace, assigning one
+// if not yet set. Must be called with m.mu held.
+func (m *Manager) assignPortBlockLocked(workspaceID string) (int, error) {
+	ws, ok := m.state.GetWorkspace(workspaceID)
+	if !ok {
+		return 0, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	if ws.PortBlock != 0 {
+		return ws.PortBlock, nil
+	}
+
+	// Derive next block from max across all workspaces (blocks are 1-indexed).
+	next := 1
+	for _, w := range m.state.GetWorkspaces() {
+		if w.PortBlock >= next {
+			next = w.PortBlock + 1
+		}
+	}
+
+	ws.PortBlock = next
+	if err := m.state.UpdateWorkspace(ws); err != nil {
+		return 0, fmt.Errorf("failed to assign port block: %w", err)
+	}
+	// Save is deferred to the caller which will save the preview record too.
+	return next, nil
+}
+
+// pickStablePortLocked selects the lowest available port slot in the workspace's
+// block for a new preview. Skips ports already used by existing previews or
+// occupied by an external process. Must be called with m.mu held.
+func (m *Manager) pickStablePortLocked(workspaceID string) (int, error) {
+	portBlock, err := m.assignPortBlockLocked(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+
+	used := make(map[int]bool)
+	for _, p := range m.state.GetWorkspacePreviews(workspaceID) {
+		if p.ProxyPort > 0 {
+			used[p.ProxyPort] = true
+		}
+	}
+
+	blockBase := m.portBase + (portBlock-1)*m.blockSize
+	for slot := 0; slot < m.blockSize; slot++ {
+		port := blockBase + slot
+		if used[port] {
+			continue
+		}
+		if !m.isPortFree(port) {
+			fmt.Printf("[preview] port %d in use by external process, trying next slot\n", port)
+			continue
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("all %d ports in workspace block exhausted", m.blockSize)
+}
+
+// isPortFree reports whether a port is available to bind by briefly listening on
+// the same address that ensureListener will use. Checking the actual bind address
+// matters: a port free on loopback may be occupied on all interfaces (e.g., by a
+// process bound to a specific external interface).
+func (m *Manager) isPortFree(port int) bool {
+	bindAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	if m.networkAccess {
+		bindAddr = fmt.Sprintf("0.0.0.0:%d", port)
+	}
+	ln, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
+// tunnelWebSocket handles WebSocket upgrade requests by hijacking the client
+// connection and opening a raw TCP tunnel to the upstream. This preserves the
+// full HTTP upgrade handshake that httputil.ReverseProxy would otherwise strip.
+func tunnelWebSocket(w http.ResponseWriter, r *http.Request, targetHost string, targetPort int) {
+	upstream, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", targetHost, targetPort), 5*time.Second)
+	if err != nil {
+		http.Error(w, "upstream unreachable", http.StatusBadGateway)
+		return
+	}
+	defer upstream.Close()
+
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "connection hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Forward the original upgrade request to the upstream.
+	if err := r.Write(upstream); err != nil {
+		return
+	}
+
+	// Bidirectional copy until either side closes.
+	done := make(chan struct{}, 2)
+	cp := func(dst, src net.Conn) {
+		io.Copy(dst, src) //nolint:errcheck
+		done <- struct{}{}
+	}
+	go cp(upstream, clientConn)
+	go cp(clientConn, upstream)
+	<-done
 }
 
 func normalizeTargetHost(host string) (string, error) {
