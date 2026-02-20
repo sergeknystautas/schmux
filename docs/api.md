@@ -1002,15 +1002,34 @@ Notes:
 
 ### POST /api/workspaces/{workspaceId}/push-to-branch
 
-Pushes the workspace's current branch commits to `origin/{branch}`, creating the remote branch if necessary.
+Pushes the workspace's current branch to `origin/{branch}` using `--force-with-lease`, creating the remote branch if necessary.
 
-Response:
+Request body (optional):
+
+```json
+{
+  "confirm": true
+}
+```
+
+Response (success):
 
 ```json
 {
   "success": true,
-  "success_count": 2,
+  "success_count": 0,
   "branch": "feature-branch"
+}
+```
+
+Response (needs confirmation):
+
+```json
+{
+  "success": false,
+  "branch": "feature-branch",
+  "needs_confirm": true,
+  "diverged_commits": ["abc123 other commit", "def456 another commit"]
 }
 ```
 
@@ -1022,8 +1041,11 @@ Errors:
 
 Notes:
 
-- Fails if the remote branch has commits that the local branch does not have
-- Updates workspace git status after push
+- Uses `--force-with-lease` for safe force-push after rebase
+- Fails if local is behind origin (would overwrite newer remote commits)
+- If branches have diverged (e.g., after rebase), returns `needs_confirm: true` with list of commits that would be overwritten
+- Call again with `confirm: true` to proceed with force-push
+- Updates workspace git status after successful push
 
 ### GET /api/workspaces/{workspaceId}/git-graph
 

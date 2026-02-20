@@ -360,9 +360,11 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}, nil
 }
 
-// PushToBranch pushes the current branch to origin, creating it on origin if necessary.
-// Fails if the remote branch has commits that the local branch does not have.
-func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*LinearSyncResult, error) {
+// PushToBranch pushes the current branch to origin using --force-with-lease.
+// Creates the branch on origin if it doesn't exist.
+// Fails if local is behind origin (would overwrite newer remote commits).
+// If branches have diverged and confirm=false, returns NeedsConfirm=true with divergent commit info.
+func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm bool) (*LinearSyncResult, error) {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
@@ -379,36 +381,54 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*Linear
 		return nil, fmt.Errorf("git fetch origin failed: %w: %s", err, string(output))
 	}
 
-	// 2. Check if origin/branch exists
+	// 2. Check remote branch state
 	originRef := "origin/" + branch
 	refCheckCmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", originRef)
 	refCheckCmd.Dir = workspacePath
 	originExists := refCheckCmd.Run() == nil
 
 	if originExists {
-		// 3a. origin/branch exists - check if local is ahead (ok) or behind/diverged (fail)
-		// Check if origin/branch is an ancestor of HEAD (local has all commits from origin)
-		ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", originRef, "HEAD")
+		// Check if local is behind (HEAD is ancestor of origin)
+		ancestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", originRef)
 		ancestorCmd.Dir = workspacePath
-		if err := ancestorCmd.Run(); err != nil {
-			// origin/branch is NOT an ancestor of HEAD - local doesn't have all origin commits
-			// Check if HEAD is an ancestor of origin/branch (local is behind)
-			reverseCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", originRef)
-			reverseCheckCmd.Dir = workspacePath
-			if err := reverseCheckCmd.Run(); err != nil {
-				// Branches have diverged
-				return &LinearSyncResult{
-					Success: false,
-					Branch:  branch,
-				}, nil
-			}
-			// Local is behind origin - fail
+		if err := ancestorCmd.Run(); err == nil {
 			return &LinearSyncResult{
 				Success: false,
 				Branch:  branch,
+				Message: "local branch is behind origin - pull or merge first",
 			}, nil
 		}
-		// origin/branch IS an ancestor of HEAD - local has all origin commits, can push
+
+		// Check if origin is ancestor of HEAD (fast-forward case)
+		reverseAncestorCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", originRef, "HEAD")
+		reverseAncestorCmd.Dir = workspacePath
+		isFastForward := reverseAncestorCmd.Run() == nil
+
+		if !isFastForward {
+			// Branches have diverged
+			if !confirm {
+				// Get commits that would be overwritten (on origin but not in local)
+				divergedCmd := exec.CommandContext(ctx, "git", "log", "--oneline", "HEAD.."+originRef)
+				divergedCmd.Dir = workspacePath
+				output, err := divergedCmd.Output()
+				if err != nil {
+					fmt.Printf("[workspace] push-to-branch: failed to get diverged commits: %v\n", err)
+				}
+				var divergedCommits []string
+				for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+					if line != "" {
+						divergedCommits = append(divergedCommits, line)
+					}
+				}
+
+				return &LinearSyncResult{
+					Success:         false,
+					Branch:          branch,
+					NeedsConfirm:    true,
+					DivergedCommits: divergedCommits,
+				}, nil
+			}
+		}
 	}
 
 	// 3. Check for local changes
@@ -422,7 +442,7 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*Linear
 
 	// 4. Push to origin/branch
 	fmt.Printf("[workspace] push-to-branch: workspace_id=%s pushing to origin/%s\n", workspaceID, branch)
-	pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "HEAD:"+branch)
+	pushCmd := exec.CommandContext(ctx, "git", "push", "--force-with-lease", "origin", "HEAD:"+branch)
 	pushCmd.Dir = workspacePath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("git push origin HEAD:%s failed: %w: %s", branch, err, string(output))
@@ -431,7 +451,7 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string) (*Linear
 	fmt.Printf("[workspace] push-to-branch: workspace_id=%s success\n", workspaceID)
 	return &LinearSyncResult{
 		Success:      true,
-		SuccessCount: 0, // Not tracking specific commit count for branch push
+		SuccessCount: 0,
 		Branch:       branch,
 	}, nil
 }

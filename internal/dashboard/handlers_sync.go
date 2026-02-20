@@ -316,8 +316,8 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 // handlePushToBranch handles POST requests to push commits to origin/branch.
 // POST /api/workspaces/{id}/push-to-branch
 //
-// This pushes the current branch's commits to origin, creating the branch on origin if necessary.
-// Fails if the remote branch has commits that the local branch does not have.
+// Request body: {"confirm": true|false}
+// If branches have diverged and confirm=false, returns needs_confirm=true with divergent commits.
 func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from URL: /api/workspaces/{id}/push-to-branch
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/push-to-branch")
@@ -326,9 +326,14 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type PushToBranchResponse struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
+	// Parse request body
+	var req struct {
+		Confirm bool `json:"confirm"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
 	}
 
 	// Get workspace from state
@@ -336,42 +341,45 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(PushToBranchResponse{
-			Success: false,
-			Message: fmt.Sprintf("workspace %s not found", workspaceID),
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("workspace %s not found", workspaceID),
 		})
 		return
 	}
 
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s\n", workspaceID)
+	fmt.Printf("[workspace] push-to-branch: workspace_id=%s confirm=%t\n", workspaceID, req.Confirm)
 
 	// Perform the push to branch
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
-	result, err := s.workspace.PushToBranch(ctx, workspaceID)
+	result, err := s.workspace.PushToBranch(ctx, workspaceID, req.Confirm)
 	if err != nil {
 		fmt.Printf("[workspace] push-to-branch error: workspace_id=%s error=%v\n", workspaceID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(PushToBranchResponse{
-			Success: false,
-			Message: fmt.Sprintf("Failed to push to branch: %v", err),
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Failed to push to branch: %v", err),
 		})
 		return
 	}
 
 	// Update git status after push (best effort)
-	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
-		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
-			fmt.Printf("[workspace] push-to-branch warning: failed to update git status: %v\n", err)
+	if result.Success {
+		if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
+			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
+				fmt.Printf("[workspace] push-to-branch warning: failed to update git status: %v\n", err)
+			}
 		}
-		// Don't return early on lock - we already completed the push successfully
 	}
 
 	successMsg := "success"
 	if result.Success {
 		successMsg = fmt.Sprintf("success: pushed to origin/%s", ws.Branch)
+	} else if result.NeedsConfirm {
+		successMsg = "needs confirmation"
 	} else {
 		successMsg = "failed"
 	}
