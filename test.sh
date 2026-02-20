@@ -421,7 +421,7 @@ run_scenario_tests() {
             dashboard_args+=(--skip-install)
         fi
         echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
-        if ! go run ./cmd/build-dashboard "${dashboard_args[@]}"; then
+        if ! go run ./cmd/build-dashboard "${dashboard_args[@]+"${dashboard_args[@]}"}"; then
             echo -e "  ${RED}❌ Failed to build dashboard${NC}"
             return 1
         fi
