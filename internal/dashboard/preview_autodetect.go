@@ -123,7 +123,7 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 
 	// Create previews for verified ports
 	now := time.Now().UTC()
-	createdAny := false
+	var createdPreview *string // ID of first created preview for navigation
 	for _, lp := range ports {
 		key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
 		s.previewDetectMu.Lock()
@@ -136,16 +136,19 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		s.previewDetectMu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		_, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port)
+		preview, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port)
 		cancel()
 		if err != nil {
 			continue
 		}
-		createdAny = true
+		if createdPreview == nil {
+			createdPreview = &preview.ID
+		}
 	}
 
-	if createdAny {
+	if createdPreview != nil {
 		go s.BroadcastSessions()
+		go s.BroadcastPendingNavigation("preview", ws.ID, *createdPreview)
 	}
 }
 
