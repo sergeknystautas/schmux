@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-interface BackendStats {
+export interface BackendStats {
   eventsDelivered: number;
   eventsDropped: number;
   bytesDelivered: number;

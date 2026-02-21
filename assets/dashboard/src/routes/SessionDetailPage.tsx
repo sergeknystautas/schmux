@@ -15,7 +15,7 @@ import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLoca
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import ConnectionProgressModal from '../components/ConnectionProgressModal';
-import { StreamMetricsPanel } from '../components/StreamMetricsPanel';
+import { StreamMetricsPanel, type BackendStats } from '../components/StreamMetricsPanel';
 import useVersionInfo from '../hooks/useVersionInfo';
 
 export default function SessionDetailPage() {
@@ -52,7 +52,7 @@ export default function SessionDetailPage() {
   const { markAsViewed } = useViewedSessions();
   const { registerAction, unregisterAction } = useKeyboardMode();
   const { versionInfo } = useVersionInfo();
-  const [backendStats, setBackendStats] = useState<Record<string, number> | null>(null);
+  const [backendStats, setBackendStats] = useState<BackendStats | null>(null);
   const [frontendStats, setFrontendStats] = useState<{
     framesReceived: number;
     bytesReceived: number;
@@ -140,7 +140,7 @@ export default function SessionDetailPage() {
     if (versionInfo?.dev_mode) {
       terminalStream.enableDiagnostics();
       terminalStream.onStatsUpdate = (stats) => {
-        setBackendStats(stats as Record<string, number>);
+        setBackendStats(stats as unknown as BackendStats);
       };
     }
 
