@@ -277,9 +277,20 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Build lookup of existing repos by URL to preserve bare_path
+		existingByURL := make(map[string]string, len(cfg.Repos))
+		for _, repo := range cfg.Repos {
+			if repo.BarePath != "" {
+				existingByURL[repo.URL] = repo.BarePath
+			}
+		}
 		cfg.Repos = make([]config.Repo, len(req.Repos))
 		for i, r := range req.Repos {
-			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: r.Name + ".git"}
+			barePath := existingByURL[r.URL]
+			if barePath == "" {
+				barePath = r.Name + ".git"
+			}
+			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: barePath}
 		}
 	}
 

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1419,6 +1420,43 @@ func TestPopulateBarePaths_NewRepo(t *testing.T) {
 
 	if cfg.Repos[0].BarePath != "myrepo.git" {
 		t.Errorf("BarePath = %q, want %q", cfg.Repos[0].BarePath, "myrepo.git")
+	}
+}
+
+func TestPopulateBarePaths_CorrectsMismatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create a bare repo at the namespaced path (owner/repo.git)
+	repoURL := "https://github.com/myowner/myrepo.git"
+	reposDir := filepath.Join(tmpDir, "repos")
+	namespacedDir := filepath.Join(reposDir, "myowner", "myrepo.git")
+	if err := os.MkdirAll(namespacedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Init a bare repo and set origin URL
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = namespacedDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s: %v", args, out, err)
+		}
+	}
+	runGit("init", "--bare")
+	runGit("remote", "add", "origin", repoURL)
+
+	cfg := CreateDefault(configPath)
+	cfg.WorktreeBasePath = reposDir
+	cfg.Repos = []Repo{
+		// Config has flat "myrepo.git" but repo is at "myowner/myrepo.git"
+		{Name: "myrepo", URL: repoURL, BarePath: "myrepo.git"},
+	}
+
+	cfg.populateBarePaths()
+
+	want := filepath.Join("myowner", "myrepo.git")
+	if cfg.Repos[0].BarePath != want {
+		t.Errorf("BarePath = %q, want %q (should be corrected to match disk)", cfg.Repos[0].BarePath, want)
 	}
 }
 

@@ -199,6 +199,36 @@ func TestAPIContract_ConfigUpdateValidation(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ConfigUpdatePreservesBarePath(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	// Set up existing repos with namespaced BarePath
+	cfg.Repos = []config.Repo{
+		{Name: "myrepo", URL: "https://github.com/owner/myrepo.git", BarePath: "owner/myrepo.git"},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	// POST config update with the same repo (simulating dashboard save)
+	body := []byte(`{"repos":[{"name":"myrepo","url":"https://github.com/owner/myrepo.git"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	server.handleConfigUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify BarePath was preserved in the live config
+	if len(cfg.Repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(cfg.Repos))
+	}
+	if cfg.Repos[0].BarePath != "owner/myrepo.git" {
+		t.Errorf("BarePath = %q, want %q (should be preserved from existing config)", cfg.Repos[0].BarePath, "owner/myrepo.git")
+	}
+}
+
 func TestAPIContract_SessionsShape(t *testing.T) {
 	server, _, st := newTestServer(t)
 

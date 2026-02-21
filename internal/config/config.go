@@ -2065,11 +2065,34 @@ func (c *Config) populateBarePaths() {
 	queryPath := c.GetQueryRepoPath()
 
 	for i := range c.Repos {
-		if c.Repos[i].BarePath != "" {
-			continue // Already has bare_path
+		repo := &c.Repos[i]
+
+		if repo.BarePath != "" {
+			// Validate that the configured bare_path actually exists on disk.
+			// If it doesn't, re-detect — the repo may have been cloned under
+			// a namespaced path (e.g. "owner/repo.git") while the config has
+			// the flat name ("repo.git").
+			exists := false
+			for _, basePath := range []string{reposPath, queryPath} {
+				fullPath := filepath.Join(basePath, repo.BarePath)
+				if _, err := os.Stat(fullPath); err == nil {
+					exists = true
+					break
+				}
+			}
+			if exists {
+				continue // bare_path is valid
+			}
+			// Only correct if we find the actual repo on disk (no fallback)
+			if found := findBarePathOnDisk([]string{reposPath, queryPath}, repo.URL); found != "" && found != repo.BarePath {
+				fmt.Fprintf(os.Stderr, "[config] corrected bare_path for repo %q: %s → %s\n", repo.Name, repo.BarePath, found)
+				repo.BarePath = found
+				changed = true
+			}
+			continue
 		}
 
-		repo := &c.Repos[i]
+		// Empty BarePath — detect with fallback for new repos
 		barePath := detectExistingBarePath([]string{reposPath, queryPath}, repo.URL, repo.Name)
 		if barePath != "" {
 			repo.BarePath = barePath
@@ -2090,6 +2113,27 @@ func (c *Config) populateBarePaths() {
 // Checks multiple base paths (repos/, query/) in order.
 // Returns the relative path (e.g., "schmux.git" or "owner/repo.git").
 func detectExistingBarePath(basePaths []string, repoURL, repoName string) string {
+	if found := findBarePathOnDisk(basePaths, repoURL); found != "" {
+		return found
+	}
+
+	// Fall back to {name}.git for new repos or if nothing on disk
+	if repoName != "" {
+		return repoName + ".git"
+	}
+
+	// Last resort: use URL-derived name
+	legacyName := extractRepoNameFromURL(repoURL)
+	if legacyName != "" {
+		return legacyName + ".git"
+	}
+
+	return ""
+}
+
+// findBarePathOnDisk looks for an existing bare repo on disk that matches the given URL.
+// Returns the relative path if found, or empty string if nothing matches on disk.
+func findBarePathOnDisk(basePaths []string, repoURL string) string {
 	legacyName := extractRepoNameFromURL(repoURL)
 	owner, repo := parseGitHubURL(repoURL)
 
@@ -2109,16 +2153,6 @@ func detectExistingBarePath(basePaths []string, repoURL, repoName string) string
 				return filepath.Join(owner, repo+".git")
 			}
 		}
-	}
-
-	// 3. Fall back to {name}.git for new repos or if nothing on disk
-	if repoName != "" {
-		return repoName + ".git"
-	}
-
-	// Last resort: use URL-derived name
-	if legacyName != "" {
-		return legacyName + ".git"
 	}
 
 	return ""
