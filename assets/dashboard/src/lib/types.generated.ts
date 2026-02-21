@@ -50,6 +50,7 @@ export interface ConfigResponse {
   notifications: Notifications;
   lore: Lore;
   remote_access: RemoteAccess;
+  floor_manager: FloorManager;
   needs_restart: boolean;
 }
 
@@ -73,6 +74,7 @@ export interface ConfigUpdateRequest {
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   remote_access?: RemoteAccessUpdate;
+  floor_manager?: FloorManagerUpdate;
   model_versions?: Record<string, string>;
 }
 
@@ -100,6 +102,18 @@ export interface FileDiff {
   lines_added: number;
   lines_removed: number;
   is_binary: boolean;
+}
+
+export interface FloorManager {
+  enabled: boolean;
+  target: string;
+  rotation_threshold: number;
+}
+
+export interface FloorManagerUpdate {
+  enabled?: boolean;
+  target?: string;
+  rotation_threshold?: number;
 }
 
 export interface GitCommitDetailResponse {

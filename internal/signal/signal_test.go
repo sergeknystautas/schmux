@@ -267,3 +267,51 @@ func TestParseSignalFile(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSignalFileWithIntentAndBlockers(t *testing.T) {
+	content := "needs_input Need auth token format clarification\nintent: Implementing JWT auth for login endpoint\nblockers: Unknown token expiry requirement"
+	sig := ParseSignalFile(content)
+	if sig == nil {
+		t.Fatal("expected non-nil signal")
+	}
+	if sig.State != "needs_input" {
+		t.Errorf("expected state=needs_input, got %s", sig.State)
+	}
+	if sig.Message != "Need auth token format clarification" {
+		t.Errorf("unexpected message: %s", sig.Message)
+	}
+	if sig.Intent != "Implementing JWT auth for login endpoint" {
+		t.Errorf("unexpected intent: %s", sig.Intent)
+	}
+	if sig.Blockers != "Unknown token expiry requirement" {
+		t.Errorf("unexpected blockers: %s", sig.Blockers)
+	}
+}
+
+func TestParseRotateSignal(t *testing.T) {
+	content := "rotate Ready for context rotation"
+	sig := ParseSignalFile(content)
+	if sig == nil {
+		t.Fatal("expected non-nil signal")
+	}
+	if sig.State != "rotate" {
+		t.Errorf("expected state=rotate, got %s", sig.State)
+	}
+	if sig.Message != "Ready for context rotation" {
+		t.Errorf("unexpected message: %s", sig.Message)
+	}
+}
+
+func TestParseSignalFileWithoutEnrichedFields(t *testing.T) {
+	content := "working Doing stuff"
+	sig := ParseSignalFile(content)
+	if sig == nil {
+		t.Fatal("expected non-nil signal")
+	}
+	if sig.Intent != "" {
+		t.Errorf("expected empty intent, got %s", sig.Intent)
+	}
+	if sig.Blockers != "" {
+		t.Errorf("expected empty blockers, got %s", sig.Blockers)
+	}
+}

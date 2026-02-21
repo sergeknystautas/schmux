@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
 import { playAttentionSound, isAttentionState, warmupAudioContext } from '../lib/notificationSound';
+import { requestNotificationPermission, showBrowserNotification } from '../lib/browserNotification';
 import { removePreviewIframe } from '../lib/previewKeepAlive';
 import type {
   SessionWithWorkspace,
@@ -173,6 +174,22 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     if (shouldPlaySound && !config?.notifications?.sound_disabled) {
       playAttentionSound();
     }
+  }, [sessionsById, config?.notifications?.sound_disabled]);
+
+  // Detect escalation from floor manager and trigger alerts
+  const lastEscalationRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const fmSession = Object.values(sessionsById).find((s) => s.is_floor_manager);
+    const escalation = fmSession?.escalation;
+
+    if (escalation && escalation !== lastEscalationRef.current) {
+      if (!config?.notifications?.sound_disabled) {
+        playAttentionSound();
+      }
+      requestNotificationPermission();
+      showBrowserNotification('schmux — Escalation', escalation);
+    }
+    lastEscalationRef.current = escalation;
   }, [sessionsById, config?.notifications?.sound_disabled]);
 
   // Keep a ref updated so waitForSession can always read current value

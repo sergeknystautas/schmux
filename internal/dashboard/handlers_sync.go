@@ -465,6 +465,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 						step.TmuxSession,
 						nil, // no state store
 						"",  // no signal file
+						nil, // no event watcher
 						nil, // no signal callback
 						nil, // no output callback
 					)

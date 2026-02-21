@@ -164,7 +164,9 @@ Response:
         "running": true,
         "attach_cmd": "tmux attach ...",
         "nudge_state": "optional",
-        "nudge_summary": "optional"
+        "nudge_summary": "optional",
+        "is_floor_manager": false,
+        "escalation": "optional — active escalation message from floor manager"
       }
     ],
     "previews": [
@@ -559,6 +561,33 @@ Errors:
 
 - 409 with JSON: `{"error":"nickname already in use"}`
 - 500: "Failed to rename session: ..."
+
+### POST /api/escalate
+
+Sets an escalation message on the floor manager session. Triggers a sound and browser notification on the dashboard.
+
+Request body:
+
+```json
+{ "message": "Agent X is stuck on auth — needs human review" }
+```
+
+Response: 200 OK (empty body)
+
+Errors:
+
+- 400: "message is required"
+- 404: "floor manager session not found"
+
+### DELETE /api/escalate
+
+Clears the active escalation on the floor manager session.
+
+Response: 200 OK (empty body)
+
+Errors:
+
+- 404: "floor manager session not found"
 
 ### GET /api/config
 

@@ -160,6 +160,15 @@ type Server struct {
 
 	// Lore curator for manual curation
 	loreCurator *lore.Curator
+
+	// Floor manager
+	floorManager interface {
+		GetSessionID() string
+		GetInjectionCount() int
+	}
+
+	// Floor manager toggle callback — called when config enables/disables floor manager
+	floorManagerToggle func(enabled bool)
 }
 
 // remoteAuthState groups remote access authentication fields.
@@ -329,6 +338,19 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteTokenMu.Unlock()
 }
 
+// SetFloorManager sets the floor manager for dashboard API.
+func (s *Server) SetFloorManager(fm interface {
+	GetSessionID() string
+	GetInjectionCount() int
+}) {
+	s.floorManager = fm
+}
+
+// SetFloorManagerToggle sets the callback invoked when config enables/disables the floor manager.
+func (s *Server) SetFloorManagerToggle(fn func(enabled bool)) {
+	s.floorManagerToggle = fn
+}
+
 // LogDashboardAssetPath logs where dashboard assets are being served from.
 func (s *Server) LogDashboardAssetPath() {
 	path := s.getDashboardDistPath()
@@ -371,6 +393,9 @@ func (s *Server) Start() error {
 		viteProxy := createDevProxyHandler("http://localhost:5173")
 		mux.Handle("/", viteProxy)
 		fmt.Println("[daemon] dev-proxy enabled: proxying to Vite at http://localhost:5173")
+		if s.config.GetAuthEnabled() {
+			fmt.Println("[daemon] WARNING: dev-proxy bypasses auth for proxied routes — do not use in production")
+		}
 	} else {
 		mux.HandleFunc("/", s.handleApp)
 		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
@@ -403,6 +428,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
 	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
 	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
+	mux.HandleFunc("/api/escalate", s.withCORS(s.withAuthAndCSRF(s.handleEscalate)))
 	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
 	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))
@@ -420,6 +446,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
+
+	// Floor manager
+	mux.HandleFunc("/api/floor-manager", s.withCORS(s.withAuth(s.handleFloorManager)))
 
 	// Lore routes
 	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
@@ -1118,13 +1147,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 
 	// Upgrade connection
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin: s.checkWSOrigin,
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)

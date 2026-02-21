@@ -11,6 +11,8 @@ export interface SessionResponse {
   nudge_state?: string;
   nudge_summary?: string;
   nudge_seq?: number;
+  is_floor_manager?: boolean;
+  escalation?: string;
   // Remote session fields
   remote_host_id?: string;
   remote_pane_id?: string;

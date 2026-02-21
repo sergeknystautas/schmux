@@ -63,10 +63,15 @@ export function getErrorMessage(err: unknown, fallback: string): string {
 async function parseErrorResponse(response: Response, fallback: string): Promise<never> {
   let message = fallback;
   try {
-    const err = await response.json();
-    message = err.error || fallback;
+    const text = await response.text();
+    try {
+      const err = JSON.parse(text);
+      message = err.error || fallback;
+    } catch {
+      message = text || fallback;
+    }
   } catch {
-    message = (await response.text()) || fallback;
+    // body unreadable, use fallback
   }
   throw new Error(message);
 }
@@ -157,7 +162,7 @@ export async function prepareBranchSpawn(
 }
 
 export async function disposeSession(sessionId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/sessions/${sessionId}/dispose`, {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/dispose`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -169,7 +174,7 @@ export async function updateNickname(
   sessionId: string,
   nickname: string
 ): Promise<{ status: string }> {
-  const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
+  const response = await fetch(`/api/sessions-nickname/${encodeURIComponent(sessionId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ nickname }),
@@ -193,7 +198,7 @@ export async function updateNickname(
 }
 
 export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/dispose`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -206,7 +211,7 @@ export async function disposeWorkspace(workspaceId: string): Promise<{ status: s
 export async function disposeWorkspaceAll(
   workspaceId: string
 ): Promise<{ status: string; sessions_disposed: number }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/dispose-all`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -217,7 +222,7 @@ export async function disposeWorkspaceAll(
 }
 
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
-  const response = await fetch(`/api/diff/${workspaceId}`);
+  const response = await fetch(`/api/diff/${encodeURIComponent(workspaceId)}`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch diff');
   return response.json();
 }
@@ -225,7 +230,7 @@ export async function getDiff(workspaceId: string): Promise<DiffResponse> {
 // Get a file from the workspace for image preview
 export function getWorkspaceFileUrl(workspaceId: string, filePath: string): string {
   const encoded = encodeURIComponent(filePath);
-  return `/api/file/${workspaceId}/${encoded}`;
+  return `/api/file/${encodeURIComponent(workspaceId)}/${encoded}`;
 }
 
 export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
@@ -284,7 +289,7 @@ export async function saveAuthSecrets(payload: {
 }
 
 export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
-  const response = await fetch(`/api/open-vscode/${workspaceId}`, {
+  const response = await fetch(`/api/open-vscode/${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -298,7 +303,7 @@ export async function diffExternal(
   workspaceId: string,
   command?: string
 ): Promise<DiffExternalResponse> {
-  const response = await fetch(`/api/diff-external/${workspaceId}`, {
+  const response = await fetch(`/api/diff-external/${encodeURIComponent(workspaceId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(command ? { command } : {}),
@@ -328,7 +333,7 @@ export async function configureModelSecrets(
   modelId: string,
   secrets: Record<string, string>
 ): Promise<{ status: string }> {
-  const response = await fetch(`/api/models/${modelId}/secrets`, {
+  const response = await fetch(`/api/models/${encodeURIComponent(modelId)}/secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ secrets }),
@@ -343,7 +348,7 @@ export async function configureModelSecrets(
  * Removes secrets for a third-party model.
  */
 export async function removeModelSecrets(modelId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/models/${modelId}/secrets`, {
+  const response = await fetch(`/api/models/${encodeURIComponent(modelId)}/secrets`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -360,10 +365,13 @@ export async function getOverlays(): Promise<OverlaysResponse> {
 }
 
 export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-  });
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/refresh-overlay`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    }
+  );
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to refresh overlay');
   }
@@ -419,11 +427,14 @@ export async function linearSyncFromMain(
   workspaceId: string,
   hash: string
 ): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ hash }),
-  });
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/linear-sync-from-main`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ hash }),
+    }
+  );
   if (!response.ok) {
     let err: (LinearSyncResponse & { message?: string }) | null = null;
     let fallbackMessage = 'Failed to sync from main';
@@ -445,10 +456,13 @@ export async function linearSyncFromMain(
 }
 
 export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-  });
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/linear-sync-to-main`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    }
+  );
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to sync to main');
   }
@@ -456,10 +470,13 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
 }
 
 export async function pushToBranch(workspaceId: string): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-  });
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/push-to-branch`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    }
+  );
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to push to branch');
   }
@@ -469,10 +486,13 @@ export async function pushToBranch(workspaceId: string): Promise<LinearSyncRespo
 export async function linearSyncResolveConflict(
   workspaceId: string
 ): Promise<LinearSyncResolveConflictResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-  });
+  const response = await fetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/linear-sync-resolve-conflict`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    }
+  );
   if (!response.ok && response.status !== 202) {
     await parseErrorResponse(response, 'Failed to start conflict resolution');
   }
@@ -481,7 +501,7 @@ export async function linearSyncResolveConflict(
 
 export async function dismissLinearSyncResolveConflictState(workspaceId: string): Promise<void> {
   const response = await fetch(
-    `/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/linear-sync-resolve-conflict-state`,
     {
       method: 'DELETE',
       headers: { ...csrfHeaders() },
@@ -623,6 +643,17 @@ export async function deleteRemoteFlavor(id: string): Promise<void> {
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to delete remote flavor');
+  }
+}
+
+export async function dismissEscalation(): Promise<void> {
+  const response = await fetch('/api/escalate', {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to dismiss escalation');
   }
 }
 

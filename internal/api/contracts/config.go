@@ -133,6 +133,7 @@ type ConfigResponse struct {
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
+	FloorManager               FloorManager          `json:"floor_manager"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
 
@@ -226,6 +227,7 @@ type ConfigUpdateRequest struct {
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
+	FloorManager               *FloorManagerUpdate    `json:"floor_manager,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
 
@@ -286,4 +288,18 @@ type RemoteAccessUpdate struct {
 type RemoteAccessNotifyUpdate struct {
 	NtfyTopic *string `json:"ntfy_topic,omitempty"`
 	Command   *string `json:"command,omitempty"`
+}
+
+// FloorManager represents floor manager configuration in the API response.
+type FloorManager struct {
+	Enabled           bool   `json:"enabled"`
+	Target            string `json:"target"`
+	RotationThreshold int    `json:"rotation_threshold"`
+}
+
+// FloorManagerUpdate represents partial floor manager config updates.
+type FloorManagerUpdate struct {
+	Enabled           *bool   `json:"enabled,omitempty"`
+	Target            *string `json:"target,omitempty"`
+	RotationThreshold *int    `json:"rotation_threshold,omitempty"`
 }

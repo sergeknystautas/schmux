@@ -1,11 +1,12 @@
 # E2E Base Image for schmux
-# Contains system deps and SSH server. No Go toolchain needed —
-# both the schmux binary and E2E test binary are pre-compiled locally.
-# Rebuilt only when this file changes or with --force.
+# Contains Go runtime, system deps, SSH server, and pre-cached Go modules.
+# Rebuilt only when go.mod/go.sum change or with --force.
 #
 # Build: docker build -f Dockerfile.e2e-base -t schmux-e2e-base .
 
-FROM debian:bookworm-slim
+FROM golang:1.24-bookworm
+# Base image uses version tag (not SHA pin) — acceptable tradeoff for dev/test
+# images where reproducibility is less critical than staying current with patches.
 
 # Install runtime dependencies including SSH server for remote workspace tests
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,6 +25,12 @@ RUN mkdir -p /run/sshd && \
 # Set up a non-root user for running tests
 RUN useradd -m -u 1000 e2e
 
+# Pre-cache Go modules (this layer is invalidated only when go.mod/go.sum change)
+WORKDIR /tmp/gomod-cache
+COPY go.mod go.sum ./
+RUN go mod download
+RUN rm -rf /tmp/gomod-cache
+
 # Set up SSH keys for e2e user (passwordless localhost SSH)
 USER e2e
 RUN mkdir -p ~/.ssh && \
@@ -31,6 +38,10 @@ RUN mkdir -p ~/.ssh && \
     cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && \
     chmod 600 ~/.ssh/authorized_keys
 USER root
+
+# Environment
+ENV PATH="/usr/local/bin:${PATH}"
+ENV GOCACHE=/tmp/go-cache
 
 # Verify installation
 RUN tmux -V

@@ -122,12 +122,14 @@ type Session struct {
 	// Only incremented by direct agent signals (HandleAgentSignal), NOT by
 	// nudgenik polls or manual nudge clears — the UI notification sound
 	// should only fire when an agent explicitly requests attention.
-	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
-	Nudge        string `json:"nudge,omitempty"`          // NudgeNik consultation result
-	RemoteHostID string `json:"remote_host_id,omitempty"` // Empty for local sessions
-	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
-	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
-	Status       string `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
+	NudgeSeq       uint64 `json:"nudge_seq,omitempty"`
+	Nudge          string `json:"nudge,omitempty"`          // NudgeNik consultation result
+	RemoteHostID   string `json:"remote_host_id,omitempty"` // Empty for local sessions
+	RemotePaneID   string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
+	RemoteWindow   string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
+	Status         string `json:"status,omitempty"`         // Status for remote sessions: "provisioning", "running", "failed"
+	IsFloorManager bool   `json:"is_floor_manager,omitempty"`
+	Escalation     string `json:"escalation,omitempty"` // Active escalation message from floor manager
 }
 
 // New creates a new empty State instance.
@@ -360,6 +362,27 @@ func (s *State) GetSessions() []Session {
 	return sessions
 }
 
+// GetFloorManagerSession returns the floor manager session, if one exists.
+// Checks the IsFloorManager flag first, then falls back to matching the
+// "floor-manager" nickname for sessions saved before the flag was introduced.
+// Returns a value copy (like GetSession) to avoid pointer escape from the lock scope.
+func (s *State) GetFloorManagerSession() (Session, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sess := range s.Sessions {
+		if sess.IsFloorManager {
+			return sess, true
+		}
+	}
+	// Fallback: match by nickname for sessions saved without the flag
+	for _, sess := range s.Sessions {
+		if sess.Nickname == "floor-manager" {
+			return sess, true
+		}
+	}
+	return Session{}, false
+}
+
 // UpdateSession updates a session in the state.
 // Returns an error if the session is not found.
 func (s *State) UpdateSession(sess Session) error {
@@ -409,6 +432,30 @@ func (s *State) UpdateSessionLastSignal(sessionID string, t time.Time) {
 	for i := range s.Sessions {
 		if s.Sessions[i].ID == sessionID {
 			s.Sessions[i].LastSignalAt = t
+			return
+		}
+	}
+}
+
+// UpdateSessionFloorManager sets the floor manager flag on a session.
+func (s *State) UpdateSessionFloorManager(sessionID string, isFloorManager bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].IsFloorManager = isFloorManager
+			return
+		}
+	}
+}
+
+// UpdateSessionEscalation sets or clears the escalation message on a session.
+func (s *State) UpdateSessionEscalation(sessionID, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == sessionID {
+			s.Sessions[i].Escalation = message
 			return
 		}
 	}

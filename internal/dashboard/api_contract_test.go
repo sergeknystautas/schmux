@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -539,10 +540,19 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
+
+	// Use a cancellable context so background goroutines (previewReconcileLoop)
+	// stop cleanly when the test ends, avoiding TempDir cleanup races on macOS.
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
-		DevMode: true,
+		DevMode:     true,
+		ShutdownCtx: shutdownCtx,
 	})
-	t.Cleanup(server.CloseForTest)
+	t.Cleanup(func() {
+		shutdownCancel()
+		server.CloseForTest()
+	})
 
 	wsPath := t.TempDir()
 	ws := state.Workspace{
@@ -608,11 +618,16 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	})
 
 	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
-		// Create a non-dev-mode server
+		// Create a non-dev-mode server with its own cancellable context.
+		ctx2, cancel2 := context.WithCancel(context.Background())
 		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
-			DevMode: false,
+			DevMode:     false,
+			ShutdownCtx: ctx2,
 		})
-		t.Cleanup(server2.CloseForTest)
+		t.Cleanup(func() {
+			cancel2()
+			server2.CloseForTest()
+		})
 		// Re-add the workspace (it may have been disposed above)
 		ws3 := state.Workspace{
 			ID:     "ws-dev-live-2",

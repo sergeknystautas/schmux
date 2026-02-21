@@ -508,6 +508,38 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 	return all, nil
 }
 
+// DeduplicateEntries removes duplicate lore entries from a slice.
+// Duplicates are identified by the combination of timestamp, type, and content key
+// (EntryKey: Text for reflection/friction, Tool+InputSummary for failure).
+// State-change records are always kept since they don't carry duplicate content.
+// The first occurrence of each entry is kept; subsequent duplicates are dropped.
+func DeduplicateEntries(entries []Entry) []Entry {
+	type dedupKey struct {
+		ts      string
+		entType string
+		content string
+	}
+	seen := make(map[dedupKey]bool, len(entries))
+	result := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		// State-change records are always included
+		if e.StateChange != "" {
+			result = append(result, e)
+			continue
+		}
+		key := dedupKey{
+			ts:      e.Timestamp.Format(time.RFC3339),
+			entType: e.Type,
+			content: e.EntryKey(),
+		}
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
 // LoreStateDir returns the central lore state directory for a repo: ~/.schmux/lore/<repoName>/.
 // Creates the directory if it doesn't exist.
 func LoreStateDir(repoName string) (string, error) {

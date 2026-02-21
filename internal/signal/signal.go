@@ -14,12 +14,15 @@ var ValidStates = map[string]bool{
 	"completed":     true,
 	"error":         true,
 	"working":       true,
+	"rotate":        true,
 }
 
 // Signal represents a parsed signal from an agent.
 type Signal struct {
 	State     string    // needs_input, needs_testing, completed, error, working
 	Message   string    // Optional message from the agent
+	Intent    string    // What the agent is trying to do
+	Blockers  string    // What's preventing progress
 	Timestamp time.Time // When the signal was detected
 }
 
@@ -168,6 +171,8 @@ func MapStateToNudge(state string) string {
 		return "Error"
 	case "working":
 		return "Working"
+	case "rotate":
+		return "Rotating"
 	default:
 		return state
 	}
@@ -184,21 +189,21 @@ func ShortID(id string) string {
 
 // ParseSignalFile parses the content of a signal file.
 // Format: "STATE MESSAGE" on the first line.
+// Subsequent lines may contain "intent: ..." and "blockers: ..." fields.
 // Returns nil if the content is empty or the state is invalid.
 func ParseSignalFile(content string) *Signal {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil
 	}
-	// Use first line only
-	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
-		content = content[:idx]
-	}
-	content = strings.TrimSpace(content)
-	if content == "" {
+
+	lines := strings.Split(content, "\n")
+	firstLine := strings.TrimSpace(lines[0])
+	if firstLine == "" {
 		return nil
 	}
-	parts := strings.SplitN(content, " ", 2)
+
+	parts := strings.SplitN(firstLine, " ", 2)
 	state := parts[0]
 	if !IsValidState(state) {
 		return nil
@@ -207,9 +212,22 @@ func ParseSignalFile(content string) *Signal {
 	if len(parts) > 1 {
 		msg = parts[1]
 	}
-	return &Signal{
+
+	sig := &Signal{
 		State:     state,
 		Message:   msg,
 		Timestamp: time.Now(),
 	}
+
+	// Parse enriched fields from subsequent lines
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "intent: ") {
+			sig.Intent = strings.TrimPrefix(line, "intent: ")
+		} else if strings.HasPrefix(line, "blockers: ") {
+			sig.Blockers = strings.TrimPrefix(line, "blockers: ")
+		}
+	}
+
+	return sig
 }

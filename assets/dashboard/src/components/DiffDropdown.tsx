@@ -98,7 +98,7 @@ export default function DiffDropdown({ workspace, externalDiffCommands }: DiffDr
     setExecuting(cmd.name);
 
     try {
-      const response = await diffExternal(workspace.id, cmd.command);
+      const response = await diffExternal(workspace.id, cmd.name);
       const title = response.success ? 'Diff tool opened' : 'Failed to open diff tool';
       await alert(title, response.message);
     } catch (err) {

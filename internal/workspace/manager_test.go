@@ -665,6 +665,18 @@ func (m *mockStateStore) ClearSessionNudge(sessionID string) bool {
 	return m.state.ClearSessionNudge(sessionID)
 }
 
+func (m *mockStateStore) GetFloorManagerSession() (state.Session, bool) {
+	return m.state.GetFloorManagerSession()
+}
+
+func (m *mockStateStore) UpdateSessionFloorManager(sessionID string, isFloorManager bool) {
+	m.state.UpdateSessionFloorManager(sessionID, isFloorManager)
+}
+
+func (m *mockStateStore) UpdateSessionEscalation(sessionID, message string) {
+	m.state.UpdateSessionEscalation(sessionID, message)
+}
+
 func (m *mockStateStore) GetNeedsRestart() bool {
 	return m.state.GetNeedsRestart()
 }

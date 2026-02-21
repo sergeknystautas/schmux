@@ -84,8 +84,13 @@ test.describe.serial('Persist lore curator model selection', () => {
     const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTab.click();
 
+    // Scope to the Lore settings section (Floor Manager also has an "LLM Target" field)
+    const loreSettings = page.locator('.settings-section', {
+      has: page.locator('h3', { hasText: 'Lore' }),
+    });
+
     // The LLM Target dropdown should initially show "None"
-    const targetSelect = page
+    const targetSelect = loreSettings
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
       })
@@ -98,7 +103,7 @@ test.describe.serial('Persist lore curator model selection', () => {
     await expect(targetSelect).toHaveValue(agentName);
 
     // Also change curate on dispose to verify multi-field persistence
-    const curateSelect = page
+    const curateSelect = loreSettings
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
       })
@@ -119,8 +124,13 @@ test.describe.serial('Persist lore curator model selection', () => {
     const advancedTabAfterReload = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTabAfterReload.click();
 
+    // Scope to Lore section again after reload
+    const loreSettingsAfterReload = page.locator('.settings-section', {
+      has: page.locator('h3', { hasText: 'Lore' }),
+    });
+
     // Verify the LLM target is still echo-agent
-    const targetSelectAfterReload = page
+    const targetSelectAfterReload = loreSettingsAfterReload
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
       })
@@ -128,7 +138,7 @@ test.describe.serial('Persist lore curator model selection', () => {
     await expect(targetSelectAfterReload).toHaveValue(agentName);
 
     // Verify curate on dispose is still workspace
-    const curateSelectAfterReload = page
+    const curateSelectAfterReload = loreSettingsAfterReload
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
       })

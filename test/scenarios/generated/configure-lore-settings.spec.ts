@@ -46,8 +46,13 @@ test.describe.serial('Configure lore settings', () => {
       .locator('input[type="checkbox"]');
     await expect(enableCheckbox).toBeChecked();
 
+    // Scope to the Lore settings section (Floor Manager also has an "LLM Target" field)
+    const loreSettings = page.locator('.settings-section', {
+      has: page.locator('h3', { hasText: 'Lore' }),
+    });
+
     // LLM Target dropdown should be visible
-    const targetSelect = page
+    const targetSelect = loreSettings
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
       })
@@ -55,7 +60,7 @@ test.describe.serial('Configure lore settings', () => {
     await expect(targetSelect).toBeVisible();
 
     // Curate On Dispose dropdown should be visible with expected options
-    const curateSelect = page
+    const curateSelect = loreSettings
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
       })
@@ -77,8 +82,13 @@ test.describe.serial('Configure lore settings', () => {
     const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTab.click();
 
+    // Scope to the Lore settings section (Floor Manager also has an "LLM Target" field)
+    const loreSettings = page.locator('.settings-section', {
+      has: page.locator('h3', { hasText: 'Lore' }),
+    });
+
     // Select the echo-agent as LLM target
-    const targetSelect = page
+    const targetSelect = loreSettings
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
       })

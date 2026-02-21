@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -97,10 +98,21 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 		// Check if this is a symlink (must use d.Type(), not info.Mode(),
 		// because DirEntry.Info() follows symlinks and loses the symlink flag)
 		if d.Type()&os.ModeSymlink != 0 {
-			// Copy symlink as-is
 			target, err := os.Readlink(path)
 			if err != nil {
 				return fmt.Errorf("failed to read symlink %s: %w", path, err)
+			}
+			// Reject absolute symlink targets
+			if filepath.IsAbs(target) {
+				fmt.Printf("[workspace] WARNING: skipping overlay symlink with absolute target: %s -> %s\n", relPath, target)
+				return nil
+			}
+			// Resolve relative target and verify it stays within the overlay directory
+			resolved := filepath.Join(filepath.Dir(path), target)
+			resolved = filepath.Clean(resolved)
+			if !strings.HasPrefix(resolved, srcDir) {
+				fmt.Printf("[workspace] WARNING: skipping overlay symlink that escapes overlay directory: %s -> %s\n", relPath, target)
+				return nil
 			}
 			if err := os.Symlink(target, destPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", destPath, err)
@@ -237,7 +249,7 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 	}
 
 	// Ensure schmux-managed configuration (hooks, scripts, etc.)
-	if err := ensure.Workspace(w.Path); err != nil {
+	if err := ensure.Workspace(w.Path, m.hooksDir); err != nil {
 		fmt.Printf("[workspace] warning: failed to ensure workspace config: %v\n", err)
 	}
 

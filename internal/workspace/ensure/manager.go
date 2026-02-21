@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 const (
@@ -19,18 +20,21 @@ const (
 	schmuxMarkerEnd   = "<!-- SCHMUX:END -->"
 )
 
-// SignalingInstructions is the template for agent signaling instructions.
-// This is appended to agent instruction files to enable direct signaling.
-const SignalingInstructions = `## Schmux Status Signaling
+// StatusSignalingInstructions teaches agents to write status events to $SCHMUX_EVENTS_FILE.
+const StatusSignalingInstructions = `## Schmux Event Reporting
 
-This workspace is managed by schmux. Signal your status to help the user monitor your progress.
+This workspace is managed by schmux. Report events to help monitor your progress.
 
-### How to Signal
+### How to Report
 
-Write your status to the file at $SCHMUX_STATUS_FILE (set in your environment). Write a single line:
+Append a JSON line to the file at $SCHMUX_EVENTS_FILE. Each line must be valid JSON.
 
-` + "```" + `
-echo "STATE message" > $SCHMUX_STATUS_FILE
+### Status Events
+
+Report your status when it changes:
+
+` + "```" + `bash
+printf '{"ts":"%s","type":"status","state":"STATE","message":"description"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ` + "```" + `
 
 ### Available States
@@ -45,18 +49,18 @@ echo "STATE message" > $SCHMUX_STATUS_FILE
 
 ### Examples
 
-` + "```" + `
+` + "```" + `bash
 # After finishing a task
-echo "completed Implemented the login feature" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"completed","message":"Implemented the login feature"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
 # When you need user approval
-echo "needs_input Should I delete these 5 files?" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"needs_input","message":"Should I delete these 5 files?"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
 # When encountering an error
-echo "error Build failed - missing dependency" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"error","message":"Build failed - missing dependency"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
 # When starting new work
-echo "working Refactoring auth module" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"working","message":"Refactoring auth module"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ` + "```" + `
 
 ### Best Practices
@@ -66,25 +70,30 @@ echo "working Refactoring auth module" > $SCHMUX_STATUS_FILE
 3. **Signal error** for failures that block progress
 4. **Signal working** when starting a new task (describe what you're doing)
 5. Keep messages concise (under 100 characters)
+`
 
-## Friction Capture
+// FrictionCaptureInstructions teaches agents to write reflection/friction events.
+const FrictionCaptureInstructions = `## Friction Capture
 
 When you hit a wall — wrong command, missing file, failed build, wrong assumption —
-append what went wrong and the fix to ` + "`.schmux/lore.jsonl`" + `. One JSON line:
+append what went wrong and the fix to ` + "`$SCHMUX_EVENTS_FILE`" + `. One JSON line:
 
-` + "```" + `
-{"ts":"<ISO8601>","ws":"<workspace-id>","agent":"<your-agent-type>","type":"friction","text":"When <what triggered the mistake>, do <the correct approach> instead"}
+` + "```" + `bash
+printf '{"ts":"%s","type":"friction","text":"When <what triggered the mistake>, do <the correct approach> instead"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ` + "```" + `
 
 Only write when something tripped you up. Don't write what you built or learned —
 write what would have saved you time if you'd known it before starting.
 `
 
+// SignalingInstructions is the combined status + friction instructions for backward compat.
+var SignalingInstructions = StatusSignalingInstructions + "\n" + FrictionCaptureInstructions
+
 // Workspace ensures a workspace has all necessary schmux-managed configuration.
 // This is the main entry point called both during session spawn and overlay refresh.
-func Workspace(workspacePath string) error {
-	// Ensure Claude hooks and lore scripts for Claude-based workspaces
-	if err := ClaudeHooks(workspacePath); err != nil {
+func Workspace(workspacePath string, hooksDir string) error {
+	// Ensure Claude hooks for Claude-based workspaces
+	if err := ClaudeHooks(workspacePath, hooksDir, true); err != nil {
 		fmt.Printf("[ensure] warning: failed to ensure Claude hooks: %v\n", err)
 	}
 	if err := LoreHookScripts(workspacePath); err != nil {
@@ -310,31 +319,55 @@ type claudeHookMatcherGroup struct {
 	Hooks   []claudeHookHandler `json:"hooks"`
 }
 
-// signalCommand returns a shell command that writes a state to SCHMUX_STATUS_FILE.
-// Guarded by env var check so it's a no-op outside schmux-managed sessions.
-func signalCommand(state string) string {
-	return fmt.Sprintf(`[ -n "$SCHMUX_STATUS_FILE" ] && echo "%s" > "$SCHMUX_STATUS_FILE" || true`, state)
+// dualWriteCommand returns a shell command that writes to both the signal file (overwrite)
+// and the event file (append JSON). Phase 1 dual-write for backward compatibility.
+// IMPORTANT: No single quotes allowed — command is embedded in JSON then shell-quoted.
+func dualWriteCommand(state string) string {
+	signalWrite := fmt.Sprintf(`[ -n "$SCHMUX_STATUS_FILE" ] && echo "%s" > "$SCHMUX_STATUS_FILE"`, state)
+	eventWrite := fmt.Sprintf(`[ -n "$SCHMUX_EVENTS_FILE" ] && printf "{\"ts\":\"%%s\",\"type\":\"status\",\"state\":\"%s\",\"message\":\"\"}\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" >> "$SCHMUX_EVENTS_FILE"`, state)
+	return fmt.Sprintf(`{ %s; %s; } || true`, signalWrite, eventWrite)
 }
 
-// signalCommandWithContext returns a shell command that extracts a JSON field
-// from the hook's stdin input and includes it as the signal message.
-// Requires jq; falls back to state-only signal if jq is unavailable.
-func signalCommandWithContext(state, jqField string) string {
+// dualWriteCommandWithIntent returns a shell command that extracts a JSON field from stdin
+// and writes to both signal file and event file with intent.
+// IMPORTANT: No single quotes allowed — command is embedded in JSON then shell-quoted.
+func dualWriteCommandWithIntent(state, promptJqField string) string {
 	return fmt.Sprintf(
-		`[ -n "$SCHMUX_STATUS_FILE" ] && { MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" | cut -c1-100 || true); echo "%s${MSG:+ $MSG}" > "$SCHMUX_STATUS_FILE"; } || true`,
-		jqField, state,
+		`{ MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" | cut -c1-100 || true); `+
+			`JMSG=$(printf "%%s" "$MSG" | jq -Rs . 2>/dev/null | sed "s/^.//;s/.$//"); `+
+			`[ -n "$SCHMUX_STATUS_FILE" ] && printf "%%s\nintent: %%s\n" "%s${MSG:+ $MSG}" "$MSG" > "$SCHMUX_STATUS_FILE"; `+
+			`[ -n "$SCHMUX_EVENTS_FILE" ] && printf "{\"ts\":\"%%s\",\"type\":\"status\",\"state\":\"%s\",\"message\":\"%%s\",\"intent\":\"%%s\"}\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" "${JMSG}" "${JMSG}" >> "$SCHMUX_EVENTS_FILE"; `+
+			`} || true`,
+		promptJqField, state, state,
+	)
+}
+
+// dualWriteCommandWithBlockers returns a shell command that extracts a JSON field from stdin
+// and writes to both signal file and event file with blockers.
+// IMPORTANT: No single quotes allowed — command is embedded in JSON then shell-quoted.
+func dualWriteCommandWithBlockers(state, messageJqField string) string {
+	return fmt.Sprintf(
+		`{ MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" | cut -c1-100 || true); `+
+			`JMSG=$(printf "%%s" "$MSG" | jq -Rs . 2>/dev/null | sed "s/^.//;s/.$//"); `+
+			`[ -n "$SCHMUX_STATUS_FILE" ] && printf "%%s\nblockers: %%s\n" "%s${MSG:+ $MSG}" "$MSG" > "$SCHMUX_STATUS_FILE"; `+
+			`[ -n "$SCHMUX_EVENTS_FILE" ] && printf "{\"ts\":\"%%s\",\"type\":\"status\",\"state\":\"%s\",\"message\":\"%%s\",\"blockers\":\"%%s\"}\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" "${JMSG}" "${JMSG}" >> "$SCHMUX_EVENTS_FILE"; `+
+			`} || true`,
+		messageJqField, state, state,
 	)
 }
 
 // buildClaudeHooksMap returns the hooks configuration map for Claude Code signaling.
-func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
-	return map[string][]claudeHookMatcherGroup{
+// hooksDir is the absolute path to ~/.schmux/hooks/ where global hook scripts live.
+// includeLore controls whether lore hooks (PostToolUseFailure, stop-lore-check) are included.
+// Floor manager sessions set includeLore=false to avoid lore interference.
+func buildClaudeHooksMap(hooksDir string, includeLore bool) map[string][]claudeHookMatcherGroup {
+	hooks := map[string][]claudeHookMatcherGroup{
 		"SessionStart": {
 			{
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommand("working"),
+						Command:       dualWriteCommand("working"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -345,7 +378,7 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommand("completed"),
+						Command:       dualWriteCommand("completed"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -356,18 +389,19 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommandWithContext("working", "prompt"),
+						Command:       dualWriteCommandWithIntent("working", "prompt"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
 			},
 		},
 		"Stop": {
+			// Status check is always included
 			{
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/stop-gate.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/stop-gate.sh || true`,
+						Command:       fmt.Sprintf(`[ -f "%s/stop-status-check.sh" ] && "%s/stop-status-check.sh" || true`, hooksDir, hooksDir),
 						StatusMessage: "schmux: signaling",
 					},
 				},
@@ -379,24 +413,41 @@ func buildClaudeHooksMap() map[string][]claudeHookMatcherGroup {
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       signalCommandWithContext("needs_input", "message"),
+						Command:       dualWriteCommandWithBlockers("needs_input", "message"),
 						StatusMessage: "schmux: signaling",
 					},
 				},
 			},
 		},
-		"PostToolUseFailure": {
+	}
+
+	if includeLore {
+		// Add lore check to Stop hook
+		hooks["Stop"] = append(hooks["Stop"], claudeHookMatcherGroup{
+			Hooks: []claudeHookHandler{
+				{
+					Type:          "command",
+					Command:       fmt.Sprintf(`[ -f "%s/stop-lore-check.sh" ] && "%s/stop-lore-check.sh" || true`, hooksDir, hooksDir),
+					StatusMessage: "schmux: lore capture",
+				},
+			},
+		})
+
+		// Add failure capture hook
+		hooks["PostToolUseFailure"] = []claudeHookMatcherGroup{
 			{
 				Hooks: []claudeHookHandler{
 					{
 						Type:          "command",
-						Command:       `[ -f "$CLAUDE_PROJECT_DIR/.schmux/hooks/capture-failure.sh" ] && "$CLAUDE_PROJECT_DIR"/.schmux/hooks/capture-failure.sh || true`,
+						Command:       fmt.Sprintf(`[ -f "%s/capture-failure.sh" ] && "%s/capture-failure.sh" || true`, hooksDir, hooksDir),
 						StatusMessage: "schmux: lore capture",
 					},
 				},
 			},
-		},
+		}
 	}
+
+	return hooks
 }
 
 // schmuxStatusMessagePrefix identifies hook handlers managed by schmux.
@@ -405,9 +456,10 @@ const schmuxStatusMessagePrefix = "schmux:"
 
 // ClaudeHooksJSON returns the complete .claude/settings.local.json content
 // with hooks configuration for schmux signaling, as compact JSON bytes.
-func ClaudeHooksJSON() ([]byte, error) {
+// Uses a default hooksDir and includes lore hooks for backward compat.
+func ClaudeHooksJSON(hooksDir string) ([]byte, error) {
 	config := map[string]interface{}{
-		"hooks": buildClaudeHooksMap(),
+		"hooks": buildClaudeHooksMap(hooksDir, true),
 	}
 	return json.Marshal(config)
 }
@@ -441,9 +493,11 @@ func mergeHooksForEvent(existing, schmux []claudeHookMatcherGroup) []claudeHookM
 
 // ClaudeHooks creates or updates .claude/settings.local.json in the
 // workspace with Claude Code hooks for automatic schmux signaling.
+// hooksDir is the absolute path to ~/.schmux/hooks/ where global scripts live.
+// includeLore controls whether lore hooks are included (false for floor manager).
 // Preserves all non-hooks settings and merges with existing user hooks
 // (schmux hooks are identified by statusMessage prefix and replaced in-place).
-func ClaudeHooks(workspacePath string) error {
+func ClaudeHooks(workspacePath string, hooksDir string, includeLore bool) error {
 	settingsDir := filepath.Join(workspacePath, ".claude")
 	settingsPath := filepath.Join(settingsDir, "settings.local.json")
 
@@ -469,7 +523,7 @@ func ClaudeHooks(workspacePath string) error {
 	}
 
 	// Merge: for each event, remove old schmux groups and add new ones
-	schmuxHooks := buildClaudeHooksMap()
+	schmuxHooks := buildClaudeHooksMap(hooksDir, includeLore)
 	mergedHooks := make(map[string][]claudeHookMatcherGroup)
 
 	// Copy all existing events (with schmux groups filtered out per-event)
@@ -518,21 +572,27 @@ func ClaudeHooks(workspacePath string) error {
 	if err := os.WriteFile(settingsPath, append(data, '\n'), 0644); err != nil {
 		return fmt.Errorf("failed to write settings file: %w", err)
 	}
+
 	fmt.Printf("[ensure] configured Claude hooks in %s\n", settingsPath)
 	return nil
 }
 
 // WrapCommandWithHooks prepends hooks file creation to a command.
 // Used for remote sessions where we can't write files via local I/O.
-// The hooks file is created in the working directory before the agent starts,
-// ensuring hooks are captured at Claude Code startup.
-func WrapCommandWithHooks(command string) (string, error) {
-	jsonBytes, err := ClaudeHooksJSON()
+// The hooks file and hook scripts are created in the working directory before
+// the agent starts, ensuring hooks are captured at Claude Code startup.
+// hooksDir is used for the local hook script references; on remote hosts
+// we inline the script content since ~/.schmux/hooks/ doesn't exist there.
+func WrapCommandWithHooks(command string, hooksDir string) (string, error) {
+	jsonBytes, err := ClaudeHooksJSON(hooksDir)
 	if err != nil {
 		return command, fmt.Errorf("failed to build hooks JSON: %w", err)
 	}
-	// JSON uses double quotes only, safe to wrap in single quotes for shell
-	return fmt.Sprintf("mkdir -p .claude && printf '%%s\\n' '%s' > .claude/settings.local.json && %s", string(jsonBytes), command), nil
+	quotedJSON := shellutil.Quote(string(jsonBytes))
+	return fmt.Sprintf(
+		"mkdir -p .claude && printf '%%s\\n' %s > .claude/settings.local.json && %s",
+		quotedJSON, command,
+	), nil
 }
 
 //go:embed hooks/capture-failure.sh

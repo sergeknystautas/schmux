@@ -121,6 +121,12 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reject reserved nicknames
+	if strings.EqualFold(req.Nickname, "floor-manager") {
+		http.Error(w, "nickname 'floor-manager' is reserved for the floor manager system", http.StatusBadRequest)
+		return
+	}
+
 	// Server-side branch conflict check for worktree mode
 	// This catches race conditions where UI check passed but another spawn claimed the branch
 	if req.WorkspaceID == "" && s.config.UseWorktrees() {

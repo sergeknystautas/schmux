@@ -48,7 +48,9 @@ type Manager struct {
 	onLockChangeFn       func(workspaceID string, locked bool)        // optional, called when lock state changes
 	compoundReconcile    func(workspaceID string)                     // reconcile overlay before dispose
 	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
+	lifecycleCallback    func(msg string)                             // notify floor manager on workspace create/dispose
 	telemetry            telemetry.Telemetry                          // optional, for usage tracking
+	hooksDir             string                                       // absolute path to ~/.schmux/hooks/ for global hook scripts
 }
 
 // New creates a new workspace manager.
@@ -152,9 +154,24 @@ func (m *Manager) SetCompoundReconcile(fn func(workspaceID string)) {
 	m.compoundReconcile = fn
 }
 
+// SetLifecycleCallback sets the callback for notifying the floor manager on workspace create/dispose.
+func (m *Manager) SetLifecycleCallback(cb func(msg string)) {
+	m.lifecycleCallback = cb
+}
+
 // SetTelemetry sets the telemetry client for usage tracking.
 func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 	m.telemetry = t
+}
+
+// SetHooksDir sets the global hooks directory path for hook script references.
+func (m *Manager) SetHooksDir(dir string) {
+	m.hooksDir = dir
+}
+
+// GetHooksDir returns the global hooks directory path.
+func (m *Manager) GetHooksDir() string {
+	return m.hooksDir
 }
 
 // trackWorkspaceCreated sends a telemetry event for workspace creation.
@@ -504,6 +521,11 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, repoURL, branch)
 
+	// Notify floor manager about workspace creation
+	if m.lifecycleCallback != nil {
+		m.lifecycleCallback(fmt.Sprintf("Workspace created (id=%s, branch=%s)", w.ID, branch))
+	}
+
 	return &w, nil
 }
 
@@ -581,6 +603,11 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, repoURL, branch)
+
+	// Notify floor manager about workspace creation
+	if m.lifecycleCallback != nil {
+		m.lifecycleCallback(fmt.Sprintf("Workspace created (id=%s, branch=%s, local repo)", w.ID, branch))
+	}
 
 	return &w, nil
 }
@@ -818,6 +845,11 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 			continue
 		}
 
+		// Skip workspaces without a repo (e.g. floor manager)
+		if w.Repo == "" {
+			continue
+		}
+
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
@@ -885,6 +917,9 @@ func (m *Manager) Dispose(workspaceID string) error {
 		}
 		if err := m.state.Save(); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
+		}
+		if m.lifecycleCallback != nil {
+			m.lifecycleCallback(fmt.Sprintf("Workspace disposed (id=%s, remote)", workspaceID))
 		}
 		fmt.Printf("[workspace] disposed (remote): id=%s\n", workspaceID)
 		return nil
@@ -972,6 +1007,11 @@ func (m *Manager) Dispose(workspaceID string) error {
 
 	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
 		fmt.Printf("[workspace] failed to cleanup diff temp dirs for %s: %v\n", workspaceID, err)
+	}
+
+	// Notify floor manager about workspace disposal
+	if m.lifecycleCallback != nil {
+		m.lifecycleCallback(fmt.Sprintf("Workspace disposed (id=%s, branch=%s)", workspaceID, w.Branch))
 	}
 
 	fmt.Printf("[workspace] disposed: id=%s\n", workspaceID)
@@ -1128,6 +1168,11 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, source.Repo, newBranch)
+
+	// Notify floor manager about workspace creation
+	if m.lifecycleCallback != nil {
+		m.lifecycleCallback(fmt.Sprintf("Workspace created (id=%s, branch=%s, branched from %s)", w.ID, newBranch, sourceWorkspaceID))
+	}
 
 	return &w, nil
 }

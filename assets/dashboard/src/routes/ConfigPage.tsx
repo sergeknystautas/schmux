@@ -93,6 +93,9 @@ type ConfigSnapshot = {
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
   remoteAccessNotifyCommand: string;
+  floorManagerEnabled: boolean;
+  floorManagerTarget: string;
+  floorManagerRotationThreshold: number;
 };
 
 type RunTargetEditModalState = {
@@ -213,6 +216,11 @@ export default function ConfigPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
+  // Floor Manager state
+  const [floorManagerEnabled, setFloorManagerEnabled] = useState(false);
+  const [floorManagerTarget, setFloorManagerTarget] = useState('');
+  const [floorManagerRotationThreshold, setFloorManagerRotationThreshold] = useState(150);
+
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
@@ -265,6 +273,9 @@ export default function ConfigPage() {
       remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic,
       remoteAccessNotifyCommand,
+      floorManagerEnabled,
+      floorManagerTarget,
+      floorManagerRotationThreshold,
     };
 
     // Deep comparison for arrays
@@ -311,7 +322,10 @@ export default function ConfigPage() {
       current.remoteAccessEnabled !== originalConfig.remoteAccessEnabled ||
       current.remoteAccessTimeoutMinutes !== originalConfig.remoteAccessTimeoutMinutes ||
       current.remoteAccessNtfyTopic !== originalConfig.remoteAccessNtfyTopic ||
-      current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand
+      current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand ||
+      current.floorManagerEnabled !== originalConfig.floorManagerEnabled ||
+      current.floorManagerTarget !== originalConfig.floorManagerTarget ||
+      current.floorManagerRotationThreshold !== originalConfig.floorManagerRotationThreshold
     );
   };
 
@@ -430,6 +444,9 @@ export default function ConfigPage() {
         setRemoteAccessNtfyTopic(data.remote_access?.notify?.ntfy_topic || '');
         setRemoteAccessNotifyCommand(data.remote_access?.notify?.command || '');
         setRemoteAccessPasswordHashSet(data.remote_access?.password_hash_set || false);
+        setFloorManagerEnabled(data.floor_manager?.enabled || false);
+        setFloorManagerTarget(data.floor_manager?.target || '');
+        setFloorManagerRotationThreshold(data.floor_manager?.rotation_threshold || 150);
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -476,6 +493,9 @@ export default function ConfigPage() {
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
+            floorManagerEnabled: data.floor_manager?.enabled || false,
+            floorManagerTarget: data.floor_manager?.target || '',
+            floorManagerRotationThreshold: data.floor_manager?.rotation_threshold || 150,
           });
         }
 
@@ -672,6 +692,11 @@ export default function ConfigPage() {
           curate_on_dispose: loreCurateOnDispose,
           auto_pr: loreAutoPR,
         },
+        floor_manager: {
+          enabled: floorManagerEnabled,
+          target: floorManagerTarget,
+          rotation_threshold: floorManagerRotationThreshold,
+        },
         model_versions: modelVersions,
         remote_access: {
           enabled: remoteAccessEnabled,
@@ -735,6 +760,9 @@ export default function ConfigPage() {
           remoteAccessTimeoutMinutes,
           remoteAccessNtfyTopic,
           remoteAccessNotifyCommand,
+          floorManagerEnabled,
+          floorManagerTarget,
+          floorManagerRotationThreshold,
         });
       }
 
@@ -2692,6 +2720,95 @@ export default function ConfigPage() {
                 Terminal dimensions and advanced timing controls. You can leave these as defaults
                 unless you have specific needs.
               </p>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Floor Manager</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={floorManagerEnabled}
+                        onChange={(e) => setFloorManagerEnabled(e.target.checked)}
+                      />
+                      <span>Enable floor manager</span>
+                    </label>
+                    <p className="form-group__hint">
+                      Spawns an AI orchestrator that monitors all sessions and coordinates agent
+                      work. Takes effect immediately on save.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">LLM Target</label>
+                    <select
+                      className="input"
+                      value={floorManagerTarget}
+                      onChange={(e) => setFloorManagerTarget(e.target.value)}
+                      disabled={!floorManagerEnabled}
+                    >
+                      <option value="">Select a target</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      The run target used to spawn the floor manager session.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Rotation Threshold</label>
+                    <input
+                      type="number"
+                      className="input input--compact"
+                      min="1"
+                      value={
+                        floorManagerRotationThreshold === 0 ? '' : floorManagerRotationThreshold
+                      }
+                      onChange={(e) =>
+                        setFloorManagerRotationThreshold(
+                          e.target.value === '' ? 0 : parseInt(e.target.value) || 150
+                        )
+                      }
+                      disabled={!floorManagerEnabled}
+                    />
+                    <p className="form-group__hint">
+                      Number of signal injections before the floor manager session is rotated
+                      (disposed and respawned). Default: 150.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               <div className="settings-section">
                 <div className="settings-section__header">

@@ -36,14 +36,13 @@ DEV_BUILD_STATUS_FILE="${SCHMUX_DIR}/dev-build-status.json"
 DEV_LOG_FILE="${SCHMUX_DIR}/dev.log"
 BINARY="./tmp/schmux"
 VITE_PID=""
-DAEMON_PID=""
 
-# Read a JSON field using python3 (macOS built-in) with jq fallback
+# Read a JSON field using jq with python3 (macOS built-in) fallback
 json_field() {
     local file="$1"
     local field="$2"
     if command -v jq >/dev/null 2>&1; then
-        jq -r ".$field // empty" "$file" 2>/dev/null
+        jq -r --arg f "$field" '.[$f] // empty' "$file" 2>/dev/null
     else
         python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2],''))" "$file" "$field" 2>/dev/null
     fi
@@ -52,12 +51,6 @@ json_field() {
 cleanup() {
     echo ""
     echo -e "${CYAN}[dev]${NC} Shutting down..."
-
-    # Kill daemon if running
-    if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
-        kill "$DAEMON_PID" 2>/dev/null || true
-        wait "$DAEMON_PID" 2>/dev/null || true
-    fi
 
     # Kill Vite
     if [[ -n "$VITE_PID" ]] && kill -0 "$VITE_PID" 2>/dev/null; then
@@ -69,10 +62,9 @@ cleanup() {
     rm -f "$DEV_STATE_FILE" "$DEV_RESTART_FILE" "$DEV_BUILD_STATUS_FILE"
 
     echo -e "${CYAN}[dev]${NC} Development mode stopped."
-    exit 0
 }
 
-trap cleanup SIGINT SIGTERM
+trap cleanup EXIT
 
 # Ensure npm dependencies are installed and up to date
 ensure_npm_deps() {
@@ -150,9 +142,12 @@ build_binary() {
     if build_output=$(cd "$workspace_path" && go build -o "${SCRIPT_DIR}/${BINARY}" ./cmd/schmux 2>&1); then
         echo -e "${GREEN}[dev]${NC} Build succeeded"
         # Write build status
-        cat > "$DEV_BUILD_STATUS_FILE" <<BEOF
-{"success":true,"workspace_path":"${workspace_path}","error":"","at":"${timestamp}"}
-BEOF
+        if command -v jq >/dev/null 2>&1; then
+            jq -n --argjson success true --arg workspace_path "$workspace_path" --arg error "" --arg at "$timestamp" \
+                '{success: $success, workspace_path: $workspace_path, error: $error, at: $at}' > "$DEV_BUILD_STATUS_FILE"
+        else
+            python3 -c "import json,sys; json.dump({'success':True,'workspace_path':sys.argv[1],'error':'','at':sys.argv[2]},open(sys.argv[3],'w'))" "$workspace_path" "$timestamp" "$DEV_BUILD_STATUS_FILE"
+        fi
         return 0
     else
         echo "$build_output"
@@ -160,9 +155,12 @@ BEOF
         local err_msg
         err_msg=$(echo "$build_output" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
         echo -e "${RED}[dev]${NC} Build failed from ${workspace_path}"
-        cat > "$DEV_BUILD_STATUS_FILE" <<BEOF
-{"success":false,"workspace_path":"${workspace_path}","error":"${err_msg}","at":"${timestamp}"}
-BEOF
+        if command -v jq >/dev/null 2>&1; then
+            jq -n --argjson success false --arg workspace_path "$workspace_path" --arg error "$err_msg" --arg at "$timestamp" \
+                '{success: $success, workspace_path: $workspace_path, error: $error, at: $at}' > "$DEV_BUILD_STATUS_FILE"
+        else
+            python3 -c "import json,sys; json.dump({'success':False,'workspace_path':sys.argv[1],'error':sys.argv[2],'at':sys.argv[3]},open(sys.argv[4],'w'))" "$workspace_path" "$err_msg" "$timestamp" "$DEV_BUILD_STATUS_FILE"
+        fi
         echo "$build_output" > "$DEV_BUILD_STATUS_FILE.log" 2>/dev/null || true
         return 1
     fi
@@ -204,7 +202,7 @@ start_vite "$CURRENT_WORKSPACE"
 
 # Wait for Vite to be ready (up to 10 seconds)
 for i in $(seq 1 20); do
-    if curl -s -o /dev/null "http://localhost:${VITE_PORT:-5173}" 2>/dev/null; then
+    if curl -s -o /dev/null "http://localhost:5173" 2>/dev/null; then
         break
     fi
     sleep 0.5
@@ -224,16 +222,17 @@ echo ""
 # Main loop
 while true; do
     # Write dev state
-    cat > "$DEV_STATE_FILE" <<SEOF
-{"source_workspace":"${CURRENT_WORKSPACE}"}
-SEOF
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg source_workspace "$CURRENT_WORKSPACE" '{source_workspace: $source_workspace}' > "$DEV_STATE_FILE"
+    else
+        python3 -c "import json,sys; json.dump({'source_workspace':sys.argv[1]},open(sys.argv[2],'w'))" "$CURRENT_WORKSPACE" "$DEV_STATE_FILE"
+    fi
 
     # Run the daemon (output to terminal with color prefixes + raw log on disk)
     : > "$DEV_LOG_FILE"  # truncate log on each daemon restart
     set +e
     "$BINARY" daemon-run --dev-mode --dev-proxy 2>&1 | tee -a "$DEV_LOG_FILE" | while IFS= read -r line; do echo -e "${CYAN}[backend]${NC}  $line"; done
     EXIT_CODE=${PIPESTATUS[0]}
-    DAEMON_PID=""
     set -e
 
     if [[ "$EXIT_CODE" -eq 42 ]]; then

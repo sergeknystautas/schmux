@@ -340,15 +340,16 @@ type Workspace struct {
 
 // Session represents a session.
 type Session struct {
-	ID           string `json:"id"`
-	WorkspaceID  string `json:"workspace_id"`
-	Target       string `json:"target"`
-	Branch       string `json:"branch"`
-	Nickname     string `json:"nickname,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	LastOutputAt string `json:"last_output_at,omitempty"`
-	Running      bool   `json:"running"`
-	AttachCmd    string `json:"attach_cmd"`
+	ID             string `json:"id"`
+	WorkspaceID    string `json:"workspace_id"`
+	Target         string `json:"target"`
+	Branch         string `json:"branch"`
+	Nickname       string `json:"nickname,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	LastOutputAt   string `json:"last_output_at,omitempty"`
+	Running        bool   `json:"running"`
+	AttachCmd      string `json:"attach_cmd"`
+	IsFloorManager bool   `json:"is_floor_manager,omitempty"`
 }
 
 // WorkspaceWithSessions represents a workspace with its sessions.
@@ -507,6 +508,32 @@ func (c *Client) RemoteAccessSetPassword(password string) error {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("%s", strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// Escalate sends an escalation message to the floor manager.
+func (c *Client) Escalate(ctx context.Context, message string) error {
+	body, err := json.Marshal(map[string]string{"message": message})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/escalate", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("escalation failed: %s", strings.TrimSpace(string(errorBody)))
 	}
 	return nil
 }

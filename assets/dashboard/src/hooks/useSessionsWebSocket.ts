@@ -176,7 +176,7 @@ export default function useSessionsWebSocket(opts?: {
             }
           }
         } else if (data.type === 'overlay_change') {
-          setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
+          setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev].slice(0, 100));
         } else if (data.type === 'remote_access_status' && data.data) {
           setRemoteAccessStatus(data.data as RemoteAccessStatus);
         } else if (data.type === 'pending_navigation' && data.navType === 'preview') {

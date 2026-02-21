@@ -8,7 +8,7 @@ import (
 
 func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
+	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
 
 	if err := tracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when control mode is not attached")
@@ -21,7 +21,7 @@ func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 
 func TestSubscribeUnsubscribeOutput(t *testing.T) {
 	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
+	tracker := NewSessionTracker("s1", "tmux-nonexistent", st, "", nil, nil, nil)
 
 	// Subscribe creates a channel that stays open (survives reconnections)
 	ch := tracker.SubscribeOutput()
