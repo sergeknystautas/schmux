@@ -77,6 +77,7 @@ type Workspace struct {
 	GitFilesChanged          int               `json:"-"`
 	CommitsSyncedWithRemote  bool              `json:"-"`                            // true if local HEAD matches origin/{branch}
 	GitDefaultBranchOrphaned bool              `json:"-"`                            // true if origin/default has no common ancestor with HEAD
+	RemoteBranchExists       bool              `json:"-"`                            // true if origin/<branch> ref exists in origin query repo
 	RemoteHostID             string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces
 	RemotePath               string            `json:"remote_path,omitempty"`        // Path on remote host
 	ConflictOnBranch         *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected

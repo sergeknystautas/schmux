@@ -1,0 +1,736 @@
+package dashboard
+
+import (
+	"context"
+	"embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/branchsuggest"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/workspace"
+)
+
+//go:embed cookbooks.json
+var cookbooksFS embed.FS
+
+type SpawnRequest struct {
+	Repo            string         `json:"repo"`
+	Branch          string         `json:"branch"`
+	Prompt          string         `json:"prompt"`
+	Nickname        string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
+	Targets         map[string]int `json:"targets"`                // target name -> quantity
+	WorkspaceID     string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
+	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
+	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
+	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
+	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
+	NewBranch       string         `json:"new_branch,omitempty"`       // create new workspace with this branch from source workspace
+}
+
+// handleSpawnPost handles session spawning requests.
+func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req SpawnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.QuickLaunchName != "" {
+		if req.Command != "" || len(req.Targets) > 0 {
+			writeJSONError(w, "cannot specify quick_launch_name with command or targets", http.StatusBadRequest)
+			return
+		}
+		if req.WorkspaceID == "" {
+			writeJSONError(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
+			return
+		}
+		resolved, err := s.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Nickname == "" {
+			req.Nickname = resolved.Name
+		}
+		if resolved.Command != "" {
+			req.Command = resolved.Command
+		} else {
+			req.Targets = map[string]int{resolved.Target: 1}
+			req.Prompt = resolved.Prompt
+		}
+	}
+
+	// Auto-detect remote flavor when spawning into a remote workspace
+	if req.WorkspaceID != "" && req.RemoteFlavorID == "" {
+		if ws, found := s.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
+			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
+				req.RemoteFlavorID = host.FlavorID
+			}
+		}
+	}
+
+	// Validate request
+	// Remote spawns don't need repo/branch (they use the remote flavor's workspace)
+	if req.WorkspaceID == "" && req.RemoteFlavorID == "" {
+		// When not spawning into existing workspace and not remote, repo and branch are required
+		if req.Repo == "" {
+			writeJSONError(w, "repo is required (when not using --workspace or remote)", http.StatusBadRequest)
+			return
+		}
+		if req.Branch == "" {
+			writeJSONError(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
+			return
+		}
+	}
+	// Either command or targets must be provided
+	if req.Command == "" && len(req.Targets) == 0 {
+		writeJSONError(w, "either command or targets is required", http.StatusBadRequest)
+		return
+	}
+	if req.Command != "" && len(req.Targets) > 0 {
+		writeJSONError(w, "cannot specify both command and targets", http.StatusBadRequest)
+		return
+	}
+
+	// Validate resume mode
+	if req.Resume {
+		if req.Command != "" {
+			writeJSONError(w, "cannot use command mode with resume", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.Prompt) != "" {
+			writeJSONError(w, "cannot use prompt with resume mode", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Server-side branch conflict check for worktree mode
+	// This catches race conditions where UI check passed but another spawn claimed the branch
+	if req.WorkspaceID == "" && s.config.UseWorktrees() {
+		for _, ws := range s.state.GetWorkspaces() {
+			if ws.Repo == req.Repo && ws.Branch == req.Branch {
+				writeJSONError(w, fmt.Sprintf("branch_conflict: branch %q is already in use by workspace %q", req.Branch, ws.ID), http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	// Spawn sessions
+	type SessionResult struct {
+		SessionID   string `json:"session_id"`
+		WorkspaceID string `json:"workspace_id"`
+		Target      string `json:"target,omitempty"`
+		Command     string `json:"command,omitempty"`
+		Prompt      string `json:"prompt,omitempty"`
+		Nickname    string `json:"nickname,omitempty"`
+		Error       string `json:"error,omitempty"`
+	}
+
+	results := make([]SessionResult, 0)
+
+	// Handle command-based spawn (quick launch with shell command)
+	if req.Command != "" {
+		// Remote command spawns are not currently supported
+		if req.RemoteFlavorID != "" {
+			writeJSONError(w, "remote command spawns are not supported (only target-based spawns work on remote hosts)", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s command=%q nickname=%q\n",
+			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+		sess, err := s.session.SpawnCommand(ctx, session.SpawnOptions{
+			RepoURL:     req.Repo,
+			Branch:      req.Branch,
+			Command:     req.Command,
+			Nickname:    req.Nickname,
+			WorkspaceID: req.WorkspaceID,
+			NewBranch:   req.NewBranch,
+		})
+		cancel()
+
+		if err != nil {
+			results = append(results, SessionResult{
+				Command:  req.Command,
+				Nickname: req.Nickname,
+				Error:    err.Error(),
+			})
+			fmt.Printf("[session] spawn error: command=%q error=%s\n", req.Command, err.Error())
+		} else {
+			results = append(results, SessionResult{
+				SessionID:   sess.ID,
+				WorkspaceID: sess.WorkspaceID,
+				Command:     req.Command,
+				Nickname:    sess.Nickname,
+			})
+			fmt.Printf("[session] spawn success: command=%q session_id=%s workspace_id=%s\n", req.Command, sess.ID, sess.WorkspaceID)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(results); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Handle target-based spawn
+	promptPreview := req.Prompt
+	if len(promptPreview) > 100 {
+		promptPreview = promptPreview[:100] + "..."
+	}
+	if req.RemoteFlavorID != "" {
+		fmt.Printf("[session] spawn request (remote): flavor_id=%s targets=%v prompt=%q\n",
+			req.RemoteFlavorID, req.Targets, promptPreview)
+	} else {
+		fmt.Printf("[session] spawn request (local): repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
+			req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
+	}
+
+	// Calculate total sessions to spawn for global nickname numbering
+	totalToSpawn := 0
+	detected := s.config.GetDetectedRunTargets()
+	for targetName, count := range req.Targets {
+		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
+		if !found || (promptable && strings.TrimSpace(req.Prompt) == "") || (!promptable && strings.TrimSpace(req.Prompt) != "") {
+			continue
+		}
+		spawnCount := count
+		if !promptable {
+			spawnCount = 1
+		}
+		totalToSpawn += spawnCount
+	}
+
+	// Global counter for nickname numbering across all targets
+	globalIndex := 0
+
+	for targetName, count := range req.Targets {
+		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
+		if !found {
+			results = append(results, SessionResult{
+				Target: targetName,
+				Error:  fmt.Sprintf("target not found: %s", targetName),
+			})
+			continue
+		}
+		if promptable && strings.TrimSpace(req.Prompt) == "" && !req.Resume {
+			results = append(results, SessionResult{
+				Target: targetName,
+				Error:  "prompt is required for promptable targets",
+			})
+			continue
+		}
+		if !promptable && strings.TrimSpace(req.Prompt) != "" {
+			results = append(results, SessionResult{
+				Target: targetName,
+				Error:  "prompt is not allowed for command targets",
+			})
+			continue
+		}
+
+		spawnCount := count
+		if !promptable {
+			spawnCount = 1
+		}
+
+		for i := 0; i < spawnCount; i++ {
+			globalIndex++
+			var nickname string
+			if req.Nickname != "" && totalToSpawn > 1 {
+				nickname = fmt.Sprintf("%s (%d)", req.Nickname, globalIndex)
+			} else {
+				nickname = req.Nickname
+			}
+
+			// Session spawn needs a longer timeout for git operations
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
+
+			var sess *state.Session
+			var err error
+
+			// Route to remote or local spawn based on request
+			if req.RemoteFlavorID != "" {
+				// Remote spawn - use SpawnRemote()
+				sess, err = s.session.SpawnRemote(ctx, req.RemoteFlavorID, targetName, req.Prompt, nickname)
+			} else {
+				// Local spawn - use existing Spawn()
+				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
+					RepoURL:     req.Repo,
+					Branch:      req.Branch,
+					TargetName:  targetName,
+					Prompt:      req.Prompt,
+					Nickname:    nickname,
+					WorkspaceID: req.WorkspaceID,
+					Resume:      req.Resume,
+					NewBranch:   req.NewBranch,
+				})
+			}
+
+			cancel()
+			if err != nil {
+				results = append(results, SessionResult{
+					Target:   targetName,
+					Prompt:   req.Prompt,
+					Nickname: nickname,
+					Error:    err.Error(),
+				})
+			} else {
+				results = append(results, SessionResult{
+					SessionID:   sess.ID,
+					WorkspaceID: sess.WorkspaceID,
+					Target:      targetName,
+					Prompt:      req.Prompt,
+					Nickname:    sess.Nickname, // Return actual nickname, not input
+				})
+			}
+		}
+	}
+
+	// Log the results
+	hasSuccess := false
+	for _, r := range results {
+		if r.Error != "" {
+			fmt.Printf("[session] spawn error: target=%s error=%s\n", r.Target, r.Error)
+		} else {
+			fmt.Printf("[session] spawn success: target=%s session_id=%s workspace_id=%s\n", r.Target, r.SessionID, r.WorkspaceID)
+			hasSuccess = true
+		}
+	}
+
+	// Broadcast update to WebSocket clients
+	if hasSuccess {
+		go s.BroadcastSessions()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// handleSuggestBranch handles branch name suggestion requests.
+func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	start := time.Now()
+
+	// Parse request
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	// Check if branch suggestion is enabled
+	if !branchsuggest.IsEnabled(s.config) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Branch suggestion is not configured"})
+		return
+	}
+
+	targetName := s.config.GetBranchSuggestTarget()
+	fmt.Printf("[workspace] asking %s for branch suggestion\n", targetName)
+
+	// Generate branch suggestion
+	result, err := branchsuggest.AskForPrompt(r.Context(), s.config, req.Prompt)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, branchsuggest.ErrNoPrompt):
+			status = http.StatusBadRequest
+		case errors.Is(err, branchsuggest.ErrTargetNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, branchsuggest.ErrDisabled):
+			status = http.StatusServiceUnavailable
+		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, branchsuggest.ErrInvalidResponse):
+			status = http.StatusBadRequest
+		}
+		fmt.Printf("[workspace] suggest-branch error: duration=%s status=%d err=%v\n", time.Since(start).Truncate(time.Millisecond), status, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate branch suggestion: %v", err)})
+		return
+	}
+
+	fmt.Printf("[workspace] suggest-branch ok: duration=%s\n", time.Since(start).Truncate(time.Millisecond))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handlePrepareBranchSpawn prepares spawn data for an existing branch.
+// Gets commit log from the bare clone, generates a nickname via branch suggestion, and returns
+// everything needed to populate the spawn form.
+func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	start := time.Now()
+
+	var req struct {
+		RepoName string `json:"repo_name"`
+		Branch   string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
+	}
+	if req.RepoName == "" || req.Branch == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo_name and branch are required"})
+		return
+	}
+
+	// Look up repo URL from name
+	repo, found := s.config.FindRepo(req.RepoName)
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Get commit subjects from bare clone
+	subjects, err := s.workspace.GetBranchCommitLog(ctx, repo.URL, req.Branch, 20)
+	if err != nil {
+		fmt.Printf("[workspace] prepare-branch-spawn: failed to get commit log: %v\n", err)
+		// Non-fatal: proceed without commit log
+		subjects = nil
+	}
+
+	// Build the review prompt with commit history included
+	prompt := "Review the current state of this branch and prepare to resume work.\n\n" +
+		"1. Read any markdown or spec files in the repo root and docs/ to understand project context and goals\n" +
+		"2. Run `git diff --stat main...HEAD` to compare this branch against where it diverged from main\n" +
+		"3. Identify what's been completed, what's in progress, and what remains\n\n"
+
+	if len(subjects) > 0 {
+		prompt += "Here is the commit history on this branch:\n\n"
+		for i, msg := range subjects {
+			if i > 0 {
+				prompt += "\n"
+			}
+			prompt += "---\n" + msg + "\n"
+		}
+		prompt += "---\n\n"
+	}
+
+	prompt += "Summarize your findings, then ask what to work on next."
+
+	// Generate nickname from commit messages if branch suggestion is enabled
+	nickname := ""
+	if branchsuggest.IsEnabled(s.config) && len(subjects) > 0 {
+		commitSummary := strings.Join(subjects, "\n")
+		suggestionPrompt := fmt.Sprintf("Branch: %s\n\nCommit messages:\n%s", req.Branch, commitSummary)
+
+		fmt.Printf("[workspace] prepare-branch-spawn: asking for nickname from %d commits\n", len(subjects))
+		result, err := branchsuggest.AskForPrompt(ctx, s.config, suggestionPrompt)
+		if err != nil {
+			fmt.Printf("[workspace] prepare-branch-spawn: nickname suggestion failed: %v\n", err)
+			// Non-fatal: proceed without nickname
+		} else {
+			nickname = result.Nickname
+			fmt.Printf("[workspace] prepare-branch-spawn ok: duration=%s nickname=%q\n", time.Since(start).Truncate(time.Millisecond), nickname)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"repo":     repo.URL,
+		"branch":   req.Branch,
+		"prompt":   prompt,
+		"nickname": nickname,
+	})
+}
+
+type resolvedQuickLaunch struct {
+	Name    string
+	Command string
+	Target  string
+	Prompt  string
+}
+
+func (s *Server) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
+	if name == "" {
+		return nil, fmt.Errorf("quick_launch_name is required")
+	}
+	detected := s.config.GetDetectedRunTargets()
+	if wsCfg := s.workspace.GetWorkspaceConfig(workspaceID); wsCfg != nil {
+		if resolved := resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, detected, s.config, name); resolved != nil {
+			return resolved, nil
+		}
+	}
+	if resolved := resolveQuickLaunchFromPresets(adaptQuickLaunch(s.config.GetQuickLaunch()), detected, s.config, name); resolved != nil {
+		return resolved, nil
+	}
+	return nil, fmt.Errorf("quick launch not found: %s", name)
+}
+
+func resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, detected []config.RunTarget, cfg *config.Config, name string) *resolvedQuickLaunch {
+	for _, preset := range presets {
+		if preset.Name != name {
+			continue
+		}
+		if strings.TrimSpace(preset.Command) != "" {
+			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command)}
+		}
+		if strings.TrimSpace(preset.Target) == "" {
+			return nil
+		}
+		promptable, found := config.IsTargetPromptable(cfg, detected, preset.Target)
+		if !found {
+			return nil
+		}
+		prompt := ""
+		if preset.Prompt != nil {
+			prompt = strings.TrimSpace(*preset.Prompt)
+		}
+		if promptable && prompt == "" {
+			return nil
+		}
+		if !promptable && prompt != "" {
+			return nil
+		}
+		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt}
+	}
+	return nil
+}
+
+func adaptQuickLaunch(presets []config.QuickLaunch) []contracts.QuickLaunch {
+	if len(presets) == 0 {
+		return nil
+	}
+	converted := make([]contracts.QuickLaunch, 0, len(presets))
+	for _, preset := range presets {
+		converted = append(converted, contracts.QuickLaunch{
+			Name:    preset.Name,
+			Command: preset.Command,
+			Target:  preset.Target,
+			Prompt:  preset.Prompt,
+		})
+	}
+	return converted
+}
+
+// These are predefined quick-run shortcuts that ship with schmux.
+type BuiltinQuickLaunchCookbook struct {
+	Name   string `json:"name"`
+	Target string `json:"target"`
+	Prompt string `json:"prompt"`
+}
+
+// handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
+func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Try embedded file first (production), fall back to filesystem (development)
+	var data []byte
+	var readErr error
+	data, readErr = cookbooksFS.ReadFile("cookbooks.json")
+	if readErr != nil {
+		// Fallback to filesystem for development
+		candidates := []string{
+			"./internal/dashboard/cookbooks.json",
+			filepath.Join(filepath.Dir(os.Args[0]), "../internal/dashboard/cookbooks.json"),
+		}
+		for _, candidate := range candidates {
+			data, readErr = os.ReadFile(candidate)
+			if readErr == nil {
+				break
+			}
+		}
+		if readErr != nil {
+			fmt.Printf("[session] builtin-quick-launch: failed to read file: %v\n", readErr)
+			http.Error(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var cookbooks []BuiltinQuickLaunchCookbook
+	if err := json.Unmarshal(data, &cookbooks); err != nil {
+		fmt.Printf("[session] builtin-quick-launch: failed to parse: %v\n", err)
+		http.Error(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
+		return
+	}
+
+	// Validate and filter cookbooks
+	validCookbooks := make([]BuiltinQuickLaunchCookbook, 0, len(cookbooks))
+	for _, cookbook := range cookbooks {
+		if strings.TrimSpace(cookbook.Name) == "" {
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook with empty name\n")
+			continue
+		}
+		if strings.TrimSpace(cookbook.Target) == "" {
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty target\n", cookbook.Name)
+			continue
+		}
+		if strings.TrimSpace(cookbook.Prompt) == "" {
+			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty prompt\n", cookbook.Name)
+			continue
+		}
+		validCookbooks = append(validCookbooks, cookbook)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(validCookbooks)
+}
+
+// handleCheckBranchConflict checks if a branch is already in use by a worktree.
+// POST /api/check-branch-conflict
+// Request body: {"repo": "git@github.com:user/repo.git", "branch": "main"}
+// Response: {"conflict": false} or {"conflict": true, "workspace_id": "repo-001"}
+func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Repo == "" || req.Branch == "" {
+		http.Error(w, "repo and branch are required", http.StatusBadRequest)
+		return
+	}
+
+	type BranchConflictResponse struct {
+		Conflict    bool   `json:"conflict"`
+		WorkspaceID string `json:"workspace_id,omitempty"`
+	}
+
+	// If not using worktrees, there's no branch conflict concern
+	if !s.config.UseWorktrees() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+		return
+	}
+
+	// Check if any existing workspace has this repo+branch combination
+	// (which means the branch is already checked out in a worktree)
+	for _, ws := range s.state.GetWorkspaces() {
+		if ws.Repo == req.Repo && ws.Branch == req.Branch {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(BranchConflictResponse{
+				Conflict:    true,
+				WorkspaceID: ws.ID,
+			})
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+}
+
+// handleRecentBranches returns recent branches from all configured repos.
+// GET /api/recent-branches?limit=10
+func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse limit from query string, default to 10
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	// Cap limit
+	if limit > 50 {
+		limit = 50
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	branches, err := s.workspace.GetRecentBranches(ctx, limit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(branches)
+}
+
+// handleRecentBranchesRefresh handles POST /api/recent-branches/refresh - fetches updates from remotes.
+func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// Fetch updates from all origin query repos
+	s.workspace.FetchOriginQueries(ctx)
+
+	// Return fresh branches
+	branches, err := s.workspace.GetRecentBranches(ctx, 10)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get recent branches: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if branches == nil {
+		branches = []workspace.RecentBranch{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"branches":      branches,
+		"fetched_count": len(branches),
+	})
+}

@@ -1,0 +1,698 @@
+package dashboard
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/tunnel"
+)
+
+// handleConfig returns the config (repos and agents) for the spawn form,
+// or updates the config via POST.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleConfigGet(w, r)
+	case http.MethodPost, http.MethodPut:
+		s.handleConfigUpdate(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleDetectTools returns detected targets from config (GET only).
+func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
+	type ToolResponse struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Source  string `json:"source"`
+	}
+
+	type Response struct {
+		Tools []ToolResponse `json:"tools"`
+	}
+
+	var detectedTools []detect.Tool
+	switch r.Method {
+	case http.MethodGet:
+		for _, target := range s.config.GetDetectedRunTargets() {
+			detectedTools = append(detectedTools, detect.Tool{
+				Name:    target.Name,
+				Command: target.Command,
+				Source:  "config",
+				Agentic: true,
+			})
+		}
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	toolResp := make([]ToolResponse, len(detectedTools))
+	for i, dt := range detectedTools {
+		toolResp[i] = ToolResponse{
+			Name:    dt.Name,
+			Command: dt.Command,
+			Source:  dt.Source,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(Response{Tools: toolResp}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleConfigGet returns the current config.
+func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	repos := s.config.GetRepos()
+	runTargets := s.config.GetRunTargets()
+	quickLaunch := s.config.GetQuickLaunch()
+
+	// Build repo response with default branch from cache
+	ctx := r.Context()
+	repoResp := make([]contracts.RepoWithConfig, len(repos))
+	for i, repo := range repos {
+		resp := contracts.RepoWithConfig{Name: repo.Name, URL: repo.URL}
+		// Try to get default branch from cache (omit if not detected)
+		if defaultBranch, err := s.workspace.GetDefaultBranch(ctx, repo.URL); err == nil {
+			resp.DefaultBranch = defaultBranch
+		}
+		repoResp[i] = resp
+	}
+
+	runTargetResp := make([]contracts.RunTarget, 0, len(runTargets))
+	seenTargets := make(map[string]struct{}, len(runTargets))
+	for _, target := range runTargets {
+		runTargetResp = append(runTargetResp, contracts.RunTarget{
+			Name:    target.Name,
+			Type:    target.Type,
+			Command: target.Command,
+			Source:  target.Source,
+		})
+		seenTargets[target.Name] = struct{}{}
+	}
+	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
+	for i, preset := range quickLaunch {
+		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Command: preset.Command, Target: preset.Target, Prompt: preset.Prompt}
+	}
+
+	externalDiffCommands := s.config.GetExternalDiffCommands()
+	externalDiffCommandsResp := make([]contracts.ExternalDiffCommand, len(externalDiffCommands))
+	for i, cmd := range externalDiffCommands {
+		externalDiffCommandsResp[i] = contracts.ExternalDiffCommand{Name: cmd.Name, Command: cmd.Command}
+	}
+
+	// Build models list with full metadata
+	models, err := buildAvailableModels(s.config)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Add configured models as run targets
+	for _, model := range models {
+		if !model.Configured {
+			continue
+		}
+		baseTarget, found := s.config.GetDetectedRunTarget(model.BaseTool)
+		if !found {
+			continue
+		}
+		if _, exists := seenTargets[model.ID]; exists {
+			continue
+		}
+		runTargetResp = append(runTargetResp, contracts.RunTarget{
+			Name:    model.ID,
+			Type:    config.RunTargetTypePromptable,
+			Command: baseTarget.Command,
+			Source:  "model",
+		})
+		seenTargets[model.ID] = struct{}{}
+	}
+
+	response := contracts.ConfigResponse{
+		WorkspacePath:              s.config.GetWorkspacePath(),
+		SourceCodeManagement:       s.config.GetSourceCodeManagement(),
+		Repos:                      repoResp,
+		RunTargets:                 runTargetResp,
+		QuickLaunch:                quickLaunchResp,
+		ExternalDiffCommands:       externalDiffCommandsResp,
+		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
+		Models:                     models,
+		ModelVersions:              s.config.GetModelVersions(),
+		Nudgenik: contracts.Nudgenik{
+			Target:         s.config.GetNudgenikTarget(),
+			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
+			SeenIntervalMs: s.config.GetNudgenikSeenIntervalMs(),
+		},
+		BranchSuggest: contracts.BranchSuggest{
+			Target: s.config.GetBranchSuggestTarget(),
+		},
+		ConflictResolve: contracts.ConflictResolve{
+			Target:    s.config.GetConflictResolveTarget(),
+			TimeoutMs: s.config.GetConflictResolveTimeoutMs(),
+		},
+		Sessions: contracts.Sessions{
+			DashboardPollIntervalMs: s.config.GetDashboardPollIntervalMs(),
+			GitStatusPollIntervalMs: s.config.GetGitStatusPollIntervalMs(),
+			GitCloneTimeoutMs:       s.config.GetGitCloneTimeoutMs(),
+			GitStatusTimeoutMs:      s.config.GetGitStatusTimeoutMs(),
+		},
+		Xterm: contracts.Xterm{
+			QueryTimeoutMs:     s.config.GetXtermQueryTimeoutMs(),
+			OperationTimeoutMs: s.config.GetXtermOperationTimeoutMs(),
+		},
+		Network: contracts.Network{
+			BindAddress:   s.config.GetBindAddress(),
+			Port:          s.config.GetPort(),
+			PublicBaseURL: s.config.GetPublicBaseURL(),
+			TLS:           buildTLS(s.config),
+		},
+		AccessControl: contracts.AccessControl{
+			Enabled:           s.config.GetAuthEnabled(),
+			Provider:          s.config.GetAuthProvider(),
+			SessionTTLMinutes: s.config.GetAuthSessionTTLMinutes(),
+		},
+		PrReview: contracts.PrReview{
+			Target: s.config.GetPrReviewTarget(),
+		},
+		CommitMessage: contracts.CommitMessage{
+			Target: s.config.GetCommitMessageTarget(),
+		},
+		Notifications: contracts.Notifications{
+			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
+			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
+		},
+		Lore: contracts.Lore{
+			Enabled:         s.config.GetLoreEnabled(),
+			LLMTarget:       s.config.GetLoreTargetRaw(),
+			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
+			AutoPR:          s.config.GetLoreAutoPR(),
+		},
+		RemoteAccess: contracts.RemoteAccess{
+			Enabled:         s.config.GetRemoteAccessEnabled(),
+			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
+			PasswordHashSet: s.config.GetRemoteAccessPasswordHash() != "",
+			Notify: contracts.RemoteAccessNotify{
+				NtfyTopic: s.config.GetRemoteAccessNtfyTopic(),
+				Command:   s.config.GetRemoteAccessNotifyCommand(),
+			},
+		},
+		NeedsRestart: s.state.GetNeedsRestart(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleConfigUpdate handles config update requests.
+func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req contracts.ConfigUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fmt.Printf("[config] invalid JSON payload: %v\n", err)
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Reload config from disk to get all current values (including tools, etc.)
+	if err := s.config.Reload(); err != nil {
+		fmt.Printf("[config] failed to reload config: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	cfg := s.config
+	oldNetwork := cloneNetwork(cfg.Network)
+	oldAccessControl := cloneAccessControl(cfg.AccessControl)
+	oldRepos := cfg.GetRepos()
+
+	// Check for workspace path change (for warning after save)
+	sessionCount := len(s.state.GetSessions())
+	workspaceCount := len(s.state.GetWorkspaces())
+	pathChanged := false
+	var newPath string
+
+	// Apply updates
+	if req.WorkspacePath != nil {
+		newPath = *req.WorkspacePath
+		// Expand ~ if present
+		homeDir, _ := os.UserHomeDir()
+		if len(newPath) > 0 && newPath[0] == '~' && homeDir != "" {
+			newPath = filepath.Join(homeDir, newPath[1:])
+		}
+		pathChanged = (newPath != cfg.GetWorkspacePath() && (sessionCount > 0 || workspaceCount > 0))
+		cfg.WorkspacePath = newPath
+	}
+
+	if req.SourceCodeManagement != nil {
+		scm := *req.SourceCodeManagement
+		if scm != "" && scm != config.SourceCodeManagementGit && scm != config.SourceCodeManagementGitWorktree {
+			http.Error(w, fmt.Sprintf("invalid source_code_management: %q (must be %q or %q)",
+				scm, config.SourceCodeManagementGit, config.SourceCodeManagementGitWorktree), http.StatusBadRequest)
+			return
+		}
+		cfg.SourceCodeManagement = scm
+	}
+
+	if req.Repos != nil {
+		// Validate repos
+		for _, repo := range req.Repos {
+			if repo.Name == "" {
+				http.Error(w, "repo name is required", http.StatusBadRequest)
+				return
+			}
+			if repo.URL == "" {
+				http.Error(w, fmt.Sprintf("repo URL is required for %s", repo.Name), http.StatusBadRequest)
+				return
+			}
+		}
+		cfg.Repos = make([]config.Repo, len(req.Repos))
+		for i, r := range req.Repos {
+			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: r.Name + ".git"}
+		}
+	}
+
+	if req.RunTargets != nil {
+		for _, target := range req.RunTargets {
+			if target.Name == "" {
+				http.Error(w, "run target name is required", http.StatusBadRequest)
+				return
+			}
+			if target.Command == "" {
+				http.Error(w, fmt.Sprintf("run target command is required for %s", target.Name), http.StatusBadRequest)
+				return
+			}
+			if target.Source == config.RunTargetSourceDetected {
+				http.Error(w, fmt.Sprintf("run target %s cannot be marked as detected", target.Name), http.StatusBadRequest)
+				return
+			}
+			if target.Source != "" && target.Source != config.RunTargetSourceUser {
+				http.Error(w, fmt.Sprintf("run target %s has invalid source %q", target.Name, target.Source), http.StatusBadRequest)
+				return
+			}
+		}
+		userTargets := make([]config.RunTarget, len(req.RunTargets))
+		for i, t := range req.RunTargets {
+			source := t.Source
+			if source == "" {
+				source = config.RunTargetSourceUser
+			}
+			userTargets[i] = config.RunTarget{Name: t.Name, Type: t.Type, Command: t.Command, Source: source}
+		}
+		detectedTools := config.DetectedToolsFromConfig(cfg)
+		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedTools)
+	}
+
+	if req.QuickLaunch != nil {
+		cfg.QuickLaunch = make([]config.QuickLaunch, len(req.QuickLaunch))
+		for i, q := range req.QuickLaunch {
+			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Command: q.Command, Target: q.Target, Prompt: q.Prompt}
+		}
+	}
+
+	if req.ExternalDiffCommands != nil {
+		cfg.ExternalDiffCommands = make([]config.ExternalDiffCommand, len(req.ExternalDiffCommands))
+		for i, c := range req.ExternalDiffCommands {
+			cfg.ExternalDiffCommands[i] = config.ExternalDiffCommand{Name: c.Name, Command: c.Command}
+		}
+	}
+
+	if req.ExternalDiffCleanupAfterMs != nil {
+		if *req.ExternalDiffCleanupAfterMs <= 0 {
+			http.Error(w, "external diff cleanup delay must be > 0", http.StatusBadRequest)
+			return
+		}
+		cfg.ExternalDiffCleanupAfterMs = *req.ExternalDiffCleanupAfterMs
+	}
+
+	if req.Nudgenik != nil {
+		if cfg.Nudgenik == nil {
+			cfg.Nudgenik = &config.NudgenikConfig{}
+		}
+		if req.Nudgenik.Target != nil {
+			target := strings.TrimSpace(*req.Nudgenik.Target)
+			cfg.Nudgenik.Target = target
+		}
+		if req.Nudgenik.ViewedBufferMs != nil && *req.Nudgenik.ViewedBufferMs > 0 {
+			cfg.Nudgenik.ViewedBufferMs = *req.Nudgenik.ViewedBufferMs
+		}
+		if req.Nudgenik.SeenIntervalMs != nil && *req.Nudgenik.SeenIntervalMs > 0 {
+			cfg.Nudgenik.SeenIntervalMs = *req.Nudgenik.SeenIntervalMs
+		}
+		if cfg.Nudgenik.Target == "" && cfg.Nudgenik.ViewedBufferMs <= 0 && cfg.Nudgenik.SeenIntervalMs <= 0 {
+			cfg.Nudgenik = nil
+		}
+	}
+
+	if req.BranchSuggest != nil {
+		if cfg.BranchSuggest == nil {
+			cfg.BranchSuggest = &config.BranchSuggestConfig{}
+		}
+		if req.BranchSuggest.Target != nil {
+			cfg.BranchSuggest.Target = strings.TrimSpace(*req.BranchSuggest.Target)
+		}
+		if cfg.BranchSuggest.Target == "" {
+			cfg.BranchSuggest = nil
+		}
+	}
+
+	if req.ConflictResolve != nil {
+		if cfg.ConflictResolve == nil {
+			cfg.ConflictResolve = &config.ConflictResolveConfig{}
+		}
+		if req.ConflictResolve.Target != nil {
+			cfg.ConflictResolve.Target = strings.TrimSpace(*req.ConflictResolve.Target)
+		}
+		if req.ConflictResolve.TimeoutMs != nil && *req.ConflictResolve.TimeoutMs > 0 {
+			cfg.ConflictResolve.TimeoutMs = *req.ConflictResolve.TimeoutMs
+		}
+		if cfg.ConflictResolve.Target == "" && cfg.ConflictResolve.TimeoutMs <= 0 {
+			cfg.ConflictResolve = nil
+		}
+	}
+
+	if req.Sessions != nil {
+		if cfg.Sessions == nil {
+			cfg.Sessions = &config.SessionsConfig{}
+		}
+		if req.Sessions.DashboardPollIntervalMs != nil && *req.Sessions.DashboardPollIntervalMs > 0 {
+			cfg.Sessions.DashboardPollIntervalMs = *req.Sessions.DashboardPollIntervalMs
+		}
+		if req.Sessions.GitStatusPollIntervalMs != nil && *req.Sessions.GitStatusPollIntervalMs > 0 {
+			cfg.Sessions.GitStatusPollIntervalMs = *req.Sessions.GitStatusPollIntervalMs
+		}
+		if req.Sessions.GitCloneTimeoutMs != nil && *req.Sessions.GitCloneTimeoutMs > 0 {
+			cfg.Sessions.GitCloneTimeoutMs = *req.Sessions.GitCloneTimeoutMs
+		}
+		if req.Sessions.GitStatusTimeoutMs != nil && *req.Sessions.GitStatusTimeoutMs > 0 {
+			cfg.Sessions.GitStatusTimeoutMs = *req.Sessions.GitStatusTimeoutMs
+		}
+	}
+
+	if req.Xterm != nil {
+		if cfg.Xterm == nil {
+			cfg.Xterm = &config.XtermConfig{}
+		}
+		if req.Xterm.QueryTimeoutMs != nil && *req.Xterm.QueryTimeoutMs > 0 {
+			cfg.Xterm.QueryTimeoutMs = *req.Xterm.QueryTimeoutMs
+		}
+		if req.Xterm.OperationTimeoutMs != nil && *req.Xterm.OperationTimeoutMs > 0 {
+			cfg.Xterm.OperationTimeoutMs = *req.Xterm.OperationTimeoutMs
+		}
+	}
+
+	if req.Network != nil {
+		if cfg.Network == nil {
+			cfg.Network = &config.NetworkConfig{}
+		}
+		if req.Network.BindAddress != nil {
+			cfg.Network.BindAddress = *req.Network.BindAddress
+		}
+		if req.Network.Port != nil && *req.Network.Port > 0 {
+			cfg.Network.Port = *req.Network.Port
+		}
+		if req.Network.PublicBaseURL != nil {
+			cfg.Network.PublicBaseURL = *req.Network.PublicBaseURL
+		}
+		if req.Network.TLS != nil {
+			if cfg.Network.TLS == nil {
+				cfg.Network.TLS = &config.TLSConfig{}
+			}
+			if req.Network.TLS.CertPath != nil {
+				cfg.Network.TLS.CertPath = *req.Network.TLS.CertPath
+			}
+			if req.Network.TLS.KeyPath != nil {
+				cfg.Network.TLS.KeyPath = *req.Network.TLS.KeyPath
+			}
+		}
+	}
+
+	if req.AccessControl != nil {
+		if cfg.AccessControl == nil {
+			cfg.AccessControl = &config.AccessControlConfig{}
+		}
+		if req.AccessControl.Enabled != nil {
+			cfg.AccessControl.Enabled = *req.AccessControl.Enabled
+		}
+		if req.AccessControl.Provider != nil {
+			cfg.AccessControl.Provider = *req.AccessControl.Provider
+		}
+		if req.AccessControl.SessionTTLMinutes != nil {
+			cfg.AccessControl.SessionTTLMinutes = *req.AccessControl.SessionTTLMinutes
+		}
+	}
+
+	if req.PrReview != nil {
+		if cfg.PrReview == nil {
+			cfg.PrReview = &config.PrReviewConfig{}
+		}
+		if req.PrReview.Target != nil {
+			cfg.PrReview.Target = *req.PrReview.Target
+		}
+	}
+
+	if req.CommitMessage != nil {
+		if cfg.CommitMessage == nil {
+			cfg.CommitMessage = &config.CommitMessageConfig{}
+		}
+		if req.CommitMessage.Target != nil {
+			cfg.CommitMessage.Target = *req.CommitMessage.Target
+		}
+	}
+
+	if req.Notifications != nil {
+		if cfg.Notifications == nil {
+			cfg.Notifications = &config.NotificationsConfig{}
+		}
+		if req.Notifications.SoundDisabled != nil {
+			cfg.Notifications.SoundDisabled = *req.Notifications.SoundDisabled
+		}
+		if req.Notifications.ConfirmBeforeClose != nil {
+			cfg.Notifications.ConfirmBeforeClose = *req.Notifications.ConfirmBeforeClose
+		}
+	}
+
+	if req.Lore != nil {
+		if cfg.Lore == nil {
+			cfg.Lore = &config.LoreConfig{}
+		}
+		if req.Lore.Enabled != nil {
+			enabled := *req.Lore.Enabled
+			cfg.Lore.Enabled = &enabled
+		}
+		if req.Lore.LLMTarget != nil {
+			cfg.Lore.Target = strings.TrimSpace(*req.Lore.LLMTarget)
+		}
+		if req.Lore.CurateOnDispose != nil {
+			v := *req.Lore.CurateOnDispose
+			switch v {
+			case "session", "workspace", "never":
+				cfg.Lore.CurateOnDispose = v
+			}
+		}
+		if req.Lore.AutoPR != nil {
+			autoPR := *req.Lore.AutoPR
+			cfg.Lore.AutoPR = &autoPR
+		}
+	}
+
+	if req.ModelVersions != nil {
+		cfg.SetModelVersions(*req.ModelVersions)
+	}
+
+	if req.RemoteAccess != nil {
+		if cfg.RemoteAccess == nil {
+			cfg.RemoteAccess = &config.RemoteAccessConfig{}
+		}
+		if req.RemoteAccess.Enabled != nil {
+			enabled := *req.RemoteAccess.Enabled
+			cfg.RemoteAccess.Enabled = &enabled
+			// Clear deprecated field when new field is explicitly set
+			cfg.RemoteAccess.Disabled = nil
+		}
+		if req.RemoteAccess.TimeoutMinutes != nil {
+			cfg.RemoteAccess.TimeoutMinutes = *req.RemoteAccess.TimeoutMinutes
+		}
+		if req.RemoteAccess.Notify != nil {
+			if cfg.RemoteAccess.Notify == nil {
+				cfg.RemoteAccess.Notify = &config.RemoteAccessNotifyConfig{}
+			}
+			if req.RemoteAccess.Notify.NtfyTopic != nil {
+				cfg.RemoteAccess.Notify.NtfyTopic = strings.TrimSpace(*req.RemoteAccess.Notify.NtfyTopic)
+			}
+			if req.RemoteAccess.Notify.Command != nil {
+				cfg.RemoteAccess.Notify.Command = strings.TrimSpace(*req.RemoteAccess.Notify.Command)
+			}
+		}
+	}
+
+	warnings, err := cfg.ValidateForSave()
+	if err != nil {
+		fmt.Printf("[config] validation error: %v\n", err)
+		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) {
+		s.state.SetNeedsRestart(true)
+		s.state.Save()
+	}
+
+	// Save config
+	if err := cfg.Save(); err != nil {
+		fmt.Printf("[config] failed to save config: %v\n", err)
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// If remote access is disabled but a tunnel is active, stop it immediately.
+	// This prevents a security hole where an active tunnel could bypass auth
+	// after the config is reloaded with remote_access.enabled = false.
+	if !cfg.GetRemoteAccessEnabled() && s.tunnelManager != nil {
+		status := s.tunnelManager.Status()
+		if status.State == tunnel.StateConnected || status.State == tunnel.StateStarting {
+			fmt.Printf("[remote-access] stopping tunnel because remote_access is disabled\n")
+			s.tunnelManager.Stop()
+			s.ClearRemoteAuth()
+		}
+	}
+
+	// Update PR discovery polling based on new config
+	// Pass a function so poll always uses current repos list
+	s.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
+
+	// Refresh lore curator executor when lore target changes
+	s.refreshLoreCurator(cfg)
+
+	// Ensure overlay directories exist for all repos if repos were actually updated
+	newRepos := cfg.GetRepos()
+	if !reposEqual(oldRepos, newRepos) {
+		if err := s.workspace.EnsureOverlayDirs(newRepos); err != nil {
+			fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
+			// Don't fail the request for this - overlay dirs can be created manually
+		}
+	}
+
+	// Return warning if path changed with existing sessions/workspaces
+	if pathChanged {
+		type WarningResponse struct {
+			Warning         string   `json:"warning"`
+			SessionCount    int      `json:"session_count"`
+			WorkspaceCount  int      `json:"workspace_count"`
+			RequiresRestart bool     `json:"requires_restart"`
+			Warnings        []string `json:"warnings,omitempty"`
+		}
+		warning := WarningResponse{
+			Warning:         fmt.Sprintf("Changing workspace_path affects only NEW workspaces. %d existing sessions and %d workspaces will keep their current paths.", sessionCount, workspaceCount),
+			SessionCount:    sessionCount,
+			WorkspaceCount:  workspaceCount,
+			RequiresRestart: true,
+			Warnings:        warnings,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(warning)
+		return
+	}
+
+	type ConfigSaveResponse struct {
+		Status   string   `json:"status"`
+		Message  string   `json:"message"`
+		Warnings []string `json:"warnings,omitempty"`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ConfigSaveResponse{
+		Status:   "ok",
+		Message:  "Config saved and reloaded. Changes are now in effect.",
+		Warnings: warnings,
+	})
+}
+
+func cloneNetwork(src *config.NetworkConfig) *config.NetworkConfig {
+	if src == nil {
+		return nil
+	}
+	cpy := *src
+	if src.TLS != nil {
+		tlsCopy := *src.TLS
+		cpy.TLS = &tlsCopy
+	}
+	return &cpy
+}
+
+func cloneAccessControl(src *config.AccessControlConfig) *config.AccessControlConfig {
+	if src == nil {
+		return nil
+	}
+	cpy := *src
+	return &cpy
+}
+
+// reposEqual compares two slices of repos for equality.
+func reposEqual(a, b []config.Repo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].URL != b[i].URL {
+			return false
+		}
+	}
+	return true
+}
+
+// handleAuthSecrets gets or sets GitHub auth secrets.
+func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		secrets, err := config.GetAuthSecrets()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		clientIDSet := false
+		clientSecretSet := false
+		if secrets.GitHub != nil {
+			clientIDSet = strings.TrimSpace(secrets.GitHub.ClientID) != ""
+			clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{
+			"client_id_set":     clientIDSet,
+			"client_secret_set": clientSecretSet,
+		})
+	case http.MethodPost:
+		type SecretsRequest struct {
+			ClientID     string `json:"client_id"`
+			ClientSecret string `json:"client_secret"`
+		}
+		var req SecretsRequest
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
+			http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
+			return
+		}
+		if err := config.SaveGitHubAuthSecrets(req.ClientID, req.ClientSecret); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
