@@ -1558,7 +1558,7 @@ body {
   left: 0;
   right: 0;
   height: 1px;
-  background: var(--color-accent-subtle);
+  background: var(--color-surface);
 }
 
 .session-tab__row1 {
@@ -1927,6 +1927,7 @@ body {
   min-height: 0;
   flex: 1;
   transition: grid-template-columns 0.2s ease;
+  border: 1px solid transparent;
 }
 
 .session-detail--sidebar-collapsed {
@@ -2107,7 +2108,7 @@ body {
 
 /* Terminal focus indicator - subtle border glow when xterm has focus */
 .session-detail:has(#terminal .xterm.focus) {
-  box-shadow: 0 0 0 1px var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 /* Toggle Switch */
