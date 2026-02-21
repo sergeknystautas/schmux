@@ -785,6 +785,11 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	w.GitDefaultBranchOrphaned = orphaned
 	w.Branch = actualBranch
 
+	// Check if the branch exists on the remote (cached to avoid per-broadcast git calls)
+	if wb, found := m.state.GetWorktreeBaseByURL(w.Repo); found {
+		w.RemoteBranchExists = RemoteBranchExists(ctx, wb.Path, w.Branch)
+	}
+
 	// Update the workspace in state (this updates the in-memory copy)
 	if err := m.state.UpdateWorkspace(w); err != nil {
 		return nil, fmt.Errorf("failed to update workspace in state: %w", err)
