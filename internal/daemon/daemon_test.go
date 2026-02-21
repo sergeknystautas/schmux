@@ -52,9 +52,9 @@ func TestPidFileParsing(t *testing.T) {
 }
 
 func TestShutdown(t *testing.T) {
-	// Verifies Shutdown does not panic. Limited assertion possible
-	// due to package-level channel state shared across tests.
-	Shutdown()
+	// Verifies Shutdown does not panic.
+	d := NewDaemon()
+	d.Shutdown()
 }
 
 func TestDashboardPort(t *testing.T) {
