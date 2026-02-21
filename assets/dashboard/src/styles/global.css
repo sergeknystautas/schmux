@@ -2585,7 +2585,7 @@ a:hover {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-right: none;
-  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  border-radius: 0 0 0 var(--radius-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2729,7 +2729,7 @@ a:hover {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-left: none;
-  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  border-radius: 0 0 var(--radius-lg) 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
