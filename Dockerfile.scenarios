@@ -19,22 +19,15 @@ WORKDIR /app
 COPY build/schmux-linux /usr/local/bin/schmux
 
 # Copy dashboard dist (the binary looks for ./assets/dashboard/dist relative to cwd)
-COPY assets/dashboard/dist ./assets/dashboard/dist
+COPY --chown=testuser assets/dashboard/dist ./assets/dashboard/dist
 
 # Copy Playwright test files (node_modules + browsers already in base image)
-COPY test/scenarios/generated/*.ts ./test/scenarios/generated/
-COPY test/scenarios/generated/tsconfig.json ./test/scenarios/generated/
-
-# Copy and install the entrypoint script
+# chown so testuser can write test-results/ alongside the test files
+COPY --chown=testuser test/scenarios/generated/*.ts ./test/scenarios/generated/
+COPY --chown=testuser test/scenarios/generated/tsconfig.json ./test/scenarios/generated/
 COPY test/scenarios/generated/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 
-# Verify key tools are available
-RUN tmux -V && schmux --help > /dev/null 2>&1 || true
-
-# Run as non-root to catch permission bugs
-RUN useradd -m -s /bin/bash testuser && \
-    chown -R testuser:testuser /app /tmp/schmux-test-workspaces 2>/dev/null || true
+# Run as non-root to catch permission bugs (user created in base image)
 USER testuser
 
 ENTRYPOINT ["/entrypoint.sh"]

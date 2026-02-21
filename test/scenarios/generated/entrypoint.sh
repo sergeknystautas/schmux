@@ -49,6 +49,9 @@ PLAYWRIGHT_ARGS=()
 if [ -n "${TEST_GREP:-}" ]; then
     PLAYWRIGHT_ARGS+=(--grep "$TEST_GREP")
 fi
+if [ -n "${TEST_REPEAT:-}" ]; then
+    PLAYWRIGHT_ARGS+=(--repeat-each "$TEST_REPEAT")
+fi
 npx playwright test "${PLAYWRIGHT_ARGS[@]}"
 TEST_EXIT=$?
 set -e

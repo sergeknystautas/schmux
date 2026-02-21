@@ -24,3 +24,8 @@ RUN npx playwright install chromium --with-deps
 
 # Verify installation
 RUN tmux -V
+
+# Create non-root test user (so ephemeral image doesn't need to)
+# Give testuser ownership of the generated dir so Playwright can write test-results/
+RUN useradd -m -s /bin/bash testuser \
+    && chown -R testuser /app/test/scenarios/generated

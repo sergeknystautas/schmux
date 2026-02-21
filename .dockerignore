@@ -1,0 +1,12 @@
+# Ignore everything by default
+*
+
+# Allow only what Dockerfiles actually COPY
+!build/schmux-linux
+!build/e2e-test
+!test/
+!assets/dashboard/dist/
+
+# Exclude test artifacts and node_modules from context
+test/scenarios/artifacts/
+test/scenarios/generated/node_modules/
