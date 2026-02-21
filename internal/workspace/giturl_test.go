@@ -6,6 +6,7 @@ import (
 )
 
 func TestBuildGitBranchURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		repoURL   string
@@ -168,6 +169,7 @@ func TestBuildGitBranchURL(t *testing.T) {
 }
 
 func TestRemoteBranchExists(t *testing.T) {
+	t.Parallel()
 	// Create a test worktree repo
 	repoDir := gitTestWorkTree(t)
 

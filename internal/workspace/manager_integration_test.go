@@ -14,6 +14,7 @@ import (
 
 // TestGetOrCreate_BranchReuse_Success verifies state IS updated when checkout succeeds.
 func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
+	t.Parallel()
 	// Set up isolated state with temp path
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
@@ -32,7 +33,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -68,6 +69,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 }
 
 func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
+	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 
@@ -81,7 +83,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -99,7 +101,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 	case err := <-done:
 		lock.Unlock()
 		t.Fatalf("expected GetOrCreate to block, returned early: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 	}
 
 	lock.Unlock()
@@ -109,7 +111,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetOrCreate failed after unlock: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for GetOrCreate after unlock")
 	}
 }
@@ -117,6 +119,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 // TestGetOrCreate_UniqueBranchOnWorktreeConflict verifies branch name is uniquified
 // when the requested branch is already checked out in another worktree.
 func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
+	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 
@@ -130,7 +133,7 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -178,6 +181,7 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 }
 
 func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
+	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 
@@ -193,7 +197,7 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 		WorktreeBasePath:     t.TempDir(),
 		SourceCodeManagement: config.SourceCodeManagementGit,
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -233,6 +237,7 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 // The success test above validates the fix (prepare before state update).
 // This test is kept as documentation of the intended behavior.
 func TestGetOrCreate_BranchReuse_Failure(t *testing.T) {
+	t.Parallel()
 	t.Skip("gitCheckout creates branches automatically, hard to trigger failure")
 
 	// This test would need to cause a real git error (e.g., read-only filesystem)
@@ -245,6 +250,7 @@ func TestGetOrCreate_BranchReuse_Failure(t *testing.T) {
 // This prevents commit history pollution: without this guard, the new branch would
 // inherit all the diverged commits from the old branch.
 func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
+	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 
@@ -258,7 +264,7 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)
@@ -302,6 +308,7 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 // TestGetOrCreate_BranchReuse_UpToDateAllowsReuse verifies that a workspace whose
 // branch is at or behind the default branch IS reused for a different branch.
 func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
+	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
 
@@ -316,7 +323,7 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 		WorkspacePath:    t.TempDir(),
 		WorktreeBasePath: t.TempDir(),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	manager := New(cfg, st, statePath)

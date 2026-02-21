@@ -15,6 +15,7 @@ import (
 )
 
 func TestExtractWorkspaceNumber(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		id      string
 		want    int
@@ -43,6 +44,7 @@ func TestExtractWorkspaceNumber(t *testing.T) {
 }
 
 func TestFindNextWorkspaceNumber(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		workspaces []state.Workspace
@@ -138,6 +140,7 @@ func TestFindNextWorkspaceNumber(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
 	}
@@ -157,6 +160,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestGetWorkspacesForRepo(t *testing.T) {
+	t.Parallel()
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath)
 
@@ -187,6 +191,7 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 }
 
 func TestDispose(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -238,6 +243,7 @@ func TestDispose(t *testing.T) {
 }
 
 func TestDispose_NotFound(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -255,6 +261,7 @@ func TestDispose_NotFound(t *testing.T) {
 }
 
 func TestDispose_ActiveSessions(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
@@ -318,6 +325,7 @@ func TestDispose_ActiveSessions(t *testing.T) {
 
 // TestDispose_Integration creates a real git workspace and disposes it.
 func TestDispose_Integration(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -334,7 +342,7 @@ func TestDispose_Integration(t *testing.T) {
 		WorkspacePath:    tmpDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	m := New(cfg, st, statePath)
@@ -379,6 +387,7 @@ func TestDispose_Integration(t *testing.T) {
 // TestDispose_DeletesLocalBranch verifies that disposing a workspace deletes
 // the local branch from the bare clone when the branch was never pushed to remote.
 func TestDispose_DeletesLocalBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -394,7 +403,7 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 		WorkspacePath:    tmpDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	m := New(cfg, st, statePath)
@@ -432,6 +441,7 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 // TestDispose_KeepsBranchPushedToRemote verifies that disposing a workspace
 // keeps the local branch if it exists on the remote.
 func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -448,7 +458,7 @@ func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
 		WorkspacePath:    tmpDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test", repoDir),
+			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
 	m := New(cfg, st, statePath)
@@ -495,6 +505,7 @@ func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
 }
 
 func TestGetOrCreate_LocalRepo(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -699,6 +710,7 @@ func (m *mockStateStore) Save() error {
 // TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up
 // when clone succeeds but state.Save() fails.
 func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -718,7 +730,7 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 		WorkspacePath:    workspaceBaseDir,
 		WorktreeBasePath: reposDir,
 		Repos: []config.Repo{
-			testRepoWithBarePath("test-repo", repoDir),
+			testRepoWithBarePath(t, "test-repo", repoDir),
 		},
 	}
 
@@ -752,6 +764,7 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 // TestCreateNoCleanupOnSuccess verifies that workspace directory is NOT cleaned up
 // when creation succeeds.
 func TestCreateNoCleanupOnSuccess(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -771,7 +784,7 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 		WorkspacePath:    workspaceBaseDir,
 		WorktreeBasePath: filepath.Join(tmpDir, "repos"),
 		Repos: []config.Repo{
-			testRepoWithBarePath("test-repo", repoDir),
+			testRepoWithBarePath(t, "test-repo", repoDir),
 		},
 	}
 
@@ -796,6 +809,7 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 }
 
 func TestLoadRepoConfig(t *testing.T) {
+	t.Parallel()
 	t.Run("returns nil when directory does not exist", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		nonExistentPath := filepath.Join(tmpDir, "nonexistent")
@@ -911,6 +925,7 @@ func TestLoadRepoConfig(t *testing.T) {
 }
 
 func TestRefreshWorkspaceConfig(t *testing.T) {
+	t.Parallel()
 	t.Run("caches config per workspace without merging", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		statePath := filepath.Join(tmpDir, "state.json")

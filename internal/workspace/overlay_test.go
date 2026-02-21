@@ -119,6 +119,7 @@ func TestListOverlayFiles(t *testing.T) {
 }
 
 func TestCopyFile(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 
 	// Create a source file with some content
@@ -154,6 +155,7 @@ func TestCopyFile(t *testing.T) {
 }
 
 func TestIsIgnoredByGit(t *testing.T) {
+	t.Parallel()
 	// This test requires a git repository, so we'll create a temporary one
 	tempDir := t.TempDir()
 
@@ -220,6 +222,7 @@ func runGitCommand(ctx context.Context, dir string, args ...string) error {
 }
 
 func TestCopyOverlayReturnsManifest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp overlay source directory with test files

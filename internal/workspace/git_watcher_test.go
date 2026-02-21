@@ -11,6 +11,7 @@ import (
 )
 
 func TestResolveGitDir_RegularClone(t *testing.T) {
+	t.Parallel()
 	// Create a temp directory with a .git/ directory
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
@@ -29,6 +30,7 @@ func TestResolveGitDir_RegularClone(t *testing.T) {
 }
 
 func TestResolveGitDir_Worktree(t *testing.T) {
+	t.Parallel()
 	// Create a temp directory structure simulating a worktree
 	tmpDir := t.TempDir()
 
@@ -62,6 +64,7 @@ func TestResolveGitDir_Worktree(t *testing.T) {
 }
 
 func TestResolveGitDir_WorktreeRelativePath(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create base repo structure at tmpDir/repos/base.git/worktrees/wt
@@ -98,6 +101,7 @@ func TestResolveGitDir_WorktreeRelativePath(t *testing.T) {
 }
 
 func TestResolveSharedBaseRefs(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create base repo with refs/
@@ -125,6 +129,7 @@ func TestResolveSharedBaseRefs(t *testing.T) {
 }
 
 func TestWatcherDisabledByConfig(t *testing.T) {
+	t.Parallel()
 	disabled := false
 	cfg := &config.Config{
 		Sessions: &config.SessionsConfig{
@@ -139,6 +144,7 @@ func TestWatcherDisabledByConfig(t *testing.T) {
 }
 
 func TestWatcherEnabledByDefault(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{}
 	if !cfg.GetGitStatusWatchEnabled() {
 		t.Error("GetGitStatusWatchEnabled() should return true by default")
@@ -146,6 +152,7 @@ func TestWatcherEnabledByDefault(t *testing.T) {
 }
 
 func TestDebounceCollapse(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
 	refsDir := filepath.Join(gitDir, "refs")
@@ -205,6 +212,7 @@ func TestDebounceCollapse(t *testing.T) {
 }
 
 func TestAddRemoveWorkspace(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
 	refsDir := filepath.Join(gitDir, "refs", "heads")
@@ -247,6 +255,7 @@ func TestAddRemoveWorkspace(t *testing.T) {
 }
 
 func TestNewDirsWatched(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
 	refsDir := filepath.Join(gitDir, "refs")
@@ -298,6 +307,7 @@ func TestNewDirsWatched(t *testing.T) {
 }
 
 func TestStopIdempotent(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{}
 	gw := NewGitWatcher(cfg, nil, nil)
 	if gw == nil {
