@@ -13,6 +13,7 @@ import (
 )
 
 func TestCreateLocalRepo(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -150,6 +151,7 @@ func TestCreateLocalRepo(t *testing.T) {
 }
 
 func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -167,7 +169,7 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	repoDir := gitTestWorkTree(t)
 
 	// Add repo to config with BarePath
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", repoDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 
 	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
@@ -192,6 +194,7 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 }
 
 func TestBranchSourceRefPrefersRemote(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -210,7 +213,7 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	gitTestBranch(t, repoDir, "feature")
 
 	// Add repo to config with BarePath
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", repoDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 
 	baseRepoPath, err := m.ensureWorktreeBase(ctx, repoDir)
 	if err != nil {
@@ -239,6 +242,7 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 // TestCreateLocalRepoCleanupOnStateSaveFailure verifies that local repo directory is cleaned up
 // when init succeeds but state.Save() fails.
 func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -285,6 +289,7 @@ func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
 // TestCreateLocalRepoNoCleanupOnSuccess verifies that local repo directory is NOT cleaned up
 // when creation succeeds.
 func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -327,6 +332,7 @@ func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
 // force-pushed to an unrelated history. The worktree should get the latest
 // origin/main, not the orphaned local ref.
 func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -343,7 +349,7 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 
 	// Create "remote" repo with initial commit on main
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
@@ -406,6 +412,7 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 // plus remote force-push), addWorktree still creates the worktree from
 // origin/main so the workspace stays connected to the upstream history.
 func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -422,7 +429,7 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 
 	// Create "remote" repo with initial commit
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)

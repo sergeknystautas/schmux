@@ -13,6 +13,7 @@ import (
 )
 
 func TestValidateCommitHash(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		hash    string
@@ -87,6 +88,7 @@ func setupTestRepo(t *testing.T) (string, func()) {
 }
 
 func TestGetCommitDetail_BasicCommit(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -181,6 +183,7 @@ func TestGetCommitDetail_BasicCommit(t *testing.T) {
 }
 
 func TestGetCommitDetail_ModifiedFile(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -262,6 +265,7 @@ func TestGetCommitDetail_ModifiedFile(t *testing.T) {
 }
 
 func TestGetCommitDetail_DeletedFile(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -328,6 +332,7 @@ func TestGetCommitDetail_DeletedFile(t *testing.T) {
 }
 
 func TestGetCommitDetail_RenamedFile(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -398,6 +403,7 @@ func TestGetCommitDetail_RenamedFile(t *testing.T) {
 }
 
 func TestGetCommitDetail_BinaryFile(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -460,6 +466,7 @@ func TestGetCommitDetail_BinaryFile(t *testing.T) {
 }
 
 func TestGetCommitDetail_InvalidHash(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -495,6 +502,7 @@ func TestGetCommitDetail_InvalidHash(t *testing.T) {
 }
 
 func TestGetCommitDetail_NonexistentHash(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -541,6 +549,7 @@ func TestGetCommitDetail_NonexistentHash(t *testing.T) {
 }
 
 func TestGetCommitDetail_MergeCommit(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -614,6 +623,7 @@ func TestGetCommitDetail_MergeCommit(t *testing.T) {
 }
 
 func TestGetCommitDetail_ISO8601Timestamp(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
@@ -665,6 +675,7 @@ func TestGetCommitDetail_ISO8601Timestamp(t *testing.T) {
 }
 
 func TestGetCommitDetail_LineCounts(t *testing.T) {
+	t.Parallel()
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 

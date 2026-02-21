@@ -1,10 +1,11 @@
 # E2E Test Thin Image for schmux
-# Uses schmux-e2e-base (pre-cached deps). Only copies code + pre-built binary.
+# Uses schmux-e2e-base (system deps + SSH). Copies pre-built binaries only.
 # Always rebuilt, but fast (~2-5s, just COPY ops).
 #
 # Prerequisites:
 #   docker build -f Dockerfile.e2e-base -t schmux-e2e-base .
 #   GOOS=linux CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux
+#   GOOS=linux CGO_ENABLED=0 go test -tags=e2e -c -o build/e2e-test ./internal/e2e
 #
 # Build: docker build -f Dockerfile.e2e -t schmux-e2e .
 # Run:   docker run --rm schmux-e2e
@@ -14,13 +15,20 @@ FROM schmux-e2e-base
 # Copy pre-built binary (cross-compiled locally)
 COPY build/schmux-linux /usr/local/bin/schmux
 
-# Copy source code for running tests (go.mod, internal/e2e, etc.)
-COPY --chown=e2e:e2e . /home/e2e/src
+# Copy pre-built E2E test binary (cross-compiled locally)
+COPY build/e2e-test /home/e2e/e2e-test
+
+# Copy test support files (mock scripts, etc.)
+COPY --chown=e2e:e2e test/ /home/e2e/src/test/
 
 # Make test scripts executable
 USER e2e
 RUN chmod +x /home/e2e/src/test/mock-remote.sh
 USER root
+
+# Recreate directory structure so test binary's relative paths work
+# Tests use os.Getwd() + ../../test/mock-remote.sh to find support files
+RUN mkdir -p /home/e2e/src/internal/e2e
 
 # Start SSH server as root, then switch to e2e user for tests
 RUN echo '#!/bin/bash\n\
@@ -30,14 +38,14 @@ set -e\n\
 # Wait for SSH to be ready\n\
 sleep 1\n\
 # Build test command with optional -run filter\n\
-TEST_CMD="go test -tags=e2e -v ./internal/e2e"\n\
+TEST_CMD="/home/e2e/e2e-test -test.v"\n\
 if [ -n "${TEST_RUN:-}" ]; then\n\
-    TEST_CMD="$TEST_CMD -run \"$TEST_RUN\""\n\
+    TEST_CMD="$TEST_CMD -test.run \"$TEST_RUN\""\n\
 fi\n\
-# Run tests as e2e user\n\
-cd /home/e2e/src\n\
+# Run tests from internal/e2e dir (matching go test cwd for relative paths)\n\
+cd /home/e2e/src/internal/e2e\n\
 su -c "$TEST_CMD" e2e\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-WORKDIR /home/e2e/src
+WORKDIR /home/e2e/src/internal/e2e
 ENTRYPOINT ["/entrypoint.sh"]

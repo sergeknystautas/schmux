@@ -228,6 +228,13 @@ build_local_artifacts() {
     fi
     echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
 
+    echo -e "  ${BLUE}🔨 Cross-compiling E2E test binary for Linux...${NC}"
+    if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -tags=e2e -c -o build/e2e-test ./internal/e2e; then
+        echo -e "  ${RED}❌ Failed to cross-compile E2E test binary${NC}"
+        return 1
+    fi
+    echo -e "  ${GREEN}✅ E2E test binary built: build/e2e-test${NC}"
+
     LOCAL_BUILD_DONE=true
     echo ""
     return 0
@@ -241,7 +248,10 @@ build_local_artifacts() {
 run_unit_tests() {
     echo -e "${YELLOW}▶️  Running unit tests...${NC}"
 
-    TEST_ARGS=(go test -short ./...)
+    # Use go list to enumerate packages, excluding e2e (needs Docker)
+    local PACKAGES
+    PACKAGES=$(go list github.com/sergeknystautas/schmux/... 2>/dev/null | grep -v '/e2e$')
+    TEST_ARGS=(go test -short $PACKAGES)
 
     if [ "$RUN_RACE" = true ]; then
         TEST_ARGS+=(-race)
@@ -512,38 +522,63 @@ run_suites_parallel() {
     echo -e "${YELLOW}▶️  Running test suites in parallel...${NC}"
     echo ""
 
-    # Shared build step: cross-compile the binary (needed by E2E + scenarios)
-    echo -e "${YELLOW}▶️  Building local artifacts for Docker tests...${NC}"
+    echo -e "${YELLOW}▶️  Building prerequisites in parallel...${NC}"
+    echo ""
     mkdir -p build
-    echo -e "  ${BLUE}🔨 Cross-compiling schmux for Linux...${NC}"
-    if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux; then
-        echo -e "  ${RED}❌ Failed to cross-compile schmux${NC}"
+
+    # Background job 1: Cross-compile Go binaries
+    (
+        echo -e "  ${BLUE}🔨 Cross-compiling schmux for Linux...${NC}"
+        if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/schmux-linux ./cmd/schmux; then
+            echo -e "  ${RED}❌ Failed to cross-compile schmux${NC}"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
+
+        echo -e "  ${BLUE}🔨 Cross-compiling E2E test binary for Linux...${NC}"
+        if ! GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -tags=e2e -c -o build/e2e-test ./internal/e2e; then
+            echo -e "  ${RED}❌ Failed to cross-compile E2E test binary${NC}"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ E2E test binary built: build/e2e-test${NC}"
+    ) &
+    local GO_BUILD_PID=$!
+
+    # Background job 2: npm ci + dashboard build
+    (
+        echo -e "  ${BLUE}📦 Installing dashboard dependencies...${NC}"
+        if ! (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent); then
+            echo -e "  ${RED}❌ Failed to install dashboard dependencies${NC}"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ Dashboard dependencies installed${NC}"
+
+        echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
+        if ! go run ./cmd/build-dashboard --skip-install; then
+            echo -e "  ${RED}❌ Failed to build dashboard${NC}"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ Dashboard built${NC}"
+    ) &
+    local NPM_BUILD_PID=$!
+
+    # Wait for both prerequisite jobs
+    local GO_BUILD_OK=true
+    local NPM_BUILD_OK=true
+    if ! wait $GO_BUILD_PID; then
+        GO_BUILD_OK=false
+    fi
+    if ! wait $NPM_BUILD_PID; then
+        NPM_BUILD_OK=false
+    fi
+
+    if [ "$GO_BUILD_OK" != true ] || [ "$NPM_BUILD_OK" != true ]; then
+        echo -e "${RED}❌ Prerequisite build failed${NC}"
         rm -rf "$parallel_dir"
         return 1
     fi
-    echo -e "  ${GREEN}✅ Binary built: build/schmux-linux${NC}"
+
     LOCAL_BUILD_DONE=true
-    echo ""
-
-    # Shared npm install (React tests + scenario dashboard build both need it)
-    echo -e "  ${BLUE}📦 Installing dashboard dependencies...${NC}"
-    if ! (cd "$SCRIPT_DIR/assets/dashboard" && npm ci --silent); then
-        echo -e "  ${RED}❌ Failed to install dashboard dependencies${NC}"
-        rm -rf "$parallel_dir"
-        return 1
-    fi
-    echo -e "  ${GREEN}✅ Dashboard dependencies installed${NC}"
-    echo ""
-
-    # Shared dashboard build (scenarios need dist/, and building during fork
-    # corrupts Docker build context for E2E)
-    echo -e "  ${BLUE}🎨 Building dashboard...${NC}"
-    if ! go run ./cmd/build-dashboard --skip-install; then
-        echo -e "  ${RED}❌ Failed to build dashboard${NC}"
-        rm -rf "$parallel_dir"
-        return 1
-    fi
-    echo -e "  ${GREEN}✅ Dashboard built${NC}"
     DASHBOARD_BUILT=true
     echo ""
 

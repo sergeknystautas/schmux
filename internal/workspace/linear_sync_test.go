@@ -12,6 +12,7 @@ import (
 )
 
 func TestTruncateString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		input  string
@@ -69,6 +70,7 @@ func TestTruncateString(t *testing.T) {
 // TestLinearSyncFromDefault_RejectsOrphanDefaultBranch verifies that LinearSyncFromDefault
 // returns an error when origin/main is an orphan commit with no shared ancestry.
 func TestLinearSyncFromDefault_RejectsOrphanDefaultBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}

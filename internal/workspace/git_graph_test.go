@@ -41,7 +41,7 @@ func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteD
 	// Config + state
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("testrepo", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "testrepo", remoteDir)}
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath)
@@ -84,6 +84,7 @@ func getHash(t *testing.T, dir, ref string) string {
 }
 
 func TestGitGraph_SingleBranch(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-a")
 	ctx := context.Background()
 
@@ -129,6 +130,7 @@ func TestGitGraph_SingleBranch(t *testing.T) {
 }
 
 func TestGitGraph_BranchBehind(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-behind")
 	ctx := context.Background()
 
@@ -165,6 +167,7 @@ func TestGitGraph_BranchBehind(t *testing.T) {
 }
 
 func TestGitGraph_AheadAndBehind(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-diverge")
 	ctx := context.Background()
 
@@ -219,6 +222,7 @@ func sliceContains(ss []string, s string) bool {
 }
 
 func TestGitGraph_OrderMatchesISLSort(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-order")
 
 	// Create two draft commits on the local branch
@@ -281,6 +285,7 @@ func TestGitGraph_OrderMatchesISLSort(t *testing.T) {
 }
 
 func TestGitGraph_MergeCommit(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
@@ -312,6 +317,7 @@ func TestGitGraph_MergeCommit(t *testing.T) {
 }
 
 func TestGitGraph_ForkPointDetection(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-fork")
 	ctx := context.Background()
 
@@ -343,6 +349,7 @@ func TestGitGraph_ForkPointDetection(t *testing.T) {
 }
 
 func TestGitGraph_MaxCommits(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-many")
 	ctx := context.Background()
 
@@ -362,6 +369,7 @@ func TestGitGraph_MaxCommits(t *testing.T) {
 }
 
 func TestGitGraph_NoDivergence(t *testing.T) {
+	t.Parallel()
 	mgr, _, _, wsID := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
@@ -378,6 +386,7 @@ func TestGitGraph_NoDivergence(t *testing.T) {
 }
 
 func TestGitGraph_WorkspaceAnnotation(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-ann")
 	ctx := context.Background()
 
@@ -409,6 +418,7 @@ func TestGitGraph_WorkspaceAnnotation(t *testing.T) {
 }
 
 func TestGitGraph_UnknownWorkspace(t *testing.T) {
+	t.Parallel()
 	mgr, _, _, _ := setupWorkspaceGraphTest(t, "main")
 	ctx := context.Background()
 
@@ -419,6 +429,7 @@ func TestGitGraph_UnknownWorkspace(t *testing.T) {
 }
 
 func TestGitGraph_Trimming(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-trim")
 	ctx := context.Background()
 
@@ -452,6 +463,7 @@ func TestGitGraph_Trimming(t *testing.T) {
 }
 
 func TestGitGraph_MultipleMergeBases(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-multi")
 	ctx := context.Background()
 
@@ -481,6 +493,7 @@ func TestGitGraph_MultipleMergeBases(t *testing.T) {
 }
 
 func TestGitGraph_InvalidWorkspacePath(t *testing.T) {
+	t.Parallel()
 	// Workspace points to a non-existent directory — git commands should fail.
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
@@ -502,6 +515,7 @@ func TestGitGraph_InvalidWorkspacePath(t *testing.T) {
 }
 
 func TestGitGraph_CorruptedGitDir(t *testing.T) {
+	t.Parallel()
 	// Workspace directory exists but is not a git repo — git commands should fail.
 	wsDir := t.TempDir()
 
@@ -525,6 +539,7 @@ func TestGitGraph_CorruptedGitDir(t *testing.T) {
 }
 
 func TestGitGraph_CancelledContext(t *testing.T) {
+	t.Parallel()
 	mgr, _, _, wsID := setupWorkspaceGraphTest(t, "feature-cancel")
 
 	// Cancel the context before calling — git commands should fail.
@@ -538,6 +553,7 @@ func TestGitGraph_CancelledContext(t *testing.T) {
 }
 
 func TestGitGraph_LocalTruncated(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-truncate")
 	ctx := context.Background()
 
@@ -575,6 +591,7 @@ func TestGitGraph_LocalTruncated(t *testing.T) {
 }
 
 func TestGitGraph_LocalNotTruncated(t *testing.T) {
+	t.Parallel()
 	mgr, _, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-notrunc")
 	ctx := context.Background()
 
@@ -594,6 +611,7 @@ func TestGitGraph_LocalNotTruncated(t *testing.T) {
 }
 
 func TestGitGraph_MainAheadNewestTimestamp(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-timestamp")
 	ctx := context.Background()
 
@@ -619,6 +637,7 @@ func TestGitGraph_MainAheadNewestTimestamp(t *testing.T) {
 }
 
 func TestGitGraph_ManyMergeCommits(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "feature-merges")
 	ctx := context.Background()
 
@@ -654,6 +673,7 @@ func TestGitGraph_ManyMergeCommits(t *testing.T) {
 }
 
 func TestGitGraph_ManyAheadBranchMembership(t *testing.T) {
+	t.Parallel()
 	mgr, remoteDir, wsDir, wsID := setupWorkspaceGraphTest(t, "features/compounding")
 	ctx := context.Background()
 
@@ -743,6 +763,7 @@ func TestGitGraph_ManyAheadBranchMembership(t *testing.T) {
 }
 
 func TestParseGitLogOutput_GitFormat(t *testing.T) {
+	t.Parallel()
 	// Standard git format: parents are space-separated full hashes
 	output := "aaa111|aaa111|first commit|author|2024-01-01T00:00:00Z|bbb222 ccc333\nbbb222|bbb222|second commit|author|2024-01-01T00:00:00Z|ccc333\nccc333|ccc333|root commit|author|2024-01-01T00:00:00Z|"
 	nodes := ParseGitLogOutput(output)
@@ -768,6 +789,7 @@ func TestParseGitLogOutput_GitFormat(t *testing.T) {
 }
 
 func TestParseGitLogOutput_SaplingFormat(t *testing.T) {
+	t.Parallel()
 	// Sapling format with p1node p2node: null parent is all-zeros
 	nullHash := "0000000000000000000000000000000000000000"
 
@@ -804,6 +826,7 @@ func TestParseGitLogOutput_SaplingFormat(t *testing.T) {
 }
 
 func TestBuildGraphResponse_BranchMembershipWithSaplingNodes(t *testing.T) {
+	t.Parallel()
 	// Simulate what Sapling p1node/p2node output looks like after parsing:
 	// 5 feature commits + fork point + 2 context commits
 	// This tests that BuildGraphResponse correctly assigns branch membership

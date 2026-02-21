@@ -53,6 +53,7 @@ func setupPushTest(t *testing.T) (string, string, *Manager, *state.State, string
 // TestPushToBranch_NoRemoteBranch pushes when origin doesn't have the branch yet.
 // confirm=false is fine since no confirmation is needed for new branches.
 func TestPushToBranch_NoRemoteBranch(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create a feature branch with a commit
@@ -82,6 +83,7 @@ func TestPushToBranch_NoRemoteBranch(t *testing.T) {
 // TestPushToBranch_RemoteCaughtUp pushes when local is ahead (fast-forward).
 // confirm=false is fine since no confirmation is needed for fast-forward.
 func TestPushToBranch_RemoteCaughtUp(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch and push it
@@ -117,6 +119,7 @@ func TestPushToBranch_RemoteCaughtUp(t *testing.T) {
 // TestPushToBranch_RemoteHasNewerCommits fails when local is behind origin.
 // Verifies that a helpful message is returned telling user to pull/merge first.
 func TestPushToBranch_RemoteHasNewerCommits(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch and push it
@@ -169,6 +172,7 @@ func TestPushToBranch_RemoteHasNewerCommits(t *testing.T) {
 
 // TestPushToBranch_RebasedSamePatches_NeedsConfirm returns needs_confirm when rebase causes divergence.
 func TestPushToBranch_RebasedSamePatches_NeedsConfirm(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch with commits and push
@@ -220,6 +224,7 @@ func TestPushToBranch_RebasedSamePatches_NeedsConfirm(t *testing.T) {
 
 // TestPushToBranch_RebasedSamePatches_Confirmed pushes after rebase with confirm=true.
 func TestPushToBranch_RebasedSamePatches_Confirmed(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch with commits and push
@@ -265,6 +270,7 @@ func TestPushToBranch_RebasedSamePatches_Confirmed(t *testing.T) {
 
 // TestPushToBranch_RebasedWithExtraOriginCommits_NeedsConfirm returns needs_confirm with commits that would be lost.
 func TestPushToBranch_RebasedWithExtraOriginCommits_NeedsConfirm(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch with commits and push
@@ -335,6 +341,7 @@ func TestPushToBranch_RebasedWithExtraOriginCommits_NeedsConfirm(t *testing.T) {
 
 // TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed pushes with confirm=true, overwriting origin commits.
 func TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed(t *testing.T) {
+	t.Parallel()
 	remoteDir, cloneDir, m, st, workspaceID := setupPushTest(t)
 
 	// Create feature branch with commits and push

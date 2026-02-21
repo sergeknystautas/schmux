@@ -12,6 +12,7 @@ import (
 
 // TestScan_EmptyWorkspaceDirectory tests scanning an empty workspace directory.
 func TestScan_EmptyWorkspaceDirectory(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -45,6 +46,7 @@ func TestScan_EmptyWorkspaceDirectory(t *testing.T) {
 
 // TestScan_AddNewWorkspace tests that a new git repo in the workspace directory is added.
 func TestScan_AddNewWorkspace(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -82,6 +84,7 @@ func TestScan_AddNewWorkspace(t *testing.T) {
 
 // TestScan_RemoveMissingWorkspace tests that workspaces missing from filesystem are removed.
 func TestScan_RemoveMissingWorkspace(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -141,6 +144,7 @@ func TestScan_RemoveMissingWorkspace(t *testing.T) {
 
 // TestScan_UpdateWorkspaceBranch tests that workspace branch is updated if changed.
 func TestScan_UpdateWorkspaceBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -193,6 +197,7 @@ func TestScan_UpdateWorkspaceBranch(t *testing.T) {
 
 // TestScan_SkipActiveSessionWorkspaces tests that workspaces with active sessions are not modified.
 func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -258,6 +263,7 @@ func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
 
 // TestScan_Integration tests the full scan workflow with real repos.
 func TestScan_Integration(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}

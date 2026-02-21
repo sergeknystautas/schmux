@@ -52,12 +52,16 @@ func gitTestBranch(t *testing.T, repoDir, branchName string) {
 	runGit(t, repoDir, "checkout", "-") // return to previous branch
 }
 
-// testRepoWithBarePath returns a config.Repo with BarePath set to <name>.git.
-func testRepoWithBarePath(name, url string) config.Repo {
+// testRepoWithBarePath returns a config.Repo with a unique BarePath per test.
+// Uses the test name to prevent collisions when tests run in parallel.
+func testRepoWithBarePath(t *testing.T, name, url string) config.Repo {
+	t.Helper()
+	// Replace slashes in test names to avoid nested directories
+	safeName := strings.ReplaceAll(t.Name(), "/", "_")
 	return config.Repo{
 		Name:     name,
 		URL:      url,
-		BarePath: name + ".git",
+		BarePath: safeName + "-" + name + ".git",
 	}
 }
 
@@ -83,6 +87,7 @@ func currentBranch(t *testing.T, dir string) string {
 }
 
 func TestValidateBranchName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		branch  string
@@ -132,6 +137,7 @@ func TestValidateBranchName(t *testing.T) {
 }
 
 func TestIsWorktree(t *testing.T) {
+	t.Parallel()
 	// Test with non-existent path
 	t.Run("non-existent path", func(t *testing.T) {
 		if isWorktree("/nonexistent/path") {
@@ -167,6 +173,7 @@ func TestIsWorktree(t *testing.T) {
 }
 
 func TestResolveWorktreeBaseFromWorktree(t *testing.T) {
+	t.Parallel()
 	t.Run("valid worktree .git file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		gitFile := filepath.Join(tmpDir, ".git")
@@ -224,6 +231,7 @@ func TestResolveWorktreeBaseFromWorktree(t *testing.T) {
 // by manually crafting a broken .git/config with multiple merge refs, then verifies
 // that schmux's gitPullRebase with explicit origin/<branch> works around it.
 func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -286,6 +294,7 @@ func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
 // TestGitPullRebase_WithBranchParameter tests that gitPullRebase takes
 // a branch parameter and explicitly pulls from origin/<branch>.
 func TestGitPullRebase_WithBranchParameter(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -331,6 +340,7 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 // This reproduces the bug where "git push origin <branch>" succeeds but disposal
 // still reports unpushed commits because @{u} points to origin/main.
 func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -396,6 +406,7 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 }
 
 func TestGitRemoteBranchExists(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -458,6 +469,7 @@ func gitCommitHash(t *testing.T, dir, ref string) string {
 // are pushed to the remote, fetching the bare clone and calling updateLocalDefaultBranch
 // advances refs/heads/main to match refs/remotes/origin/main.
 func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -474,7 +486,7 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 
 	// Create "remote" repo with initial commit
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone (worktree base)
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
@@ -529,6 +541,7 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 // updateLocalDefaultBranch does NOT update refs/heads/main when the main branch
 // is checked out in a worktree (would be unsafe).
 func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -545,7 +558,7 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
@@ -582,6 +595,7 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 // updateLocalDefaultBranch does NOT update when local and remote have diverged
 // (not a fast-forward).
 func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -598,7 +612,7 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
@@ -642,6 +656,7 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 // that verifies the full workflow: remote gets new commits → fetch → local main
 // is updated → new worktree created on main gets the latest commits.
 func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -658,7 +673,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath("test", remoteDir)}
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
 
 	// Create bare clone
 	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
@@ -703,6 +718,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 // TestHasCommonAncestor_NormalBranch verifies that branches with shared history
 // return true from hasCommonAncestor.
 func TestHasCommonAncestor_NormalBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -743,6 +759,7 @@ func TestHasCommonAncestor_NormalBranch(t *testing.T) {
 // TestHasCommonAncestor_OrphanBranch verifies that an orphan branch (no shared history)
 // returns false from hasCommonAncestor.
 func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
