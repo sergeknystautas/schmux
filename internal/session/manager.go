@@ -673,6 +673,16 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		fmt.Printf("[session] warning: failed to create .schmux/events directory: %v\n", err)
 	}
 
+	// Prune orphaned event files from previously disposed sessions.
+	// Workspace persists across sessions; event files linger after disposal.
+	activeIDs := make(map[string]bool)
+	for _, s := range m.state.GetSessions() {
+		activeIDs[s.ID] = true
+	}
+	if pruned := event.PruneEventFiles(eventsDir, activeIDs); pruned > 0 {
+		fmt.Printf("[session] pruned %d orphaned event file(s) from %s\n", pruned, eventsDir)
+	}
+
 	// Resolve model if target is a model kind
 	var model *detect.Model
 	if resolved.Kind == TargetKindModel {

@@ -537,3 +537,23 @@ func (c *Client) Escalate(ctx context.Context, message string) error {
 	}
 	return nil
 }
+
+// ClearEscalation clears the active escalation on the floor manager.
+func (c *Client) ClearEscalation(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/api/escalate", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errorBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("clear escalation failed: %s", strings.TrimSpace(string(errorBody)))
+	}
+	return nil
+}

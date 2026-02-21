@@ -713,3 +713,78 @@ func TestReadLoreEventsFromWorkspace(t *testing.T) {
 		}
 	})
 }
+
+func TestPruneEventFiles(t *testing.T) {
+	t.Run("prune with no active sessions removes all", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.jsonl"), []byte(`{"ts":"2025-01-15T10:00:00Z","type":"status","state":"working"}`+"\n"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+
+		removed := PruneEventFiles(tmpDir, map[string]bool{})
+		if removed != 1 {
+			t.Errorf("PruneEventFiles() removed = %d, want 1", removed)
+		}
+
+		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.jsonl")); err == nil {
+			t.Error("orphaned event file still exists (expected removal)")
+		}
+	})
+
+	t.Run("prune keeps active session files", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(tmpDir, "active-session.jsonl"), []byte(`{"ts":"2025-01-15T10:00:00Z","type":"status","state":"working"}`+"\n"), 0644); err != nil {
+			t.Fatalf("failed to create active file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "orphaned-session.jsonl"), []byte(`{"ts":"2025-01-15T10:00:00Z","type":"failure","tool":"Bash"}`+"\n"), 0644); err != nil {
+			t.Fatalf("failed to create orphaned file: %v", err)
+		}
+
+		removed := PruneEventFiles(tmpDir, map[string]bool{"active-session": true})
+		if removed != 1 {
+			t.Errorf("PruneEventFiles() removed = %d, want 1", removed)
+		}
+
+		if _, err := os.Stat(filepath.Join(tmpDir, "active-session.jsonl")); err != nil {
+			t.Error("active session event file was removed (expected to be kept)")
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "orphaned-session.jsonl")); err == nil {
+			t.Error("orphaned event file still exists (expected removal)")
+		}
+	})
+
+	t.Run("prune skips non-jsonl files", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(tmpDir, "notes.txt"), []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create non-jsonl file: %v", err)
+		}
+
+		removed := PruneEventFiles(tmpDir, map[string]bool{})
+		if removed != 0 {
+			t.Errorf("PruneEventFiles() removed = %d, want 0 (non-jsonl files should be skipped)", removed)
+		}
+	})
+
+	t.Run("prune skips directories", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.MkdirAll(filepath.Join(tmpDir, "subdir.jsonl"), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+
+		removed := PruneEventFiles(tmpDir, map[string]bool{})
+		if removed != 0 {
+			t.Errorf("PruneEventFiles() removed = %d, want 0 (directories should be skipped)", removed)
+		}
+	})
+
+	t.Run("prune nonexistent directory returns 0", func(t *testing.T) {
+		removed := PruneEventFiles("/nonexistent/path/events", map[string]bool{})
+		if removed != 0 {
+			t.Errorf("PruneEventFiles() removed = %d, want 0", removed)
+		}
+	})
+}

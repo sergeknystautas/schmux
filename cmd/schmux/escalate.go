@@ -20,15 +20,38 @@ func NewEscalateCommand(client *cli.Client) *EscalateCommand {
 
 // Run executes the escalate command.
 func (cmd *EscalateCommand) Run(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: schmux escalate <message>")
+	// Check for --clear flag
+	isClear := false
+	var messageArgs []string
+	for _, arg := range args {
+		if arg == "--clear" {
+			isClear = true
+		} else {
+			messageArgs = append(messageArgs, arg)
+		}
 	}
 
-	message := strings.Join(args, " ")
+	if isClear && len(messageArgs) > 0 {
+		return fmt.Errorf("cannot use --clear with a message")
+	}
+
+	if !isClear && len(messageArgs) < 1 {
+		return fmt.Errorf("usage: schmux escalate <message>\n       schmux escalate --clear")
+	}
 
 	if !cmd.client.IsRunning() {
 		return fmt.Errorf("daemon is not running. Start it with: schmux start")
 	}
+
+	if isClear {
+		if err := cmd.client.ClearEscalation(context.Background()); err != nil {
+			return fmt.Errorf("failed to clear escalation: %w", err)
+		}
+		fmt.Println("Escalation cleared.")
+		return nil
+	}
+
+	message := strings.Join(messageArgs, " ")
 
 	if err := cmd.client.Escalate(context.Background(), message); err != nil {
 		return fmt.Errorf("failed to escalate: %w", err)

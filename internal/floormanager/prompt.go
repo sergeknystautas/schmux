@@ -40,6 +40,7 @@ func GenerateInstructions() string {
 	b.WriteString("- `schmux list` — list all sessions with IDs\n")
 	b.WriteString("- `schmux attach <session-id>` — get tmux attach command for a session\n")
 	b.WriteString("- `schmux escalate \"<message>\"` — notify the operator with a sound and visual alert on the dashboard\n")
+	b.WriteString("- `schmux escalate --clear` — clear the active escalation\n")
 	b.WriteString("- `schmux stop` — stop the daemon\n\n")
 
 	// Signal handling

@@ -172,6 +172,29 @@ func ReadLoreEventsFromWorkspace(workspacePath, workspaceID string) ([]lore.Entr
 	return entries, nil
 }
 
+// PruneEventFiles removes .jsonl event files in eventsDir that don't belong to
+// any active session. Active session IDs are provided as a set.
+// Event files are expected to be named "{sessionID}.jsonl".
+func PruneEventFiles(eventsDir string, activeIDs map[string]bool) (removed int) {
+	entries, err := os.ReadDir(eventsDir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+		if !activeIDs[sessionID] {
+			filePath := filepath.Join(eventsDir, entry.Name())
+			if os.Remove(filePath) == nil {
+				removed++
+			}
+		}
+	}
+	return removed
+}
+
 // eventToLoreEntry converts an Event to a lore.Entry.
 func eventToLoreEntry(e Event, sessionID, workspaceID string) lore.Entry {
 	entry := lore.Entry{

@@ -562,6 +562,36 @@ Errors:
 - 409 with JSON: `{"error":"nickname already in use"}`
 - 500: "Failed to rename session: ..."
 
+### GET /api/floor-manager
+
+Returns floor manager runtime status.
+
+Request: none
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "session_id": "fm-abc123",
+  "running": true,
+  "injection_count": 42,
+  "rotation_threshold": 150
+}
+```
+
+Fields:
+
+- `enabled` — whether the floor manager is enabled in config
+- `session_id` — the active floor manager session ID, or `null` if none exists
+- `running` — whether the floor manager tmux session is currently running
+- `injection_count` — number of signals injected in the current session
+- `rotation_threshold` — configured injection count before context rotation
+
+Errors:
+
+- 405: "method not allowed" (non-GET requests)
+
 ### POST /api/escalate
 
 Sets an escalation message on the floor manager session. Triggers a sound and browser notification on the dashboard.
