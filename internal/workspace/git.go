@@ -361,8 +361,8 @@ func (m *Manager) hasCommonAncestor(ctx context.Context, dir, ref string) bool {
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool)
-func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int)
+func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
 	_ = m.gitFetch(ctx, dir)
 
@@ -411,19 +411,37 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	// Get current branch name first
 	currentBranch, _ := m.gitCurrentBranch(ctx, dir)
 	if currentBranch != "" && currentBranch != "HEAD" {
-		// Check if origin/{branch} exists and compare with HEAD
-		remoteRef := "origin/" + currentBranch
-		mergeBaseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", remoteRef)
-		mergeBaseCmd.Dir = dir
-		isAncestor := mergeBaseCmd.Run() == nil
+		// Check if origin/{branch} exists
+		remoteBranchExists, _ = m.gitRemoteBranchExists(ctx, dir, currentBranch)
+		if remoteBranchExists {
+			remoteRef := "origin/" + currentBranch
 
-		reverseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", remoteRef, "HEAD")
-		reverseCmd.Dir = dir
-		remoteIsAncestor := reverseCmd.Run() == nil
+			// Check if commits are synced (HEAD is an ancestor of remote AND remote is an ancestor of HEAD)
+			mergeBaseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", remoteRef)
+			mergeBaseCmd.Dir = dir
+			isAncestor := mergeBaseCmd.Run() == nil
 
-		// Commits are synced if HEAD is an ancestor of remote AND remote is an ancestor of HEAD
-		// (meaning they point to the same commit)
-		commitsSyncedWithRemote = isAncestor && remoteIsAncestor
+			reverseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", remoteRef, "HEAD")
+			reverseCmd.Dir = dir
+			remoteIsAncestor := reverseCmd.Run() == nil
+
+			// Commits are synced if HEAD is an ancestor of remote AND remote is an ancestor of HEAD
+			// (meaning they point to the same commit)
+			commitsSyncedWithRemote = isAncestor && remoteIsAncestor
+
+			// Calculate unique commits using rev-list --left-right --count
+			// Output format: "left\tright" where left = commits remote has, right = commits local has
+			revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
+			revListCmd.Dir = dir
+			revOutput, revErr := revListCmd.CombinedOutput()
+			if revErr == nil {
+				parts := strings.Split(strings.TrimSpace(string(revOutput)), "\t")
+				if len(parts) == 2 {
+					remoteUnique, _ = strconv.Atoi(parts[0]) // commits remote has = behind
+					localUnique, _ = strconv.Atoi(parts[1])  // commits local has = ahead
+				}
+			}
+		}
 	}
 
 	// Get line additions/deletions from uncommitted changes using diff --numstat HEAD
@@ -479,7 +497,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, localUnique, remoteUnique
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.

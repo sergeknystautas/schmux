@@ -202,6 +202,39 @@ const RefreshIcon = () => (
   </svg>
 );
 
+const arrowDown = (
+  <svg
+    width="8"
+    height="8"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ position: 'relative', top: -3, left: -2, width: 7, height: 7 }}
+  >
+    <line x1="6" y1="1" x2="6" y2="11" />
+    <polyline points="3,7 6,11 9,7" />
+  </svg>
+);
+const arrowUp = (
+  <svg
+    width="8"
+    height="8"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ position: 'relative', top: -3, left: -2, width: 7, height: 7 }}
+  >
+    <line x1="6" y1="1" x2="6" y2="11" />
+    <polyline points="3,5 6,1 9,5" />
+  </svg>
+);
+
 export default function HomePage() {
   useRequireConfig();
   const { workspaces, loading: sessionsLoading, connected } = useSessions();
@@ -695,7 +728,14 @@ export default function HomePage() {
                         </div>
                         <div className={styles.workspaceStats}>
                           <span className={styles.gitStats}>
-                            {ws.git_behind} | {ws.git_ahead}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                              {ws.git_behind}
+                              {arrowDown}
+                            </span>{' '}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                              {ws.git_ahead}
+                              {arrowUp}
+                            </span>
                           </span>
                           {runningCount > 0 && (
                             <span className={styles.runningBadge}>{runningCount}</span>

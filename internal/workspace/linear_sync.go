@@ -268,7 +268,7 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	}
 
 	// 3. Re-check all conditions on server with fresh git status
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, _ := m.gitStatus(ctx, workspacePath, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, _, _, _, _ := m.gitStatus(ctx, workspacePath, w.Repo)
 	if dirty {
 		return &LinearSyncResult{
 			Success: false,
@@ -432,7 +432,7 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 	}
 
 	// 3. Check for local changes
-	dirty, _, _, linesAdded, linesRemoved, filesChanged, _ := m.gitStatus(ctx, workspacePath, w.Repo)
+	dirty, _, _, linesAdded, linesRemoved, filesChanged, _, _, _, _ := m.gitStatus(ctx, workspacePath, w.Repo)
 	if dirty || linesAdded != 0 || linesRemoved != 0 || filesChanged != 0 {
 		return &LinearSyncResult{
 			Success: false,

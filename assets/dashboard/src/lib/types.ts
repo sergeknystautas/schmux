@@ -41,6 +41,9 @@ export interface WorkspaceResponse {
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
   conflict_on_branch?: string; // Branch where sync conflict was detected
   commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
+  remote_branch_exists?: boolean; // true if origin/{branch} exists
+  local_unique_commits?: number; // commits in local not in remote
+  remote_unique_commits?: number; // commits in remote not in local
   previews?: WorkspacePreview[];
 }
 
