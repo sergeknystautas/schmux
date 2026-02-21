@@ -183,3 +183,17 @@ func TestParserHighThroughput(t *testing.T) {
 		t.Errorf("Received %d responses, expected %d", len(received), numCommands)
 	}
 }
+
+func TestParserDropCounters(t *testing.T) {
+	p := &Parser{}
+	// droppedOutputs is already atomic.Int64 at parser.go:57
+	if p.DroppedOutputs() != 0 {
+		t.Errorf("initial DroppedOutputs = %d, want 0", p.DroppedOutputs())
+	}
+	if p.DroppedResponses() != 0 {
+		t.Errorf("initial DroppedResponses = %d, want 0", p.DroppedResponses())
+	}
+	if p.DroppedEvents() != 0 {
+		t.Errorf("initial DroppedEvents = %d, want 0", p.DroppedEvents())
+	}
+}

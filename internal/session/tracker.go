@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
@@ -18,6 +19,13 @@ import (
 const trackerRestartDelay = 500 * time.Millisecond
 const trackerActivityDebounce = 500 * time.Millisecond
 const trackerRetryLogInterval = 15 * time.Second
+
+// TrackerCounters holds atomic pipeline counters for diagnostics.
+type TrackerCounters struct {
+	EventsDelivered atomic.Int64
+	BytesDelivered  atomic.Int64
+	Reconnects      atomic.Int64
+}
 
 // SessionTracker maintains a long-lived control mode attachment for a tmux session.
 // It tracks output activity and forwards terminal output to subscribers via fan-out.
@@ -47,6 +55,8 @@ type SessionTracker struct {
 	doneCh   chan struct{}
 
 	lastRetryLog time.Time
+
+	Counters TrackerCounters
 }
 
 // IsAttached reports whether the tracker currently has an active control mode attachment.
@@ -136,6 +146,9 @@ func (t *SessionTracker) UnsubscribeOutput(ch <-chan controlmode.OutputEvent) {
 // fanOut sends an output event to all subscribers. Slow consumers are skipped
 // (non-blocking send) to avoid one client blocking others.
 func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
+	t.Counters.EventsDelivered.Add(1)
+	t.Counters.BytesDelivered.Add(int64(len(event.Data)))
+
 	t.subsMu.Lock()
 	subs := make([]chan controlmode.OutputEvent, len(t.subs))
 	copy(subs, t.subs)
@@ -216,6 +229,21 @@ func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err e
 	return client.GetCursorPosition(ctx, paneID)
 }
 
+// DiagnosticCounters returns a snapshot of pipeline counters including parser drop counts.
+func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
+	result := map[string]int64{
+		"eventsDelivered":       t.Counters.EventsDelivered.Load(),
+		"bytesDelivered":        t.Counters.BytesDelivered.Load(),
+		"controlModeReconnects": t.Counters.Reconnects.Load(),
+	}
+	t.mu.RLock()
+	if t.cmParser != nil {
+		result["eventsDropped"] = t.cmParser.DroppedOutputs()
+	}
+	t.mu.RUnlock()
+	return result
+}
+
 func (t *SessionTracker) run() {
 	defer close(t.doneCh)
 
@@ -227,6 +255,7 @@ func (t *SessionTracker) run() {
 		}
 
 		if err := t.attachControlMode(); err != nil && err != io.EOF {
+			t.Counters.Reconnects.Add(1)
 			now := time.Now()
 			if t.shouldLogRetry(now) {
 				fmt.Printf("[tracker] %s control mode failed: %v\n", t.sessionID, err)
