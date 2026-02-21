@@ -756,7 +756,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced := m.gitStatus(ctx, w.Path, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, w.Path, w.Repo)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
@@ -784,6 +784,9 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	w.CommitsSyncedWithRemote = commitsSynced
 	w.GitDefaultBranchOrphaned = orphaned
 	w.Branch = actualBranch
+	w.RemoteBranchExists = remoteBranchExists
+	w.LocalUniqueCommits = localUnique
+	w.RemoteUniqueCommits = remoteUnique
 
 	// Check if the branch exists on the remote (cached to avoid per-broadcast git calls)
 	if wb, found := m.state.GetWorktreeBaseByURL(w.Repo); found {

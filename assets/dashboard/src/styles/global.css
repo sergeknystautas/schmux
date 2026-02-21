@@ -1476,9 +1476,26 @@ body {
 }
 
 .app-header__git-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+.app-header__git-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.app-header__git-pair svg {
+  position: relative;
+  top: -3px;
+  left: -2px;
+  width: 7px;
+  height: 7px;
 }
 
 .app-header__lines-changed {

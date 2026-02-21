@@ -39,6 +39,37 @@ export default function WorkspaceHeader({
     isDevLiveProp ??
     (devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace);
 
+  const arrowDown = (
+    <svg
+      width="8"
+      height="8"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="6" y1="1" x2="6" y2="11" />
+      <polyline points="3,7 6,11 9,7" />
+    </svg>
+  );
+  const arrowUp = (
+    <svg
+      width="8"
+      height="8"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="6" y1="1" x2="6" y2="11" />
+      <polyline points="3,5 6,1 9,5" />
+    </svg>
+  );
+
   // Git branch icon SVG
   const branchIcon = (
     <svg
@@ -46,8 +77,9 @@ export default function WorkspaceHeader({
       height="14"
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
+      stroke="var(--color-text)"
       strokeWidth="2"
+      style={{ marginRight: 4 }}
     >
       <line x1="6" y1="3" x2="6" y2="15"></line>
       <circle cx="18" cy="6" r="3"></circle>
@@ -56,8 +88,34 @@ export default function WorkspaceHeader({
     </svg>
   );
 
+  // Remote tracking icon SVG (merge/PR arrow style)
+  const remoteIcon = (
+    <svg
+      width="14"
+      height="14"
+      viewBox="-1 -1 26 26"
+      fill="none"
+      stroke="var(--color-text)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ marginRight: 4 }}
+    >
+      <circle cx="3" cy="5" r="3" />
+      <line x1="3" y1="8" x2="3" y2="17" />
+      <circle cx="3" cy="20" r="3" />
+      <circle cx="21" cy="20" r="3" />
+      <line x1="21" y1="17" x2="21" y2="12" />
+      <path d="M21 12c0-5-7-7-10-7" />
+      <polyline points="13,3 11,5 13,7" />
+    </svg>
+  );
+
   const behind = workspace.git_behind ?? 0;
   const ahead = workspace.git_ahead ?? 0;
+  const remoteBranchExists = workspace.remote_branch_exists ?? false;
+  const localUnique = workspace.local_unique_commits ?? 0;
+  const remoteUnique = workspace.remote_unique_commits ?? 0;
 
   const handleOpenVSCode = async () => {
     setOpeningVSCode(true);
@@ -132,22 +190,52 @@ export default function WorkspaceHeader({
                   rel="noopener noreferrer"
                   className="app-header__branch-link"
                 >
-                  {isGit && branchIcon}
                   {displayBranch}
                 </a>
               </Tooltip>
             ) : (
-              <span className="app-header__branch">
-                {isGit && branchIcon}
-                {displayBranch}
-              </span>
+              <span className="app-header__branch">{displayBranch}</span>
             )}
             {isGit && (
-              <Tooltip content={`${behind} behind, ${ahead} ahead`}>
-                <span className="app-header__git-status">
-                  {behind} | {ahead}
-                </span>
-              </Tooltip>
+              <>
+                <Tooltip content={`${behind} behind main, ${ahead} ahead of main`}>
+                  <span className="app-header__git-status">
+                    {remoteIcon}
+                    <span className="app-header__git-pair">
+                      {behind}
+                      {arrowDown}
+                    </span>{' '}
+                    <span className="app-header__git-pair">
+                      {ahead}
+                      {arrowUp}
+                    </span>
+                  </span>
+                </Tooltip>
+                {!remoteBranchExists ? (
+                  <Tooltip content="Branch does not exist on remote">
+                    <span className="app-header__git-status">
+                      {branchIcon}
+                      <span style={{ opacity: 0.6 }}>(local only)</span>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <Tooltip
+                    content={`${remoteUnique} behind remote, ${localUnique} ahead of remote`}
+                  >
+                    <span className="app-header__git-status">
+                      {branchIcon}
+                      <span className="app-header__git-pair">
+                        {remoteUnique}
+                        {arrowDown}
+                      </span>{' '}
+                      <span className="app-header__git-pair">
+                        {localUnique}
+                        {arrowUp}
+                      </span>
+                    </span>
+                  </Tooltip>
+                )}
+              </>
             )}
           </span>
           <span className="app-header__name">{displayName}</span>
