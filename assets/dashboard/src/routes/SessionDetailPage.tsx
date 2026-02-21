@@ -15,6 +15,8 @@ import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLoca
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import ConnectionProgressModal from '../components/ConnectionProgressModal';
+import { StreamMetricsPanel } from '../components/StreamMetricsPanel';
+import useVersionInfo from '../hooks/useVersionInfo';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -49,6 +51,14 @@ export default function SessionDetailPage() {
   const { prompt, confirm } = useModal();
   const { markAsViewed } = useViewedSessions();
   const { registerAction, unregisterAction } = useKeyboardMode();
+  const { versionInfo } = useVersionInfo();
+  const [backendStats, setBackendStats] = useState<Record<string, number> | null>(null);
+  const [frontendStats, setFrontendStats] = useState<{
+    framesReceived: number;
+    bytesReceived: number;
+    bootstrapCount: number;
+    sequenceBreaks: number;
+  } | null>(null);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
@@ -126,15 +136,40 @@ export default function SessionDetailPage() {
     terminalStreamRef.current = terminalStream;
     setFollowTail(true);
 
+    // Enable diagnostics in dev mode
+    if (versionInfo?.dev_mode) {
+      terminalStream.enableDiagnostics();
+      terminalStream.onStatsUpdate = (stats) => {
+        setBackendStats(stats as Record<string, number>);
+      };
+    }
+
+    // Poll frontend diagnostics counters periodically
+    let frontendStatsInterval: ReturnType<typeof setInterval> | null = null;
+    if (versionInfo?.dev_mode) {
+      frontendStatsInterval = setInterval(() => {
+        const diag = terminalStream.diagnostics;
+        if (diag) {
+          setFrontendStats({
+            framesReceived: diag.framesReceived,
+            bytesReceived: diag.bytesReceived,
+            bootstrapCount: diag.bootstrapCount,
+            sequenceBreaks: diag.sequenceBreaks,
+          });
+        }
+      }, 3000);
+    }
+
     terminalStream.initialized.then(() => {
       terminalStream.connect();
       terminalStream.focus();
     });
 
     return () => {
+      if (frontendStatsInterval) clearInterval(frontendStatsInterval);
       terminalStream.disconnect();
     };
-  }, [sessionData?.id, remoteDisconnected]);
+  }, [sessionData?.id, remoteDisconnected, versionInfo?.dev_mode]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
@@ -558,6 +593,13 @@ export default function SessionDetailPage() {
                   </Tooltip>
                 </div>
               </div>
+              {versionInfo?.dev_mode && (
+                <StreamMetricsPanel
+                  backendStats={backendStats}
+                  frontendStats={frontendStats}
+                  onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                />
+              )}
               <div
                 key={sessionData.id}
                 id="terminal"
