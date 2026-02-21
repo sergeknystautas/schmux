@@ -570,7 +570,10 @@ export default function SessionDetailPage() {
               {showResume ? (
                 <button
                   className="log-viewer__new-content"
-                  onClick={() => terminalStreamRef.current?.jumpToBottom()}
+                  onClick={() => {
+                    terminalStreamRef.current?.jumpToBottom();
+                    terminalStreamRef.current?.focus();
+                  }}
                 >
                   Resume
                 </button>
