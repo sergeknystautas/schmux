@@ -42,6 +42,9 @@ TEST_CMD="/home/e2e/e2e-test -test.v"\n\
 if [ -n "${TEST_RUN:-}" ]; then\n\
     TEST_CMD="$TEST_CMD -test.run \"$TEST_RUN\""\n\
 fi\n\
+if [ -n "${TEST_COUNT:-}" ]; then\n\
+    TEST_CMD="$TEST_CMD -test.count $TEST_COUNT"\n\
+fi\n\
 # Run tests from internal/e2e dir (matching go test cwd for relative paths)\n\
 cd /home/e2e/src/internal/e2e\n\
 su -c "$TEST_CMD" e2e\n\

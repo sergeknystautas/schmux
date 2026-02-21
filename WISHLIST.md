@@ -7,7 +7,7 @@ rather than a series of future milestones.
 
 ## Mobile Access
 
-- Watch what's going on in the software factory whie on the go
+- Watch what's going on in the software factory while on the go
 - UX is trickier on mobile phones
 - Push notifications when there are significant status updates
 
