@@ -1,10 +1,6 @@
 {
   "quick_launch": [
     {
-      "name": "run schmux",
-      "command": "./run.sh"
-    },
-    {
       "name": "shell",
       "command": "/bin/zsh"
     },
