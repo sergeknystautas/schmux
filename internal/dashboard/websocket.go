@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -333,6 +335,60 @@ drained:
 				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
 					fmt.Printf("[terminal] error resizing: %v\n", err)
 				}
+			case "diagnostic":
+				if !s.devMode {
+					break
+				}
+				// Capture tmux screen via control mode
+				capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				tmuxScreen, err := tracker.CaptureLastLines(capCtx, 0)
+				capCancel()
+				if err != nil {
+					fmt.Printf("[diagnostic] %s capture-pane failed: %v\n", sessionID[:8], err)
+					break
+				}
+				counters := tracker.DiagnosticCounters()
+				// Build findings from automated checks
+				findings := []string{}
+				verdict := ""
+				if counters["eventsDropped"] > 0 {
+					findings = append(findings, fmt.Sprintf("%d events dropped", counters["eventsDropped"]))
+					verdict = "Events were dropped due to channel backpressure."
+				} else {
+					findings = append(findings, "No drops detected")
+					verdict = "No obvious cause found. Likely a bootstrap race during TUI redraw."
+				}
+				// Snapshot ring buffer
+				var rbSnapshot []byte
+				if ringBuf != nil {
+					rbSnapshot = ringBuf.Snapshot()
+				}
+				// Write diagnostic directory
+				diagDir := filepath.Join(os.Getenv("HOME"), ".schmux", "diagnostics",
+					fmt.Sprintf("%s-%s", time.Now().Format("2006-01-02T15-04-05"), sessionID))
+				diag := &DiagnosticCapture{
+					Timestamp:  time.Now(),
+					SessionID:  sessionID,
+					Counters:   counters,
+					TmuxScreen: tmuxScreen,
+					RingBuffer: rbSnapshot,
+					Findings:   findings,
+					Verdict:    verdict,
+				}
+				if err := diag.WriteToDir(diagDir); err != nil {
+					fmt.Printf("[diagnostic] %s write failed: %v\n", sessionID[:8], err)
+				}
+				// Send response back to client
+				resp := map[string]interface{}{
+					"type":       "diagnostic",
+					"diagDir":    diagDir,
+					"counters":   counters,
+					"findings":   findings,
+					"verdict":    verdict,
+					"tmuxScreen": tmuxScreen,
+				}
+				data, _ := json.Marshal(resp)
+				conn.WriteMessage(websocket.TextMessage, data)
 			}
 		}
 	}
