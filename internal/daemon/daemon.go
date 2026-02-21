@@ -46,26 +46,9 @@ const (
 	nudgeInactivityThreshold = 15 * time.Second
 )
 
-var (
-	shutdownChan   = make(chan struct{})
-	shutdownOnce   sync.Once
-	devRestartChan = make(chan struct{})
-	shutdownCtx    context.Context
-	cancelFunc     context.CancelFunc
-
-	// ErrDevRestart is returned by Run() when the daemon needs to restart
-	// for a dev mode workspace switch. The caller should exit with code 42.
-	//
-	// NOTE: These package-level channels and sync.Once variables are only safe because
-	// Run() is called once per process lifetime. The dev restart mechanism exits with
-	// code 42, which the caller handles by re-executing the binary. If Run() were ever
-	// called multiple times in the same process, these would need to be reset.
-	ErrDevRestart = errors.New("dev restart requested")
-)
-
-func init() {
-	shutdownCtx, cancelFunc = context.WithCancel(context.Background())
-}
+// ErrDevRestart is returned by Run() when the daemon needs to restart
+// for a dev mode workspace switch. The caller should exit with code 42.
+var ErrDevRestart = errors.New("dev restart requested")
 
 // Daemon represents the schmux daemon.
 type Daemon struct {
@@ -74,6 +57,24 @@ type Daemon struct {
 	workspace workspace.WorkspaceManager
 	session   *session.Manager
 	server    *dashboard.Server
+
+	shutdownChan   chan struct{}
+	shutdownOnce   sync.Once
+	devRestartChan chan struct{}
+	devRestartOnce sync.Once
+	shutdownCtx    context.Context
+	cancelFunc     context.CancelFunc
+}
+
+// NewDaemon creates a new Daemon with initialized channels and context.
+func NewDaemon() *Daemon {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Daemon{
+		shutdownChan:   make(chan struct{}),
+		devRestartChan: make(chan struct{}),
+		shutdownCtx:    ctx,
+		cancelFunc:     cancel,
+	}
 }
 
 // ValidateReadyToRun checks if the system is ready to run the daemon.
@@ -272,7 +273,7 @@ func Status() (running bool, url string, startedAt string, err error) {
 // If devProxy is true, non-API requests are proxied to Vite dev server.
 // If devMode is true, dev mode API endpoints are enabled and the daemon
 // can exit with ErrDevRestart (exit code 42) for workspace switching.
-func Run(background bool, devProxy bool, devMode bool) error {
+func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -411,11 +412,11 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, dashboard.ServerOptions{
-		Shutdown:    Shutdown,
-		DevRestart:  DevRestart,
+		Shutdown:    d.Shutdown,
+		DevRestart:  d.DevRestart,
 		DevProxy:    devProxy,
 		DevMode:     devMode,
-		ShutdownCtx: shutdownCtx,
+		ShutdownCtx: d.shutdownCtx,
 	})
 
 	// Create remote manager for remote workspace support
@@ -450,7 +451,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
-		timeoutCtx, cancel := context.WithTimeout(shutdownCtx, cfg.XtermQueryTimeout())
+		timeoutCtx, cancel := context.WithTimeout(d.shutdownCtx, cfg.XtermQueryTimeout())
 		exists := tmux.SessionExists(timeoutCtx, sess.TmuxSession)
 		cancel()
 		if !exists {
@@ -485,7 +486,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 			select {
 			case <-ticker.C:
 				remoteManager.PruneExpiredHosts()
-			case <-shutdownCtx.Done():
+			case <-d.shutdownCtx.Done():
 				return
 			}
 		}
@@ -760,7 +761,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				fmt.Printf("[lore] auto-curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
 				start := time.Now()
 
-				proposal, err := loreCurator.CurateWithEntries(shutdownCtx, repoName, bareDir, rawEntries)
+				proposal, err := loreCurator.CurateWithEntries(d.shutdownCtx, repoName, bareDir, rawEntries)
 				elapsed := time.Since(start)
 				if err != nil {
 					fmt.Printf("[lore] auto-curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
@@ -817,10 +818,10 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		defer ticker.Stop()
 		// Do initial update immediately on startup
 		select {
-		case <-shutdownCtx.Done():
+		case <-d.shutdownCtx.Done():
 			return
 		default:
-			ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
+			ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
 			// Ensure origin query repos exist for branch queries (creates if missing)
 			if err := wm.EnsureOriginQueries(ctx); err != nil {
 				fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
@@ -834,7 +835,7 @@ func Run(background bool, devProxy bool, devMode bool) error {
 		for {
 			select {
 			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(shutdownCtx, cfg.GitStatusTimeout())
+				ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
 				// Ensure origin query repos exist (in case new repos were added)
 				if err := wm.EnsureOriginQueries(ctx); err != nil {
 					fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
@@ -844,14 +845,14 @@ func Run(background bool, devProxy bool, devMode bool) error {
 				wm.UpdateAllGitStatus(ctx)
 				cancel()
 				server.BroadcastSessions()
-			case <-shutdownCtx.Done():
+			case <-d.shutdownCtx.Done():
 				return
 			}
 		}
 	}()
 
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
-	go startNudgeNikChecker(shutdownCtx, cfg, st, sm, server.BroadcastSessions)
+	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions)
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
@@ -888,12 +889,12 @@ func Run(background bool, devProxy bool, devMode bool) error {
 	select {
 	case sig := <-sigChan:
 		fmt.Printf("[daemon] received signal %v, shutting down\n", sig)
-		cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
+		d.cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
 	case err := <-serverErrChan:
 		return fmt.Errorf("dashboard server error: %w", err)
-	case <-shutdownChan:
+	case <-d.shutdownChan:
 		fmt.Println("[daemon] shutdown requested")
-	case <-devRestartChan:
+	case <-d.devRestartChan:
 		fmt.Println("[daemon] dev restart requested")
 		devRestart = true
 	}
@@ -938,25 +939,23 @@ func Run(background bool, devProxy bool, devMode bool) error {
 }
 
 // Shutdown triggers a graceful shutdown. Safe to call multiple times.
-func Shutdown() {
-	shutdownOnce.Do(func() { close(shutdownChan) })
-	if cancelFunc != nil {
-		cancelFunc()
+func (d *Daemon) Shutdown() {
+	d.shutdownOnce.Do(func() { close(d.shutdownChan) })
+	if d.cancelFunc != nil {
+		d.cancelFunc()
 	}
 }
 
 // DevRestart triggers a dev mode restart. The daemon will exit with
 // ErrDevRestart, which the caller should translate to exit code 42.
-func DevRestart() {
-	devRestartOnce.Do(func() {
-		close(devRestartChan)
+func (d *Daemon) DevRestart() {
+	d.devRestartOnce.Do(func() {
+		close(d.devRestartChan)
 	})
-	if cancelFunc != nil {
-		cancelFunc()
+	if d.cancelFunc != nil {
+		d.cancelFunc()
 	}
 }
-
-var devRestartOnce sync.Once
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions
 // and automatically asks NudgeNik for consultation.

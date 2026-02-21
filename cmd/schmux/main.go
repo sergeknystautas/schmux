@@ -63,7 +63,8 @@ func main() {
 			fmt.Println("schmux daemon started")
 		} else { // daemon-run
 			devProxy, background, devMode := parseDaemonRunFlags(os.Args[2:])
-			if err := daemon.Run(background, devProxy, devMode); err != nil {
+			d := daemon.NewDaemon()
+			if err := d.Run(background, devProxy, devMode); err != nil {
 				if errors.Is(err, daemon.ErrDevRestart) {
 					os.Exit(42)
 				}
