@@ -635,17 +635,20 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Wait for the flood to finish
+    // Wait for the flood to finish (wait for background job, then output sentinel)
     const floodSentinel = sendTmuxCommandWithSentinel(tmuxName, 'wait; echo "flood-done"');
     await waitForSentinel(sessionId, floodSentinel);
-    await new Promise((r) => setTimeout(r, 500));
+
+    // Extra settling time for all buffered output to propagate through both tmux and xterm.
+    // The background flood with 20ms sleeps per line can have significant buffering latency.
+    await new Promise((r) => setTimeout(r, 2000));
 
     // Clear screen to establish known state after the chaotic reconnection,
     // then verify the terminal pipeline is still functional.
-    sendTmuxCommand(tmuxName, "printf '\\033[3J\\033[H\\033[2J'");
+    sendTmuxCommand(tmuxName, 'clear');
     await new Promise((r) => setTimeout(r, 500));
     clearTmuxHistory(tmuxName);
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
 
     const sentinel = sendTmuxCommandWithSentinel(
       tmuxName,
