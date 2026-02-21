@@ -49,6 +49,16 @@ type WSOutputMessage struct {
 	Content string `json:"content"`
 }
 
+// WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
+type WSStatsMessage struct {
+	Type            string `json:"type"`
+	EventsDelivered int64  `json:"eventsDelivered"`
+	EventsDropped   int64  `json:"eventsDropped"`
+	BytesDelivered  int64  `json:"bytesDelivered"`
+	BytesPerSec     int64  `json:"bytesPerSec"`
+	Reconnects      int64  `json:"controlModeReconnects"`
+}
+
 // checkWSOrigin validates WebSocket upgrade origins.
 func (s *Server) checkWSOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -204,6 +214,17 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 drained:
 
+	// Dev mode diagnostics: ring buffer and stats ticker
+	var ringBuf *RingBuffer
+	var statsTickerC <-chan time.Time
+	var statsTicker *time.Ticker
+	if s.devMode {
+		ringBuf = NewRingBuffer(256 * 1024) // 256KB
+		statsTicker = time.NewTicker(3 * time.Second)
+		statsTickerC = statsTicker.C
+		defer statsTicker.Stop()
+	}
+
 	// Read client messages (input, resize)
 	controlChan := make(chan WSMessage, 10)
 	go func() {
@@ -252,10 +273,24 @@ drained:
 				return
 			}
 			if len(event.Data) > 0 {
+				if ringBuf != nil {
+					ringBuf.Write([]byte(event.Data))
+				}
 				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
 					return
 				}
 			}
+		case <-statsTickerC:
+			counters := tracker.DiagnosticCounters()
+			statsMsg := WSStatsMessage{
+				Type:            "stats",
+				EventsDelivered: counters["eventsDelivered"],
+				EventsDropped:   counters["eventsDropped"],
+				BytesDelivered:  counters["bytesDelivered"],
+				Reconnects:      counters["controlModeReconnects"],
+			}
+			data, _ := json.Marshal(statsMsg)
+			conn.WriteMessage(websocket.TextMessage, data)
 		case <-sessionDead:
 			conn.WriteMessage(websocket.BinaryMessage, []byte("\n[Session ended]"))
 			conn.WriteMessage(websocket.CloseMessage,

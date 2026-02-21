@@ -110,3 +110,25 @@ func TestHandleAgentSignalRapidSignals(t *testing.T) {
 		t.Error("expected non-empty nudge after final completed signal")
 	}
 }
+
+func TestStatsMessage_JSON(t *testing.T) {
+	msg := WSStatsMessage{
+		Type:            "stats",
+		EventsDelivered: 100,
+		EventsDropped:   2,
+		BytesDelivered:  50000,
+		Reconnects:      0,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+	if decoded["type"] != "stats" {
+		t.Errorf("type = %v, want stats", decoded["type"])
+	}
+	if int(decoded["eventsDropped"].(float64)) != 2 {
+		t.Errorf("eventsDropped = %v, want 2", decoded["eventsDropped"])
+	}
+}
