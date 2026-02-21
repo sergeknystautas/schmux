@@ -3,6 +3,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { inputLatency } from './inputLatency';
 import { StreamDiagnostics } from './streamDiagnostics';
+import { extractScreenText } from './screenCapture';
+import { computeScreenDiff } from './screenDiff';
 
 type TerminalStreamOptions = {
   followTail?: boolean;
@@ -421,6 +423,29 @@ export default class TerminalStream {
     if (!this.diagnostics) {
       this.diagnostics = new StreamDiagnostics();
     }
+    // Set up the diagnostic response handler for the full capture flow
+    this.onDiagnosticResponse = (msg: Record<string, unknown>) => {
+      if (!this.terminal) return;
+      // 1. Extract xterm.js screen buffer
+      const xtermScreen = extractScreenText(this.terminal.buffer.active);
+      // 2. Compute diff against tmux screen from backend response
+      const diff = computeScreenDiff((msg.tmuxScreen as string) || '', xtermScreen);
+      // 3. Get frontend ring buffer snapshot
+      const frontendRingBuffer = this.diagnostics
+        ? new TextDecoder().decode(this.diagnostics.ringBufferSnapshot())
+        : '';
+      // 4. Post frontend files back to backend to append to diagnostic dir
+      fetch('/api/dev/diagnostic-append', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          diagDir: msg.diagDir,
+          xtermScreen,
+          screenDiff: diff.diffText,
+          ringBufferFrontend: frontendRingBuffer,
+        }),
+      });
+    };
   }
 
   sendDiagnostic(): void {

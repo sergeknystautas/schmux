@@ -447,6 +447,7 @@ func (s *Server) Start() error {
 		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnel)))
 		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnelStop)))
 		mux.HandleFunc("/api/dev/clear-password", s.withCORS(s.withAuthAndCSRF(s.handleDevClearPassword)))
+		mux.HandleFunc("/api/dev/diagnostic-append", s.withCORS(s.withAuthAndCSRF(s.handleDiagnosticAppend)))
 	}
 
 	// WebSocket for terminal streaming
