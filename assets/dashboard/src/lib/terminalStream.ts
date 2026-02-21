@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { inputLatency } from './inputLatency';
+import { StreamDiagnostics } from './streamDiagnostics';
 
 type TerminalStreamOptions = {
   followTail?: boolean;
@@ -56,6 +57,12 @@ export default class TerminalStream {
   isDragging: boolean;
   dragStartLine: number | null;
   dragIsSelecting: boolean;
+
+  // Diagnostics (dev mode only)
+  diagnostics: StreamDiagnostics | null = null;
+  latestStats: Record<string, unknown> | null = null;
+  onStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
+  onDiagnosticResponse: ((msg: Record<string, unknown>) => void) | null = null;
 
   constructor(
     sessionId: string,
@@ -410,12 +417,30 @@ export default class TerminalStream {
     }
   }
 
+  enableDiagnostics(): void {
+    if (!this.diagnostics) {
+      this.diagnostics = new StreamDiagnostics();
+    }
+  }
+
+  sendDiagnostic(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'diagnostic' }));
+    }
+  }
+
   handleOutput(data: string | ArrayBuffer) {
     const renderStart = performance.now();
 
     // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
     // Use streaming decode to handle UTF-8 characters split across frames
     if (data instanceof ArrayBuffer) {
+      if (this.diagnostics) {
+        this.diagnostics.recordFrame(new Uint8Array(data));
+        if (!this.bootstrapped) {
+          this.diagnostics.recordBootstrap();
+        }
+      }
       const text = this.utf8Decoder.decode(data, { stream: true });
       if (!this.bootstrapped) {
         this.bootstrapped = true;
@@ -447,6 +472,13 @@ export default class TerminalStream {
         this.terminal.writeln(
           `\r\n\x1b[33m${msg.content}\x1b[0m\r\n\x1b[33m[Refresh to reconnect]\x1b[0m`
         );
+        break;
+      case 'stats':
+        this.latestStats = msg;
+        this.onStatsUpdate?.(msg);
+        break;
+      case 'diagnostic':
+        this.onDiagnosticResponse?.(msg);
         break;
       default:
         if (msg.content) {
