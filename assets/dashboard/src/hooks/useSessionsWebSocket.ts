@@ -193,11 +193,12 @@ export default function useSessionsWebSocket(opts?: {
       setStale(true);
       wsRef.current = null;
 
-      // Schedule reconnect with exponential backoff
+      // Schedule reconnect with exponential backoff and jitter
+      const jitter = reconnectDelayRef.current * (0.5 + Math.random());
       reconnectTimeoutRef.current = window.setTimeout(() => {
         reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_DELAY_MS);
         connect();
-      }, reconnectDelayRef.current);
+      }, jitter);
     };
 
     ws.onerror = () => {

@@ -73,13 +73,13 @@ async function parseErrorResponse(response: Response, fallback: string): Promise
 
 export async function getSessions(): Promise<WorkspaceResponse[]> {
   const response = await fetch('/api/sessions');
-  if (!response.ok) throw new Error('Failed to fetch sessions');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch sessions');
   return response.json();
 }
 
 export async function getConfig(): Promise<ConfigResponse> {
   const response = await fetch('/api/config');
-  if (!response.ok) throw new Error('Failed to fetch config');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch config');
   return response.json();
 }
 
@@ -90,9 +90,7 @@ export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    // Get error message from response body
-    const text = await response.text();
-    throw new Error(text || 'Failed to spawn sessions');
+    await parseErrorResponse(response, 'Failed to spawn sessions');
   }
   return response.json();
 }
@@ -111,7 +109,7 @@ export async function checkBranchConflict(
     body: JSON.stringify({ repo, branch }),
   });
   if (!response.ok) {
-    throw new Error('Failed to check branch conflict');
+    await parseErrorResponse(response, 'Failed to check branch conflict');
   }
   return response.json();
 }
@@ -127,15 +125,7 @@ export async function suggestBranch(request: SuggestBranchRequest): Promise<Sugg
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const text = await response.text();
-    let message = 'Failed to suggest branch name';
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.error) message = parsed.error;
-    } catch {
-      if (text) message = text;
-    }
-    throw new Error(message);
+    await parseErrorResponse(response, 'Failed to suggest branch name');
   }
   return response.json();
 }
@@ -161,8 +151,7 @@ export async function prepareBranchSpawn(
     body: JSON.stringify({ repo_name: repoName, branch }),
   });
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Failed to prepare branch spawn');
+    await parseErrorResponse(response, 'Failed to prepare branch spawn');
   }
   return response.json();
 }
@@ -172,7 +161,7 @@ export async function disposeSession(sessionId: string): Promise<{ status: strin
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!response.ok) throw new Error('Failed to dispose session');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to dispose session');
   return response.json();
 }
 
@@ -229,7 +218,7 @@ export async function disposeWorkspaceAll(
 
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
   const response = await fetch(`/api/diff/${workspaceId}`);
-  if (!response.ok) throw new Error('Failed to fetch diff');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch diff');
   return response.json();
 }
 
@@ -242,7 +231,7 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
 export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
   const response = await fetch('/auth/me');
   if (!response.ok) {
-    throw new Error('Failed to fetch auth user');
+    await parseErrorResponse(response, 'Failed to fetch auth user');
   }
   return response.json();
 }
@@ -252,7 +241,7 @@ export async function scanWorkspaces(): Promise<ScanResult> {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!response.ok) throw new Error('Failed to scan workspaces');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to scan workspaces');
   return response.json();
 }
 
@@ -265,18 +254,7 @@ export async function updateConfig(
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    let message = response.statusText || 'Failed to update config';
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const err = await response.json();
-      message = err.detail || err.error || message;
-    } else {
-      const text = await response.text();
-      if (text) {
-        message = text;
-      }
-    }
-    throw new Error(message);
+    await parseErrorResponse(response, 'Failed to update config');
   }
   return response.json();
 }
@@ -286,7 +264,7 @@ export async function getAuthSecretsStatus(): Promise<{
   client_secret_set: boolean;
 }> {
   const response = await fetch('/api/auth/secrets');
-  if (!response.ok) throw new Error('Failed to fetch auth secrets');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch auth secrets');
   return response.json();
 }
 
@@ -300,8 +278,7 @@ export async function saveAuthSecrets(payload: {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Failed to save auth secrets');
+    await parseErrorResponse(response, 'Failed to save auth secrets');
   }
   return response.json();
 }
@@ -339,7 +316,7 @@ export async function diffExternal(
 export async function detectTools(): Promise<DetectToolsResponse> {
   const response = await fetch('/api/detect-tools');
   if (!response.ok) {
-    throw new Error('Failed to detect tools');
+    await parseErrorResponse(response, 'Failed to detect tools');
   }
   return response.json();
 }
@@ -357,8 +334,7 @@ export async function configureModelSecrets(
     body: JSON.stringify({ secrets }),
   });
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Failed to save model secrets');
+    await parseErrorResponse(response, 'Failed to save model secrets');
   }
   return response.json();
 }
@@ -372,15 +348,14 @@ export async function removeModelSecrets(modelId: string): Promise<{ status: str
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || 'Failed to remove model secrets');
+    await parseErrorResponse(response, 'Failed to remove model secrets');
   }
   return response.json();
 }
 
 export async function getOverlays(): Promise<OverlaysResponse> {
   const response = await fetch('/api/overlays');
-  if (!response.ok) throw new Error('Failed to fetch overlays');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch overlays');
   return response.json();
 }
 
@@ -404,7 +379,7 @@ export async function scanOverlayFiles(
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId, repo_name: repoName }),
   });
-  if (!response.ok) throw new Error('Failed to scan overlay files');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to scan overlay files');
   return response.json();
 }
 
@@ -414,7 +389,7 @@ export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAd
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
   });
-  if (!response.ok) throw new Error('Failed to add overlay files');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to add overlay files');
   return response.json();
 }
 
@@ -424,7 +399,7 @@ export async function dismissOverlayNudge(repoName: string): Promise<{ status: s
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_name: repoName }),
   });
-  if (!response.ok) throw new Error('Failed to dismiss overlay nudge');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to dismiss overlay nudge');
   return response.json();
 }
 
@@ -435,7 +410,7 @@ export async function dismissOverlayNudge(repoName: string): Promise<{ status: s
 export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookbook[]> {
   const response = await fetch('/api/builtin-quick-launch');
   if (!response.ok) {
-    throw new Error('Failed to fetch built-in quick launch presets');
+    await parseErrorResponse(response, 'Failed to fetch built-in quick launch presets');
   }
   return response.json();
 }
@@ -513,15 +488,14 @@ export async function dismissLinearSyncResolveConflictState(workspaceId: string)
     }
   );
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error((err as Record<string, string>).message || 'Failed to dismiss');
+    await parseErrorResponse(response, 'Failed to dismiss');
   }
 }
 
 export async function getRecentBranches(limit: number = 10): Promise<RecentBranch[]> {
   const response = await fetch(`/api/recent-branches?limit=${limit}`);
   if (!response.ok) {
-    throw new Error('Failed to fetch recent branches');
+    await parseErrorResponse(response, 'Failed to fetch recent branches');
   }
   return response.json();
 }
@@ -536,7 +510,7 @@ export async function refreshRecentBranches(): Promise<RecentBranchesRefreshResp
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!response.ok) throw new Error('Failed to refresh recent branches');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to refresh recent branches');
   return response.json();
 }
 
@@ -560,7 +534,7 @@ export async function getGitGraph(
   const qs = params.toString();
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
   const response = await fetch(url);
-  if (!response.ok) throw new Error('Failed to fetch git graph');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch git graph');
   return response.json();
 }
 
@@ -578,7 +552,7 @@ export async function getCommitDetail(
 
 export async function getPRs(): Promise<PRsResponse> {
   const response = await fetch('/api/prs');
-  if (!response.ok) throw new Error('Failed to fetch PRs');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch PRs');
   return response.json();
 }
 
@@ -587,7 +561,7 @@ export async function refreshPRs(): Promise<PRRefreshResponse> {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!response.ok) throw new Error('Failed to refresh PRs');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to refresh PRs');
   return response.json();
 }
 
@@ -598,8 +572,7 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
     body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber }),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to checkout PR');
+    await parseErrorResponse(response, 'Failed to checkout PR');
   }
   return response.json();
 }
@@ -610,7 +583,7 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
 
 export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
   const response = await fetch('/api/config/remote-flavors');
-  if (!response.ok) throw new Error('Failed to fetch remote flavors');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavors');
   return response.json();
 }
 
@@ -623,8 +596,7 @@ export async function createRemoteFlavor(
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to create remote flavor');
+    await parseErrorResponse(response, 'Failed to create remote flavor');
   }
   return response.json();
 }
@@ -639,8 +611,7 @@ export async function updateRemoteFlavor(
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to update remote flavor');
+    await parseErrorResponse(response, 'Failed to update remote flavor');
   }
   return response.json();
 }
@@ -651,8 +622,7 @@ export async function deleteRemoteFlavor(id: string): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to delete remote flavor');
+    await parseErrorResponse(response, 'Failed to delete remote flavor');
   }
 }
 
@@ -662,13 +632,13 @@ export async function deleteRemoteFlavor(id: string): Promise<void> {
 
 export async function getRemoteHosts(): Promise<RemoteHost[]> {
   const response = await fetch('/api/remote/hosts');
-  if (!response.ok) throw new Error('Failed to fetch remote hosts');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote hosts');
   return response.json();
 }
 
 export async function getRemoteFlavorStatuses(): Promise<RemoteFlavorStatus[]> {
   const response = await fetch('/api/remote/flavor-statuses');
-  if (!response.ok) throw new Error('Failed to fetch remote flavor statuses');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavor statuses');
   return response.json();
 }
 
@@ -679,8 +649,7 @@ export async function connectRemoteHost(request: RemoteHostConnectRequest): Prom
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to connect to remote host');
+    await parseErrorResponse(response, 'Failed to connect to remote host');
   }
   return response.json();
 }
@@ -691,8 +660,7 @@ export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to reconnect to remote host');
+    await parseErrorResponse(response, 'Failed to reconnect to remote host');
   }
   return response.json();
 }
@@ -703,8 +671,7 @@ export async function disconnectRemoteHost(hostId: string): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to disconnect remote host');
+    await parseErrorResponse(response, 'Failed to disconnect remote host');
   }
 }
 
@@ -865,7 +832,7 @@ export interface DevStatus {
 
 export async function getDevStatus(): Promise<DevStatus> {
   const response = await fetch('/api/dev/status');
-  if (!response.ok) throw new Error('Failed to fetch dev status');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch dev status');
   return response.json();
 }
 
@@ -879,8 +846,7 @@ export async function devRebuild(
     body: JSON.stringify({ workspace_id: workspaceId, type }),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to trigger rebuild');
+    await parseErrorResponse(response, 'Failed to trigger rebuild');
   }
   return response.json();
 }
@@ -891,7 +857,7 @@ export async function devRebuild(
 
 export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
   const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/proposals`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposals');
   return res.json();
 }
 
@@ -899,7 +865,7 @@ export async function getLoreProposal(repoName: string, id: string): Promise<Lor
   const res = await fetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}`
   );
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposal');
   return res.json();
 }
 
@@ -916,7 +882,7 @@ export async function applyLoreProposal(
       body: overrides ? JSON.stringify({ overrides }) : undefined,
     }
   );
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to apply lore proposal');
   return res.json();
 }
 
@@ -928,7 +894,7 @@ export async function dismissLoreProposal(repoName: string, id: string): Promise
       headers: { ...csrfHeaders() },
     }
   );
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to dismiss lore proposal');
 }
 
 export async function getLoreEntries(
@@ -942,7 +908,7 @@ export async function getLoreEntries(
   if (filters?.limit) params.set('limit', String(filters.limit));
   const qs = params.toString();
   const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore entries');
   return res.json();
 }
 
@@ -953,13 +919,13 @@ export async function triggerLoreCuration(
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to trigger lore curation');
   return res.json();
 }
 
 export async function getLoreStatus(): Promise<LoreStatusResponse> {
   const res = await fetch('/api/lore/status');
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore status');
   return res.json();
 }
 
@@ -973,8 +939,7 @@ export async function remoteAccessOn(): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to start remote access');
+    await parseErrorResponse(response, 'Failed to start remote access');
   }
 }
 
@@ -984,8 +949,7 @@ export async function remoteAccessOff(): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to stop remote access');
+    await parseErrorResponse(response, 'Failed to stop remote access');
   }
 }
 
@@ -996,8 +960,7 @@ export async function setRemoteAccessPassword(password: string): Promise<void> {
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to set password');
+    await parseErrorResponse(response, 'Failed to set password');
   }
 }
 
@@ -1007,7 +970,6 @@ export async function testRemoteAccessNotification(): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || 'Failed to send test notification');
+    await parseErrorResponse(response, 'Failed to send test notification');
   }
 }
