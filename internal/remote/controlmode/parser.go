@@ -126,6 +126,15 @@ func (p *Parser) Close() {
 	}
 }
 
+// DroppedOutputs returns the number of dropped output events.
+func (p *Parser) DroppedOutputs() int64 { return p.droppedOutputs.Load() }
+
+// DroppedResponses returns the number of dropped command responses.
+func (p *Parser) DroppedResponses() int64 { return p.droppedResponses.Load() }
+
+// DroppedEvents returns the number of dropped async events.
+func (p *Parser) DroppedEvents() int64 { return p.droppedEvents.Load() }
+
 // Run starts parsing lines from the reader.
 // Blocks until EOF or error. Call in a goroutine.
 func (p *Parser) Run() error {

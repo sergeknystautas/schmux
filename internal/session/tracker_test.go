@@ -19,6 +19,23 @@ func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 	}
 }
 
+func TestTrackerCounters_Increment(t *testing.T) {
+	var c TrackerCounters
+	c.EventsDelivered.Add(5)
+	c.BytesDelivered.Add(1024)
+	c.Reconnects.Add(1)
+
+	if c.EventsDelivered.Load() != 5 {
+		t.Errorf("EventsDelivered = %d, want 5", c.EventsDelivered.Load())
+	}
+	if c.BytesDelivered.Load() != 1024 {
+		t.Errorf("BytesDelivered = %d, want 1024", c.BytesDelivered.Load())
+	}
+	if c.Reconnects.Load() != 1 {
+		t.Errorf("Reconnects = %d, want 1", c.Reconnects.Load())
+	}
+}
+
 func TestSubscribeUnsubscribeOutput(t *testing.T) {
 	st := state.New("")
 	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
