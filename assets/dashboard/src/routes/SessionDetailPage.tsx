@@ -136,40 +136,40 @@ export default function SessionDetailPage() {
     terminalStreamRef.current = terminalStream;
     setFollowTail(true);
 
-    // Enable diagnostics in dev mode
-    if (versionInfo?.dev_mode) {
-      terminalStream.enableDiagnostics();
-      terminalStream.onStatsUpdate = (stats) => {
-        setBackendStats(stats as unknown as BackendStats);
-      };
-    }
-
-    // Poll frontend diagnostics counters periodically
-    let frontendStatsInterval: ReturnType<typeof setInterval> | null = null;
-    if (versionInfo?.dev_mode) {
-      frontendStatsInterval = setInterval(() => {
-        const diag = terminalStream.diagnostics;
-        if (diag) {
-          setFrontendStats({
-            framesReceived: diag.framesReceived,
-            bytesReceived: diag.bytesReceived,
-            bootstrapCount: diag.bootstrapCount,
-            sequenceBreaks: diag.sequenceBreaks,
-          });
-        }
-      }, 3000);
-    }
-
     terminalStream.initialized.then(() => {
       terminalStream.connect();
       terminalStream.focus();
     });
 
     return () => {
-      if (frontendStatsInterval) clearInterval(frontendStatsInterval);
       terminalStream.disconnect();
     };
-  }, [sessionData?.id, remoteDisconnected, versionInfo?.dev_mode]);
+  }, [sessionData?.id, remoteDisconnected]);
+
+  // Enable diagnostics in dev mode — separate effect to avoid recreating terminal
+  useEffect(() => {
+    const stream = terminalStreamRef.current;
+    if (!stream || !versionInfo?.dev_mode) return;
+
+    stream.enableDiagnostics();
+    stream.onStatsUpdate = (stats) => {
+      setBackendStats(stats as unknown as BackendStats);
+    };
+
+    const interval = setInterval(() => {
+      const diag = stream.diagnostics;
+      if (diag) {
+        setFrontendStats({
+          framesReceived: diag.framesReceived,
+          bytesReceived: diag.bytesReceived,
+          bootstrapCount: diag.bootstrapCount,
+          sequenceBreaks: diag.sequenceBreaks,
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [versionInfo?.dev_mode, sessionData?.id]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
