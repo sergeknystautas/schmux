@@ -33,8 +33,9 @@ import (
 )
 
 const (
-	readTimeout  = 15 * time.Second
-	writeTimeout = 15 * time.Second
+	readTimeout       = 15 * time.Second
+	writeTimeout      = 15 * time.Second
+	readHeaderTimeout = 5 * time.Second
 )
 
 // wsConn wraps a websocket.Conn with a mutex for concurrent write safety.
@@ -145,7 +146,24 @@ type Server struct {
 	// Tunnel manager for remote access
 	tunnelManager *tunnel.Manager
 
-	// Remote access auth state
+	// Remote access auth state (embedded for field promotion)
+	remoteAuthState
+
+	// Rate limiter for connection endpoint
+	connectLimiter *RateLimiter
+
+	// Linear sync resolve conflict state (embedded for field promotion)
+	linearSyncState
+
+	// Lore proposal storage
+	loreStore *lore.ProposalStore
+
+	// Lore curator for manual curation
+	loreCurator *lore.Curator
+}
+
+// remoteAuthState groups remote access authentication fields.
+type remoteAuthState struct {
 	remoteToken          string
 	remoteTokenCreatedAt time.Time
 	remoteTokenFailures  map[string]int
@@ -153,26 +171,15 @@ type Server struct {
 	remoteSessionSecret  []byte
 	remoteTunnelURL      string
 	remoteNonces         map[string]*remoteNonce
+	remoteAuthLimiter    *RateLimiter
+}
 
-	// Rate limiter for connection endpoint
-	connectLimiter *RateLimiter
-
-	// Rate limiter for remote auth endpoint
-	remoteAuthLimiter *RateLimiter
-
-	// Linear sync resolve conflict operation states (in-memory, keyed by workspace ID)
+// linearSyncState groups linear sync conflict resolution fields.
+type linearSyncState struct {
 	linearSyncResolveConflictStates   map[string]*LinearSyncResolveConflictState
 	linearSyncResolveConflictStatesMu sync.RWMutex
-
-	// Ephemeral trackers for conflict resolution tmux sessions (not in state store)
-	crTrackers   map[string]*session.SessionTracker
-	crTrackersMu sync.RWMutex
-
-	// Lore proposal storage
-	loreStore *lore.ProposalStore
-
-	// Lore curator for manual curation
-	loreCurator *lore.Curator
+	crTrackers                        map[string]*session.SessionTracker
+	crTrackersMu                      sync.RWMutex
 }
 
 // versionInfo holds version information.
@@ -190,29 +197,33 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		shutdownCtx = context.Background()
 	}
 	s := &Server{
-		config:                          cfg,
-		state:                           st,
-		statePath:                       statePath,
-		session:                         sm,
-		workspace:                       wm,
-		prDiscovery:                     prd,
-		shutdown:                        opts.Shutdown,
-		devRestart:                      opts.DevRestart,
-		devProxy:                        opts.DevProxy,
-		devMode:                         opts.DevMode,
-		shutdownCtx:                     shutdownCtx,
-		wsConns:                         make(map[string][]*wsConn),
-		sessionsConns:                   make(map[*wsConn]bool),
-		rotationLocks:                   make(map[string]*sync.Mutex),
-		broadcastDone:                   make(chan struct{}),
-		broadcastExited:                 make(chan struct{}),
-		broadcastReady:                  make(chan struct{}),
-		linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
-		crTrackers:                      make(map[string]*session.SessionTracker),
-		connectLimiter:                  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
-		remoteAuthLimiter:               NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
-		previewDetect:                   make(map[string]time.Time),
-		remoteNonces:                    make(map[string]*remoteNonce),
+		config:          cfg,
+		state:           st,
+		statePath:       statePath,
+		session:         sm,
+		workspace:       wm,
+		prDiscovery:     prd,
+		shutdown:        opts.Shutdown,
+		devRestart:      opts.DevRestart,
+		devProxy:        opts.DevProxy,
+		devMode:         opts.DevMode,
+		shutdownCtx:     shutdownCtx,
+		wsConns:         make(map[string][]*wsConn),
+		sessionsConns:   make(map[*wsConn]bool),
+		rotationLocks:   make(map[string]*sync.Mutex),
+		broadcastDone:   make(chan struct{}),
+		broadcastExited: make(chan struct{}),
+		broadcastReady:  make(chan struct{}),
+		connectLimiter:  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		previewDetect:   make(map[string]time.Time),
+		remoteAuthState: remoteAuthState{
+			remoteAuthLimiter: NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
+			remoteNonces:      make(map[string]*remoteNonce),
+		},
+		linearSyncState: linearSyncState{
+			linearSyncResolveConflictStates: make(map[string]*LinearSyncResolveConflictState),
+			crTrackers:                      make(map[string]*session.SessionTracker),
+		},
 	}
 	s.previewManager = preview.NewManager(
 		st,
@@ -452,10 +463,11 @@ func (s *Server) Start() error {
 
 	port := s.config.GetPort()
 	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", bindAddr, port),
-		Handler:      mux,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
+		Addr:              fmt.Sprintf("%s:%d", bindAddr, port),
+		Handler:           mux,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	scheme := "http"
@@ -1054,20 +1066,7 @@ func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 		fmt.Printf("[ws/dashboard] failed to marshal overlay change: %v\n", err)
 		return
 	}
-
-	s.sessionsConnsMu.RLock()
-	conns := make([]*wsConn, 0, len(s.sessionsConns))
-	for conn := range s.sessionsConns {
-		conns = append(conns, conn)
-	}
-	s.sessionsConnsMu.RUnlock()
-
-	for _, conn := range conns {
-		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			s.UnregisterDashboardConn(conn)
-			conn.Close()
-		}
-	}
+	s.broadcastToAllDashboardConns(payload)
 }
 
 // BroadcastTunnelStatus sends the current tunnel status to all dashboard WebSocket clients.
@@ -1085,20 +1084,7 @@ func (s *Server) BroadcastTunnelStatus(status tunnel.TunnelStatus) {
 	if err != nil {
 		return
 	}
-
-	s.sessionsConnsMu.RLock()
-	conns := make([]*wsConn, 0, len(s.sessionsConns))
-	for conn := range s.sessionsConns {
-		conns = append(conns, conn)
-	}
-	s.sessionsConnsMu.RUnlock()
-
-	for _, conn := range conns {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			s.UnregisterDashboardConn(conn)
-			conn.Close()
-		}
-	}
+	s.broadcastToAllDashboardConns(data)
 }
 
 // BroadcastPendingNavigation sends a pending navigation event to all dashboard WebSocket clients.
@@ -1114,20 +1100,7 @@ func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
 	if err != nil {
 		return
 	}
-
-	s.sessionsConnsMu.RLock()
-	conns := make([]*wsConn, 0, len(s.sessionsConns))
-	for conn := range s.sessionsConns {
-		conns = append(conns, conn)
-	}
-	s.sessionsConnsMu.RUnlock()
-
-	for _, conn := range conns {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			s.UnregisterDashboardConn(conn)
-			conn.Close()
-		}
-	}
+	s.broadcastToAllDashboardConns(data)
 }
 
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
@@ -1306,7 +1279,10 @@ func (s *Server) normalizeIPForRateLimit(r *http.Request) string {
 		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.SplitN(xff, ",", 2)
-			return strings.TrimSpace(parts[0])
+			xffIP := strings.TrimSpace(parts[0])
+			if len(xffIP) <= 45 && net.ParseIP(xffIP) != nil {
+				return xffIP
+			}
 		}
 	}
 	return ip
