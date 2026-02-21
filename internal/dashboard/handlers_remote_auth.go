@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/config"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -310,10 +309,7 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if s.config.RemoteAccess == nil {
-		s.config.RemoteAccess = &config.RemoteAccessConfig{}
-	}
-	s.config.RemoteAccess.PasswordHash = string(hash)
+	s.config.SetRemoteAccessPasswordHash(string(hash))
 	if err := s.config.Save(); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return

@@ -1734,6 +1734,16 @@ func (c *Config) GetRemoteAccessPasswordHash() string {
 	return c.RemoteAccess.PasswordHash
 }
 
+// SetRemoteAccessPasswordHash sets the bcrypt-hashed password for remote access auth.
+func (c *Config) SetRemoteAccessPasswordHash(hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RemoteAccess == nil {
+		c.RemoteAccess = &RemoteAccessConfig{}
+	}
+	c.RemoteAccess.PasswordHash = hash
+}
+
 // GetRemoteAccessAllowAutoDownload returns whether auto-downloading cloudflared is allowed.
 // Defaults to false (disabled). Set to true in config to allow unverified binary downloads.
 func (c *Config) GetRemoteAccessAllowAutoDownload() bool {
