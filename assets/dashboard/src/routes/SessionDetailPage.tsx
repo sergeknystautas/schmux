@@ -515,6 +515,13 @@ export default function SessionDetailPage() {
                       </a>
                     </Tooltip>
                   )}
+                  {versionInfo?.dev_mode && (
+                    <StreamMetricsPanel
+                      backendStats={backendStats}
+                      frontendStats={frontendStats}
+                      onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                    />
+                  )}
                 </div>
                 <div className="log-viewer__actions">
                   {selectionMode ? (
@@ -593,13 +600,6 @@ export default function SessionDetailPage() {
                   </Tooltip>
                 </div>
               </div>
-              {versionInfo?.dev_mode && (
-                <StreamMetricsPanel
-                  backendStats={backendStats}
-                  frontendStats={frontendStats}
-                  onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
-                />
-              )}
               <div
                 key={sessionData.id}
                 id="terminal"
