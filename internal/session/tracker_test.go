@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -67,5 +68,53 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected channel to be readable (closed)")
+	}
+}
+
+func TestIsPermanentError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "can't find session error",
+			err:      errors.New("can't find session: my-session"),
+			expected: true,
+		},
+		{
+			name:     "no session found error",
+			err:      errors.New("no session found: test"),
+			expected: true,
+		},
+		{
+			name:     "transient error",
+			err:      errors.New("connection refused"),
+			expected: false,
+		},
+		{
+			name:     "timeout error",
+			err:      errors.New("operation timed out"),
+			expected: false,
+		},
+		{
+			name:     "permission denied error",
+			err:      errors.New("permission denied"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isPermanentError(tt.err)
+			if result != tt.expected {
+				t.Errorf("isPermanentError(%v) = %v, want %v", tt.err, result, tt.expected)
+			}
+		})
 	}
 }
