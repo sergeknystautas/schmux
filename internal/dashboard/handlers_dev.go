@@ -243,12 +243,10 @@ func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if s.config.RemoteAccess != nil {
-		s.config.RemoteAccess.PasswordHash = ""
-		if err := s.config.Save(); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
-			return
-		}
+	s.config.SetRemoteAccessPasswordHash("")
+	if err := s.config.Save(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
