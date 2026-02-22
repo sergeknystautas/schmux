@@ -570,7 +570,8 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
 	fmt.Printf("[git-discard] workspace=%s path=%s files=%v\n", ws.ID, ws.Path, req.Files)
 
@@ -690,7 +691,8 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
 	// Verify the current HEAD matches the expected hash
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
