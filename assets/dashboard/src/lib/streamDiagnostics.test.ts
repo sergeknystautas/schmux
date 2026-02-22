@@ -65,6 +65,24 @@ describe('StreamDiagnostics', () => {
     expect(diag.recentBreaks[0].tail).toBe('1b 5b 33 32 3b 31');
   });
 
+  it('does not record break for complete CSI followed by text', () => {
+    // \x1b[7m followed by a space — sequence is complete, space is normal text
+    diag.recordFrame(new TextEncoder().encode('data\x1b[7m '));
+    expect(diag.sequenceBreaks).toBe(0);
+
+    // \x1b[27m followed by space + CR CR LF
+    diag.recordFrame(new TextEncoder().encode('data\x1b[27m \r\r\n'));
+    expect(diag.sequenceBreaks).toBe(0);
+
+    // \x1b[22m followed by CR CR LF
+    diag.recordFrame(new TextEncoder().encode('data\x1b[22m\r\r\n'));
+    expect(diag.sequenceBreaks).toBe(0);
+
+    // \x1b[1C (cursor forward) followed by text
+    diag.recordFrame(new TextEncoder().encode("data\x1b[1CReact'"));
+    expect(diag.sequenceBreaks).toBe(0);
+  });
+
   it('does not record break for frames without trailing ESC', () => {
     diag.recordFrame(new TextEncoder().encode('plain text'));
     expect(diag.sequenceBreaks).toBe(0);
