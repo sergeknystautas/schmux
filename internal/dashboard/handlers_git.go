@@ -57,6 +57,9 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 			maxTotal = parsed
 		}
 	}
+	if maxTotal > 5000 {
+		maxTotal = 5000
+	}
 
 	// main_context: Number of commits on main BEFORE fork point (historical context)
 	mainContext := 5
@@ -70,6 +73,9 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 		if parsed, err := strconv.Atoi(mc); err == nil && parsed > 0 {
 			mainContext = parsed
 		}
+	}
+	if mainContext > 500 {
+		mainContext = 500
 	}
 
 	// Delegate to remote handler if this is a remote workspace
