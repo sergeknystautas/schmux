@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,8 +35,12 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+		ShutdownCtx: shutdownCtx,
+	})
 	t.Cleanup(server.CloseForTest)
+	t.Cleanup(shutdownCancel)
 	return server, cfg, st
 }
 
@@ -517,8 +522,14 @@ func TestGitGraphEndpoint_MethodNotAllowed(t *testing.T) {
 }
 
 func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
-	// Set HOME to a temp dir so we can control dev-state.json
-	tmpHome := t.TempDir()
+	// Use os.MkdirTemp instead of t.TempDir() for HOME to avoid flaky
+	// TempDir cleanup failures on macOS (Spotlight/FSEvents create files
+	// during os.RemoveAll, causing ENOTEMPTY).
+	tmpHome, err := os.MkdirTemp("", "test-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp HOME: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpHome) })
 	t.Setenv("HOME", tmpHome)
 	schmuxDir := filepath.Join(tmpHome, ".schmux")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
@@ -539,10 +550,13 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	st := state.New(statePath)
 	wm := workspace.New(cfg, st, statePath)
 	sm := session.New(cfg, st, statePath, wm)
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
-		DevMode: true,
+		DevMode:     true,
+		ShutdownCtx: shutdownCtx,
 	})
 	t.Cleanup(server.CloseForTest)
+	t.Cleanup(shutdownCancel)
 
 	wsPath := t.TempDir()
 	ws := state.Workspace{
@@ -609,10 +623,13 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 
 	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
 		// Create a non-dev-mode server
+		shutdownCtx2, shutdownCancel2 := context.WithCancel(context.Background())
 		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
-			DevMode: false,
+			DevMode:     false,
+			ShutdownCtx: shutdownCtx2,
 		})
 		t.Cleanup(server2.CloseForTest)
+		t.Cleanup(shutdownCancel2)
 		// Re-add the workspace (it may have been disposed above)
 		ws3 := state.Workspace{
 			ID:     "ws-dev-live-2",

@@ -2,8 +2,10 @@ package controlmode
 
 import (
 	"context"
+	"io"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -388,18 +390,28 @@ func TestGetCursorState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Build a control mode response stream that the parser will deliver
-			stream := "%begin 1234 0 0\n" + tt.response + "\n%end 1234 0 0\n"
-			input := strings.NewReader(stream)
-			parser := NewParser(input)
+			// Use io.Pipe so we can write the response after the command
+			// is enqueued, avoiding a race where the parser processes the
+			// response before Execute registers its response channel.
+			pr, pw := io.Pipe()
+			parser := NewParser(pr)
 
-			var stdin strings.Builder
-			client := NewClient(&stdin, parser)
+			// signalWriter signals when data is written, so we know the
+			// command has been enqueued and sent before we inject a response.
+			stdin := &signalWriter{written: make(chan struct{})}
+			client := NewClient(stdin, parser)
 			client.Start()
 			defer client.Close()
 
-			// Let the parser process the stream
 			go parser.Run()
+
+			// Write the response only after the command has been sent
+			stream := "%begin 1234 0 0\n" + tt.response + "\n%end 1234 0 0\n"
+			go func() {
+				<-stdin.written
+				pw.Write([]byte(stream))
+				pw.Close()
+			}()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -429,6 +441,22 @@ func TestGetCursorState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// signalWriter wraps an io.Writer and signals when the first write occurs.
+type signalWriter struct {
+	mu      sync.Mutex
+	buf     strings.Builder
+	written chan struct{}
+	once    sync.Once
+}
+
+func (w *signalWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.buf.Write(p)
+	w.once.Do(func() { close(w.written) })
+	return n, err
 }
 
 // TestGetCursorPositionExecuteError verifies GetCursorPosition wraps Execute errors.
