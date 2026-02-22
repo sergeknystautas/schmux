@@ -89,14 +89,19 @@ docker run --rm schmux-e2e
 
 ## Pre-Commit Requirements
 
-Before committing changes, you MUST run:
+**ALWAYS use `/commit` to create commits. NEVER run `git commit` directly.**
 
-1. **Run all tests**: `./test.sh --all`
-2. **Format code**: `./format.sh` (or let the pre-commit hook handle it automatically)
+The `/commit` command enforces the definition of done before every commit:
+
+- Runs `./test.sh` and aborts if tests fail
+- Checks that `docs/api.md` is updated when API-related packages change
+- Requires a structured self-assessment (tests written, no architecture drift, docs current)
+
+Before the `/commit` command runs, ensure:
+
+1. **Format code**: `./format.sh` (or let the pre-commit hook handle it automatically)
 
 The pre-commit hook automatically formats staged Go, TypeScript, JavaScript, CSS, Markdown, and JSON files. Running `./format.sh` auto-installs the hook if missing.
-
-The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
 
 For faster iteration during development:
 
@@ -200,6 +205,10 @@ Routes:
 - `/settings/remote` - Remote flavor configuration
 - `/ws/terminal/{id}` - WebSocket for live terminal output
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates
+
+## Documentation Conventions
+
+All specs, designs, and implementation plans live in `docs/specs/`. Skills that default to `docs/plans/` should use `docs/specs/` instead for this project.
 
 ## Important Files
 

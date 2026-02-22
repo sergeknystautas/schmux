@@ -53,22 +53,18 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 
 ## Pre-Commit Requirements
 
-Before committing changes, you MUST run:
+**ALWAYS use `/commit` to create commits. NEVER run `git commit` directly.**
 
-1. **Run all tests**: `./test.sh --all`
-2. **Format code**: `./format.sh`
+The `/commit` command enforces the definition of done:
 
-`./format.sh` formats Go files with `gofmt` and TS/JS/CSS/MD/JSON files with prettier. It also auto-installs the pre-commit git hook if missing.
+- Runs `./test.sh` and aborts if tests fail
+- Checks that `docs/api.md` is updated when API-related packages change
+- Requires a structured self-assessment (tests written, no architecture drift, docs current)
 
-❌ **WRONG**: `go fmt ./...` (misses frontend files)
-✅ **RIGHT**: `./format.sh` (formats everything)
+Before invoking `/commit`, run `./format.sh` to format all staged files.
 
-The test script runs both unit tests and E2E tests. This catches issues like Dockerfile/go.mod version mismatches before they reach CI.
-
-For faster iteration during development:
-
-- Run unit tests only: `./test.sh` (or `go test ./...`)
-- Skip E2E tests and let CI handle them on PRs
+❌ **WRONG**: `git commit -m "message"`
+✅ **RIGHT**: `/commit`
 
 ## Commit & Pull Request Guidelines
 
