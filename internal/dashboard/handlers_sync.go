@@ -236,7 +236,9 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 		if err := s.state.UpdateWorkspace(ws); err != nil {
 			fmt.Printf("[workspace] linear-sync-from-main warning: failed to update conflict state: %v\n", err)
 		} else {
-			s.state.Save()
+			if err := s.state.Save(); err != nil {
+				fmt.Printf("[workspace] linear-sync-from-main warning: failed to save state: %v\n", err)
+			}
 			go s.BroadcastSessions()
 		}
 	}
@@ -551,7 +553,9 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 				if err := s.state.UpdateWorkspace(ws); err != nil {
 					fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to clear conflict state: %v\n", err)
 				} else {
-					s.state.Save()
+					if err := s.state.Save(); err != nil {
+						fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to save state: %v\n", err)
+					}
 				}
 			}
 		} else {

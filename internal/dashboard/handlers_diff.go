@@ -647,7 +647,9 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 					host.Hostname = liveHostname
 					// Persist back to state so future lookups have it
 					s.state.UpdateRemoteHost(conn.Host())
-					s.state.Save()
+					if err := s.state.Save(); err != nil {
+						fmt.Printf("[diff] failed to save remote host state: %v\n", err)
+					}
 				}
 			}
 		}
