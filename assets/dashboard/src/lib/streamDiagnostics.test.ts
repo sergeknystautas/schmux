@@ -176,14 +176,14 @@ describe('StreamDiagnostics', () => {
       expect(diag.getFrameSizeStats()).toBeNull();
     });
 
-    it('frame sizes cap at 1000 samples', () => {
-      for (let i = 0; i < 1100; i++) {
+    it('frame sizes cap at 5000 samples', () => {
+      for (let i = 0; i < 5100; i++) {
         diag.recordFrame(new Uint8Array(i + 1));
       }
-      expect(diag.frameSizes).toHaveLength(1000);
+      expect(diag.frameSizes).toHaveLength(5000);
       // Oldest samples should have been dropped — first entry should be 101 (not 1)
       expect(diag.frameSizes[0]).toBe(101);
-      expect(diag.frameSizes[999]).toBe(1100);
+      expect(diag.frameSizes[4999]).toBe(5100);
     });
 
     it('reset clears frame sizes', () => {
