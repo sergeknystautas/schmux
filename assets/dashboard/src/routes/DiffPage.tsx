@@ -1,5 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import type { FocusEvent } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl } from '../lib/api';
@@ -7,7 +6,7 @@ import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useModal } from '../components/ModalProvider';
-import useLocalStorage from '../hooks/useLocalStorage';
+import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import type { DiffResponse } from '../lib/types';
@@ -24,9 +23,6 @@ const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
 
 const DIFF_SIDEBAR_WIDTH_KEY = 'schmux-diff-sidebar-width';
 const DIFF_KEYBOARD_FOCUS_KEY = 'schmux-diff-keyboard-focus';
-const DEFAULT_SIDEBAR_WIDTH = 300;
-const MIN_SIDEBAR_WIDTH = 150;
-const MAX_SIDEBAR_WIDTH = 600;
 
 // Helper to get localStorage key for selected file (stores file path, not index)
 const getSelectedFileKey = (workspaceId: string | undefined) =>
@@ -48,18 +44,24 @@ export default function DiffPage() {
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [executingDiff, setExecutingDiff] = useState<string | null>(null);
-  const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(
-    DIFF_SIDEBAR_WIDTH_KEY,
-    DEFAULT_SIDEBAR_WIDTH
-  );
-  const [isResizing, setIsResizing] = useState(false);
-  const [keyboardFocus, setKeyboardFocus] = useLocalStorage<'left' | 'right' | null>(
-    DIFF_KEYBOARD_FOCUS_KEY,
-    'left'
-  );
-  const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
+
+  const {
+    sidebarWidth,
+    isResizing,
+    keyboardFocus,
+    containerRef,
+    contentRef,
+    handleMouseDown,
+    handleSidebarFocus,
+    handleContentFocus,
+  } = useSidebarLayout({
+    widthKey: DIFF_SIDEBAR_WIDTH_KEY,
+    focusKey: DIFF_KEYBOARD_FOCUS_KEY,
+    fileCount: diffData?.files?.length || 0,
+    selectedFileIndex,
+    onSelectFile: setSelectedFileIndex,
+  });
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
@@ -74,92 +76,6 @@ export default function DiffPage() {
       navigate('/');
     }
   }, [loading, sessionsLoading, workspaceId, workspaceExists, navigate]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isResizing || !containerRef.current) return;
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = e.clientX - containerRect.left;
-      const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
-      setSidebarWidth(clampedWidth);
-    },
-    [isResizing, setSidebarWidth]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsResizing(false);
-  }, []);
-
-  useEffect(() => {
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing, handleMouseMove, handleMouseUp]);
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const files = diffData?.files || [];
-
-      switch (e.key) {
-        case 'ArrowLeft':
-          e.preventDefault();
-          setKeyboardFocus('left');
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          setKeyboardFocus('right');
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          if (keyboardFocus === 'left' && selectedFileIndex > 0) {
-            setSelectedFileIndex(selectedFileIndex - 1);
-          } else if (keyboardFocus === 'right' && contentRef.current) {
-            contentRef.current.scrollBy({ top: -100, behavior: 'smooth' });
-          }
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          if (keyboardFocus === 'left' && selectedFileIndex < files.length - 1) {
-            setSelectedFileIndex(selectedFileIndex + 1);
-          } else if (keyboardFocus === 'right' && contentRef.current) {
-            contentRef.current.scrollBy({ top: 100, behavior: 'smooth' });
-          }
-          break;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [keyboardFocus, selectedFileIndex, diffData, setKeyboardFocus]);
-
-  // Auto-scroll sidebar to keep selected file visible
-  useEffect(() => {
-    if (keyboardFocus === 'left') {
-      const fileListEl = document.querySelector('.diff-file-list');
-      const activeFileEl = document.querySelector('.diff-file-item--active');
-      if (fileListEl && activeFileEl) {
-        activeFileEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }
-  }, [selectedFileIndex, keyboardFocus]);
-
-  const handleSidebarFocus = () => setKeyboardFocus('left');
-  const handleContentFocus = () => setKeyboardFocus('right');
 
   const handleExternalDiff = async (cmd: ExternalDiffCommand) => {
     if (!workspaceId) return;

@@ -1,19 +1,16 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { getCommitDetail, getErrorMessage } from '../lib/api';
 import useTheme from '../hooks/useTheme';
 import { useSessions } from '../contexts/SessionsContext';
-import useLocalStorage from '../hooks/useLocalStorage';
+import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import type { GitCommitDetailResponse } from '../lib/types';
 
 const COMMIT_SIDEBAR_WIDTH_KEY = 'schmux-commit-sidebar-width';
 const COMMIT_KEYBOARD_FOCUS_KEY = 'schmux-commit-keyboard-focus';
-const DEFAULT_SIDEBAR_WIDTH = 300;
-const MIN_SIDEBAR_WIDTH = 150;
-const MAX_SIDEBAR_WIDTH = 600;
 const MAX_MESSAGE_LINES = 3;
 
 // Format relative time (e.g., "2d ago", "3h ago")
@@ -42,17 +39,23 @@ export default function GitCommitPage() {
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [messageExpanded, setMessageExpanded] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useLocalStorage<number>(
-    COMMIT_SIDEBAR_WIDTH_KEY,
-    DEFAULT_SIDEBAR_WIDTH
-  );
-  const [isResizing, setIsResizing] = useState(false);
-  const [keyboardFocus, setKeyboardFocus] = useLocalStorage<'left' | 'right' | null>(
-    COMMIT_KEYBOARD_FOCUS_KEY,
-    'left'
-  );
-  const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const {
+    sidebarWidth,
+    isResizing,
+    keyboardFocus,
+    containerRef,
+    contentRef,
+    handleMouseDown,
+    handleSidebarFocus,
+    handleContentFocus,
+  } = useSidebarLayout({
+    widthKey: COMMIT_SIDEBAR_WIDTH_KEY,
+    focusKey: COMMIT_KEYBOARD_FOCUS_KEY,
+    fileCount: commitData?.files?.length || 0,
+    selectedFileIndex,
+    onSelectFile: setSelectedFileIndex,
+    vimKeys: true,
+  });
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
@@ -63,97 +66,6 @@ export default function GitCommitPage() {
       navigate('/');
     }
   }, [loading, workspaceId, workspaceExists, navigate]);
-
-  // Resize handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isResizing || !containerRef.current) return;
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = e.clientX - containerRect.left;
-      const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
-      setSidebarWidth(clampedWidth);
-    },
-    [isResizing, setSidebarWidth]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsResizing(false);
-  }, []);
-
-  useEffect(() => {
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing, handleMouseMove, handleMouseUp]);
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const files = commitData?.files || [];
-
-      switch (e.key) {
-        case 'ArrowLeft':
-          e.preventDefault();
-          setKeyboardFocus('left');
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          setKeyboardFocus('right');
-          break;
-        case 'ArrowUp':
-        case 'k':
-          if (keyboardFocus === 'left' && selectedFileIndex > 0) {
-            e.preventDefault();
-            setSelectedFileIndex(selectedFileIndex - 1);
-          } else if (keyboardFocus === 'right' && contentRef.current) {
-            e.preventDefault();
-            contentRef.current.scrollBy({ top: -100, behavior: 'smooth' });
-          }
-          break;
-        case 'ArrowDown':
-        case 'j':
-          if (keyboardFocus === 'left' && selectedFileIndex < files.length - 1) {
-            e.preventDefault();
-            setSelectedFileIndex(selectedFileIndex + 1);
-          } else if (keyboardFocus === 'right' && contentRef.current) {
-            e.preventDefault();
-            contentRef.current.scrollBy({ top: 100, behavior: 'smooth' });
-          }
-          break;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [keyboardFocus, selectedFileIndex, commitData, setKeyboardFocus]);
-
-  // Auto-scroll sidebar to keep selected file visible
-  useEffect(() => {
-    if (keyboardFocus === 'left') {
-      const fileListEl = document.querySelector('.diff-file-list');
-      const activeFileEl = document.querySelector('.diff-file-item--active');
-      if (fileListEl && activeFileEl) {
-        activeFileEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }
-  }, [selectedFileIndex, keyboardFocus]);
-
-  const handleSidebarFocus = () => setKeyboardFocus('left');
-  const handleContentFocus = () => setKeyboardFocus('right');
 
   // Load commit data
   useEffect(() => {
