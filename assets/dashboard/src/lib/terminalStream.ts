@@ -3,7 +3,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { inputLatency } from './inputLatency';
 import { StreamDiagnostics } from './streamDiagnostics';
-import { extractScreenText } from './screenCapture';
+import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
 import { csrfHeaders } from './csrf';
 
@@ -433,8 +433,8 @@ export default class TerminalStream {
       const diagDir = (msg.diagDir as string) || '';
       const verdict = (msg.verdict as string) || '';
       const findings = (msg.findings as string[]) || [];
-      // 1. Extract xterm.js screen buffer
-      const xtermScreen = extractScreenText(this.terminal.buffer.active);
+      // 1. Extract xterm.js visible viewport (matches tmux capture-pane's visible screen)
+      const xtermScreen = extractViewportText(this.terminal.buffer.active, this.terminal.rows);
       // 2. Compute diff against tmux screen from backend response
       const diff = computeScreenDiff((msg.tmuxScreen as string) || '', xtermScreen);
       // 3. Get frontend ring buffer snapshot
