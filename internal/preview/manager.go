@@ -558,6 +558,10 @@ func tunnelWebSocket(w http.ResponseWriter, r *http.Request, targetHost string, 
 	go cp(upstream, clientConn)
 	go cp(clientConn, upstream)
 	<-done
+	// One direction finished — close both to unblock the other goroutine.
+	upstream.Close()
+	clientConn.Close()
+	<-done
 }
 
 func normalizeTargetHost(host string) (string, error) {
