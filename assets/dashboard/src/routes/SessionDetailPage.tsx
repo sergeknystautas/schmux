@@ -141,19 +141,9 @@ export default function SessionDetailPage() {
   >(() => {});
 
   useEffect(() => {
-    console.warn('[terminal effect] setup', {
-      sessionId: sessionData?.id ?? null,
-      hasContainer: !!terminalRef.current,
-      remoteDisconnected,
-    });
-
     if (!sessionData || !terminalRef.current) return;
     // Don't create terminal stream while remote host is disconnected
     if (remoteDisconnected) return;
-
-    // Capture dep values at setup time so cleanup can log which one changed
-    const setupSessionId = sessionData.id;
-    const setupRemoteDisconnected = remoteDisconnected;
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
@@ -210,10 +200,6 @@ export default function SessionDetailPage() {
     });
 
     return () => {
-      console.warn('[terminal effect] cleanup — re-running effect', {
-        setupSessionId,
-        setupRemoteDisconnected,
-      });
       if (diagnosticsInterval) {
         clearInterval(diagnosticsInterval);
       }
