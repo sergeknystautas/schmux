@@ -376,8 +376,8 @@ export default function AppShell() {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [workspaces, context.workspaceId, context.sessionId, navigate, location.pathname]);
 
   // Register workspace-specific keyboard actions based on active context
