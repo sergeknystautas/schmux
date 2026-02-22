@@ -1,10 +1,18 @@
 const DEFAULT_RING_BUFFER_SIZE = 256 * 1024; // 256KB
+const MAX_RECENT_BREAKS = 20;
+
+export type SequenceBreakRecord = {
+  frameIndex: number; // which frame (framesReceived at time of break)
+  byteOffset: number; // total bytesReceived at time of break
+  tail: string; // hex-encoded last ≤16 bytes of the frame (the broken sequence context)
+};
 
 export class StreamDiagnostics {
   framesReceived = 0;
   bytesReceived = 0;
   bootstrapCount = 0;
   sequenceBreaks = 0;
+  recentBreaks: SequenceBreakRecord[] = [];
 
   private ringBuffer: Uint8Array;
   private cursor = 0;
@@ -41,6 +49,7 @@ export class StreamDiagnostics {
     this.bytesReceived = 0;
     this.bootstrapCount = 0;
     this.sequenceBreaks = 0;
+    this.recentBreaks = [];
     this.cursor = 0;
     this.full = false;
   }
@@ -80,7 +89,7 @@ export class StreamDiagnostics {
         const remaining = data.subarray(i + 1);
         if (remaining.length === 0) {
           // Bare ESC at end of frame
-          this.sequenceBreaks++;
+          this.recordBreak(data, i);
           return;
         }
         // CSI: ESC [
@@ -89,16 +98,32 @@ export class StreamDiagnostics {
           // that is a terminator (0x40-0x7E)
           if (remaining.length < 2) {
             // Just "ESC [" with nothing after — incomplete
-            this.sequenceBreaks++;
+            this.recordBreak(data, i);
             return;
           }
           const last = remaining[remaining.length - 1];
           if (last < 0x40 || last > 0x7e) {
-            this.sequenceBreaks++;
+            this.recordBreak(data, i);
           }
         }
         return;
       }
+    }
+  }
+
+  private recordBreak(data: Uint8Array, escPos: number): void {
+    this.sequenceBreaks++;
+    const tailBytes = data.subarray(escPos);
+    const hex = Array.from(tailBytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    this.recentBreaks.push({
+      frameIndex: this.framesReceived,
+      byteOffset: this.bytesReceived,
+      tail: hex,
+    });
+    if (this.recentBreaks.length > MAX_RECENT_BREAKS) {
+      this.recentBreaks.shift();
     }
   }
 }

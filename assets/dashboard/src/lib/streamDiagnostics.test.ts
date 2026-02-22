@@ -40,19 +40,99 @@ describe('StreamDiagnostics', () => {
     // Frame ending with partial CSI sequence
     diag.recordFrame(new TextEncoder().encode('hello\x1b['));
     expect(diag.sequenceBreaks).toBe(1);
+    expect(diag.recentBreaks).toHaveLength(1);
+    expect(diag.recentBreaks[0].frameIndex).toBe(1);
+    expect(diag.recentBreaks[0].byteOffset).toBe(7);
+    expect(diag.recentBreaks[0].tail).toBe('1b 5b');
 
     // Frame ending with complete sequence — no break
     diag.recordFrame(new TextEncoder().encode('hello\x1b[0m'));
     expect(diag.sequenceBreaks).toBe(1); // unchanged
+    expect(diag.recentBreaks).toHaveLength(1); // unchanged
+  });
+
+  it('records break for bare ESC at end of frame', () => {
+    diag.recordFrame(new TextEncoder().encode('data\x1b'));
+    expect(diag.sequenceBreaks).toBe(1);
+    expect(diag.recentBreaks).toHaveLength(1);
+    expect(diag.recentBreaks[0].tail).toBe('1b');
+  });
+
+  it('records break for CSI with unterminated parameters', () => {
+    // ESC [ 3 2 ; 1  — parameters present but no final letter
+    diag.recordFrame(new TextEncoder().encode('text\x1b[32;1'));
+    expect(diag.sequenceBreaks).toBe(1);
+    expect(diag.recentBreaks[0].tail).toBe('1b 5b 33 32 3b 31');
+  });
+
+  it('does not record break for frames without trailing ESC', () => {
+    diag.recordFrame(new TextEncoder().encode('plain text'));
+    expect(diag.sequenceBreaks).toBe(0);
+    expect(diag.recentBreaks).toHaveLength(0);
+  });
+
+  it('does not record break for empty frames', () => {
+    diag.recordFrame(new Uint8Array(0));
+    expect(diag.sequenceBreaks).toBe(0);
+    expect(diag.recentBreaks).toHaveLength(0);
+  });
+
+  it('accumulates byteOffset correctly across interleaved clean and broken frames', () => {
+    // Frame 1: 10 bytes, clean
+    diag.recordFrame(new Uint8Array(10));
+    // Frame 2: 5 bytes, broken
+    diag.recordFrame(new TextEncoder().encode('ab\x1b['));
+    // Frame 3: 20 bytes, clean
+    diag.recordFrame(new Uint8Array(20));
+    // Frame 4: 3 bytes, broken
+    diag.recordFrame(new TextEncoder().encode('z\x1b'));
+
+    expect(diag.sequenceBreaks).toBe(2);
+    expect(diag.recentBreaks).toHaveLength(2);
+
+    // First break: after frame 1 (10B) + frame 2 (4B) = 14B total
+    expect(diag.recentBreaks[0].frameIndex).toBe(2);
+    expect(diag.recentBreaks[0].byteOffset).toBe(14);
+
+    // Second break: 14B + frame 3 (20B) + frame 4 (2B) = 36B total
+    expect(diag.recentBreaks[1].frameIndex).toBe(4);
+    expect(diag.recentBreaks[1].byteOffset).toBe(36);
+  });
+
+  it('records fresh frameIndex and byteOffset after reset', () => {
+    diag.recordFrame(new TextEncoder().encode('abc\x1b'));
+    expect(diag.recentBreaks).toHaveLength(1);
+
+    diag.reset();
+
+    diag.recordFrame(new TextEncoder().encode('x\x1b['));
+    expect(diag.recentBreaks).toHaveLength(1);
+    // After reset, frameIndex restarts from 1 and byteOffset from frame size
+    expect(diag.recentBreaks[0].frameIndex).toBe(1);
+    expect(diag.recentBreaks[0].byteOffset).toBe(3);
   });
 
   it('reset clears all counters', () => {
     diag.recordFrame(new Uint8Array([1, 2, 3]));
     diag.recordBootstrap();
+    diag.recordFrame(new TextEncoder().encode('test\x1b'));
+    expect(diag.recentBreaks).toHaveLength(1);
     diag.reset();
     expect(diag.framesReceived).toBe(0);
     expect(diag.bytesReceived).toBe(0);
     expect(diag.bootstrapCount).toBe(0);
     expect(diag.sequenceBreaks).toBe(0);
+    expect(diag.recentBreaks).toHaveLength(0);
+  });
+
+  it('caps recentBreaks at 20 entries', () => {
+    for (let i = 0; i < 25; i++) {
+      diag.recordFrame(new TextEncoder().encode('x\x1b'));
+    }
+    expect(diag.sequenceBreaks).toBe(25);
+    expect(diag.recentBreaks).toHaveLength(20);
+    // First entry should be from frame 6 (frames 1-5 were shifted out)
+    expect(diag.recentBreaks[0].frameIndex).toBe(6);
+    expect(diag.recentBreaks[19].frameIndex).toBe(25);
   });
 });

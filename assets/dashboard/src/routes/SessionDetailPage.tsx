@@ -22,6 +22,7 @@ import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import ConnectionProgressModal from '../components/ConnectionProgressModal';
 import { StreamMetricsPanel, type BackendStats } from '../components/StreamMetricsPanel';
+import type { SequenceBreakRecord } from '../lib/streamDiagnostics';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -64,6 +65,7 @@ export default function SessionDetailPage() {
     bytesReceived: number;
     bootstrapCount: number;
     sequenceBreaks: number;
+    recentBreaks: SequenceBreakRecord[];
   } | null>(null);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
@@ -241,6 +243,7 @@ export default function SessionDetailPage() {
           bytesReceived: diag.bytesReceived,
           bootstrapCount: diag.bootstrapCount,
           sequenceBreaks: diag.sequenceBreaks,
+          recentBreaks: diag.recentBreaks,
         });
       }
     }, 3000);
