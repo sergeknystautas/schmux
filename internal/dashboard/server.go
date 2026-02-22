@@ -34,7 +34,7 @@ import (
 
 const (
 	readTimeout       = 15 * time.Second
-	writeTimeout      = 15 * time.Second
+	writeTimeout      = time.Duration(0) // Disabled: WebSocket, SSE, and terminal streams are long-lived connections.
 	readHeaderTimeout = 5 * time.Second
 )
 

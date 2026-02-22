@@ -16,13 +16,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: assets/dashboard/package-lock.json
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
 
       - name: Build dashboard assets
         run: |
