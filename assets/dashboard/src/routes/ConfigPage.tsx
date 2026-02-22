@@ -41,7 +41,7 @@ const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 
 // Helper: slug -> step number
 const slugToStep = (slug: string | null) => {
-  const index = TAB_SLUGS.indexOf(slug);
+  const index = slug ? TAB_SLUGS.indexOf(slug) : -1;
   return index >= 0 ? index + 1 : 1;
 };
 
@@ -138,7 +138,7 @@ export default function ConfigPage() {
 
   // Browser close/refresh warning
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!isFirstRun && hasChanges()) {
         e.preventDefault();
         e.returnValue = '';
@@ -630,7 +630,10 @@ export default function ConfigPage() {
         source_code_management: sourceCodeManagement,
         repos: repos,
         run_targets: runTargets,
-        quick_launch: quickLaunch,
+        quick_launch: quickLaunch.map((q) => ({
+          ...q,
+          prompt: q.prompt ?? undefined,
+        })),
         external_diff_commands: externalDiffCommands,
         external_diff_cleanup_after_ms: Math.max(
           60000,
@@ -809,7 +812,7 @@ export default function ConfigPage() {
     setNewRepoUrl('');
   };
 
-  const removeRepo = async (name) => {
+  const removeRepo = async (name: string) => {
     const confirmed = await confirm('Remove repo?', `Remove "${name}" from the config?`);
     if (confirmed) {
       setRepos(repos.filter((r) => r.name !== name));
@@ -845,7 +848,7 @@ export default function ConfigPage() {
     setNewPromptableCommand('');
   };
 
-  const checkTargetUsage = (targetName) => {
+  const checkTargetUsage = (targetName: string) => {
     // Normalize to canonical model ID if targetName is a model ID or alias
     let canonicalName = targetName;
     const model = models.find((m) => m.id === targetName || modelAliases[m.id] === targetName);
@@ -854,7 +857,9 @@ export default function ConfigPage() {
     }
 
     const inQuickLaunch = quickLaunch.some(
-      (item) => item.target === canonicalName || modelAliases[item.target] === canonicalName
+      (item) =>
+        item.target === canonicalName ||
+        (item.target && modelAliases[item.target] === canonicalName)
     );
     const inNudgenik =
       nudgenikTarget &&
@@ -884,7 +889,7 @@ export default function ConfigPage() {
     };
   };
 
-  const removePromptableTarget = async (name) => {
+  const removePromptableTarget = async (name: string) => {
     const usage = checkTargetUsage(name);
     if (
       usage.inQuickLaunch ||
@@ -937,7 +942,7 @@ export default function ConfigPage() {
     setNewCommandCommand('');
   };
 
-  const removeCommand = async (name) => {
+  const removeCommand = async (name: string) => {
     const usage = checkTargetUsage(name);
     if (
       usage.inQuickLaunch ||
@@ -1000,7 +1005,7 @@ export default function ConfigPage() {
     setNewQuickLaunchPrompt('');
   };
 
-  const removeQuickLaunch = async (name) => {
+  const removeQuickLaunch = async (name: string) => {
     const confirmed = await confirm('Remove quick launch?', `Remove "${name}" from the config?`);
     if (confirmed) {
       setQuickLaunch(quickLaunch.filter((q) => q.name !== name));
@@ -1112,7 +1117,7 @@ export default function ConfigPage() {
 
   // Quick launch edit modal
   const openQuickLaunchEditModal = (item: QuickLaunchPreset) => {
-    const isCommandTarget = commandTargetNames.has(item.target);
+    const isCommandTarget = commandTargetNames.has(item.target || '');
     // For command targets, prefill with the underlying target's command
     let initialPrompt = item.prompt || '';
     if (isCommandTarget) {
@@ -1136,7 +1141,7 @@ export default function ConfigPage() {
   const saveQuickLaunchEditModal = () => {
     if (!quickLaunchEditModal) return;
     const { item, prompt, isCommandTarget } = quickLaunchEditModal;
-    const target = item.target;
+    const target = item.target || '';
 
     const isPromptable = promptableTargetNames.has(target);
     if (isPromptable && !prompt.trim()) {
@@ -1261,7 +1266,7 @@ export default function ConfigPage() {
     commitMessageTarget.trim() !== '' && !promptableTargetNames.has(commitMessageTarget.trim());
 
   // Map wizard step to tab number - now 1:1 mapping
-  const getTabForStep = (step) => step;
+  const getTabForStep = (step: number) => step;
 
   const getCurrentTab = () => currentStep;
 
@@ -1808,7 +1813,7 @@ export default function ConfigPage() {
                         <div className="quick-launch-editor__item-main">
                           <span className="quick-launch-editor__item-name">{item.name}</span>
                           <span className="quick-launch-editor__item-detail">
-                            {commandTargetNames.has(item.target)
+                            {commandTargetNames.has(item.target || '')
                               ? (() => {
                                   const cmd = commandTargets.find((t) => t.name === item.target);
                                   return cmd ? cmd.command : item.target;

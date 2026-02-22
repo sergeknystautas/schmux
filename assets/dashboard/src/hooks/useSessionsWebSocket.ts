@@ -166,7 +166,7 @@ export default function useSessionsWebSocket(opts?: {
                 {
                   id: `${wsId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
                   workspace_id: wsId,
-                  success: rawSyncResult.success,
+                  success: rawSyncResult.success!,
                   success_count: rawSyncResult.success_count,
                   conflicting_hash: rawSyncResult.conflicting_hash,
                   branch: rawSyncResult.branch,
