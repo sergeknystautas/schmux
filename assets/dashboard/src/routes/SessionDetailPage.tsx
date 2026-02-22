@@ -183,7 +183,7 @@ export default function SessionDetailPage() {
     }
 
     // Build diagnostic prompt
-    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. The directory contains: index.json (pipeline counters and automated findings), screen-tmux.txt (what tmux shows), screen-xterm.txt (what xterm.js renders), screen-diff.txt (line-by-line differences), ringbuffer-backend.txt (last 256KB sent by backend), ringbuffer-frontend.txt (last 256KB received by frontend). Analyze the diffs and ring buffers to identify the root cause of any visual discrepancies between tmux and xterm.js.`;
+    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. The directory contains: meta.json (pipeline counters and automated findings), screen-tmux.txt (what tmux shows), screen-xterm.txt (what xterm.js renders), screen-diff.txt (line-by-line differences), ringbuffer-backend.txt (last 256KB sent by backend), ringbuffer-frontend.txt (last 256KB received by frontend). Analyze the diffs and ring buffers to identify the root cause of any visual discrepancies between tmux and xterm.js.`;
 
     try {
       const response = await spawnSessions({
