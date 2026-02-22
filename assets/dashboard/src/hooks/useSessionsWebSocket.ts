@@ -11,6 +11,110 @@ import type {
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
+// --- Runtime type guards for WebSocket messages ---
+
+function isString(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+function isBoolean(v: unknown): v is boolean {
+  return typeof v === 'boolean';
+}
+
+function isNumber(v: unknown): v is number {
+  return typeof v === 'number';
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isSessionsMessage(
+  data: Record<string, unknown>
+): data is { type: 'sessions'; workspaces: WorkspaceResponse[] } {
+  return data.type === 'sessions' && Array.isArray(data.workspaces);
+}
+
+function isLinearSyncMessage(
+  data: Record<string, unknown>
+): data is { type: 'linear_sync_resolve_conflict'; workspace_id: string; status: string } & Record<
+  string,
+  unknown
+> {
+  return data.type === 'linear_sync_resolve_conflict' && isString(data.workspace_id);
+}
+
+function isWorkspaceLockedMessage(data: Record<string, unknown>): data is {
+  type: 'workspace_locked';
+  workspace_id: string;
+  locked: boolean;
+  sync_progress?: { current: number; total: number };
+  sync_result?: {
+    success?: boolean;
+    success_count?: number;
+    conflicting_hash?: string;
+    branch?: string;
+    message?: string;
+  };
+} {
+  return data.type === 'workspace_locked' && isString(data.workspace_id) && isBoolean(data.locked);
+}
+
+function isOverlayChangeMessage(
+  data: Record<string, unknown>
+): data is OverlayChangeEvent & Record<string, unknown> {
+  return (
+    data.type === 'overlay_change' && isString(data.rel_path) && isString(data.source_workspace_id)
+  );
+}
+
+function isRemoteAccessMessage(
+  data: Record<string, unknown>
+): data is { type: 'remote_access_status'; data: RemoteAccessStatus } {
+  return (
+    data.type === 'remote_access_status' &&
+    isObject(data.data) &&
+    isString((data.data as Record<string, unknown>).state)
+  );
+}
+
+function isPendingNavigationMessage(
+  data: Record<string, unknown>
+): data is { type: 'pending_navigation'; navType: 'preview'; id1: string; id2: string } {
+  return (
+    data.type === 'pending_navigation' &&
+    data.navType === 'preview' &&
+    isString(data.id1) &&
+    isString(data.id2)
+  );
+}
+
+function parseSyncProgress(v: unknown): { current: number; total: number } | undefined {
+  if (!isObject(v)) return undefined;
+  if (!isNumber(v.current) || !isNumber(v.total)) return undefined;
+  return { current: v.current, total: v.total };
+}
+
+function parseSyncResult(v: unknown):
+  | {
+      success: boolean;
+      success_count?: number;
+      conflicting_hash?: string;
+      branch?: string;
+      message?: string;
+    }
+  | undefined {
+  if (!isObject(v)) return undefined;
+  if (!isBoolean(v.success)) return undefined;
+  return {
+    success: v.success,
+    success_count: isNumber(v.success_count) ? v.success_count : undefined,
+    conflicting_hash: isString(v.conflicting_hash) ? v.conflicting_hash : undefined,
+    branch: isString(v.branch) ? v.branch : undefined,
+    message: isString(v.message) ? v.message : undefined,
+  };
+}
+
 type SessionsWebSocketState = {
   workspaces: WorkspaceResponse[];
   connected: boolean;
@@ -87,48 +191,37 @@ export default function useSessionsWebSocket(opts?: {
       if (!mountedRef.current) return;
       try {
         const raw = event.data as string;
-        const data = JSON.parse(raw);
-        // Handle different message types
-        if (data.type === 'sessions' && data.workspaces) {
-          // Structural sharing: skip update if data hasn't changed.
-          // Raw string comparison avoids React re-render cascade when
-          // the WebSocket broadcasts identical state.
+        const data = JSON.parse(raw) as Record<string, unknown>;
+        if (!isObject(data) || !isString(data.type)) return;
+
+        if (isSessionsMessage(data)) {
           if (raw !== lastSessionsMsgRef.current) {
             lastSessionsMsgRef.current = raw;
             setWorkspaces(data.workspaces);
           }
           setLoading(false);
-        } else if (data.type === 'linear_sync_resolve_conflict' && data.workspace_id) {
-          const wsId = data.workspace_id as string;
+        } else if (isLinearSyncMessage(data)) {
+          const wsId = data.workspace_id;
           if (dismissedCrStatesRef.current.has(wsId)) {
-            // A new in_progress state means a genuinely new conflict resolution —
-            // clear the dismissal so the tab reappears.
             if (data.status === 'in_progress') {
               dismissedCrStatesRef.current.delete(wsId);
             } else {
-              // Stale completed/failed state re-broadcast; ignore it.
               return;
             }
           }
           setLinearSyncResolveConflictStates((prev) => ({
             ...prev,
-            [wsId]: data,
+            [wsId]: data as unknown as LinearSyncResolveConflictStatePayload,
           }));
-        } else if (data.type === 'workspace_locked' && data.workspace_id) {
-          const wsId = data.workspace_id as string;
-          const locked = data.locked as boolean;
+        } else if (isWorkspaceLockedMessage(data)) {
+          const wsId = data.workspace_id;
+          const locked = data.locked;
           if (locked) {
-            const syncProgress = data.sync_progress
-              ? {
-                  current: data.sync_progress.current as number,
-                  total: data.sync_progress.total as number,
-                }
-              : undefined;
+            const syncProgress = parseSyncProgress(data.sync_progress);
             setWorkspaceLockStates((prev) => ({
               ...prev,
               [wsId]: { locked: true, syncProgress: syncProgress ?? prev[wsId]?.syncProgress },
             }));
-            // Optimistically decrement git_behind as each rebase step completes
             if (syncProgress) {
               const remaining = syncProgress.total - syncProgress.current;
               setWorkspaces((prevWs) =>
@@ -139,7 +232,6 @@ export default function useSessionsWebSocket(opts?: {
             setWorkspaceLockStates((prev) => {
               const prevLock = prev[wsId];
               if (!prevLock) return prev;
-              // Final optimistic update from last known progress
               if (prevLock.syncProgress) {
                 const remaining = prevLock.syncProgress.total - prevLock.syncProgress.current;
                 setWorkspaces((prevWs) =>
@@ -151,22 +243,14 @@ export default function useSessionsWebSocket(opts?: {
               return next;
             });
 
-            const rawSyncResult = data.sync_result as
-              | {
-                  success?: boolean;
-                  success_count?: number;
-                  conflicting_hash?: string;
-                  branch?: string;
-                  message?: string;
-                }
-              | undefined;
-            if (rawSyncResult && typeof rawSyncResult.success === 'boolean') {
+            const rawSyncResult = parseSyncResult(data.sync_result);
+            if (rawSyncResult) {
               setSyncResultEvents((prev) => [
                 ...prev,
                 {
                   id: `${wsId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
                   workspace_id: wsId,
-                  success: rawSyncResult.success!,
+                  success: rawSyncResult.success,
                   success_count: rawSyncResult.success_count,
                   conflicting_hash: rawSyncResult.conflicting_hash,
                   branch: rawSyncResult.branch,
@@ -175,12 +259,12 @@ export default function useSessionsWebSocket(opts?: {
               ]);
             }
           }
-        } else if (data.type === 'overlay_change') {
+        } else if (isOverlayChangeMessage(data)) {
           setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
-        } else if (data.type === 'remote_access_status' && data.data) {
-          setRemoteAccessStatus(data.data as RemoteAccessStatus);
-        } else if (data.type === 'pending_navigation' && data.navType === 'preview') {
-          onPreviewDetectedRef.current?.(data.id1 as string, data.id2 as string);
+        } else if (isRemoteAccessMessage(data)) {
+          setRemoteAccessStatus(data.data);
+        } else if (isPendingNavigationMessage(data)) {
+          onPreviewDetectedRef.current?.(data.id1, data.id2);
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
