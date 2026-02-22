@@ -47,6 +47,7 @@ export interface ConfigResponse {
   access_control: AccessControl;
   pr_review: PrReview;
   commit_message: CommitMessage;
+  desync: Desync;
   notifications: Notifications;
   lore: Lore;
   remote_access: RemoteAccess;
@@ -70,6 +71,7 @@ export interface ConfigUpdateRequest {
   access_control?: AccessControlUpdate;
   pr_review?: PrReviewUpdate;
   commit_message?: CommitMessageUpdate;
+  desync?: DesyncUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   remote_access?: RemoteAccessUpdate;
@@ -84,6 +86,16 @@ export interface ConflictResolve {
 export interface ConflictResolveUpdate {
   target?: string;
   timeout_ms?: number;
+}
+
+export interface Desync {
+  enabled: boolean;
+  target: string;
+}
+
+export interface DesyncUpdate {
+  enabled?: boolean;
+  target?: string;
 }
 
 export interface ExternalDiffCommand {

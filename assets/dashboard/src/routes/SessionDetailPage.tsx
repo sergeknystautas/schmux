@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
-import { updateNickname, disposeSession, reconnectRemoteHost, getErrorMessage } from '../lib/api';
+import {
+  updateNickname,
+  disposeSession,
+  reconnectRemoteHost,
+  spawnSessions,
+  getErrorMessage,
+} from '../lib/api';
 import { copyToClipboard, formatRelativeTime, formatTimestamp } from '../lib/utils';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -16,7 +22,6 @@ import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import ConnectionProgressModal from '../components/ConnectionProgressModal';
 import { StreamMetricsPanel, type BackendStats } from '../components/StreamMetricsPanel';
-import useVersionInfo from '../hooks/useVersionInfo';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -27,6 +32,7 @@ export default function SessionDetailPage() {
     loading: sessionsLoading,
     error: sessionsError,
     ackSession,
+    waitForSession,
   } = useSessions();
   const navigate = useNavigate();
   const [wsStatus, setWsStatus] = useState<
@@ -51,7 +57,6 @@ export default function SessionDetailPage() {
   const { prompt, confirm } = useModal();
   const { markAsViewed } = useViewedSessions();
   const { registerAction, unregisterAction } = useKeyboardMode();
-  const { versionInfo } = useVersionInfo();
   const [backendStats, setBackendStats] = useState<BackendStats | null>(null);
   const [frontendStats, setFrontendStats] = useState<{
     framesReceived: number;
@@ -146,14 +151,77 @@ export default function SessionDetailPage() {
     };
   }, [sessionData?.id, remoteDisconnected]);
 
-  // Enable diagnostics in dev mode — separate effect to avoid recreating terminal
+  // Ref for diagnostic completion handler to avoid stale closures in the diagnostics effect
+  const diagnosticCompleteRef = useRef<
+    (result: { diagDir: string; verdict: string; findings: string[] }) => void
+  >(() => {});
+
+  diagnosticCompleteRef.current = async (result: {
+    diagDir: string;
+    verdict: string;
+    findings: string[];
+  }) => {
+    success(`Diagnostic captured: ${result.verdict} (${result.diagDir})`);
+
+    // Determine target for diagnostic agent
+    const diagTarget = config.desync?.target || '';
+    let target = diagTarget;
+    if (!target) {
+      // Fall back to first promptable run target
+      const promptable = config.run_targets?.find((t) => t.type === 'promptable');
+      target = promptable?.name || '';
+    }
+
+    // Find the workspace for this session
+    const ws = workspaces?.find((w) => w.id === sessionData?.workspace_id);
+    if (!target || !ws) {
+      // No target or workspace — just show toast with path
+      if (!target) {
+        success(`Diagnostic files saved to ${result.diagDir}`);
+      }
+      return;
+    }
+
+    // Build diagnostic prompt
+    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. The directory contains: index.json (pipeline counters and automated findings), screen-tmux.txt (what tmux shows), screen-xterm.txt (what xterm.js renders), screen-diff.txt (line-by-line differences), ringbuffer-backend.txt (last 256KB sent by backend), ringbuffer-frontend.txt (last 256KB received by frontend). Analyze the diffs and ring buffers to identify the root cause of any visual discrepancies between tmux and xterm.js.`;
+
+    try {
+      const response = await spawnSessions({
+        repo: ws.repo,
+        branch: ws.branch,
+        prompt,
+        nickname: 'diagnose',
+        targets: { [target]: 1 },
+        workspace_id: ws.id,
+      });
+
+      const spawnResult = response[0];
+      if (spawnResult.error) {
+        toastError(`Failed to spawn diagnostic agent: ${spawnResult.error}`);
+        return;
+      }
+
+      success('Spawned diagnostic agent');
+      if (spawnResult.session_id) {
+        await waitForSession(spawnResult.session_id);
+        navigate(`/sessions/${spawnResult.session_id}`);
+      }
+    } catch (err) {
+      toastError(`Failed to spawn diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
+    }
+  };
+
+  // Enable diagnostics when desync diagnostics are enabled in config
   useEffect(() => {
     const stream = terminalStreamRef.current;
-    if (!stream || !versionInfo?.dev_mode) return;
+    if (!stream || !config.desync?.enabled) return;
 
     stream.enableDiagnostics();
     stream.onStatsUpdate = (stats) => {
       setBackendStats(stats as unknown as BackendStats);
+    };
+    stream.onDiagnosticComplete = (result) => {
+      diagnosticCompleteRef.current(result);
     };
 
     const interval = setInterval(() => {
@@ -168,8 +236,13 @@ export default function SessionDetailPage() {
       }
     }, 3000);
 
-    return () => clearInterval(interval);
-  }, [versionInfo?.dev_mode, sessionData?.id]);
+    return () => {
+      clearInterval(interval);
+      stream.disableDiagnostics();
+      setBackendStats(null);
+      setFrontendStats(null);
+    };
+  }, [config.desync?.enabled, sessionData?.id]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
@@ -515,7 +588,7 @@ export default function SessionDetailPage() {
                       </a>
                     </Tooltip>
                   )}
-                  {versionInfo?.dev_mode && (
+                  {config.desync?.enabled && (
                     <StreamMetricsPanel
                       backendStats={backendStats}
                       frontendStats={frontendStats}

@@ -93,6 +93,8 @@ type ConfigSnapshot = {
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
   remoteAccessNotifyCommand: string;
+  desyncEnabled: boolean;
+  desyncTarget: string;
 };
 
 type RunTargetEditModalState = {
@@ -213,6 +215,10 @@ export default function ConfigPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
+  // Desync diagnostics state
+  const [desyncEnabled, setDesyncEnabled] = useState(false);
+  const [desyncTarget, setDesyncTarget] = useState('');
+
   // Overlays state
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [loadingOverlays, setLoadingOverlays] = useState(true);
@@ -265,6 +271,8 @@ export default function ConfigPage() {
       remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic,
       remoteAccessNotifyCommand,
+      desyncEnabled,
+      desyncTarget,
     };
 
     // Deep comparison for arrays
@@ -311,7 +319,9 @@ export default function ConfigPage() {
       current.remoteAccessEnabled !== originalConfig.remoteAccessEnabled ||
       current.remoteAccessTimeoutMinutes !== originalConfig.remoteAccessTimeoutMinutes ||
       current.remoteAccessNtfyTopic !== originalConfig.remoteAccessNtfyTopic ||
-      current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand
+      current.remoteAccessNotifyCommand !== originalConfig.remoteAccessNotifyCommand ||
+      current.desyncEnabled !== originalConfig.desyncEnabled ||
+      current.desyncTarget !== originalConfig.desyncTarget
     );
   };
 
@@ -430,6 +440,8 @@ export default function ConfigPage() {
         setRemoteAccessNtfyTopic(data.remote_access?.notify?.ntfy_topic || '');
         setRemoteAccessNotifyCommand(data.remote_access?.notify?.command || '');
         setRemoteAccessPasswordHashSet(data.remote_access?.password_hash_set || false);
+        setDesyncEnabled(data.desync?.enabled || false);
+        setDesyncTarget(data.desync?.target || '');
 
         // Set original config for change detection (non-wizard mode)
         if (!isFirstRun) {
@@ -476,6 +488,8 @@ export default function ConfigPage() {
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
+            desyncEnabled: data.desync?.enabled || false,
+            desyncTarget: data.desync?.target || '',
           });
         }
 
@@ -681,6 +695,10 @@ export default function ConfigPage() {
             command: remoteAccessNotifyCommand,
           },
         },
+        desync: {
+          enabled: desyncEnabled,
+          target: desyncTarget || '',
+        },
       };
 
       const result = await updateConfig(updateRequest);
@@ -735,6 +753,8 @@ export default function ConfigPage() {
           remoteAccessTimeoutMinutes,
           remoteAccessNtfyTopic,
           remoteAccessNotifyCommand,
+          desyncEnabled,
+          desyncTarget,
         });
       }
 
@@ -2879,6 +2899,75 @@ export default function ConfigPage() {
                       />
                       <p className="form-group__hint">How often to check for session activity</p>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">Terminal Desync Diagnostics</h3>
+                </div>
+                <div className="settings-section__body">
+                  <div className="form-group">
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-xs)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={desyncEnabled}
+                        onChange={(e) => setDesyncEnabled(e.target.checked)}
+                      />
+                      Enable terminal desync diagnostics
+                    </label>
+                    <p className="form-group__hint">
+                      When enabled, the terminal viewer shows pipeline metrics and a capture button
+                      to diagnose visual discrepancies between tmux and xterm.js.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-group__label">Target</label>
+                    <select
+                      className="input"
+                      value={desyncTarget}
+                      onChange={(e) => setDesyncTarget(e.target.value)}
+                      disabled={!desyncEnabled}
+                    >
+                      <option value="">None (capture only)</option>
+                      <optgroup label="Detected Tools">
+                        {detectedTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Models">
+                        {models
+                          .filter((model) => model.configured)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.display_name}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="User Promptable">
+                        {promptableTargets.map((target) => (
+                          <option key={target.name} value={target.name}>
+                            {target.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="form-group__hint">
+                      When a target is selected, a diagnostic capture will automatically spawn an
+                      agent session to analyze the captured data. Leave as &quot;None&quot; to
+                      capture files without spawning an agent.
+                    </p>
                   </div>
                 </div>
               </div>

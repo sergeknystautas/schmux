@@ -130,10 +130,17 @@ type ConfigResponse struct {
 	AccessControl              AccessControl         `json:"access_control"`
 	PrReview                   PrReview              `json:"pr_review"`
 	CommitMessage              CommitMessage         `json:"commit_message"`
+	Desync                     Desync                `json:"desync"`
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
 	NeedsRestart               bool                  `json:"needs_restart"`
+}
+
+// Desync represents desync diagnostic capture configuration in the API response.
+type Desync struct {
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
 }
 
 // PrReview represents PR review configuration in the API response.
@@ -223,10 +230,17 @@ type ConfigUpdateRequest struct {
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
 	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
+	Desync                     *DesyncUpdate          `json:"desync,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
+}
+
+// DesyncUpdate represents partial desync diagnostic config updates.
+type DesyncUpdate struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Target  *string `json:"target,omitempty"`
 }
 
 // PrReviewUpdate represents partial PR review config updates.
