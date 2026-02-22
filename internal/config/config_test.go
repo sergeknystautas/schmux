@@ -1851,3 +1851,126 @@ func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 		t.Errorf("BarePath = %q, want %q (should not be overwritten)", cfg.Repos[0].BarePath, "custom/path.git")
 	}
 }
+
+func TestValidate_NegativeCases(t *testing.T) {
+	prompt := "do something"
+
+	tests := []struct {
+		name         string
+		cfg          Config
+		wantContains string
+	}{
+		// validateRunTargets errors
+		{
+			name: "empty run target name",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+			},
+			wantContains: "name is required",
+		},
+		{
+			name: "missing command",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "my-agent", Type: RunTargetTypePromptable, Command: ""},
+				},
+			},
+			wantContains: "command is required",
+		},
+		{
+			name: "invalid type",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "my-agent", Type: "bogus", Command: "echo hi"},
+				},
+			},
+			wantContains: "invalid type",
+		},
+		{
+			name: "duplicate target names",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo a"},
+					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo b"},
+				},
+			},
+			wantContains: "duplicate run target name",
+		},
+		// validateQuickLaunch errors
+		{
+			name: "empty quick launch name",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+				QuickLaunch: []QuickLaunch{
+					{Name: "", Target: "agent", Prompt: &prompt},
+				},
+			},
+			wantContains: "name is required",
+		},
+		{
+			name: "duplicate quick launch names",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+				QuickLaunch: []QuickLaunch{
+					{Name: "preset", Target: "agent", Prompt: &prompt},
+					{Name: "preset", Target: "agent", Prompt: &prompt},
+				},
+			},
+			wantContains: "duplicate quick launch name",
+		},
+		{
+			name: "empty target in quick launch",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+				QuickLaunch: []QuickLaunch{
+					{Name: "preset", Target: "", Prompt: &prompt},
+				},
+			},
+			wantContains: "target is required",
+		},
+		{
+			name: "target not found in quick launch",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+				QuickLaunch: []QuickLaunch{
+					{Name: "preset", Target: "nonexistent", Prompt: &prompt},
+				},
+			},
+			wantContains: "target not found",
+		},
+		{
+			name: "promptable target without prompt in quick launch",
+			cfg: Config{
+				RunTargets: []RunTarget{
+					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+				},
+				QuickLaunch: []QuickLaunch{
+					{Name: "preset", Target: "agent"},
+				},
+			},
+			wantContains: "requires prompt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantContains)
+			}
+			if !strings.Contains(err.Error(), tt.wantContains) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.wantContains)
+			}
+		})
+	}
+}
