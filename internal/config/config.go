@@ -1170,7 +1170,7 @@ func (c *Config) Save() error {
 	// Ensure the directory exists
 	schmuxDir := filepath.Dir(configPath)
 	if schmuxDir != "." && schmuxDir != "" {
-		if err := os.MkdirAll(schmuxDir, 0755); err != nil {
+		if err := os.MkdirAll(schmuxDir, 0700); err != nil {
 			return fmt.Errorf("failed to create config directory: %w", err)
 		}
 	}
