@@ -42,12 +42,11 @@ func TestNewSendsEvents(t *testing.T) {
 	posthogEndpoint = server.URL
 
 	client := New("").(*Client)
-	defer client.Shutdown()
 
 	client.Track("test_event", map[string]any{"foo": "bar"})
 
-	// Wait for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Shutdown flushes all pending events before returning
+	client.Shutdown()
 
 	received.mu.Lock()
 	defer received.mu.Unlock()
@@ -86,12 +85,11 @@ func TestGeneratesInstallIDWhenEmpty(t *testing.T) {
 	posthogEndpoint = server.URL
 
 	client := New("").(*Client)
-	defer client.Shutdown()
 
 	client.Track("test_event", map[string]any{"foo": "bar"})
 
-	// Wait for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Shutdown flushes all pending events before returning
+	client.Shutdown()
 
 	received.mu.Lock()
 	defer received.mu.Unlock()
@@ -132,7 +130,6 @@ func TestTrackSendsEvent(t *testing.T) {
 	posthogEndpoint = server.URL
 
 	client := New("test-install-id").(*Client)
-	defer client.Shutdown()
 
 	client.Track("workspace_created", map[string]any{
 		"workspace_id": "ws-001",
@@ -140,8 +137,8 @@ func TestTrackSendsEvent(t *testing.T) {
 		"branch":       "main",
 	})
 
-	// Wait for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Shutdown flushes all pending events before returning
+	client.Shutdown()
 
 	received.mu.Lock()
 	defer received.mu.Unlock()
