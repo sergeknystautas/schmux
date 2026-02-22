@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useId } from 'react';
+import React, { useState, useRef, useEffect, useId, useCallback } from 'react';
 
 /**
  * Tooltip Component
@@ -165,9 +165,23 @@ export default function Tooltip({
     };
   }, []);
 
+  // Merge our triggerRef with any existing ref on the child element
+  const mergedRef = useCallback(
+    (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      const childRef = (children as React.ReactElement & { ref?: React.Ref<HTMLElement> }).ref;
+      if (typeof childRef === 'function') {
+        childRef(node);
+      } else if (childRef && typeof childRef === 'object') {
+        (childRef as React.MutableRefObject<HTMLElement | null>).current = node;
+      }
+    },
+    [children]
+  );
+
   // Clone child and add event handlers
   const trigger = React.cloneElement(children, {
-    ref: triggerRef,
+    ref: mergedRef,
     onMouseEnter: showTooltip,
     onMouseLeave: hideTooltip,
     onFocus: showTooltip,
