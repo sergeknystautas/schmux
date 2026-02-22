@@ -68,6 +68,13 @@ export default function SessionDetailPage() {
     recentBreaks: SequenceBreakRecord[];
   } | null>(null);
 
+  // Use a ref for desync config so the terminal effect can read the latest value
+  // without adding config to its dependency array (which would cause terminal re-creation).
+  const desyncEnabledRef = useRef(config.desync?.enabled ?? false);
+  useEffect(() => {
+    desyncEnabledRef.current = config.desync?.enabled ?? false;
+  }, [config.desync?.enabled]);
+
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
@@ -126,6 +133,11 @@ export default function SessionDetailPage() {
     }
   }, [sessionData?.id, markAsViewed, ackSession]);
 
+  // Ref for diagnostic completion handler to avoid stale closures
+  const diagnosticCompleteRef = useRef<
+    (result: { diagDir: string; verdict: string; findings: string[] }) => void
+  >(() => {});
+
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
     // Don't create terminal stream while remote host is disconnected
@@ -152,20 +164,47 @@ export default function SessionDetailPage() {
     terminalStreamRef.current = terminalStream;
     setFollowTail(true);
 
+    // Enable diagnostics on the same stream instance to avoid stale-closure issues.
+    // Use ref for desync config so this effect doesn't depend on config changes.
+    let diagnosticsInterval: ReturnType<typeof setInterval> | null = null;
+    if (desyncEnabledRef.current) {
+      terminalStream.enableDiagnostics();
+      terminalStream.onStatsUpdate = (stats) => {
+        setBackendStats(stats as unknown as BackendStats);
+      };
+      terminalStream.onDiagnosticComplete = (result) => {
+        diagnosticCompleteRef.current(result);
+      };
+
+      diagnosticsInterval = setInterval(() => {
+        const diag = terminalStream.diagnostics;
+        if (diag) {
+          setFrontendStats({
+            framesReceived: diag.framesReceived,
+            bytesReceived: diag.bytesReceived,
+            bootstrapCount: diag.bootstrapCount,
+            sequenceBreaks: diag.sequenceBreaks,
+            recentBreaks: diag.recentBreaks,
+          });
+        }
+      }, 3000);
+    }
+
     terminalStream.initialized.then(() => {
       terminalStream.connect();
       terminalStream.focus();
     });
 
     return () => {
+      if (diagnosticsInterval) {
+        clearInterval(diagnosticsInterval);
+      }
+      terminalStream.disableDiagnostics();
       terminalStream.disconnect();
+      setBackendStats(null);
+      setFrontendStats(null);
     };
   }, [sessionData?.id, remoteDisconnected]);
-
-  // Ref for diagnostic completion handler to avoid stale closures in the diagnostics effect
-  const diagnosticCompleteRef = useRef<
-    (result: { diagDir: string; verdict: string; findings: string[] }) => void
-  >(() => {});
 
   diagnosticCompleteRef.current = async (result: {
     diagDir: string;
@@ -221,40 +260,6 @@ export default function SessionDetailPage() {
       toastError(`Failed to spawn diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
     }
   };
-
-  // Enable diagnostics when desync diagnostics are enabled in config
-  useEffect(() => {
-    const stream = terminalStreamRef.current;
-    if (!stream || !config.desync?.enabled) return;
-
-    stream.enableDiagnostics();
-    stream.onStatsUpdate = (stats) => {
-      setBackendStats(stats as unknown as BackendStats);
-    };
-    stream.onDiagnosticComplete = (result) => {
-      diagnosticCompleteRef.current(result);
-    };
-
-    const interval = setInterval(() => {
-      const diag = stream.diagnostics;
-      if (diag) {
-        setFrontendStats({
-          framesReceived: diag.framesReceived,
-          bytesReceived: diag.bytesReceived,
-          bootstrapCount: diag.bootstrapCount,
-          sequenceBreaks: diag.sequenceBreaks,
-          recentBreaks: diag.recentBreaks,
-        });
-      }
-    }, 3000);
-
-    return () => {
-      clearInterval(interval);
-      stream.disableDiagnostics();
-      setBackendStats(null);
-      setFrontendStats(null);
-    };
-  }, [config.desync?.enabled, sessionData?.id]);
 
   useEffect(() => {
     if (!sessionData?.id) return;
