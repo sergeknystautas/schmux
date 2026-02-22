@@ -375,6 +375,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		// Don't fail daemon startup for this
 	}
 
+	// Ensure git excludes for daemon-managed files in all workspaces
+	if err := wm.EnsureAllGitExcludes(); err != nil {
+		fmt.Printf("[workspace] warning: failed to ensure git excludes: %v\n", err)
+	}
+
 	// Detect run targets once on daemon start and persist to config
 	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)

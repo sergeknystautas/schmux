@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -88,6 +89,9 @@ func Workspace(workspacePath string) error {
 	}
 	if err := LoreHookScripts(workspacePath); err != nil {
 		fmt.Printf("[ensure] warning: failed to ensure lore hook scripts: %v\n", err)
+	}
+	if err := GitExclude(workspacePath); err != nil {
+		fmt.Printf("[ensure] warning: failed to ensure git exclude: %v\n", err)
 	}
 	return nil
 }
@@ -536,6 +540,118 @@ var captureFailureScript []byte
 
 //go:embed hooks/stop-gate.sh
 var stopGateScript []byte
+
+// Markers for the schmux-managed block in .git/info/exclude (gitignore comment syntax).
+const (
+	excludeMarkerStart = "# SCHMUX:BEGIN - managed by schmux, do not edit"
+	excludeMarkerEnd   = "# SCHMUX:END"
+)
+
+// excludePatterns are the gitignore patterns managed by schmux.
+// These cover daemon-written files that should not appear in git status.
+var excludePatterns = []string{
+	".schmux/signal/",
+	".schmux/hooks/",
+	".schmux/lore.jsonl",
+}
+
+// buildExcludeBlock builds the full schmux exclude block with markers.
+func buildExcludeBlock() string {
+	var b strings.Builder
+	b.WriteString(excludeMarkerStart)
+	b.WriteByte('\n')
+	for _, p := range excludePatterns {
+		b.WriteString(p)
+		b.WriteByte('\n')
+	}
+	b.WriteString(excludeMarkerEnd)
+	b.WriteByte('\n')
+	return b.String()
+}
+
+// GitExclude ensures that daemon-managed .schmux/ paths are excluded from
+// git status by writing patterns to .git/info/exclude (or the shared git
+// dir's info/exclude for worktrees).
+func GitExclude(workspacePath string) error {
+	// Resolve the shared git directory (handles both full clones and worktrees).
+	cmd := exec.Command("git", "-C", workspacePath, "rev-parse", "--git-common-dir")
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("git rev-parse --git-common-dir failed: %w", err)
+	}
+	gitCommonDir := strings.TrimSpace(string(out))
+
+	// git returns a relative path for full clones (e.g. ".git"),
+	// and an absolute path for worktrees.
+	if !filepath.IsAbs(gitCommonDir) {
+		gitCommonDir = filepath.Join(workspacePath, gitCommonDir)
+	}
+
+	excludePath := filepath.Join(gitCommonDir, "info", "exclude")
+	return ensureExcludeEntries(excludePath)
+}
+
+// ensureExcludeEntries ensures the schmux exclude block is present and
+// up-to-date in the given exclude file. It creates the file and parent
+// directories if they don't exist, preserves existing user entries, and
+// is idempotent (running twice produces an identical file).
+func ensureExcludeEntries(excludePath string) error {
+	block := buildExcludeBlock()
+
+	// Ensure parent directory exists.
+	if err := os.MkdirAll(filepath.Dir(excludePath), 0755); err != nil {
+		return fmt.Errorf("failed to create info directory: %w", err)
+	}
+
+	// Read existing file (empty if it doesn't exist yet).
+	content, err := os.ReadFile(excludePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read exclude file: %w", err)
+	}
+	existing := string(content)
+
+	var newContent string
+	if strings.Contains(existing, excludeMarkerStart) {
+		// Replace existing schmux block.
+		newContent = replaceExcludeBlock(existing, block)
+	} else {
+		// Append block, ensuring a blank line separator.
+		newContent = existing
+		if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
+			newContent += "\n"
+		}
+		if len(newContent) > 0 {
+			newContent += "\n"
+		}
+		newContent += block
+	}
+
+	// Skip write if content is unchanged.
+	if newContent == existing {
+		return nil
+	}
+
+	return os.WriteFile(excludePath, []byte(newContent), 0644)
+}
+
+// replaceExcludeBlock replaces the schmux block (between markers, inclusive)
+// in the given content with the new block.
+func replaceExcludeBlock(content, newBlock string) string {
+	startIdx := strings.Index(content, excludeMarkerStart)
+	endIdx := strings.Index(content, excludeMarkerEnd)
+
+	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
+		return content
+	}
+
+	// Include the end marker and trailing newline.
+	endIdx += len(excludeMarkerEnd)
+	if endIdx < len(content) && content[endIdx] == '\n' {
+		endIdx++
+	}
+
+	return content[:startIdx] + newBlock + content[endIdx:]
+}
 
 // LoreHookScripts writes the lore hook scripts to <workspace>/.schmux/hooks/.
 func LoreHookScripts(workspacePath string) error {
