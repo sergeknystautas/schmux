@@ -61,6 +61,9 @@ type WorkspaceResponseItem struct {
 	ConflictOnBranch         string                `json:"conflict_on_branch,omitempty"` // Branch where sync conflict was detected
 	CommitsSyncedWithRemote  bool                  `json:"commits_synced_with_remote"`   // true if local HEAD matches origin/{branch}
 	GitDefaultBranchOrphaned bool                  `json:"git_default_branch_orphaned"`  // true if origin/default has no common ancestor with HEAD
+	RemoteBranchExists       bool                  `json:"remote_branch_exists"`         // true if origin/{branch} exists
+	LocalUniqueCommits       int                   `json:"local_unique_commits"`         // commits in local not in remote
+	RemoteUniqueCommits      int                   `json:"remote_unique_commits"`        // commits in remote not in local
 	Previews                 []previewResponse     `json:"previews,omitempty"`
 }
 
@@ -154,6 +157,9 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			ConflictOnBranch:         conflictOnBranch,
 			CommitsSyncedWithRemote:  ws.CommitsSyncedWithRemote,
 			GitDefaultBranchOrphaned: ws.GitDefaultBranchOrphaned,
+			RemoteBranchExists:       ws.RemoteBranchExists,
+			LocalUniqueCommits:       ws.LocalUniqueCommits,
+			RemoteUniqueCommits:      ws.RemoteUniqueCommits,
 			Previews:                 []previewResponse{},
 		}
 		if s.previewManager != nil {
