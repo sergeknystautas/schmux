@@ -130,7 +130,7 @@ func SaveSecretsFile(secrets *SecretsFile) error {
 		return fmt.Errorf("failed to marshal secrets: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
