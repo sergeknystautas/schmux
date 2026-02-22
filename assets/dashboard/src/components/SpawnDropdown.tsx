@@ -112,8 +112,8 @@ export default function SpawnDropdown({
         toastError(`Failed to spawn ${name}: ${result.error}`);
       } else {
         success(`Spawned ${name} session`);
-        await waitForSession(result.session_id);
-        navigate(`/sessions/${result.session_id}`);
+        await waitForSession(result.session_id!);
+        navigate(`/sessions/${result.session_id!}`);
       }
     } catch (err) {
       toastError(`Failed to spawn: ${getErrorMessage(err, 'Unknown error')}`);

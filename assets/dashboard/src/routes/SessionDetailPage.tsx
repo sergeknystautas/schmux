@@ -347,7 +347,7 @@ export default function SessionDetailPage() {
 
   const handleEditNickname = async () => {
     if (!sessionId || !sessionData) return;
-    let newNickname = sessionData.nickname || '';
+    let newNickname: string | null = sessionData.nickname || '';
     let errorMessage = '';
 
     // Keep prompting until successful or cancelled
@@ -464,6 +464,9 @@ export default function SessionDetailPage() {
       </>
     );
   }
+
+  // At this point sessionData is guaranteed non-null by the early returns above
+  if (!sessionData) return null;
 
   const statusClass = sessionData.running ? 'status-pill--running' : 'status-pill--stopped';
   const statusText = sessionData.running ? 'Running' : 'Stopped';
