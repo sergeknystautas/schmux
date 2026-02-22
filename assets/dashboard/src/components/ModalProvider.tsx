@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 type ModalBase = {
   title: string;
@@ -56,6 +57,9 @@ export function useModal() {
 
 export default function ModalProvider({ children }: { children: React.ReactNode }) {
   const [modal, setModal] = useState<ModalState | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalRef, !!modal);
 
   const show = (title: string, message: string, options: ModalOptionsInput = {}) =>
     new Promise<boolean | null>((resolve) => {
@@ -152,7 +156,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
           aria-modal="true"
           aria-labelledby="modal-title"
         >
-          <div className={`modal${modal.wide ? ' modal--wide' : ''}`}>
+          <div ref={modalRef} className={`modal${modal.wide ? ' modal--wide' : ''}`}>
             <div className="modal__header">
               <h2 className="modal__title" id="modal-title">
                 {modal.title}

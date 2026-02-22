@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import '@xterm/xterm/css/xterm.css';
 import { getRemoteHosts } from '../lib/api';
 import type { RemoteHost } from '../lib/types';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 interface ConnectionProgressModalProps {
   flavorId: string;
@@ -26,6 +27,8 @@ export default function ConnectionProgressModal({
   >('provisioning');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const terminalRef = useRef<HTMLDivElement>(null);
+  const noSessionModalRef = useRef<HTMLDivElement>(null);
+  const mainModalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -35,6 +38,9 @@ export default function ConnectionProgressModal({
   // Use ref to avoid stale closure issues with onConnected callback
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
+
+  useFocusTrap(noSessionModalRef, !provisioningSessionId);
+  useFocusTrap(mainModalRef, !!provisioningSessionId);
 
   // Initialize terminal and WebSocket
   useEffect(() => {
@@ -299,7 +305,12 @@ export default function ConnectionProgressModal({
   if (!provisioningSessionId) {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div
+          ref={noSessionModalRef}
+          className="modal"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '500px' }}
+        >
           <div
             className="modal__header"
             style={{
@@ -366,6 +377,7 @@ export default function ConnectionProgressModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
+        ref={mainModalRef}
         className="modal"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '900px', maxHeight: '80vh' }}
