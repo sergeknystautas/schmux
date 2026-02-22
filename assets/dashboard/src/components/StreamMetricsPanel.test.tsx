@@ -187,4 +187,60 @@ describe('StreamMetricsPanel', () => {
     // 1500000B should render as "1.5MB"
     expect(screen.getByText('1.5MB')).toBeTruthy();
   });
+
+  it('renders frame size histogram when stats present and panel expanded', () => {
+    render(
+      <StreamMetricsPanel
+        backendStats={{
+          eventsDelivered: 100,
+          eventsDropped: 0,
+          bytesDelivered: 50000,
+          controlModeReconnects: 0,
+        }}
+        frontendStats={{
+          framesReceived: 50,
+          bytesReceived: 25000,
+          bootstrapCount: 1,
+          sequenceBreaks: 0,
+          frameSizeStats: { count: 50, median: 256, p90: 1024, max: 4096 },
+          frameSizeDist: {
+            buckets: [10, 8, 6, 4, 3, 2, 2, 1, 1, 1],
+            maxCount: 10,
+            maxBytes: 1024,
+          },
+        }}
+      />
+    );
+
+    // Expand the dropdown
+    fireEvent.click(screen.getByText(/50 frames/));
+
+    // Frame size stats row should not be a separate text row — only histogram
+    expect(screen.queryByText(/Frame sizes/)).toBeNull();
+
+    // Histogram should render
+    expect(screen.getByTestId('frame-size-histogram')).toBeTruthy();
+  });
+
+  it('does not render frame size histogram when stats are absent', () => {
+    render(
+      <StreamMetricsPanel
+        backendStats={{
+          eventsDelivered: 100,
+          eventsDropped: 0,
+          bytesDelivered: 50000,
+          controlModeReconnects: 0,
+        }}
+        frontendStats={{
+          framesReceived: 10,
+          bytesReceived: 5000,
+          bootstrapCount: 1,
+          sequenceBreaks: 0,
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/10 frames/));
+    expect(screen.queryByTestId('frame-size-histogram')).toBeNull();
+  });
 });
