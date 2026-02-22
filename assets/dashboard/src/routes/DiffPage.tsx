@@ -441,7 +441,7 @@ export default function DiffPage() {
             <h3 className="diff-sidebar__title">Changed Files ({diffData?.files?.length || 0})</h3>
             <div className="diff-file-list" data-testid="diff-file-list">
               {diffData?.files?.map((file, index) => {
-                const { filename, directory } = splitPath(file.new_path || file.old_path);
+                const { filename, directory } = splitPath(file.new_path || file.old_path || '');
                 const status = file.status || 'modified';
                 const statusIndicator =
                   status === 'added'
@@ -545,8 +545,8 @@ export default function DiffPage() {
                     selectedFile.old_path?.match(/\.(png|jpg|jpeg|webp|gif)$/i)) ? (
                     <div style={{ padding: '20px', textAlign: 'center' }}>
                       <img
-                        src={getWorkspaceFileUrl(workspaceId, selectedFile.new_path)}
-                        alt={selectedFile.new_path}
+                        src={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
+                        alt={selectedFile.new_path || ''}
                         style={{ maxWidth: '300px', maxHeight: '300px', objectFit: 'contain' }}
                       />
                     </div>

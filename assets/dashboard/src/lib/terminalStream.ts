@@ -342,7 +342,7 @@ export default class TerminalStream {
     this.ws.onopen = () => {
       this.connected = true;
       this.reconnectAttempt = 0;
-      this.terminal.clear();
+      this.terminal!.clear();
       this.onStatusChange('connected');
 
       // Send resize immediately on connect so backend knows correct dimensions
@@ -501,15 +501,15 @@ export default class TerminalStream {
       const text = this.utf8Decoder.decode(data, { stream: true });
       if (!this.bootstrapped) {
         this.bootstrapped = true;
-        this.terminal.reset();
-        this.terminal.write(text);
+        this.terminal!.reset();
+        this.terminal!.write(text);
       } else {
         inputLatency.markReceived();
-        this.terminal.write(text);
+        this.terminal!.write(text);
         inputLatency.markRenderTime(performance.now() - renderStart);
       }
       if (this.followTail) {
-        this.terminal.scrollToBottom();
+        this.terminal!.scrollToBottom();
       }
       return;
     }
@@ -519,14 +519,14 @@ export default class TerminalStream {
     try {
       msg = JSON.parse(data);
     } catch {
-      this.terminal.write(data);
+      this.terminal!.write(data);
       return;
     }
 
     switch (msg.type) {
       case 'displaced':
         this.wasDisplaced = true;
-        this.terminal.writeln(
+        this.terminal!.writeln(
           `\r\n\x1b[33m${msg.content}\x1b[0m\r\n\x1b[33m[Refresh to reconnect]\x1b[0m`
         );
         break;
@@ -542,12 +542,12 @@ export default class TerminalStream {
         break;
       default:
         if (msg.content) {
-          this.terminal.write(msg.content);
+          this.terminal!.write(msg.content);
         }
     }
 
     if (this.followTail) {
-      this.terminal.scrollToBottom();
+      this.terminal!.scrollToBottom();
     }
   }
 
@@ -783,7 +783,7 @@ export default class TerminalStream {
     if (decoration) {
       decoration.onRender((element) => {
         element.style.backgroundColor = 'rgba(59, 142, 234, 0.4)';
-        element.style.width = `${this.terminal.cols * cellWidth}px`;
+        element.style.width = `${this.terminal!.cols * cellWidth}px`;
         element.style.height = `${cellHeight}px`;
         element.style.pointerEvents = 'none';
         element.style.boxSizing = 'border-box';

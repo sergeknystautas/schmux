@@ -4,7 +4,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import App from './App';
 import './styles/global.css';
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <App />
