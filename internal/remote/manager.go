@@ -34,7 +34,9 @@ func NewManager(cfg *config.Config, st *state.State) *Manager {
 
 // SetStateChangeCallback sets a callback for when remote host state changes.
 func (m *Manager) SetStateChangeCallback(cb func()) {
+	m.mu.Lock()
 	m.onStateChange = cb
+	m.mu.Unlock()
 }
 
 // Connect connects to a remote host by flavor ID.
@@ -573,8 +575,11 @@ func (m *Manager) handleStatusChange(hostID, status string) {
 
 // notifyStateChange calls the state change callback if set.
 func (m *Manager) notifyStateChange() {
-	if m.onStateChange != nil {
-		m.onStateChange()
+	m.mu.RLock()
+	cb := m.onStateChange
+	m.mu.RUnlock()
+	if cb != nil {
+		cb()
 	}
 }
 

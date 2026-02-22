@@ -1005,6 +1005,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err := execCmd.Start(); err != nil {
 				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
 			} else {
+				go func() { _ = execCmd.Wait() }()
 				opened++
 			}
 
@@ -1050,6 +1051,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err := execCmd.Start(); err != nil {
 				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
 			} else {
+				go func() { _ = execCmd.Wait() }()
 				opened++
 			}
 
@@ -1240,6 +1242,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 			if err := execCmd.Start(); err != nil {
 				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
 			} else {
+				go func() { _ = execCmd.Wait() }()
 				opened++
 			}
 
@@ -1268,6 +1271,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 			if err := execCmd.Start(); err != nil {
 				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
 			} else {
+				go func() { _ = execCmd.Wait() }()
 				opened++
 			}
 

@@ -987,6 +987,12 @@ func (c *Config) Reload() error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Validate before applying (matches Load behavior)
+	normalizeRunTargets(newCfg.RunTargets)
+	if err := newCfg.Validate(); err != nil {
+		return err
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -1002,40 +1008,18 @@ func (c *Config) Reload() error {
 	}
 	newCfg.expandNetworkPaths(homeDir)
 
-	// Replace config fields under write lock (preserve mu and path)
+	// Populate bare_path for repos (matches Load behavior)
+	newCfg.path = configPath
+	newCfg.populateBarePaths()
+
+	// Replace all fields under write lock, preserving only the mutexes.
 	c.mu.Lock()
-	existingPath := c.path
-	newCfg.path = existingPath
-	// Copy all serializable fields from newCfg into c, preserving the mutex
-	c.ConfigVersion = newCfg.ConfigVersion
-	c.WorkspacePath = newCfg.WorkspacePath
-	c.WorktreeBasePath = newCfg.WorktreeBasePath
-	c.SourceCodeManagement = newCfg.SourceCodeManagement
-	c.Repos = newCfg.Repos
-	c.RunTargets = newCfg.RunTargets
-	c.QuickLaunch = newCfg.QuickLaunch
-	c.ExternalDiffCommands = newCfg.ExternalDiffCommands
-	c.ExternalDiffCleanupAfterMs = newCfg.ExternalDiffCleanupAfterMs
-	c.Nudgenik = newCfg.Nudgenik
-	c.BranchSuggest = newCfg.BranchSuggest
-	c.ConflictResolve = newCfg.ConflictResolve
-	c.Compound = newCfg.Compound
-	c.Overlay = newCfg.Overlay
-	c.Lore = newCfg.Lore
-	c.Sessions = newCfg.Sessions
-	c.Xterm = newCfg.Xterm
-	c.Network = newCfg.Network
-	c.AccessControl = newCfg.AccessControl
-	c.PrReview = newCfg.PrReview
-	c.CommitMessage = newCfg.CommitMessage
-	c.Notifications = newCfg.Notifications
-	c.RemoteFlavors = newCfg.RemoteFlavors
-	c.RemoteWorkspace = newCfg.RemoteWorkspace
-	c.RemoteAccess = newCfg.RemoteAccess
-	c.Models = newCfg.Models
-	c.TelemetryEnabled = newCfg.TelemetryEnabled
-	c.InstallationID = newCfg.InstallationID
-	c.path = existingPath
+	existingMu := c.mu
+	existingRepoURLMu := c.repoURLMu
+	newCfg.path = configPath
+	*c = newCfg
+	c.mu = existingMu
+	c.repoURLMu = existingRepoURLMu
 	c.mu.Unlock()
 
 	// Invalidate repo URL cache
