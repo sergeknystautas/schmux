@@ -65,101 +65,78 @@ Schmux uses two types of directories:
 
 ---
 
-## The Gitignore Problem
+## Hiding Daemon Files from Git Status
 
-### Issue
+### Problem
 
-When schmux creates a workspace in a user's repo that doesn't have `.schmux/` in `.gitignore`, these temp files appear as untracked:
+When schmux creates a workspace, daemon-managed files (signal files, hook scripts, lore) appear as untracked in `git status`:
 
 ```
 Untracked files:
-  .schmux/
+  .schmux/signal/
+  .schmux/hooks/
+  .schmux/lore.jsonl
 ```
 
-This causes problems:
+We can't ignore `.schmux/` entirely because `.schmux/config.json` is a user-managed file that should remain visible.
 
-1. **Pull failures** - "would be overwritten" errors
-2. **Accidental commits** - temp files pushed to remote
-3. **Noisy git status** - clutter in output
-4. **Merge confusion** - conflicts with team members
+### Solution: `.git/info/exclude` with Managed Markers
 
-### Solution: Auto-add to `.gitignore`
+Schmux writes specific exclude patterns to `.git/info/exclude` using managed markers:
 
-The recommended fix is to automatically add `.schmux/` to the workspace's `.gitignore` when `ensure.Workspace()` is called during session spawn.
-
-**Implementation location**: `internal/workspace/ensure/manager.go`
-
-```go
-const gitignoreEntry = "\n# Schmux temp files (signaling, lore, hooks)\n.schmux/\n"
-
-func EnsureGitignore(workspacePath string) error {
-    gitignorePath := filepath.Join(workspacePath, ".gitignore")
-
-    content, err := os.ReadFile(gitignorePath)
-    if err != nil && !os.IsNotExist(err) {
-        return err
-    }
-
-    if strings.Contains(string(content), ".schmux/") {
-        return nil // Already has entry
-    }
-
-    f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-    if err != nil {
-        return err
-    }
-    defer f.Close()
-
-    if len(content) > 0 && !bytes.HasSuffix(content, []byte("\n")) {
-        f.WriteString("\n")
-    }
-    _, err = f.WriteString(gitignoreEntry)
-    return err
-}
+```gitignore
+# SCHMUX:BEGIN - managed by schmux, do not edit
+.schmux/signal/
+.schmux/hooks/
+.schmux/lore.jsonl
+# SCHMUX:END
 ```
 
-Call from `Workspace()`:
+Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`.
 
-```go
-func Workspace(workspacePath string) error {
-    if err := EnsureGitignore(workspacePath); err != nil {
-        fmt.Printf("[ensure] warning: failed to update .gitignore: %v\n", err)
-    }
-    // ... existing code
-}
-```
+**Implementation**: `internal/workspace/ensure/manager.go` — `GitExclude()` and `ensureExcludeEntries()`
 
-### Why This Approach
+### How It Works
 
-| Aspect                | Rationale                                             |
-| --------------------- | ----------------------------------------------------- |
-| **Standard practice** | IDEs, language tools, etc. all do this                |
-| **Non-breaking**      | User can remove the entry if they want to commit lore |
-| **Self-documenting**  | User sees the comment and understands why it's there  |
-| **Minimal intrusion** | Only appends if entry doesn't exist                   |
+- The `# SCHMUX:BEGIN` / `# SCHMUX:END` markers delimit the managed block
+- If markers exist, the block is replaced in-place (handles pattern updates)
+- If no markers exist, the block is appended
+- User entries in `info/exclude` are preserved (before and after the block)
+- The operation is idempotent — running it twice produces an identical file
 
-### Alternative Options
+### When It Runs
 
-| Option                  | Pros                         | Cons                                     |
-| ----------------------- | ---------------------------- | ---------------------------------------- |
-| `.git/info/exclude`     | Doesn't modify tracked files | Per-clone only, not visible              |
-| Store outside workspace | Zero pollution               | Major refactor, breaks agent file access |
-| Warn only               | User control                 | Annoying, requires manual fix            |
+- **Daemon startup**: `EnsureAllGitExcludes()` sweeps all existing local workspaces
+- **Session spawn / overlay refresh**: `ensure.Workspace()` calls `GitExclude()` for the workspace
+
+This means excludes are applied both to existing workspaces (on restart) and new workspaces (on creation).
+
+### Worktree Handling
+
+- **Full clones**: Writes to `<workspace>/.git/info/exclude`
+- **Worktrees**: Resolves the shared git directory via `git rev-parse --git-common-dir` and writes to `<bare-repo>/info/exclude`, which covers all worktrees sharing that bare repo
+
+### Why `info/exclude` Over `.gitignore`
+
+| Aspect                      | `info/exclude`                    | `.gitignore`                       |
+| --------------------------- | --------------------------------- | ---------------------------------- |
+| **Modifies tracked files**  | No                                | Yes — `.gitignore` is tracked      |
+| **Risk of upstream commit** | None                              | Could be accidentally committed    |
+| **Scope**                   | Per-clone only                    | Shared across all clones           |
+| **Daemon control**          | Safe — daemon owns the file       | Risky — user/agent may edit it     |
+| **Selective patterns**      | Yes — exclude specific paths only | Same, but visible to collaborators |
 
 ---
 
 ## Remote Workspaces
 
-For remote workspaces, we can't directly modify `.gitignore`. Options:
-
-1. **Prepend command**: Add `mkdir -p .schmux/signal && echo '.schmux/' >> .gitignore || true` to remote wrapper
-2. **Accept limitation**: Remote users may need to manually gitignore
+Remote workspaces skip git exclude setup — the daemon cannot access the remote filesystem's `.git/info/exclude`. Remote users may need to manually exclude `.schmux/` paths.
 
 ---
 
 ## Summary
 
-| Directory              | Scope         | Contents                                 | Gitignore                |
-| ---------------------- | ------------- | ---------------------------------------- | ------------------------ |
-| Global (`~/.schmux/`)  | Global        | Config, state, daemon, secrets, overlays | N/A (outside repos)      |
-| Workspace (`.schmux/`) | Per-workspace | Signal files, lore, hooks                | Auto-add to `.gitignore` |
+| Directory              | Scope         | Contents                                 | Git Visibility                 |
+| ---------------------- | ------------- | ---------------------------------------- | ------------------------------ |
+| Global (`~/.schmux/`)  | Global        | Config, state, daemon, secrets, overlays | N/A (outside repos)            |
+| Workspace (`.schmux/`) | Per-workspace | Signal files, lore, hooks, config        | Auto-excluded via info/exclude |

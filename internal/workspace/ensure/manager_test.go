@@ -1229,6 +1229,175 @@ func TestClaudeHooksIncludeLoreHooks(t *testing.T) {
 	}
 }
 
+func TestEnsureExcludeEntries_CreatesNewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	excludePath := filepath.Join(tmpDir, "info", "exclude")
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatalf("ensureExcludeEntries failed: %v", err)
+	}
+
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("failed to read exclude file: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, excludeMarkerStart) {
+		t.Error("should contain SCHMUX:BEGIN marker")
+	}
+	if !strings.Contains(contentStr, excludeMarkerEnd) {
+		t.Error("should contain SCHMUX:END marker")
+	}
+	for _, pattern := range excludePatterns {
+		if !strings.Contains(contentStr, pattern) {
+			t.Errorf("should contain pattern %q", pattern)
+		}
+	}
+}
+
+func TestEnsureExcludeEntries_AppendsToExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	infoDir := filepath.Join(tmpDir, "info")
+	if err := os.MkdirAll(infoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	excludePath := filepath.Join(infoDir, "exclude")
+	userContent := "# user patterns\n*.log\n"
+	if err := os.WriteFile(excludePath, []byte(userContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatalf("ensureExcludeEntries failed: %v", err)
+	}
+
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "*.log") {
+		t.Error("user content should be preserved")
+	}
+	if !strings.Contains(contentStr, excludeMarkerStart) {
+		t.Error("schmux block should be appended")
+	}
+}
+
+func TestEnsureExcludeEntries_ReplacesStaleBlock(t *testing.T) {
+	tmpDir := t.TempDir()
+	infoDir := filepath.Join(tmpDir, "info")
+	if err := os.MkdirAll(infoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	excludePath := filepath.Join(infoDir, "exclude")
+	staleContent := "# user patterns\n*.log\n\n" + excludeMarkerStart + "\nold-stale-pattern\n" + excludeMarkerEnd + "\n"
+	if err := os.WriteFile(excludePath, []byte(staleContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatalf("ensureExcludeEntries failed: %v", err)
+	}
+
+	content, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contentStr := string(content)
+	if strings.Contains(contentStr, "old-stale-pattern") {
+		t.Error("stale content should be replaced")
+	}
+	if !strings.Contains(contentStr, ".schmux/signal/") {
+		t.Error("new patterns should be present")
+	}
+	if strings.Count(contentStr, excludeMarkerStart) != 1 {
+		t.Error("should have exactly one SCHMUX:BEGIN marker")
+	}
+}
+
+func TestEnsureExcludeEntries_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	excludePath := filepath.Join(tmpDir, "info", "exclude")
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatal(err)
+	}
+	content1, _ := os.ReadFile(excludePath)
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatal(err)
+	}
+	content2, _ := os.ReadFile(excludePath)
+
+	if string(content1) != string(content2) {
+		t.Error("ensureExcludeEntries should be idempotent")
+	}
+}
+
+func TestEnsureExcludeEntries_PreservesUserEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	infoDir := filepath.Join(tmpDir, "info")
+	if err := os.MkdirAll(infoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	excludePath := filepath.Join(infoDir, "exclude")
+
+	// User entries before and after the schmux block
+	before := "# before\n*.tmp\n"
+	after := "# after\n*.bak\n"
+	existing := before + "\n" + buildExcludeBlock() + after
+	if err := os.WriteFile(excludePath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(excludePath)
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "*.tmp") {
+		t.Error("user entries before block should be preserved")
+	}
+	if !strings.Contains(contentStr, "*.bak") {
+		t.Error("user entries after block should be preserved")
+	}
+}
+
+func TestEnsureExcludeEntries_NoTrailingNewline(t *testing.T) {
+	tmpDir := t.TempDir()
+	infoDir := filepath.Join(tmpDir, "info")
+	if err := os.MkdirAll(infoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	excludePath := filepath.Join(infoDir, "exclude")
+	// File without trailing newline
+	if err := os.WriteFile(excludePath, []byte("*.log"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureExcludeEntries(excludePath); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(excludePath)
+	contentStr := string(content)
+
+	// Should not mangle the user entry
+	if !strings.Contains(contentStr, "*.log") {
+		t.Error("user entry should be preserved")
+	}
+	// The schmux block should be on its own lines (not joined to *.log)
+	if strings.Contains(contentStr, "*.log"+excludeMarkerStart) {
+		t.Error("block should be separated from existing content")
+	}
+}
+
 func TestLoreHookScripts(t *testing.T) {
 	tmpDir := t.TempDir()
 	if err := LoreHookScripts(tmpDir); err != nil {

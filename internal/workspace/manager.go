@@ -16,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
+	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 )
 
 const (
@@ -841,6 +842,25 @@ func (m *Manager) EnsureWorkspaceDir() error {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 	return nil
+}
+
+// EnsureAllGitExcludes ensures git exclude entries are present for all local workspaces.
+// Called on daemon startup to cover workspaces from previous runs.
+// Individual workspace failures are logged as warnings and do not stop the sweep.
+func (m *Manager) EnsureAllGitExcludes() error {
+	var firstErr error
+	for _, w := range m.state.GetWorkspaces() {
+		if w.RemoteHostID != "" {
+			continue
+		}
+		if err := ensure.GitExclude(w.Path); err != nil {
+			fmt.Printf("[workspace] warning: failed to ensure git exclude for %s: %v\n", w.ID, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
 }
 
 // Dispose deletes a workspace by removing its directory and removing it from state.
