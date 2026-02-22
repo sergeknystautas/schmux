@@ -57,6 +57,10 @@ type SessionTracker struct {
 	lastRetryLog time.Time
 
 	Counters TrackerCounters
+
+	// Terminal size tracking for diagnostics
+	LastTerminalCols int
+	LastTerminalRows int
 }
 
 // IsAttached reports whether the tracker currently has an active control mode attachment.
@@ -182,6 +186,10 @@ func (t *SessionTracker) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("invalid size %dx%d", cols, rows)
 	}
+	// Store the terminal size for diagnostics
+	t.LastTerminalCols = cols
+	t.LastTerminalRows = rows
+
 	t.mu.RLock()
 	client := t.cmClient
 	t.mu.RUnlock()
