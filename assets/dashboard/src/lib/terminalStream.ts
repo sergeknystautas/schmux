@@ -61,6 +61,9 @@ export default class TerminalStream {
   dragStartLine: number | null;
   dragIsSelecting: boolean;
 
+  // Control mode health
+  onControlModeChange: ((attached: boolean) => void) | null = null;
+
   // Diagnostics
   diagnostics: StreamDiagnostics | null = null;
   latestStats: Record<string, unknown> | null = null;
@@ -527,6 +530,9 @@ export default class TerminalStream {
         break;
       case 'diagnostic':
         this.onDiagnosticResponse?.(msg);
+        break;
+      case 'controlMode':
+        this.onControlModeChange?.((msg as any).attached);
         break;
       default:
         if (msg.content) {
