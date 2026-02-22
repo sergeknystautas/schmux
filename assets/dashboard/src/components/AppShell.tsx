@@ -72,6 +72,9 @@ export default function AppShell() {
     provisioningSessionId: string | null;
   } | null>(null);
 
+  // Ref for scrolling active workspace into view
+  const activeWorkspaceRef = useRef<HTMLDivElement | null>(null);
+
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
   const isRemoteAccess = isRemoteClient() || simulateRemote;
@@ -216,6 +219,16 @@ export default function AppShell() {
   const handleSessionClick = (sessId: string) => {
     navigate(`/sessions/${sessId}`);
   };
+
+  // Scroll active workspace into view when it changes
+  useEffect(() => {
+    if (activeWorkspaceRef.current) {
+      activeWorkspaceRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [currentWorkspaceId, activeWorkspaceId]);
 
   // Register global keyboard actions (always available)
   useEffect(() => {
@@ -620,6 +633,7 @@ export default function AppShell() {
               return (
                 <div
                   key={workspace.id}
+                  ref={isWorkspaceActive ? activeWorkspaceRef : null}
                   className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}`}
                 >
                   <div
