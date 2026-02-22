@@ -44,6 +44,7 @@ export default function SessionDetailPage() {
   }, [wsStatus]);
   const [showResume, setShowResume] = useState(false);
   const [followTail, setFollowTail] = useState(true);
+  const [controlModeAttached, setControlModeAttached] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(
     SESSION_SIDEBAR_COLLAPSED_KEY,
     false
@@ -134,9 +135,17 @@ export default function SessionDetailPage() {
         setShowResume(showing);
         setFollowTail(!showing);
       },
-      onStatusChange: (status) => setWsStatus(status),
+      onStatusChange: (status) => {
+        setWsStatus(status);
+        // Reset control mode state on new connection — backend will send real status within 1s
+        if (status === 'connected') {
+          setControlModeAttached(true);
+        }
+      },
       onSelectedLinesChange: (lines) => setSelectedLines(lines),
     });
+
+    terminalStream.onControlModeChange = (attached) => setControlModeAttached(attached);
 
     terminalStreamRef.current = terminalStream;
     setFollowTail(true);
@@ -249,6 +258,7 @@ export default function SessionDetailPage() {
     setWsStatus('connecting');
     setShowResume(false);
     setFollowTail(true);
+    setControlModeAttached(true);
     // Reset selection mode when switching sessions
     setSelectionMode(false);
     setSelectedLines([]);
@@ -447,12 +457,20 @@ export default function SessionDetailPage() {
   const statusText = sessionData.running ? 'Running' : 'Stopped';
   const wsPillClass =
     wsStatus === 'connected'
-      ? 'connection-pill--connected'
+      ? controlModeAttached
+        ? 'connection-pill--connected'
+        : 'connection-pill--reconnecting'
       : wsStatus === 'disconnected'
         ? 'connection-pill--offline'
         : 'connection-pill--reconnecting';
   const wsPillText =
-    wsStatus === 'connected' ? 'Live' : wsStatus === 'disconnected' ? 'Offline' : 'Connecting...';
+    wsStatus === 'connected'
+      ? controlModeAttached
+        ? 'Live'
+        : 'Stalled'
+      : wsStatus === 'disconnected'
+        ? 'Offline'
+        : 'Connecting...';
 
   return (
     <>
@@ -544,11 +562,13 @@ export default function SessionDetailPage() {
                 <div className="log-viewer__info">
                   <Tooltip
                     content={
-                      wsStatus === 'connected'
-                        ? 'WebSocket connected - receiving real-time terminal output'
-                        : wsStatus === 'disconnected'
-                          ? 'WebSocket disconnected - unable to receive terminal output'
-                          : 'WebSocket connecting...'
+                      wsStatus === 'connected' && !controlModeAttached
+                        ? 'Terminal output stalled — tmux control mode reconnecting'
+                        : wsStatus === 'connected'
+                          ? 'WebSocket connected - receiving real-time terminal output'
+                          : wsStatus === 'disconnected'
+                            ? 'WebSocket disconnected - unable to receive terminal output'
+                            : 'WebSocket connecting...'
                     }
                   >
                     <div className={`connection-pill ${wsPillClass}`}>

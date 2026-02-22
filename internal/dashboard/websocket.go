@@ -274,6 +274,29 @@ drained:
 		}
 	}()
 
+	// Control mode health monitor — notify frontend when tmux control mode detaches/reattaches
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		lastAttached := true // assume attached at start
+		for {
+			select {
+			case <-ticker.C:
+				attached := tracker.IsAttached()
+				if attached != lastAttached {
+					msg, _ := json.Marshal(map[string]interface{}{
+						"type":     "controlMode",
+						"attached": attached,
+					})
+					conn.WriteMessage(websocket.TextMessage, msg)
+					lastAttached = attached
+				}
+			case <-sessionDead:
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		case event, ok := <-outputCh:
