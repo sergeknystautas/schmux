@@ -57,6 +57,10 @@ const DEFAULT_CONFIG: ConfigResponse = {
   commit_message: {
     target: '',
   },
+  desync: {
+    enabled: false,
+    target: '',
+  },
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,

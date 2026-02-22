@@ -5,6 +5,7 @@ import { inputLatency } from './inputLatency';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractScreenText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
+import { csrfHeaders } from './csrf';
 
 type TerminalStreamOptions = {
   followTail?: boolean;
@@ -60,11 +61,14 @@ export default class TerminalStream {
   dragStartLine: number | null;
   dragIsSelecting: boolean;
 
-  // Diagnostics (dev mode only)
+  // Diagnostics
   diagnostics: StreamDiagnostics | null = null;
   latestStats: Record<string, unknown> | null = null;
   onStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
   onDiagnosticResponse: ((msg: Record<string, unknown>) => void) | null = null;
+  onDiagnosticComplete:
+    | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
+    | null = null;
 
   constructor(
     sessionId: string,
@@ -426,6 +430,9 @@ export default class TerminalStream {
     // Set up the diagnostic response handler for the full capture flow
     this.onDiagnosticResponse = (msg: Record<string, unknown>) => {
       if (!this.terminal) return;
+      const diagDir = (msg.diagDir as string) || '';
+      const verdict = (msg.verdict as string) || '';
+      const findings = (msg.findings as string[]) || [];
       // 1. Extract xterm.js screen buffer
       const xtermScreen = extractScreenText(this.terminal.buffer.active);
       // 2. Compute diff against tmux screen from backend response
@@ -437,15 +444,31 @@ export default class TerminalStream {
       // 4. Post frontend files back to backend to append to diagnostic dir
       fetch('/api/dev/diagnostic-append', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
         body: JSON.stringify({
-          diagDir: msg.diagDir,
+          diagDir,
           xtermScreen,
           screenDiff: diff.diffText,
           ringBufferFrontend: frontendRingBuffer,
         }),
-      });
+      })
+        .then(() => {
+          this.onDiagnosticComplete?.({ diagDir, verdict, findings });
+        })
+        .catch((err) => {
+          console.error('[diagnostic] append failed:', err);
+          // Still notify completion with what we have from the backend
+          this.onDiagnosticComplete?.({ diagDir, verdict, findings });
+        });
     };
+  }
+
+  disableDiagnostics(): void {
+    this.diagnostics = null;
+    this.onStatsUpdate = null;
+    this.onDiagnosticResponse = null;
+    this.onDiagnosticComplete = null;
+    this.latestStats = null;
   }
 
   sendDiagnostic(): void {

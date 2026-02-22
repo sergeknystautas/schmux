@@ -74,6 +74,7 @@ type Config struct {
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
 	CommitMessage              *CommitMessageConfig   `json:"commit_message,omitempty"`
+	Desync                     *DesyncConfig          `json:"desync,omitempty"`
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
@@ -198,6 +199,12 @@ type PrReviewConfig struct {
 // CommitMessageConfig holds configuration for commit message generation.
 type CommitMessageConfig struct {
 	Target string `json:"target,omitempty"` // run target to use for commit message generation
+}
+
+// DesyncConfig holds configuration for desync diagnostic capture sessions.
+type DesyncConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"` // enable/disable desync diagnostics
+	Target  string `json:"target,omitempty"`  // run target to invoke after diagnostic capture
 }
 
 // NotificationsConfig holds configuration for dashboard notifications.
@@ -841,6 +848,26 @@ func (c *Config) GetCommitMessageTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.CommitMessage.Target)
+}
+
+// GetDesyncEnabled returns whether desync diagnostics are enabled.
+func (c *Config) GetDesyncEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.Desync == nil || c.Desync.Enabled == nil {
+		return false
+	}
+	return *c.Desync.Enabled
+}
+
+// GetDesyncTarget returns the configured target for desync diagnostic capture sessions.
+func (c *Config) GetDesyncTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.Desync == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Desync.Target)
 }
 
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.

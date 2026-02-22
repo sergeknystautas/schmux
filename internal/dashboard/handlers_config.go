@@ -189,6 +189,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		CommitMessage: contracts.CommitMessage{
 			Target: s.config.GetCommitMessageTarget(),
 		},
+		Desync: contracts.Desync{
+			Enabled: s.config.GetDesyncEnabled(),
+			Target:  s.config.GetDesyncTarget(),
+		},
 		Notifications: contracts.Notifications{
 			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
 			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
@@ -479,6 +483,23 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.CommitMessage.Target != nil {
 			cfg.CommitMessage.Target = *req.CommitMessage.Target
+		}
+	}
+
+	if req.Desync != nil {
+		if cfg.Desync == nil {
+			cfg.Desync = &config.DesyncConfig{}
+		}
+		if req.Desync.Enabled != nil {
+			enabled := *req.Desync.Enabled
+			cfg.Desync.Enabled = &enabled
+		}
+		if req.Desync.Target != nil {
+			cfg.Desync.Target = strings.TrimSpace(*req.Desync.Target)
+		}
+		// Nil out if everything is at zero value
+		if (cfg.Desync.Enabled == nil || !*cfg.Desync.Enabled) && cfg.Desync.Target == "" {
+			cfg.Desync = nil
 		}
 	}
 
