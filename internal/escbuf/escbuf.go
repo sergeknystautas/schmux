@@ -77,14 +77,25 @@ func isCompleteEscape(tail []byte) bool {
 	}
 
 	switch tail[1] {
-	case '[': // CSI sequence: ESC [ <params> <terminator>
-		// Need at least ESC [ <terminator> (3 bytes)
-		if len(tail) < 3 {
-			return false
+	case '[': // CSI sequence: ESC [ <params> <intermediate> <final>
+		// Walk the sequence structure:
+		//   parameter bytes:    0x30-0x3F  (digits, semicolons, etc.)
+		//   intermediate bytes: 0x20-0x2F
+		//   final byte:         0x40-0x7E  (the terminator)
+		i := 2
+		// Skip parameter bytes
+		for i < len(tail) && tail[i] >= 0x30 && tail[i] <= 0x3F {
+			i++
 		}
-		// Check if last byte is a CSI terminator (0x40-0x7E)
-		last := tail[len(tail)-1]
-		return last >= 0x40 && last <= 0x7E
+		// Skip intermediate bytes
+		for i < len(tail) && tail[i] >= 0x20 && tail[i] <= 0x2F {
+			i++
+		}
+		// Check for final byte
+		if i >= len(tail) {
+			return false // ran out of data before final byte
+		}
+		return tail[i] >= 0x40 && tail[i] <= 0x7E
 
 	case ']': // OSC sequence: ESC ] ... (terminated by BEL or ST)
 		// Look for BEL (0x07) or ST (ESC \)

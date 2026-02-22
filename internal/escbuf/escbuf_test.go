@@ -154,6 +154,33 @@ func TestSplitClean(t *testing.T) {
 			data:     []byte("before\x1b]0;title\x07after"),
 			wantSend: []byte("before\x1b]0;title\x07after"),
 		},
+		// CSI followed by normal text — the old bug: checking last byte of
+		// entire tail instead of finding the CSI final byte properly.
+		{
+			name:     "CSI followed by newline",
+			data:     []byte("\x1b[0m\n"),
+			wantSend: []byte("\x1b[0m\n"),
+		},
+		{
+			name:     "CSI followed by text ending with digit",
+			data:     []byte("\x1b[0mline1"),
+			wantSend: []byte("\x1b[0mline1"),
+		},
+		{
+			name:     "CSI followed by text ending with space",
+			data:     []byte("\x1b[0m "),
+			wantSend: []byte("\x1b[0m "),
+		},
+		{
+			name:     "CSI reset then newline then text",
+			data:     []byte("out\x1b[0m\nmore"),
+			wantSend: []byte("out\x1b[0m\nmore"),
+		},
+		{
+			name:     "CSI with intermediate bytes",
+			data:     []byte("\x1b[ q"), // DECSCUSR (set cursor style)
+			wantSend: []byte("\x1b[ q"),
+		},
 	}
 
 	for _, tt := range tests {
