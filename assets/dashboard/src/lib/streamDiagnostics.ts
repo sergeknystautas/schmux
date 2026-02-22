@@ -1,10 +1,24 @@
 const DEFAULT_RING_BUFFER_SIZE = 256 * 1024; // 256KB
 const MAX_RECENT_BREAKS = 20;
+const MAX_FRAME_SIZES = 1000;
 
 export type SequenceBreakRecord = {
   frameIndex: number; // which frame (framesReceived at time of break)
   byteOffset: number; // total bytesReceived at time of break
   tail: string; // hex-encoded last ≤16 bytes of the frame (the broken sequence context)
+};
+
+export type FrameSizeStats = {
+  count: number;
+  median: number;
+  p90: number;
+  max: number;
+};
+
+export type FrameSizeDistribution = {
+  buckets: number[]; // count per bucket
+  maxCount: number; // max count across buckets (for scaling)
+  maxBytes: number; // upper bound of the last bucket
 };
 
 export class StreamDiagnostics {
@@ -13,6 +27,7 @@ export class StreamDiagnostics {
   bootstrapCount = 0;
   sequenceBreaks = 0;
   recentBreaks: SequenceBreakRecord[] = [];
+  frameSizes: number[] = [];
 
   private ringBuffer: Uint8Array;
   private cursor = 0;
@@ -25,6 +40,10 @@ export class StreamDiagnostics {
   recordFrame(data: Uint8Array): void {
     this.framesReceived++;
     this.bytesReceived += data.length;
+    this.frameSizes.push(data.length);
+    if (this.frameSizes.length > MAX_FRAME_SIZES) {
+      this.frameSizes = this.frameSizes.slice(-MAX_FRAME_SIZES);
+    }
     this.writeToRingBuffer(data);
     this.checkSequenceBreak(data);
   }
@@ -50,8 +69,37 @@ export class StreamDiagnostics {
     this.bootstrapCount = 0;
     this.sequenceBreaks = 0;
     this.recentBreaks = [];
+    this.frameSizes = [];
     this.cursor = 0;
     this.full = false;
+  }
+
+  getFrameSizeStats(): FrameSizeStats | null {
+    if (this.frameSizes.length === 0) return null;
+    const sorted = [...this.frameSizes].sort((a, b) => a - b);
+    return {
+      count: sorted.length,
+      median: sorted[Math.floor(sorted.length / 2)],
+      p90: sorted[Math.floor(sorted.length * 0.9)],
+      max: sorted[sorted.length - 1],
+    };
+  }
+
+  getFrameSizeDistribution(): FrameSizeDistribution | null {
+    if (this.frameSizes.length === 0) return null;
+    const sorted = [...this.frameSizes].sort((a, b) => a - b);
+    const p90 = sorted[Math.floor(sorted.length * 0.9)];
+    // Cap x-axis at P90 so outliers don't stretch the chart
+    const maxBytes = Math.max(p90, 64); // at least 64B range
+    // Use ~40 buckets for readability
+    const bucketSize = Math.max(Math.ceil(maxBytes / 40), 1);
+    const numBuckets = Math.ceil(maxBytes / bucketSize);
+    const buckets = new Array(numBuckets).fill(0);
+    for (const v of this.frameSizes) {
+      const idx = Math.min(Math.floor(v / bucketSize), numBuckets - 1);
+      buckets[idx]++;
+    }
+    return { buckets, maxCount: Math.max(...buckets), maxBytes };
   }
 
   private writeToRingBuffer(data: Uint8Array): void {

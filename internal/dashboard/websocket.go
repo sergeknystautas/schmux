@@ -228,10 +228,13 @@ drained:
 	var ringBuf *RingBuffer
 	var statsTickerC <-chan time.Time
 	var statsTicker *time.Ticker
+	var prevBytes int64
+	var prevTime time.Time
 	if s.devMode {
 		ringBuf = NewRingBuffer(256 * 1024) // 256KB
 		statsTicker = time.NewTicker(3 * time.Second)
 		statsTickerC = statsTicker.C
+		prevTime = time.Now()
 		defer statsTicker.Stop()
 	}
 
@@ -323,11 +326,21 @@ drained:
 			}
 		case <-statsTickerC:
 			counters := tracker.DiagnosticCounters()
+			now := time.Now()
+			elapsed := now.Sub(prevTime).Seconds()
+			currentBytes := counters["bytesDelivered"]
+			var bytesPerSec int64
+			if elapsed > 0 {
+				bytesPerSec = int64(float64(currentBytes-prevBytes) / elapsed)
+			}
+			prevBytes = currentBytes
+			prevTime = now
 			statsMsg := WSStatsMessage{
 				Type:            "stats",
 				EventsDelivered: counters["eventsDelivered"],
 				EventsDropped:   counters["eventsDropped"],
 				BytesDelivered:  counters["bytesDelivered"],
+				BytesPerSec:     bytesPerSec,
 				Reconnects:      counters["controlModeReconnects"],
 			}
 			data, _ := json.Marshal(statsMsg)

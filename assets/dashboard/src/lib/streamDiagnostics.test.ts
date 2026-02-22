@@ -141,6 +141,7 @@ describe('StreamDiagnostics', () => {
     expect(diag.bootstrapCount).toBe(0);
     expect(diag.sequenceBreaks).toBe(0);
     expect(diag.recentBreaks).toHaveLength(0);
+    expect(diag.frameSizes).toHaveLength(0);
   });
 
   it('caps recentBreaks at 20 entries', () => {
@@ -152,5 +153,66 @@ describe('StreamDiagnostics', () => {
     // First entry should be from frame 6 (frames 1-5 were shifted out)
     expect(diag.recentBreaks[0].frameIndex).toBe(6);
     expect(diag.recentBreaks[19].frameIndex).toBe(25);
+  });
+
+  describe('frame size tracking', () => {
+    it('getFrameSizeStats returns correct P50 and P90', () => {
+      // Record 10 frames of increasing size: 100, 200, ..., 1000
+      for (let i = 1; i <= 10; i++) {
+        diag.recordFrame(new Uint8Array(i * 100));
+      }
+      const stats = diag.getFrameSizeStats();
+      expect(stats).not.toBeNull();
+      expect(stats!.count).toBe(10);
+      // Sorted: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+      // P50 = index floor(10/2) = index 5 = 600
+      expect(stats!.median).toBe(600);
+      // P90 = index floor(10*0.9) = index 9 = 1000
+      expect(stats!.p90).toBe(1000);
+      expect(stats!.max).toBe(1000);
+    });
+
+    it('getFrameSizeStats returns null when no frames recorded', () => {
+      expect(diag.getFrameSizeStats()).toBeNull();
+    });
+
+    it('frame sizes cap at 1000 samples', () => {
+      for (let i = 0; i < 1100; i++) {
+        diag.recordFrame(new Uint8Array(i + 1));
+      }
+      expect(diag.frameSizes).toHaveLength(1000);
+      // Oldest samples should have been dropped — first entry should be 101 (not 1)
+      expect(diag.frameSizes[0]).toBe(101);
+      expect(diag.frameSizes[999]).toBe(1100);
+    });
+
+    it('reset clears frame sizes', () => {
+      diag.recordFrame(new Uint8Array(50));
+      diag.recordFrame(new Uint8Array(100));
+      expect(diag.frameSizes).toHaveLength(2);
+      diag.reset();
+      expect(diag.frameSizes).toHaveLength(0);
+      expect(diag.getFrameSizeStats()).toBeNull();
+      expect(diag.getFrameSizeDistribution()).toBeNull();
+    });
+
+    it('getFrameSizeDistribution returns bucket data', () => {
+      // Record some frames of different sizes
+      for (let i = 0; i < 20; i++) {
+        diag.recordFrame(new Uint8Array(50)); // 50 bytes
+      }
+      for (let i = 0; i < 5; i++) {
+        diag.recordFrame(new Uint8Array(200)); // 200 bytes
+      }
+      const dist = diag.getFrameSizeDistribution();
+      expect(dist).not.toBeNull();
+      expect(dist!.buckets.length).toBeGreaterThan(0);
+      expect(dist!.maxCount).toBeGreaterThan(0);
+      expect(dist!.maxBytes).toBeGreaterThanOrEqual(64);
+    });
+
+    it('getFrameSizeDistribution returns null when no frames recorded', () => {
+      expect(diag.getFrameSizeDistribution()).toBeNull();
+    });
   });
 });

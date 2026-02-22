@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { SequenceBreakRecord } from '../lib/streamDiagnostics';
+import type { FrameSizeStats, FrameSizeDistribution } from '../lib/streamDiagnostics';
 
 export interface BackendStats {
   eventsDelivered: number;
@@ -15,6 +16,8 @@ interface FrontendStats {
   bootstrapCount: number;
   sequenceBreaks: number;
   recentBreaks?: SequenceBreakRecord[];
+  frameSizeStats?: FrameSizeStats | null;
+  frameSizeDist?: FrameSizeDistribution | null;
 }
 
 interface Props {
@@ -256,10 +259,176 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
                   {backendStats?.controlModeReconnects ?? 0}
                 </td>
               </tr>
+              {frontendStats?.frameSizeDist && frontendStats?.frameSizeStats && (
+                <tr>
+                  <td colSpan={2} style={{ padding: '12px 0 2px 0' }}>
+                    <div
+                      style={{
+                        color: 'var(--color-text-muted)',
+                        fontSize: '0.7rem',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      Frame size distribution
+                    </div>
+                    <FrameSizeHistogram
+                      dist={frontendStats.frameSizeDist}
+                      median={frontendStats.frameSizeStats.median}
+                      p90={frontendStats.frameSizeStats.p90}
+                    />
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// Map a bucket's byte range to a bar color
+function frameSizeBarColor(bytes: number): string {
+  if (bytes < 1024) return '#0dbc79'; // green: <1KB
+  if (bytes < 4096) return '#e5e510'; // yellow: <4KB
+  if (bytes < 16384) return '#e5a010'; // orange: <16KB
+  return '#f14c4c'; // red: ≥16KB
+}
+
+function frameSizeColor(bytes: number): string {
+  if (bytes < 1024) return '#0dbc79';
+  if (bytes < 4096) return '#e5e510';
+  return '#f14c4c';
+}
+
+function FrameSizeHistogram({
+  dist,
+  median,
+  p90,
+}: {
+  dist: FrameSizeDistribution;
+  median: number;
+  p90: number;
+}) {
+  const { buckets, maxCount, maxBytes } = dist;
+
+  const padL = 8;
+  const padR = 8;
+  const chartW = 200;
+  const chartH = 44;
+  const marginBottom = 10;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - marginBottom;
+
+  const barW = plotW / buckets.length;
+  const bucketSize = maxBytes / buckets.length;
+
+  const toX = (bytes: number) => padL + Math.min(bytes / maxBytes, 1) * plotW;
+
+  const medianX = toX(median);
+  const p90X = toX(p90);
+  const medianColor = frameSizeColor(median);
+  const p90Color = frameSizeColor(p90);
+
+  return (
+    <div data-testid="frame-size-histogram">
+      <svg
+        width="100%"
+        viewBox={`0 0 ${chartW} ${chartH}`}
+        style={{ display: 'block', overflow: 'visible' }}
+      >
+        {/* Bars */}
+        {buckets.map((count, i) => {
+          if (count === 0) return null;
+          const h = maxCount > 0 ? (count / maxCount) * plotH : 0;
+          const x = padL + i * barW;
+          const y = plotH - h;
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={y}
+              width={Math.max(barW - 0.5, 0.5)}
+              height={h}
+              fill={frameSizeBarColor(i * bucketSize)}
+              opacity={0.85}
+            />
+          );
+        })}
+
+        {/* P50 vertical line (solid) */}
+        <line
+          x1={medianX}
+          y1={0}
+          x2={medianX}
+          y2={plotH}
+          stroke={medianColor}
+          strokeWidth={1}
+          opacity={0.7}
+        />
+        <text
+          x={medianX}
+          y={-3}
+          textAnchor="middle"
+          fill={medianColor}
+          fontSize={7}
+          fontFamily="Menlo, Monaco, 'Courier New', monospace"
+        >
+          P50
+        </text>
+        <text
+          x={medianX}
+          y={chartH - 1}
+          textAnchor="middle"
+          fill={medianColor}
+          fontSize={7}
+          fontFamily="Menlo, Monaco, 'Courier New', monospace"
+        >
+          {formatBytes(median)}
+        </text>
+
+        {/* P90 vertical line (dashed) */}
+        <line
+          x1={p90X}
+          y1={0}
+          x2={p90X}
+          y2={plotH}
+          stroke={p90Color}
+          strokeWidth={1}
+          strokeDasharray="2,2"
+          opacity={0.7}
+        />
+        <text
+          x={p90X}
+          y={-3}
+          textAnchor="middle"
+          fill={p90Color}
+          fontSize={7}
+          fontFamily="Menlo, Monaco, 'Courier New', monospace"
+        >
+          P90
+        </text>
+        <text
+          x={p90X}
+          y={chartH - 1}
+          textAnchor="middle"
+          fill={p90Color}
+          fontSize={7}
+          fontFamily="Menlo, Monaco, 'Courier New', monospace"
+        >
+          {formatBytes(p90)}
+        </text>
+
+        {/* X-axis baseline */}
+        <line
+          x1={padL}
+          y1={plotH}
+          x2={padL + plotW}
+          y2={plotH}
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth={0.5}
+        />
+      </svg>
     </div>
   );
 }

@@ -66,6 +66,8 @@ export default function SessionDetailPage() {
     bootstrapCount: number;
     sequenceBreaks: number;
     recentBreaks: SequenceBreakRecord[];
+    frameSizeStats?: { count: number; median: number; p90: number; max: number } | null;
+    frameSizeDist?: { buckets: number[]; maxCount: number; maxBytes: number } | null;
   } | null>(null);
 
   // Use a ref for desync config so the terminal effect can read the latest value
@@ -195,6 +197,8 @@ export default function SessionDetailPage() {
             bootstrapCount: diag.bootstrapCount,
             sequenceBreaks: diag.sequenceBreaks,
             recentBreaks: diag.recentBreaks,
+            frameSizeStats: diag.getFrameSizeStats(),
+            frameSizeDist: diag.getFrameSizeDistribution(),
           });
         }
       }, 3000);
