@@ -192,9 +192,14 @@ func (d *Discovery) stop() {
 
 // poll runs the hourly refresh loop until stopped.
 func (d *Discovery) poll() {
+	// Capture ticker channel under lock to avoid racing with stop() setting d.ticker = nil.
+	d.mu.RLock()
+	tickerC := d.ticker.C
+	d.mu.RUnlock()
+
 	for {
 		select {
-		case <-d.ticker.C:
+		case <-tickerC:
 			d.mu.RLock()
 			getRepos := d.getRepos
 			d.mu.RUnlock()

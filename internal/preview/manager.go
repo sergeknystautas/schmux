@@ -499,10 +499,11 @@ func (m *Manager) pickStablePortLocked(workspaceID string) (int, error) {
 	return 0, fmt.Errorf("all %d ports in workspace block exhausted", m.blockSize)
 }
 
-// isPortFree reports whether a port is available to bind by briefly listening on
-// the same address that ensureListener will use. Checking the actual bind address
-// matters: a port free on loopback may be occupied on all interfaces (e.g., by a
-// process bound to a specific external interface).
+// isPortFree is a best-effort check for whether a port is available to bind.
+// There is an inherent TOCTOU race: the port could be claimed between this check
+// and the actual bind in ensureListener. The caller (ensureListener) handles bind
+// failures gracefully, so this check only serves to skip obviously-occupied ports
+// during allocation without wasting a round-trip.
 func (m *Manager) isPortFree(port int) bool {
 	bindAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	if m.networkAccess {
