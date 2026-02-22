@@ -7,6 +7,22 @@ cd "$(git rev-parse --show-toplevel)"
 GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 PRETTIER_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx|css|md|json)$' || true)
 
+# Warn about partially staged files — formatting + git add would silently
+# include unstaged changes, so we only re-stage files that have no unstaged diffs.
+PARTIALLY_STAGED=""
+for f in $GO_FILES $PRETTIER_FILES; do
+    if git diff --name-only -- "$f" | grep -q .; then
+        PARTIALLY_STAGED="$PARTIALLY_STAGED  $f"$'\n'
+    fi
+done
+
+if [ -n "$PARTIALLY_STAGED" ]; then
+    echo "Warning: the following files are partially staged:"
+    echo "$PARTIALLY_STAGED"
+    echo "Formatting will only re-stage files with no unstaged changes."
+    echo "Partially staged files will be formatted on disk but NOT re-staged."
+fi
+
 # Ensure prettier is installed (only if we have prettier-eligible files)
 if [ -n "$PRETTIER_FILES" ]; then
     if ! (cd assets/dashboard && npm list prettier >/dev/null 2>&1); then
@@ -19,12 +35,20 @@ fi
 if [ -n "$GO_FILES" ]; then
     echo "Formatting Go files..."
     echo "$GO_FILES" | xargs gofmt -w
-    echo "$GO_FILES" | xargs git add
+    for f in $GO_FILES; do
+        if ! git diff --name-only -- "$f" | grep -q .; then
+            git add "$f"
+        fi
+    done
 fi
 
 # Format Prettier files
 if [ -n "$PRETTIER_FILES" ]; then
     echo "Formatting TS/JS/CSS/MD/JSON files..."
     echo "$PRETTIER_FILES" | xargs npx --prefix assets/dashboard prettier --write --ignore-unknown
-    echo "$PRETTIER_FILES" | xargs git add
+    for f in $PRETTIER_FILES; do
+        if ! git diff --name-only -- "$f" | grep -q .; then
+            git add "$f"
+        fi
+    done
 fi
