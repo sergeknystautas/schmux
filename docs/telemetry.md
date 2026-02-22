@@ -37,8 +37,6 @@ Telemetry is enabled by default. To disable it, add this to your `~/.schmux/conf
 }
 ```
 
-You can also override the PostHog API key by setting `posthog_api_key` in `~/.schmux/secrets.json`, though this is primarily for development/testing purposes.
-
 ## Why We Collect This Data
 
 The telemetry helps us understand:

@@ -14,10 +14,9 @@ import (
 type ModelSecrets map[string]map[string]string
 
 type SecretsFile struct {
-	Models        ModelSecrets `json:"models,omitempty"`
-	Variants      ModelSecrets `json:"variants,omitempty"` // deprecated, migrated to models
-	Auth          AuthSecrets  `json:"auth,omitempty"`
-	PosthogAPIKey string       `json:"posthog_api_key,omitempty"` // override for telemetry
+	Models   ModelSecrets `json:"models,omitempty"`
+	Variants ModelSecrets `json:"variants,omitempty"` // deprecated, migrated to models
+	Auth     AuthSecrets  `json:"auth,omitempty"`
 }
 
 type AuthSecrets struct {
@@ -312,14 +311,4 @@ func GetSessionSecret() (string, error) {
 		return "", err
 	}
 	return secrets.Auth.SessionSecret, nil
-}
-
-// GetPosthogAPIKey returns the PostHog API key override from secrets.
-// Returns empty string if not set.
-func GetPosthogAPIKey() (string, error) {
-	secrets, err := LoadSecretsFile()
-	if err != nil {
-		return "", err
-	}
-	return secrets.PosthogAPIKey, nil
 }
