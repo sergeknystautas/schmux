@@ -149,6 +149,59 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	outputCh := tracker.SubscribeOutput()
 	defer tracker.UnsubscribeOutput(outputCh)
 
+	// Start reading client messages early so we can process resize before bootstrap
+	controlChan := make(chan WSMessage, 10)
+	go func() {
+		defer close(controlChan)
+		for {
+			msgType, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.TextMessage {
+				var wsMsg WSMessage
+				if err := json.Unmarshal(msg, &wsMsg); err == nil {
+					controlChan <- wsMsg
+				}
+			}
+		}
+	}()
+
+	// Wait briefly for frontend to send terminal size via resize message
+	// Frontend calls sendResize() immediately on WebSocket open, so this should
+	// arrive within ~10-100ms. This ensures we know the terminal size before
+	// sending bootstrap content.
+	resizeDeadline := time.Now().Add(100 * time.Millisecond)
+	for time.Now().Before(resizeDeadline) {
+		select {
+		case msg, ok := <-controlChan:
+			if !ok {
+				// Channel closed (connection lost)
+				return
+			}
+			if msg.Type == "resize" {
+				var resizeData struct {
+					Cols int `json:"cols"`
+					Rows int `json:"rows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err == nil && resizeData.Cols > 0 && resizeData.Rows > 0 {
+					if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err == nil {
+						// Successfully received and processed resize before bootstrap
+						break
+					}
+				}
+			}
+			// If it's not a resize (or resize failed), don't process it here—
+			// let the main loop handle it below
+		case <-time.After(time.Until(resizeDeadline)):
+			// Timeout reached, proceed with bootstrap
+			break
+		}
+		if time.Now().After(resizeDeadline) {
+			break
+		}
+	}
+
 	// Bootstrap with scrollback — send as binary frame
 	// Use tracker's control mode capture if attached, fall back to tmux CLI
 	capCtx, capCancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
@@ -237,24 +290,6 @@ drained:
 		prevTime = time.Now()
 		defer statsTicker.Stop()
 	}
-
-	// Read client messages (input, resize)
-	controlChan := make(chan WSMessage, 10)
-	go func() {
-		defer close(controlChan)
-		for {
-			msgType, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var wsMsg WSMessage
-				if err := json.Unmarshal(msg, &wsMsg); err == nil {
-					controlChan <- wsMsg
-				}
-			}
-		}
-	}()
 
 	// Session liveness check
 	sessionDead := make(chan struct{})
