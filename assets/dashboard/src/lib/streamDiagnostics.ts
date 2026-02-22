@@ -78,7 +78,8 @@ export class StreamDiagnostics {
 
   private checkSequenceBreak(data: Uint8Array): void {
     // Check if frame ends with an incomplete ANSI escape sequence.
-    // Look for ESC (\x1b) near the end without a terminating letter.
+    // Look for ESC (\x1b) near the end and parse the CSI structure forward
+    // to determine if the sequence is complete.
     const len = data.length;
     if (len === 0) return;
 
@@ -86,26 +87,29 @@ export class StreamDiagnostics {
     for (let i = len - 1; i >= Math.max(0, len - 16); i--) {
       if (data[i] === 0x1b) {
         // Found ESC — check if sequence is complete
-        const remaining = data.subarray(i + 1);
-        if (remaining.length === 0) {
+        let pos = i + 1;
+        if (pos >= len) {
           // Bare ESC at end of frame
           this.recordBreak(data, i);
           return;
         }
         // CSI: ESC [
-        if (remaining[0] === 0x5b) {
-          // A complete CSI sequence needs at least one byte after '['
-          // that is a terminator (0x40-0x7E)
-          if (remaining.length < 2) {
-            // Just "ESC [" with nothing after — incomplete
-            this.recordBreak(data, i);
-            return;
+        if (data[pos] === 0x5b) {
+          pos++;
+          // Skip parameter bytes (0x30-0x3F: digits, semicolons, etc.)
+          while (pos < len && data[pos] >= 0x30 && data[pos] <= 0x3f) {
+            pos++;
           }
-          const last = remaining[remaining.length - 1];
-          if (last < 0x40 || last > 0x7e) {
+          // Skip intermediate bytes (0x20-0x2F: space, !, ", etc.)
+          while (pos < len && data[pos] >= 0x20 && data[pos] <= 0x2f) {
+            pos++;
+          }
+          // Check for final byte (0x40-0x7E: @, A-Z, a-z, etc.)
+          if (pos >= len || data[pos] < 0x40 || data[pos] > 0x7e) {
             this.recordBreak(data, i);
           }
         }
+        // OSC, DCS, or other ESC sequences: not checked (rare in practice)
         return;
       }
     }
