@@ -30,7 +30,7 @@ jobs:
           tar -czf dashboard-assets.tar.gz -C assets/dashboard/dist .
 
       - name: Run tests
-        run: go test ./...
+        run: ./test.sh --all
 
       - name: Extract version
         id: version
