@@ -171,7 +171,9 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	// Frontend calls sendResize() immediately on WebSocket open, so this should
 	// arrive within ~10-100ms. This ensures we know the terminal size before
 	// sending bootstrap content.
+	var preBootstrapMessages []WSMessage
 	resizeDeadline := time.Now().Add(100 * time.Millisecond)
+resizeWaitLoop:
 	for time.Now().Before(resizeDeadline) {
 		select {
 		case msg, ok := <-controlChan:
@@ -187,18 +189,56 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err == nil && resizeData.Cols > 0 && resizeData.Rows > 0 {
 					if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err == nil {
 						// Successfully received and processed resize before bootstrap
-						break
+						break resizeWaitLoop
 					}
 				}
 			}
-			// If it's not a resize (or resize failed), don't process it here—
-			// let the main loop handle it below
+			// Buffer non-resize messages to be processed by the main loop after bootstrap
+			preBootstrapMessages = append(preBootstrapMessages, msg)
 		case <-time.After(time.Until(resizeDeadline)):
 			// Timeout reached, proceed with bootstrap
-			break
+			break resizeWaitLoop
 		}
-		if time.Now().After(resizeDeadline) {
-			break
+	}
+
+	// Re-queue buffered messages so the main loop can process them
+	// Use non-blocking send to avoid deadlock if channel is full
+	for _, msg := range preBootstrapMessages {
+		select {
+		case controlChan <- msg:
+			// Successfully re-queued
+		default:
+			// Channel full, process immediately to avoid losing the message
+			// This handles input messages that need to clear nudges, etc.
+			switch msg.Type {
+			case "input":
+				if !isTerminalResponse(msg.Data) {
+					if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
+						if s.state.ClearSessionNudge(sessionID) {
+							go func() {
+								if err := s.state.Save(); err != nil {
+									fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+								} else {
+									s.BroadcastSessions()
+								}
+							}()
+						}
+					}
+					if err := tracker.SendInput(msg.Data); err != nil {
+						fmt.Printf("[terminal] error sending input: %v\n", err)
+					}
+				}
+			case "resize":
+				var resizeData struct {
+					Cols int `json:"cols"`
+					Rows int `json:"rows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err == nil && resizeData.Cols > 0 && resizeData.Rows > 0 {
+					if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
+						fmt.Printf("[terminal] error resizing: %v\n", err)
+					}
+				}
+			}
 		}
 	}
 
