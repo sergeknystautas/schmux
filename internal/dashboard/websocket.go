@@ -425,6 +425,8 @@ drained:
 				diag := &DiagnosticCapture{
 					Timestamp:  time.Now(),
 					SessionID:  sessionID,
+					Cols:       tracker.LastTerminalCols,
+					Rows:       tracker.LastTerminalRows,
 					Counters:   counters,
 					TmuxScreen: tmuxScreen,
 					RingBuffer: rbSnapshot,
