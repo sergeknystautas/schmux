@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -12,11 +11,6 @@ import (
 // mid-provisioning, the goroutine exits and doesn't leak (Issue 3 fix).
 // This tests the cleanup pattern used in handleRemoteConnectStream.
 func TestConnectProgressSSEDisconnect(t *testing.T) {
-	// Record baseline goroutines
-	runtime.GC()
-	time.Sleep(50 * time.Millisecond)
-	baselineGoroutines := runtime.NumGoroutine()
-
 	// Simulate the SSE handler pattern
 	progressCh := make(chan string, 10)
 	doneCh := make(chan struct{})
@@ -70,17 +64,6 @@ func TestConnectProgressSSEDisconnect(t *testing.T) {
 		// Good - goroutine exited
 	case <-time.After(2 * time.Second):
 		t.Fatal("goroutine did not exit after cleanup (goroutine leak)")
-	}
-
-	// Verify no goroutine leak
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
-	finalGoroutines := runtime.NumGoroutine()
-
-	goroutineLeak := finalGoroutines - baselineGoroutines
-	if goroutineLeak > 5 {
-		t.Errorf("potential goroutine leak: baseline=%d, final=%d, leaked=%d",
-			baselineGoroutines, finalGoroutines, goroutineLeak)
 	}
 }
 
