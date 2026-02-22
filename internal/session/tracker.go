@@ -20,6 +20,17 @@ const trackerRestartDelay = 500 * time.Millisecond
 const trackerActivityDebounce = 500 * time.Millisecond
 const trackerRetryLogInterval = 15 * time.Second
 
+// isPermanentError detects tmux errors that indicate the session is gone forever.
+// These errors should cause the tracker to exit rather than retry indefinitely.
+func isPermanentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "can't find session") ||
+		strings.Contains(msg, "no session found")
+}
+
 // TrackerCounters holds atomic pipeline counters for diagnostics.
 type TrackerCounters struct {
 	EventsDelivered atomic.Int64
@@ -262,7 +273,13 @@ func (t *SessionTracker) run() {
 		default:
 		}
 
-		if err := t.attachControlMode(); err != nil && err != io.EOF {
+		err := t.attachControlMode()
+		if err != nil && err != io.EOF {
+			// Check for permanent errors (session no longer exists)
+			if isPermanentError(err) {
+				fmt.Printf("[tracker] %s stopping: tmux session no longer exists\n", t.sessionID)
+				return
+			}
 			t.Counters.Reconnects.Add(1)
 			now := time.Now()
 			if t.shouldLogRetry(now) {
