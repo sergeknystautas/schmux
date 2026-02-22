@@ -1,6 +1,6 @@
 const DEFAULT_RING_BUFFER_SIZE = 256 * 1024; // 256KB
 const MAX_RECENT_BREAKS = 20;
-const MAX_FRAME_SIZES = 1000;
+const MAX_FRAME_SIZES = 5000;
 
 export type SequenceBreakRecord = {
   frameIndex: number; // which frame (framesReceived at time of break)
