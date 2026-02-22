@@ -330,13 +330,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			}
 		}
 
-		// Get API key (secrets override > embedded)
-		secretsKey, err := config.GetPosthogAPIKey()
-		if err != nil {
-			fmt.Printf("[telemetry] warning: failed to read secrets: %v\n", err)
-		}
-		apiKey := telemetry.GetAPIKey(secretsKey)
-		tel = telemetry.New(apiKey, installID)
+		tel = telemetry.New(installID)
 		if _, ok := tel.(*telemetry.Client); ok {
 			fmt.Println("[telemetry] anonymous usage metrics enabled (opt out: set telemetry_enabled=false in config)")
 		}

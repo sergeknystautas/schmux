@@ -16,14 +16,7 @@ func TestNoopTelemetry(t *testing.T) {
 	noop.Shutdown()
 }
 
-func TestNewWithEmptyAPIKey(t *testing.T) {
-	client := New("", "install-id")
-	if _, ok := client.(*NoopTelemetry); !ok {
-		t.Error("expected NoopTelemetry when API key is empty")
-	}
-}
-
-func TestNewGeneratesInstallID(t *testing.T) {
+func TestNewSendsEvents(t *testing.T) {
 	var received struct {
 		mu    sync.Mutex
 		count int
@@ -48,7 +41,51 @@ func TestNewGeneratesInstallID(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-key", "").(*Client)
+	client := New("").(*Client)
+	defer client.Shutdown()
+
+	client.Track("test_event", map[string]any{"foo": "bar"})
+
+	// Wait for event to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	received.mu.Lock()
+	defer received.mu.Unlock()
+
+	if received.count != 1 {
+		t.Errorf("expected 1 event, got %d", received.count)
+	}
+	if received.id == "" {
+		t.Error("expected non-empty install ID")
+	}
+}
+
+func TestGeneratesInstallIDWhenEmpty(t *testing.T) {
+	var received struct {
+		mu    sync.Mutex
+		count int
+		id    string
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload posthogPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("failed to decode payload: %v", err)
+			return
+		}
+		received.mu.Lock()
+		received.count++
+		received.id = payload.DistinctID
+		received.mu.Unlock()
+	}))
+	defer server.Close()
+
+	// Override endpoint for test
+	originalEndpoint := posthogEndpoint
+	defer func() { posthogEndpoint = originalEndpoint }()
+	posthogEndpoint = server.URL
+
+	client := New("").(*Client)
 	defer client.Shutdown()
 
 	client.Track("test_event", map[string]any{"foo": "bar"})
@@ -94,7 +131,7 @@ func TestTrackSendsEvent(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-key", "test-install-id").(*Client)
+	client := New("test-install-id").(*Client)
 	defer client.Shutdown()
 
 	client.Track("workspace_created", map[string]any{
@@ -132,7 +169,7 @@ func TestTrackNonBlocking(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-key", "test-install-id").(*Client)
+	client := New("test-install-id").(*Client)
 	defer client.Shutdown()
 
 	// Track should return immediately even with slow server
@@ -212,7 +249,7 @@ func TestShutdownFlushesEvents(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-key", "test-install-id").(*Client)
+	client := New("test-install-id").(*Client)
 
 	// Send events
 	for i := 0; i < 5; i++ {
@@ -229,46 +266,5 @@ func TestShutdownFlushesEvents(t *testing.T) {
 	defer receivedCountMu.Unlock()
 	if receivedCount != 5 {
 		t.Errorf("expected 5 events after shutdown, got %d", receivedCount)
-	}
-}
-
-func TestGetAPIKey(t *testing.T) {
-	tests := []struct {
-		name           string
-		secretsKey     string
-		embeddedKey    string
-		expectedResult string
-	}{
-		{
-			name:           "secrets override takes precedence",
-			secretsKey:     "secrets-key",
-			embeddedKey:    "embedded-key",
-			expectedResult: "secrets-key",
-		},
-		{
-			name:           "embedded key when no secrets",
-			secretsKey:     "",
-			embeddedKey:    "embedded-key",
-			expectedResult: "embedded-key",
-		},
-		{
-			name:           "empty when both empty",
-			secretsKey:     "",
-			embeddedKey:    "",
-			expectedResult: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			originalEmbedded := embeddedAPIKey
-			embeddedAPIKey = tt.embeddedKey
-			defer func() { embeddedAPIKey = originalEmbedded }()
-
-			result := GetAPIKey(tt.secretsKey)
-			if result != tt.expectedResult {
-				t.Errorf("expected %q, got %q", tt.expectedResult, result)
-			}
-		})
 	}
 }

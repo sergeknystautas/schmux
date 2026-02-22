@@ -29,12 +29,11 @@ Only these properties are sent. No repo names, URLs, paths, or user data.
 
 ## Configuration
 
-### API Key Resolution (priority order)
+### API Key
 
-1. `~/.schmux/secrets.json` → `posthog_api_key` (user override)
-2. Embedded in binary at build time (default)
+The PostHog API key is hardcoded in `internal/telemetry/telemetry.go`. This is a write-only public key that allows sending events - it's safe to commit to source.
 
-The embedded key is injected via GitHub Actions secrets during build.
+All builds (release binaries, local dev, `go install`) send telemetry.
 
 ### Installation ID
 
@@ -101,15 +100,6 @@ type Config struct {
 }
 ```
 
-**internal/secrets/secrets.go:**
-
-```go
-type Secrets struct {
-    // ... existing fields
-    PosthogAPIKey string `json:"posthog_api_key,omitempty"`
-}
-```
-
 ### 4. Integration Points
 
 **All workspace creation paths** - call after successful creation:
@@ -134,49 +124,19 @@ type Secrets struct {
 | ----------- | ----------------------------------- | ------------------------------------ |
 | Linear sync | `internal/workspace/linear_sync.go` | `LinearSyncToDefault()` (on success) |
 
-### 5. Build-Time API Key Injection
+### 5. Files to Create/Modify
 
-**GitHub Actions** (`.github/workflows/`):
-
-```yaml
-env:
-  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-```
-
-**Build command:**
-
-```bash
-go build -ldflags "-X main.posthogAPIKey=$POSTHOG_API_KEY" ./cmd/schmux
-```
-
-**internal/telemetry/telemetry.go:**
-
-```go
-var embeddedAPIKey string // Set via ldflags
-
-func getAPIKey(secrets *secrets.Secrets) string {
-    if secrets != nil && secrets.PosthogAPIKey != "" {
-        return secrets.PosthogAPIKey  // User override
-    }
-    return embeddedAPIKey  // Build-time default
-}
-```
-
-### 6. Files to Create/Modify
-
-| File                                   | Change                                    |
-| -------------------------------------- | ----------------------------------------- |
-| `internal/telemetry/telemetry.go`      | **NEW** - PostHog client                  |
-| `internal/telemetry/telemetry_test.go` | **NEW** - Unit tests                      |
-| `internal/config/config.go`            | Add `TelemetryEnabled`, `InstallationID`  |
-| `internal/secrets/secrets.go`          | Add `PosthogAPIKey`                       |
-| `internal/daemon/daemon.go`            | Init telemetry, ensure installation ID    |
-| `internal/workspace/manager.go`        | Inject telemetry, track workspace_created |
-| `internal/session/manager.go`          | Inject telemetry, track session_created   |
-| `internal/workspace/linear_sync.go`    | Track push_to_main                        |
-| `docs/api.md`                          | Document config changes                   |
-| `docs/telemetry.md`                    | **NEW** - User-facing privacy doc         |
-| `.github/workflows/*.yml`              | Add POSTHOG_API_KEY secret reference      |
+| File                                   | Change                                          |
+| -------------------------------------- | ----------------------------------------------- |
+| `internal/telemetry/telemetry.go`      | **NEW** - PostHog client with hardcoded API key |
+| `internal/telemetry/telemetry_test.go` | **NEW** - Unit tests                            |
+| `internal/config/config.go`            | Add `TelemetryEnabled`, `InstallationID`        |
+| `internal/daemon/daemon.go`            | Init telemetry, ensure installation ID          |
+| `internal/workspace/manager.go`        | Inject telemetry, track workspace_created       |
+| `internal/session/manager.go`          | Inject telemetry, track session_created         |
+| `internal/workspace/linear_sync.go`    | Track push_to_main                              |
+| `docs/api.md`                          | Document config changes                         |
+| `docs/telemetry.md`                    | **NEW** - User-facing privacy doc               |
 
 ### 7. PostHog API Details
 
@@ -209,8 +169,7 @@ func getAPIKey(secrets *secrets.Secrets) string {
 3. Spawn session → verify `session_created` event in PostHog
 4. Push to main → verify `push_to_main` event in PostHog
 5. Set `telemetry_enabled: false` → verify no events sent
-6. Set `posthog_api_key` in secrets.json → verify override works
-7. Kill daemon mid-event → verify graceful shutdown (no goroutine leak)
+6. Kill daemon mid-event → verify graceful shutdown (no goroutine leak)
 
 ## Docs to Update
 

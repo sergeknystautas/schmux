@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// embeddedAPIKey is set via ldflags at build time.
-// Example: go build -ldflags "-X github.com/sergeknystautas/schmux/internal/telemetry.embeddedAPIKey=phc_xxx"
-var embeddedAPIKey string
+// posthogAPIKey is the public write-only key for anonymous telemetry.
+// This is safe to embed in source - it only allows writing events.
+const posthogAPIKey = "phc_6060MNk0DiOAE7CEpLWRaHJQtNJRNq9enfiYm7DtO3w"
 
 const (
 	// defaultPosthogEndpoint is the default PostHog capture endpoint.
@@ -67,15 +67,10 @@ type Client struct {
 }
 
 // New creates a new telemetry client.
-// If apiKey is empty, returns a NoopTelemetry.
 // If installID is empty, a new UUID will be generated.
-func New(apiKey, installID string) Telemetry {
+func New(installID string) Telemetry {
 	// Honor environment variable opt-out
 	if os.Getenv("SCHMUX_TELEMETRY_OFF") != "" || os.Getenv("DO_NOT_TRACK") != "" {
-		return &NoopTelemetry{}
-	}
-
-	if apiKey == "" {
 		return &NoopTelemetry{}
 	}
 
@@ -84,7 +79,7 @@ func New(apiKey, installID string) Telemetry {
 	}
 
 	c := &Client{
-		apiKey:     apiKey,
+		apiKey:     posthogAPIKey,
 		installID:  installID,
 		eventChan:  make(chan Event, eventQueueSize),
 		stopChan:   make(chan struct{}),
@@ -218,13 +213,4 @@ func (c *Client) logFailure(format string, args ...any) {
 
 	c.lastFailLog = time.Now()
 	fmt.Printf("[telemetry] "+format+"\n", args...)
-}
-
-// GetAPIKey returns the effective API key.
-// Priority: secrets override > embedded key.
-func GetAPIKey(secretsPosthogKey string) string {
-	if secretsPosthogKey != "" {
-		return secretsPosthogKey
-	}
-	return embeddedAPIKey
 }
