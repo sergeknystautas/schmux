@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -239,7 +240,7 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stateCookie, err := r.Cookie(oauthStateCookie)
-	if err != nil || stateCookie.Value == "" || stateCookie.Value != state {
+	if err != nil || stateCookie.Value == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(state)) != 1 {
 		http.Error(w, "Invalid OAuth state", http.StatusBadRequest)
 		return
 	}
