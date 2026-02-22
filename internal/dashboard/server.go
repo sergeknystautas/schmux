@@ -1184,6 +1184,7 @@ type RateLimiter struct {
 	rate      int           // requests per window
 	window    time.Duration // time window
 	cleanupCh chan struct{} // signal cleanup goroutine to stop
+	stopOnce  sync.Once
 }
 
 type bucket struct {
@@ -1256,9 +1257,11 @@ func (rl *RateLimiter) startCleanup(interval time.Duration) {
 	}
 }
 
-// Stop stops the cleanup goroutine.
+// Stop stops the cleanup goroutine. Safe to call multiple times.
 func (rl *RateLimiter) Stop() {
-	close(rl.cleanupCh)
+	rl.stopOnce.Do(func() {
+		close(rl.cleanupCh)
+	})
 }
 
 // normalizeIPForRateLimit extracts the IP address from a request,

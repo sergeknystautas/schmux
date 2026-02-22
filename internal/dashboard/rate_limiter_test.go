@@ -212,3 +212,13 @@ func TestRateLimiter_IPAddressKeys(t *testing.T) {
 		t.Error("ip2 should be limited")
 	}
 }
+
+func TestRateLimiter_StopIdempotent(t *testing.T) {
+	rl := NewRateLimiter(3, 1*time.Minute)
+	go rl.startCleanup(50 * time.Millisecond)
+
+	// Calling Stop multiple times must not panic
+	rl.Stop()
+	rl.Stop()
+	rl.Stop()
+}
