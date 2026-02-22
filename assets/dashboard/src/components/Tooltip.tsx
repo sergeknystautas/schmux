@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useId } from 'react';
 
 /**
  * Tooltip Component
@@ -34,6 +34,7 @@ export default function Tooltip({
   className = '',
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const tooltipId = useId();
   const [position, setPosition] = useState({ top: 0, left: 0, arrowOffset: 0 });
   const [actualPlacement, setActualPlacement] = useState(placement);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -172,7 +173,7 @@ export default function Tooltip({
     onFocus: showTooltip,
     onBlur: hideTooltip,
     onKeyDown: handleKeyDown,
-    'aria-describedby': isVisible ? 'tooltip-content' : undefined,
+    'aria-describedby': isVisible ? tooltipId : undefined,
   });
 
   const variantClasses: Record<TooltipVariant, string> = {
@@ -195,7 +196,7 @@ export default function Tooltip({
         <div
           ref={tooltipRef}
           role="tooltip"
-          id="tooltip-content"
+          id={tooltipId}
           className={`tooltip-react ${variantClasses[variant]}`}
           style={{
             position: 'fixed',
