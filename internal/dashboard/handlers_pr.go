@@ -70,7 +70,9 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 	// Persist to state
 	s.state.SetPullRequests(prs)
 	s.state.SetPublicRepos(s.prDiscovery.GetPublicRepos())
-	s.state.Save()
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[pr] failed to save state: %v\n", err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

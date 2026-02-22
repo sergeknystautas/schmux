@@ -578,7 +578,9 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) {
 		s.state.SetNeedsRestart(true)
-		s.state.Save()
+		if err := s.state.Save(); err != nil {
+			fmt.Printf("[config] failed to save restart-needed state: %v\n", err)
+		}
 	}
 
 	// Save config
