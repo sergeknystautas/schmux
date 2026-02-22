@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/signal"
@@ -198,6 +199,9 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Escape-sequence holdback: prevents partial ANSI sequences at frame boundaries
+	var escHoldback []byte
+
 	// Flush any output that arrived during bootstrap
 	for {
 		select {
@@ -206,8 +210,12 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			if len(event.Data) > 0 {
-				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
-					return
+				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+				escHoldback = hb
+				if len(send) > 0 {
+					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+						return
+					}
 				}
 			}
 		default:
@@ -270,16 +278,24 @@ drained:
 		select {
 		case event, ok := <-outputCh:
 			if !ok {
+				// Flush any held-back bytes before closing
+				if len(escHoldback) > 0 {
+					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+				}
 				conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(1000, "session ended"))
 				return
 			}
 			if len(event.Data) > 0 {
-				if ringBuf != nil {
-					ringBuf.Write([]byte(event.Data))
+				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+				escHoldback = hb
+				if ringBuf != nil && len(send) > 0 {
+					ringBuf.Write(send)
 				}
-				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
-					return
+				if len(send) > 0 {
+					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+						return
+					}
 				}
 			}
 		case <-statsTickerC:
@@ -294,6 +310,10 @@ drained:
 			data, _ := json.Marshal(statsMsg)
 			conn.WriteMessage(websocket.TextMessage, data)
 		case <-sessionDead:
+			// Flush any held-back bytes before closing
+			if len(escHoldback) > 0 {
+				conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+			}
 			conn.WriteMessage(websocket.BinaryMessage, []byte("\n[Session ended]"))
 			conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(1000, "session ended"))
@@ -446,18 +466,28 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 		}
 	}()
 
+	// Escape-sequence holdback for CR terminal
+	var escHoldback []byte
+
 	// Stream output until connection closes or tracker stops
 	for {
 		select {
 		case event, ok := <-outputCh:
 			if !ok {
+				if len(escHoldback) > 0 {
+					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+				}
 				return
 			}
 			if len(event.Data) == 0 {
 				continue
 			}
-			if err := conn.WriteMessage(websocket.BinaryMessage, []byte(event.Data)); err != nil {
-				return
+			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+			escHoldback = hb
+			if len(send) > 0 {
+				if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+					return
+				}
 			}
 		case <-controlChan:
 			return
@@ -611,10 +641,17 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	checkTicker := time.NewTicker(5 * time.Second) // Periodic health check
 	defer checkTicker.Stop()
 
+	// Escape-sequence holdback for remote terminal
+	var escHoldback []byte
+
 	for {
 		select {
 		case outputEvent, ok := <-outputChan:
 			if !ok {
+				// Flush holdback before disconnect message
+				if len(escHoldback) > 0 {
+					sendOutput("append", string(escHoldback))
+				}
 				// Channel closed, connection lost
 				sendOutput("append", "\n[Remote connection lost]")
 				return
@@ -622,14 +659,21 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 			if !paused && outputEvent.Data != "" {
 				// Update last output time for session activity tracking
 				s.state.UpdateSessionLastOutput(sessionID, time.Now())
-				if err := sendOutput("append", outputEvent.Data); err != nil {
-					return
+				send, hb := escbuf.SplitClean(escHoldback, []byte(outputEvent.Data))
+				escHoldback = hb
+				if len(send) > 0 {
+					if err := sendOutput("append", string(send)); err != nil {
+						return
+					}
 				}
 			}
 
 		case <-checkTicker.C:
 			// Check if remote connection is still active
 			if conn == nil || !conn.IsConnected() {
+				if len(escHoldback) > 0 {
+					sendOutput("append", string(escHoldback))
+				}
 				sendOutput("append", "\n[Remote host disconnected]")
 				return
 			}
