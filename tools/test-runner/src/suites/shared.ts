@@ -58,6 +58,7 @@ export async function buildDashboard(onEvent: EventCallback): Promise<boolean> {
     cmd: 'go',
     args: dashboardArgs,
     cwd: root,
+    env: { VITE_EXPOSE_TERMINAL: 'true' },
   });
 
   if (result.exitCode !== 0) {

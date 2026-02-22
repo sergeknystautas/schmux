@@ -177,8 +177,13 @@ export default class TerminalStream {
     // This ensures we have correct dimensions before WebSocket connects
     this.fitTerminalSync();
 
-    // Expose for Playwright fidelity tests (scenario tests run against production builds)
-    if (typeof window !== 'undefined') {
+    // Expose for Playwright fidelity tests. Gated to dev mode and scenario
+    // test builds (VITE_EXPOSE_TERMINAL) to avoid leaking the terminal object
+    // in production, where XSS could abuse it to send input to tmux sessions.
+    if (
+      typeof window !== 'undefined' &&
+      (import.meta.env.DEV || import.meta.env.VITE_EXPOSE_TERMINAL)
+    ) {
       (window as any).__schmuxTerminal = this.terminal;
     }
 
