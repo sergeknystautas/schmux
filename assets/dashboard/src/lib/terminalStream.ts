@@ -410,6 +410,12 @@ export default class TerminalStream {
       window.removeEventListener('resize', this.windowResizeHandler);
       this.windowResizeHandler = null;
     }
+    // Dispose terminal before closing WebSocket so the onmessage guard
+    // (if (this.terminal)) prevents writes to a disposed terminal.
+    if (this.terminal) {
+      this.terminal.dispose();
+      this.terminal = null;
+    }
     if (this.ws) {
       this.ws.close();
     }
