@@ -1,8 +1,10 @@
 import { exec, projectRoot } from '../exec.js';
 import { parseGoTestLine, GoTestOutputAccumulator } from '../parsers.js';
+import { analyzeGoCoverage } from '../coverage.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { CoverageReport } from '../coverage.js';
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   onEvent('backend', {
@@ -105,19 +107,10 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
   const status = result.exitCode === 0 ? 'passed' : 'failed';
 
-  // Coverage summary
+  // Coverage analysis
+  let coverageReport;
   if (opts.coverage && status === 'passed') {
-    const coverResult = await exec({
-      cmd: 'go',
-      args: ['tool', 'cover', '-func=coverage.out'],
-      cwd: root,
-    });
-    if (coverResult.exitCode === 0) {
-      const lastLine = coverResult.stdout.trim().split('\n').pop();
-      if (lastLine) {
-        onEvent('backend', { type: 'output_line', line: `Coverage: ${lastLine}` });
-      }
-    }
+    coverageReport = await analyzeGoCoverage(resolve(root, 'coverage.out'), root);
   }
 
   onEvent('backend', {
@@ -133,7 +126,8 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     failedTests,
     skippedTests,
     testDurations,
-    outputLines.join('\n')
+    outputLines.join('\n'),
+    coverageReport
   );
 }
 
@@ -144,7 +138,8 @@ function makeResult(
   failedTests: FailedTest[],
   skippedTests: string[],
   testDurations: Record<string, number>,
-  output: string
+  output: string,
+  coverageReport?: CoverageReport
 ): SuiteResult {
   return {
     suite: 'backend',
@@ -155,5 +150,6 @@ function makeResult(
     skippedTests,
     testDurations,
     output,
+    coverageReport,
   };
 }
