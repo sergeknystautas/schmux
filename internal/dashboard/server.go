@@ -419,6 +419,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
 	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
 	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
+	mux.HandleFunc("/api/tls/validate", s.withCORS(s.withAuth(s.handleTLSValidate)))
 	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
 	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))

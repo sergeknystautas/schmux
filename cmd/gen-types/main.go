@@ -30,6 +30,8 @@ func main() {
 		reflect.TypeOf(contracts.GitGraphResponse{}),
 		reflect.TypeOf(contracts.GitCommitDetailResponse{}),
 		reflect.TypeOf(contracts.PRsResponse{}),
+		reflect.TypeOf(contracts.TLSValidateRequest{}),
+		reflect.TypeOf(contracts.TLSValidateResponse{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

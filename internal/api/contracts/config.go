@@ -205,6 +205,20 @@ type TLSUpdate struct {
 	KeyPath  *string `json:"key_path,omitempty"`
 }
 
+// TLSValidateRequest is the request body for POST /api/tls/validate.
+type TLSValidateRequest struct {
+	CertPath string `json:"cert_path"`
+	KeyPath  string `json:"key_path"`
+}
+
+// TLSValidateResponse is the response from POST /api/tls/validate.
+type TLSValidateResponse struct {
+	Valid    bool   `json:"valid"`
+	Hostname string `json:"hostname,omitempty"`
+	Expires  string `json:"expires,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
 // AccessControlUpdate represents partial access control updates.
 type AccessControlUpdate struct {
 	Enabled           *bool   `json:"enabled,omitempty"`

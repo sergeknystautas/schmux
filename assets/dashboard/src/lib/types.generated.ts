@@ -332,6 +332,18 @@ export interface TLSUpdate {
   key_path?: string;
 }
 
+export interface TLSValidateRequest {
+  cert_path: string;
+  key_path: string;
+}
+
+export interface TLSValidateResponse {
+  valid: boolean;
+  hostname?: string;
+  expires?: string;
+  error?: string;
+}
+
 export interface Xterm {
   query_timeout_ms: number;
   operation_timeout_ms: number;
