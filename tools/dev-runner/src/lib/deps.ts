@@ -27,10 +27,7 @@ export async function checkDependencies(): Promise<string[]> {
 }
 
 /** Run `npm install` in a directory, streaming output to onLine. */
-export function npmInstall(
-  cwd: string,
-  onLine: (line: string) => void
-): Promise<void> {
+export function npmInstall(cwd: string, onLine: (line: string) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('npm', ['install'], {
       cwd,
