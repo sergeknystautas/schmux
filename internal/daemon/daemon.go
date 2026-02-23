@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
@@ -34,8 +36,10 @@ import (
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
+	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
+	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 )
 
 const (
@@ -57,6 +61,7 @@ type Daemon struct {
 	workspace workspace.WorkspaceManager
 	session   *session.Manager
 	server    *dashboard.Server
+	logger    *log.Logger
 
 	shutdownChan   chan struct{}
 	shutdownOnce   sync.Once
@@ -274,6 +279,31 @@ func Status() (running bool, url string, startedAt string, err error) {
 // If devMode is true, dev mode API endpoints are enabled and the daemon
 // can exit with ErrDevRestart (exit code 42) for workspace switching.
 func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
+	d.logger = logging.New()
+	logger := d.logger
+	telemetryLog := logging.Sub(logger, "telemetry")
+	workspaceLog := logging.Sub(logger, "workspace")
+	configLog := logging.Sub(logger, "config")
+	compoundLog := logging.Sub(logger, "compound")
+	overlayLog := logging.Sub(logger, "overlay")
+	loreLog := logging.Sub(logger, "lore")
+	sessionLog := logging.Sub(logger, "session")
+	nudgenikLog := logging.Sub(logger, "nudgenik")
+	gitWatcherLog := logging.Sub(logger, "git-watcher")
+	stateLog := logging.Sub(logger, "state")
+	githubLog := logging.Sub(logger, "github")
+	remoteLog := logging.Sub(logger, "remote")
+	remoteAccessLog := logging.Sub(logger, "remote-access")
+
+	// Set package-level loggers for packages that use standalone functions
+	tmux.SetLogger(logging.Sub(logger, "tmux"))
+	lore.SetLogger(loreLog)
+	compound.SetLogger(compoundLog)
+	config.SetLogger(configLog)
+	detect.SetLogger(logging.Sub(configLog, "detect"))
+	update.SetLogger(logging.Sub(logger, "update"))
+	tunnel.SetLogger(remoteAccessLog)
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -326,13 +356,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			installID = uuid.New().String()
 			cfg.SetInstallationID(installID)
 			if err := cfg.Save(); err != nil {
-				fmt.Printf("[telemetry] warning: failed to save installation ID: %v\n", err)
+				telemetryLog.Warn("failed to save installation ID", "err", err)
 			}
 		}
 
-		tel = telemetry.New(installID)
+		tel = telemetry.New(installID, telemetryLog)
 		if _, ok := tel.(*telemetry.Client); ok {
-			fmt.Println("[telemetry] anonymous usage metrics enabled (opt out: set telemetry_enabled=false in config)")
+			telemetryLog.Info("anonymous usage metrics enabled (opt out: set telemetry_enabled=false in config)")
 		}
 	}
 
@@ -345,7 +375,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	statePath := filepath.Join(schmuxDir, "state.json")
 
 	// Load state
-	st, err := state.Load(statePath)
+	st, err := state.Load(statePath, stateLog)
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
 	}
@@ -362,8 +392,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create managers
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
+	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
+	wm := workspace.New(cfg, st, statePath, workspaceLog)
+	sm := session.New(cfg, st, statePath, wm, sessionLog)
 
 	// Wire telemetry to managers
 	wm.SetTelemetry(tel)
@@ -371,13 +402,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
-		fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
+		workspaceLog.Warn("failed to ensure overlay directories", "err", err)
 		// Don't fail daemon startup for this
 	}
 
 	// Ensure git excludes for daemon-managed files in all workspaces
 	if err := wm.EnsureAllGitExcludes(); err != nil {
-		fmt.Printf("[workspace] warning: failed to ensure git excludes: %v\n", err)
+		workspaceLog.Warn("failed to ensure git excludes", "err", err)
 	}
 
 	// Detect run targets once on daemon start and persist to config
@@ -385,13 +416,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)
 	cancel()
 	if err != nil {
-		fmt.Printf("[config] warning: failed to detect run targets: %v\n", err)
+		configLog.Warn("failed to detect run targets", "err", err)
 	} else {
 		cfg.RunTargets = config.MergeDetectedRunTargets(cfg.RunTargets, detectedTargets)
 		if err := cfg.Validate(); err != nil {
-			fmt.Printf("[config] warning: failed to validate config after detection: %v\n", err)
+			configLog.Warn("failed to validate config after detection", "err", err)
 		} else if err := cfg.Save(); err != nil {
-			fmt.Printf("[config] warning: failed to save config after detection: %v\n", err)
+			configLog.Warn("failed to save config after detection", "err", err)
 		}
 	}
 
@@ -401,16 +432,16 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	// Create GitHub PR discovery service
-	prDiscovery := github.NewDiscovery()
+	prDiscovery := github.NewDiscovery(githubLog)
 
 	// Seed discovery from persisted state (avoids API call on restart)
 	if prs := st.GetPullRequests(); len(prs) > 0 {
 		prDiscovery.Seed(prs, st.GetPublicRepos())
-		fmt.Printf("[daemon] loaded %d cached PRs from state\n", len(prs))
+		logger.Info("loaded cached PRs from state", "count", len(prs))
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, dashboard.ServerOptions{
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, dashboard.ServerOptions{
 		Shutdown:    d.Shutdown,
 		DevRestart:  d.DevRestart,
 		DevProxy:    devProxy,
@@ -419,7 +450,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	})
 
 	// Create remote manager for remote workspace support
-	remoteManager := remote.NewManager(cfg, st)
+	remoteManager := remote.NewManager(cfg, st, remoteLog)
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
 	server.SetRemoteManager(remoteManager)
 	sm.SetRemoteManager(remoteManager)
@@ -439,7 +470,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				server.HandleTunnelConnected(status.URL)
 			}
 		},
-	})
+	}, remoteAccessLog)
 	server.SetTunnelManager(tunnelMgr)
 
 	// Wire signal detection: file watcher → session manager → dashboard server
@@ -457,7 +488,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			continue
 		}
 		if err := sm.EnsureTracker(sess.ID); err != nil {
-			fmt.Printf("[session] warning: failed to start tracker for %s: %v\n", sess.ID, err)
+			sessionLog.Warn("failed to start tracker", "session_id", sess.ID, "err", err)
 		}
 	}
 
@@ -474,7 +505,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// that can only happen when the user clicks "Reconnect" in the dashboard.
 	staleHosts := remoteManager.MarkStaleHostsDisconnected()
 	if staleHosts > 0 {
-		fmt.Printf("[daemon] marked %d stale remote host(s) as disconnected\n", staleHosts)
+		logger.Info("marked stale remote hosts as disconnected", "count", staleHosts)
 	}
 
 	// Start background goroutine to prune expired remote hosts
@@ -493,7 +524,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Create and start git watcher for filesystem-based change detection.
 	// Started after server creation so broadcasts reach WebSocket clients.
-	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions)
+	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)
 	if gitWatcher != nil {
 		wm.SetGitWatcher(gitWatcher)
 		// Add watches for all existing local workspaces (skip remote ones)
@@ -520,7 +551,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		propagator := func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 			// Validate relPath to prevent path traversal
 			if err := compound.ValidateRelPath(relPath); err != nil {
-				fmt.Printf("[compound] rejecting unsafe relPath in propagator %q: %v\n", relPath, err)
+				compoundLog.Error("rejecting unsafe relPath in propagator", "path", relPath, "err", err)
 				return
 			}
 
@@ -568,7 +599,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 
 				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-					fmt.Printf("[compound] failed to create dir for propagation: %v\n", err)
+					compoundLog.Error("failed to create dir for propagation", "err", err)
 					continue
 				}
 				compounder.Suppress(w.ID, relPath)
@@ -578,20 +609,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					writeMode = info.Mode().Perm()
 				}
 				if err := os.WriteFile(destPath, content, writeMode); err != nil {
-					fmt.Printf("[compound] failed to propagate %s to %s: %v\n", relPath, w.ID, err)
+					compoundLog.Error("failed to propagate", "path", relPath, "workspace_id", w.ID, "err", err)
 					continue
 				}
 				// Update the target workspace's manifest hash (content already in memory)
 				newHash := compound.HashBytes(content)
 				st.UpdateOverlayManifestEntry(w.ID, relPath, newHash)
-				fmt.Printf("[compound] propagated %s to %s\n", relPath, w.ID)
+				compoundLog.Info("propagated", "path", relPath, "workspace_id", w.ID)
 				targetWorkspaceIDs = append(targetWorkspaceIDs, w.ID)
 			}
 
 			// Broadcast overlay change event to dashboard
 			if len(targetWorkspaceIDs) > 0 {
-				fmt.Printf("[overlay] broadcasting change: %s from workspace %s (branch=%s) to %d workspace(s) %v\n",
-					relPath, sourceWorkspaceID, sourceBranch, len(targetWorkspaceIDs), targetWorkspaceIDs)
+				overlayLog.Info("broadcasting change", "path", relPath, "source", sourceWorkspaceID, "branch", sourceBranch, "target_count", len(targetWorkspaceIDs), "targets", targetWorkspaceIDs)
 				diff := difftool.UnifiedDiff(relPath, firstOldContent, content)
 				server.BroadcastOverlayChange(dashboard.OverlayChangeEvent{
 					RelPath:            relPath,
@@ -602,16 +632,16 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					UnifiedDiff:        diff,
 				})
 			} else {
-				fmt.Printf("[overlay] no active sibling workspaces to propagate %s to (source=%s)\n", relPath, sourceWorkspaceID)
+				overlayLog.Debug("no active sibling workspaces to propagate to", "path", relPath, "source", sourceWorkspaceID)
 			}
 		}
 
 		var err error
 		compounder, err = compound.NewCompounder(cfg.GetCompoundDebounceMs(), llmExecutor, propagator, func(workspaceID, relPath, hash string) {
 			st.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
-		})
+		}, compoundLog)
 		if err != nil {
-			fmt.Printf("[compound] warning: failed to create compounder: %v\n", err)
+			compoundLog.Warn("failed to create compounder", "err", err)
 		}
 	}
 
@@ -682,7 +712,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			compounder.AddWorkspace(wsID, w.Path, overlayDir, w.Repo, manifest, declaredPaths)
 		}
 		compounder.Start()
-		fmt.Printf("[compound] started overlay compounding loop\n")
+		compoundLog.Info("started overlay compounding loop")
 	}
 	// Lore curation timer — declared at Run() scope so shutdown can clean up
 	var loreCurateTimer *time.Timer
@@ -691,7 +721,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Lore system: trigger curator on session dispose
 	if cfg.GetLoreEnabled() {
 		loreProposalDir := filepath.Join(homeDir, ".schmux", "lore-proposals")
-		loreStore := lore.NewProposalStore(loreProposalDir)
+		loreStore := lore.NewProposalStore(loreProposalDir, loreLog)
 
 		// Wire lore store into dashboard server for API endpoints
 		server.SetLoreStore(loreStore)
@@ -742,52 +772,51 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				// Read raw entries from all paths
 				rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
 				if err != nil {
-					fmt.Printf("[lore] failed to read entries: %v\n", err)
+					loreLog.Error("failed to read entries", "err", err)
 					return
 				}
 				if len(rawEntries) == 0 {
-					fmt.Printf("[lore] no raw entries to curate for %s\n", repoName)
+					loreLog.Debug("no raw entries to curate", "repo", repoName)
 					return
 				}
 
 				repo, found := cfg.FindRepoByURL(repoURL)
 				if !found {
-					fmt.Printf("[lore] repo not found for URL: %s\n", repoURL)
+					loreLog.Warn("repo not found for URL", "url", repoURL)
 					return
 				}
 				bareDir := filepath.Join(cfg.GetWorktreeBasePath(), repo.BarePath)
 
-				fmt.Printf("[lore] auto-curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
+				loreLog.Info("auto-curate: calling LLM", "repo", repoName, "entries", len(rawEntries))
 				start := time.Now()
 
 				proposal, err := loreCurator.CurateWithEntries(d.shutdownCtx, repoName, bareDir, rawEntries)
 				elapsed := time.Since(start)
 				if err != nil {
-					fmt.Printf("[lore] auto-curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
+					loreLog.Error("auto-curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
 					return
 				}
 				if proposal == nil {
-					fmt.Printf("[lore] auto-curate %s: LLM returned no proposal (%s)\n", repoName, elapsed.Round(time.Millisecond))
+					loreLog.Info("auto-curate: LLM returned no proposal", "repo", repoName, "elapsed", elapsed.Round(time.Millisecond))
 					return
 				}
 
 				if err := loreStore.Save(proposal); err != nil {
-					fmt.Printf("[lore] failed to save proposal: %v\n", err)
+					loreLog.Error("failed to save proposal", "err", err)
 					return
 				}
-				fmt.Printf("[lore] auto-curate %s: proposal %s created (%d files, %d entries used, %s)\n",
-					repoName, proposal.ID, len(proposal.ProposedFiles), len(proposal.EntriesUsed), elapsed.Round(time.Millisecond))
+				loreLog.Info("auto-curate: proposal created", "repo", repoName, "proposal_id", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
 
 				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
 					if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
-						fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}
 			})
 			loreCurateMu.Unlock()
 		})
-		fmt.Printf("[lore] system enabled, will curate on session dispose\n")
+		loreLog.Info("system enabled, will curate on session dispose")
 
 		// Prune old state-change records on startup (from central state files only —
 		// raw entries in workspaces are append-only logs and don't need pruning)
@@ -800,9 +829,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				}
 				pruned, err := lore.PruneEntries(statePath, maxAge)
 				if err != nil {
-					fmt.Printf("[lore] warning: prune failed for %s: %v\n", repo.Name, err)
+					loreLog.Warn("prune failed", "repo", repo.Name, "err", err)
 				} else if pruned > 0 {
-					fmt.Printf("[lore] pruned %d old state entries for %s\n", pruned, repo.Name)
+					loreLog.Info("pruned old state entries", "count", pruned, "repo", repo.Name)
 				}
 			}
 		}()
@@ -823,7 +852,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
 			// Ensure origin query repos exist for branch queries (creates if missing)
 			if err := wm.EnsureOriginQueries(ctx); err != nil {
-				fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
+				logger.Warn("failed to ensure origin queries", "err", err)
 			}
 			// Fetch origin query repos to get latest branch info
 			wm.FetchOriginQueries(ctx)
@@ -837,7 +866,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				ctx, cancel := context.WithTimeout(d.shutdownCtx, cfg.GitStatusTimeout())
 				// Ensure origin query repos exist (in case new repos were added)
 				if err := wm.EnsureOriginQueries(ctx); err != nil {
-					fmt.Printf("[daemon] warning: failed to ensure origin queries: %v\n", err)
+					logger.Warn("failed to ensure origin queries", "err", err)
 				}
 				// Fetch origin query repos to get latest branch info
 				wm.FetchOriginQueries(ctx)
@@ -851,7 +880,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}()
 
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
-	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions)
+	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
@@ -887,14 +916,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	var devRestart bool
 	select {
 	case sig := <-sigChan:
-		fmt.Printf("[daemon] received signal %v, shutting down\n", sig)
+		logger.Info("received signal, shutting down", "signal", sig)
 		d.cancelFunc() // Cancel shutdownCtx so background goroutines exit cleanly
 	case err := <-serverErrChan:
 		return fmt.Errorf("dashboard server error: %w", err)
 	case <-d.shutdownChan:
-		fmt.Println("[daemon] shutdown requested")
+		logger.Info("shutdown requested")
 	case <-d.devRestartChan:
-		fmt.Println("[daemon] dev restart requested")
+		logger.Info("dev restart requested")
 		devRestart = true
 	}
 	// Stop pending lore curation timer
@@ -907,7 +936,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Flush any pending batched state saves and do a final save
 	st.FlushPending()
 	if err := st.Save(); err != nil {
-		fmt.Printf("[daemon] warning: final state save failed: %v\n", err)
+		logger.Warn("final state save failed", "err", err)
 	}
 
 	// Shutdown telemetry (flush pending events)
@@ -958,7 +987,7 @@ func (d *Daemon) DevRestart() {
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions
 // and automatically asks NudgeNik for consultation.
-func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func()) {
+func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func(), logger *log.Logger) {
 	// Check every 15 seconds
 	pollInterval := 15 * time.Second
 	ticker := time.NewTicker(pollInterval)
@@ -975,7 +1004,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 	for {
 		select {
 		case <-ticker.C:
-			checkInactiveSessionsForNudge(ctx, cfg, st, sm, onUpdate)
+			checkInactiveSessionsForNudge(ctx, cfg, st, sm, onUpdate, logger)
 		case <-ctx.Done():
 			return
 		}
@@ -983,7 +1012,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 }
 
 // checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
-func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func()) {
+func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func(), logger *log.Logger) {
 	// Check if nudgenik is enabled (non-empty target)
 	target := cfg.GetNudgenikTarget()
 	if target == "" {
@@ -1020,16 +1049,16 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 
 		// Session is inactive and has no nudge, ask NudgeNik
 		targetName := cfg.GetNudgenikTarget()
-		fmt.Printf("[nudgenik] %s - asking %s\n", sess.ID, targetName)
-		nudge := askNudgeNikForSession(ctx, cfg, sess)
+		logger.Info("asking", "session_id", sess.ID, "target", targetName)
+		nudge := askNudgeNikForSession(ctx, cfg, sess, logger)
 		if nudge != "" {
 			sess.Nudge = nudge
 			if err := st.UpdateSession(sess); err != nil {
-				fmt.Printf("[nudgenik] %s - failed to save nudge: %v\n", sess.ID, err)
+				logger.Error("failed to save nudge", "session_id", sess.ID, "err", err)
 			} else if err := st.Save(); err != nil {
-				fmt.Printf("[nudgenik] %s - failed to persist state: %v\n", sess.ID, err)
+				logger.Error("failed to persist state", "session_id", sess.ID, "err", err)
 			} else {
-				fmt.Printf("[nudgenik] %s - saved nudge\n", sess.ID)
+				logger.Info("saved nudge", "session_id", sess.ID)
 				if onUpdate != nil {
 					onUpdate()
 				}
@@ -1039,27 +1068,27 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 }
 
 // askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
-func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session) string {
+func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, logger *log.Logger) string {
 	result, err := nudgenik.AskForSession(ctx, cfg, sess)
 	if err != nil {
 		switch {
 		case errors.Is(err, nudgenik.ErrDisabled):
 			// Silently skip - nudgenik is disabled
 		case errors.Is(err, nudgenik.ErrNoResponse):
-			fmt.Printf("[nudgenik] %s - no response extracted\n", sess.ID)
+			logger.Info("no response extracted", "session_id", sess.ID)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
-			fmt.Printf("[nudgenik] target not found in config\n")
+			logger.Warn("target not found in config")
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
-			fmt.Printf("[nudgenik] target missing required secrets\n")
+			logger.Warn("target missing required secrets")
 		default:
-			fmt.Printf("[nudgenik] %s - failed to ask: %v\n", sess.ID, err)
+			logger.Error("failed to ask", "session_id", sess.ID, "err", err)
 		}
 		return ""
 	}
 
 	payload, err := json.Marshal(result)
 	if err != nil {
-		fmt.Printf("[nudgenik] %s - failed to serialize result: %v\n", sess.ID, err)
+		logger.Error("failed to serialize result", "session_id", sess.ID, "err", err)
 		return ""
 	}
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -115,8 +116,9 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 	req.Hash = strings.TrimSpace(req.Hash)
+	workspaceLog := logging.Sub(s.logger, "workspace")
 	if req.Hash == "" {
-		fmt.Printf("[workspace] linear-sync-from-main validation error: workspace_id=%s hash missing\n", workspaceID)
+		workspaceLog.Warn("linear-sync-from-main validation error: hash missing", "workspace_id", workspaceID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(linearSyncResponse{
@@ -138,12 +140,12 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s\n", workspaceID)
+	workspaceLog.Info("linear-sync-from-main", "workspace_id", workspaceID)
 
 	// Validate required hash precondition before running sync.
 	graph, err := s.workspace.GetGitGraph(r.Context(), workspaceID, 1, 1)
 	if err != nil {
-		fmt.Printf("[workspace] linear-sync-from-main validation error: workspace_id=%s get-graph failed: %v\n", workspaceID, err)
+		workspaceLog.Error("linear-sync-from-main validation error: get-graph failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(linearSyncResponse{
@@ -154,7 +156,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	}
 	actualHash := strings.TrimSpace(graph.MainAheadNextHash)
 	if actualHash == "" {
-		fmt.Printf("[workspace] linear-sync-from-main hash mismatch: workspace_id=%s requested=%s actual=<none>\n", workspaceID, req.Hash)
+		workspaceLog.Warn("linear-sync-from-main hash mismatch: no next hash", "workspace_id", workspaceID, "requested", req.Hash)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(linearSyncResponse{
@@ -166,7 +168,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if actualHash != req.Hash {
-		fmt.Printf("[workspace] linear-sync-from-main hash mismatch: workspace_id=%s requested=%s actual=%s\n", workspaceID, req.Hash, actualHash)
+		workspaceLog.Warn("linear-sync-from-main hash mismatch", "workspace_id", workspaceID, "requested", req.Hash, "actual", actualHash)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(linearSyncResponse{
@@ -205,13 +207,15 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 	s.pauseViteWatch()
 	defer s.resumeViteWatch()
 
+	workspaceLog := logging.Sub(s.logger, "workspace")
+
 	// Perform the sync from main
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 	defer cancel()
 
 	result, err := s.workspace.LinearSyncFromDefault(ctx, workspaceID)
 	if err != nil {
-		fmt.Printf("[workspace] linear-sync-from-main error: workspace_id=%s error=%v\n", workspaceID, err)
+		workspaceLog.Error("linear-sync-from-main failed", "workspace_id", workspaceID, "err", err)
 		s.BroadcastWorkspaceUnlockedWithSyncResult(workspaceID, nil, err)
 		return
 	}
@@ -219,7 +223,7 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 	// Update git status after sync (best-effort, don't block response)
 	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
 		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
-			fmt.Printf("[workspace] linear-sync-from-main warning: failed to update git status: %v\n", err)
+			workspaceLog.Warn("linear-sync-from-main: failed to update git status", "err", err)
 		}
 	}
 
@@ -234,10 +238,10 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 		branch := ws.Branch
 		ws.ConflictOnBranch = &branch
 		if err := s.state.UpdateWorkspace(ws); err != nil {
-			fmt.Printf("[workspace] linear-sync-from-main warning: failed to update conflict state: %v\n", err)
+			workspaceLog.Warn("linear-sync-from-main: failed to update conflict state", "err", err)
 		} else {
 			if err := s.state.Save(); err != nil {
-				fmt.Printf("[workspace] linear-sync-from-main warning: failed to save state: %v\n", err)
+				workspaceLog.Warn("linear-sync-from-main: failed to save state", "err", err)
 			}
 			go s.BroadcastSessions()
 		}
@@ -249,7 +253,7 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 	} else if result.ConflictingHash != "" {
 		successMsg = fmt.Sprintf("conflict at %s after %d commits", result.ConflictingHash, result.SuccessCount)
 	}
-	fmt.Printf("[workspace] linear-sync-from-main: workspace_id=%s %s\n", workspaceID, successMsg)
+	workspaceLog.Info("linear-sync-from-main", "workspace_id", workspaceID, "result", successMsg)
 	s.BroadcastWorkspaceUnlockedWithSyncResult(workspaceID, result, nil)
 	go s.BroadcastSessions()
 }
@@ -278,7 +282,8 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s\n", workspaceID)
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	workspaceLog.Info("linear-sync-to-main", "workspace_id", workspaceID)
 
 	// Perform the sync to main
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
@@ -286,7 +291,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 
 	result, err := s.workspace.LinearSyncToDefault(ctx, workspaceID)
 	if err != nil {
-		fmt.Printf("[workspace] linear-sync-to-main error: workspace_id=%s error=%v\n", workspaceID, err)
+		workspaceLog.Error("linear-sync-to-main failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(linearSyncResponse{
@@ -299,7 +304,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	// Update git status after sync (best-effort, don't block response)
 	if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
 		if !errors.Is(err, workspace.ErrWorkspaceLocked) {
-			fmt.Printf("[workspace] linear-sync-to-main warning: failed to update git status: %v\n", err)
+			workspaceLog.Warn("linear-sync-to-main: failed to update git status", "err", err)
 		}
 	}
 
@@ -309,7 +314,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	} else {
 		successMsg = "failed"
 	}
-	fmt.Printf("[workspace] linear-sync-to-main: workspace_id=%s %s\n", workspaceID, successMsg)
+	workspaceLog.Info("linear-sync-to-main", "workspace_id", workspaceID, "result", successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -350,7 +355,8 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s confirm=%t\n", workspaceID, req.Confirm)
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	workspaceLog.Info("push-to-branch", "workspace_id", workspaceID, "confirm", req.Confirm)
 
 	// Perform the push to branch
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
@@ -358,7 +364,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.workspace.PushToBranch(ctx, workspaceID, req.Confirm)
 	if err != nil {
-		fmt.Printf("[workspace] push-to-branch error: workspace_id=%s error=%v\n", workspaceID, err)
+		workspaceLog.Error("push-to-branch failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -372,7 +378,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	if result.Success {
 		if _, err := s.workspace.UpdateGitStatus(ctx, workspaceID); err != nil {
 			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
-				fmt.Printf("[workspace] push-to-branch warning: failed to update git status: %v\n", err)
+				workspaceLog.Warn("push-to-branch: failed to update git status", "err", err)
 			}
 		}
 	}
@@ -385,7 +391,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	} else {
 		successMsg = "failed"
 	}
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s %s\n", workspaceID, successMsg)
+	workspaceLog.Info("push-to-branch", "workspace_id", workspaceID, "result", successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -437,7 +443,8 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 	s.setLinearSyncResolveConflictState(workspaceID, crState)
 	go s.BroadcastSessions()
 
-	fmt.Printf("[workspace] linear-sync-resolve-conflict: started workspace_id=%s\n", workspaceID)
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	workspaceLog.Info("linear-sync-resolve-conflict started", "workspace_id", workspaceID)
 
 	// Launch background goroutine
 	go func() {
@@ -449,7 +456,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		// Panic recovery — never leave state stuck at in_progress
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[workspace] linear-sync-resolve-conflict: PANIC: %v\n", r)
+				logging.Sub(s.logger, "workspace").Error("linear-sync-resolve-conflict PANIC", "err", r)
 				s.cleanupCRTrackers(crState)
 				crState.Finish("failed", fmt.Sprintf("Internal error: %v", r), nil)
 				go s.BroadcastSessions()
@@ -469,6 +476,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 						"",  // no signal file
 						nil, // no signal callback
 						nil, // no output callback
+						nil, // no logger
 					)
 					tracker.Start()
 					s.setCRTracker(step.TmuxSession, tracker)
@@ -520,17 +528,19 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		ctx := s.shutdownCtx
 		result, err := s.workspace.LinearSyncResolveConflict(ctx, workspaceID, onStep)
 
+		crLog := logging.Sub(s.logger, "workspace")
+
 		// Update git status (best-effort; do not block final state)
 		if _, err := s.workspace.UpdateGitStatus(s.shutdownCtx, workspaceID); err != nil {
 			if !errors.Is(err, workspace.ErrWorkspaceLocked) {
-				fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to update git status: %v\n", err)
+				crLog.Warn("linear-sync-resolve-conflict: failed to update git status", "err", err)
 			}
 		}
 
 		s.cleanupCRTrackers(crState)
 
 		if err != nil {
-			fmt.Printf("[workspace] linear-sync-resolve-conflict error: workspace_id=%s error=%v\n", workspaceID, err)
+			crLog.Error("linear-sync-resolve-conflict failed", "workspace_id", workspaceID, "err", err)
 			crState.Finish("failed", fmt.Sprintf("Failed to resolve conflict: %v", err), nil)
 		} else if result.Success {
 			var resolutions []LinearSyncResolveConflictResolution
@@ -551,10 +561,10 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			if ws, found := s.state.GetWorkspace(workspaceID); found {
 				ws.ConflictOnBranch = nil
 				if err := s.state.UpdateWorkspace(ws); err != nil {
-					fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to clear conflict state: %v\n", err)
+					crLog.Warn("linear-sync-resolve-conflict: failed to clear conflict state", "err", err)
 				} else {
 					if err := s.state.Save(); err != nil {
-						fmt.Printf("[workspace] linear-sync-resolve-conflict warning: failed to save state: %v\n", err)
+						crLog.Warn("linear-sync-resolve-conflict: failed to save state", "err", err)
 					}
 				}
 			}
@@ -574,7 +584,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 			crState.Finish("failed", result.Message, resolutions)
 		}
 
-		fmt.Printf("[workspace] linear-sync-resolve-conflict done: workspace_id=%s status=%s\n", workspaceID, crState.Status)
+		crLog.Info("linear-sync-resolve-conflict done", "workspace_id", workspaceID, "status", crState.Status)
 		go s.BroadcastSessions()
 	}()
 

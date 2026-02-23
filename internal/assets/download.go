@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -59,7 +60,7 @@ func NeedsDownload() bool {
 
 // EnsureAssets ensures dashboard assets are available.
 // Downloads from GitHub releases if needed.
-func EnsureAssets() error {
+func EnsureAssets(logger *log.Logger) error {
 	if !NeedsDownload() {
 		return nil
 	}
@@ -70,7 +71,9 @@ func EnsureAssets() error {
 	}
 
 	url := fmt.Sprintf(GitHubReleaseURLTemplate, version.Version)
-	fmt.Printf("[daemon] downloading dashboard assets v%s...\n", version.Version)
+	if logger != nil {
+		logger.Info("downloading dashboard assets", "version", version.Version)
+	}
 
 	if err := DownloadAndExtract(url, assetsDir); err != nil {
 		return fmt.Errorf("failed to download dashboard assets: %w", err)
@@ -82,7 +85,9 @@ func EnsureAssets() error {
 		return fmt.Errorf("failed to write version file: %w", err)
 	}
 
-	fmt.Printf("[daemon] dashboard assets v%s installed\n", version.Version)
+	if logger != nil {
+		logger.Info("dashboard assets installed", "version", version.Version)
+	}
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 )
 
@@ -23,6 +24,7 @@ type State struct {
 	RemoteHosts   []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
 	Previews      map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
 	path          string                      // path to the state file
+	logger        *log.Logger
 	mu            sync.RWMutex
 
 	// Batched save support (Issue 6 fix)
@@ -131,7 +133,7 @@ type Session struct {
 }
 
 // New creates a new empty State instance.
-func New(path string) *State {
+func New(path string, logger *log.Logger) *State {
 	return &State{
 		Workspaces:    []Workspace{},
 		Sessions:      []Session{},
@@ -139,22 +141,24 @@ func New(path string) *State {
 		RemoteHosts:   []RemoteHost{},
 		Previews:      map[string]WorkspacePreview{},
 		path:          path,
+		logger:        logger,
 	}
 }
 
 // Load loads the state from the given path.
 // Returns an empty state if the file doesn't exist.
-func Load(path string) (*State, error) {
+func Load(path string, logger *log.Logger) (*State, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return New(path), nil
+			return New(path, logger), nil
 		}
 		return nil, fmt.Errorf("failed to read state: %w", err)
 	}
 
 	var st State
 	st.path = path
+	st.logger = logger
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
@@ -216,7 +220,9 @@ func (s *State) SaveBatched() {
 	s.saveTimer = time.AfterFunc(batchWindow, func() {
 		s.savePending.Store(false)
 		if err := s.saveNow(); err != nil {
-			fmt.Printf("[state] batched save failed: %v\n", err)
+			if s.logger != nil {
+				s.logger.Error("batched save failed", "err", err)
+			}
 		}
 	})
 }
@@ -233,7 +239,9 @@ func (s *State) FlushPending() {
 	s.saveMu.Unlock()
 	if pending {
 		if err := s.saveNow(); err != nil {
-			fmt.Printf("[state] flush pending save failed: %v\n", err)
+			if s.logger != nil {
+				s.logger.Error("flush pending save failed", "err", err)
+			}
 		}
 	}
 }

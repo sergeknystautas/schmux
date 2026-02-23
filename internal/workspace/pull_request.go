@@ -47,7 +47,7 @@ func (m *Manager) fetchPRRef(ctx context.Context, repoURL string, prNumber int, 
 	}
 
 	refSpec := fmt.Sprintf("refs/pull/%d/head:refs/heads/%s", prNumber, branchName)
-	fmt.Printf("[workspace] fetching PR ref: %s\n", refSpec)
+	m.logger.Info("fetching PR ref", "refSpec", refSpec)
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "-f", "origin", refSpec)
 	fetchCmd.Dir = worktreeBasePath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
@@ -51,7 +52,7 @@ func EnsureOverlayDir(repoName string) error {
 // Only copies files that are covered by .gitignore in the destination workspace.
 // Preserves directory structure, file permissions, and symlinks.
 // Returns a manifest mapping relative paths to SHA-256 hashes of copied files.
-func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string, error) {
+func CopyOverlay(ctx context.Context, srcDir, destDir string, logger *log.Logger) (map[string]string, error) {
 	manifest := make(map[string]string)
 
 	// Walk the overlay directory
@@ -85,12 +86,12 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 		// For files, check if covered by .gitignore
 		ignored, err := isIgnoredByGit(ctx, destDir, relPath)
 		if err != nil {
-			fmt.Printf("[workspace] WARNING: failed to check gitignore for %s: %v\n", relPath, err)
+			logger.Warn("failed to check gitignore for overlay file", "path", relPath, "err", err)
 			// Skip files if we can't verify gitignore coverage
 			return nil
 		}
 		if !ignored {
-			fmt.Printf("[workspace] WARNING: skipping overlay file (not in .gitignore): %s\n", relPath)
+			logger.Warn("skipping overlay file (not in .gitignore)", "path", relPath)
 			return nil
 		}
 
@@ -105,7 +106,7 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 			if err := os.Symlink(target, destPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %w", destPath, err)
 			}
-			fmt.Printf("[workspace] copied overlay symlink: %s -> %s\n", relPath, target)
+			logger.Debug("copied overlay symlink", "path", relPath, "target", target)
 			return nil
 		}
 
@@ -127,7 +128,7 @@ func CopyOverlay(ctx context.Context, srcDir, destDir string) (map[string]string
 		}
 		manifest[relPath] = hash
 
-		fmt.Printf("[workspace] copied overlay file: %s\n", relPath)
+		logger.Debug("copied overlay file", "path", relPath)
 
 		return nil
 	})
@@ -197,17 +198,17 @@ func (m *Manager) copyOverlayFiles(ctx context.Context, repoName, workspacePath 
 
 	// Check if overlay directory exists
 	if _, err := os.Stat(overlayDir); os.IsNotExist(err) {
-		fmt.Printf("[workspace] no overlay directory for repo %s, skipping\n", repoName)
+		m.logger.Debug("no overlay directory for repo, skipping", "repo", repoName)
 		return nil, nil
 	}
 
-	fmt.Printf("[workspace] copying overlay files: repo=%s to=%s\n", repoName, workspacePath)
-	manifest, err := CopyOverlay(ctx, overlayDir, workspacePath)
+	m.logger.Info("copying overlay files", "repo", repoName, "to", workspacePath)
+	manifest, err := CopyOverlay(ctx, overlayDir, workspacePath, m.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy overlay files: %w", err)
 	}
 
-	fmt.Printf("[workspace] overlay files copied successfully\n")
+	m.logger.Info("overlay files copied successfully")
 	return manifest, nil
 }
 
@@ -225,7 +226,7 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 		return fmt.Errorf("repo URL not found in config: %s", w.Repo)
 	}
 
-	fmt.Printf("[workspace] refreshing overlay: id=%s repo=%s\n", workspaceID, repoConfig.Name)
+	m.logger.Info("refreshing overlay", "id", workspaceID, "repo", repoConfig.Name)
 
 	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path)
 	if err != nil {
@@ -238,10 +239,10 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 
 	// Ensure schmux-managed configuration (hooks, scripts, etc.)
 	if err := ensure.Workspace(w.Path); err != nil {
-		fmt.Printf("[workspace] warning: failed to ensure workspace config: %v\n", err)
+		m.logger.Warn("failed to ensure workspace config", "err", err)
 	}
 
-	fmt.Printf("[workspace] overlay refreshed successfully: %s\n", workspaceID)
+	m.logger.Info("overlay refreshed successfully", "id", workspaceID)
 	return nil
 }
 
@@ -252,7 +253,7 @@ func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
 			return fmt.Errorf("failed to ensure overlay directory for %s: %w", repo.Name, err)
 		}
 	}
-	fmt.Printf("[workspace] ensured overlay directories for %d repos\n", len(repos))
+	m.logger.Info("ensured overlay directories", "count", len(repos))
 	return nil
 }
 

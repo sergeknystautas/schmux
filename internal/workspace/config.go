@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -61,7 +62,7 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 		fileExists = true
 	} else if !os.IsNotExist(err) {
 		// Log unexpected stat errors (permissions, IO issues) but don't evict cache
-		fmt.Printf("[workspace] warning: unexpected stat error for %s: %v\n", configPath, err)
+		m.logger.Warn("unexpected stat error for config", "path", configPath, "err", err)
 		return
 	}
 
@@ -82,14 +83,14 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 
 	// Log on change: error or success
 	if err != nil {
-		fmt.Printf("[workspace] warning: %v\n", err)
+		m.logger.Warn("failed to load config", "err", err)
 		return
 	}
 	if repoCfg != nil {
-		fmt.Printf("[workspace] loaded config from %s\n", configPath)
+		m.logger.Info("loaded config", "path", configPath)
 	}
 
-	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.config)
+	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.config, m.logger)
 	if repoCfg == nil || len(validQuickLaunch) == 0 {
 		m.workspaceConfigsMu.Lock()
 		delete(m.workspaceConfigs, w.ID)
@@ -115,7 +116,7 @@ func (m *Manager) GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig {
 	return copyCfg
 }
 
-func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, cfg *config.Config) []contracts.QuickLaunch {
+func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, cfg *config.Config, logger *log.Logger) []contracts.QuickLaunch {
 	if repoCfg == nil {
 		return nil
 	}
@@ -130,11 +131,11 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 	for _, preset := range presets {
 		name := strings.TrimSpace(preset.Name)
 		if name == "" {
-			fmt.Printf("[workspace] parse error: %s: quick_launch entry missing name\n", configPath)
+			logger.Warn("quick_launch entry missing name", "config", configPath)
 			continue
 		}
 		if seen[name] {
-			fmt.Printf("[workspace] parse error: %s: quick_launch %q is duplicated\n", configPath, name)
+			logger.Warn("quick_launch is duplicated", "config", configPath, "name", name)
 			continue
 		}
 		command := strings.TrimSpace(preset.Command)
@@ -142,12 +143,12 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 		hasCommand := command != ""
 		hasTarget := target != ""
 		if hasCommand == hasTarget {
-			fmt.Printf("[workspace] parse error: %s: quick_launch %q must set either command or target\n", configPath, name)
+			logger.Warn("quick_launch must set either command or target", "config", configPath, "name", name)
 			continue
 		}
 		if hasCommand {
 			if preset.Prompt != nil && strings.TrimSpace(*preset.Prompt) != "" {
-				fmt.Printf("[workspace] parse error: %s: quick_launch %q cannot include prompt for command\n", configPath, name)
+				logger.Warn("quick_launch cannot include prompt for command", "config", configPath, "name", name)
 				continue
 			}
 			preset.Name = name
@@ -161,7 +162,7 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 
 		promptable, found := config.IsTargetPromptable(cfg, detected, target)
 		if !found {
-			fmt.Printf("[workspace] parse error: %s: quick_launch %q target not found: %s\n", configPath, name, target)
+			logger.Warn("quick_launch target not found", "config", configPath, "name", name, "target", target)
 			continue
 		}
 		prompt := ""
@@ -169,11 +170,11 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 			prompt = strings.TrimSpace(*preset.Prompt)
 		}
 		if promptable && prompt == "" {
-			fmt.Printf("[workspace] parse error: %s: quick_launch %q requires prompt\n", configPath, name)
+			logger.Warn("quick_launch requires prompt", "config", configPath, "name", name)
 			continue
 		}
 		if !promptable && prompt != "" {
-			fmt.Printf("[workspace] parse error: %s: quick_launch %q cannot include prompt for command target\n", configPath, name)
+			logger.Warn("quick_launch cannot include prompt for command target", "config", configPath, "name", name)
 			continue
 		}
 		preset.Name = name

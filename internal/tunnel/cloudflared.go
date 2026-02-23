@@ -14,7 +14,18 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
+
+// pkgLogger is the package-level logger for tunnel operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for tunnel operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 const cloudflaredBaseURL = "https://github.com/cloudflare/cloudflared/releases/latest/download"
 
@@ -57,8 +68,12 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 		return path, nil
 	}
 
-	fmt.Printf("[remote-access] cloudflared not found. Recommended: %s\n", installSuggestion(runtime.GOOS))
-	fmt.Printf("[remote-access] falling back to auto-download...\n")
+	if pkgLogger != nil {
+		pkgLogger.Info("cloudflared not found, recommending install", "suggestion", installSuggestion(runtime.GOOS))
+	}
+	if pkgLogger != nil {
+		pkgLogger.Info("falling back to auto-download")
+	}
 	if err := os.MkdirAll(schmuxBinDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create bin dir: %w", err)
 	}
@@ -94,11 +109,15 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 		f.Close()
 	}
 
-	fmt.Printf("[remote-access] cloudflared downloaded to %s\n", destPath)
+	if pkgLogger != nil {
+		pkgLogger.Info("cloudflared downloaded", "path", destPath)
+	}
 
 	// Log SHA256 hash for audit trail
 	if hash, err := fileSHA256(destPath); err == nil {
-		fmt.Printf("[remote-access] cloudflared sha256: %s\n", hash)
+		if pkgLogger != nil {
+			pkgLogger.Info("cloudflared sha256", "hash", hash)
+		}
 	}
 
 	// Verify code signature (macOS only; logs warning on other platforms)
@@ -116,8 +135,9 @@ func EnsureCloudflared(schmuxBinDir string) (string, error) {
 // On other platforms, it logs a warning since no signature verification is available.
 func verifyCloudflaredSignature(binPath string) error {
 	if runtime.GOOS != "darwin" {
-		fmt.Printf("[remote-access] WARNING: signature verification is only available on macOS. " +
-			"Consider installing cloudflared via your package manager for verified binaries.\n")
+		if pkgLogger != nil {
+			pkgLogger.Warn("signature verification is only available on macOS; consider installing cloudflared via your package manager for verified binaries")
+		}
 		return nil
 	}
 
@@ -159,7 +179,9 @@ func verifyCodesign(binPath string) error {
 		return fmt.Errorf("binary is signed but Authority chain does not contain Cloudflare")
 	}
 
-	fmt.Printf("[remote-access] cloudflared signature verified (Cloudflare Inc., team %s)\n", cloudflareTeamID)
+	if pkgLogger != nil {
+		pkgLogger.Info("cloudflared signature verified", "authority", "Cloudflare Inc.", "team", cloudflareTeamID)
+	}
 	return nil
 }
 

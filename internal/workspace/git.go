@@ -147,7 +147,7 @@ func (m *Manager) updateLocalDefaultBranch(ctx context.Context, bareRepoPath, re
 	updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
 	updateCmd.Dir = bareRepoPath
 	if output, err := updateCmd.CombinedOutput(); err != nil {
-		fmt.Printf("[workspace] warning: failed to fast-forward local %s: %v: %s\n", defaultBranch, err, string(output))
+		m.logger.Warn("failed to fast-forward local branch", "branch", defaultBranch, "err", err, "output", string(output))
 	}
 }
 
@@ -174,7 +174,7 @@ func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, rem
 func (m *Manager) isUpToDateWithDefault(ctx context.Context, dir, repoURL string) bool {
 	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 	if err != nil {
-		fmt.Printf("[workspace] cannot determine default branch, skipping reuse: %v\n", err)
+		m.logger.Debug("cannot determine default branch, skipping reuse", "err", err)
 		return false
 	}
 
@@ -192,7 +192,7 @@ func (m *Manager) gitPullRebase(ctx context.Context, dir, branch string) error {
 	remoteCmd.Dir = dir
 	if _, err := remoteCmd.CombinedOutput(); err != nil {
 		// No origin remote - local-only repo, nothing to pull
-		fmt.Printf("[workspace] no origin remote, skipping pull\n")
+		m.logger.Debug("no origin remote, skipping pull")
 		return nil
 	}
 
@@ -396,7 +396,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 		output, err = revListCmd.CombinedOutput()
 		if err != nil {
 			// No upstream or other error - log but continue to calculate line changes
-			fmt.Printf("[workspace] git rev-list HEAD...origin/%s failed for %s: %s\n", defaultBranch, dir, strings.TrimSpace(string(output)))
+			m.logger.Debug("git rev-list failed", "ref", "origin/"+defaultBranch, "dir", dir, "output", strings.TrimSpace(string(output)))
 		} else {
 			// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
 			parts := strings.Split(strings.TrimSpace(string(output)), "\t")

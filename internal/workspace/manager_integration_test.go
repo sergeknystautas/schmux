@@ -17,7 +17,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	t.Parallel()
 	// Set up isolated state with temp path
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	// Skip if git not available
 	if _, err := exec.LookPath("git"); err != nil {
@@ -36,7 +36,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 
 	// Create workspace on "main"
 	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
@@ -71,7 +71,7 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -86,7 +86,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 
 	lock := manager.repoLock(repoDir)
 	lock.Lock()
@@ -121,7 +121,7 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -136,7 +136,7 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 
 	ctx := context.Background()
 	ws1, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
@@ -183,7 +183,7 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -200,7 +200,7 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 
 	ctx := context.Background()
 	ws1, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
@@ -252,7 +252,7 @@ func TestGetOrCreate_BranchReuse_Failure(t *testing.T) {
 func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -267,7 +267,7 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create workspace on "main"
@@ -310,7 +310,7 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -326,7 +326,7 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 			testRepoWithBarePath(t, "test", repoDir),
 		},
 	}
-	manager := New(cfg, st, statePath)
+	manager := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create workspace on "main" — no diverging commits

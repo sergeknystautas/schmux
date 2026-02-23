@@ -16,9 +16,19 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
+
+// pkgLogger is the package-level logger for config operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for config operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 var (
 	ErrConfigNotFound = errors.New("config file not found")
@@ -1262,9 +1272,13 @@ func EnsureExists() (bool, error) {
 		return false, fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("[config] created at %s\n", configPath)
+	if pkgLogger != nil {
+		pkgLogger.Info("config created", "path", configPath)
+	}
 	fmt.Println()
-	fmt.Println("[config] open http://localhost:7337 to complete setup in the web dashboard")
+	if pkgLogger != nil {
+		pkgLogger.Info("open http://localhost:7337 to complete setup in the web dashboard")
+	}
 
 	return true, nil
 }

@@ -8,7 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
+
+// pkgLogger is the package-level logger for compound merge operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for compound operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 // MergeAction represents the action to take for a file change.
 type MergeAction int
@@ -105,7 +116,9 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 	// JSONL files: line-level union (no LLM needed)
 	if strings.HasSuffix(wsPath, ".jsonl") {
 		if len(wsContent)+len(overlayContent) > maxLLMMergeFileSize {
-			fmt.Printf("[compound] JSONL file too large for merge (%d bytes), using last-write-wins: %s\n", len(wsContent)+len(overlayContent), wsPath)
+			if pkgLogger != nil {
+				pkgLogger.Warn("JSONL file too large for merge, using last-write-wins", "bytes", len(wsContent)+len(overlayContent), "path", wsPath)
+			}
 			if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write overlay file: %w", err)
 			}
@@ -116,7 +129,9 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 
 	// Safety: binary files -> last-write-wins
 	if isBinaryContent(wsContent) || isBinaryContent(overlayContent) {
-		fmt.Printf("[compound] binary file detected, using last-write-wins: %s\n", wsPath)
+		if pkgLogger != nil {
+			pkgLogger.Warn("binary file detected, using last-write-wins", "path", wsPath)
+		}
 		if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
@@ -125,7 +140,9 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 
 	// Safety: large files -> last-write-wins
 	if len(wsContent) > maxLLMMergeFileSize {
-		fmt.Printf("[compound] file too large for LLM merge (%d bytes), using last-write-wins: %s\n", len(wsContent), wsPath)
+		if pkgLogger != nil {
+			pkgLogger.Warn("file too large for LLM merge, using last-write-wins", "bytes", len(wsContent), "path", wsPath)
+		}
 		if err := atomicWriteFile(overlayPath, wsContent, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write overlay file: %w", err)
 		}
@@ -141,13 +158,19 @@ func executeLLMMerge(ctx context.Context, wsPath, overlayPath string, executor L
 			if err := atomicWriteFile(overlayPath, merged, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write merged overlay file: %w", err)
 			}
-			fmt.Printf("[compound] LLM merge successful: %s\n", wsPath)
+			if pkgLogger != nil {
+				pkgLogger.Info("LLM merge successful", "path", wsPath)
+			}
 			return merged, nil
 		}
 		if err != nil {
-			fmt.Printf("[compound] LLM merge failed, falling back to last-write-wins: %v\n", err)
+			if pkgLogger != nil {
+				pkgLogger.Warn("LLM merge failed, falling back to last-write-wins", "err", err)
+			}
 		} else {
-			fmt.Printf("[compound] LLM returned empty response, falling back to last-write-wins\n")
+			if pkgLogger != nil {
+				pkgLogger.Warn("LLM returned empty response, falling back to last-write-wins")
+			}
 		}
 	}
 
@@ -214,7 +237,9 @@ func mergeJSONLLines(wsContent, overlayContent []byte, overlayPath string) ([]by
 	if err := atomicWriteFile(overlayPath, result, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write merged JSONL: %w", err)
 	}
-	fmt.Printf("[compound] JSONL line-union merge: %d unique lines\n", len(merged))
+	if pkgLogger != nil {
+		pkgLogger.Info("JSONL line-union merge", "unique_lines", len(merged))
+	}
 	return result, nil
 }
 

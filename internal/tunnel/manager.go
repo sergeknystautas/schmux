@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // Tunnel states
@@ -48,13 +50,15 @@ type Manager struct {
 	status TunnelStatus
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
+	logger *log.Logger
 }
 
 // NewManager creates a new tunnel manager.
-func NewManager(cfg ManagerConfig) *Manager {
+func NewManager(cfg ManagerConfig, logger *log.Logger) *Manager {
 	return &Manager{
 		config: cfg,
 		status: TunnelStatus{State: StateOff},
+		logger: logger,
 	}
 }
 
@@ -158,7 +162,9 @@ func (m *Manager) Start() error {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			fmt.Printf("[remote-access] %s\n", line)
+			if m.logger != nil {
+				m.logger.Debug("cloudflared", "line", line)
+			}
 			if url := parseCloudflaredURL(line); url != "" {
 				m.setStatus(TunnelStatus{State: StateConnected, URL: url})
 			}
@@ -189,7 +195,9 @@ func (m *Manager) Start() error {
 			case <-ctx.Done():
 				return
 			case <-time.After(time.Duration(m.config.TimeoutMinutes) * time.Minute):
-				fmt.Printf("[remote-access] tunnel timeout after %d minutes, stopping\n", m.config.TimeoutMinutes)
+				if m.logger != nil {
+					m.logger.Info("tunnel timeout, stopping", "timeout_minutes", m.config.TimeoutMinutes)
+				}
 				m.Stop()
 			}
 		}()

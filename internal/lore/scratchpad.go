@@ -9,10 +9,21 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // scratchpadMu serializes JSONL mutations to prevent read-then-append race conditions.
 var scratchpadMu sync.Mutex
+
+// pkgLogger is the package-level logger for lore operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for lore operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 // Entry represents a single lore scratchpad entry or state-change record.
 type Entry struct {
@@ -108,7 +119,9 @@ func ReadEntries(path string, filter EntryFilter) ([]Entry, error) {
 		}
 		e, err := ParseEntry(line)
 		if err != nil {
-			fmt.Printf("[lore] skipping malformed entry: %v\n", err)
+			if pkgLogger != nil {
+				pkgLogger.Warn("skipping malformed entry", "err", err)
+			}
 			continue
 		}
 		entries = append(entries, e)

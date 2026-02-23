@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
@@ -42,6 +43,7 @@ func ParseSentinelOutput(data string) string {
 type RemoteSignalWatcher struct {
 	sessionID   string
 	callback    func(Signal)
+	logger      *log.Logger
 	mu          sync.Mutex
 	lastContent string
 }
@@ -53,6 +55,11 @@ func NewRemoteSignalWatcher(sessionID string, callback func(Signal)) *RemoteSign
 		sessionID: sessionID,
 		callback:  callback,
 	}
+}
+
+// SetLogger sets the logger for this watcher.
+func (w *RemoteSignalWatcher) SetLogger(l *log.Logger) {
+	w.logger = l
 }
 
 // ProcessOutput handles a chunk of output from the watcher pane.
@@ -81,7 +88,9 @@ func (w *RemoteSignalWatcher) ProcessOutput(data string) {
 
 	sig := ParseSignalFile(content)
 	if sig == nil {
-		fmt.Printf("[signal] %s - invalid remote signal content: %q\n", w.sessionID, content)
+		if w.logger != nil {
+			w.logger.Warn("invalid remote signal content", "session", w.sessionID, "content", content)
+		}
 		return
 	}
 

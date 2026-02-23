@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/logging"
 )
 
 func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
@@ -29,14 +31,15 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.DisposeGracePeriod()+10*time.Second)
+	sessionLog := logging.Sub(s.logger, "session")
 	if err := s.session.Dispose(ctx, sessionID); err != nil {
 		cancel()
-		fmt.Printf("[session] dispose error: session_id=%s error=%v\n", sessionID, err)
+		sessionLog.Error("dispose failed", "session_id", sessionID, "err", err)
 		writeJSONError(w, fmt.Sprintf("Failed to dispose session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	cancel()
-	fmt.Printf("[session] dispose success: session_id=%s\n", sessionID)
+	sessionLog.Info("dispose success", "session_id", sessionID)
 
 	// Clean up rotation lock for disposed session
 	s.rotationLocksMu.Lock()
@@ -83,8 +86,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	workspaceLog := logging.Sub(s.logger, "workspace")
 	if err := s.workspace.Dispose(workspaceID); err != nil {
-		fmt.Printf("[workspace] dispose error: workspace_id=%s error=%v\n", workspaceID, err)
+		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -92,10 +96,11 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 	if s.previewManager != nil {
 		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
-			fmt.Printf("[preview] dispose cleanup warning: workspace_id=%s error=%v\n", workspaceID, err)
+			previewLog := logging.Sub(s.logger, "preview")
+			previewLog.Warn("dispose cleanup failed", "workspace_id", workspaceID, "err", err)
 		}
 	}
-	fmt.Printf("[workspace] dispose success: workspace_id=%s\n", workspaceID)
+	workspaceLog.Info("dispose success", "workspace_id", workspaceID)
 
 	// Broadcast update to WebSocket clients
 	go s.BroadcastSessions()
@@ -151,13 +156,14 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 
 	var sessionsDisposed []string
+	workspaceLog := logging.Sub(s.logger, "workspace")
 	for range wsSessions {
 		res := <-results
 		if res.err != nil {
-			fmt.Printf("[workspace] dispose-all error: failed to dispose session %s: %v\n", res.sessionID, res.err)
+			workspaceLog.Error("dispose-all session failed", "session_id", res.sessionID, "err", res.err)
 		} else {
 			sessionsDisposed = append(sessionsDisposed, res.sessionID)
-			fmt.Printf("[workspace] dispose-all: disposed session %s\n", res.sessionID)
+			workspaceLog.Info("dispose-all session disposed", "session_id", res.sessionID)
 		}
 	}
 
@@ -170,7 +176,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 
 	// Then dispose the workspace
 	if err := s.workspace.Dispose(workspaceID); err != nil {
-		fmt.Printf("[workspace] dispose-all error: workspace_id=%s error=%v\n", workspaceID, err)
+		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -178,10 +184,11 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	}
 	if s.previewManager != nil {
 		if err := s.previewManager.DeleteWorkspace(workspaceID); err != nil {
-			fmt.Printf("[preview] dispose-all cleanup warning: workspace_id=%s error=%v\n", workspaceID, err)
+			previewLog := logging.Sub(s.logger, "preview")
+			previewLog.Warn("dispose-all cleanup failed", "workspace_id", workspaceID, "err", err)
 		}
 	}
-	fmt.Printf("[workspace] dispose-all success: workspace_id=%s sessions_disposed=%d\n", workspaceID, len(sessionsDisposed))
+	workspaceLog.Info("dispose-all success", "workspace_id", workspaceID, "sessions_disposed", len(sessionsDisposed))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

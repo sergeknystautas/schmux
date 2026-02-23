@@ -2,10 +2,11 @@ package compound
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/charmbracelet/log"
 )
 
 // PropagateFunc is called to propagate an overlay change to sibling workspaces.
@@ -29,21 +30,23 @@ type Compounder struct {
 	executor       LLMExecutor
 	propagate      PropagateFunc
 	manifestUpdate ManifestUpdateFunc
+	logger         *log.Logger
 
 	workspaces map[string]*workspaceInfo // workspaceID → info
 	mu         sync.RWMutex
 }
 
 // NewCompounder creates a new Compounder.
-func NewCompounder(debounceMs int, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc) (*Compounder, error) {
+func NewCompounder(debounceMs int, executor LLMExecutor, propagate PropagateFunc, manifestUpdate ManifestUpdateFunc, logger *log.Logger) (*Compounder, error) {
 	c := &Compounder{
 		executor:       executor,
 		propagate:      propagate,
 		manifestUpdate: manifestUpdate,
+		logger:         logger,
 		workspaces:     make(map[string]*workspaceInfo),
 	}
 
-	watcher, err := NewWatcher(debounceMs, c.onFileChange)
+	watcher, err := NewWatcher(debounceMs, c.onFileChange, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +73,9 @@ func (c *Compounder) AddWorkspace(workspaceID, workspacePath, overlayDir, repoUR
 	c.mu.Unlock()
 
 	if err := c.watcher.AddWorkspaceWithDeclaredPaths(workspaceID, workspacePath, manifestCopy, declaredPaths); err != nil {
-		fmt.Printf("[compound] warning: failed to add workspace watch: %v\n", err)
+		if c.logger != nil {
+			c.logger.Warn("failed to add workspace watch", "err", err)
+		}
 	}
 }
 
@@ -115,7 +120,9 @@ func (c *Compounder) Reconcile(ctx context.Context, workspaceID string) {
 
 	for _, relPath := range relPaths {
 		if ctx.Err() != nil {
-			fmt.Printf("[compound] reconciliation cancelled for %s: %v\n", workspaceID, ctx.Err())
+			if c.logger != nil {
+				c.logger.Warn("reconciliation cancelled", "workspace_id", workspaceID, "err", ctx.Err())
+			}
 			return
 		}
 		c.processFileChange(ctx, workspaceID, relPath)
@@ -131,7 +138,9 @@ func (c *Compounder) onFileChange(workspaceID, relPath string) {
 func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath string) {
 	// Validate relPath to prevent path traversal
 	if err := ValidateRelPath(relPath); err != nil {
-		fmt.Printf("[compound] rejecting unsafe relPath %q: %v\n", relPath, err)
+		if c.logger != nil {
+			c.logger.Error("rejecting unsafe relPath", "path", relPath, "err", err)
+		}
 		return
 	}
 
@@ -150,7 +159,9 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 	// Determine merge action
 	action, err := DetermineMergeAction(wsPath, overlayPath, manifestHash)
 	if err != nil {
-		fmt.Printf("[compound] failed to determine merge action for %s in %s: %v\n", relPath, workspaceID, err)
+		if c.logger != nil {
+			c.logger.Error("failed to determine merge action", "path", relPath, "workspace_id", workspaceID, "err", err)
+		}
 		return
 	}
 
@@ -158,18 +169,24 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 		return
 	}
 
-	fmt.Printf("[overlay] syncing %s from workspace %s (action=%s)\n", relPath, workspaceID, action)
+	if c.logger != nil {
+		c.logger.Info("syncing overlay", "path", relPath, "workspace_id", workspaceID, "action", action)
+	}
 
 	// Ensure overlay parent directory exists
 	if err := os.MkdirAll(filepath.Dir(overlayPath), 0755); err != nil {
-		fmt.Printf("[compound] failed to create overlay directory: %v\n", err)
+		if c.logger != nil {
+			c.logger.Error("failed to create overlay directory", "err", err)
+		}
 		return
 	}
 
 	// Execute merge
 	mergedContent, err := ExecuteMerge(ctx, action, wsPath, overlayPath, c.executor)
 	if err != nil {
-		fmt.Printf("[compound] merge failed for %s in %s: %v\n", relPath, workspaceID, err)
+		if c.logger != nil {
+			c.logger.Error("merge failed", "path", relPath, "workspace_id", workspaceID, "err", err)
+		}
 		return
 	}
 
@@ -188,7 +205,9 @@ func (c *Compounder) processFileChange(ctx context.Context, workspaceID, relPath
 
 	// Propagate to sibling workspaces
 	if c.propagate != nil && mergedContent != nil {
-		fmt.Printf("[overlay] propagating %s from workspace %s to siblings\n", relPath, workspaceID)
+		if c.logger != nil {
+			c.logger.Info("propagating to siblings", "path", relPath, "workspace_id", workspaceID)
+		}
 		c.propagate(workspaceID, repoURL, relPath, mergedContent)
 	}
 }

@@ -60,7 +60,7 @@ func TestDetectPortsFromChunk_AnyHost(t *testing.T) {
 }
 
 func TestFilterProxyPorts_IgnoresKnownProxyPorts(t *testing.T) {
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	_ = st.UpsertPreview(state.WorkspacePreview{
 		ID:          "prev_1",
 		WorkspaceID: "ws-1",
@@ -76,7 +76,7 @@ func TestFilterProxyPorts_IgnoresKnownProxyPorts(t *testing.T) {
 }
 
 func TestFilterExistingPreviews(t *testing.T) {
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	_ = st.UpsertPreview(state.WorkspacePreview{
 		ID:          "prev_1",
 		WorkspaceID: "ws-1",

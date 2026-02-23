@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // OutputEvent represents a %output notification from tmux control mode.
@@ -37,6 +39,7 @@ type Event struct {
 type Parser struct {
 	reader       *bufio.Reader
 	connectionID string // For logging context
+	logger       *log.Logger
 
 	// Channels for parsed data
 	output    chan OutputEvent
@@ -77,7 +80,8 @@ var (
 
 // NewParser creates a new control mode parser.
 // connID is an optional connection identifier for logging context.
-func NewParser(r io.Reader, connID ...string) *Parser {
+// logger is an optional structured logger; if nil, logging is disabled.
+func NewParser(r io.Reader, logger *log.Logger, connID ...string) *Parser {
 	id := ""
 	if len(connID) > 0 {
 		id = connID[0]
@@ -85,6 +89,7 @@ func NewParser(r io.Reader, connID ...string) *Parser {
 	return &Parser{
 		reader:           bufio.NewReader(r),
 		connectionID:     id,
+		logger:           logger,
 		output:           make(chan OutputEvent, 100),
 		responses:        make(chan CommandResponse, 10000), // Large buffer to prevent blocking on slow networks
 		events:           make(chan Event, 100),
@@ -142,14 +147,14 @@ func (p *Parser) Run() error {
 		line, err := p.reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				if p.connectionID != "" {
-					fmt.Printf("[controlmode:%s] parser EOF, closing\n", p.connectionID)
+				if p.logger != nil {
+					p.logger.Debug("parser EOF, closing", "conn", p.connectionID)
 				}
 				p.Close()
 				return nil
 			}
-			if p.connectionID != "" {
-				fmt.Printf("[controlmode:%s] read error: %v\n", p.connectionID, err)
+			if p.logger != nil {
+				p.logger.Error("read error", "conn", p.connectionID, "err", err)
 			}
 			p.Close()
 			return fmt.Errorf("read error: %w", err)
@@ -160,8 +165,8 @@ func (p *Parser) Run() error {
 		line = strings.TrimSuffix(line, "\r")
 
 		if err := p.parseLine(line); err != nil {
-			if p.connectionID != "" {
-				fmt.Printf("[controlmode:%s] parse error: %v (line: %q)\n", p.connectionID, err, line)
+			if p.logger != nil {
+				p.logger.Error("parse error", "conn", p.connectionID, "err", err, "line", line)
 			}
 			return err
 		}
@@ -173,8 +178,8 @@ func (p *Parser) parseLine(line string) error {
 	// Signal control mode ready on the first protocol line
 	if strings.HasPrefix(line, "%") {
 		p.controlModeOnce.Do(func() {
-			if p.connectionID != "" {
-				fmt.Printf("[controlmode:%s] control mode protocol detected\n", p.connectionID)
+			if p.logger != nil {
+				p.logger.Info("control mode protocol detected", "conn", p.connectionID)
 			}
 			close(p.controlModeReady)
 		})
@@ -274,10 +279,8 @@ func (p *Parser) sendOutput(e OutputEvent) {
 			// Drop if channel is full and log periodically
 			dropped := p.droppedOutputs.Add(1)
 			if dropped == 1 || dropped%100 == 0 {
-				if p.connectionID != "" {
-					fmt.Printf("[controlmode:%s] dropped %d output events (channel full)\n", p.connectionID, dropped)
-				} else {
-					fmt.Printf("[controlmode] dropped %d output events (channel full)\n", dropped)
+				if p.logger != nil {
+					p.logger.Warn("dropped output events (channel full)", "conn", p.connectionID, "dropped", dropped)
 				}
 			}
 		}
@@ -290,7 +293,6 @@ func (p *Parser) sendOutput(e OutputEvent) {
 func (p *Parser) sendResponse(r CommandResponse) {
 	p.mu.Lock()
 	closed := p.closed
-	connID := p.connectionID
 	p.mu.Unlock()
 
 	if closed {
@@ -302,12 +304,12 @@ func (p *Parser) sendResponse(r CommandResponse) {
 	const warningThreshold = 0.8
 	currentLen := len(p.responses)
 	if float64(currentLen) >= bufferSize*warningThreshold {
-		if connID != "" {
-			fmt.Printf("[controlmode:%s] WARNING: response buffer at %d/%d (%.1f%% full)\n",
-				connID, currentLen, bufferSize, float64(currentLen)/bufferSize*100)
-		} else {
-			fmt.Printf("[controlmode] WARNING: response buffer at %d/%d (%.1f%% full)\n",
-				currentLen, bufferSize, float64(currentLen)/bufferSize*100)
+		if p.logger != nil {
+			p.logger.Warn("response buffer pressure",
+				"conn", p.connectionID,
+				"current", currentLen,
+				"capacity", bufferSize,
+				"pct_full", fmt.Sprintf("%.1f%%", float64(currentLen)/bufferSize*100))
 		}
 	}
 
@@ -322,15 +324,16 @@ func (p *Parser) sendResponse(r CommandResponse) {
 	case <-time.After(timeout):
 		// Client isn't draining responses - this is a serious issue
 		// Log loudly but don't block the parser forever
-		if connID != "" {
-			fmt.Printf("[controlmode:%s] WARNING: response channel blocked for %v (id=%d), client may have shut down\n", connID, timeout, r.CommandID)
-		} else {
-			fmt.Printf("[controlmode] WARNING: response channel blocked for %v (id=%d), client may have shut down\n", timeout, r.CommandID)
+		if p.logger != nil {
+			p.logger.Warn("response channel blocked, client may have shut down",
+				"conn", p.connectionID, "timeout", timeout, "cmd_id", r.CommandID)
 		}
 		// Drop the response to prevent deadlock - client will timeout anyway
 		dropped := p.droppedResponses.Add(1)
 		if dropped == 1 || dropped%10 == 0 {
-			fmt.Printf("[controlmode] WARNING: dropped %d response(s) due to blocked channel\n", dropped)
+			if p.logger != nil {
+				p.logger.Warn("dropped responses due to blocked channel", "dropped", dropped)
+			}
 		}
 	}
 }
@@ -347,7 +350,9 @@ func (p *Parser) sendEvent(e Event) {
 			// Drop if channel is full and log periodically
 			dropped := p.droppedEvents.Add(1)
 			if dropped == 1 || dropped%100 == 0 {
-				fmt.Printf("[controlmode] dropped %d events (channel full)\n", dropped)
+				if p.logger != nil {
+					p.logger.Warn("dropped events (channel full)", "conn", p.connectionID, "dropped", dropped)
+				}
 			}
 		}
 	}

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -32,11 +35,11 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	t.Cleanup(server.CloseForTest)
@@ -286,10 +289,10 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 	t.Cleanup(server.CloseForTest)
 
 	ws := state.Workspace{
@@ -547,11 +550,11 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
 		DevMode:     true,
 		ShutdownCtx: shutdownCtx,
 	})
@@ -624,7 +627,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
 		// Create a non-dev-mode server
 		shutdownCtx2, shutdownCancel2 := context.WithCancel(context.Background())
-		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{
+		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
 			DevMode:     false,
 			ShutdownCtx: shutdownCtx2,
 		})

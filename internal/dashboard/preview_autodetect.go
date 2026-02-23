@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/signal"
 )
 
@@ -59,6 +60,7 @@ func (s *Server) scanExistingSessionsForPreviews() {
 		}
 
 		// Create previews for found ports
+		previewLog := logging.Sub(s.logger, "preview")
 		now := time.Now().UTC()
 		for _, lp := range ports {
 			key := fmt.Sprintf("%s:%d", ws.ID, lp.Port)
@@ -70,10 +72,10 @@ func (s *Server) scanExistingSessionsForPreviews() {
 			preview, err := s.previewManager.CreateOrGet(ctx, ws, lp.Host, lp.Port)
 			cancel()
 			if err != nil {
-				fmt.Printf("[preview] failed to create preview for %s:%d: %v\n", lp.Host, lp.Port, err)
+				previewLog.Debug("failed to create preview", "host", lp.Host, "port", lp.Port, "err", err)
 				continue
 			}
-			fmt.Printf("[preview] created preview for workspace %s %s:%d -> proxy %d\n", ws.ID, lp.Host, lp.Port, preview.ProxyPort)
+			previewLog.Info("created preview", "workspace_id", ws.ID, "host", lp.Host, "port", lp.Port, "proxy_port", preview.ProxyPort)
 		}
 	}
 }

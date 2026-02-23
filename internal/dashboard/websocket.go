@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/escbuf"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -245,7 +246,7 @@ resizeWaitLoop:
 						if s.state.ClearSessionNudge(sessionID) {
 							go func() {
 								if err := s.state.Save(); err != nil {
-									fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+									logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
 								} else {
 									s.BroadcastSessions()
 								}
@@ -253,7 +254,7 @@ resizeWaitLoop:
 						}
 					}
 					if err := tracker.SendInput(msg.Data); err != nil {
-						fmt.Printf("[terminal] error sending input: %v\n", err)
+						logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
 					}
 				}
 			case "resize":
@@ -263,7 +264,7 @@ resizeWaitLoop:
 				}
 				if err := json.Unmarshal([]byte(msg.Data), &resizeData); err == nil && resizeData.Cols > 0 && resizeData.Rows > 0 {
 					if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
-						fmt.Printf("[terminal] error resizing: %v\n", err)
+						logging.Sub(s.logger, "terminal").Error("failed to resize", "err", err)
 					}
 				}
 			}
@@ -278,7 +279,7 @@ resizeWaitLoop:
 		// Fallback to direct tmux CLI capture
 		bootstrap, err = tmux.CaptureLastLines(capCtx, sess.TmuxSession, bootstrapCaptureLines, true)
 		if err != nil {
-			fmt.Printf("[ws %s] bootstrap capture failed: %v\n", sessionID[:8], err)
+			logging.Sub(s.logger, "ws").Error("bootstrap capture failed", "session_id", sessionID[:8], "err", err)
 			bootstrap = ""
 		}
 	}
@@ -523,7 +524,7 @@ drained:
 					if s.state.ClearSessionNudge(sessionID) {
 						go func() {
 							if err := s.state.Save(); err != nil {
-								fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+								logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
 							} else {
 								s.BroadcastSessions()
 							}
@@ -531,7 +532,7 @@ drained:
 					}
 				}
 				if err := tracker.SendInput(msg.Data); err != nil {
-					fmt.Printf("[terminal] error sending input: %v\n", err)
+					logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
 				}
 			case "resize":
 				var resizeData struct {
@@ -545,7 +546,7 @@ drained:
 					continue
 				}
 				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
-					fmt.Printf("[terminal] error resizing: %v\n", err)
+					logging.Sub(s.logger, "terminal").Error("failed to resize", "err", err)
 				}
 			case "syncResult":
 				var result struct {
@@ -557,7 +558,7 @@ drained:
 				}
 				if result.Corrected {
 					syncCorrections.Add(1)
-					fmt.Printf("[sync] %s corrected %d rows: %v\n", sessionID[:8], len(result.DiffRows), result.DiffRows)
+					logging.Sub(s.logger, "sync").Debug("corrected rows", "session_id", sessionID[:8], "rows_count", len(result.DiffRows), "diff_rows", result.DiffRows)
 				} else {
 					syncSkippedActive.Add(1)
 				}
@@ -570,7 +571,7 @@ drained:
 				tmuxScreen, err := tracker.CaptureLastLines(capCtx, 0)
 				capCancel()
 				if err != nil {
-					fmt.Printf("[diagnostic] %s capture-pane failed: %v\n", sessionID[:8], err)
+					logging.Sub(s.logger, "diagnostic").Debug("capture-pane failed", "session_id", sessionID[:8], "err", err)
 					break
 				}
 				counters := tracker.DiagnosticCounters()
@@ -604,7 +605,7 @@ drained:
 					Verdict:    verdict,
 				}
 				if err := diag.WriteToDir(diagDir); err != nil {
-					fmt.Printf("[diagnostic] %s write failed: %v\n", sessionID[:8], err)
+					logging.Sub(s.logger, "diagnostic").Error("write failed", "session_id", sessionID[:8], "err", err)
 				}
 				// Send response back to client
 				resp := map[string]interface{}{
@@ -715,11 +716,11 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
 	payload, err := json.Marshal(nudgeResult)
 	if err != nil {
-		fmt.Printf("[signal] %s - failed to serialize nudge: %v\n", sessionID, err)
+		logging.Sub(s.logger, "signal").Error("failed to serialize nudge", "session_id", sessionID, "err", err)
 		return
 	}
 	if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
-		fmt.Printf("[signal] %s - failed to update nudge: %v\n", sessionID, err)
+		logging.Sub(s.logger, "signal").Error("failed to update nudge", "session_id", sessionID, "err", err)
 		return
 	}
 
@@ -729,11 +730,11 @@ func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
 	seq := s.state.IncrementNudgeSeq(sessionID)
 
 	if err := s.state.Save(); err != nil {
-		fmt.Printf("[signal] %s - failed to save state: %v\n", sessionID, err)
+		logging.Sub(s.logger, "signal").Error("failed to save state", "session_id", sessionID, "err", err)
 		return
 	}
 
-	fmt.Printf("[signal] %s - received %s signal (seq=%d): %s\n", sessionID, sig.State, seq, sig.Message)
+	logging.Sub(s.logger, "signal").Info("received signal", "session_id", sessionID, "state", sig.State, "seq", seq, "message", sig.Message)
 
 	// Broadcast via debouncer
 	go s.BroadcastSessions()
@@ -821,7 +822,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	history, err := conn.CapturePaneLines(ctx, sess.RemotePaneID, bootstrapCaptureLines)
 	cancel()
 	if err != nil {
-		fmt.Printf("[ws remote %s] failed to capture initial pane content: %v\n", sessionID[:8], err)
+		logging.Sub(s.logger, "ws").Error("failed to capture initial pane content", "session_id", sessionID[:8], "err", err)
 		// Send empty full message as fallback
 		if err := sendOutput("full", ""); err != nil {
 			return
@@ -900,7 +901,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermOperationTimeoutMs())*time.Millisecond)
 				if err := conn.SendKeys(ctx, sess.RemotePaneID, msg.Data); err != nil {
 					cancel()
-					fmt.Printf("[ws remote %s] error sending keys: %v\n", sessionID[:8], err)
+					logging.Sub(s.logger, "ws").Error("failed to send keys", "session_id", sessionID[:8], "err", err)
 				}
 				cancel()
 
@@ -910,7 +911,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
 					if s.state.ClearSessionNudge(sessionID) {
 						if err := s.state.Save(); err != nil {
-							fmt.Printf("[nudgenik] error saving nudge clear: %v\n", err)
+							logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
 						} else {
 							go s.BroadcastSessions()
 						}
@@ -954,12 +955,12 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	// Get the connection
 	conn := s.remoteManager.GetConnection(hostID)
 	if conn == nil {
-		fmt.Printf("[ws provision] connection not found for host %s (provisionID=%s)\n", hostID, provisionID)
+		logging.Sub(s.logger, "ws").Error("connection not found", "host_id", hostID, "provision_id", provisionID)
 		http.Error(w, "remote host connection not found", http.StatusNotFound)
 		return
 	}
 
-	fmt.Printf("[ws provision %s] connection found, waiting for PTY...\n", hostID[:8])
+	logging.Sub(s.logger, "ws").Info("connection found, waiting for PTY", "host_id", hostID[:8])
 
 	// Get PTY (may need to wait briefly while connection initializes)
 	ptmx := conn.PTY()
@@ -973,13 +974,13 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if ptmx == nil {
-			fmt.Printf("[ws provision %s] PTY not available after 5s timeout\n", hostID[:8])
+			logging.Sub(s.logger, "ws").Error("PTY not available after timeout", "host_id", hostID[:8])
 			http.Error(w, "provisioning terminal not available", http.StatusServiceUnavailable)
 			return
 		}
 	}
 
-	fmt.Printf("[ws provision %s] PTY available, upgrading to WebSocket\n", hostID[:8])
+	logging.Sub(s.logger, "ws").Info("PTY available, upgrading to WebSocket", "host_id", hostID[:8])
 
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -1019,7 +1020,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 						if err := json.Unmarshal([]byte(wsMsg.Data), &resizeData); err == nil {
 							if resizeData.Cols > 0 && resizeData.Rows > 0 {
 								if err := conn.ResizePTY(uint16(resizeData.Cols), uint16(resizeData.Rows)); err != nil {
-									fmt.Printf("[ws provision %s] PTY resize error: %v\n", hostID[:8], err)
+									logging.Sub(s.logger, "ws").Error("PTY resize error", "host_id", hostID[:8], "err", err)
 								}
 							}
 						}
@@ -1056,7 +1057,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 			}
 			// Write to PTY
 			if _, err := ptmx.Write(input); err != nil {
-				fmt.Printf("[ws provision %s] PTY write error: %v\n", hostID[:8], err)
+				logging.Sub(s.logger, "ws").Error("PTY write error", "host_id", hostID[:8], "err", err)
 				return
 			}
 

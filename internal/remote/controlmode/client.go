@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
@@ -20,6 +21,7 @@ type Client struct {
 	stdin   io.Writer
 	stdinMu sync.Mutex // Protects stdin writes to prevent interleaving
 	parser  *Parser
+	logger  *log.Logger
 
 	// Command correlation - FIFO queue since tmux assigns sequential IDs
 	pendingQueue []chan CommandResponse
@@ -47,10 +49,12 @@ type WindowInfo struct {
 
 // NewClient creates a new control mode client.
 // stdin is used to send commands, parser reads from stdout.
-func NewClient(stdin io.Writer, parser *Parser) *Client {
+// logger is an optional structured logger; if nil, logging is disabled.
+func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 	return &Client{
 		stdin:        stdin,
 		parser:       parser,
+		logger:       logger,
 		pendingQueue: make([]chan CommandResponse, 0),
 		respChans:    make(map[chan CommandResponse]bool),
 		outputSubs:   make(map[string][]chan OutputEvent),
@@ -136,7 +140,9 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 	select {
 	case resp := <-respCh:
 		if !resp.Success {
-			fmt.Printf("[controlmode] command failed: %s\nError: %s\n", cmd, resp.Content)
+			if c.logger != nil {
+				c.logger.Error("command failed", "cmd", cmd, "err", resp.Content)
+			}
 			return "", fmt.Errorf("command failed: %s", resp.Content)
 		}
 		return resp.Content, nil
@@ -145,7 +151,9 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, error) {
 		// The response will still arrive and be sent to this buffered channel (won't block)
 		// Since we're no longer listening, the value is effectively discarded
 		// Channel will be deregistered and cleaned up by defer
-		fmt.Printf("[controlmode] command timeout: %s\n", cmd)
+		if c.logger != nil {
+			c.logger.Error("command timeout", "cmd", cmd)
+		}
 		return "", ctx.Err()
 	case <-c.closeCh:
 		// Client is closing, channel will be cleaned up by defer
@@ -174,7 +182,9 @@ func (c *Client) processResponses() {
 				ch <- resp
 			} else {
 				c.pendingMu.Unlock()
-				fmt.Printf("[controlmode] WARNING: received response but no pending commands (id=%d)\n", resp.CommandID)
+				if c.logger != nil {
+					c.logger.Warn("received response but no pending commands", "cmd_id", resp.CommandID)
+				}
 			}
 		case <-c.closeCh:
 			return
@@ -573,7 +583,9 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	beginSentinel := fmt.Sprintf("__SCHMUX_BEGIN_%s__", uuid.New().String()[:8])
 	endSentinel := fmt.Sprintf("__SCHMUX_END_%s__", uuid.New().String()[:8])
 
-	fmt.Printf("[controlmode] RunCommand: workdir=%s cmd=%s\n", workdir, command)
+	if c.logger != nil {
+		c.logger.Info("RunCommand", "workdir", workdir, "cmd", command)
+	}
 
 	// Create a hidden window with the default shell (no command = default shell).
 	// This avoids all tmux command-quoting issues because we don't embed the
@@ -590,16 +602,22 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	windowID := parts[0]
 	paneID := parts[1]
 
-	fmt.Printf("[controlmode] RunCommand: created window=%s pane=%s\n", windowID, paneID)
+	if c.logger != nil {
+		c.logger.Info("RunCommand: created window", "window", windowID, "pane", paneID)
+	}
 
 	// Ensure the window is always cleaned up
 	defer func() {
 		killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if killErr := c.KillWindow(killCtx, windowID); killErr != nil {
-			fmt.Printf("[controlmode] RunCommand: failed to kill window %s: %v\n", windowID, killErr)
+			if c.logger != nil {
+				c.logger.Error("RunCommand: failed to kill window", "window", windowID, "err", killErr)
+			}
 		} else {
-			fmt.Printf("[controlmode] RunCommand: killed window %s\n", windowID)
+			if c.logger != nil {
+				c.logger.Debug("RunCommand: killed window", "window", windowID)
+			}
 		}
 	}()
 
@@ -612,7 +630,9 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 	fullCmd := fmt.Sprintf("echo %s; cd %s && %s; echo %s",
 		beginSentinel, shellutil.Quote(workdir), command, endSentinel)
 
-	fmt.Printf("[controlmode] RunCommand: typing into pane %s: %s\n", paneID, fullCmd)
+	if c.logger != nil {
+		c.logger.Debug("RunCommand: typing into pane", "pane", paneID, "cmd", fullCmd)
+	}
 
 	// Send command as literal keystrokes via send-keys -l.
 	// This bypasses tmux's command parser entirely — the text goes straight to the
@@ -667,7 +687,9 @@ func (c *Client) RunCommand(ctx context.Context, workdir, command string) (strin
 				result = strings.TrimSpace(captured[contentStart:endIdx])
 			}
 
-			fmt.Printf("[controlmode] RunCommand: captured %d bytes from pane %s\n", len(result), paneID)
+			if c.logger != nil {
+				c.logger.Debug("RunCommand: captured output", "bytes", len(result), "pane", paneID)
+			}
 			return result, nil
 		}
 	}

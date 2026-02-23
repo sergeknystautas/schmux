@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // ProposalStatus represents the lifecycle state of a proposal.
@@ -64,12 +66,13 @@ func (p *Proposal) IsStale(repoDir string) (bool, error) {
 // ProposalStore manages proposals on disk at baseDir/<repo>/<id>.json.
 type ProposalStore struct {
 	baseDir string
+	logger  *log.Logger
 	mu      sync.Mutex
 }
 
 // NewProposalStore creates a new ProposalStore rooted at the given directory.
-func NewProposalStore(baseDir string) *ProposalStore {
-	return &ProposalStore{baseDir: baseDir}
+func NewProposalStore(baseDir string, logger *log.Logger) *ProposalStore {
+	return &ProposalStore{baseDir: baseDir, logger: logger}
 }
 
 func (s *ProposalStore) repoDir(repo string) string {
@@ -171,7 +174,9 @@ func (s *ProposalStore) List(repo string) ([]*Proposal, error) {
 		id := entry.Name()[:len(entry.Name())-5] // strip .json
 		p, err := s.Get(repo, id)
 		if err != nil {
-			fmt.Printf("[lore] skipping malformed proposal %s: %v\n", entry.Name(), err)
+			if s.logger != nil {
+				s.logger.Warn("skipping malformed proposal", "file", entry.Name(), "err", err)
+			}
 			continue
 		}
 		proposals = append(proposals, p)

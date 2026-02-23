@@ -28,8 +28,8 @@ func benchSetup(tb testing.TB) (tracker *SessionTracker, outputCh <-chan control
 		tb.Fatalf("failed to create tmux session: %v", err)
 	}
 
-	st := state.New("")
-	tracker = NewSessionTracker("bench-session", tmuxName, st, "", nil, nil)
+	st := state.New("", nil)
+	tracker = NewSessionTracker("bench-session", tmuxName, st, "", nil, nil, nil)
 	tracker.Start()
 
 	// Wait for tracker to attach to control mode.
@@ -77,8 +77,8 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionTracker, outputCh <-chan
 		tb.Fatalf("failed to create stressed tmux session: %v", err)
 	}
 
-	st := state.New("")
-	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, "", nil, nil)
+	st := state.New("", nil)
+	tracker = NewSessionTracker("bench-session-stressed", tmuxName, st, "", nil, nil, nil)
 	tracker.Start()
 
 	deadline := time.Now().Add(5 * time.Second)

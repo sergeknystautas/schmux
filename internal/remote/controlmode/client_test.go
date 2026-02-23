@@ -14,7 +14,7 @@ func TestParser_NewParser(t *testing.T) {
 	input := strings.NewReader("test input")
 
 	// Without connection ID
-	p1 := NewParser(input)
+	p1 := NewParser(input, nil)
 	if p1 == nil {
 		t.Error("expected non-nil parser")
 	}
@@ -23,7 +23,7 @@ func TestParser_NewParser(t *testing.T) {
 	}
 
 	// With connection ID
-	p2 := NewParser(input, "test-conn-123")
+	p2 := NewParser(input, nil, "test-conn-123")
 	if p2 == nil {
 		t.Error("expected non-nil parser")
 	}
@@ -34,7 +34,7 @@ func TestParser_NewParser(t *testing.T) {
 
 func TestParser_ParseBeginEnd(t *testing.T) {
 	input := strings.NewReader("%begin 1234 0 0\nresponse line\n%end 1234 0 0\n")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	go parser.Run()
 
@@ -59,7 +59,7 @@ func TestParser_ParseBeginEnd(t *testing.T) {
 
 func TestParser_ParseError(t *testing.T) {
 	input := strings.NewReader("%begin 1234 0 0\nerror message\n%error 1234 0 0\n")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	go parser.Run()
 
@@ -81,7 +81,7 @@ func TestParser_ParseError(t *testing.T) {
 
 func TestParser_ParseOutput(t *testing.T) {
 	input := strings.NewReader("%output %5 hello world\n")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	go parser.Run()
 
@@ -103,7 +103,7 @@ func TestParser_ParseOutput(t *testing.T) {
 
 func TestParser_MultilineResponse(t *testing.T) {
 	input := strings.NewReader("%begin 1234 0 0\nline 1\nline 2\nline 3\n%end 1234 0 0\n")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	go parser.Run()
 
@@ -123,7 +123,7 @@ func TestParser_MultilineResponse(t *testing.T) {
 
 func TestParser_Close(t *testing.T) {
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	// Close should be safe to call multiple times
 	parser.Close()
@@ -181,11 +181,11 @@ func TestParser_UnescapeOutput(t *testing.T) {
 func TestClient_ContextTimeout(t *testing.T) {
 	// Create a mock parser that never responds
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	// Create a mock stdin
 	var stdin strings.Builder
-	client := NewClient(&stdin, parser)
+	client := NewClient(&stdin, parser, nil)
 	client.Start()
 
 	// Execute with very short timeout
@@ -207,7 +207,7 @@ func TestClient_ContextTimeout(t *testing.T) {
 func TestParser_DroppedEvents(t *testing.T) {
 	// Create parser with small buffer
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 	parser.output = make(chan OutputEvent, 1) // Very small buffer
 
 	// Fill the buffer
@@ -226,11 +226,11 @@ func TestParser_DroppedEvents(t *testing.T) {
 func TestExecuteTimeoutNoLeak(t *testing.T) {
 	// Create a mock parser that never responds
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	// Create a mock stdin
 	var stdin strings.Builder
-	client := NewClient(&stdin, parser)
+	client := NewClient(&stdin, parser, nil)
 	client.Start()
 	defer client.Close()
 
@@ -276,10 +276,10 @@ func TestExecuteTimeoutNoLeak(t *testing.T) {
 func TestCloseOrphanedChannels(t *testing.T) {
 	// Create a mock parser
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	var stdin strings.Builder
-	client := NewClient(&stdin, parser)
+	client := NewClient(&stdin, parser, nil)
 	client.Start()
 
 	// The key behavior we're testing is that channels are properly
@@ -394,12 +394,12 @@ func TestGetCursorState(t *testing.T) {
 			// is enqueued, avoiding a race where the parser processes the
 			// response before Execute registers its response channel.
 			pr, pw := io.Pipe()
-			parser := NewParser(pr)
+			parser := NewParser(pr, nil)
 
 			// signalWriter signals when data is written, so we know the
 			// command has been enqueued and sent before we inject a response.
 			stdin := &signalWriter{written: make(chan struct{})}
-			client := NewClient(stdin, parser)
+			client := NewClient(stdin, parser, nil)
 			client.Start()
 			defer client.Close()
 
@@ -463,10 +463,10 @@ func (w *signalWriter) Write(p []byte) (int, error) {
 func TestGetCursorPositionExecuteError(t *testing.T) {
 	// Parser that never responds — Execute will timeout
 	input := strings.NewReader("")
-	parser := NewParser(input)
+	parser := NewParser(input, nil)
 
 	var stdin strings.Builder
-	client := NewClient(&stdin, parser)
+	client := NewClient(&stdin, parser, nil)
 	client.Start()
 	defer client.Close()
 

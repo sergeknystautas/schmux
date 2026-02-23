@@ -102,7 +102,7 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Printf("[commit-generate] git diff --numstat failed: %s\n", string(numstatOutput))
+		s.logger.Error("git diff --numstat failed", "output", string(numstatOutput))
 		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
 		return
 	}
@@ -115,7 +115,7 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Printf("[commit-generate] git diff failed: %s\n", string(diffOutput))
+		s.logger.Error("git diff failed", "output", string(diffOutput))
 		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
 		return
 	}
@@ -133,20 +133,20 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	// Check if commit message target is configured
 	targetName := s.config.GetCommitMessageTarget()
 	if targetName == "" {
-		fmt.Printf("[commit-generate] %s - not configured\n", req.WorkspaceID)
+		s.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "No commit_message target configured. Select a model in Settings > Code Review."})
 		return
 	}
 
-	fmt.Printf("[commit-generate] %s - asking %s\n", req.WorkspaceID, targetName)
+	s.logger.Info("commit-generate: asking target", "workspace", req.WorkspaceID, "target", targetName)
 	start := time.Now()
 
 	timeout := 60 * time.Second
 	rawResult, err := oneshot.ExecuteTarget(ctx, s.config, targetName, prompt, schema.LabelCommitMessage, timeout, ws.Path)
 	if err != nil {
-		fmt.Printf("[commit-generate] %s - failed: %v\n", req.WorkspaceID, err)
+		s.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("oneshot failed: %v", err)})
@@ -155,14 +155,14 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 
 	var result commitmessage.Result
 	if err := json.Unmarshal([]byte(rawResult), &result); err != nil {
-		fmt.Printf("[commit-generate] %s - failed to parse response: %v\n", req.WorkspaceID, err)
+		s.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to parse response: %v", err)})
 		return
 	}
 
-	fmt.Printf("[commit-generate] %s - completed in %s\n", req.WorkspaceID, time.Since(start))
+	s.logger.Info("commit-generate: completed", "workspace", req.WorkspaceID, "elapsed", time.Since(start))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(CommitMessageResponse{

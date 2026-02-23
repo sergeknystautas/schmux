@@ -3,11 +3,14 @@ package dashboard
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -19,11 +22,11 @@ import (
 func TestHandleHasNudgenik(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
 		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-		st := state.New("")
+		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath)
-		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -49,11 +52,11 @@ func TestHandleHasNudgenik(t *testing.T) {
 			WorkspacePath: "/tmp/workspaces",
 			Nudgenik:      &config.NudgenikConfig{Target: "any-target"},
 		}
-		st := state.New("")
+		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath)
-		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -77,11 +80,11 @@ func TestHandleHasNudgenik(t *testing.T) {
 
 func TestHandleAskNudgenik(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	// Add a test session
 	testSession := state.Session{
@@ -153,10 +156,10 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	ws := state.Workspace{
 		ID:     "ws-1",
@@ -224,11 +227,11 @@ func TestHandleSpawnPost_CommandMissingWorkspace(t *testing.T) {
 func TestHandleSuggestBranch(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
 		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-		st := state.New("")
+		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath)
-		sm := session.New(cfg, st, statePath, wm)
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
 		req, _ := http.NewRequest(http.MethodPost, "/api/suggest-branch", body)
@@ -244,11 +247,11 @@ func TestHandleSuggestBranch(t *testing.T) {
 
 func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	t.Run("GET request returns presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
@@ -330,11 +333,11 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 
 func TestHandleHealthz(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	// Start version check to populate version info
 	server.StartVersionCheck()
@@ -402,11 +405,11 @@ func TestValidateGitFilePaths(t *testing.T) {
 
 func TestHandleUpdate(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	t.Run("POST method accepted, GET rejected", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/update", nil)

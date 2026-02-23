@@ -10,8 +10,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
+
+// pkgLogger is the package-level logger, set via SetLogger.
+var pkgLogger *log.Logger
+
+// SetLogger configures the package-level logger for the ensure package.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 const (
 	// Markers used to identify schmux-managed content in instruction files
@@ -85,13 +94,19 @@ write what would have saved you time if you'd known it before starting.
 func Workspace(workspacePath string) error {
 	// Ensure Claude hooks and lore scripts for Claude-based workspaces
 	if err := ClaudeHooks(workspacePath); err != nil {
-		fmt.Printf("[ensure] warning: failed to ensure Claude hooks: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Warn("failed to ensure Claude hooks", "err", err)
+		}
 	}
 	if err := LoreHookScripts(workspacePath); err != nil {
-		fmt.Printf("[ensure] warning: failed to ensure lore hook scripts: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Warn("failed to ensure lore hook scripts", "err", err)
+		}
 	}
 	if err := GitExclude(workspacePath); err != nil {
-		fmt.Printf("[ensure] warning: failed to ensure git exclude: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Warn("failed to ensure git exclude", "err", err)
+		}
 	}
 	return nil
 }
@@ -126,7 +141,9 @@ func AgentInstructions(workspacePath, targetName string) error {
 			if err := os.WriteFile(instructionPath, []byte(schmuxBlock), 0644); err != nil {
 				return fmt.Errorf("failed to create instruction file %s: %w", instructionPath, err)
 			}
-			fmt.Printf("[ensure] created %s with signaling instructions\n", instructionPath)
+			if pkgLogger != nil {
+				pkgLogger.Info("created instruction file with signaling instructions", "path", instructionPath)
+			}
 			return nil
 		}
 		return fmt.Errorf("failed to read instruction file %s: %w", instructionPath, err)
@@ -141,7 +158,9 @@ func AgentInstructions(workspacePath, targetName string) error {
 			if err := os.WriteFile(instructionPath, []byte(newContent), 0644); err != nil {
 				return fmt.Errorf("failed to update instruction file %s: %w", instructionPath, err)
 			}
-			fmt.Printf("[ensure] updated signaling instructions in %s\n", instructionPath)
+			if pkgLogger != nil {
+				pkgLogger.Info("updated signaling instructions", "path", instructionPath)
+			}
 		}
 		return nil
 	}
@@ -156,7 +175,9 @@ func AgentInstructions(workspacePath, targetName string) error {
 	if err := os.WriteFile(instructionPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to append to instruction file %s: %w", instructionPath, err)
 	}
-	fmt.Printf("[ensure] appended signaling instructions to %s\n", instructionPath)
+	if pkgLogger != nil {
+		pkgLogger.Info("appended signaling instructions", "path", instructionPath)
+	}
 	return nil
 }
 
@@ -518,7 +539,9 @@ func ClaudeHooks(workspacePath string) error {
 	if err := os.WriteFile(settingsPath, append(data, '\n'), 0644); err != nil {
 		return fmt.Errorf("failed to write settings file: %w", err)
 	}
-	fmt.Printf("[ensure] configured Claude hooks in %s\n", settingsPath)
+	if pkgLogger != nil {
+		pkgLogger.Info("configured Claude hooks", "path", settingsPath)
+	}
 	return nil
 }
 

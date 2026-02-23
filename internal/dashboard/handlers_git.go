@@ -173,7 +173,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		if isValidVCSHash(trimmed) {
 			originMainHead = trimmed
 		} else {
-			fmt.Printf("[remote git-graph] ignoring invalid default branch ref output: %q\n", trimmed)
+			s.logger.Debug("ignoring invalid default branch ref output", "output", trimmed)
 		}
 	}
 
@@ -424,7 +424,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
-		fmt.Printf("[dashboard] failed to update git status after stage: %v\n", err)
+		s.logger.Warn("failed to update git status after stage", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -512,7 +512,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
-		fmt.Printf("[dashboard] failed to update git status after amend: %v\n", err)
+		s.logger.Warn("failed to update git status after amend", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -573,7 +573,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	fmt.Printf("[git-discard] workspace=%s path=%s files=%v\n", ws.ID, ws.Path, req.Files)
+	s.logger.Info("git discard", "workspace", ws.ID, "path", ws.Path, "files", req.Files)
 
 	if len(req.Files) > 0 {
 		// Discard specific files
@@ -583,30 +583,30 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 			cmd.Dir = ws.Path
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				fmt.Printf("[git-discard] checkout HEAD failed for %q: %s\n", file, strings.TrimSpace(string(output)))
+				s.logger.Debug("checkout HEAD failed", "file", file, "output", strings.TrimSpace(string(output)))
 				// File might be staged-new (added but not in HEAD) — unstage and remove
 				cmd = exec.CommandContext(ctx, "git", "rm", "-f", "--cached", "--", file)
 				cmd.Dir = ws.Path
 				if output2, err2 := cmd.CombinedOutput(); err2 == nil {
-					fmt.Printf("[git-discard] unstaged new file %q\n", file)
+					s.logger.Debug("unstaged new file", "file", file)
 					// Now remove the working tree copy
 					filePath := filepath.Join(ws.Path, file)
 					if rmErr := os.Remove(filePath); rmErr != nil {
-						fmt.Printf("[git-discard] failed to remove working tree file %q: %v\n", file, rmErr)
+						s.logger.Warn("failed to remove working tree file", "file", file, "err", rmErr)
 					}
 				} else {
-					fmt.Printf("[git-discard] rm --cached failed for %q: %s\n", file, strings.TrimSpace(string(output2)))
+					s.logger.Debug("rm --cached failed", "file", file, "output", strings.TrimSpace(string(output2)))
 					// Last resort: try git clean for truly untracked files
 					cmd = exec.CommandContext(ctx, "git", "clean", "-f", "--", file)
 					cmd.Dir = ws.Path
 					if output3, err3 := cmd.CombinedOutput(); err3 != nil {
-						fmt.Printf("[git-discard] clean also failed for %q: %s\n", file, strings.TrimSpace(string(output3)))
+						s.logger.Debug("clean also failed", "file", file, "output", strings.TrimSpace(string(output3)))
 					} else {
-						fmt.Printf("[git-discard] cleaned untracked file %q\n", file)
+						s.logger.Debug("cleaned untracked file", "file", file)
 					}
 				}
 			} else {
-				fmt.Printf("[git-discard] restored %q from HEAD\n", file)
+				s.logger.Debug("restored from HEAD", "file", file)
 			}
 		}
 	} else {
@@ -631,7 +631,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
-		fmt.Printf("[dashboard] failed to update git status after discard: %v\n", err)
+		s.logger.Warn("failed to update git status after discard", "err", err)
 	}
 	s.BroadcastSessions()
 
@@ -724,7 +724,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.workspace.UpdateGitStatus(ctx, ws.ID); err != nil {
-		fmt.Printf("[dashboard] failed to update git status after uncommit: %v\n", err)
+		s.logger.Warn("failed to update git status after uncommit", "err", err)
 	}
 	s.BroadcastSessions()
 

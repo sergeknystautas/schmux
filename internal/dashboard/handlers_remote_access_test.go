@@ -2,9 +2,12 @@ package dashboard
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -17,17 +20,17 @@ import (
 func newTestServerWithTunnel(t *testing.T, tunnelMgr *tunnel.Manager) *Server {
 	t.Helper()
 	cfg := &config.Config{WorkspacePath: t.TempDir()}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 	server.SetTunnelManager(tunnelMgr)
 	return server
 }
 
 func TestHandleRemoteAccessStatus(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 
 	req, _ := http.NewRequest("GET", "/api/remote-access/status", nil)
@@ -51,11 +54,11 @@ func TestHandleRemoteAccessStatus(t *testing.T) {
 
 func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: t.TempDir()}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	req, _ := http.NewRequest("GET", "/api/remote-access/status", nil)
 	rr := httptest.NewRecorder()
@@ -68,7 +71,7 @@ func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
 }
 
 func TestHandleRemoteAccessStatus_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/status", nil)
@@ -82,16 +85,16 @@ func TestHandleRemoteAccessStatus_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: func() bool { return true }})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: func() bool { return true }}, nil)
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
 		// RemoteAccess.Enabled not set — defaults to false (disabled)
 	}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 	server.SetTunnelManager(mgr)
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/on", nil)
@@ -105,7 +108,7 @@ func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 }
 
 func TestHandleRemoteAccessOn_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 
 	req, _ := http.NewRequest("GET", "/api/remote-access/on", nil)
@@ -120,11 +123,11 @@ func TestHandleRemoteAccessOn_MethodNotAllowed(t *testing.T) {
 
 func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: t.TempDir()}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/on", nil)
 	rr := httptest.NewRecorder()
@@ -137,7 +140,7 @@ func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 }
 
 func TestHandleRemoteAccessOff_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 
 	req, _ := http.NewRequest("GET", "/api/remote-access/off", nil)
@@ -152,11 +155,11 @@ func TestHandleRemoteAccessOff_MethodNotAllowed(t *testing.T) {
 
 func TestHandleRemoteAccessOff_NoManager(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: t.TempDir()}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
-	sm := session.New(cfg, st, statePath, wm)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(), ServerOptions{})
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
 	rr := httptest.NewRecorder()
@@ -169,7 +172,7 @@ func TestHandleRemoteAccessOff_NoManager(t *testing.T) {
 }
 
 func TestHandleRemoteAccessOff_ReturnsOffState(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)

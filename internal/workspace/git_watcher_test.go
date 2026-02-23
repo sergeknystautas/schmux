@@ -137,7 +137,7 @@ func TestWatcherDisabledByConfig(t *testing.T) {
 		},
 	}
 
-	gw := NewGitWatcher(cfg, nil, nil)
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw != nil {
 		t.Error("NewGitWatcher() should return nil when disabled by config")
 	}
@@ -171,7 +171,7 @@ func TestDebounceCollapse(t *testing.T) {
 		},
 	}
 
-	gw := NewGitWatcher(cfg, nil, nil)
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw == nil {
 		t.Fatal("NewGitWatcher() returned nil")
 	}
@@ -225,7 +225,7 @@ func TestAddRemoveWorkspace(t *testing.T) {
 			GitStatusWatchDebounceMs: 60000, // long debounce to prevent timer fires
 		},
 	}
-	gw := NewGitWatcher(cfg, nil, nil)
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw == nil {
 		t.Fatal("NewGitWatcher() returned nil")
 	}
@@ -271,7 +271,7 @@ func TestNewDirsWatched(t *testing.T) {
 		},
 	}
 
-	gw := NewGitWatcher(cfg, nil, nil)
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw == nil {
 		t.Fatal("NewGitWatcher() returned nil")
 	}
@@ -309,7 +309,7 @@ func TestNewDirsWatched(t *testing.T) {
 func TestStopIdempotent(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
-	gw := NewGitWatcher(cfg, nil, nil)
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
 	if gw == nil {
 		t.Fatal("NewGitWatcher() returned nil")
 	}

@@ -8,7 +8,7 @@ import (
 
 func TestProposalStore_SaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
-	store := NewProposalStore(dir)
+	store := NewProposalStore(dir, nil)
 
 	proposal := &Proposal{
 		ID:            "prop-20260213-143200",
@@ -40,7 +40,7 @@ func TestProposalStore_SaveAndLoad(t *testing.T) {
 
 func TestProposalStore_List(t *testing.T) {
 	dir := t.TempDir()
-	store := NewProposalStore(dir)
+	store := NewProposalStore(dir, nil)
 
 	for _, id := range []string{"prop-001", "prop-002"} {
 		store.Save(&Proposal{ID: id, Repo: "myrepo", Status: ProposalPending})
@@ -58,7 +58,7 @@ func TestProposalStore_List(t *testing.T) {
 
 func TestProposalStore_UpdateStatus(t *testing.T) {
 	dir := t.TempDir()
-	store := NewProposalStore(dir)
+	store := NewProposalStore(dir, nil)
 	store.Save(&Proposal{ID: "prop-001", Repo: "myrepo", Status: ProposalPending})
 
 	if err := store.UpdateStatus("myrepo", "prop-001", ProposalApplied); err != nil {
@@ -91,7 +91,7 @@ func TestProposalStore_IsStale(t *testing.T) {
 
 func TestProposalStore_CurrentFiles(t *testing.T) {
 	dir := t.TempDir()
-	store := NewProposalStore(dir)
+	store := NewProposalStore(dir, nil)
 
 	proposal := &Proposal{
 		ID:            "prop-current-files",

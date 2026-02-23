@@ -16,11 +16,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -98,6 +100,7 @@ type Server struct {
 	session     *session.Manager
 	workspace   workspace.WorkspaceManager
 	httpServer  *http.Server
+	logger      *log.Logger
 	shutdown    func() // Callback to trigger daemon shutdown
 	devRestart  func() // Callback to trigger dev mode restart (exit code 42)
 	devProxy    bool   // When true, proxy non-API routes to Vite dev server
@@ -191,7 +194,7 @@ type versionInfo struct {
 }
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, opts ServerOptions) *Server {
 	shutdownCtx := opts.ShutdownCtx
 	if shutdownCtx == nil {
 		shutdownCtx = context.Background()
@@ -203,6 +206,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		session:         sm,
 		workspace:       wm,
 		prDiscovery:     prd,
+		logger:          logger,
 		shutdown:        opts.Shutdown,
 		devRestart:      opts.DevRestart,
 		devProxy:        opts.DevProxy,
@@ -232,6 +236,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		cfg.GetNetworkAccess(),
 		cfg.GetPreviewPortBase(),
 		cfg.GetPreviewPortBlockSize(),
+		logging.Sub(logger, "preview"),
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 	if mgr, ok := wm.(*workspace.Manager); ok {
@@ -277,7 +282,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	// Generate one-time token (32 bytes, hex-encoded)
 	tokenBytes := make([]byte, 32)
 	if _, err := crypto_rand.Read(tokenBytes); err != nil {
-		fmt.Printf("[remote-access] failed to generate token: %v\n", err)
+		logging.Sub(s.logger, "remote-access").Error("failed to generate token", "err", err)
 		return
 	}
 	token := hex.EncodeToString(tokenBytes)
@@ -285,7 +290,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	// Generate new session secret (32 bytes) — invalidates old remote cookies
 	secretBytes := make([]byte, 32)
 	if _, err := crypto_rand.Read(secretBytes); err != nil {
-		fmt.Printf("[remote-access] failed to generate session secret: %v\n", err)
+		logging.Sub(s.logger, "remote-access").Error("failed to generate session secret", "err", err)
 		return
 	}
 
@@ -299,7 +304,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 
 	// Build auth URL
 	authURL := strings.TrimRight(tunnelURL, "/") + "/remote-auth?token=" + token
-	fmt.Printf("[remote-access] auth URL generated\n")
+	logging.Sub(s.logger, "remote-access").Info("auth URL generated")
 
 	// Send notifications with auth URL
 	if s.config != nil {
@@ -313,7 +318,7 @@ func (s *Server) HandleTunnelConnected(tunnelURL string) {
 		}
 		nc.Command = notifyCmd
 		if err := nc.Send(authURL, "schmux remote access"); err != nil {
-			fmt.Printf("[remote-access] notification error: %v\n", err)
+			logging.Sub(s.logger, "remote-access").Error("notification error", "err", err)
 		}
 	}
 }
@@ -334,22 +339,20 @@ func (s *Server) LogDashboardAssetPath() {
 	path := s.getDashboardDistPath()
 	// Determine source type for clearer message
 	if strings.HasPrefix(path, filepath.Join(os.Getenv("HOME"), ".schmux")) {
-		fmt.Printf("[daemon] serving from cached assets: %s\n", path)
+		s.logger.Info("serving from cached assets", "path", path)
 	} else if strings.HasPrefix(path, ".") {
 		abs, _ := filepath.Abs(path)
-		fmt.Printf("[daemon] serving from local build: %s\n", abs)
+		s.logger.Info("serving from local build", "path", abs)
 	} else {
-		fmt.Printf("[daemon] serving from: %s\n", path)
+		s.logger.Info("serving from", "path", path)
 	}
 }
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
-	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, func(format string, args ...interface{}) {
-		fmt.Printf(format, args...)
-	})
-	fmt.Printf("[session] difftool temp dirs cleanup: deleted=%d scheduled=%d\n", deleted, scheduled)
+	deleted, scheduled := difftool.SweepAndScheduleTempDirs(cleanupDelay, logging.Sub(s.logger, "difftool"))
+	s.logger.Info("difftool temp dirs cleanup", "deleted", deleted, "scheduled", scheduled)
 
 	if s.config.GetAuthEnabled() {
 		secret, err := config.EnsureSessionSecret()
@@ -370,7 +373,7 @@ func (s *Server) Start() error {
 		// In dev mode, proxy all non-API routes to Vite dev server
 		viteProxy := createDevProxyHandler("http://localhost:5173")
 		mux.Handle("/", viteProxy)
-		fmt.Println("[daemon] dev-proxy enabled: proxying to Vite at http://localhost:5173")
+		s.logger.Info("dev-proxy enabled: proxying to Vite", "target", "http://localhost:5173")
 	} else {
 		mux.HandleFunc("/", s.handleApp)
 		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
@@ -476,9 +479,9 @@ func (s *Server) Start() error {
 		scheme = "https"
 	}
 	if s.config.GetNetworkAccess() {
-		fmt.Printf("[daemon] listening on %s://0.0.0.0:%d (accessible from local network)\n", scheme, port)
+		s.logger.Info("listening", "addr", fmt.Sprintf("%s://0.0.0.0:%d", scheme, port), "network", true)
 	} else {
-		fmt.Printf("[daemon] listening on %s://localhost:%d (localhost only)\n", scheme, port)
+		s.logger.Info("listening", "addr", fmt.Sprintf("%s://localhost:%d", scheme, port), "network", false)
 	}
 
 	if s.config.GetAuthEnabled() {
@@ -528,7 +531,7 @@ func (s *Server) Stop() error {
 		// Graceful shutdown timed out (e.g. active WebSocket/proxy connections
 		// in dev mode). Force-close and continue cleanup instead of failing
 		// the entire shutdown — failing here blocks dev restart (exit code 42).
-		fmt.Printf("[daemon] graceful shutdown timed out, forcing close: %v\n", err)
+		s.logger.Warn("graceful shutdown timed out, forcing close", "err", err)
 		s.httpServer.Close()
 	}
 	if s.previewManager != nil {
@@ -600,7 +603,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 		// Validate origin
 		if origin != "" && !s.isAllowedOrigin(origin) {
-			fmt.Printf("[daemon] rejected origin: %s for %s %s\n", origin, r.Method, r.URL.Path)
+			logging.Sub(s.logger, "daemon").Info("rejected origin", "origin", origin, "method", r.Method, "path", r.URL.Path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -835,9 +838,9 @@ func (s *Server) StartVersionCheck() {
 		}
 		s.versionInfoMu.Unlock()
 		if err != nil {
-			fmt.Printf("[daemon] version check failed: %v\n", err)
+			s.logger.Warn("version check failed", "err", err)
 		} else if available {
-			fmt.Printf("[daemon] update available: %s -> %s\n", version.Version, latest)
+			s.logger.Info("update available", "current", version.Version, "latest", latest)
 		}
 	}()
 }
@@ -930,7 +933,7 @@ func (s *Server) doBroadcast() {
 		"workspaces": data,
 	})
 	if err != nil {
-		fmt.Printf("[ws/dashboard] failed to marshal response: %v\n", err)
+		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal response", "err", err)
 		return
 	}
 
@@ -939,7 +942,7 @@ func (s *Server) doBroadcast() {
 	for _, crState := range s.getAllLinearSyncResolveConflictStates() {
 		crPayload, err := json.Marshal(crState)
 		if err != nil {
-			fmt.Printf("[ws/dashboard] failed to marshal linear sync resolve conflict state: %v\n", err)
+			logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal linear sync resolve conflict state", "err", err)
 			continue
 		}
 		crPayloads = append(crPayloads, crPayload)
@@ -1064,7 +1067,7 @@ func (s *Server) BroadcastOverlayChange(event OverlayChangeEvent) {
 	event.Type = "overlay_change"
 	payload, err := json.Marshal(event)
 	if err != nil {
-		fmt.Printf("[ws/dashboard] failed to marshal overlay change: %v\n", err)
+		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal overlay change", "err", err)
 		return
 	}
 	s.broadcastToAllDashboardConns(payload)
@@ -1130,7 +1133,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Printf("[ws/dashboard] upgrade error: %v\n", err)
+		logging.Sub(s.logger, "ws/dashboard").Error("upgrade error", "err", err)
 		return
 	}
 
@@ -1149,7 +1152,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		"workspaces": data,
 	})
 	if err != nil {
-		fmt.Printf("[ws/dashboard] failed to marshal initial response: %v\n", err)
+		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal initial response", "err", err)
 		return
 	}
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {

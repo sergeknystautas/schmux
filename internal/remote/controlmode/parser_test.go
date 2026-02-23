@@ -63,7 +63,7 @@ func TestUnescapeOutput(t *testing.T) {
 func TestParserOutputEvent(t *testing.T) {
 	input := "%output %0 hello\\012world\n"
 	reader := strings.NewReader(input)
-	parser := NewParser(reader)
+	parser := NewParser(reader, nil)
 
 	go parser.Run()
 
@@ -82,7 +82,7 @@ session info here
 %end 1234 42 1
 `
 	reader := strings.NewReader(input)
-	parser := NewParser(reader)
+	parser := NewParser(reader, nil)
 
 	go parser.Run()
 
@@ -104,7 +104,7 @@ parse error: unknown command: badcmd
 %error 1234 99 1
 `
 	reader := strings.NewReader(input)
-	parser := NewParser(reader)
+	parser := NewParser(reader, nil)
 
 	go parser.Run()
 
@@ -123,7 +123,7 @@ parse error: unknown command: badcmd
 func TestParserNotification(t *testing.T) {
 	input := "%window-add @5\n"
 	reader := strings.NewReader(input)
-	parser := NewParser(reader)
+	parser := NewParser(reader, nil)
 
 	go parser.Run()
 
@@ -150,7 +150,7 @@ func TestParserHighThroughput(t *testing.T) {
 	}
 
 	reader := strings.NewReader(input.String())
-	parser := NewParser(reader, "high-throughput-test")
+	parser := NewParser(reader, nil, "high-throughput-test")
 
 	go parser.Run()
 

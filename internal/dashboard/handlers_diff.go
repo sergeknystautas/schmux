@@ -57,7 +57,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 			refreshCancel()
 			return
 		}
-		fmt.Printf("[workspace] warning: failed to update git status: %v\n", err)
+		s.logger.Warn("failed to update git status", "err", err)
 	}
 	refreshCancel()
 
@@ -605,7 +605,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 	vscodePath, found := detect.ResolveVSCodePath(ctx)
 	if !found {
-		fmt.Printf("[session] open-vscode: command not found\n")
+		s.logger.Warn("open-vscode: command not found")
 		// Determine platform-specific keyboard shortcut
 		var shortcut string
 		if runtime.GOOS == "darwin" {
@@ -622,7 +622,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[session] open-vscode: found via %s: %s\n", vscodePath.Source, vscodePath.Path)
+	s.logger.Info("open-vscode: found", "source", vscodePath.Source, "path", vscodePath.Path)
 
 	var cmd *exec.Cmd
 
@@ -648,7 +648,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 					// Persist back to state so future lookups have it
 					s.state.UpdateRemoteHost(conn.Host())
 					if err := s.state.Save(); err != nil {
-						fmt.Printf("[diff] failed to save remote host state: %v\n", err)
+						s.logger.Error("failed to save remote host state", "err", err)
 					}
 				}
 			}
@@ -669,19 +669,19 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		if host.FlavorID != "" {
 			if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VSCodeCommandTemplate != "" {
 				templateStr = flavor.VSCodeCommandTemplate
-				fmt.Printf("[session] open-vscode: using flavor-specific template for %s\n", flavor.DisplayName)
+				s.logger.Info("open-vscode: using flavor-specific template", "flavor", flavor.DisplayName)
 			}
 		}
 		// Fall back to global template if no flavor-specific template
 		if templateStr == "" {
 			templateStr = s.config.GetRemoteVSCodeCommandTemplate()
-			fmt.Printf("[session] open-vscode: using global template\n")
+			s.logger.Info("open-vscode: using global template")
 		}
 
 		// Parse template
 		tmpl, err := template.New("vscode").Parse(templateStr)
 		if err != nil {
-			fmt.Printf("[session] open-vscode: template parse error: %v\n", err)
+			s.logger.Error("open-vscode: template parse error", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(OpenVSCodeResponse{
@@ -706,7 +706,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 		var cmdStr strings.Builder
 		if err := tmpl.Execute(&cmdStr, data); err != nil {
-			fmt.Printf("[session] open-vscode: template execution error: %v\n", err)
+			s.logger.Error("open-vscode: template execution error", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(OpenVSCodeResponse{
@@ -721,7 +721,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		cmdLine := cmdStr.String()
 		args, err := shellSplit(cmdLine)
 		if err != nil {
-			fmt.Printf("[session] open-vscode: failed to parse command: %v\n", err)
+			s.logger.Error("open-vscode: failed to parse command", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(OpenVSCodeResponse{
@@ -740,7 +740,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("[session] open-vscode (remote): executing: %s\n", cmdLine)
+		s.logger.Info("open-vscode (remote): executing", "command", cmdLine)
 		cmd = exec.Command(args[0], args[1:]...)
 
 	} else {
@@ -755,14 +755,14 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("[session] open-vscode (local): %s\n", ws.Path)
+		s.logger.Info("open-vscode (local)", "path", ws.Path)
 		cmd = exec.Command(vscodePath.Path, "-n", ws.Path)
 	}
 
 	// Execute command
 	// Note: We don't wait for the command to complete since VS Code opens as a separate process
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("[session] open-vscode: failed to launch: %v\n", err)
+		s.logger.Error("open-vscode: failed to launch", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(OpenVSCodeResponse{
@@ -805,7 +805,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Parse request body to get command name
 	var req DiffExternalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		fmt.Printf("[session] diff-external: failed to decode request: %v\n", err)
+		s.logger.Error("diff-external: failed to decode request", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(DiffExternalResponse{
@@ -837,7 +837,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		selectedCommand = externalDiffCommands[0].Command
 	} else {
 		// No command specified and no configured commands
-		fmt.Printf("[session] diff-external: no command specified and no external diff commands configured\n")
+		s.logger.Warn("diff-external: no command specified and no external diff commands configured")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(DiffExternalResponse{
@@ -928,7 +928,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[session] diff-external: launching %q for %d files in workspace %s\n", selectedCommand, len(files), workspaceID)
+	s.logger.Info("diff-external: launching", "command", selectedCommand, "files", len(files), "workspace", workspaceID)
 
 	// Parse the base command (before file paths)
 	if strings.TrimSpace(selectedCommand) == "" {
@@ -949,7 +949,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	tempRoot, err := difftool.TempDirForWorkspace(workspaceID)
 	if err != nil {
-		fmt.Printf("[session] diff-external: failed to create temp dir: %v\n", err)
+		s.logger.Error("diff-external: failed to create temp dir", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(DiffExternalResponse{
 			Success: false,
@@ -969,12 +969,12 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			// Create temp file for old version
 			tmpPath := filepath.Join(tempRoot, file.path)
 			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
-				fmt.Printf("[session] diff-external: failed to create temp dir for file: %v\n", err)
+				s.logger.Error("diff-external: failed to create temp dir for file", "err", err)
 				continue
 			}
 			tmpFile, err := os.Create(tmpPath)
 			if err != nil {
-				fmt.Printf("[session] diff-external: failed to create temp file: %v\n", err)
+				s.logger.Error("diff-external: failed to create temp file", "err", err)
 				continue
 			}
 
@@ -984,13 +984,13 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				fmt.Printf("[session] diff-external: failed to get old file: %v\n", err)
+				s.logger.Error("diff-external: failed to get old file", "err", err)
 				continue
 			}
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				fmt.Printf("[session] diff-external: failed to write temp file: %v\n", err)
+				s.logger.Error("diff-external: failed to write temp file", "err", err)
 				continue
 			}
 			tmpFile.Close()
@@ -1005,7 +1005,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("BASE=%s", mergedPath),
 			)
 			if err := execCmd.Start(); err != nil {
-				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
+				s.logger.Error("diff-external: diff tool exited with error", "err", err)
 			} else {
 				go func() { _ = execCmd.Wait() }()
 				opened++
@@ -1016,12 +1016,12 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			mergedPath := filepath.Join(ws.Path, file.path)
 			tmpPath := filepath.Join(tempRoot, file.path)
 			if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
-				fmt.Printf("[session] diff-external: failed to create temp dir for file: %v\n", err)
+				s.logger.Error("diff-external: failed to create temp dir for file", "err", err)
 				continue
 			}
 			tmpFile, err := os.Create(tmpPath)
 			if err != nil {
-				fmt.Printf("[session] diff-external: failed to create temp file: %v\n", err)
+				s.logger.Error("diff-external: failed to create temp file", "err", err)
 				continue
 			}
 
@@ -1030,13 +1030,13 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				fmt.Printf("[session] diff-external: failed to get old file: %v\n", err)
+				s.logger.Error("diff-external: failed to get old file", "err", err)
 				continue
 			}
 			if _, err := tmpFile.Write(showOutput); err != nil {
 				tmpFile.Close()
 				os.Remove(tmpPath)
-				fmt.Printf("[session] diff-external: failed to write temp file: %v\n", err)
+				s.logger.Error("diff-external: failed to write temp file", "err", err)
 				continue
 			}
 			tmpFile.Close()
@@ -1051,7 +1051,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("BASE=%s", mergedPath),
 			)
 			if err := execCmd.Start(); err != nil {
-				fmt.Printf("[session] diff-external: diff tool exited with error: %v\n", err)
+				s.logger.Error("diff-external: diff tool exited with error", "err", err)
 			} else {
 				go func() { _ = execCmd.Wait() }()
 				opened++
@@ -1077,7 +1077,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	time.AfterFunc(cleanupDelay, func() {
 		if err := os.RemoveAll(tempRoot); err != nil {
-			fmt.Printf("[session] diff-external: failed to remove temp dir: %v\n", err)
+			s.logger.Error("diff-external: failed to remove temp dir", "err", err)
 		}
 	})
 
@@ -1182,7 +1182,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	fmt.Printf("[session] diff-external (remote): launching %q for %d files in workspace %s\n", selectedCommand, len(files), ws.ID)
+	s.logger.Info("diff-external (remote): launching", "command", selectedCommand, "files", len(files), "workspace", ws.ID)
 
 	replacePlaceholders := func(cmd, oldPath, newPath, filePath string) string {
 		cmd = strings.ReplaceAll(cmd, "{old_file}", oldPath)
@@ -1208,12 +1208,12 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 			// Fetch both old and new content from remote
 			oldContent, err := conn.RunCommand(ctx, workdir, cb.ShowFile(file.path, "HEAD"))
 			if err != nil {
-				fmt.Printf("[session] diff-external (remote): failed to get old file %s: %v\n", file.path, err)
+				s.logger.Error("diff-external (remote): failed to get old file", "file", file.path, "err", err)
 				continue
 			}
 			newContent, err := conn.RunCommand(ctx, workdir, cb.FileContent(file.path))
 			if err != nil {
-				fmt.Printf("[session] diff-external (remote): failed to get new file %s: %v\n", file.path, err)
+				s.logger.Error("diff-external (remote): failed to get new file", "file", file.path, "err", err)
 				continue
 			}
 
@@ -1242,7 +1242,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 				fmt.Sprintf("BASE=%s", newPath),
 			)
 			if err := execCmd.Start(); err != nil {
-				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
+				s.logger.Error("diff-external (remote): diff tool error", "err", err)
 			} else {
 				go func() { _ = execCmd.Wait() }()
 				opened++
@@ -1271,7 +1271,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 				fmt.Sprintf("BASE=%s", filepath.Join(workdir, file.path)),
 			)
 			if err := execCmd.Start(); err != nil {
-				fmt.Printf("[session] diff-external (remote): diff tool error: %v\n", err)
+				s.logger.Error("diff-external (remote): diff tool error", "err", err)
 			} else {
 				go func() { _ = execCmd.Wait() }()
 				opened++
@@ -1295,7 +1295,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	cleanupDelay := time.Duration(s.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
 	time.AfterFunc(cleanupDelay, func() {
 		if err := os.RemoveAll(tempRoot); err != nil {
-			fmt.Printf("[session] diff-external (remote): failed to remove temp dir: %v\n", err)
+			s.logger.Error("diff-external (remote): failed to remove temp dir", "err", err)
 		}
 	})
 

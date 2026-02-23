@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -19,6 +20,7 @@ type FileWatcher struct {
 	filePath    string
 	callback    func(Signal)
 	watcher     *fsnotify.Watcher
+	logger      *log.Logger
 	mu          sync.Mutex
 	lastContent string
 	stopOnce    sync.Once
@@ -28,7 +30,7 @@ type FileWatcher struct {
 
 // NewFileWatcher creates and starts a file watcher for the given signal file.
 // The directory containing filePath must exist. The file itself may not exist yet.
-func NewFileWatcher(sessionID, filePath string, callback func(Signal)) (*FileWatcher, error) {
+func NewFileWatcher(sessionID, filePath string, callback func(Signal), logger *log.Logger) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
@@ -45,6 +47,7 @@ func NewFileWatcher(sessionID, filePath string, callback func(Signal)) (*FileWat
 		filePath:  filePath,
 		callback:  callback,
 		watcher:   watcher,
+		logger:    logger,
 		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
@@ -119,7 +122,9 @@ func (fw *FileWatcher) run() {
 			if !ok {
 				return
 			}
-			fmt.Printf("[signal] %s - fsnotify error: %v\n", fw.sessionID, err)
+			if fw.logger != nil {
+				fw.logger.Error("fsnotify error", "session_id", fw.sessionID, "err", err)
+			}
 		}
 	}
 }
@@ -147,7 +152,9 @@ func (fw *FileWatcher) checkFile() {
 
 	sig := ParseSignalFile(s)
 	if sig == nil {
-		fmt.Printf("[signal] %s - invalid signal file content: %q\n", fw.sessionID, s)
+		if fw.logger != nil {
+			fw.logger.Warn("invalid signal file content", "session_id", fw.sessionID, "content", s)
+		}
 		return
 	}
 
