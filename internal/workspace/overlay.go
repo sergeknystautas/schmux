@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 )
 
 // OverlayDir returns the overlay directory path for a given repo name.
@@ -237,8 +236,8 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 		m.state.UpdateOverlayManifest(workspaceID, manifest)
 	}
 
-	// Ensure schmux-managed configuration (hooks, scripts, etc.)
-	if err := ensure.Workspace(w.Path); err != nil {
+	// Ensure schmux-managed configuration (hooks, scripts, git exclude, etc.)
+	if err := m.ensurer.ForWorkspace(workspaceID); err != nil {
 		m.logger.Warn("failed to ensure workspace config", "err", err)
 	}
 

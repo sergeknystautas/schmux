@@ -33,6 +33,7 @@ type Manager struct {
 	config               *config.Config
 	state                state.StateStore
 	logger               *log.Logger
+	ensurer              *ensure.Ensurer
 	workspaceConfigs     map[string]*contracts.RepoConfig // workspace ID -> workspace config
 	workspaceConfigsMu   sync.RWMutex
 	configStates         map[string]configState // workspace path -> last known config file state
@@ -59,6 +60,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.
 		config:           cfg,
 		state:            st,
 		logger:           logger,
+		ensurer:          ensure.New(st),
 		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
 		configStates:     make(map[string]configState),           // track config file mtime to detect changes
 		repoLocks:        make(map[string]*sync.Mutex),
@@ -847,23 +849,18 @@ func (m *Manager) EnsureWorkspaceDir() error {
 	return nil
 }
 
-// EnsureAllGitExcludes ensures git exclude entries are present for all local workspaces.
+// EnsureAll ensures all local workspaces have the necessary schmux configuration.
 // Called on daemon startup to cover workspaces from previous runs.
 // Individual workspace failures are logged as warnings and do not stop the sweep.
-func (m *Manager) EnsureAllGitExcludes() error {
-	var firstErr error
+func (m *Manager) EnsureAll() {
 	for _, w := range m.state.GetWorkspaces() {
 		if w.RemoteHostID != "" {
 			continue
 		}
-		if err := ensure.GitExclude(w.Path); err != nil {
-			m.logger.Warn("failed to ensure git exclude", "id", w.ID, "err", err)
-			if firstErr == nil {
-				firstErr = err
-			}
+		if err := m.ensurer.ForWorkspace(w.ID); err != nil {
+			m.logger.Warn("failed to ensure workspace", "id", w.ID, "err", err)
 		}
 	}
-	return firstErr
 }
 
 // Dispose deletes a workspace by removing its directory and removing it from state.

@@ -39,6 +39,7 @@ type Manager struct {
 	state                   state.StateStore
 	workspace               workspace.WorkspaceManager
 	logger                  *log.Logger
+	ensurer                 *ensure.Ensurer
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	signalCallback          func(sessionID string, sig signal.Signal)
 	outputCallback          func(sessionID string, chunk []byte)
@@ -85,6 +86,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		state:           st,
 		workspace:       wm,
 		logger:          logger,
+		ensurer:         ensure.New(st),
 		trackers:        make(map[string]*SessionTracker),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
@@ -615,21 +617,22 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Provision agent signaling mechanism
 	baseTool := detect.GetBaseToolName(opts.TargetName)
-	if ensure.SupportsHooks(baseTool) {
-		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
-		if err := ensure.ClaudeHooks(w.Path); err != nil {
-			m.logger.Warn("failed to provision Claude hooks", "err", err)
-		}
-		if err := ensure.LoreHookScripts(w.Path); err != nil {
-			m.logger.Warn("failed to write lore hook scripts", "err", err)
-		}
-	} else if ensure.SupportsSystemPromptFlag(baseTool) {
-		if err := ensure.SignalingInstructionsFile(); err != nil {
-			m.logger.Warn("failed to ensure signaling instructions file", "err", err)
-		}
-	} else {
-		if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
-			m.logger.Warn("failed to provision agent instructions", "err", err)
+
+	// Ensure workspace has all necessary schmux configuration (hooks, scripts, git exclude)
+	if err := m.ensurer.ForSpawn(w.ID, opts.TargetName); err != nil {
+		m.logger.Warn("failed to ensure workspace config", "err", err)
+	}
+
+	// Session-level signaling setup (not workspace-level)
+	if !ensure.SupportsHooks(baseTool) {
+		if ensure.SupportsSystemPromptFlag(baseTool) {
+			if err := ensure.SignalingInstructionsFile(); err != nil {
+				m.logger.Warn("failed to ensure signaling instructions file", "err", err)
+			}
+		} else {
+			if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
+				m.logger.Warn("failed to provision agent instructions", "err", err)
+			}
 		}
 	}
 
