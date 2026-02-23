@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -255,5 +256,72 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	}
 	if _, found := st.GetPreview(p.ID); found {
 		t.Fatal("expected stale preview to be removed")
+	}
+}
+
+func TestManagerWebSocketProxying(t *testing.T) {
+	// Start an upstream WebSocket server that echoes messages.
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("upstream upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(mt, msg); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
+	var port int
+	_, _ = fmt.Sscanf(portStr, "%d", &port)
+
+	// Create preview proxy pointing at the upstream.
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	ws := state.Workspace{ID: "ws-ws", Repo: "repo", Branch: "main", Path: t.TempDir()}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+	if err := st.Save(); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	m := NewManager(st, 3, 20, false, 53000, 10, nil)
+	defer m.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	preview, err := m.CreateOrGet(ctx, ws, "127.0.0.1", port)
+	if err != nil {
+		t.Fatalf("create preview: %v", err)
+	}
+
+	// Connect WebSocket through the proxy.
+	proxyURL := fmt.Sprintf("ws://127.0.0.1:%d/", preview.ProxyPort)
+	conn, _, err := websocket.DefaultDialer.Dial(proxyURL, nil)
+	if err != nil {
+		t.Fatalf("websocket dial through proxy: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a message and verify echo.
+	want := "hello through proxy"
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(want)); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+	_, got, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	if string(got) != want {
+		t.Fatalf("expected %q, got %q", want, string(got))
 	}
 }
