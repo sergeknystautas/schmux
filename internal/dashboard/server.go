@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -366,101 +367,114 @@ func (s *Server) Start() error {
 		s.authSessionKey = key
 	}
 
-	mux := http.NewServeMux()
+	r := chi.NewRouter()
 
-	// Static assets - all UI routes go through handleApp
+	// Public routes (no middleware)
+	r.HandleFunc("/remote-auth", s.handleRemoteAuth)
+	r.HandleFunc("/auth/login", s.handleAuthLogin)
+	r.HandleFunc("/auth/callback", s.handleAuthCallback)
+	r.HandleFunc("/auth/logout", s.handleAuthLogout)
+
+	// /auth/me — CORS + Auth but outside /api (frontend calls /auth/me directly)
+	r.Group(func(r chi.Router) {
+		r.Use(s.corsMiddleware)
+		r.Use(s.authMiddleware)
+		r.Get("/auth/me", s.handleAuthMe)
+	})
+
+	// WebSocket routes (inline auth, no CORS middleware)
+	r.HandleFunc("/ws/terminal/{id}", s.handleTerminalWebSocket)
+	r.HandleFunc("/ws/provision/{id}", s.handleProvisionWebSocket)
+	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
+
+	// App shell + static assets
 	if s.devProxy {
-		// In dev mode, proxy all non-API routes to Vite dev server
 		viteProxy := createDevProxyHandler("http://localhost:5173")
-		mux.Handle("/", viteProxy)
+		r.Handle("/*", viteProxy)
 		s.logger.Info("dev-proxy enabled: proxying to Vite", "target", "http://localhost:5173")
 	} else {
-		mux.HandleFunc("/", s.handleApp)
-		mux.Handle("/assets/", s.withAuthHandler(http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets"))))))
+		r.Handle("/assets/*", s.withAuthHandler(
+			http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets")))),
+		))
+		r.HandleFunc("/*", s.handleApp)
 	}
 
-	// Remote auth route (unauthenticated — token-protected)
-	mux.HandleFunc("/remote-auth", s.handleRemoteAuth)
+	// API routes — CORS + Auth by default
+	r.Route("/api", func(r chi.Router) {
+		r.Use(s.corsMiddleware)
+		r.Use(s.authMiddleware)
 
-	// Auth routes
-	mux.HandleFunc("/auth/login", s.handleAuthLogin)
-	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
-	mux.HandleFunc("/auth/logout", s.handleAuthLogout)
-	mux.HandleFunc("/auth/me", s.withCORS(s.withAuth(s.handleAuthMe)))
+		// Read-only endpoints (no CSRF needed)
+		r.Get("/healthz", s.handleHealthz)
+		r.Get("/sessions", s.handleSessions)
+		r.Get("/recent-branches", s.handleRecentBranches)
+		r.Get("/detect-tools", s.handleDetectTools)
+		r.Get("/models", s.handleModels)
+		r.Get("/builtin-quick-launch", s.handleBuiltinQuickLaunch)
+		r.Get("/commit/prompt", s.handleCommitPrompt)
+		r.Get("/diff/*", s.handleDiff)
+		r.Get("/file/*", s.handleFile)
+		r.Get("/overlays", s.handleOverlays)
+		r.Get("/prs", s.handlePRs)
+		r.Get("/hasNudgenik", s.handleHasNudgenik)
+		r.Get("/askNudgenik/*", s.handleAskNudgenik)
+		r.Get("/remote/hosts", s.handleRemoteHosts)
+		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)
+		r.Get("/remote/flavor-statuses", s.handleRemoteFlavorStatuses)
+		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
-	// API routes
-	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
-	mux.HandleFunc("/api/update", s.withCORS(s.withAuthAndCSRF(s.handleUpdate)))
-	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuthAndCSRF(s.handleAuthSecrets)))
-	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
-	mux.HandleFunc("/api/askNudgenik/", s.withCORS(s.withAuth(s.handleAskNudgenik)))
-	mux.HandleFunc("/api/workspaces/scan", s.withCORS(s.withAuthAndCSRF(s.handleWorkspacesScan)))
-	mux.HandleFunc("/api/workspaces/", s.withCORS(s.withAuthAndCSRF(s.handleWorkspaceRoutes)))
-	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
-	mux.HandleFunc("/api/sessions-nickname/", s.withCORS(s.withAuthAndCSRF(s.handleUpdateNickname)))
-	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuthAndCSRF(s.handleSpawnPost)))
-	mux.HandleFunc("/api/check-branch-conflict", s.withCORS(s.withAuthAndCSRF(s.handleCheckBranchConflict)))
-	mux.HandleFunc("/api/recent-branches", s.withCORS(s.withAuth(s.handleRecentBranches)))
-	mux.HandleFunc("/api/recent-branches/refresh", s.withCORS(s.withAuthAndCSRF(s.handleRecentBranchesRefresh)))
-	mux.HandleFunc("/api/suggest-branch", s.withCORS(s.withAuthAndCSRF(s.handleSuggestBranch)))
-	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
-	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
-	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
-	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
-	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
-	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))
-	mux.HandleFunc("/api/builtin-quick-launch", s.withCORS(s.withAuth(s.handleBuiltinQuickLaunch)))
-	mux.HandleFunc("/api/commit/prompt", s.withCORS(s.withAuth(s.handleCommitPrompt)))
-	mux.HandleFunc("/api/commit/generate", s.withCORS(s.withAuthAndCSRF(s.handleCommitGenerate)))
-	mux.HandleFunc("/api/diff/", s.withCORS(s.withAuth(s.handleDiff)))
-	mux.HandleFunc("/api/file/", s.withCORS(s.withAuth(s.handleFile)))
-	mux.HandleFunc("/api/diff-external/", s.withCORS(s.withAuthAndCSRF(s.handleDiffExternal)))
-	mux.HandleFunc("/api/open-vscode/", s.withCORS(s.withAuthAndCSRF(s.handleOpenVSCode)))
-	mux.HandleFunc("/api/overlays", s.withCORS(s.withAuth(s.handleOverlays)))
-	mux.HandleFunc("/api/overlays/scan", s.withCORS(s.withAuthAndCSRF(s.handleOverlayScan)))
-	mux.HandleFunc("/api/overlays/add", s.withCORS(s.withAuthAndCSRF(s.handleOverlayAdd)))
-	mux.HandleFunc("/api/overlays/dismiss-nudge", s.withCORS(s.withAuthAndCSRF(s.handleDismissNudge)))
-	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
-	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
-	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
+		// State-changing endpoints (add CSRF)
+		r.Group(func(r chi.Router) {
+			r.Use(s.csrfMiddleware)
 
-	// Lore routes
-	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
+			r.Post("/spawn", s.handleSpawnPost)
+			r.Post("/update", s.handleUpdate)
+			r.Post("/workspaces/scan", s.handleWorkspacesScan)
+			r.Post("/suggest-branch", s.handleSuggestBranch)
+			r.Post("/prepare-branch-spawn", s.handlePrepareBranchSpawn)
+			r.Post("/check-branch-conflict", s.handleCheckBranchConflict)
+			r.Post("/recent-branches/refresh", s.handleRecentBranchesRefresh)
+			r.Post("/commit/generate", s.handleCommitGenerate)
+			r.Post("/overlays/scan", s.handleOverlayScan)
+			r.Post("/overlays/add", s.handleOverlayAdd)
+			r.Post("/overlays/dismiss-nudge", s.handleDismissNudge)
+			r.Post("/prs/refresh", s.handlePRRefresh)
+			r.Post("/prs/checkout", s.handlePRCheckout)
+			r.Post("/remote/hosts/connect", s.handleRemoteHostConnect)
+			r.Post("/remote-access/on", s.handleRemoteAccessOn)
+			r.Post("/remote-access/off", s.handleRemoteAccessOff)
+			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
+			r.Post("/remote-access/test-notification", s.handleRemoteAccessTestNotification)
 
-	// Remote workspace routes
-	mux.HandleFunc("/api/config/remote-flavors", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavors)))
-	mux.HandleFunc("/api/config/remote-flavors/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteFlavor)))
-	mux.HandleFunc("/api/remote/hosts", s.withCORS(s.withAuth(s.handleRemoteHosts)))
-	mux.HandleFunc("/api/remote/hosts/connect", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostConnect)))
-	mux.HandleFunc("/api/remote/hosts/connect/stream", s.withCORS(s.withAuth(s.handleRemoteConnectStream)))
-	mux.HandleFunc("/api/remote/hosts/", s.withCORS(s.withAuthAndCSRF(s.handleRemoteHostRoute)))
-	mux.HandleFunc("/api/remote/flavor-statuses", s.withCORS(s.withAuth(s.handleRemoteFlavorStatuses)))
+			// These handlers do their own method dispatch or path parsing internally.
+			// They'll be split in Task 4. For now, use HandleFunc to accept any method.
+			r.HandleFunc("/sessions/*", s.handleDispose)
+			r.HandleFunc("/sessions-nickname/*", s.handleUpdateNickname)
+			r.HandleFunc("/config", s.handleConfig)
+			r.HandleFunc("/auth/secrets", s.handleAuthSecrets)
+			r.HandleFunc("/models/*", s.handleModel)
+			r.HandleFunc("/diff-external/*", s.handleDiffExternal)
+			r.HandleFunc("/open-vscode/*", s.handleOpenVSCode)
+			r.HandleFunc("/config/remote-flavors", s.handleRemoteFlavors)
+			r.HandleFunc("/config/remote-flavors/*", s.handleRemoteFlavor)
+			r.HandleFunc("/remote/hosts/*", s.handleRemoteHostRoute)
+			r.HandleFunc("/workspaces/*", s.handleWorkspaceRoutes)
+			r.HandleFunc("/lore/*", s.handleLoreRouter)
+		})
 
-	// Remote access routes
-	mux.HandleFunc("/api/remote-access/on", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOn)))
-	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOff)))
-	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
-	mux.HandleFunc("/api/remote-access/set-password", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessSetPassword)))
-	mux.HandleFunc("/api/remote-access/test-notification", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessTestNotification)))
-
-	// Dev mode routes (only registered when --dev-mode is active)
-	if s.devMode {
-		mux.HandleFunc("/api/dev/status", s.withCORS(s.withAuth(s.handleDevStatus)))
-		mux.HandleFunc("/api/dev/rebuild", s.withCORS(s.withAuthAndCSRF(s.handleDevRebuild)))
-		mux.HandleFunc("/api/dev/simulate-tunnel", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnel)))
-		mux.HandleFunc("/api/dev/simulate-tunnel-stop", s.withCORS(s.withAuthAndCSRF(s.handleDevSimulateTunnelStop)))
-		mux.HandleFunc("/api/dev/clear-password", s.withCORS(s.withAuthAndCSRF(s.handleDevClearPassword)))
-		mux.HandleFunc("/api/dev/diagnostic-append", s.withCORS(s.withAuthAndCSRF(s.handleDiagnosticAppend)))
-	}
-
-	// WebSocket for terminal streaming
-	mux.HandleFunc("/ws/terminal/", s.handleTerminalWebSocket)
-
-	// WebSocket for provisioning terminal (remote host setup)
-	mux.HandleFunc("/ws/provision/", s.handleProvisionWebSocket)
-
-	// WebSocket for real-time dashboard state updates
-	mux.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
+		// Dev-mode routes
+		if s.devMode {
+			r.Get("/dev/status", s.handleDevStatus)
+			r.Group(func(r chi.Router) {
+				r.Use(s.csrfMiddleware)
+				r.Post("/dev/rebuild", s.handleDevRebuild)
+				r.Post("/dev/simulate-tunnel", s.handleDevSimulateTunnel)
+				r.Post("/dev/simulate-tunnel-stop", s.handleDevSimulateTunnelStop)
+				r.Post("/dev/clear-password", s.handleDevClearPassword)
+				r.Post("/dev/diagnostic-append", s.handleDiagnosticAppend)
+			})
+		}
+	})
 
 	// Bind address from config
 	bindAddr := s.config.GetBindAddress()
@@ -468,7 +482,7 @@ func (s *Server) Start() error {
 	port := s.config.GetPort()
 	s.httpServer = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", bindAddr, port),
-		Handler:           mux,
+		Handler:           r,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,

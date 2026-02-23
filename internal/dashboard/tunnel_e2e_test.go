@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -56,31 +57,39 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 	s := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	s.config = cfg
 
-	// Build mux matching production Start() route registration
-	mux := http.NewServeMux()
+	// Build chi router matching production Start() route registration
+	r := chi.NewRouter()
 
 	// App handler (serves SPA, redirects unauthenticated to /remote-auth)
-	mux.HandleFunc("/", s.handleApp)
+	r.HandleFunc("/*", s.handleApp)
 
 	// Remote auth (unauthenticated — token/nonce/password protected)
-	mux.HandleFunc("/remote-auth", s.handleRemoteAuth)
-
-	// API routes with auth + CORS
-	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
-	mux.HandleFunc("/api/config", s.withCORS(s.withAuth(s.handleConfig)))
-	mux.HandleFunc("/api/sessions", s.withCORS(s.withAuth(s.handleSessions)))
-	mux.HandleFunc("/api/spawn", s.withCORS(s.withAuth(s.handleSpawnPost)))
-
-	// Remote access routes with CSRF
-	mux.HandleFunc("/api/remote-access/on", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOn)))
-	mux.HandleFunc("/api/remote-access/off", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessOff)))
-	mux.HandleFunc("/api/remote-access/status", s.withCORS(s.withAuth(s.handleRemoteAccessStatus)))
-	mux.HandleFunc("/api/remote-access/set-password", s.withCORS(s.withAuthAndCSRF(s.handleRemoteAccessSetPassword)))
+	r.HandleFunc("/remote-auth", s.handleRemoteAuth)
 
 	// WebSocket endpoints
-	mux.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
+	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 
-	ts := httptest.NewServer(mux)
+	// API routes with CORS + auth middleware
+	r.Route("/api", func(r chi.Router) {
+		r.Use(s.corsMiddleware)
+		r.Use(s.authMiddleware)
+
+		r.Get("/healthz", s.handleHealthz)
+		r.Get("/sessions", s.handleSessions)
+		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
+
+		r.Group(func(r chi.Router) {
+			r.Use(s.csrfMiddleware)
+
+			r.Post("/spawn", s.handleSpawnPost)
+			r.Post("/remote-access/on", s.handleRemoteAccessOn)
+			r.Post("/remote-access/off", s.handleRemoteAccessOff)
+			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
+			r.HandleFunc("/config", s.handleConfig)
+		})
+	})
+
+	ts := httptest.NewServer(r)
 	t.Cleanup(func() {
 		ts.Close()
 		s.CloseForTest()
