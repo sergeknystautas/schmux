@@ -14,10 +14,6 @@ import (
 )
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	resp, err := buildAvailableModels(s.config)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)

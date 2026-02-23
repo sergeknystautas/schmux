@@ -171,15 +171,15 @@ WebSocket endpoints (`/ws/terminal/`, `/ws/provision/`, `/ws/dashboard`) continu
 
 ## What changes
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| New API route | Write handler, wrap with `withCORS(withAuthAndCSRF(...))`, register | Write handler, add `r.Post(...)` inside the right group |
-| Forgetting auth | Silent — route is unprotected | Impossible — group middleware applies automatically |
-| Method validation | Manual `if r.Method !=` in each handler | Chi returns 405 automatically |
-| Path parameters | `extractPathSegment(r.URL.Path, "/api/sessions/", "/dispose")` | `chi.URLParam(r, "id")` |
-| Middleware signature | `func(http.HandlerFunc) http.HandlerFunc` (custom) | `func(http.Handler) http.Handler` (standard) |
-| CORS + Auth + CSRF | Single combined wrapper per route | Composed via `r.Use()` at group level |
-| Route table readability | Flat list, security level hidden in wrapper | Indented groups, security level visible from structure |
+| Aspect                  | Before                                                              | After                                                   |
+| ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| New API route           | Write handler, wrap with `withCORS(withAuthAndCSRF(...))`, register | Write handler, add `r.Post(...)` inside the right group |
+| Forgetting auth         | Silent — route is unprotected                                       | Impossible — group middleware applies automatically     |
+| Method validation       | Manual `if r.Method !=` in each handler                             | Chi returns 405 automatically                           |
+| Path parameters         | `extractPathSegment(r.URL.Path, "/api/sessions/", "/dispose")`      | `chi.URLParam(r, "id")`                                 |
+| Middleware signature    | `func(http.HandlerFunc) http.HandlerFunc` (custom)                  | `func(http.Handler) http.Handler` (standard)            |
+| CORS + Auth + CSRF      | Single combined wrapper per route                                   | Composed via `r.Use()` at group level                   |
+| Route table readability | Flat list, security level hidden in wrapper                         | Indented groups, security level visible from structure  |
 
 ## What doesn't change
 

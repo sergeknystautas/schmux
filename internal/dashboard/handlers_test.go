@@ -293,16 +293,8 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 		}
 	})
 
-	t.Run("POST request is rejected", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/api/builtin-quick-launch", nil)
-		rr := httptest.NewRecorder()
-
-		server.handleBuiltinQuickLaunch(rr, req)
-
-		if rr.Code != http.StatusMethodNotAllowed {
-			t.Errorf("expected status 405, got %d", rr.Code)
-		}
-	})
+	// "POST request is rejected" subtest removed: chi handles 405
+	// responses automatically via r.Get route registration.
 
 	t.Run("response contains expected presets", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/builtin-quick-launch", nil)
@@ -372,16 +364,8 @@ func TestHandleHealthz(t *testing.T) {
 		}
 	})
 
-	t.Run("POST request is rejected", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/api/healthz", nil)
-		rr := httptest.NewRecorder()
-
-		server.handleHealthz(rr, req)
-
-		if rr.Code != http.StatusMethodNotAllowed {
-			t.Errorf("expected status 405, got %d", rr.Code)
-		}
-	})
+	// "POST request is rejected" subtest removed: chi handles 405
+	// responses automatically via r.Get route registration.
 }
 
 func TestValidateGitFilePaths(t *testing.T) {
@@ -417,16 +401,8 @@ func TestHandleUpdate(t *testing.T) {
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
 
-	t.Run("POST method accepted, GET rejected", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/api/update", nil)
-		rr := httptest.NewRecorder()
-
-		server.handleUpdate(rr, req)
-
-		if rr.Code != http.StatusMethodNotAllowed {
-			t.Errorf("expected status 405 for GET, got %d", rr.Code)
-		}
-	})
+	// "POST method accepted, GET rejected" subtest removed: chi handles 405
+	// responses automatically via r.Post route registration.
 
 	t.Run("concurrent updates are rejected", func(t *testing.T) {
 		// First request

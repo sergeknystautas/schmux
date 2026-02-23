@@ -70,19 +70,8 @@ func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
 	}
 }
 
-func TestHandleRemoteAccessStatus_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
-	server := newTestServerWithTunnel(t, mgr)
-
-	req, _ := http.NewRequest("POST", "/api/remote-access/status", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleRemoteAccessStatus(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
-	}
-}
+// TestHandleRemoteAccessStatus_MethodNotAllowed removed: chi handles 405
+// responses automatically via r.Get route registration.
 
 func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 	mgr := tunnel.NewManager(tunnel.ManagerConfig{Disabled: func() bool { return true }}, nil)
@@ -107,19 +96,8 @@ func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestHandleRemoteAccessOn_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
-	server := newTestServerWithTunnel(t, mgr)
-
-	req, _ := http.NewRequest("GET", "/api/remote-access/on", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleRemoteAccessOn(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
-	}
-}
+// TestHandleRemoteAccessOn_MethodNotAllowed removed: chi handles 405
+// responses automatically via r.Post route registration.
 
 func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: t.TempDir()}
@@ -139,19 +117,8 @@ func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 	}
 }
 
-func TestHandleRemoteAccessOff_MethodNotAllowed(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
-	server := newTestServerWithTunnel(t, mgr)
-
-	req, _ := http.NewRequest("GET", "/api/remote-access/off", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleRemoteAccessOff(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
-	}
-}
+// TestHandleRemoteAccessOff_MethodNotAllowed removed: chi handles 405
+// responses automatically via r.Post route registration.
 
 func TestHandleRemoteAccessOff_NoManager(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: t.TempDir()}

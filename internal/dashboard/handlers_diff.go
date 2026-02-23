@@ -27,11 +27,6 @@ import (
 )
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
@@ -290,10 +285,6 @@ func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, tr
 // Path format: /api/file/{workspaceId}/...
 // Security: only allows image files, blocks path traversal, checks .gitignore.
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 
 	// Extract workspace ID and file path from chi wildcard param
 	trimmedPath := chi.URLParam(r, "*")
@@ -572,11 +563,6 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 
 // handleOpenVSCode opens VS Code in a new window for the specified workspace.
 func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi wildcard param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
@@ -783,11 +769,6 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi wildcard param
 	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {

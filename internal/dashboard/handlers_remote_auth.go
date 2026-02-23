@@ -270,11 +270,6 @@ func (s *Server) validateRemoteCookie(value string) bool {
 }
 
 func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req struct {
 		Password string `json:"password"`

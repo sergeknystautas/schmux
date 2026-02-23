@@ -28,19 +28,13 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var detectedTools []detect.Tool
-	switch r.Method {
-	case http.MethodGet:
-		for _, target := range s.config.GetDetectedRunTargets() {
-			detectedTools = append(detectedTools, detect.Tool{
-				Name:    target.Name,
-				Command: target.Command,
-				Source:  "config",
-				Agentic: true,
-			})
-		}
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	for _, target := range s.config.GetDetectedRunTargets() {
+		detectedTools = append(detectedTools, detect.Tool{
+			Name:    target.Name,
+			Command: target.Command,
+			Source:  "config",
+			Agentic: true,
+		})
 	}
 
 	toolResp := make([]ToolResponse, len(detectedTools))

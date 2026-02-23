@@ -43,19 +43,8 @@ func TestHandleDevSimulateTunnel(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects non-POST", func(t *testing.T) {
-		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
-		defer server.CloseForTest()
-		server.devMode = true
-
-		req := httptest.NewRequest(http.MethodGet, "/api/dev/simulate-tunnel", nil)
-		rr := httptest.NewRecorder()
-		server.handleDevSimulateTunnel(rr, req)
-
-		if rr.Code != http.StatusMethodNotAllowed {
-			t.Errorf("expected 405, got %d", rr.Code)
-		}
-	})
+	// "rejects non-POST" subtest removed: chi handles 405 responses
+	// automatically via r.Post route registration.
 }
 
 func TestHandleDevSimulateTunnelStop(t *testing.T) {

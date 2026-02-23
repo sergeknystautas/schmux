@@ -15,6 +15,7 @@
 ### Task 1: Add chi dependency and convert middleware signatures
 
 **Files:**
+
 - Modify: `go.mod`
 - Modify: `internal/dashboard/auth.go:90-141`
 - Modify: `internal/dashboard/server.go:597-628`
@@ -140,6 +141,7 @@ feat(dashboard): add chi dependency and convert middleware to standard signature
 This is the core task. Replace `http.NewServeMux()` with `chi.NewRouter()` and organize routes into middleware groups.
 
 **Files:**
+
 - Modify: `internal/dashboard/server.go:369-475` (the `mux` setup block in `Start()`)
 
 **Step 1: Replace mux creation and add imports**
@@ -327,6 +329,7 @@ feat(dashboard): rewrite route registration with chi router groups
 All 14 `extractPathSegment` calls and 10 `strings.TrimPrefix` path-extraction calls become `chi.URLParam(r, "paramName")`. The param names come from the chi route patterns registered in Task 2.
 
 **Files:**
+
 - Modify: `internal/dashboard/handlers.go` (delete `extractPathSegment` function, update `handleUpdateNickname`, `handleAskNudgenik`)
 - Modify: `internal/dashboard/handlers_dispose.go` (3 calls)
 - Modify: `internal/dashboard/handlers_git.go` (5 calls)
@@ -405,6 +408,7 @@ refactor(dashboard): replace manual path extraction with chi.URLParam
 8 handlers currently use `switch r.Method` to handle multiple HTTP methods in one function. Split each into single-method handlers registered via `r.Get`/`r.Post`/`r.Delete`.
 
 **Files:**
+
 - Modify: `internal/dashboard/handlers_config.go` (`handleConfig` → `handleConfigGet` + `handleConfigUpdate`)
 - Modify: `internal/dashboard/handlers_config.go` (`handleAuthSecrets` → `handleAuthSecretsGet` + `handleAuthSecretsUpdate`)
 - Modify: `internal/dashboard/handlers_remote.go` (`handleRemoteFlavors` → `handleRemoteFlavorsGet` + `handleRemoteFlavorsCreate`)
@@ -466,6 +470,7 @@ refactor(dashboard): split multi-method handlers into single-method functions
 ~18 handlers have `if r.Method != http.MethodPost` guards that are now redundant because chi only routes matching methods.
 
 **Files:**
+
 - Modify: `internal/dashboard/handlers.go` (`handleHealthz`, `handleUpdateNickname`)
 - Modify: `internal/dashboard/handlers_spawn.go` (`handleSpawnPost`, `handleSuggestBranch`, `handleBuiltinQuickLaunch`, `handleCheckBranchConflict`, `handleRecentBranches`, `handleRecentBranchesRefresh`)
 - Modify: `internal/dashboard/handlers_dispose.go` (`handleDispose`, `handleDisposeWorkspace`, `handleDisposeWorkspaceAll`)
@@ -516,6 +521,7 @@ refactor(dashboard): remove redundant method checks (chi handles method routing)
 The manual sub-routers and shim wrappers from Task 1 are now unused.
 
 **Files:**
+
 - Modify: `internal/dashboard/handlers_workspace.go` (delete `handleWorkspaceRoutes`, `handleWorkspacePreviews` — replaced by split handlers and chi routing)
 - Modify: `internal/dashboard/handlers_sync.go` (delete `handleLinearSync` dispatcher — replaced by direct chi routes)
 - Modify: `internal/dashboard/handlers_lore.go` (delete `handleLoreRouter` dispatcher — replaced by direct chi routes)
@@ -561,6 +567,7 @@ go build ./cmd/schmux && ./schmux daemon-run
 ```
 
 Open `http://localhost:7337` and verify:
+
 - Dashboard loads
 - Sessions list loads (`GET /api/sessions`)
 - Spawn form works (`POST /api/spawn`)
