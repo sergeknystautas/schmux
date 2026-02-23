@@ -1,0 +1,180 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import ConfigModals from './ConfigModals';
+import type { ConfigFormAction } from './useConfigForm';
+
+const dispatch = vi.fn<[ConfigFormAction], void>();
+
+describe('ConfigModals', () => {
+  describe('auth secrets modal', () => {
+    it('renders when authSecretsModal is set', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={{ clientId: '', clientSecret: '', error: '' }}
+          runTargetEditModal={null}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText('GitHub OAuth Credentials')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Ov23li...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Enter client secret')).toBeInTheDocument();
+    });
+
+    it('does not render when authSecretsModal is null', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.queryByText('GitHub OAuth Credentials')).not.toBeInTheDocument();
+    });
+
+    it('calls onSaveAuthSecrets when Save is clicked', async () => {
+      const onSaveAuthSecrets = vi.fn();
+      render(
+        <ConfigModals
+          authSecretsModal={{ clientId: 'id', clientSecret: 'secret', error: '' }}
+          runTargetEditModal={null}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={onSaveAuthSecrets}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      await userEvent.click(screen.getByText('Save'));
+      expect(onSaveAuthSecrets).toHaveBeenCalled();
+    });
+
+    it('shows error when set', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={{ clientId: '', clientSecret: '', error: 'Bad creds' }}
+          runTargetEditModal={null}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Bad creds')).toBeInTheDocument();
+    });
+
+    it('dispatches close on Cancel click', async () => {
+      dispatch.mockClear();
+      render(
+        <ConfigModals
+          authSecretsModal={{ clientId: '', clientSecret: '', error: '' }}
+          runTargetEditModal={null}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      await userEvent.click(screen.getByText('Cancel'));
+      expect(dispatch).toHaveBeenCalledWith({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
+    });
+  });
+
+  describe('run target edit modal', () => {
+    it('renders with target name and command textarea', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={{
+            target: { name: 'my-agent', command: 'my-agent --prompt', type: 'promptable' },
+            command: 'my-agent --prompt',
+            error: '',
+          }}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Edit my-agent')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('my-agent --prompt')).toBeInTheDocument();
+    });
+
+    it('calls onSaveRunTargetEdit when Save is clicked', async () => {
+      const onSaveRunTargetEdit = vi.fn();
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={{
+            target: { name: 'x', command: 'x', type: 'promptable' },
+            command: 'x',
+            error: '',
+          }}
+          quickLaunchEditModal={null}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={onSaveRunTargetEdit}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      await userEvent.click(screen.getByText('Save'));
+      expect(onSaveRunTargetEdit).toHaveBeenCalled();
+    });
+  });
+
+  describe('quick launch edit modal', () => {
+    it('renders prompt textarea for promptable targets', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchEditModal={{
+            item: { name: 'ql1', target: 'claude', prompt: 'hello' },
+            prompt: 'hello',
+            isCommandTarget: false,
+            error: '',
+          }}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Edit ql1')).toBeInTheDocument();
+      expect(screen.getByText('Prompt')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('hello')).toBeInTheDocument();
+    });
+
+    it('renders command textarea for command targets', () => {
+      render(
+        <ConfigModals
+          authSecretsModal={null}
+          runTargetEditModal={null}
+          quickLaunchEditModal={{
+            item: { name: 'ql2', target: 'build', prompt: null },
+            prompt: 'make build',
+            isCommandTarget: true,
+            error: '',
+          }}
+          dispatch={dispatch}
+          onSaveAuthSecrets={vi.fn()}
+          onSaveRunTargetEdit={vi.fn()}
+          onSaveQuickLaunchEdit={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Command')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('make build')).toBeInTheDocument();
+    });
+  });
+});

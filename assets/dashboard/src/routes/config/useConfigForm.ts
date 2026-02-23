@@ -1,0 +1,625 @@
+import { useReducer, useCallback } from 'react';
+import type {
+  BuiltinQuickLaunchCookbook,
+  Model,
+  OverlayInfo,
+  QuickLaunchPreset,
+  RepoResponse,
+  RunTargetResponse,
+} from '../../lib/types';
+
+// Model aliases for canonical ID normalization
+export const modelAliases: Record<string, string> = {
+  opus: 'claude-opus',
+  sonnet: 'claude-sonnet',
+  haiku: 'claude-haiku',
+  'minimax-m2.1': 'minimax',
+};
+
+export type ConfigSnapshot = {
+  workspacePath: string;
+  sourceCodeManagement: string;
+  repos: RepoResponse[];
+  promptableTargets: RunTargetResponse[];
+  commandTargets: RunTargetResponse[];
+  quickLaunch: QuickLaunchPreset[];
+  externalDiffCommands: { name: string; command: string }[];
+  externalDiffCleanupMinutes: number;
+  nudgenikTarget: string;
+  branchSuggestTarget: string;
+  conflictResolveTarget: string;
+  prReviewTarget: string;
+  commitMessageTarget: string;
+  dashboardPollInterval: number;
+  viewedBuffer: number;
+  nudgenikSeenInterval: number;
+  gitStatusPollInterval: number;
+  gitCloneTimeout: number;
+  gitStatusTimeout: number;
+  xtermQueryTimeout: number;
+  xtermOperationTimeout: number;
+  networkAccess: boolean;
+  authEnabled: boolean;
+  authProvider: string;
+  authPublicBaseURL: string;
+  authSessionTTLMinutes: number;
+  authTlsCertPath: string;
+  authTlsKeyPath: string;
+  soundDisabled: boolean;
+  confirmBeforeClose: boolean;
+  modelVersions: Record<string, string>;
+  loreEnabled: boolean;
+  loreLLMTarget: string;
+  loreCurateOnDispose: string;
+  loreAutoPR: boolean;
+  remoteAccessEnabled: boolean;
+  remoteAccessTimeoutMinutes: number;
+  remoteAccessNtfyTopic: string;
+  remoteAccessNotifyCommand: string;
+  desyncEnabled: boolean;
+  desyncTarget: string;
+};
+
+export type RunTargetEditModalState = {
+  target: RunTargetResponse;
+  command: string;
+  error: string;
+} | null;
+
+export type QuickLaunchEditModalState = {
+  item: QuickLaunchPreset;
+  prompt: string;
+  isCommandTarget: boolean;
+  error: string;
+} | null;
+
+export type AuthSecretsModalState = {
+  clientId: string;
+  clientSecret: string;
+  error: string;
+} | null;
+
+export type ConfigFormState = {
+  // Core config fields
+  workspacePath: string;
+  sourceCodeManagement: string;
+  repos: RepoResponse[];
+  promptableTargets: RunTargetResponse[];
+  commandTargets: RunTargetResponse[];
+  detectedTargets: RunTargetResponse[];
+  quickLaunch: QuickLaunchPreset[];
+  builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
+  externalDiffCommands: { name: string; command: string }[];
+  externalDiffCleanupMinutes: number;
+  models: Model[];
+  nudgenikTarget: string;
+  branchSuggestTarget: string;
+  conflictResolveTarget: string;
+  prReviewTarget: string;
+  commitMessageTarget: string;
+
+  // New item inputs
+  newRepoName: string;
+  newRepoUrl: string;
+  newPromptableName: string;
+  newPromptableCommand: string;
+  newCommandName: string;
+  newCommandCommand: string;
+  newQuickLaunchName: string;
+  newQuickLaunchTarget: string;
+  newQuickLaunchPrompt: string;
+  selectedCookbookTemplate: BuiltinQuickLaunchCookbook | null;
+  newDiffName: string;
+  newDiffCommand: string;
+
+  // Advanced settings
+  dashboardPollInterval: number;
+  viewedBuffer: number;
+  nudgenikSeenInterval: number;
+  gitStatusPollInterval: number;
+  gitCloneTimeout: number;
+  gitStatusTimeout: number;
+  xtermQueryTimeout: number;
+  xtermOperationTimeout: number;
+  networkAccess: boolean;
+  authEnabled: boolean;
+  authProvider: string;
+  authPublicBaseURL: string;
+  authSessionTTLMinutes: number;
+  authTlsCertPath: string;
+  authTlsKeyPath: string;
+  authClientIdSet: boolean;
+  authClientSecretSet: boolean;
+  authWarnings: string[];
+  apiNeedsRestart: boolean;
+  soundDisabled: boolean;
+  confirmBeforeClose: boolean;
+  modelVersions: Record<string, string>;
+
+  // Lore
+  loreEnabled: boolean;
+  loreLLMTarget: string;
+  loreCurateOnDispose: string;
+  loreAutoPR: boolean;
+
+  // Remote access
+  remoteAccessEnabled: boolean;
+  remoteAccessTimeoutMinutes: number;
+  remoteAccessNtfyTopic: string;
+  remoteAccessNotifyCommand: string;
+  remoteAccessPasswordHashSet: boolean;
+  passwordInput: string;
+  passwordConfirm: string;
+  passwordSaving: boolean;
+  passwordError: string;
+  passwordSuccess: string;
+
+  // Desync
+  desyncEnabled: boolean;
+  desyncTarget: string;
+
+  // Overlays
+  overlays: OverlayInfo[];
+  loadingOverlays: boolean;
+
+  // Original config for change detection
+  originalConfig: ConfigSnapshot | null;
+
+  // Validation
+  stepErrors: Record<number, string | null>;
+
+  // Modal state
+  runTargetEditModal: RunTargetEditModalState;
+  quickLaunchEditModal: QuickLaunchEditModalState;
+  authSecretsModal: AuthSecretsModalState;
+
+  // Loading state
+  loading: boolean;
+  saving: boolean;
+  error: string;
+  warning: string;
+
+  // Wizard
+  currentStep: number;
+};
+
+export type ConfigFormAction =
+  | { type: 'SET_FIELD'; field: keyof ConfigFormState; value: unknown }
+  | { type: 'LOAD_CONFIG'; state: Partial<ConfigFormState> }
+  | { type: 'SET_ORIGINAL'; config: ConfigSnapshot | null }
+  | { type: 'ADD_REPO'; repo: RepoResponse }
+  | { type: 'REMOVE_REPO'; name: string }
+  | { type: 'ADD_PROMPTABLE_TARGET'; target: RunTargetResponse }
+  | { type: 'REMOVE_PROMPTABLE_TARGET'; name: string }
+  | { type: 'UPDATE_PROMPTABLE_TARGET'; name: string; command: string }
+  | { type: 'ADD_COMMAND_TARGET'; target: RunTargetResponse }
+  | { type: 'REMOVE_COMMAND_TARGET'; name: string }
+  | { type: 'UPDATE_COMMAND_TARGET'; name: string; command: string }
+  | { type: 'ADD_QUICK_LAUNCH'; item: QuickLaunchPreset }
+  | { type: 'REMOVE_QUICK_LAUNCH'; name: string }
+  | { type: 'UPDATE_QUICK_LAUNCH'; name: string; updates: Partial<QuickLaunchPreset> }
+  | { type: 'ADD_DIFF_COMMAND'; command: { name: string; command: string } }
+  | { type: 'REMOVE_DIFF_COMMAND'; name: string }
+  | { type: 'SET_MODELS'; models: Model[] }
+  | { type: 'SET_STEP_ERROR'; step: number; error: string | null }
+  | { type: 'RESET_NEW_REPO' }
+  | { type: 'RESET_NEW_PROMPTABLE' }
+  | { type: 'RESET_NEW_COMMAND' }
+  | { type: 'RESET_NEW_QUICK_LAUNCH' }
+  | { type: 'RESET_NEW_DIFF' }
+  | { type: 'SET_RUN_TARGET_EDIT_MODAL'; modal: RunTargetEditModalState }
+  | { type: 'SET_QUICK_LAUNCH_EDIT_MODAL'; modal: QuickLaunchEditModalState }
+  | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState };
+
+export const initialState: ConfigFormState = {
+  workspacePath: '',
+  sourceCodeManagement: 'git-worktree',
+  repos: [],
+  promptableTargets: [],
+  commandTargets: [],
+  detectedTargets: [],
+  quickLaunch: [],
+  builtinQuickLaunch: [],
+  externalDiffCommands: [],
+  externalDiffCleanupMinutes: 60,
+  models: [],
+  nudgenikTarget: '',
+  branchSuggestTarget: '',
+  conflictResolveTarget: '',
+  prReviewTarget: '',
+  commitMessageTarget: '',
+
+  newRepoName: '',
+  newRepoUrl: '',
+  newPromptableName: '',
+  newPromptableCommand: '',
+  newCommandName: '',
+  newCommandCommand: '',
+  newQuickLaunchName: '',
+  newQuickLaunchTarget: '',
+  newQuickLaunchPrompt: '',
+  selectedCookbookTemplate: null,
+  newDiffName: '',
+  newDiffCommand: '',
+
+  dashboardPollInterval: 5000,
+  viewedBuffer: 5000,
+  nudgenikSeenInterval: 2000,
+  gitStatusPollInterval: 10000,
+  gitCloneTimeout: 300000,
+  gitStatusTimeout: 30000,
+  xtermQueryTimeout: 5000,
+  xtermOperationTimeout: 10000,
+  networkAccess: false,
+  authEnabled: false,
+  authProvider: 'github',
+  authPublicBaseURL: '',
+  authSessionTTLMinutes: 1440,
+  authTlsCertPath: '',
+  authTlsKeyPath: '',
+  authClientIdSet: false,
+  authClientSecretSet: false,
+  authWarnings: [],
+  apiNeedsRestart: false,
+  soundDisabled: false,
+  confirmBeforeClose: false,
+  modelVersions: {},
+
+  loreEnabled: true,
+  loreLLMTarget: '',
+  loreCurateOnDispose: 'session',
+  loreAutoPR: false,
+
+  remoteAccessEnabled: false,
+  remoteAccessTimeoutMinutes: 0,
+  remoteAccessNtfyTopic: '',
+  remoteAccessNotifyCommand: '',
+  remoteAccessPasswordHashSet: false,
+  passwordInput: '',
+  passwordConfirm: '',
+  passwordSaving: false,
+  passwordError: '',
+  passwordSuccess: '',
+
+  desyncEnabled: false,
+  desyncTarget: '',
+
+  overlays: [],
+  loadingOverlays: true,
+
+  originalConfig: null,
+
+  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null },
+
+  runTargetEditModal: null,
+  quickLaunchEditModal: null,
+  authSecretsModal: null,
+
+  loading: true,
+  saving: false,
+  error: '',
+  warning: '',
+
+  currentStep: 1,
+};
+
+function configFormReducer(state: ConfigFormState, action: ConfigFormAction): ConfigFormState {
+  switch (action.type) {
+    case 'SET_FIELD':
+      return { ...state, [action.field]: action.value };
+
+    case 'LOAD_CONFIG':
+      return { ...state, ...action.state };
+
+    case 'SET_ORIGINAL':
+      return { ...state, originalConfig: action.config };
+
+    case 'ADD_REPO':
+      return { ...state, repos: [...state.repos, action.repo] };
+
+    case 'REMOVE_REPO':
+      return { ...state, repos: state.repos.filter((r) => r.name !== action.name) };
+
+    case 'ADD_PROMPTABLE_TARGET':
+      return { ...state, promptableTargets: [...state.promptableTargets, action.target] };
+
+    case 'REMOVE_PROMPTABLE_TARGET':
+      return {
+        ...state,
+        promptableTargets: state.promptableTargets.filter((t) => t.name !== action.name),
+      };
+
+    case 'UPDATE_PROMPTABLE_TARGET':
+      return {
+        ...state,
+        promptableTargets: state.promptableTargets.map((t) =>
+          t.name === action.name ? { ...t, command: action.command } : t
+        ),
+      };
+
+    case 'ADD_COMMAND_TARGET':
+      return { ...state, commandTargets: [...state.commandTargets, action.target] };
+
+    case 'REMOVE_COMMAND_TARGET':
+      return {
+        ...state,
+        commandTargets: state.commandTargets.filter((t) => t.name !== action.name),
+      };
+
+    case 'UPDATE_COMMAND_TARGET':
+      return {
+        ...state,
+        commandTargets: state.commandTargets.map((t) =>
+          t.name === action.name ? { ...t, command: action.command } : t
+        ),
+      };
+
+    case 'ADD_QUICK_LAUNCH':
+      return {
+        ...state,
+        quickLaunch: [...state.quickLaunch, action.item].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        ),
+      };
+
+    case 'REMOVE_QUICK_LAUNCH':
+      return {
+        ...state,
+        quickLaunch: state.quickLaunch.filter((q) => q.name !== action.name),
+      };
+
+    case 'UPDATE_QUICK_LAUNCH':
+      return {
+        ...state,
+        quickLaunch: state.quickLaunch
+          .map((q) => (q.name === action.name ? { ...q, ...action.updates } : q))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      };
+
+    case 'ADD_DIFF_COMMAND':
+      return {
+        ...state,
+        externalDiffCommands: [...state.externalDiffCommands, action.command],
+      };
+
+    case 'REMOVE_DIFF_COMMAND':
+      return {
+        ...state,
+        externalDiffCommands: state.externalDiffCommands.filter((c) => c.name !== action.name),
+      };
+
+    case 'SET_MODELS':
+      return { ...state, models: action.models };
+
+    case 'SET_STEP_ERROR':
+      return { ...state, stepErrors: { ...state.stepErrors, [action.step]: action.error } };
+
+    case 'RESET_NEW_REPO':
+      return { ...state, newRepoName: '', newRepoUrl: '' };
+
+    case 'RESET_NEW_PROMPTABLE':
+      return { ...state, newPromptableName: '', newPromptableCommand: '' };
+
+    case 'RESET_NEW_COMMAND':
+      return { ...state, newCommandName: '', newCommandCommand: '' };
+
+    case 'RESET_NEW_QUICK_LAUNCH':
+      return {
+        ...state,
+        newQuickLaunchName: '',
+        newQuickLaunchTarget: '',
+        newQuickLaunchPrompt: '',
+        selectedCookbookTemplate: null,
+      };
+
+    case 'RESET_NEW_DIFF':
+      return { ...state, newDiffName: '', newDiffCommand: '' };
+
+    case 'SET_RUN_TARGET_EDIT_MODAL':
+      return { ...state, runTargetEditModal: action.modal };
+
+    case 'SET_QUICK_LAUNCH_EDIT_MODAL':
+      return { ...state, quickLaunchEditModal: action.modal };
+
+    case 'SET_AUTH_SECRETS_MODAL':
+      return { ...state, authSecretsModal: action.modal };
+
+    default:
+      return state;
+  }
+}
+
+export function useConfigForm(initialStep: number = 1) {
+  const [state, dispatch] = useReducer(configFormReducer, {
+    ...initialState,
+    currentStep: initialStep,
+  });
+
+  const promptableTargetNames = new Set([
+    ...state.detectedTargets.map((target) => target.name),
+    ...state.promptableTargets.map((target) => target.name),
+    ...state.models.filter((model) => model.configured).map((model) => model.id),
+  ]);
+
+  const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
+
+  const nudgenikTargetMissing =
+    state.nudgenikTarget.trim() !== '' && !promptableTargetNames.has(state.nudgenikTarget.trim());
+  const branchSuggestTargetMissing =
+    state.branchSuggestTarget.trim() !== '' &&
+    !promptableTargetNames.has(state.branchSuggestTarget.trim());
+  const conflictResolveTargetMissing =
+    state.conflictResolveTarget.trim() !== '' &&
+    !promptableTargetNames.has(state.conflictResolveTarget.trim());
+  const prReviewTargetMissing =
+    state.prReviewTarget.trim() !== '' && !promptableTargetNames.has(state.prReviewTarget.trim());
+  const commitMessageTargetMissing =
+    state.commitMessageTarget.trim() !== '' &&
+    !promptableTargetNames.has(state.commitMessageTarget.trim());
+
+  const hasChanges = useCallback(
+    (isFirstRun: boolean) => {
+      if (isFirstRun || !state.originalConfig) return false;
+
+      const oc = state.originalConfig;
+
+      const arraysMatch = (a: unknown[], b: unknown[]) => {
+        if (a.length !== b.length) return false;
+        return a.every((item, i) => JSON.stringify(item) === JSON.stringify(b[i]));
+      };
+
+      return (
+        state.workspacePath !== oc.workspacePath ||
+        state.sourceCodeManagement !== oc.sourceCodeManagement ||
+        !arraysMatch(state.repos, oc.repos) ||
+        !arraysMatch(state.promptableTargets, oc.promptableTargets) ||
+        !arraysMatch(state.commandTargets, oc.commandTargets) ||
+        !arraysMatch(state.quickLaunch, oc.quickLaunch) ||
+        !arraysMatch(state.externalDiffCommands, oc.externalDiffCommands) ||
+        state.externalDiffCleanupMinutes !== oc.externalDiffCleanupMinutes ||
+        state.nudgenikTarget !== oc.nudgenikTarget ||
+        state.branchSuggestTarget !== oc.branchSuggestTarget ||
+        state.conflictResolveTarget !== oc.conflictResolveTarget ||
+        state.prReviewTarget !== oc.prReviewTarget ||
+        state.commitMessageTarget !== oc.commitMessageTarget ||
+        state.dashboardPollInterval !== oc.dashboardPollInterval ||
+        state.viewedBuffer !== oc.viewedBuffer ||
+        state.nudgenikSeenInterval !== oc.nudgenikSeenInterval ||
+        state.gitStatusPollInterval !== oc.gitStatusPollInterval ||
+        state.gitCloneTimeout !== oc.gitCloneTimeout ||
+        state.gitStatusTimeout !== oc.gitStatusTimeout ||
+        state.xtermQueryTimeout !== oc.xtermQueryTimeout ||
+        state.xtermOperationTimeout !== oc.xtermOperationTimeout ||
+        state.networkAccess !== oc.networkAccess ||
+        state.authEnabled !== oc.authEnabled ||
+        state.authProvider !== oc.authProvider ||
+        state.authPublicBaseURL !== oc.authPublicBaseURL ||
+        state.authSessionTTLMinutes !== oc.authSessionTTLMinutes ||
+        state.authTlsCertPath !== oc.authTlsCertPath ||
+        state.authTlsKeyPath !== oc.authTlsKeyPath ||
+        state.soundDisabled !== oc.soundDisabled ||
+        state.confirmBeforeClose !== oc.confirmBeforeClose ||
+        JSON.stringify(state.modelVersions) !== JSON.stringify(oc.modelVersions) ||
+        state.loreEnabled !== oc.loreEnabled ||
+        state.loreLLMTarget !== oc.loreLLMTarget ||
+        state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
+        state.loreAutoPR !== oc.loreAutoPR ||
+        state.remoteAccessEnabled !== oc.remoteAccessEnabled ||
+        state.remoteAccessTimeoutMinutes !== oc.remoteAccessTimeoutMinutes ||
+        state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
+        state.remoteAccessNotifyCommand !== oc.remoteAccessNotifyCommand ||
+        state.desyncEnabled !== oc.desyncEnabled ||
+        state.desyncTarget !== oc.desyncTarget
+      );
+    },
+    [state]
+  );
+
+  const checkTargetUsage = useCallback(
+    (targetName: string) => {
+      let canonicalName = targetName;
+      const model = state.models.find(
+        (m) => m.id === targetName || modelAliases[m.id] === targetName
+      );
+      if (model) {
+        canonicalName = model.id;
+      }
+
+      const inQuickLaunch = state.quickLaunch.some(
+        (item) =>
+          item.target === canonicalName ||
+          (item.target && modelAliases[item.target] === canonicalName)
+      );
+      const inNudgenik =
+        state.nudgenikTarget &&
+        (state.nudgenikTarget === canonicalName ||
+          modelAliases[state.nudgenikTarget] === canonicalName);
+      const inBranchSuggest =
+        state.branchSuggestTarget &&
+        (state.branchSuggestTarget === canonicalName ||
+          modelAliases[state.branchSuggestTarget] === canonicalName);
+      const inConflictResolve =
+        state.conflictResolveTarget &&
+        (state.conflictResolveTarget === canonicalName ||
+          modelAliases[state.conflictResolveTarget] === canonicalName);
+      const inPrReview =
+        state.prReviewTarget &&
+        (state.prReviewTarget === canonicalName ||
+          modelAliases[state.prReviewTarget] === canonicalName);
+      const inCommitMessage =
+        state.commitMessageTarget &&
+        (state.commitMessageTarget === canonicalName ||
+          modelAliases[state.commitMessageTarget] === canonicalName);
+      return {
+        inQuickLaunch,
+        inNudgenik,
+        inBranchSuggest,
+        inConflictResolve,
+        inPrReview,
+        inCommitMessage,
+      };
+    },
+    [state]
+  );
+
+  const snapshotConfig = useCallback((): ConfigSnapshot => {
+    return {
+      workspacePath: state.workspacePath,
+      sourceCodeManagement: state.sourceCodeManagement,
+      repos: state.repos,
+      promptableTargets: state.promptableTargets,
+      commandTargets: state.commandTargets,
+      quickLaunch: state.quickLaunch,
+      externalDiffCommands: state.externalDiffCommands,
+      externalDiffCleanupMinutes: state.externalDiffCleanupMinutes,
+      nudgenikTarget: state.nudgenikTarget,
+      branchSuggestTarget: state.branchSuggestTarget,
+      conflictResolveTarget: state.conflictResolveTarget,
+      prReviewTarget: state.prReviewTarget,
+      commitMessageTarget: state.commitMessageTarget,
+      dashboardPollInterval: state.dashboardPollInterval,
+      viewedBuffer: state.viewedBuffer,
+      nudgenikSeenInterval: state.nudgenikSeenInterval,
+      gitStatusPollInterval: state.gitStatusPollInterval,
+      gitCloneTimeout: state.gitCloneTimeout,
+      gitStatusTimeout: state.gitStatusTimeout,
+      xtermQueryTimeout: state.xtermQueryTimeout,
+      xtermOperationTimeout: state.xtermOperationTimeout,
+      networkAccess: state.networkAccess,
+      authEnabled: state.authEnabled,
+      authProvider: state.authProvider,
+      authPublicBaseURL: state.authPublicBaseURL,
+      authSessionTTLMinutes: state.authSessionTTLMinutes,
+      authTlsCertPath: state.authTlsCertPath,
+      authTlsKeyPath: state.authTlsKeyPath,
+      soundDisabled: state.soundDisabled,
+      confirmBeforeClose: state.confirmBeforeClose,
+      modelVersions: state.modelVersions,
+      loreEnabled: state.loreEnabled,
+      loreLLMTarget: state.loreLLMTarget,
+      loreCurateOnDispose: state.loreCurateOnDispose,
+      loreAutoPR: state.loreAutoPR,
+      remoteAccessEnabled: state.remoteAccessEnabled,
+      remoteAccessTimeoutMinutes: state.remoteAccessTimeoutMinutes,
+      remoteAccessNtfyTopic: state.remoteAccessNtfyTopic,
+      remoteAccessNotifyCommand: state.remoteAccessNotifyCommand,
+      desyncEnabled: state.desyncEnabled,
+      desyncTarget: state.desyncTarget,
+    };
+  }, [state]);
+
+  return {
+    state,
+    dispatch,
+    promptableTargetNames,
+    commandTargetNames,
+    nudgenikTargetMissing,
+    branchSuggestTargetMissing,
+    conflictResolveTargetMissing,
+    prReviewTargetMissing,
+    commitMessageTargetMissing,
+    hasChanges,
+    checkTargetUsage,
+    snapshotConfig,
+  };
+}
