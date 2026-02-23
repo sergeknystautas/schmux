@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Box, Text, useApp, useStdout } from 'ink';
+import { Box, Static, Text, useApp, useStdout } from 'ink';
 import { StatusBar } from './components/StatusBar.js';
 import { LogPanel } from './components/LogPanel.js';
 import { KeyBar } from './components/KeyBar.js';
@@ -20,13 +20,20 @@ import type { ProcessStatus } from './types.js';
 
 interface AppProps {
   devRoot: string;
+  plain: boolean;
+}
+
+interface PlainLine {
+  id: number;
+  source: 'fe' | 'be';
+  text: string;
 }
 
 const MAX_LOG_LINES = 500;
 const VITE_PORT = 5173;
 const FLUSH_INTERVAL_MS = 19; // ~90fps — batches log lines to reduce Ink re-renders
 
-export function App({ devRoot }: AppProps) {
+export function App({ devRoot, plain }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termHeight = stdout?.rows ?? 24;
@@ -47,6 +54,11 @@ export function App({ devRoot }: AppProps) {
   const backendBuf = useRef<string[]>([]);
   const frontendBuf = useRef<string[]>([]);
 
+  // Plain mode: combined interleaved line buffer
+  const plainBuf = useRef<PlainLine[]>([]);
+  const plainIdRef = useRef(0);
+  const [plainLines, setPlainLines] = useState<PlainLine[]>([]);
+
   useEffect(() => {
     const id = setInterval(() => {
       if (backendBuf.current.length > 0) {
@@ -65,17 +77,34 @@ export function App({ devRoot }: AppProps) {
           return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
         });
       }
+      if (plain && plainBuf.current.length > 0) {
+        const lines = plainBuf.current;
+        plainBuf.current = [];
+        setPlainLines((prev) => [...prev, ...lines]);
+      }
     }, FLUSH_INTERVAL_MS);
     return () => clearInterval(id);
-  }, []);
+  }, [plain]);
 
-  const addBackendLine = useCallback((line: string) => {
-    backendBuf.current.push(line);
-  }, []);
+  const addBackendLine = useCallback(
+    (line: string) => {
+      backendBuf.current.push(line);
+      if (plain) {
+        plainBuf.current.push({ id: plainIdRef.current++, source: 'be', text: line });
+      }
+    },
+    [plain]
+  );
 
-  const addFrontendLine = useCallback((line: string) => {
-    frontendBuf.current.push(line);
-  }, []);
+  const addFrontendLine = useCallback(
+    (line: string) => {
+      frontendBuf.current.push(line);
+      if (plain) {
+        plainBuf.current.push({ id: plainIdRef.current++, source: 'fe', text: line });
+      }
+    },
+    [plain]
+  );
 
   // Handle daemon exit — check for exit code 42 (workspace switch)
   const handleDaemonExit = useCallback(
@@ -280,11 +309,12 @@ export function App({ devRoot }: AppProps) {
   }, [backend, binaryPath, addBackendLine]);
 
   const handleClear = useCallback(() => {
+    if (plain) return; // can't un-write lines from stdout
     backendBuf.current = [];
     frontendBuf.current = [];
     setBackendLines([]);
     setFrontendLines([]);
-  }, []);
+  }, [plain]);
 
   const handleQuit = useCallback(async () => {
     await backend.stop();
@@ -294,12 +324,19 @@ export function App({ devRoot }: AppProps) {
   }, [backend, frontend, exit]);
 
   const handleToggleLayout = useCallback(() => {
+    if (plain) return; // layout not applicable in plain mode
     setLayout((prev) => (prev === 'horizontal' ? 'vertical' : 'horizontal'));
-  }, []);
+  }, [plain]);
 
   const canRestart = phase === 'running' && effectiveBackendStatus !== 'building';
 
-  useKeyboard({ onRestart: handleRestart, onClear: handleClear, onQuit: handleQuit, onToggleLayout: handleToggleLayout, canRestart });
+  useKeyboard({
+    onRestart: handleRestart,
+    onClear: handleClear,
+    onQuit: handleQuit,
+    onToggleLayout: handleToggleLayout,
+    canRestart,
+  });
 
   // Error screen
   if (phase === 'error') {
@@ -314,6 +351,33 @@ export function App({ devRoot }: AppProps) {
           {phase === 'error' && effectiveBackendStatus !== 'building' ? ' or r to retry' : ''}
         </Text>
       </Box>
+    );
+  }
+
+  // Plain mode: append-only log stream with sticky footer
+  if (plain) {
+    return (
+      <>
+        <Static items={plainLines}>
+          {(line) => (
+            <Text key={line.id}>
+              <Text color={line.source === 'fe' ? 'cyan' : 'yellow'}>
+                [{line.source === 'fe' ? 'FE' : 'BE'}]
+              </Text>{' '}
+              {line.text}
+            </Text>
+          )}
+        </Static>
+        <Box flexDirection="column">
+          <StatusBar
+            devRoot={devRoot}
+            workspace={workspace}
+            backendStatus={effectiveBackendStatus}
+            frontendStatus={frontend.status}
+          />
+          <KeyBar canRestart={canRestart} plain />
+        </Box>
+      </>
     );
   }
 
@@ -338,8 +402,20 @@ export function App({ devRoot }: AppProps) {
         frontendStatus={frontend.status}
       />
       <Box flexDirection={layout === 'horizontal' ? 'row' : 'column'} flexGrow={1}>
-        <LogPanel title="Frontend" lines={frontendLines} layout={layout} flex={frontendFlex} maxLines={frontendMaxLines} />
-        <LogPanel title="Backend" lines={backendLines} layout={layout} flex={backendFlex} maxLines={backendMaxLines} />
+        <LogPanel
+          title="Frontend"
+          lines={frontendLines}
+          layout={layout}
+          flex={frontendFlex}
+          maxLines={frontendMaxLines}
+        />
+        <LogPanel
+          title="Backend"
+          lines={backendLines}
+          layout={layout}
+          flex={backendFlex}
+          maxLines={backendMaxLines}
+        />
       </Box>
       <KeyBar canRestart={canRestart} layout={layout} />
     </Box>

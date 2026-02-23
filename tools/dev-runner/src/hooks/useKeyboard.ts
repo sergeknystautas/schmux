@@ -8,7 +8,13 @@ interface UseKeyboardOptions {
   canRestart: boolean;
 }
 
-export function useKeyboard({ onRestart, onClear, onQuit, onToggleLayout, canRestart }: UseKeyboardOptions): void {
+export function useKeyboard({
+  onRestart,
+  onClear,
+  onQuit,
+  onToggleLayout,
+  canRestart,
+}: UseKeyboardOptions): void {
   useInput((input) => {
     if (input === 'r' && canRestart) {
       onRestart();

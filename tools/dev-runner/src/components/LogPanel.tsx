@@ -9,7 +9,13 @@ interface LogPanelProps {
   flex?: number;
 }
 
-export function LogPanel({ title, lines, maxLines, layout = 'horizontal', flex = 1 }: LogPanelProps) {
+export function LogPanel({
+  title,
+  lines,
+  maxLines,
+  layout = 'horizontal',
+  flex = 1,
+}: LogPanelProps) {
   const { stdout } = useStdout();
   const termHeight = stdout?.rows ?? 24;
   // Reserve space for StatusBar (6 rows), KeyBar (2 rows), and LogPanel border+title (3 rows per panel)
