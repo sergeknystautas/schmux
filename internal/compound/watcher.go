@@ -35,6 +35,7 @@ type Watcher struct {
 	pendingDirs map[string][]string
 
 	mu       sync.Mutex
+	wg       sync.WaitGroup // tracks in-flight debounce callbacks
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	stopped  bool // set to true on Stop(), checked by debounce callbacks
@@ -201,7 +202,7 @@ func (w *Watcher) Start() {
 	go w.eventLoop()
 }
 
-// Stop shuts down the watcher.
+// Stop shuts down the watcher and waits for in-flight debounce callbacks to complete.
 func (w *Watcher) Stop() {
 	w.stopOnce.Do(func() {
 		close(w.stopCh)
@@ -209,9 +210,13 @@ func (w *Watcher) Stop() {
 		w.mu.Lock()
 		w.stopped = true
 		for _, timer := range w.debounceTimers {
-			timer.Stop()
+			if timer.Stop() {
+				// Timer stopped before firing — release its WaitGroup count.
+				w.wg.Done()
+			}
 		}
 		w.mu.Unlock()
+		w.wg.Wait()
 	})
 }
 
@@ -381,9 +386,15 @@ func (w *Watcher) sweepExpiredSuppressions() {
 func (w *Watcher) resetDebounce(workspaceID, relPath string) {
 	key := workspaceID + ":" + relPath
 	if timer, ok := w.debounceTimers[key]; ok {
-		timer.Stop()
+		if timer.Stop() {
+			// Timer was stopped before firing — its callback won't run,
+			// so release the WaitGroup count that was added for it.
+			w.wg.Done()
+		}
 	}
+	w.wg.Add(1)
 	w.debounceTimers[key] = time.AfterFunc(time.Duration(w.debounceMs)*time.Millisecond, func() {
+		defer w.wg.Done()
 		w.mu.Lock()
 		stopped := w.stopped
 		w.mu.Unlock()

@@ -604,252 +604,255 @@ export default function AppShell() {
                 <p>No workspaces yet</p>
               </div>
             )}
-            {workspaces?.map((workspace) => {
-              const wsLockState = workspaceLockStates[workspace.id];
-              const wsResolveState = linearSyncResolveConflictStates[workspace.id];
-              const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
-              const linesAdded = workspace.git_lines_added ?? 0;
-              const linesRemoved = workspace.git_lines_removed ?? 0;
-              const isGit = !workspace.vcs || workspace.vcs === 'git';
-              const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
-              const isWorkspaceActive = workspace.id === (currentWorkspaceId || activeWorkspaceId);
+            {workspaces
+              ?.filter((workspace) => !workspace.sessions?.some((s) => s.is_floor_manager))
+              .map((workspace) => {
+                const wsLockState = workspaceLockStates[workspace.id];
+                const wsResolveState = linearSyncResolveConflictStates[workspace.id];
+                const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
+                const linesAdded = workspace.git_lines_added ?? 0;
+                const linesRemoved = workspace.git_lines_removed ?? 0;
+                const isGit = !workspace.vcs || workspace.vcs === 'git';
+                const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
+                const isWorkspaceActive =
+                  workspace.id === (currentWorkspaceId || activeWorkspaceId);
 
-              // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
-              const isRemote = !!workspace.remote_host_id;
-              const remoteHostname = workspace.sessions?.find(
-                (s) => s.remote_hostname
-              )?.remote_hostname;
-              const displayBranch =
-                isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
-                  ? remoteHostname
-                  : workspace.branch;
-              const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
+                // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
+                const isRemote = !!workspace.remote_host_id;
+                const remoteHostname = workspace.sessions?.find(
+                  (s) => s.remote_hostname
+                )?.remote_hostname;
+                const displayBranch =
+                  isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
+                    ? remoteHostname
+                    : workspace.branch;
+                const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
 
-              // Dev mode: is this workspace eligible and is it the live one?
-              const isDevEligible =
-                isDevMode && !isRemote && (!devSourceRepo || workspace.repo === devSourceRepo);
-              const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
+                // Dev mode: is this workspace eligible and is it the live one?
+                const isDevEligible =
+                  isDevMode && !isRemote && (!devSourceRepo || workspace.repo === devSourceRepo);
+                const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
 
-              return (
-                <div
-                  key={workspace.id}
-                  ref={isWorkspaceActive ? activeWorkspaceRef : null}
-                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}`}
-                >
+                return (
                   <div
-                    className="nav-workspace__header"
-                    onClick={() => handleWorkspaceClick(workspace.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleWorkspaceClick(workspace.id);
-                      }
-                    }}
+                    key={workspace.id}
+                    ref={isWorkspaceActive ? activeWorkspaceRef : null}
+                    className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}`}
                   >
-                    <div className="nav-workspace__top-row">
-                      <span className="nav-workspace__name">
-                        {isRemote && (
-                          <span
-                            style={{
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '50%',
-                              backgroundColor: remoteDisconnected
-                                ? 'var(--color-error)'
-                                : 'var(--color-success)',
-                              display: 'inline-block',
-                              marginRight: '6px',
-                              flexShrink: 0,
-                            }}
-                            title={remoteDisconnected ? 'Disconnected' : 'Connected'}
-                          />
-                        )}
-                        {displayBranch}
-                      </span>
-                      {wsLocked ? (
-                        <span className="nav-workspace__changes">
-                          <WorkingSpinner />
-                        </span>
-                      ) : hasChanges ? (
-                        <span className="nav-workspace__changes">
-                          {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
-                          {linesRemoved > 0 && (
-                            <span
-                              className="text-error"
-                              style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
-                            >
-                              -{linesRemoved}
-                            </span>
-                          )}
-                        </span>
-                      ) : null}
-                      {isDevEligible && (
-                        <button
-                          className="nav-workspace__dev-btn"
-                          title={
-                            isDevLive
-                              ? 'Rebuild backend and restart Vite'
-                              : 'Switch to this workspace (rebuild + restart)'
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDevRebuild(workspace.id, 'both');
-                          }}
-                          disabled={devRebuilding}
-                        >
-                          {isDevLive ? 'Rebuild' : 'Test'}
-                        </button>
-                      )}
-                    </div>
                     <div
-                      className="nav-workspace__repo"
-                      style={
-                        remoteDisconnected
-                          ? {
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '4px',
-                            }
-                          : undefined
-                      }
+                      className="nav-workspace__header"
+                      onClick={() => handleWorkspaceClick(workspace.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleWorkspaceClick(workspace.id);
+                        }
+                      }}
                     >
-                      <span
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {isRemote && workspace.remote_flavor_name
-                          ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
-                          : getRepoName(workspace.repo)}
-                      </span>
-                      {remoteDisconnected && (
-                        <button
-                          className="btn btn--sm"
-                          style={{
-                            fontSize: '0.65rem',
-                            padding: '1px 6px',
-                            margin: 0,
-                            color: 'var(--color-warning)',
-                            borderColor: 'var(--color-warning)',
-                            flexShrink: 0,
-                            lineHeight: 1.2,
-                          }}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            try {
-                              const result = await reconnectRemoteHost(workspace.remote_host_id!);
-                              setReconnectModal({
-                                hostId: workspace.remote_host_id!,
-                                flavorId: result.flavor_id,
-                                displayName: result.hostname || workspace.branch,
-                                provisioningSessionId: result.provisioning_session_id || null,
-                              });
-                            } catch (err) {
-                              toastError(getErrorMessage(err, 'Failed to reconnect'));
+                      <div className="nav-workspace__top-row">
+                        <span className="nav-workspace__name">
+                          {isRemote && (
+                            <span
+                              style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: remoteDisconnected
+                                  ? 'var(--color-error)'
+                                  : 'var(--color-success)',
+                                display: 'inline-block',
+                                marginRight: '6px',
+                                flexShrink: 0,
+                              }}
+                              title={remoteDisconnected ? 'Disconnected' : 'Connected'}
+                            />
+                          )}
+                          {displayBranch}
+                        </span>
+                        {wsLocked ? (
+                          <span className="nav-workspace__changes">
+                            <WorkingSpinner />
+                          </span>
+                        ) : hasChanges ? (
+                          <span className="nav-workspace__changes">
+                            {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
+                            {linesRemoved > 0 && (
+                              <span
+                                className="text-error"
+                                style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
+                              >
+                                -{linesRemoved}
+                              </span>
+                            )}
+                          </span>
+                        ) : null}
+                        {isDevEligible && (
+                          <button
+                            className="nav-workspace__dev-btn"
+                            title={
+                              isDevLive
+                                ? 'Rebuild backend and restart Vite'
+                                : 'Switch to this workspace (rebuild + restart)'
                             }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDevRebuild(workspace.id, 'both');
+                            }}
+                            disabled={devRebuilding}
+                          >
+                            {isDevLive ? 'Rebuild' : 'Test'}
+                          </button>
+                        )}
+                      </div>
+                      <div
+                        className="nav-workspace__repo"
+                        style={
+                          remoteDisconnected
+                            ? {
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '4px',
+                              }
+                            : undefined
+                        }
+                      >
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
                           }}
                         >
-                          Reconnect
-                        </button>
-                      )}
+                          {isRemote && workspace.remote_flavor_name
+                            ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
+                            : getRepoName(workspace.repo)}
+                        </span>
+                        {remoteDisconnected && (
+                          <button
+                            className="btn btn--sm"
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '1px 6px',
+                              margin: 0,
+                              color: 'var(--color-warning)',
+                              borderColor: 'var(--color-warning)',
+                              flexShrink: 0,
+                              lineHeight: 1.2,
+                            }}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                const result = await reconnectRemoteHost(workspace.remote_host_id!);
+                                setReconnectModal({
+                                  hostId: workspace.remote_host_id!,
+                                  flavorId: result.flavor_id,
+                                  displayName: result.hostname || workspace.branch,
+                                  provisioningSessionId: result.provisioning_session_id || null,
+                                });
+                              } catch (err) {
+                                toastError(getErrorMessage(err, 'Failed to reconnect'));
+                              }
+                            }}
+                          >
+                            Reconnect
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="nav-workspace__sessions">
+                      {workspace.sessions?.map((sess) => {
+                        const isActive = sess.id === sessionId;
+                        const activityDisplay = !sess.running
+                          ? 'Stopped'
+                          : sess.last_output_at
+                            ? formatRelativeTime(sess.last_output_at)
+                            : '-';
+
+                        // Check if this session's target is promptable
+                        const runTarget = (config?.run_targets || []).find(
+                          (t) => t.name === sess.target
+                        );
+                        const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
+
+                        const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
+
+                        // "Working" is an operational state — show spinner inline
+                        // in row1 to avoid reflow from row2 appearing/disappearing.
+                        const isWorkingState =
+                          sess.nudge_state === 'Working' ||
+                          (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
+
+                        // Determine what to show in row2
+                        // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+                        let nudgePreviewElement: React.ReactNode = null;
+                        if (!isWorkingState) {
+                          const nudgeEmoji = sess.nudge_state
+                            ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+                            : null;
+                          if (nudgeEmoji) {
+                            nudgePreviewElement = nudgeSummary
+                              ? `${nudgeEmoji} ${nudgeSummary}`
+                              : `${nudgeEmoji} ${sess.nudge_state}`;
+                          }
+                        }
+
+                        return (
+                          <div
+                            key={sess.id}
+                            className={`nav-session${isActive ? ' nav-session--active' : ''}`}
+                            onClick={() => handleSessionClick(sess.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleSessionClick(sess.id);
+                              }
+                            }}
+                          >
+                            <div className="nav-session__row1">
+                              {wsLocked ? (
+                                <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
+                              ) : (
+                                isWorkingState && <WorkingSpinner />
+                              )}
+                              <span className="nav-session__name">
+                                {sess.remote_host_id && (
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    style={{
+                                      marginRight: '4px',
+                                      verticalAlign: 'text-bottom',
+                                      opacity: 0.7,
+                                    }}
+                                    aria-label={sess.remote_flavor_name || 'Remote'}
+                                  >
+                                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                                    <line x1="1" y1="10" x2="23" y2="10" />
+                                  </svg>
+                                )}
+                                {sess.nickname || sess.target}
+                              </span>
+                              <span className="nav-session__activity">{activityDisplay}</span>
+                            </div>
+                            {!wsLocked && nudgePreviewElement && (
+                              <div className="nav-session__row2">{nudgePreviewElement}</div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="nav-workspace__sessions">
-                    {workspace.sessions?.map((sess) => {
-                      const isActive = sess.id === sessionId;
-                      const activityDisplay = !sess.running
-                        ? 'Stopped'
-                        : sess.last_output_at
-                          ? formatRelativeTime(sess.last_output_at)
-                          : '-';
-
-                      // Check if this session's target is promptable
-                      const runTarget = (config?.run_targets || []).find(
-                        (t) => t.name === sess.target
-                      );
-                      const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
-
-                      const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
-
-                      // "Working" is an operational state — show spinner inline
-                      // in row1 to avoid reflow from row2 appearing/disappearing.
-                      const isWorkingState =
-                        sess.nudge_state === 'Working' ||
-                        (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
-
-                      // Determine what to show in row2
-                      // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
-                      let nudgePreviewElement: React.ReactNode = null;
-                      if (!isWorkingState) {
-                        const nudgeEmoji = sess.nudge_state
-                          ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
-                          : null;
-                        if (nudgeEmoji) {
-                          nudgePreviewElement = nudgeSummary
-                            ? `${nudgeEmoji} ${nudgeSummary}`
-                            : `${nudgeEmoji} ${sess.nudge_state}`;
-                        }
-                      }
-
-                      return (
-                        <div
-                          key={sess.id}
-                          className={`nav-session${isActive ? ' nav-session--active' : ''}`}
-                          onClick={() => handleSessionClick(sess.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              handleSessionClick(sess.id);
-                            }
-                          }}
-                        >
-                          <div className="nav-session__row1">
-                            {wsLocked ? (
-                              <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
-                            ) : (
-                              isWorkingState && <WorkingSpinner />
-                            )}
-                            <span className="nav-session__name">
-                              {sess.remote_host_id && (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  style={{
-                                    marginRight: '4px',
-                                    verticalAlign: 'text-bottom',
-                                    opacity: 0.7,
-                                  }}
-                                  aria-label={sess.remote_flavor_name || 'Remote'}
-                                >
-                                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                                  <line x1="1" y1="10" x2="23" y2="10" />
-                                </svg>
-                              )}
-                              {sess.nickname || sess.target}
-                            </span>
-                            <span className="nav-session__activity">{activityDisplay}</span>
-                          </div>
-                          {!wsLocked && nudgePreviewElement && (
-                            <div className="nav-session__row2">{nudgePreviewElement}</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
 
           {isDevMode && <TypingPerformance />}

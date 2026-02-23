@@ -14,12 +14,15 @@ var ValidStates = map[string]bool{
 	"completed":     true,
 	"error":         true,
 	"working":       true,
+	"rotate":        true,
 }
 
 // Signal represents a parsed signal from an agent.
 type Signal struct {
 	State     string    // needs_input, needs_testing, completed, error, working
 	Message   string    // Optional message from the agent
+	Intent    string    // What the agent is trying to do
+	Blockers  string    // What's preventing progress
 	Timestamp time.Time // When the signal was detected
 }
 
@@ -168,6 +171,8 @@ func MapStateToNudge(state string) string {
 		return "Error"
 	case "working":
 		return "Working"
+	case "rotate":
+		return "Rotating"
 	default:
 		return state
 	}
@@ -180,36 +185,4 @@ func ShortID(id string) string {
 		return id
 	}
 	return id[:8]
-}
-
-// ParseSignalFile parses the content of a signal file.
-// Format: "STATE MESSAGE" on the first line.
-// Returns nil if the content is empty or the state is invalid.
-func ParseSignalFile(content string) *Signal {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil
-	}
-	// Use first line only
-	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
-		content = content[:idx]
-	}
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil
-	}
-	parts := strings.SplitN(content, " ", 2)
-	state := parts[0]
-	if !IsValidState(state) {
-		return nil
-	}
-	msg := ""
-	if len(parts) > 1 {
-		msg = parts[1]
-	}
-	return &Signal{
-		State:     state,
-		Message:   msg,
-		Timestamp: time.Now(),
-	}
 }

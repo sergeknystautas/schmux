@@ -8,10 +8,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/log"
 
+	contracts "github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -435,6 +439,312 @@ func TestHandleUpdate(t *testing.T) {
 		// but it should return some status
 		if rr1.Code != http.StatusInternalServerError && rr1.Code != http.StatusOK {
 			t.Logf("first request got status %d (expected 500 or 200)", rr1.Code)
+		}
+	})
+}
+
+func TestHandleFloorManager(t *testing.T) {
+	t.Run("returns disabled when not configured", func(t *testing.T) {
+		server, _, _ := newTestServer(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/floor-manager", nil)
+		rr := httptest.NewRecorder()
+		server.handleFloorManager(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rr.Code)
+		}
+
+		var resp floorManagerStatusResponse
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp.Enabled {
+			t.Error("expected enabled=false when not configured")
+		}
+		if resp.SessionID != nil {
+			t.Errorf("expected nil session_id, got %v", resp.SessionID)
+		}
+		if resp.Running {
+			t.Error("expected running=false")
+		}
+	})
+
+	t.Run("returns enabled with session info", func(t *testing.T) {
+		server, cfg, st := newTestServer(t)
+		cfg.FloorManager = &config.FloorManagerConfig{
+			Enabled:           true,
+			Target:            "test-target",
+			RotationThreshold: 200,
+		}
+
+		st.AddSession(state.Session{
+			ID:             "fm-001",
+			Target:         "test-target",
+			Nickname:       "floor-manager",
+			TmuxSession:    "schmux-fm",
+			IsFloorManager: true,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/floor-manager", nil)
+		rr := httptest.NewRecorder()
+		server.handleFloorManager(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rr.Code)
+		}
+
+		var resp floorManagerStatusResponse
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if !resp.Enabled {
+			t.Error("expected enabled=true")
+		}
+		if resp.SessionID == nil || *resp.SessionID != "fm-001" {
+			t.Errorf("expected session_id=fm-001, got %v", resp.SessionID)
+		}
+	})
+
+	t.Run("rejects non-GET methods", func(t *testing.T) {
+		server, _, _ := newTestServer(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/floor-manager", nil)
+		rr := httptest.NewRecorder()
+		server.handleFloorManager(rr, req)
+
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", rr.Code)
+		}
+	})
+}
+
+func TestHandleConfigUpdate_FloorManagerToggle(t *testing.T) {
+	t.Run("calls toggle callback when enabling floor manager", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		cfg.FloorManager = nil // start disabled
+
+		var toggleCalled atomic.Int32
+		var toggledEnabled atomic.Bool
+		var wg sync.WaitGroup
+		wg.Add(1)
+		server.SetFloorManagerToggle(func(enabled bool) {
+			toggledEnabled.Store(enabled)
+			toggleCalled.Add(1)
+			wg.Done()
+		})
+
+		enabled := true
+		target := "test-target"
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			FloorManager: &contracts.FloorManagerUpdate{
+				Enabled: &enabled,
+				Target:  &target,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		// Wait for the toggle goroutine to complete
+		wg.Wait()
+
+		if toggleCalled.Load() != 1 {
+			t.Errorf("expected toggle to be called once, got %d", toggleCalled.Load())
+		}
+		if !toggledEnabled.Load() {
+			t.Error("expected toggle to be called with enabled=true")
+		}
+	})
+
+	t.Run("calls toggle callback when disabling floor manager", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		cfg.FloorManager = &config.FloorManagerConfig{
+			Enabled: true,
+			Target:  "test-target",
+		}
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("failed to save config: %v", err)
+		}
+
+		var toggleCalled atomic.Int32
+		var toggledEnabled atomic.Bool
+		toggledEnabled.Store(true) // set to true so we can verify it flips
+		var wg sync.WaitGroup
+		wg.Add(1)
+		server.SetFloorManagerToggle(func(enabled bool) {
+			toggledEnabled.Store(enabled)
+			toggleCalled.Add(1)
+			wg.Done()
+		})
+
+		disabled := false
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			FloorManager: &contracts.FloorManagerUpdate{
+				Enabled: &disabled,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		wg.Wait()
+
+		if toggleCalled.Load() != 1 {
+			t.Errorf("expected toggle to be called once, got %d", toggleCalled.Load())
+		}
+		if toggledEnabled.Load() {
+			t.Error("expected toggle to be called with enabled=false")
+		}
+	})
+
+	t.Run("does not call toggle when enabled state and target unchanged", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		cfg.FloorManager = &config.FloorManagerConfig{
+			Enabled:           true,
+			Target:            "test-target",
+			RotationThreshold: 100,
+		}
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("failed to save config: %v", err)
+		}
+
+		var toggleCalled atomic.Int32
+		server.SetFloorManagerToggle(func(enabled bool) {
+			toggleCalled.Add(1)
+		})
+
+		// Update rotation threshold but not enabled state or target
+		newThreshold := 200
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			FloorManager: &contracts.FloorManagerUpdate{
+				RotationThreshold: &newThreshold,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		// Give the goroutine a moment to fire (if it was going to)
+		time.Sleep(50 * time.Millisecond)
+
+		if toggleCalled.Load() != 0 {
+			t.Errorf("expected toggle not to be called when enabled state and target unchanged, got %d calls", toggleCalled.Load())
+		}
+	})
+
+	t.Run("restarts FM when target changes while enabled", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		cfg.FloorManager = &config.FloorManagerConfig{
+			Enabled: true,
+			Target:  "claude",
+		}
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("failed to save config: %v", err)
+		}
+
+		var toggleCalls []bool
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		wg.Add(1) // handler sends a single toggle(true) for target change
+		server.SetFloorManagerToggle(func(enabled bool) {
+			mu.Lock()
+			toggleCalls = append(toggleCalls, enabled)
+			mu.Unlock()
+			wg.Done()
+		})
+
+		// Change target from "claude" to "codex" while enabled stays true
+		newTarget := "codex"
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			FloorManager: &contracts.FloorManagerUpdate{
+				Target: &newTarget,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		// Wait for the toggle call
+		wg.Wait()
+
+		mu.Lock()
+		defer mu.Unlock()
+		if len(toggleCalls) != 1 {
+			t.Fatalf("expected 1 toggle call (restart), got %d", len(toggleCalls))
+		}
+		if toggleCalls[0] != true {
+			t.Error("expected toggle call to be true (restart with new target)")
+		}
+	})
+
+	t.Run("does not call toggle when no floor_manager in update", func(t *testing.T) {
+		server, _, _ := newTestServer(t)
+
+		var toggleCalled atomic.Int32
+		server.SetFloorManagerToggle(func(enabled bool) {
+			toggleCalled.Add(1)
+		})
+
+		// Update something else entirely
+		soundDisabled := true
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			Notifications: &contracts.NotificationsUpdate{
+				SoundDisabled: &soundDisabled,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+
+		time.Sleep(50 * time.Millisecond)
+
+		if toggleCalled.Load() != 0 {
+			t.Errorf("expected toggle not to be called for unrelated config update, got %d calls", toggleCalled.Load())
+		}
+	})
+
+	t.Run("does not panic when toggle callback is nil", func(t *testing.T) {
+		server, cfg, _ := newTestServer(t)
+		cfg.FloorManager = nil
+		// Don't set a toggle callback
+
+		enabled := true
+		target := "test-target"
+		body, _ := json.Marshal(contracts.ConfigUpdateRequest{
+			FloorManager: &contracts.FloorManagerUpdate{
+				Enabled: &enabled,
+				Target:  &target,
+			},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+
+		// Should not panic
+		server.handleConfigUpdate(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 }

@@ -64,9 +64,9 @@ func TestQuote(t *testing.T) {
 			expected: `'$HOME/path'`,
 		},
 		{
-			name:     "null byte preserved",
+			name:     "null byte stripped",
 			input:    "dangerous\x00command",
-			expected: "'dangerous\x00command'",
+			expected: "'dangerouscommand'",
 		},
 	}
 

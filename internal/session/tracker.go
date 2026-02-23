@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/event"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -48,7 +48,7 @@ type SessionTracker struct {
 	tmuxSession    string
 	paneID         string
 	state          state.StateStore
-	fileWatcher    *signal.FileWatcher
+	eventWatcher   *event.EventWatcher
 	outputCallback func([]byte)
 	logger         *log.Logger
 
@@ -84,27 +84,17 @@ func (t *SessionTracker) IsAttached() bool {
 }
 
 // NewSessionTracker creates a tracker for a session.
-// If signalFilePath is non-empty and signalCallback is non-nil, a FileWatcher
-// is created to detect signal changes via filesystem notifications.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalFilePath string, signalCallback func(signal.Signal), outputCallback func([]byte), logger *log.Logger) *SessionTracker {
+// If ew is non-nil, it is stored and stopped on tracker Stop.
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, ew *event.EventWatcher, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
 	t := &SessionTracker{
 		sessionID:      sessionID,
 		tmuxSession:    tmuxSession,
 		state:          st,
+		eventWatcher:   ew,
 		outputCallback: outputCallback,
 		logger:         logger,
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
-	}
-	if signalFilePath != "" && signalCallback != nil {
-		fw, err := signal.NewFileWatcher(sessionID, signalFilePath, signalCallback, t.logger)
-		if err != nil {
-			if t.logger != nil {
-				t.logger.Warn("failed to create file watcher", "session", sessionID, "err", err)
-			}
-		} else {
-			t.fileWatcher = fw
-		}
 	}
 	return t
 }
@@ -119,8 +109,8 @@ func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
 		t.closeControlMode()
-		if t.fileWatcher != nil {
-			t.fileWatcher.Stop()
+		if t.eventWatcher != nil {
+			t.eventWatcher.Stop()
 		}
 		// Close all subscriber channels
 		t.subsMu.Lock()

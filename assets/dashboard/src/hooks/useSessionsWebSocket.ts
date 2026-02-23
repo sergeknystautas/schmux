@@ -260,7 +260,7 @@ export default function useSessionsWebSocket(opts?: {
             }
           }
         } else if (isOverlayChangeMessage(data)) {
-          setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev]);
+          setOverlayEvents((prev) => [data as OverlayChangeEvent, ...prev].slice(0, 100));
         } else if (isRemoteAccessMessage(data)) {
           setRemoteAccessStatus(data.data);
         } else if (isPendingNavigationMessage(data)) {

@@ -5,6 +5,8 @@
 # Build: docker build -f Dockerfile.scenarios-base -t schmux-scenarios-base .
 
 FROM node:20-bookworm
+# Base image uses version tag (not SHA pin) — acceptable tradeoff for dev/test
+# images where reproducibility is less critical than staying current with patches.
 
 # Install runtime dependencies required by schmux
 RUN apt-get update && apt-get install -y --no-install-recommends \

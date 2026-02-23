@@ -13,13 +13,12 @@ func TestParseSentinelOutput(t *testing.T) {
 		data string
 		want string
 	}{
-		{"valid", "__SCHMUX_SIGNAL__completed Done__END__", "completed Done"},
-		{"with noise", "junk__SCHMUX_SIGNAL__error Fail__END__trailing", "error Fail"},
+		{"valid json", `__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:00Z","type":"status","state":"completed","message":"Done"}__END__`, `{"ts":"2025-01-01T00:00:00Z","type":"status","state":"completed","message":"Done"}`},
+		{"with noise", `junk__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:00Z","type":"status","state":"error","message":"Fail"}__END__trailing`, `{"ts":"2025-01-01T00:00:00Z","type":"status","state":"error","message":"Fail"}`},
 		{"no sentinel", "plain text", ""},
-		{"no end", "__SCHMUX_SIGNAL__completed", ""},
+		{"no end", `__SCHMUX_SIGNAL__{"state":"completed"}`, ""},
 		{"empty content", "__SCHMUX_SIGNAL____END__", ""},
-		{"working", "__SCHMUX_SIGNAL__working__END__", "working"},
-		{"end in message", "__SCHMUX_SIGNAL__completed Contains __END__ in text__END__", "completed Contains __END__ in text"},
+		{"end in message", `__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:00Z","type":"status","state":"completed","message":"Contains __END__ in text"}__END__`, `{"ts":"2025-01-01T00:00:00Z","type":"status","state":"completed","message":"Contains __END__ in text"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -40,16 +39,16 @@ func TestRemoteSignalWatcherProcessOutput(t *testing.T) {
 		mu.Unlock()
 	})
 
-	// First signal
-	w.ProcessOutput("__SCHMUX_SIGNAL__completed Done__END__\n")
+	// First signal (JSON event line)
+	w.ProcessOutput(`__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:00Z","type":"status","state":"completed","message":"Done"}__END__` + "\n")
 	mu.Lock()
 	if len(got) != 1 || got[0].State != "completed" {
 		t.Fatalf("expected 1 completed signal, got %v", got)
 	}
 	mu.Unlock()
 
-	// Duplicate (should be deduplicated)
-	w.ProcessOutput("__SCHMUX_SIGNAL__completed Done__END__\n")
+	// Duplicate (should be deduplicated — same state+message)
+	w.ProcessOutput(`__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:01Z","type":"status","state":"completed","message":"Done"}__END__` + "\n")
 	mu.Lock()
 	if len(got) != 1 {
 		t.Fatalf("expected dedup, got %d signals", len(got))
@@ -57,16 +56,24 @@ func TestRemoteSignalWatcherProcessOutput(t *testing.T) {
 	mu.Unlock()
 
 	// Different signal
-	w.ProcessOutput("__SCHMUX_SIGNAL__needs_input What?__END__\n")
+	w.ProcessOutput(`__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:02Z","type":"status","state":"needs_input","message":"What?"}__END__` + "\n")
 	mu.Lock()
 	if len(got) != 2 || got[1].State != "needs_input" {
 		t.Fatalf("expected 2 signals, got %v", got)
 	}
 	mu.Unlock()
+
+	// Non-status event (should be ignored)
+	w.ProcessOutput(`__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:03Z","type":"friction","text":"something"}__END__` + "\n")
+	mu.Lock()
+	if len(got) != 2 {
+		t.Fatalf("expected non-status events to be ignored, got %d signals", len(got))
+	}
+	mu.Unlock()
 }
 
 func TestWatcherScript(t *testing.T) {
-	script := WatcherScript("/workspace/.schmux/signal")
+	script := WatcherScript("/workspace/.schmux/events/session.jsonl")
 	if script == "" {
 		t.Fatal("WatcherScript returned empty string")
 	}
@@ -79,8 +86,11 @@ func TestWatcherScript(t *testing.T) {
 	if !strings.Contains(script, "inotifywait") {
 		t.Error("script missing inotifywait")
 	}
-	if !strings.Contains(script, "sleep 2") {
-		t.Error("script missing polling fallback")
+	if !strings.Contains(script, "EVENTS_FILE=") {
+		t.Error("script missing EVENTS_FILE variable")
+	}
+	if !strings.Contains(script, "tail") {
+		t.Error("script missing tail command")
 	}
 }
 
@@ -103,7 +113,7 @@ func TestRemoteSignalWatcherConcurrent(t *testing.T) {
 			if i%2 == 0 {
 				state = "needs_input"
 			}
-			data := fmt.Sprintf("__SCHMUX_SIGNAL__%s msg-%d__END__\n", state, i)
+			data := fmt.Sprintf(`__SCHMUX_SIGNAL__{"ts":"2025-01-01T00:00:00Z","type":"status","state":"%s","message":"msg-%d"}__END__`+"\n", state, i)
 			w.ProcessOutput(data)
 		}(i)
 	}
@@ -124,11 +134,11 @@ func TestWatcherScriptInjection(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "dollar sign", path: "/workspace/$HOME/signal"},
-		{name: "backtick", path: "/workspace/`whoami`/signal"},
-		{name: "single quote", path: "/workspace/it's/signal"},
-		{name: "semicolon", path: "/workspace/a;rm -rf /;b/signal"},
-		{name: "combined", path: "/workspace/$`';/signal"},
+		{name: "dollar sign", path: "/workspace/$HOME/events.jsonl"},
+		{name: "backtick", path: "/workspace/`whoami`/events.jsonl"},
+		{name: "single quote", path: "/workspace/it's/events.jsonl"},
+		{name: "semicolon", path: "/workspace/a;rm -rf /;b/events.jsonl"},
+		{name: "combined", path: "/workspace/$`';/events.jsonl"},
 	}
 
 	for _, tt := range tests {
@@ -137,7 +147,7 @@ func TestWatcherScriptInjection(t *testing.T) {
 
 			// The path must be single-quoted in the script to prevent injection
 			quoted := "'" + strings.ReplaceAll(tt.path, "'", "'\\''") + "'"
-			if !strings.Contains(script, "STATUS_FILE="+quoted) {
+			if !strings.Contains(script, "EVENTS_FILE="+quoted) {
 				t.Errorf("WatcherScript(%q) does not properly quote the path\nScript: %s", tt.path, script)
 			}
 		})

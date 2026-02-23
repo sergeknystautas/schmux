@@ -139,6 +139,14 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "escalate":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewEscalateCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "refresh-overlay":
 		client := cli.NewDaemonClient(cli.GetDefaultURL())
 		cmd := NewRefreshOverlayCommand(client)

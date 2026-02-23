@@ -14,8 +14,10 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
+	"github.com/sergeknystautas/schmux/internal/bus"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/event"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/signal"
@@ -40,7 +42,6 @@ type Manager struct {
 	workspace               workspace.WorkspaceManager
 	logger                  *log.Logger
 	remoteManager           *remote.Manager // Optional, for remote sessions
-	signalCallback          func(sessionID string, sig signal.Signal)
 	outputCallback          func(sessionID string, chunk []byte)
 	trackers                map[string]*SessionTracker
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
@@ -48,7 +49,9 @@ type Manager struct {
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
 	loreCallback            func(repoName, repoURL string, isLastSession bool) // notify lore curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
+	eventBus                *bus.Bus                                           // event bus for lifecycle events
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
+	hooksDir                string                                             // absolute path to ~/.schmux/hooks/
 }
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
@@ -97,12 +100,6 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
 }
 
-// SetSignalCallback sets the callback invoked when a session emits a signal.
-// Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
-	m.signalCallback = cb
-}
-
 // SetOutputCallback sets the callback for terminal output chunks from local trackers.
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetOutputCallback(cb func(sessionID string, chunk []byte)) {
@@ -127,9 +124,19 @@ func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, out
 	m.terminalCaptureCallback = cb
 }
 
+// SetBus sets the event bus for publishing lifecycle events.
+func (m *Manager) SetBus(b *bus.Bus) {
+	m.eventBus = b
+}
+
 // SetTelemetry sets the telemetry client for usage tracking.
 func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 	m.telemetry = t
+}
+
+// SetHooksDir sets the global hooks directory path for hook script references.
+func (m *Manager) SetHooksDir(dir string) {
+	m.hooksDir = dir
 }
 
 // trackSessionCreated sends a telemetry event for session creation.
@@ -154,7 +161,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	if m.remoteManager == nil || sess.RemotePaneID == "" || sess.RemoteHostID == "" {
 		return
 	}
-	if m.signalCallback == nil {
+	if m.eventBus == nil {
 		return
 	}
 
@@ -166,7 +173,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 	sessionID := sess.ID
 	hostID := sess.RemoteHostID
-	signalCb := m.signalCallback
+	localBus := m.eventBus
 
 	// Determine workspace path for the signal file before inserting into the map,
 	// so we never create a dangling entry with an unclosed stopCh.
@@ -184,7 +191,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 		signalLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
 		return
 	}
-	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
+	eventsFilePath := event.EventFilePath(workspacePath, sessionID)
 
 	stopCh := make(chan struct{})
 	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
@@ -248,7 +255,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			}
 
 			// Type the watcher script into the pane
-			watcherScript := signal.WatcherScript(statusFilePath)
+			watcherScript := signal.WatcherScript(eventsFilePath)
 			if err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
 				signalLog := logging.Sub(m.logger, "signal")
 				signalLog.Error("failed to send watcher script", "session", sessionID, "err", err)
@@ -263,7 +270,16 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 			// Create the watcher and subscribe to output
 			watcher := signal.NewRemoteSignalWatcher(sessionID, func(sig signal.Signal) {
-				signalCb(sessionID, sig)
+				localBus.Publish(bus.Event{
+					Type:      "agent.status",
+					SessionID: sessionID,
+					Payload: bus.AgentStatusPayload{
+						State:    sig.State,
+						Message:  sig.Message,
+						Intent:   sig.Intent,
+						Blockers: sig.Blockers,
+					},
+				})
 			})
 			watcher.SetLogger(m.logger)
 
@@ -276,18 +292,29 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			}
 			m.mu.Unlock()
 
-			// Initial state recovery: read current signal file content
+			// Initial state recovery: read last line of the JSONL event file
 			catCtx, catCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			output, err := conn.RunCommand(catCtx, workspacePath, fmt.Sprintf("cat .schmux/signal/%s 2>/dev/null", sessionID))
+			output, err := conn.RunCommand(catCtx, workspacePath, fmt.Sprintf("tail -n1 .schmux/events/%s.jsonl 2>/dev/null", sessionID))
 			catCancel()
 			if err == nil && strings.TrimSpace(output) != "" {
-				if lastSig := signal.ParseSignalFile(output); lastSig != nil {
-					storedSess, ok := m.state.GetSession(sessionID)
-					if ok {
-						nudgeState := signal.MapStateToNudge(lastSig.State)
-						storedNudgeState := extractNudgeState(storedSess.Nudge)
-						if storedNudgeState != nudgeState {
-							signalCb(sessionID, *lastSig)
+				if evt, parseErr := event.ParseEvent(output); parseErr == nil {
+					if lastSig := event.ToSignal(evt); lastSig != nil {
+						storedSess, ok := m.state.GetSession(sessionID)
+						if ok {
+							nudgeState := signal.MapStateToNudge(lastSig.State)
+							storedNudgeState := extractNudgeState(storedSess.Nudge)
+							if storedNudgeState != nudgeState {
+								localBus.Publish(bus.Event{
+									Type:      "agent.status",
+									SessionID: sessionID,
+									Payload: bus.AgentStatusPayload{
+										State:    lastSig.State,
+										Message:  lastSig.Message,
+										Intent:   lastSig.Intent,
+										Blockers: lastSig.Blockers,
+									},
+								})
+							}
 						}
 					}
 				}
@@ -414,7 +441,6 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "signal", sessionID),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -427,7 +453,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	// are in place before Claude Code starts (it captures hooks at startup).
 	baseTool := detect.GetBaseToolName(targetName)
 	if ensure.SupportsHooks(baseTool) {
-		command, err = ensure.WrapCommandWithHooks(command)
+		command, err = ensure.WrapCommandWithHooks(command, m.hooksDir)
 		if err != nil {
 			m.logger.Warn("failed to wrap command with hooks provisioning", "err", err)
 		}
@@ -500,15 +526,6 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					m.logger.Error("queued session: failed to save state", "session", sessionID, "err", err)
 				}
 				if updatedStatus == "running" {
-					// Ensure .schmux/signal directory exists on remote host for file-based signaling
-					qConn := m.remoteManager.GetConnection(host.ID)
-					if qConn != nil && qConn.IsConnected() {
-						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); mkErr != nil {
-							m.logger.Warn("failed to create .schmux/signal directory", "session", sessionID, "err", mkErr)
-						}
-						mkCancel()
-					}
 					m.StartRemoteSignalMonitor(updatedSess)
 				}
 			}
@@ -517,17 +534,19 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		// Track session creation (queued)
 		m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
 
+		// Notify floor manager about remote session creation (pending connection)
+		if m.eventBus != nil && !sess.IsFloorManager {
+			m.eventBus.Publish(bus.Event{
+				Type:      "session.created",
+				SessionID: sess.ID,
+				Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q created (remote, pending connection)", sess.Nickname)},
+			})
+		}
+
 		return &sess, nil
 	}
 
 	// Connected - create immediately (existing code path)
-
-	// Ensure .schmux/signal directory exists on remote host for file-based signaling
-	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
-	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory on remote host", "err", err)
-	}
-	mkdirCancel()
 
 	windowID, paneID, err := conn.CreateSession(ctx, windowName, flavor.WorkspacePath, command)
 	if err != nil {
@@ -561,20 +580,31 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	// Track session creation (immediate)
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
 
+	// Notify about remote session creation
+	if m.eventBus != nil && !sess.IsFloorManager {
+		m.eventBus.Publish(bus.Event{
+			Type:      "session.created",
+			SessionID: sess.ID,
+			Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q created (remote)", sess.Nickname)},
+		})
+	}
+
 	return &sess, nil
 }
 
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
 type SpawnOptions struct {
-	RepoURL     string
-	Branch      string
-	TargetName  string
-	Prompt      string
-	Command     string
-	Nickname    string
-	WorkspaceID string
-	Resume      bool
-	NewBranch   string
+	RepoURL        string
+	Branch         string
+	TargetName     string
+	Prompt         string
+	Command        string
+	Nickname       string
+	WorkspaceID    string
+	WorkDir        string // Direct working directory — bypasses workspace lookup
+	Resume         bool
+	NewBranch      string
+	IsFloorManager bool // Mark session as floor manager before first save
 }
 
 // Spawn creates a new session.
@@ -592,7 +622,14 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	var w *state.Workspace
 
-	if opts.WorkspaceID != "" && opts.NewBranch != "" {
+	if opts.WorkDir != "" {
+		// Direct working directory mode — no workspace lookup.
+		// Used by floor manager and other non-git contexts.
+		w = &state.Workspace{
+			ID:   opts.Nickname, // use nickname as synthetic ID
+			Path: opts.WorkDir,
+		}
+	} else if opts.WorkspaceID != "" && opts.NewBranch != "" {
 		// Create new workspace branching from source workspace's branch
 		w, err = m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
 		if err != nil {
@@ -617,11 +654,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	baseTool := detect.GetBaseToolName(opts.TargetName)
 	if ensure.SupportsHooks(baseTool) {
 		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
-		if err := ensure.ClaudeHooks(w.Path); err != nil {
+		// Floor manager sessions don't get lore hooks to avoid interference.
+		if err := ensure.ClaudeHooks(w.Path, m.hooksDir, !opts.IsFloorManager); err != nil {
 			m.logger.Warn("failed to provision Claude hooks", "err", err)
-		}
-		if err := ensure.LoreHookScripts(w.Path); err != nil {
-			m.logger.Warn("failed to write lore hook scripts", "err", err)
 		}
 	} else if ensure.SupportsSystemPromptFlag(baseTool) {
 		if err := ensure.SignalingInstructionsFile(); err != nil {
@@ -633,10 +668,20 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	// Ensure .schmux/signal directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
+	// Ensure .schmux/events directory exists
+	eventsDir := filepath.Join(w.Path, ".schmux", "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		m.logger.Warn("failed to create .schmux/events directory", "err", err)
+	}
+
+	// Prune orphaned event files from previously disposed sessions.
+	// Workspace persists across sessions; event files linger after disposal.
+	activeIDs := make(map[string]bool)
+	for _, s := range m.state.GetSessions() {
+		activeIDs[s.ID] = true
+	}
+	if pruned := event.PruneEventFiles(eventsDir, activeIDs); pruned > 0 {
+		m.logger.Info("pruned orphaned event files", "count", pruned, "dir", eventsDir)
 	}
 
 	// Resolve model if target is a model kind
@@ -655,7 +700,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
 	})
 
 	command, err := buildCommand(resolved, opts.Prompt, model, opts.Resume, false)
@@ -691,13 +736,14 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Create session state with cached PID (no Prompt field)
 	sess := state.Session{
-		ID:          sessionID,
-		WorkspaceID: w.ID,
-		Target:      opts.TargetName,
-		Nickname:    uniqueNickname,
-		TmuxSession: tmuxSession,
-		CreatedAt:   time.Now(),
-		Pid:         pid,
+		ID:             sessionID,
+		WorkspaceID:    w.ID,
+		Target:         opts.TargetName,
+		Nickname:       uniqueNickname,
+		TmuxSession:    tmuxSession,
+		CreatedAt:      time.Now(),
+		Pid:            pid,
+		IsFloorManager: opts.IsFloorManager,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {
@@ -719,6 +765,19 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Track session creation
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
+
+	// Notify floor manager about session creation (skip floor manager's own session)
+	if m.eventBus != nil && !sess.IsFloorManager {
+		name := sess.Nickname
+		if name == "" {
+			name = sess.Target
+		}
+		m.eventBus.Publish(bus.Event{
+			Type:      "session.created",
+			SessionID: sess.ID,
+			Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q created (target=%s, branch=%s)", name, sess.Target, w.Branch)},
+		})
+	}
 
 	return &sess, nil
 }
@@ -753,19 +812,14 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Ensure .schmux/signal directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
-	}
-
 	// Inject schmux signaling environment variables into the command
 	schmuxEnv := map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
 	}
+	// NOTE: opts.Command comes from trusted config (run targets) — not user input.
+	// If this ever accepts untrusted input, it must be shell-escaped.
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 
 	// Generate unique nickname if provided (auto-suffix if duplicate)
@@ -816,6 +870,19 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 
 	// Track session creation
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
+
+	// Notify floor manager about session creation
+	if m.eventBus != nil && !sess.IsFloorManager {
+		name := sess.Nickname
+		if name == "" {
+			name = sess.Target
+		}
+		m.eventBus.Publish(bus.Event{
+			Type:      "session.created",
+			SessionID: sess.ID,
+			Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q created (target=%s, branch=%s)", name, sess.Target, w.Branch)},
+		})
+	}
 
 	return &sess, nil
 }
@@ -1109,8 +1176,8 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		m.compoundCallback(sess.WorkspaceID, false)
 	}
 
-	// Notify lore system on session dispose (always fires; daemon decides based on config)
-	if m.loreCallback != nil {
+	// Notify lore system on session dispose (skip floor manager — it doesn't produce lore)
+	if m.loreCallback != nil && !sess.IsFloorManager {
 		w, found := m.state.GetWorkspace(sess.WorkspaceID)
 		if found {
 			// Find repo name from URL
@@ -1119,6 +1186,19 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 				go m.loreCallback(repoConfig.Name, w.Repo, isLastSession)
 			}
 		}
+	}
+
+	// Notify floor manager about session disposal (skip floor manager's own session)
+	if m.eventBus != nil && !sess.IsFloorManager {
+		name := sess.Nickname
+		if name == "" {
+			name = sess.Target
+		}
+		m.eventBus.Publish(bus.Event{
+			Type:      "session.disposed",
+			SessionID: sessionID,
+			Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q disposed (target=%s)", name, sess.Target)},
+		})
 	}
 
 	m.logger.Info("disposed session", "session", sessionID)
@@ -1156,6 +1236,19 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 	}
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Notify about remote session disposal
+	if m.eventBus != nil && !sess.IsFloorManager {
+		name := sess.Nickname
+		if name == "" {
+			name = sess.Target
+		}
+		m.eventBus.Publish(bus.Event{
+			Type:      "session.disposed",
+			SessionID: sess.ID,
+			Payload:   bus.LifecyclePayload{Message: fmt.Sprintf("Session %q disposed (remote)", name)},
+		})
 	}
 
 	// Print summary
@@ -1325,20 +1418,12 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		return existing
 	}
 
-	// Build signal file path from workspace path
-	var signalFilePath string
+	// Build event file path from workspace path
+	var eventFilePath string
 	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-		signalFilePath = filepath.Join(ws.Path, ".schmux", "signal", sess.ID)
+		eventFilePath = event.EventFilePath(ws.Path, sess.ID)
 	}
 
-	var cb func(signal.Signal)
-	if m.signalCallback != nil {
-		sessionID := sess.ID
-		signalCb := m.signalCallback
-		cb = func(sig signal.Signal) {
-			signalCb(sessionID, sig)
-		}
-	}
 	var outputCb func([]byte)
 	if m.outputCallback != nil {
 		sessionID := sess.ID
@@ -1347,20 +1432,77 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			handler(sessionID, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb, m.logger)
+
+	// Create EventWatcher if we have an event file path
+	var ew *event.EventWatcher
+	if eventFilePath != "" {
+		var ewErr error
+		ew, ewErr = event.NewEventWatcher(sess.ID, eventFilePath)
+		if ewErr != nil {
+			m.logger.Warn("failed to create event watcher", "session", sess.ID, "err", ewErr)
+		} else {
+			// Subscribe status events -> publish to bus
+			if m.eventBus != nil {
+				sessionID := sess.ID
+				eventBus := m.eventBus
+				ew.Subscribe("status", func(_ string, evt event.Event) {
+					if sig := event.ToSignal(evt); sig != nil {
+						eventBus.Publish(bus.Event{
+							Type:      "agent.status",
+							SessionID: sessionID,
+							Payload: bus.AgentStatusPayload{
+								State:    sig.State,
+								Message:  sig.Message,
+								Intent:   sig.Intent,
+								Blockers: sig.Blockers,
+							},
+						})
+					}
+				})
+			}
+			// Subscribe lore-relevant events -> publish to bus
+			if m.eventBus != nil {
+				sessionID := sess.ID
+				eventBus := m.eventBus
+				for _, loreType := range []string{"failure", "reflection", "friction"} {
+					lt := loreType
+					ew.Subscribe(lt, func(_ string, evt event.Event) {
+						eventBus.Publish(bus.Event{
+							Type:      "agent.lore",
+							SessionID: sessionID,
+							Payload: bus.AgentLorePayload{
+								LoreType: lt,
+								Text:     evt.Message,
+								Tool:     evt.Tool,
+								Error:    evt.Error,
+								Category: evt.Category,
+							},
+						})
+					})
+				}
+			}
+		}
+		if ew != nil {
+			ew.Start()
+		}
+	}
+
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, ew, outputCb, m.logger)
 	m.trackers[sess.ID] = tracker
 
-	// Recover signal state from file (replaces scrollback recovery).
-	// Collect the signal to fire AFTER releasing the lock to avoid
-	// invoking the callback (which acquires state.mu) under m.mu.
+	// Recover signal state from event file.
+	// Collect the signal to publish AFTER releasing the lock.
 	var pendingSignal *signal.Signal
-	if fw := tracker.fileWatcher; fw != nil {
-		if lastSig := fw.ReadCurrent(); lastSig != nil {
-			storedSess, ok := m.state.GetSession(sess.ID)
-			if ok {
-				nudgeState := signal.MapStateToNudge(lastSig.State)
-				if storedSess.Nudge != nudgeState && cb != nil {
-					pendingSignal = lastSig
+
+	if ew != nil {
+		if lastEvt := ew.ReadCurrent(); lastEvt != nil {
+			if sig := event.ToSignal(*lastEvt); sig != nil {
+				storedSess, ok := m.state.GetSession(sess.ID)
+				if ok {
+					nudgeState := signal.MapStateToNudge(sig.State)
+					if storedSess.Nudge != nudgeState {
+						pendingSignal = sig
+					}
 				}
 			}
 		}
@@ -1368,9 +1510,18 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 
 	m.mu.Unlock()
 
-	// Fire recovered signal callback outside the lock.
-	if pendingSignal != nil {
-		cb(*pendingSignal)
+	// Fire recovered signal via bus outside the lock.
+	if pendingSignal != nil && m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type:      "agent.status",
+			SessionID: sess.ID,
+			Payload: bus.AgentStatusPayload{
+				State:    pendingSignal.State,
+				Message:  pendingSignal.Message,
+				Intent:   pendingSignal.Intent,
+				Blockers: pendingSignal.Blockers,
+			},
+		})
 	}
 
 	tracker.Start()

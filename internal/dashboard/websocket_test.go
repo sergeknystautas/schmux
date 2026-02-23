@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/bus"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -40,11 +40,11 @@ func TestHandleAgentSignalIntegration(t *testing.T) {
 			wantSeqDelta:   1,
 		},
 		{
-			name:           "working increments seq and sets nudge",
+			name:           "working sets nudge but does NOT increment seq",
 			signalState:    "working",
 			message:        "Implementing feature",
 			wantNudgeEmpty: false,
-			wantSeqDelta:   1,
+			wantSeqDelta:   0,
 		},
 	}
 
@@ -53,12 +53,25 @@ func TestHandleAgentSignalIntegration(t *testing.T) {
 			srv, _, st := newTestServer(t)
 			st.AddSession(state.Session{ID: "s1", TmuxSession: "test"})
 
+			// Wire bus
+			eventBus := bus.New()
+			srv.SetBus(eventBus)
+
 			// Pre-set a nudge so we can verify signals overwrite it
 			st.UpdateSessionNudge("s1", `{"state":"Error","summary":"old"}`)
 			seqBefore := st.GetNudgeSeq("s1")
 
-			sig := signal.Signal{State: tt.signalState, Message: tt.message, Timestamp: time.Now()}
-			srv.HandleAgentSignal("s1", sig)
+			eventBus.Publish(bus.Event{
+				Type:      "agent.status",
+				SessionID: "s1",
+				Payload: bus.AgentStatusPayload{
+					State:   tt.signalState,
+					Message: tt.message,
+				},
+			})
+
+			// Give bus goroutine time to dispatch
+			time.Sleep(50 * time.Millisecond)
 
 			// Verify
 			sess, _ := st.GetSession("s1")
@@ -92,14 +105,28 @@ func TestHandleAgentSignalRapidSignals(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	st.AddSession(state.Session{ID: "s1", TmuxSession: "test"})
 
+	// Wire bus
+	eventBus := bus.New()
+	srv.SetBus(eventBus)
+
 	states := []string{"completed", "working", "error", "needs_input", "working", "completed"}
 	for _, s := range states {
-		sig := signal.Signal{State: s, Message: "msg", Timestamp: time.Now()}
-		srv.HandleAgentSignal("s1", sig)
+		eventBus.Publish(bus.Event{
+			Type:      "agent.status",
+			SessionID: "s1",
+			Payload: bus.AgentStatusPayload{
+				State:   s,
+				Message: "msg",
+			},
+		})
 	}
 
-	// All 6 signals increment seq (including working)
-	expectedSeq := uint64(6)
+	// Close the bus to drain all subscriber goroutines before checking state
+	eventBus.Close()
+
+	// Only attention states increment seq: completed, error, needs_input, completed = 4
+	// working does NOT increment seq
+	expectedSeq := uint64(4)
 	gotSeq := st.GetNudgeSeq("s1")
 	if gotSeq != expectedSeq {
 		t.Errorf("NudgeSeq = %d, want %d", gotSeq, expectedSeq)

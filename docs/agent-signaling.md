@@ -6,7 +6,7 @@ Schmux provides a comprehensive system for agents to communicate their status to
 
 The agent signaling system has three components:
 
-1. **Direct Signaling** - Agents write status to a file to signal their state
+1. **Direct Signaling** - Agents write status events to a JSONL event file
 2. **Automatic Provisioning** - Schmux teaches agents about signaling via instruction files
 3. **NudgeNik Fallback** - LLM-based classification for agents that don't signal
 
@@ -25,8 +25,9 @@ The agent signaling system has three components:
 │                      During Session Runtime                     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Agent reads instruction file → learns signaling protocol       │
-│  Agent writes: echo "completed Done" > $SCHMUX_STATUS_FILE      │
-│  Schmux file watcher detects change → updates dashboard         │
+│  Hooks append JSON event to $SCHMUX_EVENTS_FILE                 │
+│  EventWatcher detects new line → publishes to event bus         │
+│  Bus subscribers update dashboard state + trigger notifications │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -44,39 +45,43 @@ The agent signaling system has three components:
 
 ## Direct Signaling Protocol
 
-Agents signal their state by writing to a status file provided by schmux:
+Agents signal their state by appending a JSON event line to the event file provided by schmux:
 
 ```bash
-echo "STATE message" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"STATE","message":"MSG"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ```
 
-The `SCHMUX_STATUS_FILE` environment variable contains the path to the status file (typically `$WORKSPACE/.schmux/signal/<session-id>`).
+The `SCHMUX_EVENTS_FILE` environment variable contains the path to the session's event file (typically `$WORKSPACE/.schmux/events/<session-id>.jsonl`).
+
+In practice, Claude Code hooks handle this automatically — agents rarely need to write events directly. The hooks are provisioned by schmux during session spawn.
 
 **Examples:**
 
 ```bash
-# Signal completion
-echo "completed Implementation complete, ready for review" > $SCHMUX_STATUS_FILE
+# Signal completion (via hook — automatic)
+printf '{"ts":"%s","type":"status","state":"completed","message":"Implementation complete"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
 # Signal needs input
-echo "needs_input Waiting for permission to delete files" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"needs_input","message":"Waiting for permission"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
 # Signal error
-echo "error Build failed with 3 errors" > $SCHMUX_STATUS_FILE
+printf '{"ts":"%s","type":"status","state":"error","message":"Build failed"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 
-# Signal needs testing
-echo "needs_testing Please test the new feature" > $SCHMUX_STATUS_FILE
-
-# Clear signal (starting new work)
-echo "working" > $SCHMUX_STATUS_FILE
+# Signal working (clears attention state)
+printf '{"ts":"%s","type":"status","state":"working","message":""}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ```
 
 **Benefits:**
 
-- **Simple and reliable** - Plain file writes are universally supported
+- **Append-only** - No data loss from overwrites; full history preserved
+- **JSON structured** - Easy to parse, supports multiple event types
 - **No parsing complexity** - No ANSI stripping or regex matching needed
-- **Idempotent** - File content represents current state
-- **Easy to debug** - Just read the file to see current status
+- **Easy to debug** - `tail -1` shows latest event, `cat` shows full history
 
 ### Valid States
 
@@ -90,123 +95,102 @@ echo "working" > $SCHMUX_STATUS_FILE
 
 ### How Signals Flow
 
-The signal pipeline spans the full stack, from agent file writes to browser notification sound. Here is the complete data flow with code references:
+The signal pipeline spans the full stack, from event file writes to browser notification sound. Here is the complete data flow:
 
 ```
  Agent (in tmux session)
  │
- │  Writes: echo "completed Done" > $SCHMUX_STATUS_FILE
+ │  Hook appends JSON event to $SCHMUX_EVENTS_FILE
  │
  ▼
  ┌──────────────────────────────────────────────────────────┐
  │  LOCAL SESSIONS:                                         │
- │  FileWatcher.watch() goroutine                           │
- │  internal/signal/filewatcher.go:82                       │
+ │  EventWatcher                                            │
+ │  internal/event/watcher.go                               │
  │                                                          │
  │  fsnotify watcher receives Write event                   │
- │  Reads file content                                      │
- │  Compares with last-read content (string comparison)     │
- │  If changed: parses STATE MESSAGE format                 │
- │  Invokes callback with Signal                            │
+ │  Reads new lines from event file                         │
+ │  Parses JSON event, extracts type + payload              │
+ │  Publishes to in-process event bus                       │
  └──────────────────────────────────┬───────────────────────┘
                                     │
  ┌──────────────────────────────────┴───────────────────────┐
  │  REMOTE SESSIONS:                                        │
  │  Watcher pane in tmux (shell script)                     │
- │  internal/session/manager.go:1116                        │
+ │  internal/signal/remotewatcher.go                        │
  │                                                          │
- │  inotifywait or polling detects file change              │
- │  Emits: __SCHMUX_SIGNAL__completed Done__END__           │
+ │  tail -n0 -f watches event file for new lines            │
+ │  Emits: __SCHMUX_SIGNAL__{json}__END__                   │
  │  Received via %output event in control mode              │
- │  Parsed by RemoteMonitor.handleControlOutput()           │
- │  internal/session/remote.go:196                          │
+ │  Parsed by RemoteSignalWatcher.ProcessOutput()           │
+ │  Publishes to event bus                                  │
  └──────────────────────────────────┬───────────────────────┘
-                                    │  callback(Signal)
+                                    │  bus.Publish("agent.status", ...)
                                     ▼
  ┌──────────────────────────────────────────────────────────┐
- │  Manager.signalCallback(sessionID, sig)                  │
- │  Closure set in internal/session/manager.go:88           │
- │  Wired in internal/daemon/daemon.go:377                  │
+ │  Event Bus (internal/bus/bus.go)                         │
  │                                                          │
- │  Routes to dashboard server:                             │
+ │  Subscribers:                                            │
+ │  - Dashboard broadcaster (updates nudge, broadcasts)     │
+ │  - Floor manager injector (feeds status to supervisor)   │
+ │  - Escalation consumer                                   │
  └──────────────────────────────────┬───────────────────────┘
                                     │
                                     ▼
  ┌──────────────────────────────────────────────────────────┐
- │  Server.HandleAgentSignal(sessionID, sig)                │
- │  internal/dashboard/websocket.go:308                     │
+ │  Dashboard Broadcaster                                   │
+ │  internal/dashboard/websocket.go                         │
  │                                                          │
- │  1. MapStateToNudge(sig.State) → display string          │
- │     internal/signal/signal.go:211                        │
+ │  1. MapStateToNudge(state) → display string              │
  │  2. If "working": clear nudge                            │
- │     state.UpdateSessionNudge(id, "")                     │
- │     internal/state/state.go:379                          │
  │  3. Otherwise: serialize nudge JSON, set nudge           │
- │     state.UpdateSessionNudge(id, payload)                │
- │  4. state.UpdateSessionLastSignal(id, timestamp)         │
- │     internal/state/state.go:340                          │
- │  5. state.IncrementNudgeSeq(id) [non-working only]       │
- │     internal/state/state.go:352                          │
- │  6. state.Save() → persist to ~/.schmux/state.json       │
- │  7. go doBroadcast() → immediate WebSocket push          │
- │     internal/dashboard/server.go:669                     │
+ │  4. IncrementNudgeSeq (attention states only)            │
+ │  5. state.Save() → persist to ~/.schmux/state.json       │
+ │  6. go doBroadcast() → immediate WebSocket push          │
  └──────────────────────────────────┬───────────────────────┘
                                     │  JSON via WebSocket
                                     ▼
  ┌──────────────────────────────────────────────────────────┐
- │  Dashboard WebSocket clients                             │
- │  internal/dashboard/server.go:669 (doBroadcast)          │
- │                                                          │
- │  Sends {type:"sessions", workspaces:[...]} to all        │
- │  registered dashboard connections                        │
- └──────────────────────────────────┬───────────────────────┘
-                                    │
-                                    ▼
- ┌──────────────────────────────────────────────────────────┐
  │  Frontend: SessionsContext.tsx                           │
- │  assets/dashboard/src/contexts/SessionsContext.tsx:73    │
  │                                                          │
- │  useEffect detects nudge_seq change:                     │
- │  - Compares session.nudge_seq vs                         │
- │    localStorage["schmux:ack:{sessionId}"]                │
+ │  Unified notification useEffect:                         │
+ │  - Checks nudge_seq changes + escalation changes         │
  │  - If nudge_seq > lastAcked AND isAttentionState():      │
- │    → playAttentionSound()                                │
- │      assets/dashboard/src/lib/notificationSound.ts:50    │
+ │    → playAttentionSound() (at most once per cycle)       │
  │    → localStorage.setItem(storageKey, nudge_seq)         │
  └──────────────────────────────────────────────────────────┘
 ```
 
 #### Daemon Restart Recovery
 
-When the daemon restarts, existing sessions recover by simply reading the current status file:
+When the daemon restarts, existing sessions recover by reading the latest event from the event file:
 
 ```
  Daemon starts → restores sessions
- internal/daemon/daemon.go:382
  │
  ▼
  For local sessions:
- FileWatcher.watch() reads current file content
- internal/signal/filewatcher.go:82
+ EventWatcher.ReadCurrent() reads latest status event
+ internal/event/watcher.go
  │
- │  If file exists and has content:
- │    Parse and invoke callback once
- │    Continue watching for changes
+ │  Scans JSONL file for last "status" type event
+ │  Publishes recovered state to bus
+ │  Continues watching for new events
  │
  └──────────────────────────────────────────────
 
  For remote sessions:
- Watcher pane script reads current file
- internal/session/manager.go:1116
+ tail -n1 of event file → parse JSON event
+ internal/session/manager.go
  │
- │  Initial check() call reads file content
- │  Emits current state if file exists
- │  Continues watching for changes
+ │  Initial state recovery reads last line
+ │  Publishes recovered state to bus
+ │  Watcher pane continues tailing for new lines
  │
  └──────────────────────────────────────────────
 ```
 
-The file content represents the current state, so no scrollback parsing is needed.
+The event file contains the full history, so the latest status event gives the current state.
 
 #### Nudge Clearing (user interaction)
 
@@ -217,18 +201,16 @@ When the user types in a terminal WebSocket session, the nudge is automatically 
  │
  ▼
  handleTerminalWebSocket / handleRemoteTerminalWebSocket
- internal/dashboard/websocket.go:259 (local) / :510 (remote)
+ internal/dashboard/websocket.go
  │
  │  Detects \r (Enter), \t (Tab), or \x1b[Z (Shift-Tab)
  │  in the input message
  │
  ▼
  state.ClearSessionNudge(sessionID) → returns true if cleared
- internal/state/state.go:393
  │
  ▼
  state.Save() + BroadcastSessions()
- internal/dashboard/server.go:616
 ```
 
 ---
@@ -237,16 +219,16 @@ When the user types in a terminal WebSocket session, the nudge is automatically 
 
 Every spawned session receives these environment variables:
 
-| Variable              | Example                                          | Purpose                        |
-| --------------------- | ------------------------------------------------ | ------------------------------ |
-| `SCHMUX_ENABLED`      | `1`                                              | Indicates running in schmux    |
-| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345`                            | Unique session identifier      |
-| `SCHMUX_WORKSPACE_ID` | `myproj-abc`                                     | Workspace identifier           |
-| `SCHMUX_STATUS_FILE`  | `/path/to/workspace/.schmux/signal/<session-id>` | Status file path for signaling |
+| Variable              | Example                                                | Purpose                       |
+| --------------------- | ------------------------------------------------------ | ----------------------------- |
+| `SCHMUX_ENABLED`      | `1`                                                    | Indicates running in schmux   |
+| `SCHMUX_SESSION_ID`   | `myproj-abc-xyz12345`                                  | Unique session identifier     |
+| `SCHMUX_WORKSPACE_ID` | `myproj-abc`                                           | Workspace identifier          |
+| `SCHMUX_EVENTS_FILE`  | `/path/to/workspace/.schmux/events/<session-id>.jsonl` | Event file path for signaling |
 
-Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling. The `SCHMUX_STATUS_FILE` variable provides the path where agents should write status updates.
+Agents can check `SCHMUX_ENABLED=1` to conditionally enable signaling. The `SCHMUX_EVENTS_FILE` variable provides the path where hooks and agents append JSON event lines.
 
-Environment variables are injected during spawn by `Manager.Spawn()` (`internal/session/manager.go:414`).
+Environment variables are injected during spawn by `Manager.Spawn()` (`internal/session/manager.go`).
 
 ---
 
@@ -266,31 +248,29 @@ When you spawn a session, schmux automatically creates an instruction file in th
 
 ```
  Manager.Spawn()
- internal/session/manager.go:414
+ internal/session/manager.go
  │
  ├─ CLI-flag tools (claude, codex):
  │    provision.SupportsSystemPromptFlag(toolName)
- │    internal/provision/provision.go:218
+ │    internal/provision/provision.go
  │    │
  │    ▼
  │    provision.EnsureSignalingInstructionsFile()
- │    internal/provision/provision.go:239
  │    │  Writes SignalingInstructions template to
  │    │  ~/.schmux/signaling.md
  │    │
  │    ▼
  │    buildCommand() injects CLI flag:
- │    internal/session/manager.go:704
  │      Claude: --append-system-prompt-file ~/.schmux/signaling.md
  │      Codex:  -c model_instructions_file=~/.schmux/signaling.md
  │
  └─ File-based tools (gemini, others):
       provision.EnsureAgentInstructions(workspacePath, targetName)
-      internal/provision/provision.go:77
+      internal/provision/provision.go
       │
       │  Looks up instruction config:
       │    detect.GetAgentInstructionConfigForTarget(target)
-      │    internal/detect/tools.go:84
+      │    internal/detect/tools.go
       │
       │  Creates/updates instruction file with schmux block
       │  wrapped in <!-- SCHMUX:BEGIN --> / <!-- SCHMUX:END -->
@@ -329,7 +309,7 @@ Content is wrapped in markers for safe updates:
 
 ### Model Support
 
-Models are mapped to their base tools via `GetBaseToolName()` (`internal/detect/tools.go:59`):
+Models are mapped to their base tools via `GetBaseToolName()` (`internal/detect/tools.go`):
 
 | Target                                                   | Base Tool | Instruction Path    |
 | -------------------------------------------------------- | --------- | ------------------- |
@@ -346,8 +326,10 @@ Models are mapped to their base tools via `GetBaseToolName()` (`internal/detect/
 
 ```bash
 if [ "$SCHMUX_ENABLED" = "1" ]; then
-    # Running in schmux - use signaling
-    echo "completed Task done" > "$SCHMUX_STATUS_FILE"
+    # Running in schmux - hooks handle signaling automatically
+    # Manual signaling example:
+    printf '{"ts":"%s","type":"status","state":"completed","message":"Task done"}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 fi
 ```
 
@@ -355,26 +337,32 @@ fi
 
 **Bash / AI agents (Claude Code, etc.):**
 
-Write status to the file:
+Hooks handle signaling automatically for Claude Code. For manual signaling:
 
 ```bash
-echo "completed Feature implemented successfully" > "$SCHMUX_STATUS_FILE"
+printf '{"ts":"%s","type":"status","state":"completed","message":"Feature implemented"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"
 ```
 
 **Python:**
 
 ```python
 import os
+import json
+from datetime import datetime, timezone
 
 def signal_schmux(state: str, message: str = ""):
     if os.environ.get("SCHMUX_ENABLED") == "1":
-        status_file = os.environ.get("SCHMUX_STATUS_FILE")
-        if status_file:
-            with open(status_file, "w") as f:
-                if message:
-                    f.write(f"{state} {message}\n")
-                else:
-                    f.write(f"{state}\n")
+        events_file = os.environ.get("SCHMUX_EVENTS_FILE")
+        if events_file:
+            event = {
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "type": "status",
+                "state": state,
+                "message": message,
+            }
+            with open(events_file, "a") as f:
+                f.write(json.dumps(event) + "\n")
 
 # Usage
 signal_schmux("completed", "Implementation finished")
@@ -388,10 +376,15 @@ const fs = require('fs');
 
 function signalSchmux(state, message = '') {
   if (process.env.SCHMUX_ENABLED === '1') {
-    const statusFile = process.env.SCHMUX_STATUS_FILE;
-    if (statusFile) {
-      const content = message ? `${state} ${message}\n` : `${state}\n`;
-      fs.writeFileSync(statusFile, content);
+    const eventsFile = process.env.SCHMUX_EVENTS_FILE;
+    if (eventsFile) {
+      const event = JSON.stringify({
+        ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        type: 'status',
+        state,
+        message,
+      });
+      fs.appendFileSync(eventsFile, event + '\n');
     }
   }
 }
@@ -408,7 +401,7 @@ signalSchmux('completed', 'Build successful');
 4. **Signal working** when starting a new task to clear old status
 5. Keep messages concise (under 100 characters)
 6. Always check `SCHMUX_ENABLED` before signaling
-7. Use the `SCHMUX_STATUS_FILE` environment variable, don't hardcode paths
+7. Use the `SCHMUX_EVENTS_FILE` environment variable, don't hardcode paths
 
 ---
 
@@ -428,13 +421,12 @@ NudgeNik provides LLM-based state classification as a fallback:
 
 ```
  startNudgeNikChecker() goroutine
- internal/daemon/daemon.go:573
+ internal/daemon/daemon.go
  │
  │  Waits 10s on startup, then polls every 15s
  │
  ▼
  checkInactiveSessionsForNudge()
- internal/daemon/daemon.go:598
  │
  │  For each session, skip if:
  │    1. Already has a nudge (sess.Nudge != "")
@@ -444,17 +436,16 @@ NudgeNik provides LLM-based state classification as a fallback:
  │
  │  Otherwise:
  │    nudgenik.AskForSession(ctx, cfg, sess)
- │    internal/nudgenik/nudgenik.go:83
+ │    internal/nudgenik/nudgenik.go
  │    │
  │    │  1. Captures last 100 lines from tmux
  │    │  2. Extracts latest agent response
  │    │  3. Sends to LLM with classification prompt
  │    │  4. Parses JSON result → nudgenik.Result
- │    │     internal/nudgenik/nudgenik.go:151
  │    │
  │    ▼
- │  Saves nudge to session state
- │  Calls BroadcastSessions() (debounced)
+ │  Publishes result to event bus
+ │  Bus subscriber updates state + broadcasts
  └──────────────────────────────────────
 ```
 
@@ -470,8 +461,8 @@ The API indicates the signal source:
 }
 ```
 
-- Direct signals: `source: "agent"` — set by `HandleAgentSignal` (`websocket.go:308`)
-- NudgeNik classification: `source: "llm"` — set by `askNudgeNikForSession` (`daemon.go`)
+- Direct signals: `source: "agent"` — set by dashboard broadcaster bus subscriber
+- NudgeNik classification: `source: "llm"` — set by NudgeNik bus publisher
 
 ---
 
@@ -481,11 +472,17 @@ The API indicates the signal source:
 
 ```
 internal/
-  signal/               # Signal parsing and file watching
+  bus/                  # In-process event bus (pub/sub)
+    bus.go              # Bus struct, Subscribe/Publish, typed event payloads
+
+  event/                # Event file watching and parsing
+    watcher.go          # EventWatcher: fsnotify-based JSONL file watcher
+    event.go            # Event struct, ParseEvent, ToSignal conversion
+
+  signal/               # Signal types and remote watching
     signal.go           # Signal struct, state validation, state-to-display mapping
-    filewatcher.go      # File-based signal watching for local sessions
+    remotewatcher.go    # Remote signal watching via tmux watcher pane
     signal_test.go
-    filewatcher_test.go
 
   provision/            # Agent instruction provisioning
     provision.go        # File-based and CLI-flag provisioning
@@ -496,11 +493,10 @@ internal/
 
   session/              # Session lifecycle and signal monitoring
     tracker.go          # Session tracking for local sessions
-    manager.go          # Spawn, signal callback, remote monitors
-    remote.go           # Remote session signal monitoring via watcher pane
+    manager.go          # Spawn, event bus wiring, remote monitors
 
   dashboard/            # HTTP API and WebSocket handlers
-    websocket.go        # HandleAgentSignal, terminal WebSocket, nudge clearing
+    websocket.go        # Bus subscriber for agent status, terminal WebSocket
     server.go           # BroadcastSessions, doBroadcast, connection management
 
   state/                # Persistent state management
@@ -511,12 +507,12 @@ internal/
     nudgenik.go         # AskForSession, prompt building, result parsing
 
   daemon/               # Top-level orchestration
-    daemon.go           # Wires signal callback, starts NudgeNik checker
+    daemon.go           # Wires bus subscribers, starts NudgeNik checker
 ```
 
 ### Key Types
 
-**`signal.Signal`** (`internal/signal/signal.go:21`)
+**`signal.Signal`** (`internal/signal/signal.go`)
 
 ```go
 type Signal struct {
@@ -526,20 +522,18 @@ type Signal struct {
 }
 ```
 
-**`signal.FileWatcher`** (`internal/signal/filewatcher.go:21`)
+**`bus.Event`** (`internal/bus/bus.go`)
 
 ```go
-type FileWatcher struct {
-    sessionID    string
-    filePath     string
-    callback     func(Signal)
-    watcher      *fsnotify.Watcher
-    lastContent  string          // For deduplication
-    mu           sync.Mutex
+type Event struct {
+    Type      string      // e.g., "agent.status", "agent.lore", "session.created"
+    SessionID string      // Which session produced this event
+    Payload   interface{} // Typed payload (AgentStatusPayload, etc.)
+    Seq       uint64      // Monotonic sequence number (set by bus)
 }
 ```
 
-**`state.Session`** signal-related fields (`internal/state/state.go:90-96`)
+**`state.Session`** signal-related fields (`internal/state/state.go`)
 
 ```go
 LastSignalAt time.Time `json:"last_signal_at,omitempty"` // Last direct agent signal
@@ -547,9 +541,9 @@ NudgeSeq     uint64    `json:"nudge_seq,omitempty"`      // Monotonic notificati
 Nudge        string    `json:"nudge,omitempty"`           // JSON-serialized nudgenik.Result
 ```
 
-`NudgeSeq` is incremented by all direct agent signals, but not by NudgeNik polls or manual clears. This prevents spurious frontend notifications.
+`NudgeSeq` is incremented only for **attention states** (`completed`, `needs_input`, `needs_testing`, `error`). The `working` state does not increment `NudgeSeq` because it is a clear operation — incrementing would desync the frontend ack counter.
 
-**`nudgenik.Result`** (`internal/nudgenik/nudgenik.go:74`)
+**`nudgenik.Result`** (`internal/nudgenik/nudgenik.go`)
 
 ```go
 type Result struct {
@@ -563,7 +557,7 @@ type Result struct {
 
 Shared type between direct signals and NudgeNik responses. `Source` distinguishes origin.
 
-**`detect.AgentInstructionConfig`** (`internal/detect/tools.go:24`)
+**`detect.AgentInstructionConfig`** (`internal/detect/tools.go`)
 
 ```go
 type AgentInstructionConfig struct {
@@ -576,92 +570,96 @@ type AgentInstructionConfig struct {
 
 #### Signal Parsing (`internal/signal/`)
 
-| Function                 | Location       | Purpose                                                                               |
-| ------------------------ | -------------- | ------------------------------------------------------------------------------------- |
-| `ParseSignalFile(data)`  | `signal.go:40` | Parses "STATE MESSAGE" format from file content. Returns Signal or error.             |
-| `IsValidState(state)`    | `signal.go:67` | Checks state against `ValidStates` map.                                               |
-| `MapStateToNudge(state)` | `signal.go:85` | Maps raw states to display strings (e.g., `"needs_input"` → `"Needs Authorization"`). |
+| Function                 | Location    | Purpose                                                                               |
+| ------------------------ | ----------- | ------------------------------------------------------------------------------------- |
+| `IsValidState(state)`    | `signal.go` | Checks state against `ValidStates` map.                                               |
+| `MapStateToNudge(state)` | `signal.go` | Maps raw states to display strings (e.g., `"needs_input"` → `"Needs Authorization"`). |
 
-#### File Watching (`internal/signal/`)
+#### Event Watching (`internal/event/`)
 
-| Function                       | Location            | Purpose                                                      |
-| ------------------------------ | ------------------- | ------------------------------------------------------------ |
-| `NewFileWatcher(id, path, cb)` | `filewatcher.go:36` | Constructor. Created per local session.                      |
-| `Start()`                      | `filewatcher.go:58` | Starts fsnotify watcher and monitoring goroutine.            |
-| `Stop()`                       | `filewatcher.go:77` | Stops watcher and cleanup.                                   |
-| `watch()`                      | `filewatcher.go:82` | Internal goroutine: reads file on changes, invokes callback. |
+| Function                        | Location     | Purpose                                                      |
+| ------------------------------- | ------------ | ------------------------------------------------------------ |
+| `NewEventWatcher(id, path, cb)` | `watcher.go` | Constructor. Created per local session.                      |
+| `Start()`                       | `watcher.go` | Starts fsnotify watcher and monitoring goroutine.            |
+| `Stop()`                        | `watcher.go` | Stops watcher and cleanup.                                   |
+| `ReadCurrent()`                 | `watcher.go` | Reads current state from existing event file (for recovery). |
+
+#### Event Bus (`internal/bus/`)
+
+| Function                    | Location | Purpose                                       |
+| --------------------------- | -------- | --------------------------------------------- |
+| `New()`                     | `bus.go` | Creates a new event bus.                      |
+| `Subscribe(handler, types)` | `bus.go` | Registers a handler for specific event types. |
+| `Publish(event)`            | `bus.go` | Dispatches event to all matching subscribers. |
 
 #### Session Tracking (`internal/session/`)
 
-| Function                                 | Location          | Purpose                                                                              |
-| ---------------------------------------- | ----------------- | ------------------------------------------------------------------------------------ |
-| `NewSessionTracker(id, tmux, state, cb)` | `tracker.go:62`   | Creates tracker with file watcher for local sessions.                                |
-| `run()`                                  | `tracker.go:162`  | Main loop: starts file watcher, waits for session exit.                              |
-| `SetSignalCallback(cb)`                  | `manager.go:88`   | Sets the manager-level callback. Must be called before tracker creation.             |
-| `ensureTrackerFromSession(sess)`         | `manager.go:1248` | Creates or returns existing tracker. Wraps callback with session ID binding.         |
-| `Spawn(...)`                             | `manager.go:414`  | Full spawn flow: workspace, provisioning, env vars, tmux, tracker.                   |
-| `StartRemoteSignalMonitor(sess)`         | `manager.go:96`   | Creates watcher pane for remote sessions, monitors %output events for signals.       |
-| `createSignalWatcherPane(sess)`          | `manager.go:1116` | Creates hidden tmux pane that watches status file and emits sentinel-wrapped output. |
+| Function                                   | Location     | Purpose                                                                     |
+| ------------------------------------------ | ------------ | --------------------------------------------------------------------------- |
+| `NewSessionTracker(id, tmux, state, ...) ` | `tracker.go` | Creates tracker with event watcher for local sessions.                      |
+| `run()`                                    | `tracker.go` | Main loop: starts event watcher, waits for session exit.                    |
+| `ensureTrackerFromSession(sess)`           | `manager.go` | Creates or returns existing tracker. Publishes events to bus.               |
+| `Spawn(...)`                               | `manager.go` | Full spawn flow: workspace, provisioning, env vars, tmux, tracker.          |
+| `StartRemoteSignalMonitor(sess)`           | `manager.go` | Creates watcher pane for remote sessions, monitors events via control mode. |
 
 #### State Management (`internal/state/`)
 
-| Function                         | Location       | Purpose                                                               |
-| -------------------------------- | -------------- | --------------------------------------------------------------------- |
-| `UpdateSessionNudge(id, nudge)`  | `state.go:379` | Atomically sets the nudge field.                                      |
-| `ClearSessionNudge(id)`          | `state.go:393` | Atomically clears nudge if non-empty. Returns whether it was cleared. |
-| `IncrementNudgeSeq(id)`          | `state.go:352` | Atomically increments and returns new NudgeSeq.                       |
-| `GetNudgeSeq(id)`                | `state.go:365` | Returns current NudgeSeq without incrementing.                        |
-| `UpdateSessionLastSignal(id, t)` | `state.go:340` | Sets LastSignalAt timestamp.                                          |
-| `UpdateSessionLastOutput(id, t)` | `state.go:327` | Sets LastOutputAt timestamp (for NudgeNik inactivity check).          |
+| Function                         | Location   | Purpose                                                               |
+| -------------------------------- | ---------- | --------------------------------------------------------------------- |
+| `UpdateSessionNudge(id, nudge)`  | `state.go` | Atomically sets the nudge field.                                      |
+| `ClearSessionNudge(id)`          | `state.go` | Atomically clears nudge if non-empty. Returns whether it was cleared. |
+| `IncrementNudgeSeq(id)`          | `state.go` | Atomically increments and returns new NudgeSeq.                       |
+| `GetNudgeSeq(id)`                | `state.go` | Returns current NudgeSeq without incrementing.                        |
+| `UpdateSessionLastSignal(id, t)` | `state.go` | Sets LastSignalAt timestamp.                                          |
+| `UpdateSessionLastOutput(id, t)` | `state.go` | Sets LastOutputAt timestamp (for NudgeNik inactivity check).          |
 
 #### Dashboard (`internal/dashboard/`)
 
-| Function                                    | Location           | Purpose                                                                        |
-| ------------------------------------------- | ------------------ | ------------------------------------------------------------------------------ |
-| `HandleAgentSignal(id, sig)`                | `websocket.go:308` | Central signal handler: updates nudge, seq, saves, broadcasts immediately.     |
-| `handleTerminalWebSocket(w, r)`             | `websocket.go:75`  | Local terminal WebSocket: PTY I/O, nudge clearing on user input.               |
-| `handleRemoteTerminalWebSocket(w, r, sess)` | `websocket.go:360` | Remote terminal WebSocket: SSH/ET output, nudge clearing.                      |
-| `BroadcastSessions()`                       | `server.go:616`    | Debounced broadcast (500ms trailing timer). Used by NudgeNik, git status, etc. |
-| `doBroadcast()`                             | `server.go:669`    | Immediate broadcast to all dashboard WebSocket connections.                    |
+| Function                                    | Location       | Purpose                                                            |
+| ------------------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `handleAgentStatusEvent(event)`             | `websocket.go` | Bus subscriber: updates nudge, seq, saves, broadcasts immediately. |
+| `handleTerminalWebSocket(w, r)`             | `websocket.go` | Local terminal WebSocket: PTY I/O, nudge clearing on user input.   |
+| `handleRemoteTerminalWebSocket(w, r, sess)` | `websocket.go` | Remote terminal WebSocket: SSH/ET output, nudge clearing.          |
+| `BroadcastSessions()`                       | `server.go`    | Debounced broadcast (500ms trailing timer).                        |
+| `doBroadcast()`                             | `server.go`    | Immediate broadcast to all dashboard WebSocket connections.        |
 
 #### Provisioning (`internal/provision/`)
 
-| Function                                 | Location           | Purpose                                                 |
-| ---------------------------------------- | ------------------ | ------------------------------------------------------- |
-| `EnsureAgentInstructions(path, target)`  | `provision.go:77`  | Creates/updates instruction file with schmux block.     |
-| `EnsureSignalingInstructionsFile()`      | `provision.go:239` | Writes `~/.schmux/signaling.md` for CLI-flag injection. |
-| `SupportsSystemPromptFlag(tool)`         | `provision.go:218` | True for claude, codex (use CLI flag instead of file).  |
-| `HasSignalingInstructions(path, target)` | `provision.go:252` | Checks if instruction file already has schmux markers.  |
-| `RemoveAgentInstructions(path, target)`  | `provision.go:164` | Removes schmux block from instruction file.             |
+| Function                                 | Location       | Purpose                                                 |
+| ---------------------------------------- | -------------- | ------------------------------------------------------- |
+| `EnsureAgentInstructions(path, target)`  | `provision.go` | Creates/updates instruction file with schmux block.     |
+| `EnsureSignalingInstructionsFile()`      | `provision.go` | Writes `~/.schmux/signaling.md` for CLI-flag injection. |
+| `SupportsSystemPromptFlag(tool)`         | `provision.go` | True for claude, codex (use CLI flag instead of file).  |
+| `HasSignalingInstructions(path, target)` | `provision.go` | Checks if instruction file already has schmux markers.  |
+| `RemoveAgentInstructions(path, target)`  | `provision.go` | Removes schmux block from instruction file.             |
 
 #### Frontend Notification (`assets/dashboard/src/`)
 
-| Function                    | Location                  | Purpose                                                                        |
-| --------------------------- | ------------------------- | ------------------------------------------------------------------------------ |
-| `warmupAudioContext()`      | `notificationSound.ts:19` | Registers one-time user gesture listener to resume suspended AudioContext.     |
-| `playAttentionSound()`      | `notificationSound.ts:50` | Two-tone sine wave (880Hz A5 + 660Hz E5, ~300ms).                              |
-| `isAttentionState(state)`   | `notificationSound.ts:97` | True for "Needs Authorization" and "Error".                                    |
-| Nudge detection `useEffect` | `SessionsContext.tsx:73`  | Compares `nudge_seq` vs `localStorage["schmux:ack:{id}"]`, plays sound if new. |
+| Function                         | Location               | Purpose                                                                    |
+| -------------------------------- | ---------------------- | -------------------------------------------------------------------------- |
+| `warmupAudioContext()`           | `notificationSound.ts` | Registers one-time user gesture listener to resume suspended AudioContext. |
+| `playAttentionSound()`           | `notificationSound.ts` | Two-tone sine wave (880Hz A5 + 660Hz E5, ~300ms).                          |
+| `isAttentionState(state)`        | `notificationSound.ts` | True for "Needs Authorization" and "Error".                                |
+| Unified notification `useEffect` | `SessionsContext.tsx`  | Checks nudge_seq + escalation changes, plays at most one sound per cycle.  |
 
 ### Broadcast: Immediate vs Debounced
 
 The system uses two broadcast paths:
 
 ```
- HandleAgentSignal          Other updates (git status, NudgeNik, etc.)
- │                          │
- ▼                          ▼
- go doBroadcast()           BroadcastSessions()
- (immediate)                (debounced, 500ms trailing timer)
- │                          │
- │                          ▼
- │                        broadcastLoop() goroutine
- │                        internal/dashboard/server.go:644
- │                        │  Waits for timer to fire
- │                        │
- ▼                        ▼
- doBroadcast()            doBroadcast()
- internal/dashboard/server.go:669
+ Bus subscriber (agent.status)     Other updates (git status, NudgeNik, etc.)
+ │                                 │
+ ▼                                 ▼
+ go doBroadcast()                  BroadcastSessions()
+ (immediate)                       (debounced, 500ms trailing timer)
+ │                                 │
+ │                                 ▼
+ │                               broadcastLoop() goroutine
+ │                               internal/dashboard/server.go
+ │                               │  Waits for timer to fire
+ │                               │
+ ▼                               ▼
+ doBroadcast()                   doBroadcast()
  │
  ▼
  Writes JSON to all registered dashboard WebSocket connections
@@ -674,52 +672,59 @@ Direct agent signals bypass the debounce timer to ensure instant delivery to the
 ```
  Backend:                              Frontend:
  ┌─────────────────────┐               ┌──────────────────────────────┐
- │ HandleAgentSignal   │               │ SessionsContext useEffect    │
+ │ Bus subscriber      │               │ SessionsContext useEffect    │
+ │ (agent.status)      │               │ (unified notification)       │
  │                     │               │                              │
  │ "working" signal:   │   WebSocket   │ For each session:            │
  │   NudgeSeq unchanged│ ──────────>   │   nudge_seq from server      │
  │   Nudge cleared     │               │   lastAcked from localStorage│
  │                     │               │                              │
- │ Other signals:      │               │ If nudge_seq > lastAcked     │
+ │ Attention signals:  │               │ If nudge_seq > lastAcked     │
  │   NudgeSeq++        │               │ AND isAttentionState():      │
  │   Nudge set to JSON │               │   → playAttentionSound()     │
  │                     │               │   → update localStorage      │
- └─────────────────────┘               └──────────────────────────────┘
-
- "working" does NOT increment NudgeSeq because it is a clear
- operation. Incrementing would cause the frontend to see
- nudge_seq > lastAcked but with no attention state, which
- would desync the ack counter.
+ └─────────────────────┘               │                              │
+                                       │ Also checks escalation:      │
+ "working" does NOT increment          │   If new escalation string:  │
+ NudgeSeq because it is a clear        │   → playAttentionSound()     │
+ operation. Only attention states       │   → showBrowserNotification()│
+ (completed, needs_input,              │                              │
+ needs_testing, error) increment it.   │ At most one sound per cycle. │
+                                       └──────────────────────────────┘
 ```
 
-### Signal Callback Wiring Chain
+### Event Bus Wiring
 
-The signal callback is wired at daemon startup and flows through three layers:
+The event bus is created at daemon startup and subscribers are registered before any sessions are restored:
 
 ```
- daemon.go:377 — Sets Manager.signalCallback:
+ daemon.go — Creates bus and wires subscribers:
  │
- │  sm.SetSignalCallback(func(sessionID, sig) {
- │      server.HandleAgentSignal(sessionID, sig)
- │  })
+ ├─ Dashboard broadcaster subscriber ("agent.status"):
+ │    Updates nudge state, increments NudgeSeq, broadcasts
  │
- ▼
- manager.go:1248 — ensureTrackerFromSession wraps with session ID:
+ ├─ Floor manager injector subscriber ("agent.status"):
+ │    Feeds agent status changes to the floor manager session
  │
- │  signalCB := func(sig Signal) {
- │      m.signalCallback(sess.ID, sig)
- │  }
+ ├─ Floor manager lifecycle subscriber:
+ │    ("session.created", "session.disposed",
+ │     "workspace.created", "workspace.deleted")
+ │    Feeds lifecycle events to the floor manager session
  │
- ▼
- tracker.go:62 — NewSessionTracker creates FileWatcher:
+ ├─ Escalation subscriber ("escalation.set", "escalation.cleared"):
+ │    Updates escalation state in session store
  │
- │  fileWatcher = NewFileWatcher(sessionID, signalFilePath, signalCB)
- │
- ▼
- filewatcher.go:82 — watch() goroutine reads file on fsnotify events, invokes callback
+ └─ NudgeNik subscriber ("nudgenik.result"):
+     Updates nudge state from LLM classification
 ```
 
-This wiring MUST happen before any tracker creation (`daemon.go:376` comment). If `SetSignalCallback` is called after trackers exist, those trackers will have a nil callback and silently drop signals.
+Producers publish to the bus:
+
+- **EventWatcher** → `agent.status`, `agent.lore` events
+- **RemoteSignalWatcher** → `agent.status` events
+- **Session/Workspace managers** → lifecycle events
+- **NudgeNik checker** → `nudgenik.result` events
+- **Escalation API** → `escalation.set`, `escalation.cleared` events
 
 ---
 
@@ -728,7 +733,7 @@ This wiring MUST happen before any tracker creation (`daemon.go:376` comment). I
 ### Verify Signaling Works
 
 1. Spawn a session in schmux
-2. In the terminal, run: `echo "completed Test signal" > $SCHMUX_STATUS_FILE`
+2. In the terminal, run: `printf '{"ts":"%s","type":"status","state":"completed","message":"Test"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SCHMUX_EVENTS_FILE"`
 3. Check the dashboard - the session should show a completion status
 
 ### Check Environment Variables
@@ -739,14 +744,15 @@ In a schmux session:
 echo $SCHMUX_ENABLED        # Should be "1"
 echo $SCHMUX_SESSION_ID     # Should show session ID
 echo $SCHMUX_WORKSPACE_ID   # Should show workspace ID
-echo $SCHMUX_STATUS_FILE    # Should show path to status file
+echo $SCHMUX_EVENTS_FILE    # Should show path to event file
 ```
 
-### Check Status File
+### Check Event File
 
 ```bash
-ls -la $SCHMUX_STATUS_FILE  # Should exist in .schmux directory
-cat $SCHMUX_STATUS_FILE     # Shows current status (if agent has signaled)
+ls -la $SCHMUX_EVENTS_FILE  # Should exist in .schmux/events/ directory
+tail -1 $SCHMUX_EVENTS_FILE # Shows latest event (if agent has signaled)
+cat $SCHMUX_EVENTS_FILE     # Shows full event history
 ```
 
 ### Check Instruction File Was Created
@@ -760,7 +766,7 @@ cat .claude/CLAUDE.md       # Should contain SCHMUX:BEGIN marker
 
 1. **Agent doesn't read instruction files** - Some agents may not read from the expected location
 2. **Agent ignores instructions** - The agent may not follow the signaling protocol
-3. **Status file not writable** - Check `.schmux/` directory permissions
+3. **Event file not writable** - Check `.schmux/events/` directory permissions
 4. **Signaling works, display doesn't** - Check browser console for WebSocket errors
 
 ### Invalid Signals
@@ -794,6 +800,7 @@ To add signaling support for a new agent:
 
 1. **Non-destructive**: Never modify user's existing instruction content
 2. **Automatic**: No manual setup required - works out of the box
-3. **Agent-agnostic**: Protocol works for any agent that can write to a file
+3. **Agent-agnostic**: Protocol works for any agent that can append JSON to a file
 4. **Graceful fallback**: NudgeNik handles agents that don't signal
-5. **Simple and reliable**: Plain file writes instead of terminal output parsing
+5. **Single source of truth**: One event file per session, one event bus for routing
+6. **Append-only events**: Full history preserved, no data loss from overwrites

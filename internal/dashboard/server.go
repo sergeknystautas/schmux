@@ -19,14 +19,17 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/assets"
+	"github.com/sergeknystautas/schmux/internal/bus"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
@@ -167,6 +170,18 @@ type Server struct {
 
 	// Lore curator for manual curation
 	loreCurator *lore.Curator
+
+	// Floor manager
+	floorManager interface {
+		GetSessionID() string
+		GetInjectionCount() int
+	}
+
+	// Floor manager toggle callback — called when config enables/disables floor manager
+	floorManagerToggle func(enabled bool)
+
+	// Event bus for daemon-internal routing
+	eventBus *bus.Bus
 }
 
 // remoteAuthState groups remote access authentication fields.
@@ -347,6 +362,152 @@ func (s *Server) ClearRemoteAuth() {
 	s.remoteTokenMu.Unlock()
 }
 
+// SetFloorManager sets the floor manager for dashboard API.
+func (s *Server) SetFloorManager(fm interface {
+	GetSessionID() string
+	GetInjectionCount() int
+}) {
+	s.floorManager = fm
+}
+
+// SetFloorManagerToggle sets the callback invoked when config enables/disables the floor manager.
+func (s *Server) SetFloorManagerToggle(fn func(enabled bool)) {
+	s.floorManagerToggle = fn
+}
+
+// SetBus registers the event bus and subscribes to events for dashboard broadcasting.
+func (s *Server) SetBus(b *bus.Bus) {
+	s.eventBus = b
+
+	b.Subscribe(func(e bus.Event) {
+		switch e.Type {
+		case "agent.status":
+			s.handleAgentStatusEvent(e)
+		}
+	}, "agent.status")
+
+	b.Subscribe(func(e bus.Event) {
+		switch e.Type {
+		case "escalation.set":
+			s.handleEscalationSetEvent(e)
+		case "escalation.cleared":
+			s.handleEscalationClearedEvent(e)
+		}
+	}, "escalation.set", "escalation.cleared")
+
+	b.Subscribe(func(e bus.Event) {
+		s.handleNudgenikResultEvent(e)
+	}, "nudgenik.result")
+}
+
+// isAttentionState returns true for agent states that require user attention.
+func isAttentionState(state string) bool {
+	switch state {
+	case "completed", "needs_input", "needs_testing", "error":
+		return true
+	default:
+		return false
+	}
+}
+
+// handleAgentStatusEvent processes an agent.status bus event and updates session nudge state.
+func (s *Server) handleAgentStatusEvent(e bus.Event) {
+	payload, ok := e.Payload.(bus.AgentStatusPayload)
+	if !ok {
+		return
+	}
+	sessionID := e.SessionID
+
+	// Map signal state to nudge format for frontend compatibility
+	nudgeResult := nudgenik.Result{
+		State:   signal.MapStateToNudge(payload.State),
+		Summary: payload.Message,
+		Source:  "agent",
+	}
+
+	// Update nudge atomically
+	nudgeJSON, err := json.Marshal(nudgeResult)
+	if err != nil {
+		fmt.Printf("[bus] %s - failed to serialize nudge: %v\n", sessionID, err)
+		return
+	}
+	if err := s.state.UpdateSessionNudge(sessionID, string(nudgeJSON)); err != nil {
+		fmt.Printf("[bus] %s - failed to update nudge: %v\n", sessionID, err)
+		return
+	}
+
+	// Update last signal time
+	s.state.UpdateSessionLastSignal(sessionID, time.Now())
+
+	// Only increment NudgeSeq for attention states (not working)
+	var seq uint64
+	if isAttentionState(payload.State) {
+		seq = s.state.IncrementNudgeSeq(sessionID)
+	} else {
+		seq = s.state.GetNudgeSeq(sessionID)
+	}
+
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[bus] %s - failed to save state: %v\n", sessionID, err)
+		return
+	}
+
+	fmt.Printf("[bus] %s - received %s signal (seq=%d): %s\n", sessionID, payload.State, seq, payload.Message)
+
+	// Broadcast via debouncer
+	go s.BroadcastSessions()
+}
+
+// handleEscalationSetEvent processes an escalation.set bus event.
+func (s *Server) handleEscalationSetEvent(e bus.Event) {
+	payload, ok := e.Payload.(bus.EscalationPayload)
+	if !ok {
+		return
+	}
+	s.state.UpdateSessionEscalation(e.SessionID, payload.Message)
+
+	// Increment NudgeSeq on the floor manager session so the frontend's
+	// seq-based dedup triggers a notification for the escalation.
+	s.state.IncrementNudgeSeq(e.SessionID)
+
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[bus] escalation set failed to save: %v\n", err)
+		return
+	}
+	go s.BroadcastSessions()
+}
+
+// handleEscalationClearedEvent processes an escalation.cleared bus event.
+func (s *Server) handleEscalationClearedEvent(e bus.Event) {
+	s.state.UpdateSessionEscalation(e.SessionID, "")
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[bus] escalation clear failed to save: %v\n", err)
+		return
+	}
+	go s.BroadcastSessions()
+}
+
+// handleNudgenikResultEvent processes a nudgenik.result bus event.
+// NudgeNik results do NOT increment NudgeSeq (silent updates).
+func (s *Server) handleNudgenikResultEvent(e bus.Event) {
+	payload, ok := e.Payload.(bus.NudgenikPayload)
+	if !ok {
+		return
+	}
+
+	if err := s.state.UpdateSessionNudge(e.SessionID, payload.State); err != nil {
+		fmt.Printf("[bus] nudgenik %s - failed to update nudge: %v\n", e.SessionID, err)
+		return
+	}
+	if err := s.state.Save(); err != nil {
+		fmt.Printf("[bus] nudgenik %s - failed to save state: %v\n", e.SessionID, err)
+		return
+	}
+
+	fmt.Printf("[bus] nudgenik %s - saved nudge\n", e.SessionID)
+	go s.BroadcastSessions()
+}
+
 // LogDashboardAssetPath logs where dashboard assets are being served from.
 func (s *Server) LogDashboardAssetPath() {
 	path := s.getDashboardDistPath()
@@ -419,6 +580,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prepare-branch-spawn", s.withCORS(s.withAuthAndCSRF(s.handlePrepareBranchSpawn)))
 	mux.HandleFunc("/api/sessions/", s.withCORS(s.withAuthAndCSRF(s.handleDispose)))
 	mux.HandleFunc("/api/config", s.withCORS(s.withAuthAndCSRF(s.handleConfig)))
+	mux.HandleFunc("/api/escalate", s.withCORS(s.withAuthAndCSRF(s.handleEscalate)))
 	mux.HandleFunc("/api/detect-tools", s.withCORS(s.withAuth(s.handleDetectTools)))
 	mux.HandleFunc("/api/models", s.withCORS(s.withAuth(s.handleModels)))
 	mux.HandleFunc("/api/models/", s.withCORS(s.withAuthAndCSRF(s.handleModel)))
@@ -436,6 +598,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
+
+	// Floor manager
+	mux.HandleFunc("/api/floor-manager", s.withCORS(s.withAuth(s.handleFloorManager)))
 
 	// Lore routes
 	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
@@ -1135,13 +1300,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 
 	// Upgrade connection
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				return true
-			}
-			return s.isAllowedOrigin(origin)
-		},
+		CheckOrigin: s.checkWSOrigin,
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)

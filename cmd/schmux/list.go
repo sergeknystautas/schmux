@@ -42,6 +42,9 @@ func (cmd *ListCommand) Run(args []string) error {
 		return fmt.Errorf("failed to get sessions: %w", err)
 	}
 
+	// Filter out the floor manager — it's an internal system session
+	sessions = filterFloorManager(sessions)
+
 	if jsonOutput {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
@@ -97,4 +100,23 @@ func (cmd *ListCommand) outputHuman(sessions []cli.WorkspaceWithSessions) error 
 	}
 
 	return nil
+}
+
+// filterFloorManager removes floor manager sessions from the workspace list.
+func filterFloorManager(workspaces []cli.WorkspaceWithSessions) []cli.WorkspaceWithSessions {
+	result := make([]cli.WorkspaceWithSessions, 0, len(workspaces))
+	for _, ws := range workspaces {
+		filtered := make([]cli.Session, 0, len(ws.Sessions))
+		for _, sess := range ws.Sessions {
+			if !sess.IsFloorManager && sess.Nickname != "floor-manager" {
+				filtered = append(filtered, sess)
+			}
+		}
+		ws.Sessions = filtered
+		ws.SessionCount = len(filtered)
+		if len(filtered) > 0 {
+			result = append(result, ws)
+		}
+	}
+	return result
 }

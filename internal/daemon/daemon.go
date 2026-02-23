@@ -18,11 +18,14 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
+	"github.com/sergeknystautas/schmux/internal/bus"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/event"
+	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
@@ -319,7 +322,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Write PID file
 	pid := os.Getpid()
-	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0644); err != nil {
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0600); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 	defer os.Remove(pidFile)
@@ -334,6 +337,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if err := oneshot.WriteAllSchemas(); err != nil {
 		return fmt.Errorf("failed to write schemas: %w", err)
 	}
+
+	// Deploy global hook scripts to ~/.schmux/hooks/
+	hooksDir, err := event.EnsureGlobalHookScripts(homeDir)
+	if err != nil {
+		return fmt.Errorf("failed to deploy hook scripts: %w", err)
+	}
+	fmt.Printf("[daemon] deployed hook scripts to %s\n", hooksDir)
 
 	// Load config
 	configPath := filepath.Join(schmuxDir, "config.json")
@@ -400,6 +410,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	wm.SetTelemetry(tel)
 	sm.SetTelemetry(tel)
 
+	// Pass global hooks directory to managers
+	wm.SetHooksDir(hooksDir)
+	sm.SetHooksDir(hooksDir)
+
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
 		workspaceLog.Warn("failed to ensure overlay directories", "err", err)
@@ -449,6 +463,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		ShutdownCtx: d.shutdownCtx,
 	})
 
+	// Create event bus for daemon-internal routing
+	eventBus := bus.New()
+	server.SetBus(eventBus)
+
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st, remoteLog)
 	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
@@ -475,9 +493,164 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	// Wire signal detection: file watcher → session manager → dashboard server
 	// MUST happen before tracker creation so trackers capture a non-nil callback.
-	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
-		server.HandleAgentSignal(sessionID, sig)
+	//
+	// Floor manager state is protected by fmMu so the toggle callback (from config
+	// updates) can start/stop the floor manager at runtime without a daemon restart.
+	var fm *floormanager.Manager
+	var fmInjector *floormanager.Injector
+	var fmMu sync.Mutex
+
+	// startFloorManager creates and starts the floor manager + injector.
+	// Caller must hold fmMu.
+	startFloorManager := func() error {
+		fm = floormanager.New(cfg, st, sm, homeDir)
+		fmInjector = floormanager.NewInjector(d.shutdownCtx, fm, cfg.GetFloorManagerDebounceMs())
+		server.SetFloorManager(fm)
+		if err := fm.Start(d.shutdownCtx); err != nil {
+			fm = nil
+			fmInjector = nil
+			server.SetFloorManager(nil)
+			return fmt.Errorf("floor manager start: %w", err)
+		}
+		return nil
+	}
+
+	// stopFloorManager stops the injector and manager and clears references.
+	// Caller must hold fmMu.
+	stopFloorManager := func() {
+		if fmInjector != nil {
+			fmInjector.Stop()
+			fmInjector = nil
+		}
+		if fm != nil {
+			fm.Stop()
+			fm = nil
+		}
+		server.SetFloorManager(nil)
+	}
+
+	// Wire floor manager to receive signals and lifecycle events from the bus.
+	// This replaces the old SetSignalCallback/SetLifecycleCallback approach.
+	eventBus.Subscribe(func(e bus.Event) {
+		fmMu.Lock()
+		localFM := fm
+		localInjector := fmInjector
+		fmMu.Unlock()
+
+		if localFM == nil || localInjector == nil {
+			return
+		}
+
+		payload, ok := e.Payload.(bus.AgentStatusPayload)
+		if !ok {
+			return
+		}
+
+		sig := schmuxsignal.Signal{
+			State:    payload.State,
+			Message:  payload.Message,
+			Intent:   payload.Intent,
+			Blockers: payload.Blockers,
+		}
+
+		// Don't inject the floor manager's own signals back to itself
+		fmSess, found := st.GetFloorManagerSession()
+		if found && fmSess.ID == e.SessionID {
+			// Handle rotation signal
+			if sig.State == "rotate" {
+				go localFM.HandleRotation(d.shutdownCtx, true)
+			}
+			// Clear any active escalation when floor manager sends a new signal
+			if fmSess.Escalation != "" {
+				eventBus.Publish(bus.Event{
+					Type:      "escalation.cleared",
+					SessionID: fmSess.ID,
+					Payload:   bus.EscalationPayload{},
+				})
+			}
+			return
+		}
+
+		// Get session name for readable messages
+		sess, err := sm.GetSession(e.SessionID)
+		if err != nil {
+			return
+		}
+		name := sess.Nickname
+		if name == "" {
+			name = sess.Target
+		}
+
+		// Inject signal into floor manager
+		localInjector.Inject(e.SessionID, name, sig)
+	}, "agent.status")
+
+	eventBus.Subscribe(func(e bus.Event) {
+		fmMu.Lock()
+		localInjector := fmInjector
+		fmMu.Unlock()
+
+		if localInjector == nil {
+			return
+		}
+
+		payload, ok := e.Payload.(bus.LifecyclePayload)
+		if !ok {
+			return
+		}
+		localInjector.InjectLifecycle(payload.Message)
+	}, "session.created", "session.disposed", "workspace.created", "workspace.deleted")
+
+	sm.SetBus(eventBus)
+	wm.SetBus(eventBus)
+
+	// Wire toggle callback so config updates can start/stop floor manager at runtime
+	server.SetFloorManagerToggle(func(enabled bool) {
+		fmMu.Lock()
+		defer fmMu.Unlock()
+
+		if enabled {
+			if fm != nil {
+				// Already running — restart (target may have changed)
+				fmt.Printf("[floor-manager] restarting via config update (target change)\n")
+				if sess, found := st.GetFloorManagerSession(); found {
+					sm.Dispose(d.shutdownCtx, sess.ID)
+				}
+				stopFloorManager()
+			} else {
+				fmt.Printf("[floor-manager] enabling via config update\n")
+			}
+			if err := startFloorManager(); err != nil {
+				fmt.Printf("[floor-manager] failed to start: %v\n", err)
+			}
+		} else {
+			if fm == nil {
+				return // already stopped
+			}
+			fmt.Printf("[floor-manager] disabling via config update\n")
+			// Dispose the floor manager session before stopping
+			if sess, found := st.GetFloorManagerSession(); found {
+				sm.Dispose(d.shutdownCtx, sess.ID)
+			}
+			stopFloorManager()
+		}
 	})
+
+	if cfg.GetFloorManagerEnabled() {
+		fmMu.Lock()
+		if err := startFloorManager(); err != nil {
+			fmt.Printf("[floor-manager] start failed: %v\n", err)
+		}
+		fmMu.Unlock()
+	} else {
+		// Clean up any stale floor manager session from a previous run.
+		// This happens when FM was running, the daemon restarted, and FM
+		// is now disabled in config — the session was never disposed.
+		if sess, found := st.GetFloorManagerSession(); found {
+			fmt.Printf("[floor-manager] cleaning up stale session %s (floor manager disabled)\n", sess.ID)
+			sm.Dispose(d.shutdownCtx, sess.ID)
+		}
+	}
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
@@ -527,9 +700,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)
 	if gitWatcher != nil {
 		wm.SetGitWatcher(gitWatcher)
-		// Add watches for all existing local workspaces (skip remote ones)
+		// Add watches for all existing local workspaces (skip remote and non-git ones)
 		for _, w := range st.GetWorkspaces() {
-			if w.RemoteHostID == "" {
+			if w.RemoteHostID == "" && w.Repo != "" {
 				gitWatcher.AddWorkspace(w.ID, w.Path)
 			}
 		}
@@ -755,9 +928,18 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			loreCurateTimer = time.AfterFunc(debounce, func() {
 				// Collect workspace lore paths (raw entries only)
 				var wsPaths []string
+				var eventEntries []lore.Entry
 				for _, w := range st.GetWorkspaces() {
 					if w.Repo == repoURL && w.RemoteHostID == "" {
 						wsPaths = append(wsPaths, filepath.Join(w.Path, ".schmux", "lore.jsonl"))
+
+						// Also read lore-relevant events from event files
+						evtEntries, err := event.ReadLoreEventsFromWorkspace(w.Path, w.ID)
+						if err != nil {
+							fmt.Printf("[lore] warning: failed to read events from %s: %v\n", w.ID, err)
+						} else {
+							eventEntries = append(eventEntries, evtEntries...)
+						}
 					}
 				}
 				// Central state file for state-change records
@@ -775,6 +957,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 					loreLog.Error("failed to read entries", "err", err)
 					return
 				}
+				// Merge event file entries with JSONL entries
+				rawEntries = append(rawEntries, eventEntries...)
+				// Deduplicate: during dual-write migration, the same entry may
+				// exist in both lore.jsonl (legacy) and events/<sid>.jsonl (new).
+				rawEntries = lore.DeduplicateEntries(rawEntries)
 				if len(rawEntries) == 0 {
 					loreLog.Debug("no raw entries to curate", "repo", repoName)
 					return
@@ -880,7 +1067,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}()
 
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
-	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
+	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, eventBus, nudgenikLog)
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
@@ -932,6 +1119,14 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		loreCurateTimer.Stop()
 	}
 	loreCurateMu.Unlock()
+
+	// Stop floor manager
+	fmMu.Lock()
+	stopFloorManager()
+	fmMu.Unlock()
+
+	// Close event bus (drains all subscriber workers)
+	eventBus.Close()
 
 	// Flush any pending batched state saves and do a final save
 	st.FlushPending()
@@ -987,7 +1182,7 @@ func (d *Daemon) DevRestart() {
 
 // startNudgeNikChecker starts a background goroutine that checks for inactive sessions
 // and automatically asks NudgeNik for consultation.
-func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func(), logger *log.Logger) {
+func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, eventBus *bus.Bus, logger *log.Logger) {
 	// Check every 15 seconds
 	pollInterval := 15 * time.Second
 	ticker := time.NewTicker(pollInterval)
@@ -1004,7 +1199,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 	for {
 		select {
 		case <-ticker.C:
-			checkInactiveSessionsForNudge(ctx, cfg, st, sm, onUpdate, logger)
+			checkInactiveSessionsForNudge(ctx, cfg, st, sm, eventBus, logger)
 		case <-ctx.Done():
 			return
 		}
@@ -1012,7 +1207,7 @@ func startNudgeNikChecker(ctx context.Context, cfg *config.Config, st *state.Sta
 }
 
 // checkInactiveSessionsForNudge checks all sessions for inactivity and asks NudgeNik if needed.
-func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, onUpdate func(), logger *log.Logger) {
+func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *state.State, sm *session.Manager, eventBus *bus.Bus, logger *log.Logger) {
 	// Check if nudgenik is enabled (non-empty target)
 	target := cfg.GetNudgenikTarget()
 	if target == "" {
@@ -1052,17 +1247,11 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 		logger.Info("asking", "session_id", sess.ID, "target", targetName)
 		nudge := askNudgeNikForSession(ctx, cfg, sess, logger)
 		if nudge != "" {
-			sess.Nudge = nudge
-			if err := st.UpdateSession(sess); err != nil {
-				logger.Error("failed to save nudge", "session_id", sess.ID, "err", err)
-			} else if err := st.Save(); err != nil {
-				logger.Error("failed to persist state", "session_id", sess.ID, "err", err)
-			} else {
-				logger.Info("saved nudge", "session_id", sess.ID)
-				if onUpdate != nil {
-					onUpdate()
-				}
-			}
+			eventBus.Publish(bus.Event{
+				Type:      "nudgenik.result",
+				SessionID: sess.ID,
+				Payload:   bus.NudgenikPayload{State: nudge},
+			})
 		}
 	}
 }

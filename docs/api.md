@@ -165,7 +165,10 @@ Response:
         "running": true,
         "attach_cmd": "tmux attach ...",
         "nudge_state": "optional",
-        "nudge_summary": "optional"
+        "nudge_summary": "optional",
+        "nudge_seq": 0,
+        "is_floor_manager": false,
+        "escalation": "optional — active escalation message from floor manager"
       }
     ],
     "previews": [
@@ -562,6 +565,64 @@ Errors:
 
 - 409 with JSON: `{"error":"nickname already in use"}`
 - 500: "Failed to rename session: ..."
+
+### GET /api/floor-manager
+
+Returns floor manager runtime status.
+
+Request: none
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "session_id": "fm-abc123",
+  "running": true,
+  "injection_count": 42,
+  "rotation_threshold": 150
+}
+```
+
+Fields:
+
+- `enabled` -- whether the floor manager is enabled in config
+- `session_id` -- the active floor manager session ID, or `null` if none exists
+- `running` -- whether the floor manager tmux session is currently running
+- `injection_count` -- number of signals injected in the current session
+- `rotation_threshold` -- configured injection count before context rotation
+
+Errors:
+
+- 405: "method not allowed" (non-GET requests)
+
+
+### POST /api/escalate
+
+Sets an escalation message on the floor manager session. Triggers a sound and browser notification on the dashboard.
+
+Request body:
+
+```json
+{ "message": "Agent X is stuck on auth — needs human review" }
+```
+
+Response: 200 OK (empty body)
+
+Errors:
+
+- 400: "message is required"
+- 404: "floor manager session not found"
+
+### DELETE /api/escalate
+
+Clears the active escalation on the floor manager session.
+
+Response: 200 OK (empty body)
+
+Errors:
+
+- 404: "floor manager session not found"
 
 ### GET /api/config
 

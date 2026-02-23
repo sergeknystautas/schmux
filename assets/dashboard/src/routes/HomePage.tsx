@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import '@xterm/xterm/css/xterm.css';
+import TerminalStream from '../lib/terminalStream';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
 import { useToast } from '../components/ToastProvider';
 import Tooltip from '../components/Tooltip';
+import { useFloorManager } from '../hooks/useFloorManager';
 import {
   scanWorkspaces,
   getRecentBranches,
@@ -14,12 +17,13 @@ import {
   checkoutPR,
   getOverlays,
   dismissOverlayNudge,
+  dismissEscalation,
   getErrorMessage,
   linearSyncFromMain,
   getGitGraph,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
-import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
+import type { RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import styles from '../styles/home.module.css';
 
@@ -232,6 +236,236 @@ const arrowUp = (
   </span>
 );
 
+// Shared sub-components used by both FM and non-FM layouts
+
+function HeroSection({ dismissed, onDismiss }: { dismissed: boolean; onDismiss: () => void }) {
+  if (dismissed) return null;
+  return (
+    <div className={styles.heroSection}>
+      <button className={styles.heroDismiss} onClick={onDismiss} title="Dismiss">
+        <CloseIcon />
+      </button>
+      <div className={styles.heroContent}>
+        <h1 className={styles.heroTitle}>
+          <span className={styles.heroIcon}>
+            <TerminalIcon />
+          </span>
+          schmux
+        </h1>
+        <p className={styles.heroSubtitle}>Multi-agent orchestration for AI coding assistants</p>
+      </div>
+    </div>
+  );
+}
+
+function RecentBranchesSection({
+  branches,
+  loading,
+  refreshing,
+  onRefresh,
+  preparingBranch,
+  onBranchClick,
+}: {
+  branches: RecentBranch[];
+  loading: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+  preparingBranch: string | null;
+  onBranchClick: (repoName: string, branchName: string) => void;
+}) {
+  return (
+    <div className={styles.sectionCard} data-testid="recent-branches">
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>
+          <GitBranchIcon />
+          Recent Branches
+        </h2>
+        <button
+          className={styles.scanButton}
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Refresh branches from remote"
+        >
+          <RefreshIcon />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      <div className={styles.sectionContent}>
+        {loading ? (
+          <div className={styles.loadingState}>
+            <div className="spinner spinner--small" />
+            <span>Loading branches...</span>
+          </div>
+        ) : branches.length === 0 ? (
+          <div className={styles.placeholderState}>
+            <p className={styles.placeholderText}>No branches found yet.</p>
+            <p className={styles.placeholderHint}>
+              Branches will appear after the first fetch completes.
+            </p>
+          </div>
+        ) : (
+          <div className={styles.branchList}>
+            {branches.slice(0, 5).map((branch, idx) => {
+              const key = `${branch.repo_name}:${branch.branch}`;
+              const isPreparing = preparingBranch === key;
+              return (
+                <button
+                  key={`${branch.repo_name}-${branch.branch}-${idx}`}
+                  className={styles.branchItem}
+                  data-testid="branch-item"
+                  onClick={() => onBranchClick(branch.repo_name, branch.branch)}
+                  title={`Spawn session on ${branch.branch}`}
+                  disabled={!!preparingBranch}
+                >
+                  <div className={styles.branchRow1}>
+                    <span className={styles.branchName}>
+                      {branch.branch}
+                      {isPreparing && (
+                        <span className={styles.branchSpinner}>
+                          <div className="spinner spinner--small" />
+                        </span>
+                      )}
+                    </span>
+                    <span className={styles.branchRepo}>{branch.repo_name}</span>
+                    <span className={styles.branchDate}>
+                      {formatRelativeDate(branch.commit_date)}
+                    </span>
+                  </div>
+                  <div className={styles.branchRow2}>
+                    <span className={styles.branchSubject}>{branch.subject}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PullRequestsSection({
+  prs,
+  loading,
+  refreshing,
+  onRefresh,
+  checkingOutPR,
+  onPRClick,
+  hasPrReviewTarget,
+  toastError,
+}: {
+  prs: PullRequest[];
+  loading: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+  checkingOutPR: string | null;
+  onPRClick: (pr: PullRequest) => void;
+  hasPrReviewTarget: () => boolean;
+  toastError: (msg: string) => void;
+}) {
+  return (
+    <div className={styles.sectionCard}>
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>
+          <GitPullRequestIcon />
+          Pull Requests
+        </h2>
+        <button
+          className={styles.scanButton}
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Refresh pull requests from GitHub"
+        >
+          <RefreshIcon />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      <div className={styles.sectionContent}>
+        {loading ? (
+          <div className={styles.loadingState}>
+            <div className="spinner spinner--small" />
+            <span>Loading pull requests...</span>
+          </div>
+        ) : prs.length === 0 ? (
+          <div className={styles.placeholderState}>
+            <p className={styles.placeholderText}>No open pull requests found.</p>
+            <p className={styles.placeholderHint}>PRs from public GitHub repos will appear here.</p>
+          </div>
+        ) : (
+          <div className={styles.branchList}>
+            {prs.map((pr) => {
+              const checkoutKey = `${pr.repo_url}#${pr.number}`;
+              const isCheckingOut = checkingOutPR === checkoutKey;
+              const isBusy = checkingOutPR !== null;
+              const canCheckout = hasPrReviewTarget();
+              return (
+                <div
+                  key={checkoutKey}
+                  className={styles.branchItem}
+                  onClick={() => {
+                    if (isBusy) return;
+                    if (!canCheckout) {
+                      toastError('No PR review target configured. Set pr_review.target in config.');
+                      return;
+                    }
+                    onPRClick(pr);
+                  }}
+                  onKeyDown={(event) => {
+                    if (isBusy) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      if (!canCheckout) {
+                        toastError(
+                          'No PR review target configured. Set pr_review.target in config.'
+                        );
+                        return;
+                      }
+                      onPRClick(pr);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-disabled={isBusy || !canCheckout}
+                  data-disabled={!canCheckout}
+                  data-busy={isBusy}
+                  title={`Review PR #${pr.number}: ${pr.title}`}
+                >
+                  <div className={styles.branchRow1}>
+                    <span className={styles.branchName}>
+                      <a
+                        href={pr.html_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                      >
+                        #{pr.number}
+                      </a>{' '}
+                      {pr.title}
+                      {isCheckingOut && (
+                        <span className={styles.branchSpinner}>
+                          <div className="spinner spinner--small" />
+                        </span>
+                      )}
+                    </span>
+                    <span className={styles.branchRepo}>{pr.repo_name}</span>
+                    <span className={styles.branchDate}>{formatRelativeDate(pr.created_at)}</span>
+                  </div>
+                  <div className={styles.branchRow2}>
+                    <span className={styles.branchSubject}>
+                      {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   useRequireConfig();
   const { workspaces, loading: sessionsLoading, connected } = useSessions();
@@ -239,6 +473,7 @@ export default function HomePage() {
   const { success, error: toastError } = useToast();
   const { setPendingNavigation } = usePendingNavigation();
   const navigate = useNavigate();
+  const floorManager = useFloorManager();
 
   const [scanning, setScanning] = useState(false);
   const [recentBranches, setRecentBranches] = useState<RecentBranch[]>([]);
@@ -392,6 +627,7 @@ export default function HomePage() {
 
   // Handle pull all workspaces that are behind
   const [pulling, setPulling] = useState(false);
+  const [pullProgress, setPullProgress] = useState('');
   const handlePull = async () => {
     const behindWorkspaces = workspaces.filter((ws) => ws.git_behind > 0);
     if (behindWorkspaces.length === 0) {
@@ -399,23 +635,28 @@ export default function HomePage() {
       return;
     }
     setPulling(true);
-    let pulled = 0;
-    let failed = 0;
-    for (const ws of behindWorkspaces) {
-      try {
+    setPullProgress(`Pulling 0/${behindWorkspaces.length}...`);
+
+    const total = behindWorkspaces.length;
+    let completed = 0;
+
+    const results = await Promise.allSettled(
+      behindWorkspaces.map(async (ws) => {
         const graph = await getGitGraph(ws.id, { maxTotal: 1, mainContext: 1 });
         const hash = graph.main_ahead_next_hash;
-        if (!hash) {
-          failed++;
-          continue;
-        }
+        if (!hash) throw new Error('no hash');
         await linearSyncFromMain(ws.id, hash);
-        pulled++;
-      } catch {
-        failed++;
-      }
-    }
+        completed++;
+        setPullProgress(`Pulling ${completed}/${total}...`);
+        return ws.branch;
+      })
+    );
+
     setPulling(false);
+    setPullProgress('');
+
+    const pulled = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
     if (failed > 0) {
       toastError(`Pulled ${pulled} workspace${pulled !== 1 ? 's' : ''}, ${failed} failed`);
     } else {
@@ -441,37 +682,254 @@ export default function HomePage() {
 
   const loading = sessionsLoading || configLoading;
 
+  // Filter out the floor manager's placeholder workspace from display lists
+  const visibleWorkspaces = useMemo(
+    () => workspaces.filter((ws) => !ws.sessions?.some((s) => s.is_floor_manager)),
+    [workspaces]
+  );
+
+  // Floor manager terminal state
+  const fmActive = floorManager.enabled && !!floorManager.sessionId;
+  const terminalRef = useRef<HTMLDivElement | null>(null);
+  const terminalStreamRef = useRef<TerminalStream | null>(null);
+  const [fmWsStatus, setFmWsStatus] = useState<
+    'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'
+  >('connecting');
+  const [showResume, setShowResume] = useState(false);
+
+  useEffect(() => {
+    if (!floorManager.sessionId || !terminalRef.current) return;
+    if (configLoading) return;
+
+    const terminalStream = new TerminalStream(floorManager.sessionId, terminalRef.current, {
+      followTail: true,
+      onStatusChange: (status) => setFmWsStatus(status),
+      onResume: (showing) => setShowResume(showing),
+    });
+
+    terminalStreamRef.current = terminalStream;
+
+    terminalStream.initialized.then(() => {
+      terminalStream.connect();
+    });
+
+    return () => {
+      terminalStream.disconnect();
+      terminalStreamRef.current = null;
+    };
+  }, [floorManager.sessionId, configLoading]);
+
+  if (fmActive) {
+    return (
+      <div className={styles.homePageFM}>
+        {/* Left Column — Hero + Floor Manager Terminal */}
+        <div className={styles.leftColumnFM}>
+          <HeroSection dismissed={heroDismissed} onDismiss={handleDismissHero} />
+
+          {/* Escalation Banner */}
+          {floorManager.escalation && (
+            <div className={styles.escalationBanner}>
+              <span className={styles.escalationIcon}>!</span>
+              <span className={styles.escalationMessage}>{floorManager.escalation}</span>
+              <button
+                className={styles.escalationDismiss}
+                onClick={() =>
+                  dismissEscalation().catch((err) =>
+                    toastError(getErrorMessage(err, 'Failed to dismiss escalation'))
+                  )
+                }
+                title="Dismiss escalation"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
+          {/* Floor Manager Terminal */}
+          <div className={styles.fmTerminalContainer}>
+            <div className={styles.fmTerminalTitleBar}>
+              <span>Floor Manager Terminal</span>
+              {!floorManager.running && (
+                <span style={{ color: 'var(--color-warning)' }}>(stopped)</span>
+              )}
+              <span
+                className={styles.fmStatusDot}
+                style={{
+                  background:
+                    fmWsStatus === 'connected'
+                      ? 'var(--color-success)'
+                      : fmWsStatus === 'disconnected'
+                        ? 'var(--color-error)'
+                        : 'var(--color-warning)',
+                }}
+                title={
+                  fmWsStatus === 'connected'
+                    ? 'Live'
+                    : fmWsStatus === 'disconnected'
+                      ? 'Offline'
+                      : 'Connecting...'
+                }
+              />
+            </div>
+            <div ref={terminalRef} className={styles.fmTerminalBody} />
+            {showResume && (
+              <button
+                className="log-viewer__new-content"
+                onClick={() => {
+                  terminalStreamRef.current?.jumpToBottom();
+                  terminalStreamRef.current?.focus();
+                }}
+              >
+                Resume
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column — Branches, PRs, Workspaces */}
+        <div className={styles.rightColumnFM}>
+          <RecentBranchesSection
+            branches={recentBranches}
+            loading={branchesLoading}
+            refreshing={branchesRefreshing}
+            onRefresh={handleRefreshBranches}
+            preparingBranch={preparingBranch}
+            onBranchClick={handleBranchClick}
+          />
+
+          <PullRequestsSection
+            prs={pullRequests}
+            loading={prsLoading}
+            refreshing={prsRefreshing}
+            onRefresh={handleRefreshPRs}
+            checkingOutPR={checkingOutPR}
+            onPRClick={handlePRClick}
+            hasPrReviewTarget={hasPrReviewTarget}
+            toastError={toastError}
+          />
+
+          {/* Active Workspaces */}
+          <div className={styles.sectionCard}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <FolderIcon />
+                Active Workspaces ({visibleWorkspaces.length})
+              </h2>
+              <button
+                className={styles.scanButton}
+                onClick={handleScan}
+                disabled={scanning}
+                title="Scan for workspace changes"
+                data-testid="scan-workspaces"
+              >
+                <ScanIcon />
+                {scanning ? 'Scanning...' : 'Scan'}
+              </button>
+            </div>
+
+            <div className={styles.sectionContent}>
+              {loading ? (
+                <div className={styles.loadingState}>
+                  <div className="spinner spinner--small" />
+                  <span>Loading workspaces...</span>
+                </div>
+              ) : visibleWorkspaces.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <p className={styles.emptyStateText}>No active workspaces</p>
+                  <p className={styles.emptyStateHint}>
+                    Spawn a session to create your first workspace
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.workspaceTable} data-testid="workspace-list">
+                  <div className={styles.tableHeader}>
+                    <span className={styles.headerCell}>Workspace</span>
+                    <span className={styles.headerCellRight}>Sessions</span>
+                  </div>
+                  <div className={styles.tableBody}>
+                    {visibleWorkspaces.map((ws) => {
+                      const runningCount = ws.sessions.filter((s) => s.running).length;
+                      return (
+                        <button
+                          key={ws.id}
+                          className={styles.workspaceRow}
+                          onClick={() => handleWorkspaceClick(ws.id)}
+                          type="button"
+                          data-testid={`workspace-${ws.id}`}
+                        >
+                          <div className={styles.workspaceInfo}>
+                            <span className={styles.workspaceBranch}>{ws.branch}</span>
+                            <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
+                          </div>
+                          <div className={styles.workspaceStats}>
+                            <span className={styles.sessionCount}>{ws.session_count}</span>
+                            {runningCount > 0 && (
+                              <span
+                                className={styles.runningBadge}
+                                title={`${runningCount} running`}
+                              >
+                                <span className={styles.runningDot} />
+                                {runningCount}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Spawn CTA when no workspaces */}
+          {visibleWorkspaces.length === 0 && (
+            <Link to="/spawn" className={styles.primaryAction} data-testid="spawn-new-session">
+              <span className={styles.primaryActionIcon}>
+                <RocketIcon />
+              </span>
+              <span className={styles.primaryActionText}>
+                <span className={styles.primaryActionTitle}>Spawn New Session</span>
+                <span className={styles.primaryActionHint}>Start your first AI coding session</span>
+              </span>
+              <span className={styles.primaryActionArrow}>
+                <ChevronRightIcon />
+              </span>
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.homePage}>
       {/* Left Column - Quick Actions */}
       <div className={styles.leftColumn}>
-        {/* Hero Section - dismissable */}
-        {!heroDismissed && (
-          <div className={styles.heroSection}>
-            <button
-              className={styles.heroDismiss}
-              onClick={handleDismissHero}
-              title="Dismiss"
-              aria-label="Dismiss hero banner"
-            >
-              <CloseIcon />
-            </button>
-            <div className={styles.heroContent}>
-              <h1 className={styles.heroTitle}>
-                <span className={styles.heroIcon}>
-                  <TerminalIcon />
-                </span>
-                schmux
-              </h1>
-              <p className={styles.heroSubtitle}>
-                Multi-agent orchestration for AI coding assistants
-              </p>
-            </div>
+        <HeroSection dismissed={heroDismissed} onDismiss={handleDismissHero} />
+
+        {/* FM enabled but not yet spawned indicator */}
+        {floorManager.enabled && !floorManager.sessionId && !floorManager.loading && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--spacing-sm)',
+              padding: 'var(--spacing-sm) var(--spacing-md)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.8rem',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            <div className="spinner spinner--small" />
+            <span>Floor Manager starting...</span>
           </div>
         )}
 
         {/* Primary Action - Spawn New Session (only when no workspaces) */}
-        {workspaces.length === 0 && (
+        {visibleWorkspaces.length === 0 && (
           <Link to="/spawn" className={styles.primaryAction} data-testid="spawn-new-session">
             <span className={styles.primaryActionIcon}>
               <RocketIcon />
@@ -486,181 +944,25 @@ export default function HomePage() {
           </Link>
         )}
 
-        {/* Recent Branches Section */}
-        <div className={styles.sectionCard} data-testid="recent-branches">
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <GitBranchIcon />
-              Recent Branches
-            </h2>
-            <button
-              className={styles.scanButton}
-              onClick={handleRefreshBranches}
-              disabled={branchesRefreshing}
-              title="Refresh branches from remote"
-            >
-              <RefreshIcon />
-              {branchesRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
-          <div className={styles.sectionContent}>
-            {branchesLoading ? (
-              <div className={styles.loadingState}>
-                <div className="spinner spinner--small" />
-                <span>Loading branches...</span>
-              </div>
-            ) : recentBranches.length === 0 ? (
-              <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>No branches found yet.</p>
-                <p className={styles.placeholderHint}>
-                  Branches will appear after the first fetch completes.
-                </p>
-              </div>
-            ) : (
-              <div className={styles.branchList}>
-                {recentBranches.slice(0, 5).map((branch, idx) => {
-                  const key = `${branch.repo_name}:${branch.branch}`;
-                  const isPreparing = preparingBranch === key;
-                  return (
-                    <button
-                      key={`${branch.repo_name}-${branch.branch}-${idx}`}
-                      className={styles.branchItem}
-                      data-testid="branch-item"
-                      onClick={() => handleBranchClick(branch.repo_name, branch.branch)}
-                      title={`Spawn session on ${branch.branch}`}
-                      disabled={!!preparingBranch}
-                    >
-                      <div className={styles.branchRow1}>
-                        <span className={styles.branchName}>
-                          {branch.branch}
-                          {isPreparing && (
-                            <span className={styles.branchSpinner}>
-                              <div className="spinner spinner--small" />
-                            </span>
-                          )}
-                        </span>
-                        <span className={styles.branchRepo}>{branch.repo_name}</span>
-                        <span className={styles.branchDate}>
-                          {formatRelativeDate(branch.commit_date)}
-                        </span>
-                      </div>
-                      <div className={styles.branchRow2}>
-                        <span className={styles.branchSubject}>{branch.subject}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <RecentBranchesSection
+          branches={recentBranches}
+          loading={branchesLoading}
+          refreshing={branchesRefreshing}
+          onRefresh={handleRefreshBranches}
+          preparingBranch={preparingBranch}
+          onBranchClick={handleBranchClick}
+        />
 
-        {/* Pull Requests Section */}
-        <div className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <GitPullRequestIcon />
-              Pull Requests
-            </h2>
-            <button
-              className={styles.scanButton}
-              onClick={handleRefreshPRs}
-              disabled={prsRefreshing}
-              title="Refresh pull requests from GitHub"
-            >
-              <RefreshIcon />
-              {prsRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
-          <div className={styles.sectionContent}>
-            {prsLoading ? (
-              <div className={styles.loadingState}>
-                <div className="spinner spinner--small" />
-                <span>Loading pull requests...</span>
-              </div>
-            ) : pullRequests.length === 0 ? (
-              <div className={styles.placeholderState}>
-                <p className={styles.placeholderText}>No open pull requests found.</p>
-                <p className={styles.placeholderHint}>
-                  PRs from public GitHub repos will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className={styles.branchList}>
-                {pullRequests.map((pr) => {
-                  const checkoutKey = `${pr.repo_url}#${pr.number}`;
-                  const isCheckingOut = checkingOutPR === checkoutKey;
-                  const isBusy = checkingOutPR !== null;
-                  const canCheckout = hasPrReviewTarget();
-                  return (
-                    <div
-                      key={checkoutKey}
-                      className={styles.branchItem}
-                      onClick={() => {
-                        if (isBusy) return;
-                        if (!canCheckout) {
-                          toastError(
-                            'No PR review target configured. Set pr_review.target in config.'
-                          );
-                          return;
-                        }
-                        handlePRClick(pr);
-                      }}
-                      onKeyDown={(event) => {
-                        if (isBusy) return;
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          if (!canCheckout) {
-                            toastError(
-                              'No PR review target configured. Set pr_review.target in config.'
-                            );
-                            return;
-                          }
-                          handlePRClick(pr);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-disabled={isBusy || !canCheckout}
-                      data-disabled={!canCheckout}
-                      data-busy={isBusy}
-                      title={`Review PR #${pr.number}: ${pr.title}`}
-                    >
-                      <div className={styles.branchRow1}>
-                        <span className={styles.branchName}>
-                          <a
-                            href={pr.html_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ color: 'inherit', textDecoration: 'none' }}
-                          >
-                            #{pr.number}
-                          </a>{' '}
-                          {pr.title}
-                          {isCheckingOut && (
-                            <span className={styles.branchSpinner}>
-                              <div className="spinner spinner--small" />
-                            </span>
-                          )}
-                        </span>
-                        <span className={styles.branchRepo}>{pr.repo_name}</span>
-                        <span className={styles.branchDate}>
-                          {formatRelativeDate(pr.created_at)}
-                        </span>
-                      </div>
-                      <div className={styles.branchRow2}>
-                        <span className={styles.branchSubject}>
-                          {pr.source_branch} &rarr; {pr.target_branch} &middot; @{pr.author}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <PullRequestsSection
+          prs={pullRequests}
+          loading={prsLoading}
+          refreshing={prsRefreshing}
+          onRefresh={handleRefreshPRs}
+          checkingOutPR={checkingOutPR}
+          onPRClick={handlePRClick}
+          hasPrReviewTarget={hasPrReviewTarget}
+          toastError={toastError}
+        />
       </div>
 
       {/* Right Column - Workspaces */}
@@ -669,7 +971,7 @@ export default function HomePage() {
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>
               <FolderIcon />
-              Active Workspaces ({workspaces.length})
+              Active Workspaces ({visibleWorkspaces.length})
             </h2>
             <div className={styles.headerActions}>
               <Tooltip content="Sync workspaces that are behind main">
@@ -680,7 +982,7 @@ export default function HomePage() {
                     disabled={pulling || workspaces.filter((ws) => ws.git_behind > 0).length === 0}
                     data-testid="pull-workspaces"
                   >
-                    {pulling ? 'Pulling...' : 'Pull'}
+                    {pulling ? pullProgress || 'Pulling...' : 'Pull'}
                   </button>
                 </span>
               </Tooltip>
@@ -706,7 +1008,7 @@ export default function HomePage() {
                 <div className="spinner spinner--small" />
                 <span>Loading workspaces...</span>
               </div>
-            ) : workspaces.length === 0 ? (
+            ) : visibleWorkspaces.length === 0 ? (
               <div className={styles.emptyState}>
                 <p className={styles.emptyStateText}>No active workspaces</p>
                 <p className={styles.emptyStateHint}>
@@ -716,7 +1018,7 @@ export default function HomePage() {
             ) : (
               <div className={styles.workspaceTable} data-testid="workspace-list">
                 <div className={styles.tableBody}>
-                  {workspaces.map((ws) => {
+                  {visibleWorkspaces.map((ws) => {
                     const runningCount = ws.sessions.filter((s) => s.running).length;
                     return (
                       <button

@@ -154,6 +154,9 @@ export default function ConfigPage() {
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
             remoteAccessPasswordHashSet: data.remote_access?.password_hash_set || false,
+            floorManagerEnabled: data.floor_manager?.enabled || false,
+            floorManagerTarget: data.floor_manager?.target || '',
+            floorManagerRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             desyncEnabled: data.desync?.enabled || false,
             desyncTarget: data.desync?.target || '',
             models: data.models || [],
@@ -205,6 +208,9 @@ export default function ConfigPage() {
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
+            floorManagerEnabled: data.floor_manager?.enabled || false,
+            floorManagerTarget: data.floor_manager?.target || '',
+            floorManagerRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             desyncEnabled: data.desync?.enabled || false,
             desyncTarget: data.desync?.target || '',
           };
@@ -409,6 +415,11 @@ export default function ConfigPage() {
           llm_target: state.loreLLMTarget,
           curate_on_dispose: state.loreCurateOnDispose,
           auto_pr: state.loreAutoPR,
+        },
+        floor_manager: {
+          enabled: state.floorManagerEnabled,
+          target: state.floorManagerTarget,
+          rotation_threshold: state.floorManagerRotationThreshold,
         },
         model_versions: state.modelVersions,
         remote_access: {
@@ -1133,6 +1144,9 @@ export default function ConfigPage() {
 
           {currentTab === 6 && (
             <AdvancedTab
+              floorManagerEnabled={state.floorManagerEnabled}
+              floorManagerTarget={state.floorManagerTarget}
+              floorManagerRotationThreshold={state.floorManagerRotationThreshold}
               loreEnabled={state.loreEnabled}
               loreLLMTarget={state.loreLLMTarget}
               loreCurateOnDispose={state.loreCurateOnDispose}

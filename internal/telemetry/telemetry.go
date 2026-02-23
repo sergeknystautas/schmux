@@ -94,14 +94,43 @@ func New(installID string, logger *log.Logger) Telemetry {
 	return c
 }
 
+// allowedPropertyKeys defines the set of property keys that may be sent to PostHog.
+// Any property not in this set is silently dropped to prevent accidental PII leakage.
+var allowedPropertyKeys = map[string]bool{
+	"agent":           true,
+	"branch":          true,
+	"command":         true,
+	"count":           true,
+	"default_branch":  true,
+	"duration_ms":     true,
+	"error":           true,
+	"feature":         true,
+	"method":          true,
+	"mode":            true,
+	"os":              true,
+	"repo":            true,
+	"repo_host":       true,
+	"result":          true,
+	"session_count":   true,
+	"session_id":      true,
+	"source":          true,
+	"target":          true,
+	"type":            true,
+	"version":         true,
+	"workspace_count": true,
+	"workspace_id":    true,
+}
+
 // Track queues an event to be sent to PostHog.
 // This method is non-blocking and returns immediately.
 // If the event queue is full, the oldest event is dropped.
 func (c *Client) Track(event string, properties map[string]any) {
-	// Copy properties to avoid mutations
+	// Copy properties to avoid mutations, filtering to allowed keys only
 	props := make(map[string]any, len(properties))
 	for k, v := range properties {
-		props[k] = v
+		if allowedPropertyKeys[k] {
+			props[k] = v
+		}
 	}
 
 	evt := Event{

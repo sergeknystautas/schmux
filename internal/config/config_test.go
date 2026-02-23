@@ -1852,6 +1852,42 @@ func TestPopulateBarePaths_AlreadySet(t *testing.T) {
 	}
 }
 
+func TestFloorManagerConfig(t *testing.T) {
+	raw := `{"workspace_path": "/tmp", "repos": [], "run_targets": [], "floor_manager": {"enabled": true, "target": "claude-sonnet", "rotation_threshold": 200}}`
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FloorManager == nil {
+		t.Fatal("expected floor_manager to be parsed")
+	}
+	if !cfg.FloorManager.Enabled {
+		t.Error("expected enabled=true")
+	}
+	if cfg.FloorManager.Target != "claude-sonnet" {
+		t.Errorf("expected target=claude-sonnet, got %s", cfg.FloorManager.Target)
+	}
+	if cfg.FloorManager.RotationThreshold != 200 {
+		t.Errorf("expected rotation_threshold=200, got %d", cfg.FloorManager.RotationThreshold)
+	}
+}
+
+func TestFloorManagerConfigDefaults(t *testing.T) {
+	cfg := &Config{}
+	if cfg.FloorManager != nil {
+		t.Error("expected nil floor_manager when not configured")
+	}
+	if cfg.GetFloorManagerEnabled() {
+		t.Error("expected disabled by default")
+	}
+	if cfg.GetFloorManagerTarget() != "" {
+		t.Error("expected empty target by default")
+	}
+	if cfg.GetFloorManagerRotationThreshold() != 150 {
+		t.Errorf("expected default rotation_threshold=150, got %d", cfg.GetFloorManagerRotationThreshold())
+	}
+}
+
 func TestValidate_NegativeCases(t *testing.T) {
 	prompt := "do something"
 

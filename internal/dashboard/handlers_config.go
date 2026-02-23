@@ -212,6 +212,11 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 				Command:   s.config.GetRemoteAccessNotifyCommand(),
 			},
 		},
+		FloorManager: contracts.FloorManager{
+			Enabled:           s.config.GetFloorManagerEnabled(),
+			Target:            s.config.GetFloorManagerTarget(),
+			RotationThreshold: s.config.GetFloorManagerRotationThreshold(),
+		},
 		NeedsRestart: s.state.GetNeedsRestart(),
 	}
 
@@ -242,6 +247,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	oldNetwork := cloneNetwork(cfg.Network)
 	oldAccessControl := cloneAccessControl(cfg.AccessControl)
 	oldRepos := cfg.GetRepos()
+	oldFloorManagerEnabled := cfg.GetFloorManagerEnabled()
+	oldFloorManagerTarget := cfg.GetFloorManagerTarget()
 
 	// Check for workspace path change (for warning after save)
 	sessionCount := len(s.state.GetSessions())
@@ -545,6 +552,21 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		cfg.SetModelVersions(*req.ModelVersions)
 	}
 
+	if req.FloorManager != nil {
+		if cfg.FloorManager == nil {
+			cfg.FloorManager = &config.FloorManagerConfig{}
+		}
+		if req.FloorManager.Enabled != nil {
+			cfg.FloorManager.Enabled = *req.FloorManager.Enabled
+		}
+		if req.FloorManager.Target != nil {
+			cfg.FloorManager.Target = strings.TrimSpace(*req.FloorManager.Target)
+		}
+		if req.FloorManager.RotationThreshold != nil && *req.FloorManager.RotationThreshold > 0 {
+			cfg.FloorManager.RotationThreshold = *req.FloorManager.RotationThreshold
+		}
+	}
+
 	if req.RemoteAccess != nil {
 		if cfg.RemoteAccess == nil {
 			cfg.RemoteAccess = &config.RemoteAccessConfig{}
@@ -610,6 +632,19 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Refresh lore curator executor when lore target changes
 	s.refreshLoreCurator(cfg)
+
+	// Toggle floor manager if enabled state or target changed
+	newFloorManagerEnabled := cfg.GetFloorManagerEnabled()
+	newFloorManagerTarget := cfg.GetFloorManagerTarget()
+	if s.floorManagerToggle != nil {
+		if newFloorManagerEnabled != oldFloorManagerEnabled {
+			go s.floorManagerToggle(newFloorManagerEnabled)
+		} else if newFloorManagerEnabled && newFloorManagerTarget != oldFloorManagerTarget {
+			// Target changed while enabled — single toggle call handles restart
+			// atomically under fmMu (stops old, starts new).
+			go s.floorManagerToggle(true)
+		}
+	}
 
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()

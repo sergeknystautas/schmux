@@ -280,6 +280,114 @@ func TestBroadcastToSession(t *testing.T) {
 	})
 }
 
+func TestSetFloorManager(t *testing.T) {
+	t.Run("set and clear floor manager", func(t *testing.T) {
+		s := &Server{}
+
+		if s.floorManager != nil {
+			t.Error("floorManager should be nil initially")
+		}
+
+		mock := &mockFloorManager{sessionID: "fm-1", injectionCount: 5}
+		s.SetFloorManager(mock)
+
+		if s.floorManager == nil {
+			t.Fatal("floorManager should be set after SetFloorManager")
+		}
+		if s.floorManager.GetSessionID() != "fm-1" {
+			t.Errorf("GetSessionID() = %q, want %q", s.floorManager.GetSessionID(), "fm-1")
+		}
+		if s.floorManager.GetInjectionCount() != 5 {
+			t.Errorf("GetInjectionCount() = %d, want 5", s.floorManager.GetInjectionCount())
+		}
+
+		s.SetFloorManager(nil)
+		if s.floorManager != nil {
+			t.Error("floorManager should be nil after SetFloorManager(nil)")
+		}
+	})
+}
+
+func TestSetFloorManagerToggle(t *testing.T) {
+	t.Run("stores and invokes toggle callback", func(t *testing.T) {
+		s := &Server{}
+
+		if s.floorManagerToggle != nil {
+			t.Error("floorManagerToggle should be nil initially")
+		}
+
+		var called bool
+		var calledWith bool
+		s.SetFloorManagerToggle(func(enabled bool) {
+			called = true
+			calledWith = enabled
+		})
+
+		if s.floorManagerToggle == nil {
+			t.Fatal("floorManagerToggle should be set")
+		}
+
+		s.floorManagerToggle(true)
+		if !called {
+			t.Error("toggle callback was not called")
+		}
+		if !calledWith {
+			t.Error("toggle callback was not called with enabled=true")
+		}
+
+		called = false
+		s.floorManagerToggle(false)
+		if !called {
+			t.Error("toggle callback was not called second time")
+		}
+		if calledWith {
+			t.Error("toggle callback was not called with enabled=false")
+		}
+	})
+}
+
+type mockFloorManager struct {
+	sessionID      string
+	injectionCount int
+}
+
+func (m *mockFloorManager) GetSessionID() string   { return m.sessionID }
+func (m *mockFloorManager) GetInjectionCount() int { return m.injectionCount }
+
+func TestCheckWSOriginWithTunnel(t *testing.T) {
+	cfg := &config.Config{
+		Network: &config.NetworkConfig{Port: 7337},
+	}
+	s := &Server{config: cfg}
+
+	// Without tunnel, non-localhost origin rejected, empty allowed
+	req := &http.Request{Header: http.Header{"Origin": []string{"https://evil.com"}}}
+	if s.checkWSOrigin(req) {
+		t.Error("should reject unknown origin without tunnel")
+	}
+	reqEmpty := &http.Request{Header: http.Header{}}
+	if !s.checkWSOrigin(reqEmpty) {
+		t.Error("should allow empty origin without tunnel")
+	}
+
+	// Simulate active tunnel (set session secret)
+	s.remoteSessionSecret = []byte("test-secret")
+
+	// With tunnel active, must validate origin strictly
+	if s.checkWSOrigin(req) {
+		t.Error("should reject unknown origin with active tunnel")
+	}
+	if s.checkWSOrigin(reqEmpty) {
+		t.Error("should reject empty origin with active tunnel")
+	}
+
+	// Localhost should still be allowed with tunnel
+	reqLocal := &http.Request{Header: http.Header{"Origin": []string{"http://localhost:7337"}}}
+	if !s.checkWSOrigin(reqLocal) {
+		t.Error("should allow localhost origin with active tunnel")
+	}
+}
+
 func TestDevProxyHandler(t *testing.T) {
 	// Create a mock Vite server
 	viteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

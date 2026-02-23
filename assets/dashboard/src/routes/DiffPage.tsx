@@ -89,7 +89,7 @@ export default function DiffPage() {
     if (!workspaceId) return;
     setExecutingDiff(cmd.name);
     try {
-      const response = await diffExternal(workspaceId, cmd.command);
+      const response = await diffExternal(workspaceId, cmd.name);
       const title = response.success ? 'Diff tool opened' : 'Failed to open diff tool';
       await alert(title, response.message);
     } catch (err) {

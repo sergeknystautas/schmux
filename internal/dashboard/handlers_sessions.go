@@ -17,19 +17,21 @@ import (
 
 // SessionResponseItem represents a session in the API response.
 type SessionResponseItem struct {
-	ID           string `json:"id"`
-	Target       string `json:"target"`
-	Branch       string `json:"branch"`
-	BranchURL    string `json:"branch_url,omitempty"`
-	Nickname     string `json:"nickname,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	LastOutputAt string `json:"last_output_at,omitempty"`
-	Running      bool   `json:"running"`
-	Status       string `json:"status,omitempty"` // "provisioning", "running", "failed" for remote sessions
-	AttachCmd    string `json:"attach_cmd"`
-	NudgeState   string `json:"nudge_state,omitempty"`
-	NudgeSummary string `json:"nudge_summary,omitempty"`
-	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
+	ID             string `json:"id"`
+	Target         string `json:"target"`
+	Branch         string `json:"branch"`
+	BranchURL      string `json:"branch_url,omitempty"`
+	Nickname       string `json:"nickname,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	LastOutputAt   string `json:"last_output_at,omitempty"`
+	Running        bool   `json:"running"`
+	Status         string `json:"status,omitempty"` // "provisioning", "running", "failed" for remote sessions
+	AttachCmd      string `json:"attach_cmd"`
+	NudgeState     string `json:"nudge_state,omitempty"`
+	NudgeSummary   string `json:"nudge_summary,omitempty"`
+	NudgeSeq       uint64 `json:"nudge_seq,omitempty"`
+	IsFloorManager bool   `json:"is_floor_manager,omitempty"`
+	Escalation     string `json:"escalation,omitempty"`
 	// Remote session fields
 	RemoteHostID     string `json:"remote_host_id,omitempty"`
 	RemotePaneID     string `json:"remote_pane_id,omitempty"`
@@ -212,7 +214,13 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 		// Get workspace info
 		wsResp, ok := workspaceMap[sess.WorkspaceID]
 		if !ok {
-			continue
+			// Session has no matching workspace (e.g. floor manager uses WorkDir).
+			// Create a minimal placeholder so the session still appears in the response.
+			wsResp = &WorkspaceResponseItem{
+				ID:       sess.WorkspaceID,
+				Sessions: []SessionResponseItem{},
+			}
+			workspaceMap[sess.WorkspaceID] = wsResp
 		}
 
 		attachCmd, _ := s.session.GetAttachCommand(sess.ID)
@@ -262,6 +270,8 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			NudgeState:       nudgeState,
 			NudgeSummary:     nudgeSummary,
 			NudgeSeq:         sess.NudgeSeq,
+			IsFloorManager:   sess.IsFloorManager,
+			Escalation:       sess.Escalation,
 			RemoteHostID:     sess.RemoteHostID,
 			RemotePaneID:     sess.RemotePaneID,
 			RemoteHostname:   remoteHostname,

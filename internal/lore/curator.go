@@ -250,11 +250,15 @@ func ParseCuratorResponse(response string) (*CuratorResponse, error) {
 
 // ReadFileFromRepo reads a file from HEAD in a git repo (works with bare repos).
 func ReadFileFromRepo(ctx context.Context, repoDir, relPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "show", "HEAD:"+relPath)
+	cleaned := filepath.Clean(relPath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return "", fmt.Errorf("invalid relative path: %s", relPath)
+	}
+	cmd := exec.CommandContext(ctx, "git", "show", "HEAD:"+cleaned)
 	cmd.Dir = repoDir
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git show HEAD:%s failed: %w", relPath, err)
+		return "", fmt.Errorf("git show HEAD:%s failed: %w", cleaned, err)
 	}
 	return string(output), nil
 }

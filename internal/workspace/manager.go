@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/bus"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -50,7 +51,9 @@ type Manager struct {
 	onLockChangeFn       func(workspaceID string, locked bool)        // optional, called when lock state changes
 	compoundReconcile    func(workspaceID string)                     // reconcile overlay before dispose
 	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
+	eventBus             *bus.Bus                                     // event bus for lifecycle events
 	telemetry            telemetry.Telemetry                          // optional, for usage tracking
+	hooksDir             string                                       // absolute path to ~/.schmux/hooks/ for global hook scripts
 }
 
 // New creates a new workspace manager.
@@ -155,9 +158,24 @@ func (m *Manager) SetCompoundReconcile(fn func(workspaceID string)) {
 	m.compoundReconcile = fn
 }
 
+// SetBus sets the event bus for publishing lifecycle events.
+func (m *Manager) SetBus(b *bus.Bus) {
+	m.eventBus = b
+}
+
 // SetTelemetry sets the telemetry client for usage tracking.
 func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 	m.telemetry = t
+}
+
+// SetHooksDir sets the global hooks directory path for hook script references.
+func (m *Manager) SetHooksDir(dir string) {
+	m.hooksDir = dir
+}
+
+// GetHooksDir returns the global hooks directory path.
+func (m *Manager) GetHooksDir() string {
+	return m.hooksDir
 }
 
 // trackWorkspaceCreated sends a telemetry event for workspace creation.
@@ -507,6 +525,14 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, repoURL, branch)
 
+	// Notify about workspace creation
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type:    "workspace.created",
+			Payload: bus.LifecyclePayload{Message: fmt.Sprintf("Workspace created (branch=%s)", branch)},
+		})
+	}
+
 	return &w, nil
 }
 
@@ -584,6 +610,14 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, repoURL, branch)
+
+	// Notify about workspace creation
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type:    "workspace.created",
+			Payload: bus.LifecyclePayload{Message: fmt.Sprintf("Workspace created (branch=%s, local repo)", branch)},
+		})
+	}
 
 	return &w, nil
 }
@@ -821,6 +855,11 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 			continue
 		}
 
+		// Skip workspaces without a repo (e.g. floor manager)
+		if w.Repo == "" {
+			continue
+		}
+
 		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
@@ -888,6 +927,12 @@ func (m *Manager) Dispose(workspaceID string) error {
 		}
 		if err := m.state.Save(); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
+		}
+		if m.eventBus != nil {
+			m.eventBus.Publish(bus.Event{
+				Type:    "workspace.deleted",
+				Payload: bus.LifecyclePayload{Message: fmt.Sprintf("Workspace disposed (remote)")},
+			})
 		}
 		m.logger.Info("disposed (remote)", "id", workspaceID)
 		return nil
@@ -975,6 +1020,14 @@ func (m *Manager) Dispose(workspaceID string) error {
 
 	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
 		m.logger.Warn("failed to cleanup diff temp dirs", "id", workspaceID, "err", err)
+	}
+
+	// Notify about workspace disposal
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type:    "workspace.deleted",
+			Payload: bus.LifecyclePayload{Message: fmt.Sprintf("Workspace disposed (branch=%s)", w.Branch)},
+		})
 	}
 
 	m.logger.Info("disposed", "id", workspaceID)
@@ -1129,6 +1182,14 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, source.Repo, newBranch)
+
+	// Notify about workspace creation
+	if m.eventBus != nil {
+		m.eventBus.Publish(bus.Event{
+			Type:    "workspace.created",
+			Payload: bus.LifecyclePayload{Message: fmt.Sprintf("Workspace created (branch=%s, branched from %s)", newBranch, sourceWorkspaceID)},
+		})
+	}
 
 	return &w, nil
 }

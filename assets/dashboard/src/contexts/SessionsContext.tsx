@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
 import { playAttentionSound, isAttentionState, warmupAudioContext } from '../lib/notificationSound';
+import { requestNotificationPermission, showBrowserNotification } from '../lib/browserNotification';
 import { removePreviewIframe } from '../lib/previewKeepAlive';
 import type {
   SessionWithWorkspace,
@@ -132,15 +133,19 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     return map;
   }, [workspaces]);
 
-  // Detect nudge state changes and play notification sound
+  // Unified notification effect: plays sound for attention-worthy nudge changes
+  // and escalation alerts. At most one sound per update cycle (fixes double ping).
+  const lastEscalationRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    let shouldPlaySound = false;
+    if (config?.notifications?.sound_disabled) return;
 
+    let shouldPlaySound = false;
+    let escalationMessage: string | undefined;
+
+    // Check nudge seq changes (agent status transitions)
     Object.entries(sessionsById).forEach(([sessionId, session]) => {
       const nudgeSeq = session.nudge_seq ?? 0;
       if (nudgeSeq === 0) return;
-
-      // Skip if we already processed this exact seq in-memory
       if (lastProcessedNudgeRef.current[sessionId] === nudgeSeq) return;
       lastProcessedNudgeRef.current[sessionId] = nudgeSeq;
 
@@ -152,6 +157,24 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem(storageKey, String(nudgeSeq));
       }
     });
+
+    // Check escalation changes (floor manager alerts)
+    const fmSession = Object.values(sessionsById).find((s) => s.is_floor_manager);
+    const escalation = fmSession?.escalation;
+    if (escalation && escalation !== lastEscalationRef.current) {
+      shouldPlaySound = true;
+      escalationMessage = escalation;
+    }
+    lastEscalationRef.current = escalation;
+
+    // Single sound + optional browser notification
+    if (shouldPlaySound) {
+      playAttentionSound();
+    }
+    if (escalationMessage) {
+      requestNotificationPermission();
+      showBrowserNotification('schmux — Escalation', escalationMessage);
+    }
 
     // Cleanup: remove localStorage entries for sessions that no longer exist.
     // Throttled to once per minute to avoid scanning all localStorage keys on every update.
@@ -168,10 +191,6 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-    }
-
-    if (shouldPlaySound && !config?.notifications?.sound_disabled) {
-      playAttentionSound();
     }
   }, [sessionsById, config?.notifications?.sound_disabled]);
 

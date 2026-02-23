@@ -636,6 +636,8 @@ func TestTunnelE2E_WebSocket_DashboardAcceptsAuthenticatedRequest(t *testing.T) 
 	}
 	header := http.Header{}
 	header.Set("Cf-Connecting-IP", "203.0.113.50")
+	// Set Origin to tunnel URL — checkWSOrigin requires a valid origin when tunnel is active
+	header.Set("Origin", "https://test-tunnel.trycloudflare.com")
 
 	// Construct a cookie header manually
 	parsedURL, _ := url.Parse(tts.httpServer.URL)
@@ -660,8 +662,10 @@ func TestTunnelE2E_WebSocket_DashboardAllowsLocalWithoutAuth(t *testing.T) {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 2 * time.Second,
 	}
-	// No Cf-Connecting-IP header — genuine local connection
-	conn, _, err := dialer.Dial(wsURL, nil)
+	// Set Origin to localhost — checkWSOrigin requires a valid origin when tunnel is active
+	header := http.Header{}
+	header.Set("Origin", "http://localhost:7337")
+	conn, _, err := dialer.Dial(wsURL, header)
 	if err != nil {
 		t.Fatalf("local WebSocket connection should succeed without auth: %v", err)
 	}

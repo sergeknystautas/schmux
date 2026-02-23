@@ -14,10 +14,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -329,6 +327,28 @@ resizeWaitLoop:
 	var syncChecksSent atomic.Int64
 	var syncCorrections atomic.Int64
 	var syncSkippedActive atomic.Int64
+
+	// Flush any output that arrived during bootstrap
+	for {
+		select {
+		case event, ok := <-outputCh:
+			if !ok {
+				return
+			}
+			if len(event.Data) > 0 {
+				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+				escHoldback = hb
+				if len(send) > 0 {
+					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+						return
+					}
+				}
+			}
+		default:
+			goto drained
+		}
+	}
+drained:
 
 	// Dev mode diagnostics: ring buffer and stats ticker
 	var ringBuf *RingBuffer
@@ -703,42 +723,6 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-}
-
-// HandleAgentSignal processes a file-based signal from an agent and updates the session nudge state.
-func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
-	// Map signal state to nudge format for frontend compatibility
-	nudgeResult := nudgenik.Result{
-		State:   signal.MapStateToNudge(sig.State),
-		Summary: sig.Message,
-		Source:  "agent",
-	}
-
-	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
-	payload, err := json.Marshal(nudgeResult)
-	if err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to serialize nudge", "session_id", sessionID, "err", err)
-		return
-	}
-	if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to update nudge", "session_id", sessionID, "err", err)
-		return
-	}
-
-	// Update last signal time
-	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
-
-	seq := s.state.IncrementNudgeSeq(sessionID)
-
-	if err := s.state.Save(); err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to save state", "session_id", sessionID, "err", err)
-		return
-	}
-
-	logging.Sub(s.logger, "signal").Info("received signal", "session_id", sessionID, "state", sig.State, "seq", seq, "message", sig.Message)
-
-	// Broadcast via debouncer
-	go s.BroadcastSessions()
 }
 
 // handleRemoteTerminalWebSocket streams terminal output from a remote session via control mode.

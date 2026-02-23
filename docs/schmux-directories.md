@@ -47,20 +47,20 @@ Schmux uses two types of directories:
 
 `<workspace>/.schmux/`
 
-| Path                       | Purpose                             | Created By                 | Lifecycle                         |
-| -------------------------- | ----------------------------------- | -------------------------- | --------------------------------- |
-| `signal/<session-id>`      | Agent status signaling file         | Session spawn              | Per-session, not auto-cleaned     |
-| `lore.jsonl`               | Lore scratchpad (friction capture)  | Hooks/agents               | Append-only, pruned after 30 days |
-| `hooks/capture-failure.sh` | PostToolUseFailure hook script      | `ensure.LoreHookScripts()` | Re-created on each spawn          |
-| `hooks/stop-gate.sh`       | Stop hook for session gating        | `ensure.LoreHookScripts()` | Re-created on each spawn          |
-| `config.json`              | Per-workspace repo config overrides | Workspace manager          | Optional, for namespaced configs  |
+| Path                        | Purpose                             | Created By                 | Lifecycle                         |
+| --------------------------- | ----------------------------------- | -------------------------- | --------------------------------- |
+| `events/<session-id>.jsonl` | Agent event file (status, lore)     | Session spawn              | Per-session, not auto-cleaned     |
+| `lore.jsonl`                | Lore scratchpad (friction capture)  | Hooks/agents               | Append-only, pruned after 30 days |
+| `hooks/capture-failure.sh`  | PostToolUseFailure hook script      | `ensure.LoreHookScripts()` | Re-created on each spawn          |
+| `hooks/stop-gate.sh`        | Stop hook for session gating        | `ensure.LoreHookScripts()` | Re-created on each spawn          |
+| `config.json`               | Per-workspace repo config overrides | Workspace manager          | Optional, for namespaced configs  |
 
 ### Code Locations
 
-- **Signal directory**: `internal/session/manager.go:626-647` - Creates `.schmux/signal/` and sets `SCHMUX_STATUS_FILE`
+- **Events directory**: `internal/session/manager.go` - Creates `.schmux/events/` and sets `SCHMUX_EVENTS_FILE`
 - **Lore scratchpad**: `internal/lore/scratchpad.go` - Append/read JSONL entries
 - **Hook scripts**: `internal/workspace/ensure/manager.go:540-557` - `LoreHookScripts()` writes embedded scripts
-- **Remote signal**: `internal/session/manager.go:492-517` - Creates `.schmux/signal/` on remote hosts
+- **Remote events**: `internal/session/manager.go` - Creates `.schmux/events/` on remote hosts
 - **Workspace config**: `internal/workspace/config.go:22-25` - Per-workspace config loading
 
 ---
@@ -69,11 +69,11 @@ Schmux uses two types of directories:
 
 ### Problem
 
-When schmux creates a workspace, daemon-managed files (signal files, hook scripts, lore) appear as untracked in `git status`:
+When schmux creates a workspace, daemon-managed files (event files, hook scripts, lore) appear as untracked in `git status`:
 
 ```
 Untracked files:
-  .schmux/signal/
+  .schmux/events/
   .schmux/hooks/
   .schmux/lore.jsonl
 ```
@@ -86,7 +86,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 
 ```gitignore
 # SCHMUX:BEGIN - managed by schmux, do not edit
-.schmux/signal/
+.schmux/events/
 .schmux/hooks/
 .schmux/lore.jsonl
 # SCHMUX:END
@@ -139,4 +139,4 @@ Remote workspaces skip git exclude setup — the daemon cannot access the remote
 | Directory              | Scope         | Contents                                 | Git Visibility                 |
 | ---------------------- | ------------- | ---------------------------------------- | ------------------------------ |
 | Global (`~/.schmux/`)  | Global        | Config, state, daemon, secrets, overlays | N/A (outside repos)            |
-| Workspace (`.schmux/`) | Per-workspace | Signal files, lore, hooks, config        | Auto-excluded via info/exclude |
+| Workspace (`.schmux/`) | Per-workspace | Event files, lore, hooks, config         | Auto-excluded via info/exclude |

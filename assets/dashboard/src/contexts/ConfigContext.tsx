@@ -80,6 +80,11 @@ const DEFAULT_CONFIG: ConfigResponse = {
       command: '',
     },
   },
+  floor_manager: {
+    enabled: false,
+    target: '',
+    rotation_threshold: 0,
+  },
   needs_restart: false,
 };
 

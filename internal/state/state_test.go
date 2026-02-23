@@ -1124,3 +1124,54 @@ func TestRemoveWorkspaceRemovesPreviews(t *testing.T) {
 		t.Fatal("other workspace preview should remain")
 	}
 }
+
+func TestFloorManagerSession(t *testing.T) {
+	st := New("", nil)
+	sess := Session{
+		ID:             "fm-001",
+		WorkspaceID:    "",
+		Target:         "claude-sonnet",
+		TmuxSession:    "floor-manager",
+		IsFloorManager: true,
+		CreatedAt:      time.Now(),
+	}
+	st.AddSession(sess)
+
+	got, found := st.GetFloorManagerSession()
+	if !found {
+		t.Fatal("expected to find floor manager session")
+	}
+	if got.ID != "fm-001" {
+		t.Errorf("expected fm-001, got %s", got.ID)
+	}
+}
+
+func TestUpdateSessionFloorManager(t *testing.T) {
+	st := New("", nil)
+	st.AddSession(Session{ID: "s1", Target: "claude", TmuxSession: "test"})
+
+	st.UpdateSessionFloorManager("s1", true)
+
+	sess, found := st.GetFloorManagerSession()
+	if !found {
+		t.Fatal("expected floor manager session after update")
+	}
+	if sess.ID != "s1" {
+		t.Errorf("expected s1, got %s", sess.ID)
+	}
+}
+
+func TestFloorManagerSessionNone(t *testing.T) {
+	st := New("", nil)
+	sess := Session{
+		ID:          "regular-001",
+		Target:      "claude",
+		TmuxSession: "regular",
+	}
+	st.AddSession(sess)
+
+	_, found := st.GetFloorManagerSession()
+	if found {
+		t.Error("expected not found when no floor manager session exists")
+	}
+}

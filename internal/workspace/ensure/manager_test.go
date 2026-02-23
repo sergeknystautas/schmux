@@ -30,7 +30,7 @@ func TestAgentInstructions_CreatesNewFile(t *testing.T) {
 	if !strings.Contains(string(content), schmuxMarkerEnd) {
 		t.Error("File should contain SCHMUX:END marker")
 	}
-	if !strings.Contains(string(content), "$SCHMUX_STATUS_FILE") {
+	if !strings.Contains(string(content), "$SCHMUX_EVENTS_FILE") {
 		t.Error("File should contain signaling instructions")
 	}
 }
@@ -103,7 +103,7 @@ func TestAgentInstructions_UpdatesExisting(t *testing.T) {
 	}
 
 	// Check that new content is present
-	if !strings.Contains(string(content), "$SCHMUX_STATUS_FILE") {
+	if !strings.Contains(string(content), "$SCHMUX_EVENTS_FILE") {
 		t.Error("New signaling instructions should be present")
 	}
 
@@ -278,7 +278,7 @@ func TestSupportsHooks(t *testing.T) {
 func TestClaudeHooks_CreatesNewFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, t.TempDir(), true); err != nil {
 		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
@@ -313,10 +313,10 @@ func TestClaudeHooks_CreatesNewFile(t *testing.T) {
 		}
 	}
 
-	// Verify the commands reference SCHMUX_STATUS_FILE
+	// Verify the commands reference SCHMUX_EVENTS_FILE
 	contentStr := string(content)
-	if !strings.Contains(contentStr, "SCHMUX_STATUS_FILE") {
-		t.Error("Hooks should reference SCHMUX_STATUS_FILE")
+	if !strings.Contains(contentStr, "SCHMUX_EVENTS_FILE") {
+		t.Error("Hooks should reference SCHMUX_EVENTS_FILE")
 	}
 
 	// Verify state signals are present in the command strings
@@ -341,7 +341,7 @@ func TestClaudeHooks_PreservesOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
@@ -373,12 +373,12 @@ func TestClaudeHooks_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Run twice
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("First call failed: %v", err)
 	}
 	content1, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("Second call failed: %v", err)
 	}
 	content2, _ := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.local.json"))
@@ -389,7 +389,7 @@ func TestClaudeHooks_Idempotent(t *testing.T) {
 }
 
 func TestClaudeHooksJSON(t *testing.T) {
-	jsonBytes, err := ClaudeHooksJSON()
+	jsonBytes, err := ClaudeHooksJSON("/tmp/test-hooks")
 	if err != nil {
 		t.Fatalf("ClaudeHooksJSON failed: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestClaudeHooksJSON(t *testing.T) {
 }
 
 func TestWrapCommandWithHooks(t *testing.T) {
-	wrapped, err := WrapCommandWithHooks(`claude "hello world"`)
+	wrapped, err := WrapCommandWithHooks(`claude "hello world"`, "/tmp/test-hooks")
 	if err != nil {
 		t.Fatalf("WrapCommandWithHooks failed: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestWrapCommandWithHooks(t *testing.T) {
 }
 
 func TestClaudeHooksNotificationMatcher(t *testing.T) {
-	jsonBytes, err := ClaudeHooksJSON()
+	jsonBytes, err := ClaudeHooksJSON("/tmp/test-hooks")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
@@ -525,14 +525,14 @@ func TestClaudeHooks_MergesWithExistingHooks(t *testing.T) {
 
 	// User's Stop hook should be preserved alongside schmux's
 	stopGroups := hooks["Stop"]
-	if len(stopGroups) != 2 {
-		t.Fatalf("Stop should have 2 matcher groups (user + schmux), got %d", len(stopGroups))
+	if len(stopGroups) != 3 {
+		t.Fatalf("Stop should have 3 matcher groups (user + 2 schmux), got %d", len(stopGroups))
 	}
 	// First should be the user's hook (preserved order)
 	if stopGroups[0].Hooks[0].Command != "echo user-stop-hook" {
 		t.Error("User's Stop hook should be preserved")
 	}
-	// Second should be schmux's
+	// Second and third should be schmux's
 	if !strings.HasPrefix(stopGroups[1].Hooks[0].StatusMessage, "schmux:") {
 		t.Error("Schmux Stop hook should be appended")
 	}
@@ -558,7 +558,7 @@ func TestClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// First provisioning
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -587,7 +587,7 @@ func TestClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 	os.WriteFile(settingsPath, data, 0644)
 
 	// Second provisioning should replace schmux hooks but keep user hook
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -596,8 +596,8 @@ func TestClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 	json.Unmarshal(settings["hooks"], &hooks)
 
 	stopGroups := hooks["Stop"]
-	if len(stopGroups) != 2 {
-		t.Fatalf("Stop should have 2 groups (user + schmux), got %d", len(stopGroups))
+	if len(stopGroups) != 3 {
+		t.Fatalf("Stop should have 3 groups (user + 2 schmux), got %d", len(stopGroups))
 	}
 
 	// User hook preserved
@@ -605,15 +605,15 @@ func TestClaudeHooks_ReplacesOldSchmuxHooks(t *testing.T) {
 		t.Errorf("User hook should be preserved, got %q", stopGroups[0].Hooks[0].Command)
 	}
 
-	// Schmux hook present (not duplicated)
+	// Schmux hooks present (not duplicated)
 	schmuxCount := 0
 	for _, g := range stopGroups {
 		if isSchmuxMatcherGroup(g) {
 			schmuxCount++
 		}
 	}
-	if schmuxCount != 1 {
-		t.Errorf("Should have exactly 1 schmux Stop group, got %d", schmuxCount)
+	if schmuxCount != 2 {
+		t.Errorf("Should have exactly 2 schmux Stop groups (status + lore), got %d", schmuxCount)
 	}
 }
 
@@ -855,7 +855,7 @@ func TestClaudeHooks_CleansStaleSchmuxEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -904,7 +904,7 @@ func TestClaudeHooks_RemovesEventWithOnlyStaleSchmux(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -936,7 +936,7 @@ func TestClaudeHooks_MalformedExistingHooks(t *testing.T) {
 	}
 
 	// Should not error, just start fresh for hooks
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("ClaudeHooks should handle malformed hooks: %v", err)
 	}
 
@@ -961,44 +961,26 @@ func TestClaudeHooks_MalformedExistingHooks(t *testing.T) {
 	}
 }
 
-func TestSignalCommandWithContext(t *testing.T) {
-	cmd := signalCommandWithContext("needs_input", "message")
+func TestEventWriteCommand(t *testing.T) {
+	cmd := eventWriteCommand("needs_input")
 
 	// Should contain the state
 	if !strings.Contains(cmd, "needs_input") {
 		t.Error("Command should contain the signal state")
 	}
 
-	// Should reference SCHMUX_STATUS_FILE
-	if !strings.Contains(cmd, "SCHMUX_STATUS_FILE") {
-		t.Error("Command should reference SCHMUX_STATUS_FILE")
-	}
-
-	// Should use jq to extract the field
-	if !strings.Contains(cmd, "jq") {
-		t.Error("Command should use jq for JSON extraction")
-	}
-	if !strings.Contains(cmd, ".message") {
-		t.Error("Command should extract the specified JSON field")
-	}
-
-	// Should truncate to 100 chars
-	if !strings.Contains(cmd, "cut -c1-100") {
-		t.Error("Command should truncate message to 100 chars")
-	}
-
-	// Should not contain single quotes (safe for JSON/shell wrapping)
-	if strings.Contains(cmd, "'") {
-		t.Error("Command should not contain single quotes")
+	// Should reference SCHMUX_EVENTS_FILE (event file)
+	if !strings.Contains(cmd, "SCHMUX_EVENTS_FILE") {
+		t.Error("Command should reference SCHMUX_EVENTS_FILE")
 	}
 
 	// Should fall back gracefully (|| true)
 	if !strings.Contains(cmd, "|| true") {
-		t.Error("Command should fall back gracefully when jq is unavailable")
+		t.Error("Command should fall back gracefully")
 	}
 }
 
-func TestSignalCommandWithContext_DifferentFields(t *testing.T) {
+func TestEventWriteCommandWithIntent(t *testing.T) {
 	tests := []struct {
 		state  string
 		field  string
@@ -1010,19 +992,25 @@ func TestSignalCommandWithContext_DifferentFields(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.state+"_"+tt.field, func(t *testing.T) {
-			cmd := signalCommandWithContext(tt.state, tt.field)
+			cmd := eventWriteCommandWithIntent(tt.state, tt.field)
 			if !strings.Contains(cmd, tt.state) {
 				t.Errorf("Command should contain state %q", tt.state)
 			}
 			if !strings.Contains(cmd, tt.wantJq) {
 				t.Errorf("Command should contain jq field %q", tt.wantJq)
 			}
+			if !strings.Contains(cmd, "SCHMUX_EVENTS_FILE") {
+				t.Error("Command should reference SCHMUX_EVENTS_FILE")
+			}
+			if !strings.Contains(cmd, "jq -Rs") {
+				t.Error("event write should escape MSG through jq -Rs for JSON safety")
+			}
 		})
 	}
 }
 
 func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
-	hooks := buildClaudeHooksMap()
+	hooks := buildClaudeHooksMap("/tmp/test-hooks", true)
 
 	// Notification hook should extract .message from stdin
 	notifGroups := hooks["Notification"]
@@ -1032,6 +1020,9 @@ func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
 	notifCmd := notifGroups[0].Hooks[0].Command
 	if !strings.Contains(notifCmd, "jq") || !strings.Contains(notifCmd, ".message") {
 		t.Error("Notification hook should extract .message from stdin JSON")
+	}
+	if !strings.Contains(notifCmd, "blockers") {
+		t.Error("Notification hook should write blockers to event file")
 	}
 
 	// UserPromptSubmit hook should extract .prompt from stdin
@@ -1044,7 +1035,7 @@ func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
 		t.Error("UserPromptSubmit hook should extract .prompt from stdin JSON")
 	}
 
-	// SessionStart, SessionEnd, and Stop should NOT use context extraction (no useful fields)
+	// SessionStart and SessionEnd should NOT use context extraction (no useful fields)
 	startCmd := hooks["SessionStart"][0].Hooks[0].Command
 	if strings.Contains(startCmd, "jq") {
 		t.Error("SessionStart hook should not use jq (no useful context field)")
@@ -1053,14 +1044,16 @@ func TestBuildClaudeHooksMap_ContextExtraction(t *testing.T) {
 	if strings.Contains(endCmd, "jq") {
 		t.Error("SessionEnd hook should not use jq (no useful context field)")
 	}
+
+	// Stop hook should reference the external script (not inline the logic)
 	stopCmd := hooks["Stop"][0].Hooks[0].Command
-	if strings.Contains(stopCmd, "jq") {
-		t.Error("Stop hook should not use jq (no useful context field)")
+	if !strings.Contains(stopCmd, "stop-status-check.sh") {
+		t.Error("Stop hook should reference stop-status-check.sh script")
 	}
 }
 
 func TestBuildClaudeHooksMap_SessionEndHook(t *testing.T) {
-	hooks := buildClaudeHooksMap()
+	hooks := buildClaudeHooksMap("/tmp/test-hooks", true)
 
 	// SessionEnd hook should exist and signal "completed"
 	endGroups, ok := hooks["SessionEnd"]
@@ -1074,15 +1067,15 @@ func TestBuildClaudeHooksMap_SessionEndHook(t *testing.T) {
 	if !strings.Contains(endCmd, "completed") {
 		t.Error("SessionEnd hook should signal 'completed'")
 	}
-	if !strings.Contains(endCmd, "SCHMUX_STATUS_FILE") {
-		t.Error("SessionEnd hook should reference SCHMUX_STATUS_FILE")
+	if !strings.Contains(endCmd, "SCHMUX_EVENTS_FILE") {
+		t.Error("SessionEnd hook should reference SCHMUX_EVENTS_FILE")
 	}
 }
 
 func TestClaudeHooks_SessionEndOnDisk(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatalf("ClaudeHooks failed: %v", err)
 	}
 
@@ -1119,13 +1112,32 @@ func TestClaudeHooks_SessionEndOnDisk(t *testing.T) {
 }
 
 func TestWrapCommandWithHooks_IncludesSessionEnd(t *testing.T) {
-	wrapped, err := WrapCommandWithHooks("claude test")
+	wrapped, err := WrapCommandWithHooks("claude test", "/tmp/test-hooks")
 	if err != nil {
 		t.Fatalf("WrapCommandWithHooks failed: %v", err)
 	}
 
 	if !strings.Contains(wrapped, "SessionEnd") {
 		t.Error("Wrapped command should include SessionEnd hook in the inline JSON")
+	}
+}
+
+func TestEventWriteCommandWithBlockers(t *testing.T) {
+	cmd := eventWriteCommandWithBlockers("needs_input", "message")
+	if !strings.Contains(cmd, "blockers") {
+		t.Error("expected blockers extraction in event command")
+	}
+	if !strings.Contains(cmd, "SCHMUX_EVENTS_FILE") {
+		t.Error("expected SCHMUX_EVENTS_FILE reference")
+	}
+	if !strings.Contains(cmd, "needs_input") {
+		t.Error("expected needs_input state in command")
+	}
+	if !strings.Contains(cmd, ".message") {
+		t.Error("expected jq extraction of .message field")
+	}
+	if !strings.Contains(cmd, "jq -Rs") {
+		t.Error("event write should escape MSG through jq -Rs for JSON safety")
 	}
 }
 
@@ -1167,7 +1179,7 @@ func TestClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClaudeHooks(tmpDir); err != nil {
+	if err := ClaudeHooks(tmpDir, "/tmp/test-hooks", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1196,13 +1208,13 @@ func TestClaudeHooks_MultipleUserHooksOnSameEvent(t *testing.T) {
 	}
 }
 
-func TestClaudeHooksIncludeLoreHooks(t *testing.T) {
-	hooks := buildClaudeHooksMap()
+func TestBuildClaudeHooksMap_WithLore(t *testing.T) {
+	hooks := buildClaudeHooksMap("/tmp/test-hooks", true)
 
-	// PostToolUseFailure hook should exist
+	// PostToolUseFailure hook should exist when lore is enabled
 	ptuf, ok := hooks["PostToolUseFailure"]
 	if !ok {
-		t.Fatal("PostToolUseFailure hook not found")
+		t.Fatal("PostToolUseFailure hook not found when lore is enabled")
 	}
 	if len(ptuf) == 0 || len(ptuf[0].Hooks) == 0 {
 		t.Fatal("PostToolUseFailure should have at least one handler")
@@ -1211,21 +1223,24 @@ func TestClaudeHooksIncludeLoreHooks(t *testing.T) {
 		t.Errorf("PostToolUseFailure command should reference capture-failure script, got: %s", ptuf[0].Hooks[0].Command)
 	}
 
-	// Stop hook should exist and reference stop-gate
+	// Stop hook should have both status and lore check
 	stop, ok := hooks["Stop"]
 	if !ok {
 		t.Fatal("Stop hook not found")
 	}
-	foundStopGate := false
+	if len(stop) < 2 {
+		t.Fatalf("Stop hook should have at least 2 groups (status + lore), got %d", len(stop))
+	}
+	foundLoreCheck := false
 	for _, group := range stop {
 		for _, h := range group.Hooks {
-			if strings.Contains(h.Command, "stop-gate") {
-				foundStopGate = true
+			if strings.Contains(h.Command, "stop-lore-check") {
+				foundLoreCheck = true
 			}
 		}
 	}
-	if !foundStopGate {
-		t.Error("Stop hook should include stop-gate handler")
+	if !foundLoreCheck {
+		t.Error("Stop hook should include stop-lore-check handler when lore is enabled")
 	}
 }
 
@@ -1311,7 +1326,7 @@ func TestEnsureExcludeEntries_ReplacesStaleBlock(t *testing.T) {
 	if strings.Contains(contentStr, "old-stale-pattern") {
 		t.Error("stale content should be replaced")
 	}
-	if !strings.Contains(contentStr, ".schmux/signal/") {
+	if !strings.Contains(contentStr, ".schmux/hooks/") {
 		t.Error("new patterns should be present")
 	}
 	if strings.Count(contentStr, excludeMarkerStart) != 1 {
@@ -1403,14 +1418,26 @@ func TestLoreHookScripts(t *testing.T) {
 	if err := LoreHookScripts(tmpDir); err != nil {
 		t.Fatalf("LoreHookScripts failed: %v", err)
 	}
-	for _, name := range []string{"capture-failure.sh", "stop-gate.sh"} {
-		path := filepath.Join(tmpDir, ".schmux", "hooks", name)
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatalf("script %s not found: %v", name, err)
-		}
-		if info.Mode()&0111 == 0 {
-			t.Errorf("script %s should be executable", name)
+}
+
+func TestBuildClaudeHooksMap_WithoutLore(t *testing.T) {
+	hooks := buildClaudeHooksMap("/tmp/test-hooks", false)
+
+	// PostToolUseFailure hook should NOT exist when lore is disabled
+	if _, ok := hooks["PostToolUseFailure"]; ok {
+		t.Error("PostToolUseFailure hook should not exist when lore is disabled")
+	}
+
+	// Stop hook should only have status check, not lore check
+	stop, ok := hooks["Stop"]
+	if !ok {
+		t.Fatal("Stop hook not found")
+	}
+	for _, group := range stop {
+		for _, h := range group.Hooks {
+			if strings.Contains(h.Command, "stop-lore-check") {
+				t.Error("Stop hook should NOT include stop-lore-check when lore is disabled")
+			}
 		}
 	}
 }

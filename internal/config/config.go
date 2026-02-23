@@ -53,6 +53,10 @@ const (
 
 	// Default auth session TTL in minutes
 	DefaultAuthSessionTTLMinutes = 1440
+
+	// Default floor manager settings
+	DefaultFloorManagerRotationThreshold = 150  // signal injections before forced rotation
+	DefaultFloorManagerDebounceMs        = 2000 // ms to batch signal injections
 )
 
 // Source code management constants
@@ -90,6 +94,7 @@ type Config struct {
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
 	RemoteAccess               *RemoteAccessConfig    `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
+	FloorManager               *FloorManagerConfig    `json:"floor_manager,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
@@ -327,6 +332,14 @@ func (lc *LoreConfig) UnmarshalJSON(data []byte) error {
 	}
 	*lc = LoreConfig(alias)
 	return nil
+}
+
+// FloorManagerConfig configures the floor manager orchestration agent.
+type FloorManagerConfig struct {
+	Enabled           bool   `json:"enabled"`
+	Target            string `json:"target,omitempty"`
+	RotationThreshold int    `json:"rotation_threshold,omitempty"`
+	DebounceMs        int    `json:"debounce_ms,omitempty"`
 }
 
 // SessionsConfig represents session and git-related timing configuration.
@@ -902,6 +915,41 @@ func (c *Config) GetConfirmBeforeClose() bool {
 	return c.Notifications.ConfirmBeforeClose
 }
 
+// GetFloorManagerEnabled returns whether the floor manager is enabled.
+func (c *Config) GetFloorManagerEnabled() bool {
+	if c.FloorManager == nil {
+		return false
+	}
+	return c.FloorManager.Enabled
+}
+
+// GetFloorManagerTarget returns the configured floor manager target.
+func (c *Config) GetFloorManagerTarget() string {
+	if c.FloorManager == nil {
+		return ""
+	}
+	return c.FloorManager.Target
+}
+
+// GetFloorManagerRotationThreshold returns the rotation threshold for the floor manager.
+// Defaults to DefaultFloorManagerRotationThreshold if not configured or set to zero/negative.
+func (c *Config) GetFloorManagerRotationThreshold() int {
+	if c.FloorManager == nil || c.FloorManager.RotationThreshold <= 0 {
+		return DefaultFloorManagerRotationThreshold
+	}
+	return c.FloorManager.RotationThreshold
+}
+
+// GetFloorManagerDebounceMs returns the debounce window in milliseconds for
+// batching signal injections into the floor manager.
+// Defaults to DefaultFloorManagerDebounceMs if not configured or set to zero/negative.
+func (c *Config) GetFloorManagerDebounceMs() int {
+	if c.FloorManager == nil || c.FloorManager.DebounceMs <= 0 {
+		return DefaultFloorManagerDebounceMs
+	}
+	return c.FloorManager.DebounceMs
+}
+
 // GetDetectedRunTarget finds a detected run target by name.
 func (c *Config) GetDetectedRunTarget(name string) (RunTarget, bool) {
 	c.mu.RLock()
@@ -1032,7 +1080,8 @@ func (c *Config) Reload() error {
 	c.repoURLMu = existingRepoURLMu
 	c.mu.Unlock()
 
-	// Invalidate repo URL cache
+	// Invalidate the repo URL cache to prevent concurrent readers
+	// from seeing stale cache entries.
 	c.repoURLMu.Lock()
 	c.repoURLCache = nil
 	c.repoURLMu.Unlock()

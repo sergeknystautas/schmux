@@ -21,6 +21,9 @@ type StateStore interface {
 	GetNudgeSeq(sessionID string) uint64
 	UpdateSessionNudge(sessionID, nudge string) error
 	ClearSessionNudge(sessionID string) bool
+	GetFloorManagerSession() (Session, bool)
+	UpdateSessionFloorManager(sessionID string, isFloorManager bool)
+	UpdateSessionEscalation(sessionID, message string)
 
 	// Workspace operations
 	GetWorkspaces() []Workspace

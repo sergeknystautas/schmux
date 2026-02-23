@@ -130,12 +130,35 @@ func SaveSecretsFile(secrets *SecretsFile) error {
 		return fmt.Errorf("failed to marshal secrets: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	// Atomic write: temp file then rename
+	tmpFile, err := os.CreateTemp(dir, ".secrets-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to write secrets: %w", err)
+	}
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to set permissions: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to rename secrets file: %w", err)
 	}
 	return nil
 }
