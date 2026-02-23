@@ -394,9 +394,9 @@ func (s *Server) Start() error {
 		r.Handle("/*", viteProxy)
 		s.logger.Info("dev-proxy enabled: proxying to Vite", "target", "http://localhost:5173")
 	} else {
-		r.Handle("/assets/*", s.withAuthHandler(
+		r.With(s.authMiddleware).Handle("/assets/*",
 			http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.getDashboardDistPath(), "assets")))),
-		))
+		)
 		r.HandleFunc("/*", s.handleApp)
 	}
 
@@ -703,7 +703,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Deprecated: use corsMiddleware via r.Use() instead. Remove after migration.
+// Test-only helper wrapper - kept for backward compatibility with existing tests.
+// Production code should use corsMiddleware via r.Use() instead.
 func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return s.corsMiddleware(http.HandlerFunc(h)).ServeHTTP
 }
@@ -1192,7 +1193,7 @@ func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is required (GitHub OAuth or tunnel active)
 	if s.requiresAuth() {
-		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		// Local requests bypass tunnel-only auth (consistent with authMiddleware)
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
