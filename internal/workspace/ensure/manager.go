@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // pkgLogger is the package-level logger, set via SetLogger.
@@ -27,6 +28,69 @@ const (
 	schmuxMarkerStart = "<!-- SCHMUX:BEGIN -->"
 	schmuxMarkerEnd   = "<!-- SCHMUX:END -->"
 )
+
+// Ensurer ensures workspaces have the necessary schmux configuration.
+// It holds a state reference to make decisions about what configuration
+// a workspace needs based on active sessions.
+type Ensurer struct {
+	state state.StateStore
+}
+
+// New creates a new Ensurer with access to state for session lookups.
+func New(st state.StateStore) *Ensurer {
+	return &Ensurer{state: st}
+}
+
+// ForSpawn ensures a workspace has all necessary schmux configuration
+// when a new session is being spawned. The currentTarget is the agent
+// being spawned (needed because the session doesn't exist in state yet).
+func (e *Ensurer) ForSpawn(workspaceID, currentTarget string) error {
+	w, found := e.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	hasClaude := e.workspaceHasClaude(workspaceID) ||
+		SupportsHooks(detect.GetBaseToolName(currentTarget))
+	return e.ensureWorkspace(w.Path, hasClaude)
+}
+
+// ForWorkspace ensures a workspace has all necessary schmux configuration.
+// Used for daemon startup and overlay refresh when there's no spawn context.
+func (e *Ensurer) ForWorkspace(workspaceID string) error {
+	w, found := e.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	return e.ensureWorkspace(w.Path, e.workspaceHasClaude(workspaceID))
+}
+
+// workspaceHasClaude returns true if any session in this workspace uses Claude.
+func (e *Ensurer) workspaceHasClaude(workspaceID string) bool {
+	for _, s := range e.state.GetSessions() {
+		if s.WorkspaceID == workspaceID {
+			if SupportsHooks(detect.GetBaseToolName(s.Target)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ensureWorkspace writes all schmux-managed configuration for a workspace.
+func (e *Ensurer) ensureWorkspace(workspacePath string, hasClaude bool) error {
+	if hasClaude {
+		if err := ClaudeHooks(workspacePath); err != nil {
+			fmt.Printf("[ensure] warning: failed to ensure Claude hooks: %v\n", err)
+		}
+		if err := LoreHookScripts(workspacePath); err != nil {
+			fmt.Printf("[ensure] warning: failed to ensure lore hook scripts: %v\n", err)
+		}
+	}
+	if err := GitExclude(workspacePath); err != nil {
+		fmt.Printf("[ensure] warning: failed to ensure git exclude: %v\n", err)
+	}
+	return nil
+}
 
 // SignalingInstructions is the template for agent signaling instructions.
 // This is appended to agent instruction files to enable direct signaling.
@@ -88,28 +152,6 @@ append what went wrong and the fix to ` + "`.schmux/lore.jsonl`" + `. One JSON l
 Only write when something tripped you up. Don't write what you built or learned —
 write what would have saved you time if you'd known it before starting.
 `
-
-// Workspace ensures a workspace has all necessary schmux-managed configuration.
-// This is the main entry point called both during session spawn and overlay refresh.
-func Workspace(workspacePath string) error {
-	// Ensure Claude hooks and lore scripts for Claude-based workspaces
-	if err := ClaudeHooks(workspacePath); err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Warn("failed to ensure Claude hooks", "err", err)
-		}
-	}
-	if err := LoreHookScripts(workspacePath); err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Warn("failed to ensure lore hook scripts", "err", err)
-		}
-	}
-	if err := GitExclude(workspacePath); err != nil {
-		if pkgLogger != nil {
-			pkgLogger.Warn("failed to ensure git exclude", "err", err)
-		}
-	}
-	return nil
-}
 
 // AgentInstructions ensures the signaling instructions are present
 // in the appropriate instruction file for the given target.

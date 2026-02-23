@@ -106,8 +106,9 @@ Only daemon-written paths are excluded. User-managed files like `.schmux/config.
 
 ### When It Runs
 
-- **Daemon startup**: `EnsureAllGitExcludes()` sweeps all existing local workspaces
-- **Session spawn / overlay refresh**: `ensure.Workspace()` calls `GitExclude()` for the workspace
+- **Daemon startup**: `workspace.Manager.EnsureAll()` ensures all existing local workspaces
+- **Session spawn**: `ensure.Ensurer.ForSpawn()` ensures hooks, scripts, and git exclude
+- **Overlay refresh**: `ensure.Ensurer.ForWorkspace()` ensures hooks, scripts, and git exclude
 
 This means excludes are applied both to existing workspaces (on restart) and new workspaces (on creation).
 

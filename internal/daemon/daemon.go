@@ -406,10 +406,8 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		// Don't fail daemon startup for this
 	}
 
-	// Ensure git excludes for daemon-managed files in all workspaces
-	if err := wm.EnsureAllGitExcludes(); err != nil {
-		workspaceLog.Warn("failed to ensure git excludes", "err", err)
-	}
+	// Ensure all workspaces have the necessary schmux configuration
+	wm.EnsureAll()
 
 	// Detect run targets once on daemon start and persist to config
 	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
