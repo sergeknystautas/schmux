@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -415,7 +416,8 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 	// Start reconnection asynchronously (returns provisioning session ID for WebSocket terminal)
 	provisioningSessionID, err := s.remoteManager.StartReconnect(hostID, func(failedHostID string) {
 		// Cleanup on failure
-		fmt.Printf("[remote] cleaning up failed reconnection for host %s\n", failedHostID)
+		remoteLog := logging.Sub(s.logger, "remote")
+		remoteLog.Info("cleaning up failed reconnection", "host_id", failedHostID)
 		for _, sess := range s.state.GetSessionsByRemoteHostID(failedHostID) {
 			s.state.RemoveSession(sess.ID)
 		}
@@ -423,13 +425,14 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 			s.state.RemoveWorkspace(ws.ID)
 			if s.previewManager != nil {
 				if err := s.previewManager.DeleteWorkspace(ws.ID); err != nil {
-					fmt.Printf("[preview] remote cleanup warning: workspace_id=%s error=%v\n", ws.ID, err)
+					previewLog := logging.Sub(s.logger, "preview")
+					previewLog.Warn("remote cleanup failed", "workspace_id", ws.ID, "err", err)
 				}
 			}
 		}
 		s.state.RemoveRemoteHost(failedHostID)
 		if err := s.state.Save(); err != nil {
-			fmt.Printf("[remote] failed to save state after cleanup: %v\n", err)
+			remoteLog.Error("failed to save state after cleanup", "err", err)
 		}
 		s.BroadcastSessions()
 	})
@@ -468,7 +471,8 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 	// Disconnect via remote manager if available
 	if s.remoteManager != nil {
 		if err := s.remoteManager.Disconnect(hostID); err != nil {
-			fmt.Printf("[remote] disconnect warning: %v\n", err)
+			remoteLog := logging.Sub(s.logger, "remote")
+			remoteLog.Warn("disconnect failed", "err", err)
 		}
 	} else {
 		// Fallback: just update state

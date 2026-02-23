@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -31,6 +32,7 @@ var ErrWorkspaceLocked = errors.New("workspace is locked")
 type Manager struct {
 	config               *config.Config
 	state                state.StateStore
+	logger               *log.Logger
 	workspaceConfigs     map[string]*contracts.RepoConfig // workspace ID -> workspace config
 	workspaceConfigsMu   sync.RWMutex
 	configStates         map[string]configState // workspace path -> last known config file state
@@ -52,10 +54,11 @@ type Manager struct {
 }
 
 // New creates a new workspace manager.
-func New(cfg *config.Config, st state.StateStore, statePath string) *Manager {
+func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.Logger) *Manager {
 	m := &Manager{
 		config:           cfg,
 		state:            st,
+		logger:           logger,
 		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
 		configStates:     make(map[string]configState),           // track config file mtime to detect changes
 		repoLocks:        make(map[string]*sync.Mutex),
@@ -312,13 +315,13 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	for _, w := range m.state.GetWorkspaces() {
 		// Check if workspace directory still exists
 		if _, err := os.Stat(w.Path); os.IsNotExist(err) {
-			fmt.Printf("[workspace] directory missing, skipping: id=%s path=%s\n", w.ID, w.Path)
+			m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
 			continue
 		}
 		if w.Repo == repoURL && w.Branch == branch {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
-				fmt.Printf("[workspace] reusing existing: id=%s path=%s branch=%s\n", w.ID, w.Path, branch)
+				m.logger.Info("reusing existing", "id", w.ID, "path", w.Path, "branch", branch)
 				// Prepare the workspace (fetch/pull/clean)
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
@@ -326,7 +329,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				// Re-copy overlay files (git clean deletes untracked overlay files)
 				if repoConfig, found := m.findRepoByURL(repoURL); found {
 					if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
-						fmt.Printf("[workspace] warning: failed to re-copy overlay files: %v\n", err)
+						m.logger.Warn("failed to re-copy overlay files", "err", err)
 					} else if manifest != nil {
 						m.state.UpdateOverlayManifest(w.ID, manifest)
 					}
@@ -343,16 +346,16 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 			if !m.hasActiveSessions(w.ID) {
 				// Check if workspace directory still exists
 				if _, err := os.Stat(w.Path); os.IsNotExist(err) {
-					fmt.Printf("[workspace] directory missing, skipping: id=%s path=%s\n", w.ID, w.Path)
+					m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
 					continue
 				}
 				// Only reuse if the workspace's branch hasn't diverged from the default branch.
 				// If it has diverged, reusing would pollute the new branch with commits from the old one.
 				if !m.isUpToDateWithDefault(ctx, w.Path, repoURL) {
-					fmt.Printf("[workspace] branch %s has diverged from default, skipping reuse: id=%s\n", w.Branch, w.ID)
+					m.logger.Info("branch has diverged from default, skipping reuse", "branch", w.Branch, "id", w.ID)
 					continue
 				}
-				fmt.Printf("[workspace] reusing for different branch: id=%s old=%s new=%s\n", w.ID, w.Branch, branch)
+				m.logger.Info("reusing for different branch", "id", w.ID, "old", w.Branch, "new", branch)
 				// Prepare the workspace (fetch/pull/clean) BEFORE updating state
 				if err := m.prepare(ctx, w.ID, branch); err != nil {
 					return nil, fmt.Errorf("failed to prepare workspace: %w", err)
@@ -360,7 +363,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 				// Re-copy overlay files (git clean deletes untracked overlay files)
 				if repoConfig, found := m.findRepoByURL(repoURL); found {
 					if manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, w.Path); err != nil {
-						fmt.Printf("[workspace] warning: failed to re-copy overlay files: %v\n", err)
+						m.logger.Warn("failed to re-copy overlay files", "err", err)
 					} else if manifest != nil {
 						m.state.UpdateOverlayManifest(w.ID, manifest)
 					}
@@ -380,7 +383,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, repoURL, branch string) (*sta
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[workspace] created: id=%s path=%s branch=%s repo=%s\n", w.ID, w.Path, w.Branch, repoURL)
+	m.logger.Info("created", "id", w.ID, "path", w.Path, "branch", w.Branch, "repo", repoURL)
 
 	// Prepare the workspace
 	if err := m.prepare(ctx, w.ID, w.Branch); err != nil {
@@ -416,7 +419,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 
 	// Fetch latest before creating worktree
 	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
-		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
+		m.logger.Warn("fetch failed before worktree add", "err", fetchErr)
 	}
 
 	// Fast-forward local default branch to match origin after fetch
@@ -429,7 +432,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
 		}
 		if uniqueBranch != branch {
-			fmt.Printf("[workspace] using unique branch: requested=%s actual=%s\n", branch, uniqueBranch)
+			m.logger.Info("using unique branch", "requested", branch, "actual", uniqueBranch)
 		}
 		branch = uniqueBranch
 		createdUniqueBranch = wasCreated
@@ -439,14 +442,14 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			fmt.Printf("[workspace] cleaning up failed: %s\n", workspacePath)
+			m.logger.Warn("cleaning up failed", "path", workspacePath)
 			// Try worktree remove first, fall back to rm -rf
 			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
 			if createdUniqueBranch {
 				if err := m.deleteBranch(ctx, worktreeBasePath, branch); err != nil {
-					fmt.Printf("[workspace] warning: failed to delete branch %s: %v\n", branch, err)
+					m.logger.Warn("failed to delete branch", "branch", branch, "err", err)
 				}
 			}
 		}
@@ -460,7 +463,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 		}
 	} else {
 		// Using full clones
-		fmt.Printf("[workspace] source_code_manager=git, using full clone\n")
+		m.logger.Info("source_code_manager=git, using full clone")
 		if err := m.cloneRepo(ctx, repoURL, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
@@ -469,7 +472,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	// Copy overlay files if they exist
 	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath)
 	if err != nil {
-		fmt.Printf("[workspace] warning: failed to copy overlay files: %v\n", err)
+		m.logger.Warn("failed to copy overlay files", "err", err)
 		// Don't fail workspace creation if overlay copy fails
 	}
 
@@ -537,9 +540,9 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			fmt.Printf("[workspace] cleaning up failed local repo: %s\n", workspacePath)
+			m.logger.Error("cleaning up failed local repo", "path", workspacePath)
 			if err := os.RemoveAll(workspacePath); err != nil {
-				fmt.Printf("[workspace] failed to cleanup local repo %s: %v\n", workspacePath, err)
+				m.logger.Error("failed to cleanup local repo", "path", workspacePath, "err", err)
 			}
 		}
 	}()
@@ -549,7 +552,7 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 		return nil, fmt.Errorf("failed to initialize local repo: %w", err)
 	}
 
-	fmt.Printf("[workspace] created local repo: id=%s path=%s branch=%s\n", workspaceID, workspacePath, branch)
+	m.logger.Info("created local repo", "id", workspaceID, "path", workspacePath, "branch", branch)
 
 	// Create workspace state
 	w := state.Workspace{
@@ -597,7 +600,7 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
-	fmt.Printf("[workspace] preparing: id=%s branch=%s\n", workspaceID, branch)
+	m.logger.Info("preparing", "id", workspaceID, "branch", branch)
 
 	hasOrigin := m.gitHasOriginRemote(ctx, w.Path)
 	if hasOrigin {
@@ -606,7 +609,7 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 			return fmt.Errorf("git fetch failed: %w", err)
 		}
 	} else {
-		fmt.Printf("[workspace] no origin remote, skipping fetch\n")
+		m.logger.Debug("no origin remote, skipping fetch")
 	}
 
 	remoteBranchExists := false
@@ -639,10 +642,10 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 			return fmt.Errorf("git pull --rebase failed (conflicts?): %w", err)
 		}
 	} else {
-		fmt.Printf("[workspace] no origin/%s remote ref, skipping pull\n", branch)
+		m.logger.Debug("no origin remote ref, skipping pull", "branch", branch)
 	}
 
-	fmt.Printf("[workspace] prepared: id=%s branch=%s\n", workspaceID, branch)
+	m.logger.Info("prepared", "id", workspaceID, "branch", branch)
 	return nil
 }
 
@@ -653,7 +656,7 @@ func (m *Manager) Cleanup(ctx context.Context, workspaceID string) error {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	fmt.Printf("[workspace] cleaning up: id=%s path=%s\n", workspaceID, w.Path)
+	m.logger.Info("cleaning up", "id", workspaceID, "path", w.Path)
 
 	// Reset all changes
 	if err := m.gitCheckoutDot(ctx, w.Path); err != nil {
@@ -665,7 +668,7 @@ func (m *Manager) Cleanup(ctx context.Context, workspaceID string) error {
 		return fmt.Errorf("git clean failed: %w", err)
 	}
 
-	fmt.Printf("[workspace] cleaned: id=%s\n", workspaceID)
+	m.logger.Info("cleaned", "id", workspaceID)
 	return nil
 }
 
@@ -762,7 +765,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
 	if err != nil {
-		fmt.Printf("[workspace] failed to get current branch for %s: %v\n", w.ID, err)
+		m.logger.Warn("failed to get current branch", "id", w.ID, "err", err)
 		actualBranch = w.Branch // fallback to existing state
 	}
 
@@ -826,7 +829,7 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			fmt.Printf("[workspace] failed to update git status for %s: %v\n", w.ID, err)
+			m.logger.Warn("failed to update git status", "id", w.ID, "err", err)
 		}
 	}
 }
@@ -854,7 +857,7 @@ func (m *Manager) EnsureAllGitExcludes() error {
 			continue
 		}
 		if err := ensure.GitExclude(w.Path); err != nil {
-			fmt.Printf("[workspace] warning: failed to ensure git exclude for %s: %v\n", w.ID, err)
+			m.logger.Warn("failed to ensure git exclude", "id", w.ID, "err", err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -870,7 +873,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	fmt.Printf("[workspace] disposing: id=%s path=%s\n", workspaceID, w.Path)
+	m.logger.Info("disposing", "id", workspaceID, "path", w.Path)
 
 	// Remote workspaces don't have local directories - just clean up state
 	if w.RemoteHostID != "" {
@@ -886,7 +889,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 		if err := m.state.Save(); err != nil {
 			return fmt.Errorf("failed to save state: %w", err)
 		}
-		fmt.Printf("[workspace] disposed (remote): id=%s\n", workspaceID)
+		m.logger.Info("disposed (remote)", "id", workspaceID)
 		return nil
 	}
 
@@ -901,7 +904,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 	dirExists := true
 	if _, err := os.Stat(w.Path); os.IsNotExist(err) {
 		dirExists = false
-		fmt.Printf("[workspace] directory already deleted: %s\n", w.Path)
+		m.logger.Info("directory already deleted", "path", w.Path)
 	}
 
 	// Check git safety - only if directory exists
@@ -933,7 +936,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 		if isWorktree(w.Path) {
 			// Use git worktree remove for worktrees
 			if worktreeBaseErr != nil {
-				fmt.Printf("[workspace] warning: could not find worktree base, falling back to rm: %v\n", worktreeBaseErr)
+				m.logger.Warn("could not find worktree base, falling back to rm", "err", worktreeBaseErr)
 				if err := os.RemoveAll(w.Path); err != nil {
 					return fmt.Errorf("failed to delete workspace directory: %w", err)
 				}
@@ -953,7 +956,7 @@ func (m *Manager) Dispose(workspaceID string) error {
 	// Prune stale worktree references (handles case where directory was already deleted)
 	if worktreeBaseErr == nil {
 		if err := m.pruneWorktrees(ctx, worktreeBasePath); err != nil {
-			fmt.Printf("[workspace] warning: failed to prune worktrees: %v\n", err)
+			m.logger.Warn("failed to prune worktrees", "err", err)
 		}
 	}
 
@@ -971,10 +974,10 @@ func (m *Manager) Dispose(workspaceID string) error {
 	}
 
 	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
-		fmt.Printf("[workspace] failed to cleanup diff temp dirs for %s: %v\n", workspaceID, err)
+		m.logger.Warn("failed to cleanup diff temp dirs", "id", workspaceID, "err", err)
 	}
 
-	fmt.Printf("[workspace] disposed: id=%s\n", workspaceID)
+	m.logger.Info("disposed", "id", workspaceID)
 	return nil
 }
 
@@ -1001,8 +1004,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		return nil, fmt.Errorf("source workspace is on detached HEAD - please checkout a branch first")
 	}
 
-	fmt.Printf("[workspace] creating from workspace: source=%s branch=%s new_branch=%s\n",
-		sourceWorkspaceID, currentBranch, newBranch)
+	m.logger.Info("creating from workspace", "source", sourceWorkspaceID, "branch", currentBranch, "new_branch", newBranch)
 
 	// 4. Find repo config by URL
 	repoConfig, found := m.findRepoByURL(source.Repo)
@@ -1028,7 +1030,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	// 9. Fetch latest before creating worktree
 	if fetchErr := m.gitFetch(ctx, worktreeBasePath); fetchErr != nil {
-		fmt.Printf("[workspace] warning: fetch failed before worktree add: %v\n", fetchErr)
+		m.logger.Warn("fetch failed before worktree add", "err", fetchErr)
 	}
 
 	// Fast-forward local default branch to match origin after fetch
@@ -1042,7 +1044,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 			return nil, fmt.Errorf("failed to pick unique branch: %w", err)
 		}
 		if uniqueBranch != newBranch {
-			fmt.Printf("[workspace] using unique branch: requested=%s actual=%s\n", newBranch, uniqueBranch)
+			m.logger.Info("using unique branch", "requested", newBranch, "actual", uniqueBranch)
 		}
 		newBranch = uniqueBranch
 		_ = wasCreated
@@ -1058,14 +1060,14 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			fmt.Printf("[workspace] cleaning up failed: %s\n", workspacePath)
+			m.logger.Warn("cleaning up failed", "path", workspacePath)
 			// Try worktree remove first, fall back to rm -rf
 			if err := m.removeWorktree(ctx, worktreeBasePath, workspacePath); err != nil {
 				os.RemoveAll(workspacePath)
 			}
 			// Delete the branch we created
 			if err := m.deleteBranch(ctx, worktreeBasePath, newBranch); err != nil {
-				fmt.Printf("[workspace] warning: failed to delete branch %s: %v\n", newBranch, err)
+				m.logger.Warn("failed to delete branch", "branch", newBranch, "err", err)
 			}
 		}
 	}()
@@ -1077,7 +1079,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		}
 	} else {
 		// Using full clones - clone and checkout branch
-		fmt.Printf("[workspace] source_code_manager=git, using full clone\n")
+		m.logger.Info("source_code_manager=git, using full clone")
 		if err := m.cloneRepo(ctx, source.Repo, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
@@ -1092,7 +1094,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	// 14. Copy overlay files if they exist
 	manifest, err := m.copyOverlayFiles(ctx, repoConfig.Name, workspacePath)
 	if err != nil {
-		fmt.Printf("[workspace] warning: failed to copy overlay files: %v\n", err)
+		m.logger.Warn("failed to copy overlay files", "err", err)
 	}
 
 	// 15. Create workspace state
@@ -1123,8 +1125,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 		m.gitWatcher.AddWorkspace(w.ID, w.Path)
 	}
 
-	fmt.Printf("[workspace] created from workspace: id=%s path=%s branch=%s source=%s\n",
-		w.ID, w.Path, newBranch, sourceWorkspaceID)
+	m.logger.Info("created from workspace", "id", w.ID, "path", w.Path, "branch", newBranch, "source", sourceWorkspaceID)
 
 	// Track workspace creation
 	m.trackWorkspaceCreated(w.ID, source.Repo, newBranch)
@@ -1145,8 +1146,7 @@ func (m *Manager) getWorkspaceHEAD(ctx context.Context, dir string) (string, err
 
 // addWorktreeForBranch adds a worktree for an existing branch.
 func (m *Manager) addWorktreeForBranch(ctx context.Context, worktreeBasePath, workspacePath, branch string) error {
-	fmt.Printf("[workspace] adding worktree for branch: base=%s path=%s branch=%s\n",
-		worktreeBasePath, workspacePath, branch)
+	m.logger.Debug("adding worktree for branch", "base", worktreeBasePath, "path", workspacePath, "branch", branch)
 
 	args := []string{"worktree", "add", workspacePath, branch}
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -1156,6 +1156,6 @@ func (m *Manager) addWorktreeForBranch(ctx context.Context, worktreeBasePath, wo
 		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] worktree added: path=%s\n", workspacePath)
+	m.logger.Info("worktree added", "path", workspacePath)
 	return nil
 }

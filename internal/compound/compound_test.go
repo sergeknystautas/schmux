@@ -2,11 +2,14 @@ package compound
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 func TestCompounder_EndToEnd(t *testing.T) {
@@ -31,7 +34,7 @@ func TestCompounder_EndToEnd(t *testing.T) {
 
 	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 		propagateCount.Add(1)
-	}, nil)
+	}, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}
@@ -83,7 +86,7 @@ func TestCompounder_Reconcile(t *testing.T) {
 
 	c, err := NewCompounder(100, nil, nil, func(workspaceID, rp, hash string) {
 		manifestUpdated.Add(1)
-	})
+	}, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}
@@ -125,7 +128,7 @@ func TestCompounder_Reconcile_RespectsContext(t *testing.T) {
 		manifest[relPath] = HashBytes([]byte(content))
 	}
 
-	c, err := NewCompounder(100, nil, nil, nil)
+	c, err := NewCompounder(100, nil, nil, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}
@@ -181,7 +184,7 @@ func TestCompounder_DetectsNewFileAtDeclaredPath(t *testing.T) {
 
 	c, err := NewCompounder(100, nil, func(sourceWorkspaceID, repoURL, relPath string, content []byte) {
 		propagateCount.Add(1)
-	}, nil)
+	}, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}
@@ -240,7 +243,7 @@ func TestCompounder_DeclaredPath_FullFlow(t *testing.T) {
 		os.MkdirAll(filepath.Dir(destPath), 0755)
 		os.WriteFile(destPath, content, 0644)
 		ws2Written.Add(1)
-	}, nil)
+	}, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	if err != nil {
 		t.Fatalf("NewCompounder() error = %v", err)
 	}

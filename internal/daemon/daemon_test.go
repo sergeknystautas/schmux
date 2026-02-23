@@ -72,7 +72,7 @@ func TestValidateSessionAccess_NoSessions(t *testing.T) {
 	// Empty state should pass
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	err := validateSessionAccess(st)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestValidateSessionAccess_MissingSessionNoUserMismatch(t *testing.T) {
 	// if there's no user mismatch (no other user's tmux server running)
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 
 	// Add a fake session
 	sess := state.Session{

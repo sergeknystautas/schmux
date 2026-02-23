@@ -11,7 +11,7 @@ import (
 
 func TestHandleDevSimulateTunnel(t *testing.T) {
 	t.Run("returns token and URL when dev mode enabled", func(t *testing.T) {
-		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 		defer server.CloseForTest()
 		server.devMode = true
 
@@ -44,7 +44,7 @@ func TestHandleDevSimulateTunnel(t *testing.T) {
 	})
 
 	t.Run("rejects non-POST", func(t *testing.T) {
-		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 		defer server.CloseForTest()
 		server.devMode = true
 
@@ -60,7 +60,7 @@ func TestHandleDevSimulateTunnel(t *testing.T) {
 
 func TestHandleDevSimulateTunnelStop(t *testing.T) {
 	t.Run("clears tunnel state", func(t *testing.T) {
-		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+		server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 		defer server.CloseForTest()
 		server.devMode = true
 

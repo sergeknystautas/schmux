@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -14,6 +15,7 @@ import (
 type Manager struct {
 	config *config.Config
 	state  *state.State
+	logger *log.Logger
 
 	connections map[string]*Connection // hostID -> connection
 	mu          sync.RWMutex
@@ -24,10 +26,11 @@ type Manager struct {
 }
 
 // NewManager creates a new remote host manager.
-func NewManager(cfg *config.Config, st *state.State) *Manager {
+func NewManager(cfg *config.Config, st *state.State, logger *log.Logger) *Manager {
 	return &Manager{
 		config:      cfg,
 		state:       st,
+		logger:      logger,
 		connections: make(map[string]*Connection),
 	}
 }
@@ -99,6 +102,7 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		ProvisionCommand: flavor.ProvisionCommand,
 		HostnameRegex:    flavor.HostnameRegex,
 		OnStatusChange:   m.handleStatusChange,
+		Logger:           m.logger,
 	})
 
 	// Register in map immediately so WebSocket handler can find it.
@@ -127,7 +131,9 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 
 	sessionID := conn.ProvisioningSessionID()
 
-	fmt.Printf("[remote] StartConnect: host=%s flavor=%s sessionID=%s\n", conn.host.ID, flavorID, sessionID)
+	if m.logger != nil {
+		m.logger.Info("StartConnect", "host_id", conn.host.ID, "flavor", flavorID, "session_id", sessionID)
+	}
 
 	// Connect in background
 	go func() {
@@ -135,7 +141,9 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		defer cancel()
 
 		if err := conn.Connect(ctx); err != nil {
-			fmt.Printf("[remote] connection to %s failed: %v\n", flavorID, err)
+			if m.logger != nil {
+				m.logger.Error("connection failed", "flavor", flavorID, "err", err)
+			}
 			// Keep connection in map so provisioning_session_id remains available
 			// for the frontend ConnectionProgressModal polling to detect failure.
 			conn.mu.Lock()
@@ -150,9 +158,13 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		// Run provisioning if needed
 		host := conn.Host()
 		if !host.Provisioned && flavor.ProvisionCommand != "" {
-			fmt.Printf("[remote] running provision command for host %s\n", host.ID)
+			if m.logger != nil {
+				m.logger.Info("running provision command", "host_id", host.ID)
+			}
 			if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
-				fmt.Printf("[remote] provision failed: %v\n", err)
+				if m.logger != nil {
+					m.logger.Error("provision failed", "err", err)
+				}
 			} else {
 				m.state.UpdateRemoteHostProvisioned(host.ID, true)
 				m.state.SaveBatched()
@@ -163,7 +175,9 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 		// Update state with final host info
 		m.state.UpdateRemoteHost(conn.Host())
 		if err := m.state.Save(); err != nil {
-			fmt.Printf("[remote] failed to persist final state: %v\n", err)
+			if m.logger != nil {
+				m.logger.Error("failed to persist final state", "err", err)
+			}
 		}
 		m.notifyStateChange()
 	}()
@@ -263,6 +277,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 			HostnameRegex:    flavor.HostnameRegex,
 			OnStatusChange:   m.handleStatusChange,
 			OnProgress:       onProgress,
+			Logger:           m.logger,
 		})
 
 		// Update existing host ID
@@ -274,8 +289,8 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 			// Reconnection failed, fall through to new connection
 			if onProgress != nil {
 				onProgress(fmt.Sprintf("reconnection failed: %v, provisioning new host", err))
-			} else {
-				fmt.Printf("[remote] reconnection to %s failed: %v, provisioning new host\n", host.Hostname, err)
+			} else if m.logger != nil {
+				m.logger.Warn("reconnection failed, provisioning new host", "hostname", host.Hostname, "err", err)
 			}
 		} else {
 			// Reconnection successful
@@ -312,6 +327,7 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		HostnameRegex:    flavor.HostnameRegex,
 		OnStatusChange:   m.handleStatusChange,
 		OnProgress:       onProgress,
+		Logger:           m.logger,
 	})
 
 	// Add to state before connecting (shows provisioning status)
@@ -336,9 +352,13 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 	// Run provisioning if needed (first connection only)
 	host = conn.Host()
 	if !host.Provisioned && flavor.ProvisionCommand != "" {
-		fmt.Printf("[remote] running provision command for host %s\n", host.ID)
+		if m.logger != nil {
+			m.logger.Info("running provision command", "host_id", host.ID)
+		}
 		if err := conn.Provision(ctx, flavor.ProvisionCommand); err != nil {
-			fmt.Printf("[remote] provision failed: %v\n", err)
+			if m.logger != nil {
+				m.logger.Error("provision failed", "err", err)
+			}
 			// Don't fail the connection, but log the error
 			// User can manually re-provision or fix the command
 		} else {
@@ -411,6 +431,7 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 		ProvisionCommand: flavor.ProvisionCommand,
 		HostnameRegex:    flavor.HostnameRegex,
 		OnStatusChange:   m.handleStatusChange,
+		Logger:           m.logger,
 	})
 
 	// Use existing host ID
@@ -437,7 +458,9 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 
 	// Reconcile sessions with discovered windows
 	if err := m.reconcileSessions(ctx, conn); err != nil {
-		fmt.Printf("[remote] warning: failed to reconcile sessions: %v\n", err)
+		if m.logger != nil {
+			m.logger.Warn("failed to reconcile sessions", "err", err)
+		}
 		// Don't fail reconnection if reconciliation fails
 	}
 
@@ -594,9 +617,11 @@ func (m *Manager) PruneExpiredHosts() {
 			// Disconnect if connected
 			m.mu.Lock()
 			if conn, exists := m.connections[host.ID]; exists {
-				fmt.Printf("[remote] expiring host %s (%s), connected at %s, expired at %s\n",
-					host.ID, host.Hostname, host.ConnectedAt.Format(time.RFC3339),
-					host.ExpiresAt.Format(time.RFC3339))
+				if m.logger != nil {
+					m.logger.Info("expiring host", "host_id", host.ID, "hostname", host.Hostname,
+						"connected_at", host.ConnectedAt.Format(time.RFC3339),
+						"expired_at", host.ExpiresAt.Format(time.RFC3339))
+				}
 				conn.Close()
 				delete(m.connections, host.ID)
 				pruned++
@@ -610,7 +635,9 @@ func (m *Manager) PruneExpiredHosts() {
 	}
 
 	if pruned > 0 {
-		fmt.Printf("[remote] pruned %d expired host(s)\n", pruned)
+		if m.logger != nil {
+			m.logger.Info("pruned expired hosts", "count", pruned)
+		}
 		m.state.Save()
 		m.notifyStateChange()
 	}
@@ -682,6 +709,7 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 		ProvisionCommand: flavor.ProvisionCommand,
 		HostnameRegex:    flavor.HostnameRegex,
 		OnStatusChange:   m.handleStatusChange,
+		Logger:           m.logger,
 	})
 
 	// Use existing host ID and provisioning session ID pattern
@@ -702,13 +730,17 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	// Update state to reconnecting
 	m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusReconnecting)
 	if err := m.state.Save(); err != nil {
-		fmt.Printf("[remote] failed to persist reconnecting state: %v\n", err)
+		if m.logger != nil {
+			m.logger.Error("failed to persist reconnecting state", "err", err)
+		}
 	}
 	m.notifyStateChange()
 
 	sessionID := conn.ProvisioningSessionID()
 
-	fmt.Printf("[remote] StartReconnect: host=%s hostname=%s sessionID=%s\n", hostID, host.Hostname, sessionID)
+	if m.logger != nil {
+		m.logger.Info("StartReconnect", "host_id", hostID, "hostname", host.Hostname, "session_id", sessionID)
+	}
 
 	// Reconnect in background
 	go func() {
@@ -716,7 +748,9 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 		defer cancel()
 
 		if err := conn.Reconnect(ctx, host.Hostname); err != nil {
-			fmt.Printf("[remote] reconnection to %s (%s) failed: %v\n", hostID, host.Hostname, err)
+			if m.logger != nil {
+				m.logger.Error("reconnection failed", "host_id", hostID, "hostname", host.Hostname, "err", err)
+			}
 			// Keep connection in map so provisioning_session_id remains available
 			// for the frontend ConnectionProgressModal polling to detect failure.
 			conn.mu.Lock()
@@ -735,13 +769,17 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 
 		// Reconcile sessions with discovered windows
 		if err := m.reconcileSessions(ctx, conn); err != nil {
-			fmt.Printf("[remote] warning: failed to reconcile sessions after reconnect: %v\n", err)
+			if m.logger != nil {
+				m.logger.Warn("failed to reconcile sessions after reconnect", "err", err)
+			}
 		}
 
 		// Update state with final host info
 		m.state.UpdateRemoteHost(conn.Host())
 		if err := m.state.Save(); err != nil {
-			fmt.Printf("[remote] failed to persist final state: %v\n", err)
+			if m.logger != nil {
+				m.logger.Error("failed to persist final state", "err", err)
+			}
 		}
 		m.notifyStateChange()
 	}()
@@ -766,11 +804,15 @@ func (m *Manager) MarkStaleHostsDisconnected() int {
 
 		// Skip expired hosts (handled separately by PruneExpiredHosts)
 		if host.ExpiresAt.Before(time.Now()) {
-			fmt.Printf("[remote] skipping expired host %s (%s)\n", host.ID, host.Hostname)
+			if m.logger != nil {
+				m.logger.Debug("skipping expired host", "host_id", host.ID, "hostname", host.Hostname)
+			}
 			continue
 		}
 
-		fmt.Printf("[remote] marking stale host %s (%s) as disconnected\n", host.ID, host.Hostname)
+		if m.logger != nil {
+			m.logger.Info("marking stale host as disconnected", "host_id", host.ID, "hostname", host.Hostname)
+		}
 		m.state.UpdateRemoteHostStatus(host.ID, state.RemoteHostStatusDisconnected)
 		count++
 	}
@@ -847,7 +889,9 @@ func (m *Manager) reconcileSessions(ctx context.Context, conn *Connection) error
 	}
 
 	if len(windows) == 0 {
-		fmt.Printf("[remote] no windows found on host %s\n", conn.host.ID)
+		if m.logger != nil {
+			m.logger.Info("no windows found on host", "host_id", conn.host.ID)
+		}
 		return nil
 	}
 
@@ -881,8 +925,9 @@ func (m *Manager) reconcileSessions(ctx context.Context, conn *Connection) error
 				sess.Status = "running" // Ensure status is running
 				m.state.UpdateSession(sess)
 				reconciledCount++
-				fmt.Printf("[remote] rediscovered session %s (window=%s, pane=%s)\n",
-					sess.ID, w.WindowID, w.PaneID)
+				if m.logger != nil {
+					m.logger.Info("rediscovered session", "session_id", sess.ID, "window", w.WindowID, "pane", w.PaneID)
+				}
 				break
 			}
 		}
@@ -892,13 +937,16 @@ func (m *Manager) reconcileSessions(ctx context.Context, conn *Connection) error
 			sess.Status = "disconnected"
 			m.state.UpdateSession(sess)
 			disconnectedCount++
-			fmt.Printf("[remote] warning: could not reconcile session %s (no ID match), marked as disconnected\n", sess.ID)
+			if m.logger != nil {
+				m.logger.Warn("could not reconcile session (no ID match), marked as disconnected", "session_id", sess.ID)
+			}
 		}
 	}
 
 	if reconciledCount > 0 || disconnectedCount > 0 {
-		fmt.Printf("[remote] reconciled %d session(s), %d marked disconnected on host %s\n",
-			reconciledCount, disconnectedCount, conn.host.ID)
+		if m.logger != nil {
+			m.logger.Info("reconciled sessions", "reconciled", reconciledCount, "disconnected", disconnectedCount, "host_id", conn.host.ID)
+		}
 		m.state.Save()
 	}
 

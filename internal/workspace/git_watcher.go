@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sergeknystautas/schmux/internal/config"
 )
@@ -21,6 +22,7 @@ type GitWatcher struct {
 	cfg       *config.Config
 	mgr       *Manager
 	broadcast func()
+	logger    *log.Logger
 
 	// onRefresh is called instead of the default refreshWorkspace logic when set.
 	// Used for testing to avoid real git operations.
@@ -46,15 +48,15 @@ type GitWatcher struct {
 
 // NewGitWatcher creates a new git watcher. Returns nil if watching is disabled
 // in config.
-func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func()) *GitWatcher {
+func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func(), logger *log.Logger) *GitWatcher {
 	if !cfg.GetGitStatusWatchEnabled() {
-		fmt.Println("[git-watcher] disabled by config")
+		logger.Info("disabled by config")
 		return nil
 	}
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		fmt.Printf("[git-watcher] failed to create watcher: %v\n", err)
+		logger.Error("failed to create watcher", "err", err)
 		return nil
 	}
 
@@ -63,6 +65,7 @@ func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func()) *GitWatch
 		cfg:            cfg,
 		mgr:            mgr,
 		broadcast:      broadcast,
+		logger:         logger,
 		watchedPaths:   make(map[string][]string),
 		debounceTimers: make(map[string]*time.Timer),
 		lastStatusHash: make(map[string]string),
@@ -73,7 +76,7 @@ func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func()) *GitWatch
 // Start launches the event loop goroutine.
 func (gw *GitWatcher) Start() {
 	go gw.eventLoop()
-	fmt.Println("[git-watcher] started")
+	gw.logger.Info("started")
 }
 
 // Stop closes the watcher and cancels all pending timers.
@@ -89,7 +92,7 @@ func (gw *GitWatcher) Stop() {
 		}
 		gw.debounceTimersMu.Unlock()
 
-		fmt.Println("[git-watcher] stopped")
+		gw.logger.Info("stopped")
 	})
 }
 
@@ -97,7 +100,7 @@ func (gw *GitWatcher) Stop() {
 func (gw *GitWatcher) AddWorkspace(workspaceID, workspacePath string) {
 	gitDir, err := resolveGitDir(workspacePath)
 	if err != nil {
-		fmt.Printf("[git-watcher] failed to resolve git dir for %s: %v\n", workspaceID, err)
+		gw.logger.Warn("failed to resolve git dir", "workspace_id", workspaceID, "err", err)
 		return
 	}
 
@@ -118,7 +121,7 @@ func (gw *GitWatcher) AddWorkspace(workspaceID, workspacePath string) {
 		gw.watchRecursive(baseRefsDir, workspaceID)
 	}
 
-	fmt.Printf("[git-watcher] watching %s (gitdir=%s)\n", workspaceID, gitDir)
+	gw.logger.Info("watching", "workspace_id", workspaceID, "gitdir", gitDir)
 }
 
 // RemoveWorkspace removes all watches for a workspace and cancels its debounce timer.
@@ -147,7 +150,7 @@ func (gw *GitWatcher) RemoveWorkspace(workspaceID string) {
 	}
 	gw.debounceTimersMu.Unlock()
 
-	fmt.Printf("[git-watcher] unwatched %s\n", workspaceID)
+	gw.logger.Info("unwatched", "workspace_id", workspaceID)
 }
 
 // eventLoop processes fsnotify events and errors.
@@ -163,7 +166,7 @@ func (gw *GitWatcher) eventLoop() {
 			if !ok {
 				return
 			}
-			fmt.Printf("[git-watcher] error: %v\n", err)
+			gw.logger.Error("watcher error", "err", err)
 		case <-gw.stopCh:
 			return
 		}
@@ -257,7 +260,7 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 		if errors.Is(err, ErrWorkspaceLocked) {
 			return
 		}
-		fmt.Printf("[git-watcher] failed to update status for %s: %v\n", workspaceID, err)
+		gw.logger.Warn("failed to update status", "workspace_id", workspaceID, "err", err)
 		return
 	}
 
@@ -299,7 +302,7 @@ func (gw *GitWatcher) addWatch(path string, workspaceID string) {
 
 	if needsAdd {
 		if err := gw.watcher.Add(path); err != nil {
-			fmt.Printf("[git-watcher] failed to watch %s: %v\n", path, err)
+			gw.logger.Warn("failed to watch", "path", path, "err", err)
 		}
 	}
 }

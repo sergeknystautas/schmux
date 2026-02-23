@@ -14,6 +14,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/creack/pty"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -52,6 +53,7 @@ type Connection struct {
 	cmd    *exec.Cmd
 	client *controlmode.Client
 	parser *controlmode.Parser
+	logger *log.Logger
 
 	// PTY for interactive terminal (used during provisioning for auth prompts)
 	pty    *os.File
@@ -114,6 +116,7 @@ type ConnectionConfig struct {
 	HostnameRegex    string // Custom regex for hostname extraction (first capture group)
 	OnStatusChange   func(hostID, status string)
 	OnProgress       func(message string)
+	Logger           *log.Logger
 }
 
 // Regexes for parsing remote connection output
@@ -156,6 +159,7 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 			ReconnectCommand: cfg.ReconnectCommand,
 			ProvisionCommand: cfg.ProvisionCommand,
 		},
+		logger:                cfg.Logger,
 		onStatusChange:        cfg.OnStatusChange,
 		onProgress:            cfg.OnProgress,
 		provisioningSessionID: fmt.Sprintf("provision-%s", hostID),
@@ -165,8 +169,8 @@ func NewConnection(cfg ConnectionConfig) *Connection {
 	if cfg.HostnameRegex != "" {
 		if re, err := regexp.Compile(cfg.HostnameRegex); err == nil {
 			conn.customHostnameRegex = re
-		} else {
-			fmt.Printf("[remote %s] invalid hostname_regex %q, using default: %v\n", hostID, cfg.HostnameRegex, err)
+		} else if conn.logger != nil {
+			conn.logger.Warn("invalid hostname_regex, using default", "host_id", hostID, "regex", cfg.HostnameRegex, "err", err)
 		}
 	}
 
@@ -246,7 +250,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	c.cmd = exec.Command(args[0], args[1:]...)
 
-	fmt.Printf("[remote %s] executing connect command: %s\n", c.host.ID, cmdLine)
+	if c.logger != nil {
+		c.logger.Info("executing connect command", "host_id", c.host.ID, "cmd", cmdLine)
+	}
 
 	// Start command with PTY for interactive terminal (auth prompts work)
 	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
@@ -262,8 +268,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	c.mu.Unlock()
 
-	fmt.Printf("[remote %s] PTY started (pid=%d), provisioning session=%s\n",
-		c.host.ID, c.cmd.Process.Pid, c.provisioningSessionID)
+	if c.logger != nil {
+		c.logger.Info("PTY started", "host_id", c.host.ID, "pid", c.cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
+	}
 
 	// Monitor SSH process lifecycle. This goroutine waits for the process to exit
 	// and updates the connection status to "disconnected" when it dies.
@@ -277,7 +284,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 	go func() {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("[remote %s] context canceled during connection, killing process\n", c.host.ID)
+			if c.logger != nil {
+				c.logger.Warn("context canceled during connection, killing process", "host_id", c.host.ID)
+			}
 			c.Close()
 		case <-connectDone:
 			// Connect completed, stop monitoring this context
@@ -295,14 +304,18 @@ func (c *Connection) Connect(ctx context.Context) error {
 	go c.parseProvisioningOutput(c.pty)
 
 	// Wait for control mode to be ready (reads from pipe, not PTY directly)
-	fmt.Printf("[remote %s] waiting for control mode...\n", c.host.ID)
+	if c.logger != nil {
+		c.logger.Info("waiting for control mode", "host_id", c.host.ID)
+	}
 	if err := c.waitForControlMode(ctx, controlPR); err != nil {
 		close(connectDone)
 		c.Close()
 		return err
 	}
 
-	fmt.Printf("[remote %s] control mode ready, connected to %s\n", c.host.ID, c.hostname)
+	if c.logger != nil {
+		c.logger.Info("control mode ready", "host_id", c.host.ID, "hostname", c.hostname)
+	}
 
 	// Stop the context monitoring goroutine - the connection is established
 	// and should live independently of the setup context.
@@ -355,7 +368,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	c.cmd = exec.Command(args[0], args[1:]...)
 
-	fmt.Printf("[remote %s] executing reconnect command: %s\n", c.host.ID, cmdLine)
+	if c.logger != nil {
+		c.logger.Info("executing reconnect command", "host_id", c.host.ID, "cmd", cmdLine)
+	}
 
 	// Start command with PTY for interactive terminal
 	ptmx, err := pty.StartWithSize(c.cmd, &pty.Winsize{Rows: 24, Cols: 80})
@@ -370,8 +385,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	c.notifyStatusChange()
 
-	fmt.Printf("[remote %s] PTY started for reconnection (pid=%d), provisioning session=%s\n",
-		c.host.ID, c.cmd.Process.Pid, c.provisioningSessionID)
+	if c.logger != nil {
+		c.logger.Info("PTY started for reconnection", "host_id", c.host.ID, "pid", c.cmd.Process.Pid, "provisioning_session", c.provisioningSessionID)
+	}
 
 	// Monitor SSH process lifecycle (same as Connect).
 	go c.monitorProcess()
@@ -383,7 +399,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	go func() {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("[remote %s] context canceled during reconnection, killing process\n", c.host.ID)
+			if c.logger != nil {
+				c.logger.Warn("context canceled during reconnection, killing process", "host_id", c.host.ID)
+			}
 			c.Close()
 		case <-connectDone:
 			// Reconnect completed, stop monitoring this context
@@ -401,14 +419,18 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 	go c.parseProvisioningOutput(c.pty)
 
 	// Wait for control mode (reads from pipe, not PTY directly)
-	fmt.Printf("[remote %s] reconnecting, waiting for control mode...\n", c.host.ID)
+	if c.logger != nil {
+		c.logger.Info("reconnecting, waiting for control mode", "host_id", c.host.ID)
+	}
 	if err := c.waitForControlMode(ctx, controlPR); err != nil {
 		close(connectDone)
 		c.Close()
 		return err
 	}
 
-	fmt.Printf("[remote %s] control mode ready after reconnection to %s\n", c.host.ID, c.hostname)
+	if c.logger != nil {
+		c.logger.Info("control mode ready after reconnection", "host_id", c.host.ID, "hostname", c.hostname)
+	}
 
 	// Stop the context monitoring goroutine - the connection is established
 	// and should live independently of the setup context.
@@ -416,7 +438,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 
 	// Rediscover sessions after reconnection
 	if err := c.rediscoverSessions(ctx); err != nil {
-		fmt.Printf("[remote] warning: failed to rediscover sessions: %v\n", err)
+		if c.logger != nil {
+			c.logger.Warn("failed to rediscover sessions", "err", err)
+		}
 		// Don't fail reconnection if rediscovery fails
 	}
 
@@ -428,7 +452,9 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 // and forwards data to the control mode parser via controlPipeWriter.
 // This MUST be the only goroutine reading from the PTY.
 func (c *Connection) parseProvisioningOutput(r io.Reader) {
-	fmt.Printf("[remote %s] parseProvisioningOutput started\n", c.host.ID)
+	if c.logger != nil {
+		c.logger.Debug("parseProvisioningOutput started", "host_id", c.host.ID)
+	}
 	buf := make([]byte, 4096)
 	var lineBuf strings.Builder
 	pipeOpen := true
@@ -445,7 +471,9 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 			// Forward to control mode parser pipe
 			if pipeOpen && c.controlPipeWriter != nil {
 				if _, werr := c.controlPipeWriter.Write(chunk); werr != nil {
-					fmt.Printf("[remote %s] control pipe write error (expected during shutdown): %v\n", c.host.ID, werr)
+					if c.logger != nil {
+						c.logger.Debug("control pipe write error (expected during shutdown)", "host_id", c.host.ID, "err", werr)
+					}
 					pipeOpen = false
 				}
 			}
@@ -528,15 +556,17 @@ func (c *Connection) parseProvisioningOutput(r io.Reader) {
 		c.controlPipeWriter.Close()
 	}
 
-	fmt.Printf("[remote %s] parseProvisioningOutput exited\n", c.host.ID)
+	if c.logger != nil {
+		c.logger.Debug("parseProvisioningOutput exited", "host_id", c.host.ID)
+	}
 }
 
 // waitForControlMode waits for tmux control mode to be ready.
 // The reader parameter provides the data source for the control mode parser.
 func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) error {
 	// Create parser with the provided reader
-	c.parser = controlmode.NewParser(reader, c.host.ID)
-	c.client = controlmode.NewClient(c.stdin, c.parser)
+	c.parser = controlmode.NewParser(reader, c.logger, c.host.ID)
+	c.client = controlmode.NewClient(c.stdin, c.parser, c.logger)
 
 	// Start the parser in background
 	go c.parser.Run()
@@ -545,13 +575,17 @@ func (c *Connection) waitForControlMode(ctx context.Context, reader io.Reader) e
 	// before sending any commands. During provisioning, SSH/auth output
 	// comes first and tmux hasn't entered control mode yet - sending
 	// commands too early means they go to the shell and are lost.
-	fmt.Printf("[remote %s] waiting for control mode protocol...\n", c.host.ID)
+	if c.logger != nil {
+		c.logger.Info("waiting for control mode protocol", "host_id", c.host.ID)
+	}
 	waitCtx, cancel := context.WithTimeout(ctx, ControlModeReadyTimeout)
 	defer cancel()
 
 	select {
 	case <-c.parser.ControlModeReady():
-		fmt.Printf("[remote %s] control mode protocol detected, sending ready check\n", c.host.ID)
+		if c.logger != nil {
+			c.logger.Info("control mode protocol detected, sending ready check", "host_id", c.host.ID)
+		}
 	case <-waitCtx.Done():
 		return fmt.Errorf("control mode not ready: %w", waitCtx.Err())
 	}
@@ -651,11 +685,15 @@ func (c *Connection) monitorProcess() {
 
 	if status == state.RemoteHostStatusDisconnected {
 		// Already disconnected (Close() was called first), just log
-		fmt.Printf("[remote %s] SSH process exited (host=%s, already disconnected): %v\n", hostID, hostname, err)
+		if c.logger != nil {
+			c.logger.Info("SSH process exited (already disconnected)", "host_id", hostID, "hostname", hostname, "err", err)
+		}
 		return
 	}
 
-	fmt.Printf("[remote %s] SSH process exited unexpectedly (host=%s): %v\n", hostID, hostname, err)
+	if c.logger != nil {
+		c.logger.Warn("SSH process exited unexpectedly", "host_id", hostID, "hostname", hostname, "err", err)
+	}
 
 	// Trigger connection cleanup (sets status to disconnected, notifies callbacks).
 	// closeOnce ensures this is safe even if Close() was already called.
@@ -858,7 +896,9 @@ func (c *Connection) QueueSession(ctx context.Context, sessionID, name, workdir,
 	})
 	c.pendingSessionsMu.Unlock()
 
-	fmt.Printf("[remote] queued session %s (pending: %d)\n", sessionID, len(c.pendingSessions))
+	if c.logger != nil {
+		c.logger.Info("queued session", "session_id", sessionID, "pending", len(c.pendingSessions))
+	}
 
 	return ch
 }
@@ -874,15 +914,21 @@ func (c *Connection) drainPendingQueue(ctx context.Context) {
 		return
 	}
 
-	fmt.Printf("[remote] draining %d pending session(s)\n", len(pending))
+	if c.logger != nil {
+		c.logger.Info("draining pending sessions", "count", len(pending))
+	}
 
 	for _, p := range pending {
 		windowID, paneID, err := c.client.CreateWindow(ctx, p.Name, p.WorkDir, p.Command)
 		if err != nil {
-			fmt.Printf("[remote] failed to create queued session %s: %v\n", p.SessionID, err)
+			if c.logger != nil {
+				c.logger.Error("failed to create queued session", "session_id", p.SessionID, "err", err)
+			}
 			p.CompleteCh <- PendingSessionResult{Error: fmt.Errorf("failed to create queued session: %w", err)}
 		} else {
-			fmt.Printf("[remote] created queued session %s (window=%s, pane=%s)\n", p.SessionID, windowID, paneID)
+			if c.logger != nil {
+				c.logger.Info("created queued session", "session_id", p.SessionID, "window", windowID, "pane", paneID)
+			}
 			p.CompleteCh <- PendingSessionResult{WindowID: windowID, PaneID: paneID, Error: nil}
 		}
 		close(p.CompleteCh)
@@ -901,7 +947,9 @@ func (c *Connection) rediscoverSessions(ctx context.Context) error {
 		return fmt.Errorf("failed to list windows: %w", err)
 	}
 
-	fmt.Printf("[remote] rediscovered %d window(s) on host %s\n", len(windows), c.hostname)
+	if c.logger != nil {
+		c.logger.Info("rediscovered windows", "count", len(windows), "hostname", c.hostname)
+	}
 
 	// Note: The actual reconciliation with state happens in Manager.Reconnect()
 	// This method just verifies the connection works and logs what was found
@@ -913,7 +961,9 @@ func (c *Connection) rediscoverSessions(ctx context.Context) error {
 // Returns nil if no provision command is configured or if already provisioned.
 func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 	if provisionCmd == "" {
-		fmt.Printf("[remote] no provision command configured, skipping provisioning\n")
+		if c.logger != nil {
+			c.logger.Info("no provision command configured, skipping provisioning")
+		}
 		return nil
 	}
 
@@ -921,7 +971,9 @@ func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	fmt.Printf("[remote] provisioning workspace on host %s\n", c.hostname)
+	if c.logger != nil {
+		c.logger.Info("provisioning workspace", "hostname", c.hostname)
+	}
 
 	// Parse and execute provision command template
 	tmpl, err := template.New("provision").Parse(provisionCmd)
@@ -946,7 +998,9 @@ func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 	}
 
 	command := cmdStr.String()
-	fmt.Printf("[remote] executing provision command: %s\n", command)
+	if c.logger != nil {
+		c.logger.Info("executing provision command", "cmd", command)
+	}
 
 	// Execute provision command with timeout (5 minutes default)
 	provisionCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -957,9 +1011,13 @@ func (c *Connection) Provision(ctx context.Context, provisionCmd string) error {
 		return fmt.Errorf("provision command failed: %w", err)
 	}
 
-	fmt.Printf("[remote] provision completed successfully\n")
+	if c.logger != nil {
+		c.logger.Info("provision completed successfully")
+	}
 	if output != "" {
-		fmt.Printf("[remote] provision output: %s\n", output)
+		if c.logger != nil {
+			c.logger.Debug("provision output", "output", output)
+		}
 	}
 
 	return nil

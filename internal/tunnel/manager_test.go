@@ -7,7 +7,7 @@ import (
 )
 
 func TestTunnelState_InitiallyOff(t *testing.T) {
-	m := NewManager(ManagerConfig{})
+	m := NewManager(ManagerConfig{}, nil)
 	status := m.Status()
 	if status.State != StateOff {
 		t.Errorf("expected StateOff, got %s", status.State)
@@ -18,7 +18,7 @@ func TestTunnelState_InitiallyOff(t *testing.T) {
 }
 
 func TestTunnelState_StartRequiresPasswordHash(t *testing.T) {
-	m := NewManager(ManagerConfig{PasswordHashSet: func() bool { return false }})
+	m := NewManager(ManagerConfig{PasswordHashSet: func() bool { return false }}, nil)
 	err := m.Start()
 	if err == nil {
 		t.Fatal("expected error when password not configured")
@@ -32,7 +32,7 @@ func TestTunnelState_StartRequiresNotDisabled(t *testing.T) {
 	m := NewManager(ManagerConfig{
 		Disabled:        func() bool { return true },
 		PasswordHashSet: func() bool { return true },
-	})
+	}, nil)
 
 	err := m.Start()
 	if err == nil {
@@ -58,7 +58,7 @@ func TestTunnelState_StartRejectsNonLoopbackBind(t *testing.T) {
 			m := NewManager(ManagerConfig{
 				PasswordHashSet: func() bool { return true },
 				BindAddress:     tt.bindAddress,
-			})
+			}, nil)
 			err := m.Start()
 			if err == nil {
 				// Start will proceed to find cloudflared — it may fail there,
@@ -90,7 +90,7 @@ func TestTunnelState_StartRejectsAutoDownloadDisabled(t *testing.T) {
 		PasswordHashSet:   func() bool { return true },
 		AllowAutoDownload: false,
 		SchmuxBinDir:      t.TempDir(),
-	})
+	}, nil)
 	err := m.Start()
 	if err == nil {
 		m.Stop()

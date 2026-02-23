@@ -2,10 +2,10 @@ package github
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 )
@@ -17,6 +17,7 @@ type Discovery struct {
 	publicRepos   []string // repo URLs that are confirmed public
 	lastFetchedAt *time.Time
 	lastError     string
+	logger        *log.Logger
 
 	// Lifecycle management
 	ticker   *time.Ticker
@@ -25,8 +26,8 @@ type Discovery struct {
 }
 
 // NewDiscovery creates a new Discovery instance.
-func NewDiscovery() *Discovery {
-	return &Discovery{}
+func NewDiscovery(logger *log.Logger) *Discovery {
+	return &Discovery{logger: logger}
 }
 
 // Seed initializes discovery state from cached data.
@@ -72,7 +73,9 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 		}
 		info, err := ParseRepoURL(repo.URL)
 		if err != nil {
-			fmt.Printf("[github] skipping %s: %v\n", repo.URL, err)
+			if d.logger != nil {
+				d.logger.Warn("skipping repo", "url", repo.URL, "err", err)
+			}
 			continue
 		}
 
@@ -86,11 +89,15 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 				d.mu.Unlock()
 				return nil, &retryAfter, err
 			}
-			fmt.Printf("[github] error checking visibility for %s: %v\n", repo.URL, err)
+			if d.logger != nil {
+				d.logger.Error("error checking visibility", "url", repo.URL, "err", err)
+			}
 			continue
 		}
 		if !isPublic {
-			fmt.Printf("[github] skipping private/missing repo: %s\n", repo.URL)
+			if d.logger != nil {
+				d.logger.Info("skipping private/missing repo", "url", repo.URL)
+			}
 			continue
 		}
 
@@ -114,7 +121,9 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 				d.mu.Unlock()
 				return nil, &retryAfter, err
 			}
-			fmt.Printf("[github] error fetching PRs for %s: %v\n", repoURL, err)
+			if d.logger != nil {
+				d.logger.Error("error fetching PRs", "url", repoURL, "err", err)
+			}
 			continue
 		}
 		allPRs = append(allPRs, prs...)
@@ -129,7 +138,9 @@ func (d *Discovery) Refresh(repos []config.Repo) ([]contracts.PullRequest, *int,
 	d.lastError = ""
 	d.mu.Unlock()
 
-	fmt.Printf("[github] discovered %d PRs across %d public repos\n", len(allPRs), len(publicRepos))
+	if d.logger != nil {
+		d.logger.Info("discovered PRs", "pr_count", len(allPRs), "repo_count", len(publicRepos))
+	}
 	return allPRs, nil, nil
 }
 

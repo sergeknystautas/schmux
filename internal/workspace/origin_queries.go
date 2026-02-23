@@ -29,7 +29,7 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 	for _, repo := range m.config.GetRepos() {
 		queryRepoPath, err := m.ensureOriginQueryRepo(ctx, repo.URL)
 		if err != nil {
-			fmt.Printf("[workspace] warning: %v\n", err)
+			m.logger.Warn("failed to ensure origin query repo", "repo", repo.Name, "err", err)
 			continue
 		}
 
@@ -65,7 +65,7 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 	queryRepoPath := filepath.Join(queryRepoDir, repo.BarePath)
 
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
-		fmt.Printf("[workspace] creating origin query repo: %s\n", repo.BarePath)
+		m.logger.Info("creating origin query repo", "barePath", repo.BarePath)
 		// Create parent directory (e.g., ~/.schmux/query/facebook/)
 		if err := os.MkdirAll(filepath.Dir(queryRepoPath), 0755); err != nil {
 			return "", fmt.Errorf("failed to create query repo directory: %w", err)
@@ -177,12 +177,11 @@ func (m *Manager) ensureCorrectOriginURL(ctx context.Context, repoPath, expected
 	if currentURL == expectedURL {
 		return
 	}
-	fmt.Printf("[workspace] fixing origin URL mismatch in %s: %s -> %s\n",
-		filepath.Base(repoPath), currentURL, expectedURL)
+	m.logger.Info("fixing origin URL mismatch", "repo", filepath.Base(repoPath), "from", currentURL, "to", expectedURL)
 	fix := exec.CommandContext(ctx, "git", "remote", "set-url", "origin", expectedURL)
 	fix.Dir = repoPath
 	if out, err := fix.CombinedOutput(); err != nil {
-		fmt.Printf("[workspace] warning: failed to fix origin URL: %v: %s\n", err, string(out))
+		m.logger.Warn("failed to fix origin URL", "err", err, "output", string(out))
 	}
 }
 
@@ -227,13 +226,13 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 		}
 
 		if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
-			fmt.Printf("[workspace] warning: %v\n", err)
+			m.logger.Warn("failed to fetch origin query repo", "repo", repo.Name, "err", err)
 			continue
 		}
 
 		if !m.originHeadExists(ctx, queryRepoPath) {
 			if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
-				fmt.Printf("[workspace] warning: %v\n", err)
+				m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
 			}
 		}
 
@@ -268,7 +267,7 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 
 		branches, err := m.getRecentBranchesFromBare(ctx, queryRepoPath, repo.Name, repo.URL, limit)
 		if err != nil {
-			fmt.Printf("[workspace] warning: failed to get branches from %s: %v\n", repo.Name, err)
+			m.logger.Warn("failed to get branches", "repo", repo.Name, "err", err)
 			continue
 		}
 

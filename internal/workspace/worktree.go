@@ -16,7 +16,7 @@ import (
 // Note: git clone --bare doesn't set up fetch refspecs by default (it's designed for
 // servers). We add the refspec so that 'git fetch' creates remote tracking branches.
 func (m *Manager) cloneBareRepo(ctx context.Context, url, path string) error {
-	fmt.Printf("[workspace] cloning bare repository: url=%s path=%s\n", url, path)
+	m.logger.Info("cloning bare repository", "url", url, "path", path)
 	args := []string{"clone", "--bare", url, path}
 	cmd := exec.CommandContext(ctx, "git", args...)
 
@@ -32,7 +32,7 @@ func (m *Manager) cloneBareRepo(ctx context.Context, url, path string) error {
 		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] bare repository cloned: path=%s\n", path)
+	m.logger.Info("bare repository cloned", "path", path)
 	return nil
 }
 
@@ -54,10 +54,10 @@ func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (strin
 	if wb, found := m.state.GetWorktreeBaseByURL(repoURL); found {
 		// Verify it still exists on disk (handles external deletion)
 		if _, err := os.Stat(wb.Path); err == nil {
-			fmt.Printf("[workspace] using existing worktree base: url=%s path=%s\n", repoURL, wb.Path)
+			m.logger.Debug("using existing worktree base", "url", repoURL, "path", wb.Path)
 			return wb.Path, nil
 		}
-		fmt.Printf("[workspace] worktree base missing on disk, will recreate: url=%s\n", repoURL)
+		m.logger.Warn("worktree base missing on disk, will recreate", "url", repoURL)
 	}
 
 	// Get BarePath from config
@@ -80,7 +80,7 @@ func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (strin
 	if err := m.cloneBareRepo(ctx, repoURL, worktreeBasePath); err != nil {
 		// Check if it failed because directory already exists (race condition)
 		if _, statErr := os.Stat(worktreeBasePath); statErr == nil {
-			fmt.Printf("[workspace] worktree base created by concurrent request, using existing: %s\n", worktreeBasePath)
+			m.logger.Info("worktree base created by concurrent request, using existing", "path", worktreeBasePath)
 			// Fall through to add to state (idempotent)
 		} else {
 			return "", err
@@ -100,7 +100,7 @@ func (m *Manager) ensureWorktreeBase(ctx context.Context, repoURL string) (strin
 
 // addWorktree adds a worktree from a worktree base.
 func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePath, branch, repoURL string) error {
-	fmt.Printf("[workspace] adding worktree: base=%s path=%s branch=%s\n", worktreeBasePath, workspacePath, branch)
+	m.logger.Info("adding worktree", "base", worktreeBasePath, "path", workspacePath, "branch", branch)
 
 	// Check if local branch exists
 	localBranchCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
@@ -124,7 +124,7 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 		ffCheck.Dir = worktreeBasePath
 		if ffCheck.Run() != nil {
 			// Local branch has diverged from remote — reset to match remote
-			fmt.Printf("[workspace] local %s diverged from origin, resetting to origin/%s\n", branch, branch)
+			m.logger.Info("local branch diverged from origin, resetting", "branch", branch)
 			updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
 			updateCmd.Dir = worktreeBasePath
 			if output, err := updateCmd.CombinedOutput(); err != nil {
@@ -157,7 +157,7 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] worktree added: path=%s\n", workspacePath)
+	m.logger.Info("worktree added", "path", workspacePath)
 	return nil
 }
 
@@ -269,7 +269,7 @@ func (m *Manager) isBranchInWorktree(ctx context.Context, worktreeBasePath, bran
 
 // removeWorktree removes a worktree.
 func (m *Manager) removeWorktree(ctx context.Context, worktreeBasePath, workspacePath string) error {
-	fmt.Printf("[workspace] removing worktree: base=%s path=%s\n", worktreeBasePath, workspacePath)
+	m.logger.Info("removing worktree", "base", worktreeBasePath, "path", workspacePath)
 
 	args := []string{"worktree", "remove", "--force", workspacePath}
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -279,14 +279,14 @@ func (m *Manager) removeWorktree(ctx context.Context, worktreeBasePath, workspac
 		return fmt.Errorf("git worktree remove failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] worktree removed: path=%s\n", workspacePath)
+	m.logger.Info("worktree removed", "path", workspacePath)
 	return nil
 }
 
 // pruneWorktrees runs git worktree prune to clean up stale worktree references.
 // This removes worktree metadata for worktrees whose directories no longer exist.
 func (m *Manager) pruneWorktrees(ctx context.Context, worktreeBasePath string) error {
-	fmt.Printf("[workspace] pruning stale worktrees: base=%s\n", worktreeBasePath)
+	m.logger.Debug("pruning stale worktrees", "base", worktreeBasePath)
 
 	args := []string{"worktree", "prune"}
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -296,14 +296,14 @@ func (m *Manager) pruneWorktrees(ctx context.Context, worktreeBasePath string) e
 		return fmt.Errorf("git worktree prune failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] worktrees pruned: base=%s\n", worktreeBasePath)
+	m.logger.Debug("worktrees pruned", "base", worktreeBasePath)
 	return nil
 }
 
 // initLocalRepo initializes a new local git repository at the given path.
 // It creates the directory, runs git init, creates the initial branch, and makes an empty commit.
 func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error {
-	fmt.Printf("[workspace] initializing local repository: path=%s branch=%s\n", path, branch)
+	m.logger.Info("initializing local repository", "path", path, "branch", branch)
 
 	// Create the directory
 	if err := os.MkdirAll(path, 0755); err != nil {
@@ -344,14 +344,14 @@ func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error 
 		return fmt.Errorf("git commit failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] local repository initialized: path=%s\n", path)
+	m.logger.Info("local repository initialized", "path", path)
 	return nil
 }
 
 // cloneRepo clones a repository to the given path.
 // Deprecated: Use ensureWorktreeBase + addWorktree for new workspaces.
 func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
-	fmt.Printf("[workspace] cloning repository: url=%s path=%s\n", url, path)
+	m.logger.Info("cloning repository", "url", url, "path", path)
 	args := []string{"clone", url, path}
 	cmd := exec.CommandContext(ctx, "git", args...)
 
@@ -359,7 +359,7 @@ func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 		return fmt.Errorf("git clone failed: %w: %s", err, string(output))
 	}
 
-	fmt.Printf("[workspace] repository cloned: path=%s\n", path)
+	m.logger.Info("repository cloned", "path", path)
 	return nil
 }
 
@@ -381,7 +381,7 @@ func (m *Manager) cleanupLocalBranch(ctx context.Context, worktreeBasePath strin
 	// Check if branch exists on remote
 	remoteBranchExists, err := m.gitRemoteBranchExists(ctx, worktreeBasePath, w.Branch)
 	if err != nil {
-		fmt.Printf("[workspace] warning: could not check remote branch: %v\n", err)
+		m.logger.Warn("could not check remote branch", "err", err)
 		return
 	}
 	if remoteBranchExists {
@@ -390,9 +390,9 @@ func (m *Manager) cleanupLocalBranch(ctx context.Context, worktreeBasePath strin
 
 	// Delete local branch
 	if err := m.deleteBranch(ctx, worktreeBasePath, w.Branch); err != nil {
-		fmt.Printf("[workspace] warning: failed to delete local branch %s: %v\n", w.Branch, err)
+		m.logger.Warn("failed to delete local branch", "branch", w.Branch, "err", err)
 	} else {
-		fmt.Printf("[workspace] deleted local branch: %s\n", w.Branch)
+		m.logger.Info("deleted local branch", "branch", w.Branch)
 	}
 }
 

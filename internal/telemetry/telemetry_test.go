@@ -41,7 +41,7 @@ func TestNewSendsEvents(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("").(*Client)
+	client := New("", nil).(*Client)
 
 	client.Track("test_event", map[string]any{"foo": "bar"})
 
@@ -84,7 +84,7 @@ func TestGeneratesInstallIDWhenEmpty(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("").(*Client)
+	client := New("", nil).(*Client)
 
 	client.Track("test_event", map[string]any{"foo": "bar"})
 
@@ -129,7 +129,7 @@ func TestTrackSendsEvent(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-install-id").(*Client)
+	client := New("test-install-id", nil).(*Client)
 
 	client.Track("workspace_created", map[string]any{
 		"workspace_id": "ws-001",
@@ -166,7 +166,7 @@ func TestTrackNonBlocking(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-install-id").(*Client)
+	client := New("test-install-id", nil).(*Client)
 	defer client.Shutdown()
 
 	// Track should return immediately even with slow server
@@ -246,7 +246,7 @@ func TestShutdownFlushesEvents(t *testing.T) {
 	defer func() { posthogEndpoint = originalEndpoint }()
 	posthogEndpoint = server.URL
 
-	client := New("test-install-id").(*Client)
+	client := New("test-install-id", nil).(*Client)
 
 	// Send events
 	for i := 0; i < 5; i++ {

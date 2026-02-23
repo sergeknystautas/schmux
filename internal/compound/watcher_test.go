@@ -29,7 +29,7 @@ func TestWatcher_DetectsFileChange(t *testing.T) {
 		gotRelPath = rp
 		mu.Unlock()
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestWatcher_DebouncesBurstWrites(t *testing.T) {
 
 	w, err := NewWatcher(200, func(workspaceID, rp string) {
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestWatcher_IgnoresSuppressedFiles(t *testing.T) {
 
 	w, err := NewWatcher(100, func(workspaceID, rp string) {
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestWatcher_RemoveWorkspace(t *testing.T) {
 
 	w, err := NewWatcher(100, func(workspaceID, rp string) {
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestWatcher_DetectsNewFileAtDeclaredPath(t *testing.T) {
 		gotRelPath = rp
 		mu2.Unlock()
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestWatcher_WatchesParentDirCreation(t *testing.T) {
 
 	w, err := NewWatcher(100, func(workspaceID, rp string) {
 		callbackCount.Add(1)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher() error: %v", err)
 	}

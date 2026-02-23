@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/update"
 )
@@ -98,9 +99,10 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.previewManager != nil {
+		previewLog := logging.Sub(s.logger, "preview")
 		for _, removed := range result.Removed {
 			if err := s.previewManager.DeleteWorkspace(removed.ID); err != nil {
-				fmt.Printf("[preview] scan cleanup warning: workspace_id=%s error=%v\n", removed.ID, err)
+				previewLog.Warn("scan cleanup failed", "workspace_id", removed.ID, "err", err)
 			}
 		}
 	}
@@ -151,7 +153,8 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.updateInProgress = true
 
-	fmt.Printf("[daemon] update requested via web UI\n")
+	daemonLog := logging.Sub(s.logger, "daemon")
+	daemonLog.Info("update requested via web UI")
 
 	// Run update synchronously so we can report actual success/failure
 	if err := update.Update(); err != nil {
@@ -162,7 +165,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[daemon] update successful, shutting down\n")
+	daemonLog.Info("update successful, shutting down")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
@@ -251,21 +254,22 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	result, err := nudgenik.AskForSession(ctx, s.config, sess)
 	if err != nil {
+		nudgenikLog := logging.Sub(s.logger, "nudgenik")
 		switch {
 		case errors.Is(err, nudgenik.ErrDisabled):
-			fmt.Printf("[nudgenik] nudgenik is disabled\n")
+			nudgenikLog.Info("nudgenik is disabled")
 			http.Error(w, "Nudgenik is disabled. Configure a target in settings.", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrNoResponse):
-			fmt.Printf("[nudgenik] no response extracted from session %s\n", sessionID)
+			nudgenikLog.Info("no response extracted", "session_id", sessionID)
 			http.Error(w, "No response found in session output", http.StatusBadRequest)
 		case errors.Is(err, nudgenik.ErrTargetNotFound):
-			fmt.Printf("[nudgenik] target not found in config\n")
+			nudgenikLog.Warn("target not found in config")
 			http.Error(w, "Nudgenik target not found", http.StatusServiceUnavailable)
 		case errors.Is(err, nudgenik.ErrTargetNoSecrets):
-			fmt.Printf("[nudgenik] target missing required secrets\n")
+			nudgenikLog.Warn("target missing required secrets")
 			http.Error(w, "Nudgenik target missing required secrets", http.StatusServiceUnavailable)
 		default:
-			fmt.Printf("[nudgenik] failed to ask for session %s: %v\n", sessionID, err)
+			nudgenikLog.Error("failed to ask", "session_id", sessionID, "err", err)
 			http.Error(w, fmt.Sprintf("Failed to ask nudgenik: %v", err), http.StatusInternalServerError)
 		}
 		return

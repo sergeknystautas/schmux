@@ -29,7 +29,7 @@ func TestManager_ConnectRace(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Launch multiple goroutines trying to connect to same flavor
 	const numGoroutines = 10
@@ -104,7 +104,7 @@ func TestManager_PruneExpiredHosts(t *testing.T) {
 		},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Run pruning
 	mgr.PruneExpiredHosts()
@@ -136,7 +136,7 @@ func TestManager_GetConnection(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
@@ -176,7 +176,7 @@ func TestManager_IsConnected(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Create a mock connection
 	conn := NewConnection(ConnectionConfig{
@@ -211,7 +211,7 @@ func TestManager_DisconnectAll(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Create multiple mock connections
 	for i := 0; i < 3; i++ {
@@ -274,7 +274,7 @@ func TestManager_GetFlavorStatuses(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Get statuses
 	statuses := mgr.GetFlavorStatuses()
@@ -302,7 +302,7 @@ func TestManager_SetStateChangeCallback(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	callbackCalled := false
 	mgr.SetStateChangeCallback(func() {
@@ -371,7 +371,7 @@ func TestReconcileWithRenamedWindows(t *testing.T) {
 		},
 	}
 
-	_ = NewManager(cfg, st) // Manager created but we're testing matching logic directly
+	_ = NewManager(cfg, st, nil) // Manager created but we're testing matching logic directly
 
 	// Test the reconciliation logic directly by examining the matching behavior
 	// We'll verify that:
@@ -489,7 +489,7 @@ func TestConnectWithAndWithoutProgress(t *testing.T) {
 		RemoteHosts: []state.RemoteHost{},
 	}
 
-	mgr := NewManager(cfg, st)
+	mgr := NewManager(cfg, st, nil)
 
 	// Test 1: Connect without progress (will fail but should not panic)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

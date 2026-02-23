@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/log"
 )
 
 // Checker verifies tmux is available and functional.
@@ -42,6 +44,15 @@ func (c *defaultChecker) Check() error {
 	return nil
 }
 
+// pkgLogger is the package-level logger for tmux operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for tmux operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
+
 // ANSI escape sequence regex for stripping terminal codes.
 // Compiled once at package initialization for efficiency.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*\x07|\x1b\][^\x07\x1b]*\x1b\\`)
@@ -64,7 +75,9 @@ func CreateSession(ctx context.Context, name, dir, command string) error {
 
 	// Set scrollback to 10000 lines (tmux default is 2000)
 	if err := SetOption(ctx, name, "history-limit", "10000"); err != nil {
-		fmt.Printf("[tmux] warning: failed to set history-limit for %s: %v\n", name, err)
+		if pkgLogger != nil {
+			pkgLogger.Warn("failed to set history-limit", "session", name, "err", err)
+		}
 	}
 
 	return nil

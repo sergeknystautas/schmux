@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -18,6 +19,7 @@ type Watcher struct {
 	watcher    *fsnotify.Watcher
 	debounceMs int
 	onChange   OnChangeFunc
+	logger     *log.Logger
 
 	// workspaceID → workspacePath
 	workspacePaths map[string]string
@@ -41,7 +43,7 @@ type Watcher struct {
 const suppressionTTL = 5 * time.Second
 
 // NewWatcher creates a new file watcher for overlay-managed files.
-func NewWatcher(debounceMs int, onChange OnChangeFunc) (*Watcher, error) {
+func NewWatcher(debounceMs int, onChange OnChangeFunc, logger *log.Logger) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
@@ -51,6 +53,7 @@ func NewWatcher(debounceMs int, onChange OnChangeFunc) (*Watcher, error) {
 		watcher:        fsw,
 		debounceMs:     debounceMs,
 		onChange:       onChange,
+		logger:         logger,
 		workspacePaths: make(map[string]string),
 		workspaceFiles: make(map[string]map[string]bool),
 		watchedDirs:    make(map[string][]string),
@@ -78,7 +81,9 @@ func (w *Watcher) AddWorkspace(workspaceID, workspacePath string, manifest map[s
 
 	for dir := range dirsToWatch {
 		if err := w.watcher.Add(dir); err != nil {
-			fmt.Printf("[compound] warning: failed to watch directory %s: %v\n", dir, err)
+			if w.logger != nil {
+				w.logger.Warn("failed to watch directory", "dir", dir, "err", err)
+			}
 			continue
 		}
 		w.watchedDirs[dir] = append(w.watchedDirs[dir], workspaceID)
@@ -242,7 +247,9 @@ func (w *Watcher) eventLoop() {
 			if !ok {
 				return
 			}
-			fmt.Printf("[compound] watcher error: %v\n", err)
+			if w.logger != nil {
+				w.logger.Error("watcher error", "err", err)
+			}
 		}
 	}
 }
@@ -276,13 +283,17 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		key := wsID + ":" + relPath
 		if expiry, suppressed := w.suppressed[key]; suppressed {
 			if time.Now().Before(expiry) {
-				fmt.Printf("[overlay] change suppressed (echo prevention): %s in workspace %s\n", relPath, wsID)
+				if w.logger != nil {
+					w.logger.Debug("change suppressed (echo prevention)", "path", relPath, "workspace_id", wsID)
+				}
 				continue
 			}
 			delete(w.suppressed, key)
 		}
 
-		fmt.Printf("[overlay] file change detected: %s in workspace %s (event=%s)\n", relPath, wsID, event.Op)
+		if w.logger != nil {
+			w.logger.Debug("file change detected", "path", relPath, "workspace_id", wsID, "event", event.Op)
+		}
 		w.resetDebounce(wsID, relPath)
 	}
 }

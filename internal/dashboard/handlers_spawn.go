@@ -16,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -153,8 +154,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("[session] spawn request: repo=%s branch=%s workspace_id=%s command=%q nickname=%q\n",
-			req.Repo, req.Branch, req.WorkspaceID, req.Command, req.Nickname)
+		sessionLog := logging.Sub(s.logger, "session")
+		sessionLog.Info("spawn request", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "command", req.Command, "nickname", req.Nickname)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetGitCloneTimeoutMs())*time.Millisecond)
 		sess, err := s.session.SpawnCommand(ctx, session.SpawnOptions{
@@ -173,7 +174,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				Nickname: req.Nickname,
 				Error:    err.Error(),
 			})
-			fmt.Printf("[session] spawn error: command=%q error=%s\n", req.Command, err.Error())
+			sessionLog.Error("spawn failed", "command", req.Command, "err", err)
 		} else {
 			results = append(results, SessionResult{
 				SessionID:   sess.ID,
@@ -181,7 +182,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 				Command:     req.Command,
 				Nickname:    sess.Nickname,
 			})
-			fmt.Printf("[session] spawn success: command=%q session_id=%s workspace_id=%s\n", req.Command, sess.ID, sess.WorkspaceID)
+			sessionLog.Info("spawn success", "command", req.Command, "session_id", sess.ID, "workspace_id", sess.WorkspaceID)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -196,12 +197,11 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	if len(promptPreview) > 100 {
 		promptPreview = promptPreview[:100] + "..."
 	}
+	sessionLog := logging.Sub(s.logger, "session")
 	if req.RemoteFlavorID != "" {
-		fmt.Printf("[session] spawn request (remote): flavor_id=%s targets=%v prompt=%q\n",
-			req.RemoteFlavorID, req.Targets, promptPreview)
+		sessionLog.Info("spawn request (remote)", "flavor_id", req.RemoteFlavorID, "targets", req.Targets, "prompt", promptPreview)
 	} else {
-		fmt.Printf("[session] spawn request (local): repo=%s branch=%s workspace_id=%s targets=%v prompt=%q\n",
-			req.Repo, req.Branch, req.WorkspaceID, req.Targets, promptPreview)
+		sessionLog.Info("spawn request (local)", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "targets", req.Targets, "prompt", promptPreview)
 	}
 
 	// Calculate total sessions to spawn for global nickname numbering
@@ -308,9 +308,9 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	hasSuccess := false
 	for _, r := range results {
 		if r.Error != "" {
-			fmt.Printf("[session] spawn error: target=%s error=%s\n", r.Target, r.Error)
+			sessionLog.Error("spawn failed", "target", r.Target, "err", r.Error)
 		} else {
-			fmt.Printf("[session] spawn success: target=%s session_id=%s workspace_id=%s\n", r.Target, r.SessionID, r.WorkspaceID)
+			sessionLog.Info("spawn success", "target", r.Target, "session_id", r.SessionID, "workspace_id", r.WorkspaceID)
 			hasSuccess = true
 		}
 	}
@@ -356,7 +356,8 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetName := s.config.GetBranchSuggestTarget()
-	fmt.Printf("[workspace] asking %s for branch suggestion\n", targetName)
+	workspaceLog := logging.Sub(s.logger, "workspace")
+	workspaceLog.Info("asking for branch suggestion", "target", targetName)
 
 	// Generate branch suggestion
 	result, err := branchsuggest.AskForPrompt(r.Context(), s.config, req.Prompt)
@@ -372,14 +373,14 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, branchsuggest.ErrInvalidBranch), errors.Is(err, branchsuggest.ErrInvalidResponse):
 			status = http.StatusBadRequest
 		}
-		fmt.Printf("[workspace] suggest-branch error: duration=%s status=%d err=%v\n", time.Since(start).Truncate(time.Millisecond), status, err)
+		workspaceLog.Error("suggest-branch failed", "duration", time.Since(start).Truncate(time.Millisecond), "status", status, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate branch suggestion: %v", err)})
 		return
 	}
 
-	fmt.Printf("[workspace] suggest-branch ok: duration=%s\n", time.Since(start).Truncate(time.Millisecond))
+	workspaceLog.Info("suggest-branch ok", "duration", time.Since(start).Truncate(time.Millisecond))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -429,9 +430,10 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Get commit subjects from bare clone
+	workspaceLog := logging.Sub(s.logger, "workspace")
 	subjects, err := s.workspace.GetBranchCommitLog(ctx, repo.URL, req.Branch, 20)
 	if err != nil {
-		fmt.Printf("[workspace] prepare-branch-spawn: failed to get commit log: %v\n", err)
+		workspaceLog.Warn("prepare-branch-spawn: failed to get commit log", "err", err)
 		// Non-fatal: proceed without commit log
 		subjects = nil
 	}
@@ -461,14 +463,14 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		commitSummary := strings.Join(subjects, "\n")
 		suggestionPrompt := fmt.Sprintf("Branch: %s\n\nCommit messages:\n%s", req.Branch, commitSummary)
 
-		fmt.Printf("[workspace] prepare-branch-spawn: asking for nickname from %d commits\n", len(subjects))
+		workspaceLog.Info("prepare-branch-spawn: asking for nickname", "commits", len(subjects))
 		result, err := branchsuggest.AskForPrompt(ctx, s.config, suggestionPrompt)
 		if err != nil {
-			fmt.Printf("[workspace] prepare-branch-spawn: nickname suggestion failed: %v\n", err)
+			workspaceLog.Warn("prepare-branch-spawn: nickname suggestion failed", "err", err)
 			// Non-fatal: proceed without nickname
 		} else {
 			nickname = result.Nickname
-			fmt.Printf("[workspace] prepare-branch-spawn ok: duration=%s nickname=%q\n", time.Since(start).Truncate(time.Millisecond), nickname)
+			workspaceLog.Info("prepare-branch-spawn ok", "duration", time.Since(start).Truncate(time.Millisecond), "nickname", nickname)
 		}
 	}
 
@@ -567,6 +569,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	// Try embedded file first (production), fall back to filesystem (development)
 	var data []byte
 	var readErr error
+	sessionLog := logging.Sub(s.logger, "session")
 	data, readErr = cookbooksFS.ReadFile("cookbooks.json")
 	if readErr != nil {
 		// Fallback to filesystem for development
@@ -581,7 +584,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if readErr != nil {
-			fmt.Printf("[session] builtin-quick-launch: failed to read file: %v\n", readErr)
+			sessionLog.Error("builtin-quick-launch: failed to read file", "err", readErr)
 			http.Error(w, "Failed to load built-in quick launch cookbooks", http.StatusInternalServerError)
 			return
 		}
@@ -589,7 +592,7 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 
 	var cookbooks []BuiltinQuickLaunchCookbook
 	if err := json.Unmarshal(data, &cookbooks); err != nil {
-		fmt.Printf("[session] builtin-quick-launch: failed to parse: %v\n", err)
+		sessionLog.Error("builtin-quick-launch: failed to parse", "err", err)
 		http.Error(w, "Failed to parse built-in quick launch cookbooks", http.StatusInternalServerError)
 		return
 	}
@@ -598,15 +601,15 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	validCookbooks := make([]BuiltinQuickLaunchCookbook, 0, len(cookbooks))
 	for _, cookbook := range cookbooks {
 		if strings.TrimSpace(cookbook.Name) == "" {
-			fmt.Printf("[session] builtin-quick-launch: skipping cookbook with empty name\n")
+			sessionLog.Warn("builtin-quick-launch: skipping cookbook with empty name")
 			continue
 		}
 		if strings.TrimSpace(cookbook.Target) == "" {
-			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty target\n", cookbook.Name)
+			sessionLog.Warn("builtin-quick-launch: skipping cookbook with empty target", "name", cookbook.Name)
 			continue
 		}
 		if strings.TrimSpace(cookbook.Prompt) == "" {
-			fmt.Printf("[session] builtin-quick-launch: skipping cookbook %q with empty prompt\n", cookbook.Name)
+			sessionLog.Warn("builtin-quick-launch: skipping cookbook with empty prompt", "name", cookbook.Name)
 			continue
 		}
 		validCookbooks = append(validCookbooks, cookbook)

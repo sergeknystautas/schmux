@@ -23,8 +23,8 @@ func TestCreateLocalRepo(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = tmpDir
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -162,8 +162,8 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
@@ -205,8 +205,8 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
@@ -260,10 +260,10 @@ func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
 	}
 
 	// Create a mock state store that will fail on Save
-	st := state.New("")
+	st := state.New("", nil)
 	mockSt := &mockStateStore{state: st, failSave: true}
 
-	mgr := New(cfg, mockSt, "")
+	mgr := New(cfg, mockSt, "", testLogger())
 
 	ctx := context.Background()
 
@@ -308,10 +308,10 @@ func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
 	cfg.Repos = []config.Repo{}
 
 	// Create a mock state store that will succeed
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	mockSt := &mockStateStore{state: st, failSave: false}
 
-	mgr := New(cfg, mockSt, statePath)
+	mgr := New(cfg, mockSt, statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -343,8 +343,8 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit on main
@@ -423,8 +423,8 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit

@@ -2,11 +2,13 @@ package session
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -21,11 +23,11 @@ func TestNew(t *testing.T) {
 			{Name: "test", Type: config.RunTargetTypePromptable, Command: "test"},
 		},
 	}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 	if m == nil {
 		t.Error("New() returned nil")
 	}
@@ -42,11 +44,11 @@ func TestNew(t *testing.T) {
 
 func TestGetAttachCommand(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	// Add a test session
 	sess := state.Session{
@@ -71,11 +73,11 @@ func TestGetAttachCommand(t *testing.T) {
 
 func TestGetAttachCommandNotFound(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	_, err := m.GetAttachCommand("nonexistent")
 	if err == nil {
@@ -86,11 +88,11 @@ func TestGetAttachCommandNotFound(t *testing.T) {
 func TestGetAllSessions(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	// Create fresh state for test isolation
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	// Add test sessions
 	sessions := []state.Session{
@@ -110,11 +112,11 @@ func TestGetAllSessions(t *testing.T) {
 
 func TestGetSession(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	// Add a test session
 	sess := state.Session{
@@ -143,11 +145,11 @@ func TestGetSession(t *testing.T) {
 
 func TestIsRunning(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("returns false for nonexistent session", func(t *testing.T) {
 		running := m.IsRunning(context.Background(), "nonexistent")
@@ -175,11 +177,11 @@ func TestIsRunning(t *testing.T) {
 
 func TestGetOutput(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		_, err := m.GetOutput(context.Background(), "nonexistent")
@@ -234,11 +236,11 @@ func TestSanitizeNickname(t *testing.T) {
 
 func TestRenameSession(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.RenameSession(context.Background(), "nonexistent", "new-name")
@@ -251,10 +253,10 @@ func TestRenameSession(t *testing.T) {
 func TestDispose(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
 	statePath := t.TempDir() + "/state.json"
-	st := state.New(statePath)
-	wm := workspace.New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.Dispose(context.Background(), "nonexistent")
@@ -268,11 +270,11 @@ func TestEnsurePipePane(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
 	}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.EnsureTracker("nonexistent")
@@ -680,11 +682,11 @@ func TestBuildCommand(t *testing.T) {
 
 func TestGetTrackerAndEnsureTracker(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	t.Run("GetTracker returns error for missing session", func(t *testing.T) {
 		_, err := m.GetTracker("missing")
@@ -730,11 +732,11 @@ func TestGetTrackerAndEnsureTracker(t *testing.T) {
 
 func TestSetTerminalCaptureCallback(t *testing.T) {
 	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("")
+	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm)
+	m := New(cfg, st, statePath, wm, nil)
 
 	var capturedSessionID, capturedWorkspaceID, capturedOutput string
 	m.SetTerminalCaptureCallback(func(sessionID, workspaceID, output string) {

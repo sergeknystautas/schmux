@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -35,6 +38,7 @@ type Manager struct {
 	config                  *config.Config
 	state                   state.StateStore
 	workspace               workspace.WorkspaceManager
+	logger                  *log.Logger
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	signalCallback          func(sessionID string, sig signal.Signal)
 	outputCallback          func(sessionID string, chunk []byte)
@@ -72,11 +76,15 @@ const (
 )
 
 // New creates a new session manager.
-func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager) *Manager {
+func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager, logger *log.Logger) *Manager {
+	if logger == nil {
+		logger = log.NewWithOptions(io.Discard, log.Options{})
+	}
 	return &Manager{
 		config:          cfg,
 		state:           st,
 		workspace:       wm,
+		logger:          logger,
 		trackers:        make(map[string]*SessionTracker),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
@@ -172,7 +180,8 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	}
 	if workspacePath == "" {
 		m.mu.Unlock()
-		fmt.Printf("[signal] %s - cannot start remote watcher: no workspace path\n", sessionID)
+		signalLog := logging.Sub(m.logger, "signal")
+		signalLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
 		return
 	}
 	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
@@ -219,7 +228,8 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			ctx := context.Background()
 			windowID, paneID, err := conn.CreateSession(ctx, windowName, workspacePath, "")
 			if err != nil {
-				fmt.Printf("[signal] %s - failed to create watcher window: %v\n", sessionID, err)
+				signalLog := logging.Sub(m.logger, "signal")
+				signalLog.Error("failed to create watcher window", "session", sessionID, "err", err)
 				select {
 				case <-stopCh:
 					return
@@ -240,7 +250,8 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			// Type the watcher script into the pane
 			watcherScript := signal.WatcherScript(statusFilePath)
 			if err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
-				fmt.Printf("[signal] %s - failed to send watcher script: %v\n", sessionID, err)
+				signalLog := logging.Sub(m.logger, "signal")
+				signalLog.Error("failed to send watcher script", "session", sessionID, "err", err)
 				conn.KillSession(ctx, windowID)
 				select {
 				case <-stopCh:
@@ -254,6 +265,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			watcher := signal.NewRemoteSignalWatcher(sessionID, func(sig signal.Signal) {
 				signalCb(sessionID, sig)
 			})
+			watcher.SetLogger(m.logger)
 
 			// Update the monitor reference
 			m.mu.Lock()
@@ -417,7 +429,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	if ensure.SupportsHooks(baseTool) {
 		command, err = ensure.WrapCommandWithHooks(command)
 		if err != nil {
-			fmt.Printf("[session] warning: failed to wrap command with hooks provisioning: %v\n", err)
+			m.logger.Warn("failed to wrap command with hooks provisioning", "err", err)
 		}
 	}
 
@@ -469,11 +481,10 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 				var updatedSess state.Session
 				ok := m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
 					if result.Error != nil {
-						fmt.Printf("[session] queued session %s failed: %v\n", sessionID, result.Error)
+						m.logger.Error("queued session failed", "session", sessionID, "err", result.Error)
 						sess.Status = "failed"
 					} else {
-						fmt.Printf("[session] queued session %s succeeded (window=%s, pane=%s)\n",
-							sessionID, result.WindowID, result.PaneID)
+						m.logger.Info("queued session succeeded", "session", sessionID, "window", result.WindowID, "pane", result.PaneID)
 						sess.Status = "running"
 						sess.RemoteWindow = result.WindowID
 						sess.RemotePaneID = result.PaneID
@@ -482,11 +493,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					updatedSess = *sess
 				})
 				if !ok {
-					fmt.Printf("[session] queued session %s: session no longer in state\n", sessionID)
+					m.logger.Warn("queued session: session no longer in state", "session", sessionID)
 					return
 				}
 				if err := m.state.Save(); err != nil {
-					fmt.Printf("[session] queued session %s: failed to save state: %v\n", sessionID, err)
+					m.logger.Error("queued session: failed to save state", "session", sessionID, "err", err)
 				}
 				if updatedStatus == "running" {
 					// Ensure .schmux/signal directory exists on remote host for file-based signaling
@@ -494,7 +505,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					if qConn != nil && qConn.IsConnected() {
 						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
 						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); mkErr != nil {
-							fmt.Printf("[session] queued session %s: warning: failed to create .schmux/signal directory: %v\n", sessionID, mkErr)
+							m.logger.Warn("failed to create .schmux/signal directory", "session", sessionID, "err", mkErr)
 						}
 						mkCancel()
 					}
@@ -514,7 +525,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 	// Ensure .schmux/signal directory exists on remote host for file-based signaling
 	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
 	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux/signal directory on remote host: %v\n", err)
+		m.logger.Warn("failed to create .schmux/signal directory on remote host", "err", err)
 	}
 	mkdirCancel()
 
@@ -607,25 +618,25 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	if ensure.SupportsHooks(baseTool) {
 		// Claude Code: use hooks for automatic signaling (more reliable than prompt injection)
 		if err := ensure.ClaudeHooks(w.Path); err != nil {
-			fmt.Printf("[session] warning: failed to provision Claude hooks: %v\n", err)
+			m.logger.Warn("failed to provision Claude hooks", "err", err)
 		}
 		if err := ensure.LoreHookScripts(w.Path); err != nil {
-			fmt.Printf("[session] warning: failed to write lore hook scripts: %v\n", err)
+			m.logger.Warn("failed to write lore hook scripts", "err", err)
 		}
 	} else if ensure.SupportsSystemPromptFlag(baseTool) {
 		if err := ensure.SignalingInstructionsFile(); err != nil {
-			fmt.Printf("[session] warning: failed to ensure signaling instructions file: %v\n", err)
+			m.logger.Warn("failed to ensure signaling instructions file", "err", err)
 		}
 	} else {
 		if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
-			fmt.Printf("[session] warning: failed to provision agent instructions: %v\n", err)
+			m.logger.Warn("failed to provision agent instructions", "err", err)
 		}
 	}
 
 	// Ensure .schmux/signal directory exists for file-based signaling
 	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux/signal directory: %v\n", err)
+		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
 	}
 
 	// Resolve model if target is a model kind
@@ -745,7 +756,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	// Ensure .schmux/signal directory exists for file-based signaling
 	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		fmt.Printf("[session] warning: failed to create .schmux/signal directory: %v\n", err)
+		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
 	}
 
 	// Inject schmux signaling environment variables into the command
@@ -1059,7 +1070,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		output, err := tmux.CaptureOutput(captureCtx, sess.TmuxSession)
 		captureCancel()
 		if err != nil {
-			fmt.Printf("[session] warning: failed to capture terminal output for %s: %v\n", sessionID, err)
+			m.logger.Warn("failed to capture terminal output", "session", sessionID, "err", err)
 		} else if output != "" {
 			m.terminalCaptureCallback(sessionID, sess.WorkspaceID, output)
 		}
@@ -1110,7 +1121,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	fmt.Printf("[session] Disposed session %s\n", sessionID)
+	m.logger.Info("disposed session", "session", sessionID)
 
 	return nil
 }
@@ -1152,11 +1163,11 @@ func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) 
 	if windowKilled {
 		summary += " (killed remote window)"
 	}
-	fmt.Printf("[session] %s\n", summary)
+	m.logger.Info(summary)
 
 	// Print warnings if any
 	for _, w := range warnings {
-		fmt.Printf("[session]   warning: %s\n", w)
+		m.logger.Warn(w)
 	}
 
 	return nil
@@ -1336,7 +1347,7 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			handler(sessionID, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb)
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb, m.logger)
 	m.trackers[sess.ID] = tracker
 
 	// Recover signal state from file (replaces scrollback recovery).

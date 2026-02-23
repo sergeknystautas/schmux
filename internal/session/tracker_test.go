@@ -9,8 +9,8 @@ import (
 )
 
 func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
-	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
+	st := state.New("", nil)
+	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
 
 	if err := tracker.SendInput("abc"); err == nil {
 		t.Fatal("expected error when control mode is not attached")
@@ -39,8 +39,8 @@ func TestTrackerCounters_Increment(t *testing.T) {
 }
 
 func TestSubscribeUnsubscribeOutput(t *testing.T) {
-	st := state.New("")
-	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil)
+	st := state.New("", nil)
+	tracker := NewSessionTracker("s1", "tmux-s1", st, "", nil, nil, nil)
 
 	// Subscribe creates a channel that stays open (survives reconnections)
 	ch := tracker.SubscribeOutput()
@@ -73,8 +73,8 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 }
 
 func TestCapturePane_NoControlMode(t *testing.T) {
-	st := state.New("")
-	tracker := NewSessionTracker("test-id", "test-tmux", st, "", nil, nil)
+	st := state.New("", nil)
+	tracker := NewSessionTracker("test-id", "test-tmux", st, "", nil, nil, nil)
 
 	_, err := tracker.CapturePane(context.Background())
 	if err == nil {

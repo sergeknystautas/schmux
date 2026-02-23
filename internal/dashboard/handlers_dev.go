@@ -165,7 +165,7 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[dev] rebuild requested: workspace=%s type=%s\n", req.WorkspaceID, req.Type)
+	s.logger.Info("rebuild requested", "workspace", req.WorkspaceID, "type", req.Type)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "rebuilding"})
@@ -185,7 +185,7 @@ func (s *Server) pauseViteWatch() {
 	}
 	resp, err := viteClient.Post("http://localhost:5173/__dev/pause-watch", "", strings.NewReader(""))
 	if err != nil {
-		fmt.Printf("[dev] failed to pause Vite watch: %v\n", err)
+		s.logger.Warn("failed to pause Vite watch", "err", err)
 		return
 	}
 	resp.Body.Close()
@@ -199,7 +199,7 @@ func (s *Server) resumeViteWatch() {
 	}
 	resp, err := viteClient.Post("http://localhost:5173/__dev/resume-watch", "", strings.NewReader(""))
 	if err != nil {
-		fmt.Printf("[dev] failed to resume Vite watch: %v\n", err)
+		s.logger.Warn("failed to resume Vite watch", "err", err)
 		return
 	}
 	resp.Body.Close()

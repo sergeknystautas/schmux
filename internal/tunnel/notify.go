@@ -27,7 +27,9 @@ func (nc *NotifyConfig) Send(tunnelURL string, message string) error {
 			if idx := strings.LastIndex(topic, "/"); idx >= 0 {
 				topic = topic[idx+1:]
 			}
-			fmt.Printf("[remote-access] ntfy notification sent to topic %q\n", topic)
+			if pkgLogger != nil {
+				pkgLogger.Info("ntfy notification sent", "topic", topic)
+			}
 		}
 	}
 

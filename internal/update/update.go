@@ -16,9 +16,19 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
+
+// pkgLogger is the package-level logger for update operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for update operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 const (
 	// GitHubAPILatestRelease is the URL for fetching the latest release info.
@@ -52,7 +62,9 @@ func Update() error {
 		return err
 	}
 
-	fmt.Printf("[daemon] current version: %s\n", current)
+	if pkgLogger != nil {
+		pkgLogger.Info("current version", "version", current)
+	}
 	fmt.Println("Checking for updates...")
 
 	latest, err := GetLatestVersion()
@@ -75,7 +87,9 @@ func Update() error {
 		return nil
 	}
 
-	fmt.Printf("[daemon] new version available: %s\n", latest)
+	if pkgLogger != nil {
+		pkgLogger.Info("new version available", "version", latest)
+	}
 
 	// Download checksums first
 	checksums, err := downloadChecksums(latest)
@@ -230,7 +244,9 @@ func downloadAndInstallBinary(ver string, checksums map[string]string) error {
 	}
 
 	url := fmt.Sprintf(GitHubReleaseBinaryTemplate, ver, goos, goarch)
-	fmt.Printf("[daemon] downloading schmux v%s for %s/%s...\n", ver, goos, goarch)
+	if pkgLogger != nil {
+		pkgLogger.Info("downloading binary", "version", ver, "os", goos, "arch", goarch)
+	}
 
 	// Download to temp file
 	tmpFile, err := os.CreateTemp("", "schmux-update-*")
@@ -311,7 +327,9 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 	}
 
 	url := fmt.Sprintf(assets.GitHubReleaseURLTemplate, ver)
-	fmt.Printf("[daemon] downloading dashboard assets v%s...\n", ver)
+	if pkgLogger != nil {
+		pkgLogger.Info("downloading dashboard assets", "version", ver)
+	}
 
 	// Download to temp file
 	tmpFile, err := os.CreateTemp("", "schmux-assets-*.tar.gz")
@@ -361,7 +379,9 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 		return fmt.Errorf("failed to write version file: %w", err)
 	}
 
-	fmt.Printf("[daemon] dashboard assets v%s installed\n", ver)
+	if pkgLogger != nil {
+		pkgLogger.Info("dashboard assets installed", "version", ver)
+	}
 	return nil
 }
 

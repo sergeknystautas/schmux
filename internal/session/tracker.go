@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -49,6 +50,7 @@ type SessionTracker struct {
 	state          state.StateStore
 	fileWatcher    *signal.FileWatcher
 	outputCallback func([]byte)
+	logger         *log.Logger
 
 	mu        sync.RWMutex
 	cmClient  *controlmode.Client
@@ -84,19 +86,22 @@ func (t *SessionTracker) IsAttached() bool {
 // NewSessionTracker creates a tracker for a session.
 // If signalFilePath is non-empty and signalCallback is non-nil, a FileWatcher
 // is created to detect signal changes via filesystem notifications.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalFilePath string, signalCallback func(signal.Signal), outputCallback func([]byte)) *SessionTracker {
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalFilePath string, signalCallback func(signal.Signal), outputCallback func([]byte), logger *log.Logger) *SessionTracker {
 	t := &SessionTracker{
 		sessionID:      sessionID,
 		tmuxSession:    tmuxSession,
 		state:          st,
 		outputCallback: outputCallback,
+		logger:         logger,
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 	}
 	if signalFilePath != "" && signalCallback != nil {
-		fw, err := signal.NewFileWatcher(sessionID, signalFilePath, signalCallback)
+		fw, err := signal.NewFileWatcher(sessionID, signalFilePath, signalCallback, t.logger)
 		if err != nil {
-			fmt.Printf("[tracker] %s - failed to create file watcher: %v\n", sessionID, err)
+			if t.logger != nil {
+				t.logger.Warn("failed to create file watcher", "session", sessionID, "err", err)
+			}
 		} else {
 			t.fileWatcher = fw
 		}
@@ -290,13 +295,17 @@ func (t *SessionTracker) run() {
 		if err != nil && err != io.EOF {
 			// Check for permanent errors (session no longer exists)
 			if isPermanentError(err) {
-				fmt.Printf("[tracker] %s stopping: tmux session no longer exists\n", t.sessionID)
+				if t.logger != nil {
+					t.logger.Debug("stopping: tmux session no longer exists", "session", t.sessionID)
+				}
 				return
 			}
 			t.Counters.Reconnects.Add(1)
 			now := time.Now()
 			if t.shouldLogRetry(now) {
-				fmt.Printf("[tracker] %s control mode failed: %v\n", t.sessionID, err)
+				if t.logger != nil {
+					t.logger.Warn("control mode failed", "session", t.sessionID, "err", err)
+				}
 			}
 		}
 
@@ -335,9 +344,9 @@ func (t *SessionTracker) attachControlMode() error {
 	}
 
 	// Create parser and client
-	parser := controlmode.NewParser(stdout, t.sessionID)
+	parser := controlmode.NewParser(stdout, t.logger, t.sessionID)
 	go parser.Run()
-	client := controlmode.NewClient(stdin, parser)
+	client := controlmode.NewClient(stdin, parser, t.logger)
 	client.Start()
 
 	// Wait for control mode to be ready

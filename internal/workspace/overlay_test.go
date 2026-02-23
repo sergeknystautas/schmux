@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/charmbracelet/log"
 )
 
 func TestOverlayDir(t *testing.T) {
@@ -256,7 +258,8 @@ func TestCopyOverlayReturnsManifest(t *testing.T) {
 	}
 
 	// Call CopyOverlay
-	manifest, err := CopyOverlay(ctx, overlayDir, workspaceDir)
+	testLogger := log.Default()
+	manifest, err := CopyOverlay(ctx, overlayDir, workspaceDir, testLogger)
 	if err != nil {
 		t.Fatalf("CopyOverlay() error = %v", err)
 	}

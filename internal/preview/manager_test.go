@@ -41,7 +41,7 @@ func TestNormalizeTargetHost(t *testing.T) {
 
 func TestManagerCreateOrGetReuse(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	if err := st.AddWorkspace(ws); err != nil {
 		t.Fatalf("add workspace: %v", err)
@@ -58,7 +58,7 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	var port int
 	_, _ = fmt.Sscanf(portStr, "%d", &port)
 
-	m := NewManager(st, 3, 20, false, 53000, 10)
+	m := NewManager(st, 3, 20, false, 53000, 10, nil)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -86,9 +86,9 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 
 func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
-	m := NewManager(st, 3, 20, false, 53000, 10)
+	m := NewManager(st, 3, 20, false, 53000, 10, nil)
 	defer m.Stop()
 
 	_, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173)
@@ -99,7 +99,7 @@ func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 
 func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	if err := st.AddWorkspace(ws); err != nil {
 		t.Fatalf("add workspace: %v", err)
@@ -117,7 +117,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	_, _ = fmt.Sscanf(portStr, "%d", &upstreamPort)
 
 	// First "daemon run": create a preview, note its port.
-	m1 := NewManager(st, 3, 20, false, 53000, 10)
+	m1 := NewManager(st, 3, 20, false, 53000, 10, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	first, err := m1.CreateOrGet(ctx, ws, "127.0.0.1", upstreamPort)
 	cancel()
@@ -128,13 +128,13 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	m1.Stop()
 
 	// Simulate restart: reload state from disk.
-	st2, err := state.Load(statePath)
+	st2, err := state.Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("reload state: %v", err)
 	}
 
 	// Second "daemon run": the preview should come back on the same port.
-	m2 := NewManager(st2, 3, 20, false, 53000, 10)
+	m2 := NewManager(st2, 3, 20, false, 53000, 10, nil)
 	defer m2.Stop()
 
 	ws2, _ := st2.GetWorkspace("ws-1")
@@ -151,7 +151,7 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 
 func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	ws1 := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	ws2 := state.Workspace{ID: "ws-2", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	if err := st.AddWorkspace(ws1); err != nil {
@@ -176,7 +176,7 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 		return port
 	}
 
-	m := NewManager(st, 3, 20, false, 53000, 10)
+	m := NewManager(st, 3, 20, false, 53000, 10, nil)
 	defer m.Stop()
 
 	ctx := context.Background()
@@ -214,7 +214,7 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 
 func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath)
+	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	if err := st.AddWorkspace(ws); err != nil {
 		t.Fatalf("add workspace: %v", err)
@@ -227,7 +227,7 @@ func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
 	var port int
 	_, _ = fmt.Sscanf(portStr, "%d", &port)
 
-	m := NewManager(st, 3, 20, false, 53000, 10)
+	m := NewManager(st, 3, 20, false, 53000, 10, nil)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -53,7 +53,7 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 		t.Fatalf("failed to save config: %v", err)
 	}
 
-	s := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	s := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	s.config = cfg
 
 	// Build mux matching production Start() route registration

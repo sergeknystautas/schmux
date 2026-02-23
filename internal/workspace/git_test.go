@@ -278,8 +278,8 @@ func TestGitPullRebase_MultipleBranchesConfig(t *testing.T) {
 	// Now test that schmux's gitPullRebase with explicit branch works
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// This should work because we explicitly specify origin/main
@@ -314,8 +314,8 @@ func TestGitPullRebase_WithBranchParameter(t *testing.T) {
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// gitPullRebase with explicit origin/<branch> should work
@@ -377,8 +377,8 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 	// Set up the workspace manager
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 
 	// Add workspace to state
 	w := state.Workspace{
@@ -424,8 +424,8 @@ func TestGitRemoteBranchExists(t *testing.T) {
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	exists, err := m.gitRemoteBranchExists(ctx, cloneDir, "main")
@@ -480,8 +480,8 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit
@@ -552,8 +552,8 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
@@ -606,8 +606,8 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
@@ -667,8 +667,8 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
@@ -741,8 +741,8 @@ func TestHasCommonAncestor_NormalBranch(t *testing.T) {
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// HEAD is on main, origin/feature shares ancestry
@@ -783,8 +783,8 @@ func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
 
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{WorkspacePath: tmpDir}
-	st := state.New(statePath)
-	m := New(cfg, st, statePath)
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
 	ctx := context.Background()
 
 	// HEAD is on main, origin/orphan-branch has no common ancestor

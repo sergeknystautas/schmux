@@ -20,7 +20,7 @@ func TestLoad(t *testing.T) {
 	}
 
 	// Load should succeed even with no state file (returns empty state)
-	st, err := Load(statePath)
+	st, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestAddAndGetWorkspace(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	w := Workspace{
 		ID:     "test-001",
@@ -66,7 +66,7 @@ func TestAddAndGetWorkspace(t *testing.T) {
 }
 
 func TestUpdateWorkspace(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	w := Workspace{
 		ID:     "test-002",
@@ -92,7 +92,7 @@ func TestUpdateWorkspace(t *testing.T) {
 }
 
 func TestAddAndGetSession(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	sess := Session{
 		ID:          "session-001",
@@ -118,7 +118,7 @@ func TestAddAndGetSession(t *testing.T) {
 }
 
 func TestRemoveSession(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	sess := Session{
 		ID:          "session-002",
@@ -141,7 +141,7 @@ func TestRemoveSession(t *testing.T) {
 
 func TestGetSessions(t *testing.T) {
 	// Create fresh state for test isolation
-	s := New("")
+	s := New("", nil)
 
 	sessions := []Session{
 		{ID: "s1", WorkspaceID: "w1", Target: "a1", TmuxSession: "t1", CreatedAt: time.Now()},
@@ -161,7 +161,7 @@ func TestGetSessions(t *testing.T) {
 // Error path tests
 
 func TestUpdateWorkspaceNotFound(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	w := Workspace{
 		ID:     "nonexistent",
@@ -180,7 +180,7 @@ func TestUpdateWorkspaceNotFound(t *testing.T) {
 }
 
 func TestUpdateSessionNotFound(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	sess := Session{
 		ID:          "nonexistent",
@@ -200,7 +200,7 @@ func TestUpdateSessionNotFound(t *testing.T) {
 }
 
 func TestSaveEmptyPath(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	err := s.Save()
 	if err == nil {
@@ -214,7 +214,7 @@ func TestSaveEmptyPath(t *testing.T) {
 func TestSaveValidPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := tmpDir + "/state.json"
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	w := Workspace{
 		ID:     "test-001",
@@ -242,7 +242,7 @@ func TestSaveValidPath(t *testing.T) {
 func TestUpdateWorkspaceThenSave(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := tmpDir + "/state.json"
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	w := Workspace{
 		ID:     "test-001",
@@ -265,7 +265,7 @@ func TestUpdateWorkspaceThenSave(t *testing.T) {
 		t.Fatalf("failed to save state: %v", err)
 	}
 
-	s2, err := Load(statePath)
+	s2, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestUpdateWorkspaceThenSave(t *testing.T) {
 
 func TestRemoteHostCRUD(t *testing.T) {
 	t.Run("AddRemoteHost and GetRemoteHost", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		rh := RemoteHost{
 			ID:       "host-001",
@@ -304,7 +304,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("AddRemoteHost updates existing entry with same ID", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		rh := RemoteHost{
 			ID:       "host-001",
@@ -328,7 +328,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("GetRemoteHostByFlavorID", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{ID: "host-1", FlavorID: "flavor-a", Hostname: "a.net"})
 		s.AddRemoteHost(RemoteHost{ID: "host-2", FlavorID: "flavor-b", Hostname: "b.net"})
@@ -348,7 +348,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("GetRemoteHostByHostname", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{ID: "host-1", FlavorID: "flavor-a", Hostname: "a.net"})
 		s.AddRemoteHost(RemoteHost{ID: "host-2", FlavorID: "flavor-b", Hostname: "b.net"})
@@ -368,7 +368,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("UpdateRemoteHost", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{
 			ID:       "host-001",
@@ -397,7 +397,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("UpdateRemoteHost fails for nonexistent ID", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		err := s.UpdateRemoteHost(RemoteHost{ID: "nonexistent"})
 		if err == nil {
@@ -406,7 +406,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("UpdateRemoteHostStatus", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{
 			ID:     "host-001",
@@ -424,7 +424,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("RemoveRemoteHost", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		s.AddRemoteHost(RemoteHost{ID: "host-1"})
 		s.AddRemoteHost(RemoteHost{ID: "host-2"})
@@ -443,7 +443,7 @@ func TestRemoteHostCRUD(t *testing.T) {
 	})
 
 	t.Run("RemoveRemoteHost is idempotent for nonexistent", func(t *testing.T) {
-		s := New("")
+		s := New("", nil)
 
 		// Should not error for nonexistent
 		if err := s.RemoveRemoteHost("nonexistent"); err != nil {
@@ -457,7 +457,7 @@ func TestRemoteHostPersistence(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	// Create and save state with remote host
-	s := New(statePath)
+	s := New(statePath, nil)
 	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
 	s.AddRemoteHost(RemoteHost{
 		ID:          "host-001",
@@ -473,7 +473,7 @@ func TestRemoteHostPersistence(t *testing.T) {
 	}
 
 	// Load and verify
-	s2, err := Load(statePath)
+	s2, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestRemoteHostPersistence(t *testing.T) {
 }
 
 func TestSessionRemoteFields(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	sess := Session{
 		ID:           "session-001",
@@ -530,7 +530,7 @@ func TestSessionRemoteFields(t *testing.T) {
 }
 
 func TestWorkspaceRemoteFields(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 
 	ws := Workspace{
 		ID:           "ws-001",
@@ -564,7 +564,7 @@ func TestSave_Atomicity(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
-	s := New(statePath)
+	s := New(statePath, nil)
 	s.AddWorkspace(Workspace{
 		ID:     "ws-001",
 		Repo:   "https://github.com/test/repo",
@@ -604,7 +604,7 @@ func TestSave_NoCorruption(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	// Create initial valid state
 	s.AddWorkspace(Workspace{
@@ -646,7 +646,7 @@ func TestSave_NoCorruption(t *testing.T) {
 
 // TestSave_EmptyPath verifies that Save() fails gracefully with empty path
 func TestSave_EmptyPath(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	s.AddWorkspace(Workspace{
 		ID:     "ws-001",
 		Repo:   "https://github.com/test/repo",
@@ -669,7 +669,7 @@ func TestSave_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "nested", "dir", "state.json")
 
-	s := New(statePath)
+	s := New(statePath, nil)
 	s.AddWorkspace(Workspace{
 		ID:     "ws-001",
 		Repo:   "https://github.com/test/repo",
@@ -698,7 +698,7 @@ func TestSave_Concurrent(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	// Perform concurrent saves
 	const numGoroutines = 10
@@ -731,7 +731,7 @@ func TestSave_Concurrent(t *testing.T) {
 	}
 
 	// Verify it's valid JSON by loading it
-	_, err = Load(statePath)
+	_, err = Load(statePath, nil)
 	if err != nil {
 		t.Errorf("final state should be valid JSON: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestSave_Concurrent(t *testing.T) {
 func TestStateSaveBatching(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	// Track number of actual file writes by checking modification time changes
 	saveCount := 0
@@ -787,7 +787,7 @@ func TestStateSaveBatching(t *testing.T) {
 	// Verify batching worked - should be 1 save, not 10
 	// We can't easily count actual saves, but we can verify the file exists
 	// and contains all workspaces
-	loaded, err := Load(statePath)
+	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestStateSaveBatching(t *testing.T) {
 func TestSaveBatchedDebounce(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	// Add workspace and trigger batched save
 	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo1", Path: "/path1"})
@@ -830,7 +830,7 @@ func TestSaveBatchedDebounce(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Now file should exist with both workspaces
-	loaded, err := Load(statePath)
+	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
@@ -844,7 +844,7 @@ func TestSaveBatchedDebounce(t *testing.T) {
 func TestSaveImmediateVsBatched(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
-	s := New(statePath)
+	s := New(statePath, nil)
 
 	// Test immediate save
 	s.AddWorkspace(Workspace{ID: "ws-immediate", Repo: "repo", Path: "/path"})
@@ -861,7 +861,7 @@ func TestSaveImmediateVsBatched(t *testing.T) {
 	os.Remove(statePath)
 
 	// Test batched save
-	s2 := New(statePath)
+	s2 := New(statePath, nil)
 	s2.AddWorkspace(Workspace{ID: "ws-batched", Repo: "repo", Path: "/path"})
 	s2.SaveBatched()
 
@@ -885,7 +885,7 @@ func TestNudgeSeqPersistenceRoundTrip(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	// Create state with a session, increment NudgeSeq, save
-	s := New(statePath)
+	s := New(statePath, nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
 	s.IncrementNudgeSeq("sess-1") // 1
 	s.IncrementNudgeSeq("sess-1") // 2
@@ -899,7 +899,7 @@ func TestNudgeSeqPersistenceRoundTrip(t *testing.T) {
 	}
 
 	// Load from disk and verify
-	loaded, err := Load(statePath)
+	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestLastSignalAtNotPersisted(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	// Create state with a session, set LastSignalAt, save
-	s := New(statePath)
+	s := New(statePath, nil)
 	ts := time.Date(2026, 2, 11, 12, 0, 0, 0, time.UTC)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
 	s.UpdateSessionLastSignal("sess-1", ts)
@@ -924,7 +924,7 @@ func TestLastSignalAtNotPersisted(t *testing.T) {
 	}
 
 	// Load from disk and verify LastSignalAt is zero (not persisted)
-	loaded, err := Load(statePath)
+	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
 	}
@@ -942,14 +942,14 @@ func TestLastOutputAtNotPersisted(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
 
-	s := New(statePath)
+	s := New(statePath, nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
 	s.UpdateSessionLastOutput("sess-1", time.Now())
 	if err := s.Save(); err != nil {
 		t.Fatalf("Save() failed: %v", err)
 	}
 
-	loaded, err := Load(statePath)
+	loaded, err := Load(statePath, nil)
 	if err != nil {
 		t.Fatalf("Load() failed: %v", err)
 	}
@@ -963,7 +963,7 @@ func TestLastOutputAtNotPersisted(t *testing.T) {
 }
 
 func TestIncrementNudgeSeqConcurrent(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
 
 	const goroutines = 10
@@ -989,7 +989,7 @@ func TestIncrementNudgeSeqConcurrent(t *testing.T) {
 }
 
 func TestIncrementNudgeSeqNonexistentSession(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	// Should return 0 for non-existent session, not panic
 	seq := s.IncrementNudgeSeq("nonexistent")
 	if seq != 0 {
@@ -998,13 +998,13 @@ func TestIncrementNudgeSeqNonexistentSession(t *testing.T) {
 }
 
 func TestUpdateSessionLastSignalNonexistentSession(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	// Should not panic for non-existent session
 	s.UpdateSessionLastSignal("nonexistent", time.Now())
 }
 
 func TestUpdateSessionNudge(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
 
 	err := s.UpdateSessionNudge("sess-1", `{"state":"Completed","summary":"Done"}`)
@@ -1022,7 +1022,7 @@ func TestUpdateSessionNudge(t *testing.T) {
 }
 
 func TestUpdateSessionNudgePreservesOtherFields(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Target: "claude"})
 	s.IncrementNudgeSeq("sess-1") // NudgeSeq = 1
 
@@ -1041,7 +1041,7 @@ func TestUpdateSessionNudgePreservesOtherFields(t *testing.T) {
 }
 
 func TestUpdateSessionNudgeNotFound(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	err := s.UpdateSessionNudge("nonexistent", "payload")
 	if err == nil {
 		t.Error("expected error for nonexistent session")
@@ -1049,7 +1049,7 @@ func TestUpdateSessionNudgeNotFound(t *testing.T) {
 }
 
 func TestClearSessionNudge(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Nudge: `{"state":"Error"}`})
 
 	cleared := s.ClearSessionNudge("sess-1")
@@ -1070,7 +1070,7 @@ func TestClearSessionNudge(t *testing.T) {
 }
 
 func TestWorkspacePreviewCRUD(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	preview := WorkspacePreview{
 		ID:          "prev_1",
 		WorkspaceID: "ws-1",
@@ -1107,7 +1107,7 @@ func TestWorkspacePreviewCRUD(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRemovesPreviews(t *testing.T) {
-	s := New("")
+	s := New("", nil)
 	if err := s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: "/tmp/ws-1"}); err != nil {
 		t.Fatalf("AddWorkspace() failed: %v", err)
 	}

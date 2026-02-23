@@ -134,12 +134,12 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	if err != nil {
 		if strings.Contains(string(commitOutput), "nothing to commit") {
 			didCommit = false
-			fmt.Printf("[workspace] no local changes to commit\n")
+			m.logger.Debug("no local changes to commit")
 		} else {
 			return nil, &PreCommitHookError{fmt.Errorf("%s: %s", err, truncateOutput(string(commitOutput)))}
 		}
 	} else {
-		fmt.Printf("[workspace] committed local changes as: %s\n", wipUUID)
+		m.logger.Info("committed local changes", "wip", wipUUID)
 	}
 
 	// 6. For each commit hash: git rebase <hash>
@@ -152,7 +152,7 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 	successCount := 0
 	for i, hash := range commitHashes {
 		if hasDeadline && time.Until(deadline) < totalTimeout/5 {
-			fmt.Printf("[workspace] approaching timeout, stopping after %d/%d rebases\n", successCount, len(commitHashes))
+			m.logger.Warn("approaching timeout, stopping early", "completed", successCount, "total", len(commitHashes))
 			break
 		}
 		rebaseCmd := exec.CommandContext(ctx, "git", "rebase", hash)
@@ -163,7 +163,7 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
 			abortCmd.Dir = workspacePath
 			if out, err := abortCmd.CombinedOutput(); err != nil {
-				fmt.Fprintf(os.Stderr, "[workspace] warning: git rebase --abort failed: %v: %s\n", err, string(out))
+				m.logger.Warn("git rebase --abort failed", "err", err, "output", string(out))
 			}
 
 			// git reset --mixed HEAD~1 - undo the WIP commit
@@ -176,9 +176,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 					resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 					resetCmd.Dir = workspacePath
 					if out, err := resetCmd.CombinedOutput(); err != nil {
-						fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+						m.logger.Warn("git reset --mixed HEAD~1 failed", "err", err, "output", string(out))
 					}
-					fmt.Printf("[workspace] reset WIP commit after conflict\n")
+					m.logger.Info("reset WIP commit after conflict")
 				}
 			}
 
@@ -190,7 +190,7 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			}, nil
 		}
 		successCount++
-		fmt.Printf("[workspace] rebased %d/%d: %s\n", i+1, len(commitHashes), hash)
+		m.logger.Info("rebased commit", "progress", fmt.Sprintf("%d/%d", i+1, len(commitHashes)), "hash", hash)
 		if m.syncProgressFn != nil {
 			m.syncProgressFn(workspaceID, i+1, len(commitHashes))
 		}
@@ -206,9 +206,9 @@ func (m *Manager) LinearSyncFromDefault(ctx context.Context, workspaceID string)
 			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 			resetCmd.Dir = workspacePath
 			if output, err := resetCmd.CombinedOutput(); err != nil {
-				fmt.Printf("[workspace] warning: git reset --mixed failed: %s\n", string(output))
+				m.logger.Warn("git reset --mixed failed", "output", string(output))
 			} else {
-				fmt.Printf("[workspace] restored local changes after successful rebase\n")
+				m.logger.Info("restored local changes after successful rebase")
 			}
 		}
 	}
@@ -238,7 +238,7 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	defaultRef := "origin/" + defaultBranch
 
 	// 1. git fetch origin
-	fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s fetching origin\n", workspaceID)
+	m.logger.Info("sync-to-default: fetching origin", "workspace", workspaceID)
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
 	fetchCmd.Dir = workspacePath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
@@ -305,12 +305,12 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current branch: %w", err)
 	}
-	fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s current_branch=%s\n", workspaceID, currentBranch)
+	m.logger.Info("sync-to-default: current branch", "workspace", workspaceID, "branch", currentBranch)
 
 	// 5. Push to default branch
 	if currentBranch == defaultBranch {
 		// On default branch: simple push
-		fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s pushing from %s\n", workspaceID, defaultBranch)
+		m.logger.Info("sync-to-default: pushing", "workspace", workspaceID, "branch", defaultBranch)
 		pushCmd := exec.CommandContext(ctx, "git", "push")
 		pushCmd.Dir = workspacePath
 		if output, err := pushCmd.CombinedOutput(); err != nil {
@@ -318,14 +318,14 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 		}
 	} else {
 		// On feature branch: set upstream to default branch, push to default branch, then sync local
-		fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s setting upstream to %s\n", workspaceID, defaultBranch)
+		m.logger.Info("sync-to-default: setting upstream", "workspace", workspaceID, "upstream", defaultBranch)
 		upstreamCmd := exec.CommandContext(ctx, "git", "branch", "--set-upstream-to="+defaultRef)
 		upstreamCmd.Dir = workspacePath
 		if output, err := upstreamCmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("git branch --set-upstream-to=%s failed: %w: %s", defaultRef, err, string(output))
 		}
 
-		fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s pushing to %s\n", workspaceID, defaultBranch)
+		m.logger.Info("sync-to-default: pushing to default", "workspace", workspaceID, "branch", defaultBranch)
 		pushCmd := exec.CommandContext(ctx, "git", "push", "origin", "HEAD:"+defaultBranch)
 		pushCmd.Dir = workspacePath
 		if output, err := pushCmd.CombinedOutput(); err != nil {
@@ -333,16 +333,16 @@ func (m *Manager) LinearSyncToDefault(ctx context.Context, workspaceID string) (
 		}
 
 		// Sync local branch to match new default branch
-		fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s syncing local branch\n", workspaceID)
+		m.logger.Info("sync-to-default: syncing local branch", "workspace", workspaceID)
 		mergeCmd := exec.CommandContext(ctx, "git", "merge", "--ff-only", defaultRef)
 		mergeCmd.Dir = workspacePath
 		if output, err := mergeCmd.CombinedOutput(); err != nil {
 			// This shouldn't fail since we just pushed, but log warning
-			fmt.Printf("[workspace] linear-sync-to-default: warning: git merge --ff-only failed: %s\n", string(output))
+			m.logger.Warn("sync-to-default: git merge --ff-only failed", "output", string(output))
 		}
 	}
 
-	fmt.Printf("[workspace] linear-sync-to-default: workspace_id=%s success\n", workspaceID)
+	m.logger.Info("sync-to-default: success", "workspace", workspaceID)
 
 	// Track push to main
 	if m.telemetry != nil {
@@ -374,7 +374,7 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 	branch := w.Branch
 
 	// 1. git fetch origin
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s fetching origin\n", workspaceID)
+	m.logger.Info("push-to-branch: fetching origin", "workspace", workspaceID)
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
 	fetchCmd.Dir = workspacePath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
@@ -412,7 +412,7 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 				divergedCmd.Dir = workspacePath
 				output, err := divergedCmd.Output()
 				if err != nil {
-					fmt.Printf("[workspace] push-to-branch: failed to get diverged commits: %v\n", err)
+					m.logger.Warn("push-to-branch: failed to get diverged commits", "err", err)
 				}
 				var divergedCommits []string
 				for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
@@ -441,14 +441,14 @@ func (m *Manager) PushToBranch(ctx context.Context, workspaceID string, confirm 
 	}
 
 	// 4. Push to origin/branch
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s pushing to origin/%s\n", workspaceID, branch)
+	m.logger.Info("push-to-branch: pushing", "workspace", workspaceID, "branch", branch)
 	pushCmd := exec.CommandContext(ctx, "git", "push", "--force-with-lease", "origin", "HEAD:"+branch)
 	pushCmd.Dir = workspacePath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("git push origin HEAD:%s failed: %w: %s", branch, err, string(output))
 	}
 
-	fmt.Printf("[workspace] push-to-branch: workspace_id=%s success\n", workspaceID)
+	m.logger.Info("push-to-branch: success", "workspace", workspaceID)
 	return &LinearSyncResult{
 		Success:      true,
 		SuccessCount: 0,
@@ -533,7 +533,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 	if len(parts) > 1 {
 		hashMessage = strings.Join(parts[1:], " ")
 	}
-	fmt.Printf("[workspace] linear-sync-resolve-conflict: workspace_id=%s rebasing hash=%s\n", workspaceID, hash)
+	m.logger.Info("resolve-conflict: rebasing", "workspace", workspaceID, "hash", hash)
 
 	// 2. Create WIP commit to preserve local changes (including untracked files)
 	addWipCmd := exec.CommandContext(ctx, "git", "add", "-A")
@@ -568,7 +568,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		HashMessage: hashMessage,
 		Created:     &created,
 	})
-	fmt.Printf("[workspace] linear-sync-resolve-conflict: %s\n", wipMsg)
+	m.logger.Info("resolve-conflict: WIP state", "msg", wipMsg)
 
 	// Helper to abort rebase and unwind WIP commit
 	abortAndUnwind := func(reason string) {
@@ -576,13 +576,13 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		abortCmd := exec.CommandContext(ctx, "git", "rebase", "--abort")
 		abortCmd.Dir = workspacePath
 		if out, err := abortCmd.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "[workspace] warning: git rebase --abort failed: %v: %s\n", err, string(out))
+			m.logger.Warn("git rebase --abort failed", "err", err, "output", string(out))
 		}
 		if didCommit {
 			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 			resetCmd.Dir = workspacePath
 			if out, err := resetCmd.CombinedOutput(); err != nil {
-				fmt.Fprintf(os.Stderr, "[workspace] warning: git reset --mixed HEAD~1 failed: %v: %s\n", err, string(out))
+				m.logger.Warn("git reset --mixed HEAD~1 failed", "err", err, "output", string(out))
 			}
 		}
 		emit(ResolveConflictStep{Action: "abort", Status: "failed", Message: []string{fmt.Sprintf("Aborted: %s", reason)}})
@@ -595,7 +595,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			resetCmd := exec.CommandContext(ctx, "git", "reset", "--mixed", "HEAD~1")
 			resetCmd.Dir = workspacePath
 			if output, err := resetCmd.CombinedOutput(); err != nil {
-				fmt.Printf("[workspace] linear-sync-resolve-conflict: warning: git reset --mixed failed: %s\n", string(output))
+				m.logger.Warn("resolve-conflict: git reset --mixed failed", "output", string(output))
 				emit(ResolveConflictStep{Action: "wip_unwind", Status: "failed", Message: []string{fmt.Sprintf("Warning: git reset --mixed failed: %s", string(output))}})
 			} else {
 				emit(ResolveConflictStep{Action: "wip_unwind", Status: "done", Message: []string{"Restored local changes"}})
@@ -676,7 +676,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 				}, nil
 			}
 			msg := fmt.Sprintf("Rebase failed (no unmerged files, no rebase in progress) on %s", hash)
-			fmt.Printf("[workspace] linear-sync-resolve-conflict: %s\n", msg)
+			m.logger.Warn("resolve-conflict: rebase failed", "hash", hash, "reason", "no unmerged files, no rebase in progress")
 			abortAndUnwind(msg)
 			return &LinearSyncResolveConflictResult{
 				Success:     false,
@@ -707,7 +707,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			Files:              unmergedFiles,
 			ConflictDiffs:      conflictDiffs,
 		})
-		fmt.Printf("[workspace] linear-sync-resolve-conflict: conflict on files: %v\n", unmergedFiles)
+		m.logger.Info("resolve-conflict: conflict detected", "files", unmergedFiles)
 
 		// Build prompt and call LLM
 		emit(ResolveConflictStep{
@@ -732,7 +732,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		}
 
 		if err != nil {
-			fmt.Printf("[workspace] linear-sync-resolve-conflict: oneshot error on %s: %v\n", localCommitHash, err)
+			m.logger.Error("resolve-conflict: oneshot error", "commit", localCommitHash, "err", err)
 			resolution.Summary = fmt.Sprintf("LLM error: %v", err)
 			resolutions = append(resolutions, resolution)
 			msg := fmt.Sprintf("Could not resolve conflict on local commit %s: %v", localCommitHash, err)
@@ -751,7 +751,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		resolution.Confidence = oneshotResult.Confidence
 		resolution.Summary = oneshotResult.Summary
 		resolutions = append(resolutions, resolution)
-		fmt.Printf("[workspace] linear-sync-resolve-conflict: oneshot result on %s: all_resolved=%t confidence=%s summary=%q\n", localCommitHash, oneshotResult.AllResolved, oneshotResult.Confidence, oneshotResult.Summary)
+		m.logger.Info("resolve-conflict: oneshot result", "commit", localCommitHash, "all_resolved", oneshotResult.AllResolved, "confidence", oneshotResult.Confidence, "summary", oneshotResult.Summary)
 
 		// Check decision logic: must be all_resolved=true AND confidence=high
 		if !oneshotResult.AllResolved || oneshotResult.Confidence != "high" {
@@ -795,7 +795,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		}
 		for filePath := range oneshotResult.Files {
 			if _, ok := unmergedSet[filePath]; !ok {
-				fmt.Printf("[workspace] linear-sync-resolve-conflict: ignoring extra file %q from LLM response (not in conflicted set)\n", filePath)
+				m.logger.Debug("resolve-conflict: ignoring extra file from LLM response", "file", filePath)
 			}
 		}
 
@@ -908,7 +908,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 			emit(ResolveConflictStep{Action: "rebase_continue", Status: "done", Message: []string{"Continuing to next commit"}})
 			nextUnmerged := m.getUnmergedFiles(ctx, workspacePath)
 			if len(nextUnmerged) == 0 {
-				fmt.Printf("[workspace] linear-sync-resolve-conflict: rebase in progress with no conflicts; continuing\n")
+				m.logger.Debug("resolve-conflict: rebase in progress with no conflicts, continuing")
 				continue
 			}
 			continue

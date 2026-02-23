@@ -10,9 +10,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 var (
+	// pkgLogger is the package-level logger for detect operations.
+	// Set via SetLogger from the daemon initialization.
+	pkgLogger *log.Logger
+
 	// envOnce ensures osEnv is initialized exactly once
 	envOnce sync.Once
 
@@ -28,6 +34,11 @@ var (
 		return "", nil // placeholder, initialized in init()
 	}
 )
+
+// SetLogger sets the package-level logger for detect operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 // Tool represents a detected AI coding tool.
 type Tool struct {
@@ -50,9 +61,11 @@ type ToolDetector interface {
 
 // DetectAvailableTools runs all registered detectors concurrently and returns available tools.
 // All detectors run in parallel with a shared timeout.
-// Always logs progress using fmt.Printf; if printProgress is true, also prints to stdout.
+// Logs progress via structured logger; if printProgress is true, also prints to stdout.
 func DetectAvailableTools(printProgress bool) []Tool {
-	fmt.Printf("[config] starting tool detection...\n")
+	if pkgLogger != nil {
+		pkgLogger.Info("starting tool detection")
+	}
 	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
@@ -93,14 +106,18 @@ func DetectAvailableTools(printProgress bool) []Tool {
 			}
 			tools = append(tools, r.tool)
 		} else {
-			fmt.Printf("[config] tool not found: %s (tried all detection methods)\n", r.name)
+			if pkgLogger != nil {
+				pkgLogger.Info("tool not found", "tool", r.name)
+			}
 			if printProgress {
 				fmt.Printf("  Detecting %s... not found\n", r.name)
 			}
 		}
 	}
 
-	fmt.Printf("[config] detection complete: found %d tool(s)\n", len(tools))
+	if pkgLogger != nil {
+		pkgLogger.Info("detection complete", "tools_found", len(tools))
+	}
 	return tools
 }
 
@@ -113,7 +130,9 @@ func DetectAndPrint() []Tool {
 // DetectAvailableToolsContext runs all registered detectors concurrently with the given context.
 // Returns available tools or an error if context is canceled.
 func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Tool, error) {
-	fmt.Printf("[config] starting tool detection...\n")
+	if pkgLogger != nil {
+		pkgLogger.Info("starting tool detection")
+	}
 	detectors := []ToolDetector{
 		&claudeDetector{},
 		&codexDetector{},
@@ -151,7 +170,9 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 			}
 			tools = append(tools, r.tool)
 		} else {
-			fmt.Printf("[config] tool not found: %s (tried all detection methods)\n", r.name)
+			if pkgLogger != nil {
+				pkgLogger.Info("tool not found", "tool", r.name)
+			}
 			if printProgress {
 				fmt.Printf("  Detecting %s... not found\n", r.name)
 			}
@@ -163,7 +184,9 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 		return nil, ctx.Err()
 	}
 
-	fmt.Printf("[config] detection complete: found %d tool(s)\n", len(tools))
+	if pkgLogger != nil {
+		pkgLogger.Info("detection complete", "tools_found", len(tools))
+	}
 	return tools, nil
 }
 
@@ -346,7 +369,9 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try claude command in PATH
 	if commandExists("claude") {
 		if tryCommand(ctx, "claude", "-v") {
-			fmt.Printf("[config] claude: found via PATH (command: claude)\n")
+			if pkgLogger != nil {
+				pkgLogger.Info("claude found via PATH", "command", "claude")
+			}
 			return Tool{Name: "claude", Command: "claude", Source: "PATH", Agentic: true}, true
 		}
 	}
@@ -355,7 +380,9 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	if fileExists("~/.local/bin/claude") {
 		cmd := filepath.Join(homeDirOrTilde(), ".local", "bin", "claude")
 		if tryCommand(ctx, cmd, "-v") {
-			fmt.Printf("[config] claude: found via native install (command: %s)\n", cmd)
+			if pkgLogger != nil {
+				pkgLogger.Info("claude found via native install", "command", cmd)
+			}
 			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.local/bin/claude)", Agentic: true}, true
 		}
 	}
@@ -364,20 +391,26 @@ func (d *claudeDetector) Detect(ctx context.Context) (Tool, bool) {
 	if fileExists("~/.claude/local/claude") {
 		cmd := filepath.Join(homeDirOrTilde(), ".claude", "local", "claude")
 		if tryCommand(ctx, cmd, "-v") {
-			fmt.Printf("[config] claude: found via alternative native install (command: %s)\n", cmd)
+			if pkgLogger != nil {
+				pkgLogger.Info("claude found via alternative native install", "command", cmd)
+			}
 			return Tool{Name: "claude", Command: cmd, Source: "native install (~/.claude/local/claude)", Agentic: true}, true
 		}
 	}
 
 	// Method 4: Check Homebrew cask
 	if homebrewCaskInstalled(ctx, "claude-code") {
-		fmt.Printf("[config] claude: found via Homebrew cask (command: claude)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("claude found via Homebrew cask", "command", "claude")
+		}
 		return Tool{Name: "claude", Command: "claude", Source: "Homebrew cask claude-code", Agentic: true}, true
 	}
 
 	// Method 5: Check npm global
 	if npmGlobalInstalled(ctx, "@anthropic-ai/claude-code") {
-		fmt.Printf("[config] claude: found via npm global package @anthropic-ai/claude-code (command: claude)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("claude found via npm global", "package", "@anthropic-ai/claude-code", "command", "claude")
+		}
 		return Tool{Name: "claude", Command: "claude", Source: "npm global package @anthropic-ai/claude-code", Agentic: true}, true
 	}
 
@@ -394,20 +427,26 @@ func (d *codexDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try codex command in PATH
 	if commandExists("codex") {
 		if tryCommand(ctx, "codex", "-V") {
-			fmt.Printf("[config] codex: found via PATH (command: codex)\n")
+			if pkgLogger != nil {
+				pkgLogger.Info("codex found via PATH", "command", "codex")
+			}
 			return Tool{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check npm global (primary installation method)
 	if npmGlobalInstalled(ctx, "@openai/codex") {
-		fmt.Printf("[config] codex: found via npm global package @openai/codex (command: codex)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("codex found via npm global", "package", "@openai/codex", "command", "codex")
+		}
 		return Tool{Name: "codex", Command: "codex", Source: "npm global package @openai/codex", Agentic: true}, true
 	}
 
 	// Method 3: Check Homebrew formula (if available)
 	if homebrewFormulaInstalled(ctx, "codex") {
-		fmt.Printf("[config] codex: found via Homebrew formula (command: codex)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("codex found via Homebrew formula", "command", "codex")
+		}
 		return Tool{Name: "codex", Command: "codex", Source: "Homebrew formula codex", Agentic: true}, true
 	}
 
@@ -424,20 +463,26 @@ func (d *geminiDetector) Detect(ctx context.Context) (Tool, bool) {
 	// Method 1: Try gemini command in PATH
 	if commandExists("gemini") {
 		if tryCommand(ctx, "gemini", "-v") {
-			fmt.Printf("[config] gemini: found via PATH (command: gemini)\n")
+			if pkgLogger != nil {
+				pkgLogger.Info("gemini found via PATH", "command", "gemini")
+			}
 			return Tool{Name: "gemini", Command: "gemini -i", Source: "PATH", Agentic: true}, true
 		}
 	}
 
 	// Method 2: Check Homebrew formula (common installation method)
 	if homebrewFormulaInstalled(ctx, "gemini-cli") {
-		fmt.Printf("[config] gemini: found via Homebrew formula gemini-cli (command: gemini)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("gemini found via Homebrew formula", "formula", "gemini-cli", "command", "gemini")
+		}
 		return Tool{Name: "gemini", Command: "gemini -i", Source: "Homebrew formula gemini-cli", Agentic: true}, true
 	}
 
 	// Method 3: Check npm global
 	if npmGlobalInstalled(ctx, "@google/gemini-cli") {
-		fmt.Printf("[config] gemini: found via npm global package @google/gemini-cli (command: gemini)\n")
+		if pkgLogger != nil {
+			pkgLogger.Info("gemini found via npm global", "package", "@google/gemini-cli", "command", "gemini")
+		}
 		return Tool{Name: "gemini", Command: "gemini -i", Source: "npm global package @google/gemini-cli", Agentic: true}, true
 	}
 

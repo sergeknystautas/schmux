@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -37,6 +38,7 @@ type Manager struct {
 	networkAccess   bool // if true, bind to 0.0.0.0 for external access
 	portBase        int  // base port for stable block allocation (e.g. 53000)
 	blockSize       int  // ports per workspace block (e.g. 10)
+	logger          *log.Logger
 
 	mu       sync.Mutex
 	entries  map[string]*entry // preview_id -> listener entry
@@ -51,7 +53,7 @@ type entry struct {
 	server      *http.Server
 }
 
-func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int) *Manager {
+func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int, logger *log.Logger) *Manager {
 	if maxPerWorkspace <= 0 {
 		maxPerWorkspace = 3
 	}
@@ -71,6 +73,7 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAcce
 		networkAccess:   networkAccess,
 		portBase:        portBase,
 		blockSize:       blockSize,
+		logger:          logger,
 		entries:         map[string]*entry{},
 		stopCh:          make(chan struct{}),
 		doneCh:          make(chan struct{}),
@@ -145,7 +148,9 @@ func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHos
 	}
 	if err := m.state.Save(); err != nil {
 		if removeErr := m.state.RemovePreview(preview.ID); removeErr != nil {
-			fmt.Printf("[preview] failed to roll back preview reservation %s: %v\n", preview.ID, removeErr)
+			if m.logger != nil {
+				m.logger.Error("failed to roll back preview reservation", "preview_id", preview.ID, "err", removeErr)
+			}
 		}
 		m.mu.Unlock()
 		return state.WorkspacePreview{}, err
@@ -333,7 +338,9 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	server := &http.Server{Handler: proxyHandler}
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fmt.Printf("[preview] listener stopped unexpectedly: preview_id=%s error=%v\n", preview.ID, err)
+			if m.logger != nil {
+				m.logger.Error("listener stopped unexpectedly", "preview_id", preview.ID, "err", err)
+			}
 		}
 	}()
 
@@ -491,7 +498,9 @@ func (m *Manager) pickStablePortLocked(workspaceID string) (int, error) {
 			continue
 		}
 		if !m.isPortFree(port) {
-			fmt.Printf("[preview] port %d in use by external process, trying next slot\n", port)
+			if m.logger != nil {
+				m.logger.Debug("port in use by external process, trying next slot", "port", port)
+			}
 			continue
 		}
 		return port, nil

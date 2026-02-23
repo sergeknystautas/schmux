@@ -71,7 +71,7 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 	s.state.SetPullRequests(prs)
 	s.state.SetPublicRepos(s.prDiscovery.GetPublicRepos())
 	if err := s.state.Save(); err != nil {
-		fmt.Printf("[pr] failed to save state: %v\n", err)
+		s.logger.Error("failed to save state", "err", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -124,7 +124,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 	// Create workspace from PR ref
 	ws, err := s.workspace.CheckoutPR(ctx, pr)
 	if err != nil {
-		fmt.Printf("[pr] checkout failed: %v\n", err)
+		s.logger.Error("checkout failed", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to checkout PR: %v", err)})
@@ -145,7 +145,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: ws.ID,
 	})
 	if err != nil {
-		fmt.Printf("[pr] session launch failed: %v\n", err)
+		s.logger.Error("session launch failed", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Workspace created but session launch failed: %v", err)})

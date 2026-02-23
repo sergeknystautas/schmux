@@ -18,7 +18,7 @@ func TestFileWatcherDetectsWrite(t *testing.T) {
 		mu.Lock()
 		got = append(got, sig)
 		mu.Unlock()
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestFileWatcherDeduplicates(t *testing.T) {
 		mu.Lock()
 		got = append(got, sig)
 		mu.Unlock()
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestFileWatcherDifferentSignals(t *testing.T) {
 		mu.Lock()
 		got = append(got, sig)
 		mu.Unlock()
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestFileWatcherInvalidContent(t *testing.T) {
 		mu.Lock()
 		got = append(got, sig)
 		mu.Unlock()
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestFileWatcherReadCurrent(t *testing.T) {
 
 	os.WriteFile(signalFile, []byte("needs_input Waiting\n"), 0644)
 
-	fw, err := NewFileWatcher("test-session", signalFile, func(sig Signal) {})
+	fw, err := NewFileWatcher("test-session", signalFile, func(sig Signal) {}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestFileWatcherDoubleStop(t *testing.T) {
 	dir := t.TempDir()
 	signalFile := filepath.Join(dir, "signal")
 
-	fw, err := NewFileWatcher("test-session", signalFile, func(sig Signal) {})
+	fw, err := NewFileWatcher("test-session", signalFile, func(sig Signal) {}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

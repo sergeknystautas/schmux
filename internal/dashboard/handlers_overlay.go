@@ -60,7 +60,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 	for _, repo := range repos {
 		overlayDir, err := workspace.OverlayDir(repo.Name)
 		if err != nil {
-			fmt.Printf("[workspace] failed to get overlay directory for %s: %v\n", repo.Name, err)
+			s.logger.Error("failed to get overlay directory", "repo", repo.Name, "err", err)
 			continue
 		}
 
@@ -75,7 +75,7 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 		if exists {
 			files, err := workspace.ListOverlayFiles(repo.Name)
 			if err != nil {
-				fmt.Printf("[workspace] failed to list overlay files for %s: %v\n", repo.Name, err)
+				s.logger.Error("failed to list overlay files", "repo", repo.Name, "err", err)
 			} else {
 				fileCount = len(files)
 			}
@@ -141,14 +141,14 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
-		fmt.Printf("[workspace] refresh-overlay error: workspace_id=%s error=%v\n", workspaceID, err)
+		s.logger.Error("refresh-overlay error", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	fmt.Printf("[workspace] refresh-overlay success: workspace_id=%s\n", workspaceID)
+	s.logger.Info("refresh-overlay success", "workspace_id", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -392,7 +392,7 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.config.Save(); err != nil {
-		fmt.Printf("[overlay] failed to save config after dismiss-nudge: %v\n", err)
+		s.logger.Error("failed to save config after dismiss-nudge", "err", err)
 		http.Error(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}

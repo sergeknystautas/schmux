@@ -138,7 +138,7 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 
 	proposals, err := s.loreStore.List(repoName)
 	if err != nil {
-		fmt.Printf("[lore] list proposals error: %v\n", err)
+		s.logger.Error("list proposals error", "err", err)
 		http.Error(w, "failed to list proposals", http.StatusInternalServerError)
 		return
 	}
@@ -268,7 +268,7 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		url, err := lore.CreatePR(r.Context(), bareDir, result.Branch, title, prBody)
 		if err != nil {
 			// Log but don't fail — the commit and push already succeeded
-			fmt.Fprintf(os.Stderr, "schmux: auto-PR creation failed (branch %s pushed): %v\n", result.Branch, err)
+			s.logger.Error("auto-PR creation failed", "branch", result.Branch, "err", err)
 		} else {
 			prURL = url
 		}
@@ -276,7 +276,7 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 
 	// Update proposal status
 	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalApplied); err != nil {
-		fmt.Fprintf(os.Stderr, "schmux: failed to update proposal status: %v\n", err)
+		s.logger.Error("failed to update proposal status", "err", err)
 	}
 
 	// Mark source entries as "applied" in the central state JSONL
@@ -284,7 +284,7 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		wsPaths := s.getLoreWorkspacePaths(repoName)
 		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
-			fmt.Printf("[lore] warning: failed to mark entries as applied: %v\n", err)
+			s.logger.Warn("failed to mark entries as applied", "err", err)
 		}
 	}
 
@@ -330,7 +330,7 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.loreStore.UpdateStatus(repoName, proposalID, lore.ProposalDismissed); err != nil {
-		fmt.Printf("[lore] update proposal status error: %v\n", err)
+		s.logger.Error("update proposal status error", "err", err)
 		http.Error(w, "failed to update proposal status", http.StatusInternalServerError)
 		return
 	}
@@ -340,7 +340,7 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		wsPaths := s.getLoreWorkspacePaths(repoName)
 		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
-			fmt.Printf("[lore] warning: failed to mark entries as dismissed: %v\n", err)
+			s.logger.Warn("failed to mark entries as dismissed", "err", err)
 		}
 	}
 
@@ -381,7 +381,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := lore.ReadEntriesMulti(readPaths, filter)
 	if err != nil {
-		fmt.Printf("[lore] read entries error: %v\n", err)
+		s.logger.Error("read entries error", "err", err)
 		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
 		return
 	}
@@ -435,19 +435,19 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	readPaths := s.getLoreReadPaths(repoName)
 	rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
 	if err != nil {
-		fmt.Printf("[lore] read entries error: %v\n", err)
+		s.logger.Error("read entries error", "err", err)
 		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
 		return
 	}
 
 	if len(rawEntries) == 0 {
-		fmt.Printf("[lore] curate %s: no raw entries to process\n", repoName)
+		s.logger.Info("curate: no raw entries to process", "repo", repoName)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
-	fmt.Printf("[lore] curate %s: found %d raw entries, calling LLM...\n", repoName, len(rawEntries))
+	s.logger.Info("curate: found raw entries, calling LLM", "repo", repoName, "count", len(rawEntries))
 	start := time.Now()
 
 	// Use a detached context with its own timeout — the LLM call can take
@@ -459,22 +459,21 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	proposal, err := s.loreCurator.CurateWithEntries(curateCtx, repoName, bareDir, rawEntries)
 	elapsed := time.Since(start)
 	if err != nil {
-		fmt.Printf("[lore] curation failed after %s: %v\n", elapsed.Round(time.Millisecond), err)
+		s.logger.Error("curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
 		http.Error(w, "curation failed", http.StatusInternalServerError)
 		return
 	}
 	if proposal == nil {
-		fmt.Printf("[lore] curate %s: LLM returned no proposal (%s)\n", repoName, elapsed.Round(time.Millisecond))
+		s.logger.Info("curate: LLM returned no proposal", "repo", repoName, "elapsed", elapsed.Round(time.Millisecond))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
-	fmt.Printf("[lore] curate %s: proposal %s created (%d files, %d entries used, %s)\n",
-		repoName, proposal.ID, len(proposal.ProposedFiles), len(proposal.EntriesUsed), elapsed.Round(time.Millisecond))
+	s.logger.Info("curate: proposal created", "repo", repoName, "proposal", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
 
 	if err := s.loreStore.Save(proposal); err != nil {
-		fmt.Printf("[lore] save proposal error: %v\n", err)
+		s.logger.Error("save proposal error", "err", err)
 		http.Error(w, "failed to save proposal", http.StatusInternalServerError)
 		return
 	}
@@ -484,7 +483,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		wsPaths := s.getLoreWorkspacePaths(repoName)
 		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
-			fmt.Printf("[lore] warning: failed to mark entries as proposed: %v\n", err)
+			s.logger.Warn("failed to mark entries as proposed", "err", err)
 		}
 	}
 

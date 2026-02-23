@@ -121,7 +121,7 @@ func TestGetCommitDetail_BasicCommit(t *testing.T) {
 	shortHash := hash[:7]
 
 	// Create workspace manager with mock state
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -221,7 +221,7 @@ func TestGetCommitDetail_ModifiedFile(t *testing.T) {
 	hash := run("rev-parse", "HEAD")
 	parentHash := run("rev-parse", "HEAD^")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -300,7 +300,7 @@ func TestGetCommitDetail_DeletedFile(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -368,7 +368,7 @@ func TestGetCommitDetail_RenamedFile(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -434,7 +434,7 @@ func TestGetCommitDetail_BinaryFile(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -470,7 +470,7 @@ func TestGetCommitDetail_InvalidHash(t *testing.T) {
 	dir, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -526,7 +526,7 @@ func TestGetCommitDetail_NonexistentHash(t *testing.T) {
 	run("add", "test.txt")
 	run("commit", "-m", "Initial")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -597,7 +597,7 @@ func TestGetCommitDetail_MergeCommit(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -650,7 +650,7 @@ func TestGetCommitDetail_ISO8601Timestamp(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,
@@ -708,7 +708,7 @@ func TestGetCommitDetail_LineCounts(t *testing.T) {
 
 	hash := run("rev-parse", "HEAD")
 
-	st := state.New(filepath.Join(t.TempDir(), "state.json"))
+	st := state.New(filepath.Join(t.TempDir(), "state.json"), nil)
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-test",
 		Path: dir,

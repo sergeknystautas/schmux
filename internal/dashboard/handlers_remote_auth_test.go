@@ -18,7 +18,7 @@ import (
 )
 
 func TestValidateRemoteCookie_ExpiredCookie(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	// Simulate tunnel connect to generate session secret
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
@@ -41,7 +41,7 @@ func TestValidateRemoteCookie_ExpiredCookie(t *testing.T) {
 }
 
 func TestValidateRemoteCookie_FreshCookie(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -63,7 +63,7 @@ func TestValidateRemoteCookie_FreshCookie(t *testing.T) {
 }
 
 func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -118,7 +118,7 @@ func TestRenderPasswordPage_EscapesErrorMsg(t *testing.T) {
 }
 
 func TestRequiresAuth_TrueWhenTunnelActive(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	// Simulate tunnel connected — sets remoteSessionSecret
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
@@ -130,7 +130,7 @@ func TestRequiresAuth_TrueWhenTunnelActive(t *testing.T) {
 }
 
 func TestRequiresAuth_FalseWhenNoTunnel(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	// No tunnel connected, no auth enabled — should NOT require auth
 	if server.requiresAuth() {
@@ -139,7 +139,7 @@ func TestRequiresAuth_FalseWhenNoTunnel(t *testing.T) {
 }
 
 func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -155,7 +155,7 @@ func TestRequiresAuth_FalseAfterTunnelStops(t *testing.T) {
 }
 
 func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -185,7 +185,7 @@ func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
 }
 
 func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
 	tests := []struct {
@@ -215,7 +215,7 @@ func TestHandleRemoteAccessSetPassword_RejectsShortPassword(t *testing.T) {
 }
 
 func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -243,7 +243,7 @@ func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
 }
 
 func TestRemoteAuth_RateLimiting(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -281,7 +281,7 @@ func TestRemoteAuth_RateLimiting(t *testing.T) {
 }
 
 func TestRequireAuthOrRedirect_DoesNotLeakToken(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -311,7 +311,7 @@ func TestRequireAuthOrRedirect_DoesNotLeakToken(t *testing.T) {
 }
 
 func TestRemoteAuthGET_NoTokenOrNonce_ShowsInstructions(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -336,7 +336,7 @@ func TestRemoteAuthGET_NoTokenOrNonce_ShowsInstructions(t *testing.T) {
 }
 
 func TestRemoteAuthGET_TokenConsumedAndRedirectsToNonce(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -368,7 +368,7 @@ func TestRemoteAuthGET_TokenConsumedAndRedirectsToNonce(t *testing.T) {
 }
 
 func TestRemoteAuthGET_NonceShowsPasswordForm(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -403,7 +403,7 @@ func TestRemoteAuthGET_NonceShowsPasswordForm(t *testing.T) {
 }
 
 func TestRemoteAuthGET_ExpiredNonceRejected(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -426,7 +426,7 @@ func TestRemoteAuthGET_ExpiredNonceRejected(t *testing.T) {
 }
 
 func TestRemoteAuthPOST_WorksWithNonce(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -475,7 +475,7 @@ func TestRemoteAuthPOST_WorksWithNonce(t *testing.T) {
 }
 
 func TestRemoteAuthGET_ReplayedTokenRejected(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -503,7 +503,7 @@ func TestRemoteAuthGET_ReplayedTokenRejected(t *testing.T) {
 }
 
 func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
 	// Enable network access (bind to 0.0.0.0)
@@ -543,7 +543,7 @@ func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 }
 
 func TestIsTrustedRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -557,7 +557,7 @@ func TestIsTrustedRequest_NoTunnel_LoopbackIsLocal(t *testing.T) {
 }
 
 func TestIsTrustedRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -573,7 +573,7 @@ func TestIsTrustedRequest_TunnelActive_LoopbackWithCfHeader_IsNotLocal(t *testin
 }
 
 func TestIsTrustedRequest_TunnelActive_LoopbackNoCfHeader_IsLocal(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -589,7 +589,7 @@ func TestIsTrustedRequest_TunnelActive_LoopbackNoCfHeader_IsLocal(t *testing.T) 
 }
 
 func TestIsTrustedRequest_RemoteAccessDisabled_AlwaysTrusted(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	// remote_access not enabled — no untrusted path exists
 
@@ -602,7 +602,7 @@ func TestIsTrustedRequest_RemoteAccessDisabled_AlwaysTrusted(t *testing.T) {
 }
 
 func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -633,7 +633,7 @@ func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
 }
 
 func TestNormalizeIPForRateLimit_TunnelActive_UsesCfConnectingIP(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	server.HandleTunnelConnected("https://test.trycloudflare.com")
 
@@ -648,7 +648,7 @@ func TestNormalizeIPForRateLimit_TunnelActive_UsesCfConnectingIP(t *testing.T) {
 }
 
 func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	// No tunnel connected
 
@@ -663,7 +663,7 @@ func TestNormalizeIPForRateLimit_NoTunnel_IgnoresHeaders(t *testing.T) {
 }
 
 func TestSetPassword_WithoutTunnel_DoesNotActivateAuth(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
 	// Set up config with a saveable path — NO tunnel connected
@@ -707,7 +707,7 @@ func TestSetPassword_WithoutTunnel_DoesNotActivateAuth(t *testing.T) {
 }
 
 func TestLocalRequestBypassesAuth_WhenTunnelActive(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -744,7 +744,7 @@ func TestLocalRequestBypassesAuth_WhenTunnelActive(t *testing.T) {
 }
 
 func TestRequireAuthOrRedirect_LocalBypassesTunnelAuth(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 	enabled := true
 	server.config.RemoteAccess = &config.RemoteAccessConfig{Enabled: &enabled}
@@ -772,7 +772,7 @@ func TestRequireAuthOrRedirect_LocalBypassesTunnelAuth(t *testing.T) {
 }
 
 func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
-	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}))
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
 
 	// Set up config with a saveable path
@@ -819,7 +819,7 @@ func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
 // transitions to false while auth state exists, calling ClearRemoteAuth clears
 // the state properly. The actual trigger (config save handler) is tested separately.
 func TestDisablingRemoteAccess_ClearsAuthState(t *testing.T) {
-	mgr := tunnel.NewManager(tunnel.ManagerConfig{})
+	mgr := tunnel.NewManager(tunnel.ManagerConfig{}, nil)
 	server := newTestServerWithTunnel(t, mgr)
 	defer server.CloseForTest()
 

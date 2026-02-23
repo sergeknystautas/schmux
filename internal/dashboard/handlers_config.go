@@ -224,14 +224,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fmt.Printf("[config] invalid JSON payload: %v\n", err)
+		s.logger.Error("invalid JSON payload", "err", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Reload config from disk to get all current values (including tools, etc.)
 	if err := s.config.Reload(); err != nil {
-		fmt.Printf("[config] failed to reload config: %v\n", err)
+		s.logger.Error("failed to reload config", "err", err)
 		http.Error(w, fmt.Sprintf("Failed to reload config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -571,7 +571,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 
 	warnings, err := cfg.ValidateForSave()
 	if err != nil {
-		fmt.Printf("[config] validation error: %v\n", err)
+		s.logger.Error("validation error", "err", err)
 		http.Error(w, fmt.Sprintf("Invalid config: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -579,13 +579,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if !reflect.DeepEqual(oldNetwork, cfg.Network) || !reflect.DeepEqual(oldAccessControl, cfg.AccessControl) {
 		s.state.SetNeedsRestart(true)
 		if err := s.state.Save(); err != nil {
-			fmt.Printf("[config] failed to save restart-needed state: %v\n", err)
+			s.logger.Error("failed to save restart-needed state", "err", err)
 		}
 	}
 
 	// Save config
 	if err := cfg.Save(); err != nil {
-		fmt.Printf("[config] failed to save config: %v\n", err)
+		s.logger.Error("failed to save config", "err", err)
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -596,7 +596,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	if !cfg.GetRemoteAccessEnabled() && s.tunnelManager != nil {
 		status := s.tunnelManager.Status()
 		if status.State == tunnel.StateConnected || status.State == tunnel.StateStarting {
-			fmt.Printf("[remote-access] stopping tunnel because remote_access is disabled\n")
+			s.logger.Info("stopping tunnel because remote_access is disabled")
 			s.tunnelManager.Stop()
 			s.ClearRemoteAuth()
 		}
@@ -613,7 +613,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	newRepos := cfg.GetRepos()
 	if !reposEqual(oldRepos, newRepos) {
 		if err := s.workspace.EnsureOverlayDirs(newRepos); err != nil {
-			fmt.Printf("[workspace] warning: failed to ensure overlay directories: %v\n", err)
+			s.logger.Warn("failed to ensure overlay directories", "err", err)
 			// Don't fail the request for this - overlay dirs can be created manually
 		}
 	}

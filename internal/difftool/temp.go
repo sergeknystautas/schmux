@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // TempDirForWorkspace creates a temp directory prefixing with the workspace ID.
@@ -26,7 +28,7 @@ func CleanupWorkspaceTempDirs(workspaceID string) error {
 }
 
 // SweepAndScheduleTempDirs removes expired temp dirs and schedules cleanup for the rest.
-func SweepAndScheduleTempDirs(cleanupAfter time.Duration, logger func(string, ...interface{})) (deleted, scheduled int) {
+func SweepAndScheduleTempDirs(cleanupAfter time.Duration, logger *log.Logger) (deleted, scheduled int) {
 	if cleanupAfter <= 0 {
 		return 0, 0
 	}
@@ -34,7 +36,7 @@ func SweepAndScheduleTempDirs(cleanupAfter time.Duration, logger func(string, ..
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		if logger != nil {
-			logger("[difftool] failed to glob temp dirs: %v", err)
+			logger.Warn("failed to glob temp dirs", "err", err)
 		}
 		return 0, 0
 	}
@@ -47,7 +49,7 @@ func SweepAndScheduleTempDirs(cleanupAfter time.Duration, logger func(string, ..
 		age := now.Sub(info.ModTime())
 		if age >= cleanupAfter {
 			if err := os.RemoveAll(match); err != nil && logger != nil {
-				logger("[difftool] failed to remove temp dir: %v", err)
+				logger.Warn("failed to remove temp dir", "err", err)
 			}
 			deleted++
 			continue
@@ -55,7 +57,7 @@ func SweepAndScheduleTempDirs(cleanupAfter time.Duration, logger func(string, ..
 		delay := cleanupAfter - age
 		time.AfterFunc(delay, func() {
 			if err := os.RemoveAll(match); err != nil && logger != nil {
-				logger("[difftool] failed to remove temp dir: %v", err)
+				logger.Warn("failed to remove temp dir", "err", err)
 			}
 		})
 		scheduled++
