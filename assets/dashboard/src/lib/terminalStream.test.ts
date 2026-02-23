@@ -89,3 +89,110 @@ describe('TerminalStream.handleOutput', () => {
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ type: 'diagnostic' }));
   });
 });
+
+describe('TerminalStream sync handling', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  it('discards sync messages received within 500ms of binary data', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate binary data arriving (bootstrap)
+    stream.handleOutput(new TextEncoder().encode('bootstrap').buffer as ArrayBuffer);
+
+    // Immediately send sync message
+    const syncMsg = {
+      type: 'sync',
+      screen: 'different content',
+      cursor: { row: 0, col: 0, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // terminal.reset should have been called only once (bootstrap), not again for sync
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies sync correction when content mismatches after activity window', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(new TextEncoder().encode('bootstrap').buffer as ArrayBuffer);
+
+    // Clear mock call counts so we only measure sync behavior
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    // Manually set lastBinaryTime to be old (>500ms ago)
+    (stream as any).lastBinaryTime = Date.now() - 1000;
+
+    // Mock the buffer to return specific lines
+    const mockLine = { translateToString: () => 'wrong content' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorY: 0,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    // Send sync with different content
+    const syncMsg = {
+      type: 'sync',
+      screen: '\x1b[1mcorrect content\x1b[0m',
+      cursor: { row: 0, col: 0, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should have called reset + write for correction
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+    expect(terminal.write).toHaveBeenCalledWith(expect.stringContaining('correct content'));
+  });
+
+  it('does not correct when content matches', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate bootstrap
+    stream.handleOutput(new TextEncoder().encode('bootstrap').buffer as ArrayBuffer);
+
+    // Clear mock call counts so we only measure sync behavior
+    vi.mocked(terminal.reset).mockClear();
+
+    (stream as any).lastBinaryTime = Date.now() - 1000;
+
+    // Mock buffer to return matching content
+    const mockLine = { translateToString: () => 'hello world' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorY: 0,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    const syncMsg = {
+      type: 'sync',
+      screen: 'hello world',
+      cursor: { row: 0, col: 0, visible: true },
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // reset should NOT have been called for sync (content matches)
+    expect(terminal.reset).toHaveBeenCalledTimes(0);
+  });
+});

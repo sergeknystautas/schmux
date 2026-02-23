@@ -464,6 +464,13 @@ func (c *Client) CapturePaneLines(ctx context.Context, paneID string, lines int)
 	return c.Execute(ctx, cmd)
 }
 
+// CapturePaneVisible captures only the visible screen of a pane (no scrollback).
+// Returns the raw output including ANSI escape sequences (colors, formatting).
+func (c *Client) CapturePaneVisible(ctx context.Context, paneID string) (string, error) {
+	cmd := fmt.Sprintf("capture-pane -e -t %s -p", paneID)
+	return c.Execute(ctx, cmd)
+}
+
 // CursorState holds the cursor position and visibility for a pane.
 type CursorState struct {
 	X       int

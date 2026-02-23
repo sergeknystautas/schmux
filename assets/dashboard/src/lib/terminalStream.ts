@@ -6,6 +6,8 @@ import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
 import { csrfHeaders } from './csrf';
+import { stripAnsi } from './ansiStrip';
+import { compareScreens } from './syncCompare';
 
 type TerminalStreamOptions = {
   followTail?: boolean;
@@ -45,6 +47,7 @@ export default class TerminalStream {
   private wasDisplaced = false;
   private bootstrapped = false;
   private utf8Decoder = new TextDecoder();
+  private lastBinaryTime = 0;
 
   // ResizeObserver cleanup references
   private resizeObserver: ResizeObserver | null = null;
@@ -72,6 +75,7 @@ export default class TerminalStream {
   onDiagnosticComplete:
     | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
     | null = null;
+  onSyncCorrection: ((diffRows: number[]) => void) | null = null;
 
   constructor(
     sessionId: string,
@@ -504,6 +508,7 @@ export default class TerminalStream {
         }
       }
       const text = this.utf8Decoder.decode(data, { stream: true });
+      this.lastBinaryTime = Date.now();
       if (!this.bootstrapped) {
         this.bootstrapped = true;
         this.terminal!.reset();
@@ -545,6 +550,9 @@ export default class TerminalStream {
       case 'controlMode':
         this.onControlModeChange?.((msg as any).attached);
         break;
+      case 'sync':
+        this.handleSync(msg as any);
+        break;
       default:
         if (msg.content) {
           this.terminal!.write(msg.content);
@@ -553,6 +561,64 @@ export default class TerminalStream {
 
     if (this.followTail) {
       this.terminal!.scrollToBottom();
+    }
+  }
+
+  private handleSync(msg: {
+    screen: string;
+    cursor: { row: number; col: number; visible: boolean };
+  }) {
+    if (!this.terminal) return;
+
+    // Activity guard: skip if binary data arrived within 500ms
+    if (Date.now() - this.lastBinaryTime < 500) {
+      this.sendSyncResult(false, []);
+      return;
+    }
+
+    // Extract xterm.js visible text
+    const buffer = this.terminal.buffer.active;
+    const xtermLines: string[] = [];
+    const start = buffer.baseY;
+    for (let y = start; y < start + this.terminal.rows && y < buffer.length; y++) {
+      const line = buffer.getLine(y);
+      xtermLines.push(line ? line.translateToString(true).trimEnd() : '');
+    }
+
+    // Extract sync text (strip ANSI, split into lines)
+    const syncLines = msg.screen.split('\n').map((line) => stripAnsi(line).trimEnd());
+
+    // Compare
+    const result = compareScreens(xtermLines, syncLines);
+
+    if (result.skip) {
+      // Dimension mismatch (resize race), skip
+      return;
+    }
+
+    if (!result.match) {
+      // Correction: reset and replay the ANSI content
+      this.terminal.reset();
+      this.terminal.write(msg.screen);
+
+      // Restore cursor position and visibility
+      const { row, col, visible } = msg.cursor;
+      this.terminal.write(`\x1b[${row + 1};${col + 1}H`);
+      this.terminal.write(visible ? '\x1b[?25h' : '\x1b[?25l');
+
+      this.onSyncCorrection?.(result.diffRows);
+      this.sendSyncResult(true, result.diffRows);
+    }
+  }
+
+  private sendSyncResult(corrected: boolean, diffRows: number[]) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'syncResult',
+          data: JSON.stringify({ corrected, diffRows }),
+        })
+      );
     }
   }
 

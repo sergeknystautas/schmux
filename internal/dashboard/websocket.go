@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -54,12 +56,38 @@ type WSOutputMessage struct {
 
 // WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
 type WSStatsMessage struct {
-	Type            string `json:"type"`
-	EventsDelivered int64  `json:"eventsDelivered"`
-	EventsDropped   int64  `json:"eventsDropped"`
-	BytesDelivered  int64  `json:"bytesDelivered"`
-	BytesPerSec     int64  `json:"bytesPerSec"`
-	Reconnects      int64  `json:"controlModeReconnects"`
+	Type              string `json:"type"`
+	EventsDelivered   int64  `json:"eventsDelivered"`
+	EventsDropped     int64  `json:"eventsDropped"`
+	BytesDelivered    int64  `json:"bytesDelivered"`
+	BytesPerSec       int64  `json:"bytesPerSec"`
+	Reconnects        int64  `json:"controlModeReconnects"`
+	SyncChecksSent    int64  `json:"syncChecksSent"`
+	SyncCorrections   int64  `json:"syncCorrections"`
+	SyncSkippedActive int64  `json:"syncSkippedActive"`
+}
+
+// WSSyncCursor holds cursor position for sync messages.
+type WSSyncCursor struct {
+	Row     int  `json:"row"`
+	Col     int  `json:"col"`
+	Visible bool `json:"visible"`
+}
+
+// WSSyncMessage is a periodic screen snapshot sent to the frontend for desync detection.
+type WSSyncMessage struct {
+	Type   string       `json:"type"`
+	Screen string       `json:"screen"`
+	Cursor WSSyncCursor `json:"cursor"`
+}
+
+// buildSyncMessage constructs a sync message from a capture-pane output and cursor state.
+func buildSyncMessage(screen string, cursor controlmode.CursorState) WSSyncMessage {
+	return WSSyncMessage{
+		Type:   "sync",
+		Screen: screen,
+		Cursor: WSSyncCursor{Row: cursor.Y, Col: cursor.X, Visible: cursor.Visible},
+	}
 }
 
 // checkWSOrigin validates WebSocket upgrade origins.
@@ -295,6 +323,11 @@ resizeWaitLoop:
 	// Escape-sequence holdback: prevents partial ANSI sequences at frame boundaries
 	var escHoldback []byte
 
+	// Sync check counters (per-connection)
+	var syncChecksSent atomic.Int64
+	var syncCorrections atomic.Int64
+	var syncSkippedActive atomic.Int64
+
 	// Flush any output that arrived during bootstrap
 	for {
 		select {
@@ -375,6 +408,51 @@ drained:
 		}
 	}()
 
+	// Periodic sync check goroutine — sends screen snapshots for desync detection
+	go func() {
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+
+		interval := 10 * time.Second
+
+		for {
+			select {
+			case <-timer.C:
+			case <-sessionDead:
+				return
+			}
+
+			if conn.IsClosed() {
+				return
+			}
+
+			capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			screen, err := tracker.CapturePane(capCtx)
+			capCancel()
+			if err != nil {
+				timer.Reset(interval)
+				continue
+			}
+
+			cursorCtx, cursorCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			cursor, err := tracker.GetCursorState(cursorCtx)
+			cursorCancel()
+			if err != nil {
+				timer.Reset(interval)
+				continue
+			}
+
+			msg := buildSyncMessage(screen, cursor)
+			data, _ := json.Marshal(msg)
+			syncChecksSent.Add(1)
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				return
+			}
+
+			timer.Reset(interval)
+		}
+	}()
+
 	for {
 		select {
 		case event, ok := <-outputCh:
@@ -411,12 +489,15 @@ drained:
 			prevBytes = currentBytes
 			prevTime = now
 			statsMsg := WSStatsMessage{
-				Type:            "stats",
-				EventsDelivered: counters["eventsDelivered"],
-				EventsDropped:   counters["eventsDropped"],
-				BytesDelivered:  counters["bytesDelivered"],
-				BytesPerSec:     bytesPerSec,
-				Reconnects:      counters["controlModeReconnects"],
+				Type:              "stats",
+				EventsDelivered:   counters["eventsDelivered"],
+				EventsDropped:     counters["eventsDropped"],
+				BytesDelivered:    counters["bytesDelivered"],
+				BytesPerSec:       bytesPerSec,
+				Reconnects:        counters["controlModeReconnects"],
+				SyncChecksSent:    syncChecksSent.Load(),
+				SyncCorrections:   syncCorrections.Load(),
+				SyncSkippedActive: syncSkippedActive.Load(),
 			}
 			data, _ := json.Marshal(statsMsg)
 			conn.WriteMessage(websocket.TextMessage, data)
@@ -465,6 +546,20 @@ drained:
 				}
 				if err := tracker.Resize(resizeData.Cols, resizeData.Rows); err != nil {
 					fmt.Printf("[terminal] error resizing: %v\n", err)
+				}
+			case "syncResult":
+				var result struct {
+					Corrected bool  `json:"corrected"`
+					DiffRows  []int `json:"diffRows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &result); err != nil {
+					break
+				}
+				if result.Corrected {
+					syncCorrections.Add(1)
+					fmt.Printf("[sync] %s corrected %d rows: %v\n", sessionID[:8], len(result.DiffRows), result.DiffRows)
+				} else {
+					syncSkippedActive.Add(1)
 				}
 			case "diagnostic":
 				if !s.devMode {

@@ -224,6 +224,19 @@ func (t *SessionTracker) CaptureLastLines(ctx context.Context, lines int) (strin
 	return client.CapturePaneLines(ctx, paneID, lines)
 }
 
+// CapturePane captures the visible screen of the pane (no scrollback).
+// Returns the raw output including ANSI escape sequences.
+func (t *SessionTracker) CapturePane(ctx context.Context) (string, error) {
+	t.mu.RLock()
+	client := t.cmClient
+	paneID := t.paneID
+	t.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("not attached")
+	}
+	return client.CapturePaneVisible(ctx, paneID)
+}
+
 // GetCursorState returns the cursor position and visibility for the tracked pane.
 func (t *SessionTracker) GetCursorState(ctx context.Context) (controlmode.CursorState, error) {
 	t.mu.RLock()

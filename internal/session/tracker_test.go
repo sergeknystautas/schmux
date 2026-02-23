@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -68,6 +69,16 @@ func TestSubscribeUnsubscribeOutput(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected channel to be readable (closed)")
+	}
+}
+
+func TestCapturePane_NoControlMode(t *testing.T) {
+	st := state.New("")
+	tracker := NewSessionTracker("test-id", "test-tmux", st, "", nil, nil)
+
+	_, err := tracker.CapturePane(context.Background())
+	if err == nil {
+		t.Fatal("expected error when control mode is not attached")
 	}
 }
 
