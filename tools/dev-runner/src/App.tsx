@@ -38,6 +38,7 @@ export function App({ devRoot }: AppProps) {
   );
   const [errorMsg, setErrorMsg] = useState('');
   const [backendStatusOverride, setBackendStatusOverride] = useState<ProcessStatus | null>(null);
+  const [layout, setLayout] = useState<'horizontal' | 'vertical'>('vertical');
   const binaryPath = `${devRoot}/tmp/schmux`;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -292,9 +293,13 @@ export function App({ devRoot }: AppProps) {
     exit();
   }, [backend, frontend, exit]);
 
+  const handleToggleLayout = useCallback(() => {
+    setLayout((prev) => (prev === 'horizontal' ? 'vertical' : 'horizontal'));
+  }, []);
+
   const canRestart = phase === 'running' && effectiveBackendStatus !== 'building';
 
-  useKeyboard({ onRestart: handleRestart, onClear: handleClear, onQuit: handleQuit, canRestart });
+  useKeyboard({ onRestart: handleRestart, onClear: handleClear, onQuit: handleQuit, onToggleLayout: handleToggleLayout, canRestart });
 
   // Error screen
   if (phase === 'error') {
@@ -312,6 +317,18 @@ export function App({ devRoot }: AppProps) {
     );
   }
 
+  const frontendFlex = 1;
+  const backendFlex = 3;
+  let frontendMaxLines: number | undefined;
+  let backendMaxLines: number | undefined;
+  if (layout === 'vertical') {
+    // StatusBar(6) + KeyBar(2) + 2×border+title(3) = 14 rows of chrome
+    const totalContent = Math.max(6, termHeight - 14);
+    const totalFlex = frontendFlex + backendFlex;
+    frontendMaxLines = Math.max(3, Math.floor((totalContent * frontendFlex) / totalFlex));
+    backendMaxLines = Math.max(3, Math.floor((totalContent * backendFlex) / totalFlex));
+  }
+
   return (
     <Box flexDirection="column" height={termHeight}>
       <StatusBar
@@ -320,11 +337,11 @@ export function App({ devRoot }: AppProps) {
         backendStatus={effectiveBackendStatus}
         frontendStatus={frontend.status}
       />
-      <Box flexDirection="row" flexGrow={1}>
-        <LogPanel title="Frontend" lines={frontendLines} />
-        <LogPanel title="Backend" lines={backendLines} />
+      <Box flexDirection={layout === 'horizontal' ? 'row' : 'column'} flexGrow={1}>
+        <LogPanel title="Frontend" lines={frontendLines} layout={layout} flex={frontendFlex} maxLines={frontendMaxLines} />
+        <LogPanel title="Backend" lines={backendLines} layout={layout} flex={backendFlex} maxLines={backendMaxLines} />
       </Box>
-      <KeyBar canRestart={canRestart} />
+      <KeyBar canRestart={canRestart} layout={layout} />
     </Box>
   );
 }
