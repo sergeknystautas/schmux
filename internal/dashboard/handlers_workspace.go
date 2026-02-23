@@ -29,6 +29,19 @@ type previewResponse struct {
 	LastError   string `json:"last_error,omitempty"`
 }
 
+// validateWorkspaceID is a chi middleware that validates the {workspaceID} URL parameter.
+// Rejects requests with IDs that contain path separators, null bytes, dots, or exceed 128 chars.
+func validateWorkspaceID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workspaceID := chi.URLParam(r, "workspaceID")
+		if !isValidResourceID(workspaceID) {
+			http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // isValidResourceID checks that an ID extracted from a URL path is safe:
 // non-empty, no path separators, no null bytes, reasonable length.
 func isValidResourceID(id string) bool {

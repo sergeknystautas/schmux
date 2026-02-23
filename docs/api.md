@@ -12,8 +12,9 @@ General conventions:
 
 - JSON requests/responses use `Content-Type: application/json`.
 - Many error responses use plain text via `http.Error`; do not assume JSON unless specified.
-- CORS: when TLS is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When TLS is enabled, the scheme switches to `https`. When `bind_address` is `0.0.0.0`, any origin is allowed.
+- CORS: when TLS is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When TLS is enabled, the scheme switches to `https`. When `bind_address` is `0.0.0.0`, any origin is allowed. Allowed methods: `GET, POST, DELETE, PUT, PATCH, OPTIONS`.
 - When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
+- Resource ID validation: workspace IDs and lore repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars). Invalid values return `400 Bad Request`.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
 - Trusted request bypass: when `remote_access` is not enabled in config, all requests are considered trusted and bypass tunnel auth checks. When `remote_access` is enabled, only loopback requests without tunnel forwarding headers (`Cf-Connecting-IP`, `X-Forwarded-For`) are trusted.
 
