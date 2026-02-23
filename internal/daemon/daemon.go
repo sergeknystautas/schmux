@@ -279,7 +279,7 @@ func Status() (running bool, url string, startedAt string, err error) {
 // If devMode is true, dev mode API endpoints are enabled and the daemon
 // can exit with ErrDevRestart (exit code 42) for workspace switching.
 func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
-	d.logger = logging.New()
+	d.logger = logging.New(devMode)
 	logger := d.logger
 	telemetryLog := logging.Sub(logger, "telemetry")
 	workspaceLog := logging.Sub(logger, "workspace")

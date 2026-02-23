@@ -24,11 +24,7 @@ interface AppProps {
 
 const MAX_LOG_LINES = 500;
 const VITE_PORT = 5173;
-const FLUSH_INTERVAL_MS = 32; // ~30fps — batches log lines to reduce Ink re-renders
-
-function timestamp(): string {
-  return new Date().toLocaleTimeString('en-US', { hour12: false });
-}
+const FLUSH_INTERVAL_MS = 19; // ~90fps — batches log lines to reduce Ink re-renders
 
 export function App({ devRoot }: AppProps) {
   const { exit } = useApp();
@@ -73,7 +69,7 @@ export function App({ devRoot }: AppProps) {
   }, []);
 
   const addBackendLine = useCallback((line: string) => {
-    backendBuf.current.push(`${timestamp()}  ${line}`);
+    backendBuf.current.push(line);
   }, []);
 
   const addFrontendLine = useCallback((line: string) => {
