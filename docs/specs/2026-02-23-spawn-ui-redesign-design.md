@@ -45,17 +45,21 @@ Surgical refactor of `SpawnPage.tsx` rendering logic. Same state management (`mo
 **New**: Conditional layout based on agent selection mode.
 
 **Single agent mode (fresh spawn)**:
+
 ```
 [ Agent dropdown ▼ ]  [ Repository dropdown ▼ ]
 ```
+
 Side-by-side in a flex row. Agent ~50-60% width, repo takes the rest.
 
 **Multi/Advanced mode (fresh spawn)**:
+
 ```
 [ Repository dropdown ▼ ]         ← full-width row
 [Single agent]                     ← button to go back
 [ agent grid / counters ]          ← grid below
 ```
+
 Repo moves to its own full-width row when multi/advanced expands.
 
 **Workspace mode**: No repo dropdown (already in a workspace). Agent selection takes full width. No layout change.
