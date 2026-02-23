@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -41,18 +42,6 @@ type RemoteHostResponse struct {
 	ConnectedAt           string `json:"connected_at,omitempty"`
 	ExpiresAt             string `json:"expires_at,omitempty"`
 	ProvisioningSessionID string `json:"provisioning_session_id,omitempty"` // Local tmux session for interactive provisioning terminal
-}
-
-// handleRemoteFlavors handles GET/POST /api/config/remote-flavors
-func (s *Server) handleRemoteFlavors(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetRemoteFlavors(w, r)
-	case http.MethodPost:
-		s.handleCreateRemoteFlavor(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
 }
 
 // handleGetRemoteFlavors returns all configured remote flavors.
@@ -141,116 +130,122 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// handleRemoteFlavor handles GET/PUT/DELETE /api/config/remote-flavors/{id}
-func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/config/remote-flavors/")
+// handleRemoteFlavorGet handles GET /api/config/remote-flavors/{id}
+func (s *Server) handleRemoteFlavorGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		http.Error(w, "Flavor ID required", http.StatusBadRequest)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		flavor, found := s.config.GetRemoteFlavor(id)
-		if !found {
-			http.Error(w, "Flavor not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
-			ID:                    flavor.ID,
-			Flavor:                flavor.Flavor,
-			DisplayName:           flavor.DisplayName,
-			VCS:                   flavor.VCS,
-			WorkspacePath:         flavor.WorkspacePath,
-			ConnectCommand:        flavor.ConnectCommand,
-			ReconnectCommand:      flavor.ReconnectCommand,
-			ProvisionCommand:      flavor.ProvisionCommand,
-			HostnameRegex:         flavor.HostnameRegex,
-			VSCodeCommandTemplate: flavor.VSCodeCommandTemplate,
-		}); err != nil {
-			s.logger.Error("failed to encode response", "handler", "get-remote-flavor", "err", err)
-		}
-
-	case http.MethodPut:
-		// Get existing flavor first (Flavor field is immutable)
-		existing, found := s.config.GetRemoteFlavor(id)
-		if !found {
-			http.Error(w, "Flavor not found", http.StatusNotFound)
-			return
-		}
-
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-		var req struct {
-			DisplayName           string `json:"display_name"`
-			VCS                   string `json:"vcs"`
-			WorkspacePath         string `json:"workspace_path"`
-			ConnectCommand        string `json:"connect_command"`
-			ReconnectCommand      string `json:"reconnect_command"`
-			ProvisionCommand      string `json:"provision_command"`
-			HostnameRegex         string `json:"hostname_regex"`
-			VSCodeCommandTemplate string `json:"vscode_command_template"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		rf := config.RemoteFlavor{
-			ID:                    id,
-			Flavor:                existing.Flavor, // Keep existing (immutable)
-			DisplayName:           req.DisplayName,
-			VCS:                   req.VCS,
-			WorkspacePath:         req.WorkspacePath,
-			ConnectCommand:        req.ConnectCommand,
-			ReconnectCommand:      req.ReconnectCommand,
-			ProvisionCommand:      req.ProvisionCommand,
-			HostnameRegex:         req.HostnameRegex,
-			VSCodeCommandTemplate: req.VSCodeCommandTemplate,
-		}
-
-		if err := s.config.UpdateRemoteFlavor(rf); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if err := s.config.Save(); err != nil {
-			http.Error(w, "Failed to save config", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
-			ID:                    rf.ID,
-			Flavor:                rf.Flavor,
-			DisplayName:           rf.DisplayName,
-			VCS:                   rf.VCS,
-			WorkspacePath:         rf.WorkspacePath,
-			ConnectCommand:        rf.ConnectCommand,
-			ReconnectCommand:      rf.ReconnectCommand,
-			ProvisionCommand:      rf.ProvisionCommand,
-			HostnameRegex:         rf.HostnameRegex,
-			VSCodeCommandTemplate: rf.VSCodeCommandTemplate,
-		}); err != nil {
-			s.logger.Error("failed to encode response", "handler", "update-remote-flavor", "err", err)
-		}
-
-	case http.MethodDelete:
-		if err := s.config.RemoveRemoteFlavor(id); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		if err := s.config.Save(); err != nil {
-			http.Error(w, "Failed to save config", http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
-
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	flavor, found := s.config.GetRemoteFlavor(id)
+	if !found {
+		http.Error(w, "Flavor not found", http.StatusNotFound)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RemoteFlavorResponse{
+		ID:                    flavor.ID,
+		Flavor:                flavor.Flavor,
+		DisplayName:           flavor.DisplayName,
+		VCS:                   flavor.VCS,
+		WorkspacePath:         flavor.WorkspacePath,
+		ConnectCommand:        flavor.ConnectCommand,
+		ReconnectCommand:      flavor.ReconnectCommand,
+		ProvisionCommand:      flavor.ProvisionCommand,
+		HostnameRegex:         flavor.HostnameRegex,
+		VSCodeCommandTemplate: flavor.VSCodeCommandTemplate,
+	})
+}
+
+// handleRemoteFlavorUpdate handles PUT /api/config/remote-flavors/{id}
+func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "Flavor ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing flavor first (Flavor field is immutable)
+	existing, found := s.config.GetRemoteFlavor(id)
+	if !found {
+		http.Error(w, "Flavor not found", http.StatusNotFound)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	var req struct {
+		DisplayName           string `json:"display_name"`
+		VCS                   string `json:"vcs"`
+		WorkspacePath         string `json:"workspace_path"`
+		ConnectCommand        string `json:"connect_command"`
+		ReconnectCommand      string `json:"reconnect_command"`
+		ProvisionCommand      string `json:"provision_command"`
+		HostnameRegex         string `json:"hostname_regex"`
+		VSCodeCommandTemplate string `json:"vscode_command_template"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	rf := config.RemoteFlavor{
+		ID:                    id,
+		Flavor:                existing.Flavor, // Keep existing (immutable)
+		DisplayName:           req.DisplayName,
+		VCS:                   req.VCS,
+		WorkspacePath:         req.WorkspacePath,
+		ConnectCommand:        req.ConnectCommand,
+		ReconnectCommand:      req.ReconnectCommand,
+		ProvisionCommand:      req.ProvisionCommand,
+		HostnameRegex:         req.HostnameRegex,
+		VSCodeCommandTemplate: req.VSCodeCommandTemplate,
+	}
+
+	if err := s.config.UpdateRemoteFlavor(rf); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.config.Save(); err != nil {
+		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RemoteFlavorResponse{
+		ID:                    rf.ID,
+		Flavor:                rf.Flavor,
+		DisplayName:           rf.DisplayName,
+		VCS:                   rf.VCS,
+		WorkspacePath:         rf.WorkspacePath,
+		ConnectCommand:        rf.ConnectCommand,
+		ReconnectCommand:      rf.ReconnectCommand,
+		ProvisionCommand:      rf.ProvisionCommand,
+		HostnameRegex:         rf.HostnameRegex,
+		VSCodeCommandTemplate: rf.VSCodeCommandTemplate,
+	})
+}
+
+// handleRemoteFlavorDelete handles DELETE /api/config/remote-flavors/{id}
+func (s *Server) handleRemoteFlavorDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "Flavor ID required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.config.RemoveRemoteFlavor(id); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	if err := s.config.Save(); err != nil {
+		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRemoteHosts handles GET /api/remote/hosts
@@ -391,7 +386,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleRemoteHostReconnect handles POST /api/remote/hosts/{id}/reconnect
+// handleRemoteHostReconnect handles POST /api/remote/hosts/{hostID}/reconnect
 // This starts reconnection asynchronously and returns immediately with a provisioning session ID.
 // The client should open a WebSocket to /ws/provision/{provisioningSessionId} for interactive auth.
 func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
@@ -400,14 +395,11 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Extract host ID from path: /api/remote/hosts/{id}/reconnect
-	path := strings.TrimPrefix(r.URL.Path, "/api/remote/hosts/")
-	parts := strings.Split(path, "/")
-	if len(parts) < 2 || parts[1] != "reconnect" {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
+	hostID := chi.URLParam(r, "hostID")
+	if hostID == "" {
+		http.Error(w, "Host ID required", http.StatusBadRequest)
 		return
 	}
-	hostID := parts[0]
 
 	if s.remoteManager == nil {
 		http.Error(w, "Remote workspace support not enabled", http.StatusServiceUnavailable)
@@ -470,15 +462,14 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// handleRemoteHostDisconnect handles DELETE /api/remote/hosts/{id}
+// handleRemoteHostDisconnect handles DELETE /api/remote/hosts/{hostID}
 func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Extract host ID from path
-	hostID := strings.TrimPrefix(r.URL.Path, "/api/remote/hosts/")
+	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
 		http.Error(w, "Host ID required", http.StatusBadRequest)
 		return
@@ -503,25 +494,6 @@ func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleRemoteHostRoute routes requests to the appropriate handler based on the path.
-func (s *Server) handleRemoteHostRoute(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/remote/hosts/")
-
-	// Check for /reconnect suffix
-	if strings.HasSuffix(path, "/reconnect") {
-		s.handleRemoteHostReconnect(w, r)
-		return
-	}
-
-	// Otherwise, it's a DELETE for disconnect
-	if r.Method == http.MethodDelete {
-		s.handleRemoteHostDisconnect(w, r)
-		return
-	}
-
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 // RemoteFlavorStatusResponse represents a flavor with its connection status.

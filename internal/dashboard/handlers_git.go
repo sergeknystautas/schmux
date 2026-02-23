@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
@@ -27,8 +29,8 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Extract workspace ID: /api/workspaces/{id}/git-graph
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-graph")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -290,12 +292,10 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Extract workspace ID and commit hash from path
-	// Path format: /api/workspaces/{workspaceId}/git-commit/{hash}
-	path := r.URL.Path
-	afterWorkspaces := strings.TrimPrefix(path, "/api/workspaces/")
-	workspaceID, commitHash, ok := strings.Cut(afterWorkspaces, "/git-commit/")
-	if !ok || workspaceID == "" || commitHash == "" {
+	// Extract workspace ID and commit hash from chi URL params
+	workspaceID := chi.URLParam(r, "workspaceID")
+	commitHash := chi.URLParam(r, "hash")
+	if workspaceID == "" || commitHash == "" {
 		writeJSONError(w, "invalid path: expected /api/workspaces/{id}/git-commit/{hash}", http.StatusBadRequest)
 		return
 	}
@@ -343,7 +343,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-commit-stage")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -398,7 +398,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-amend")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -470,7 +470,7 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-discard")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -578,7 +578,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-uncommit")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -27,54 +29,6 @@ type previewResponse struct {
 	LastError   string `json:"last_error,omitempty"`
 }
 
-func (s *Server) handleWorkspaceRoutes(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	// Extract and validate workspace ID from URL.
-	// Path format: /api/workspaces/{id}/...
-	trimmed := strings.TrimPrefix(path, "/api/workspaces/")
-	slashIdx := strings.Index(trimmed, "/")
-	workspaceID := trimmed
-	if slashIdx > 0 {
-		workspaceID = trimmed[:slashIdx]
-	}
-	if !isValidResourceID(workspaceID) {
-		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
-		return
-	}
-
-	if strings.HasSuffix(path, "/previews") || strings.Contains(path, "/previews/") {
-		s.handleWorkspacePreviews(w, r)
-		return
-	}
-
-	// Route to linear sync handler only for recognized sub-paths.
-	// Use the remainder after the workspace ID to match known routes.
-	remainder := ""
-	if slashIdx > 0 {
-		remainder = trimmed[slashIdx:]
-	}
-	switch {
-	case strings.HasSuffix(remainder, "/git-graph"),
-		strings.Contains(remainder, "/git-commit/"),
-		strings.HasSuffix(remainder, "/linear-sync-from-main"),
-		strings.HasSuffix(remainder, "/linear-sync-to-main"),
-		strings.HasSuffix(remainder, "/push-to-branch"),
-		strings.HasSuffix(remainder, "/linear-sync-resolve-conflict"),
-		strings.HasSuffix(remainder, "/linear-sync-resolve-conflict-state"),
-		strings.HasSuffix(remainder, "/git-commit-stage"),
-		strings.HasSuffix(remainder, "/git-amend"),
-		strings.HasSuffix(remainder, "/git-discard"),
-		strings.HasSuffix(remainder, "/git-uncommit"),
-		strings.HasSuffix(remainder, "/refresh-overlay"),
-		strings.HasSuffix(remainder, "/dispose"),
-		strings.HasSuffix(remainder, "/dispose-all"):
-		s.handleLinearSync(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
 // isValidResourceID checks that an ID extracted from a URL path is safe:
 // non-empty, no path separators, no null bytes, reasonable length.
 func isValidResourceID(id string) bool {
@@ -87,106 +41,108 @@ func isValidResourceID(id string) bool {
 	return true
 }
 
-func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request) {
-	if s.previewManager == nil {
-		http.Error(w, "preview manager not available", http.StatusServiceUnavailable)
-		return
+// previewsWorkspaceCheck validates workspace ID and returns the workspace.
+// Returns false if an error response was written.
+func (s *Server) previewsWorkspaceCheck(w http.ResponseWriter, r *http.Request) (string, state.Workspace, bool) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if !isValidResourceID(workspaceID) {
+		http.Error(w, "invalid workspace ID", http.StatusBadRequest)
+		return "", state.Workspace{}, false
 	}
 
-	workspaceID, previewID, err := parseWorkspacePreviewPath(r.URL.Path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if s.previewManager == nil {
+		http.Error(w, "preview manager not available", http.StatusServiceUnavailable)
+		return "", state.Workspace{}, false
 	}
 
 	ws, found := s.state.GetWorkspace(workspaceID)
 	if !found {
 		http.Error(w, "workspace not found", http.StatusNotFound)
-		return
+		return "", state.Workspace{}, false
 	}
 
-	// In network access mode, preview URLs only work for local clients. Block non-local callers.
+	// In network access mode, preview URLs only work for local clients.
 	if s.config.GetNetworkAccess() && !s.isTrustedRequest(r) {
 		http.Error(w, "preview is only available to local clients in network-access mode", http.StatusForbidden)
-		return
+		return "", state.Workspace{}, false
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	switch r.Method {
-	case http.MethodGet:
-		if previewID != "" {
-			http.NotFound(w, r)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		previews, err := s.previewManager.List(ctx, workspaceID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to list previews: %v", err), http.StatusInternalServerError)
-			return
-		}
-		resp := make([]previewResponse, 0, len(previews))
-		for _, p := range previews {
-			resp = append(resp, toPreviewResponse(p))
-		}
-		writeJSON(w, resp)
-		return
-	case http.MethodPost:
-		if previewID != "" {
-			http.NotFound(w, r)
-			return
-		}
-		var req previewCreateRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodySize)).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		previewItem, err := s.previewManager.CreateOrGet(ctx, ws, req.TargetHost, req.TargetPort)
-		if err != nil {
-			statusCode := http.StatusInternalServerError
-			switch {
-			case strings.Contains(err.Error(), "limit"):
-				statusCode = http.StatusConflict
-			case err == preview.ErrRemoteUnsupported:
-				statusCode = http.StatusUnprocessableEntity
-			case err == preview.ErrTargetHostNotAllowed || strings.Contains(err.Error(), "target port"):
-				statusCode = http.StatusBadRequest
-			}
-			http.Error(w, err.Error(), statusCode)
-			return
-		}
-		writeJSON(w, toPreviewResponse(previewItem))
-		return
-	case http.MethodDelete:
-		if previewID == "" {
-			http.Error(w, "preview ID is required", http.StatusBadRequest)
-			return
-		}
-		if err := s.previewManager.Delete(workspaceID, previewID); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]string{"status": "ok"})
-		return
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	return workspaceID, ws, true
 }
 
-func parseWorkspacePreviewPath(rawPath string) (workspaceID string, previewID string, err error) {
-	trimmed := strings.TrimPrefix(rawPath, "/api/workspaces/")
-	parts := strings.Split(trimmed, "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] != "previews" {
-		return "", "", fmt.Errorf("invalid preview path")
+// handlePreviewsList handles GET /api/workspaces/{workspaceID}/previews
+func (s *Server) handlePreviewsList(w http.ResponseWriter, r *http.Request) {
+	workspaceID, _, ok := s.previewsWorkspaceCheck(w, r)
+	if !ok {
+		return
 	}
-	workspaceID = parts[0]
-	if len(parts) > 2 {
-		previewID = parts[2]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	previews, err := s.previewManager.List(ctx, workspaceID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to list previews: %v", err), http.StatusInternalServerError)
+		return
 	}
-	return workspaceID, previewID, nil
+	resp := make([]previewResponse, 0, len(previews))
+	for _, p := range previews {
+		resp = append(resp, toPreviewResponse(p))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handlePreviewsCreate handles POST /api/workspaces/{workspaceID}/previews
+func (s *Server) handlePreviewsCreate(w http.ResponseWriter, r *http.Request) {
+	_, ws, ok := s.previewsWorkspaceCheck(w, r)
+	if !ok {
+		return
+	}
+
+	var req previewCreateRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodySize)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	previewItem, err := s.previewManager.CreateOrGet(ctx, ws, req.TargetHost, req.TargetPort)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		switch {
+		case strings.Contains(err.Error(), "limit"):
+			statusCode = http.StatusConflict
+		case err == preview.ErrRemoteUnsupported:
+			statusCode = http.StatusUnprocessableEntity
+		case err == preview.ErrTargetHostNotAllowed || strings.Contains(err.Error(), "target port"):
+			statusCode = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), statusCode)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(toPreviewResponse(previewItem))
+}
+
+// handlePreviewsDelete handles DELETE /api/workspaces/{workspaceID}/previews/{previewID}
+func (s *Server) handlePreviewsDelete(w http.ResponseWriter, r *http.Request) {
+	workspaceID, _, ok := s.previewsWorkspaceCheck(w, r)
+	if !ok {
+		return
+	}
+
+	previewID := chi.URLParam(r, "previewID")
+	if previewID == "" {
+		http.Error(w, "preview ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.previewManager.Delete(workspaceID, previewID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // toPreviewResponse converts a WorkspacePreview to API response.

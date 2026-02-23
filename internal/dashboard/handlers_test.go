@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/log"
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -121,6 +124,10 @@ func TestHandleAskNudgenik(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a GET request with session ID in URL path
 			req, _ := http.NewRequest("GET", "/api/askNudgenik/"+tt.sessionID, nil)
+			// Set up chi route context with wildcard param
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("*", tt.sessionID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			rr := httptest.NewRecorder()
 
 			server.handleAskNudgenik(rr, req)

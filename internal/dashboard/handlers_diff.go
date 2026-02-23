@@ -17,6 +17,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -30,8 +32,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace ID from URL: /api/diff/{workspace-id}
-	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/diff/")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -295,8 +297,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace ID from URL: /api/file/{workspaceId}/...
-	trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/file/")
+	// Extract workspace ID and file path from chi wildcard param
+	trimmedPath := chi.URLParam(r, "*")
 	if trimmedPath == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -579,8 +581,8 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace ID from URL: /api/open-vscode/{workspace-id}
-	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/open-vscode/")
+	// Extract workspace ID from chi wildcard param
+	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -790,8 +792,8 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace ID from URL: /api/diff-external/{workspace-id}
-	workspaceID := strings.TrimPrefix(r.URL.Path, "/api/diff-external/")
+	// Extract workspace ID from chi wildcard param
+	workspaceID := chi.URLParam(r, "*")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
