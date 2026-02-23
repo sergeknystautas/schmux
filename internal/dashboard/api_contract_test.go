@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -471,6 +472,10 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 
 	t.Run("missing session id", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ws/terminal/", nil)
+		// Add chi route context with empty "id" param (simulates chi routing)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server.handleTerminalWebSocket(rr, req)
 		if rr.Code != http.StatusBadRequest {
@@ -492,6 +497,10 @@ func TestAPIContract_WebSocketErrors(t *testing.T) {
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/ws/terminal/dead-session", nil)
+		// Add chi route context with "id" param (simulates chi routing)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "dead-session")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server.handleTerminalWebSocket(rr, req)
 		if rr.Code != http.StatusGone {

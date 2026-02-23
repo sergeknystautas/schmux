@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/escbuf"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -107,7 +108,7 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 // It sends a bootstrap snapshot from capture-pane and then forwards live bytes
 // from the per-session control mode output subscription.
 func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
+	sessionID := chi.URLParam(r, "id")
 	if sessionID == "" {
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return
@@ -925,7 +926,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 
 // handleProvisionWebSocket streams PTY I/O for remote host provisioning.
 func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request) {
-	provisionID := strings.TrimPrefix(r.URL.Path, "/ws/provision/")
+	provisionID := chi.URLParam(r, "id")
 	if provisionID == "" {
 		http.Error(w, "provision ID is required", http.StatusBadRequest)
 		return
