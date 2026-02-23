@@ -15,7 +15,7 @@ import {
   cleanupStateFiles,
   paths,
 } from './lib/state.js';
-import { checkDependencies } from './lib/deps.js';
+import { checkDependencies, npmInstall } from './lib/deps.js';
 import type { ProcessStatus } from './types.js';
 
 interface AppProps {
@@ -102,6 +102,7 @@ export function App({ devRoot }: AppProps) {
         const result = await build(newWorkspace, binaryPath, addBackendLine);
         if (result.success) {
           setWorkspace(newWorkspace);
+          await writeDevState({ source_workspace: newWorkspace });
           addBackendLine('Build succeeded');
         } else {
           addBackendLine('Build failed, restarting with previous binary');
@@ -111,8 +112,8 @@ export function App({ devRoot }: AppProps) {
 
       if (manifest.type === 'frontend' || manifest.type === 'both') {
         setWorkspace(newWorkspace);
-        // Frontend restart happens via the workspace change triggering a Vite restart
-        // (handled by the frontend useProcess reacting to workspace changes)
+        await writeDevState({ source_workspace: newWorkspace });
+        // Vite restart is handled by the workspace-change useEffect above
       }
 
       // Clean up manifest
@@ -141,6 +142,27 @@ export function App({ devRoot }: AppProps) {
 
   // Effective backend status (override during builds)
   const effectiveBackendStatus = backendStatusOverride ?? backend.status;
+
+  // Restart Vite when workspace changes (e.g., after a dev rebuild switch).
+  // useProcess doesn't auto-restart on cwd change — it just updates an internal ref.
+  // This effect fires after the re-render, so the ref already has the new cwd.
+  const prevWorkspaceRef = useRef(workspace);
+  useEffect(() => {
+    if (prevWorkspaceRef.current === workspace) return;
+    prevWorkspaceRef.current = workspace;
+    if (frontend.status === 'idle') return; // not started yet
+    const dashboardDir = `${workspace}/assets/dashboard`;
+    (async () => {
+      addFrontendLine(`Syncing npm dependencies in ${dashboardDir}...`);
+      try {
+        await npmInstall(dashboardDir, addFrontendLine);
+      } catch {
+        addFrontendLine('npm install failed — Vite may not start correctly');
+      }
+      addFrontendLine(`Starting Vite from ${dashboardDir}`);
+      frontend.restart();
+    })();
+  }, [workspace, frontend, addFrontendLine]);
 
   // Startup sequence
   useEffect(() => {
@@ -205,6 +227,15 @@ export function App({ devRoot }: AppProps) {
 
         // Kill orphaned Vite processes
         await killPort(VITE_PORT);
+        if (cancelled) return;
+
+        // Ensure dashboard npm dependencies are installed
+        addFrontendLine('Syncing npm dependencies...');
+        try {
+          await npmInstall(`${devRoot}/assets/dashboard`, addFrontendLine);
+        } catch {
+          addFrontendLine('npm install failed — Vite may not start correctly');
+        }
         if (cancelled) return;
 
         // Write initial dev state
