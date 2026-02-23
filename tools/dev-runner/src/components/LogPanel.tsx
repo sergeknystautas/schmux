@@ -10,8 +10,8 @@ interface LogPanelProps {
 export function LogPanel({ title, lines, maxLines }: LogPanelProps) {
   const { stdout } = useStdout();
   const termHeight = stdout?.rows ?? 24;
-  // Reserve space for status bar (~5 lines) and key bar (1 line) and borders (2 lines)
-  const availableLines = maxLines ?? Math.max(5, termHeight - 10);
+  // Reserve space for StatusBar (6 rows), KeyBar (2 rows), and LogPanel border+title (3 rows)
+  const availableLines = maxLines ?? Math.max(5, termHeight - 11);
   const visibleLines = lines.slice(-availableLines);
 
   return (
