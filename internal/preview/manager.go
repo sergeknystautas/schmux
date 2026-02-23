@@ -35,9 +35,12 @@ type Manager struct {
 	state           state.StateStore
 	maxPerWorkspace int
 	maxGlobal       int
-	networkAccess   bool // if true, bind to 0.0.0.0 for external access
-	portBase        int  // base port for stable block allocation (e.g. 53000)
-	blockSize       int  // ports per workspace block (e.g. 10)
+	networkAccess   bool   // if true, bind to 0.0.0.0 for external access
+	portBase        int    // base port for stable block allocation (e.g. 53000)
+	blockSize       int    // ports per workspace block (e.g. 10)
+	tlsEnabled      bool   // if true, serve HTTPS on proxy ports
+	tlsCertPath     string // path to TLS certificate
+	tlsKeyPath      string // path to TLS key
 	logger          *log.Logger
 
 	mu       sync.Mutex
@@ -53,7 +56,7 @@ type entry struct {
 	server      *http.Server
 }
 
-func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int, logger *log.Logger) *Manager {
+func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAccess bool, portBase, blockSize int, tlsEnabled bool, tlsCertPath, tlsKeyPath string, logger *log.Logger) *Manager {
 	if maxPerWorkspace <= 0 {
 		maxPerWorkspace = 3
 	}
@@ -73,6 +76,9 @@ func NewManager(st state.StateStore, maxPerWorkspace, maxGlobal int, networkAcce
 		networkAccess:   networkAccess,
 		portBase:        portBase,
 		blockSize:       blockSize,
+		tlsEnabled:      tlsEnabled,
+		tlsCertPath:     tlsCertPath,
+		tlsKeyPath:      tlsKeyPath,
 		logger:          logger,
 		entries:         map[string]*entry{},
 		stopCh:          make(chan struct{}),
@@ -337,7 +343,13 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 
 	server := &http.Server{Handler: proxyHandler}
 	go func() {
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if m.tlsEnabled {
+			err = server.ServeTLS(listener, m.tlsCertPath, m.tlsKeyPath)
+		} else {
+			err = server.Serve(listener)
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if m.logger != nil {
 				m.logger.Error("listener stopped unexpectedly", "preview_id", preview.ID, "err", err)
 			}

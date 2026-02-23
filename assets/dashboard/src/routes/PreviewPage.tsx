@@ -40,7 +40,7 @@ export default function PreviewPage() {
   const previewId_ = preview?.id;
   const previewProxyPort = preview?.proxy_port;
   const previewUrl = useMemo(
-    () => (previewProxyPort ? `http://${window.location.hostname}:${previewProxyPort}` : null),
+    () => (previewProxyPort ? `${window.location.protocol}//${window.location.hostname}:${previewProxyPort}` : null),
     [previewProxyPort]
   );
 
