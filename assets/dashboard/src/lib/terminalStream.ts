@@ -53,6 +53,10 @@ export default class TerminalStream {
   private resizeObserver: ResizeObserver | null = null;
   private windowResizeHandler: (() => void) | null = null;
 
+  // Scroll listener cleanup
+  private scrollHandler: (() => void) | null = null;
+  private scrollViewport: Element | null = null;
+
   // Multi-line selection state
   selectionMode: boolean;
   selectedLines: Map<number, SelectedLine>;
@@ -188,7 +192,7 @@ export default class TerminalStream {
       typeof window !== 'undefined' &&
       (import.meta.env.DEV || import.meta.env.VITE_EXPOSE_TERMINAL)
     ) {
-      (window as any).__schmuxTerminal = this.terminal;
+      window.__schmuxTerminal = this.terminal;
     }
 
     return this.terminal;
@@ -198,9 +202,11 @@ export default class TerminalStream {
     const tryAttach = (attempts = 0) => {
       const viewport = this.terminal?.element?.querySelector('.xterm-viewport');
       if (viewport) {
-        viewport.addEventListener('scroll', () => {
+        this.scrollHandler = () => {
           this.handleUserScroll();
-        });
+        };
+        this.scrollViewport = viewport;
+        viewport.addEventListener('scroll', this.scrollHandler);
       } else if (attempts < 10) {
         setTimeout(() => tryAttach(attempts + 1), 50 * (attempts + 1));
       }
@@ -418,6 +424,11 @@ export default class TerminalStream {
     if (this.windowResizeHandler) {
       window.removeEventListener('resize', this.windowResizeHandler);
       this.windowResizeHandler = null;
+    }
+    if (this.scrollHandler && this.scrollViewport) {
+      this.scrollViewport.removeEventListener('scroll', this.scrollHandler);
+      this.scrollHandler = null;
+      this.scrollViewport = null;
     }
     // Dispose terminal before closing WebSocket so the onmessage guard
     // (if (this.terminal)) prevents writes to a disposed terminal.

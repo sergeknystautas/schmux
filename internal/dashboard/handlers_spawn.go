@@ -321,15 +321,15 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		s.logger.Error("failed to encode response", "handler", "spawn", "err", err)
+	}
 }
 
 // handleSuggestBranch handles branch name suggestion requests.
 func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -341,17 +341,13 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Check if branch suggestion is enabled
 	if !branchsuggest.IsEnabled(s.config) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Branch suggestion is not configured"})
+		writeJSONError(w, "Branch suggestion is not configured", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -374,16 +370,16 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 		}
 		workspaceLog.Error("suggest-branch failed", "duration", time.Since(start).Truncate(time.Millisecond), "status", status, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate branch suggestion: %v", err)})
+		writeJSONError(w, fmt.Sprintf("Failed to generate branch suggestion: %v", err), status)
 		return
 	}
 
 	workspaceLog.Info("suggest-branch ok", "duration", time.Since(start).Truncate(time.Millisecond))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("failed to encode response", "handler", "suggest-branch", "err", err)
+	}
 }
 
 // handlePrepareBranchSpawn prepares spawn data for an existing branch.
@@ -391,9 +387,7 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 // everything needed to populate the spawn form.
 func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -405,24 +399,18 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		Branch   string `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RepoName == "" || req.Branch == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "repo_name and branch are required"})
+		writeJSONError(w, "repo_name and branch are required", http.StatusBadRequest)
 		return
 	}
 
 	// Look up repo URL from name
 	repo, found := s.config.FindRepo(req.RepoName)
 	if !found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "repo not found"})
+		writeJSONError(w, "repo not found", http.StatusNotFound)
 		return
 	}
 
@@ -475,12 +463,14 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"repo":     repo.URL,
 		"branch":   req.Branch,
 		"prompt":   prompt,
 		"nickname": nickname,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "prepare-branch-spawn", "err", err)
+	}
 }
 
 type resolvedQuickLaunch struct {
@@ -616,7 +606,9 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(validCookbooks)
+	if err := json.NewEncoder(w).Encode(validCookbooks); err != nil {
+		s.logger.Error("failed to encode response", "handler", "builtin-quick-launch", "err", err)
+	}
 }
 
 // handleCheckBranchConflict checks if a branch is already in use by a worktree.
@@ -652,7 +644,9 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 	// If not using worktrees, there's no branch conflict concern
 	if !s.config.UseWorktrees() {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+		if err := json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false}); err != nil {
+			s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+		}
 		return
 	}
 
@@ -661,16 +655,20 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 	for _, ws := range s.state.GetWorkspaces() {
 		if ws.Repo == req.Repo && ws.Branch == req.Branch {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(BranchConflictResponse{
+			if err := json.NewEncoder(w).Encode(BranchConflictResponse{
 				Conflict:    true,
 				WorkspaceID: ws.ID,
-			})
+			}); err != nil {
+				s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+			}
 			return
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false})
+	if err := json.NewEncoder(w).Encode(BranchConflictResponse{Conflict: false}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "check-branch-conflict", "err", err)
+	}
 }
 
 // handleRecentBranches returns recent branches from all configured repos.
@@ -704,7 +702,9 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(branches)
+	if err := json.NewEncoder(w).Encode(branches); err != nil {
+		s.logger.Error("failed to encode response", "handler", "recent-branches", "err", err)
+	}
 }
 
 // handleRecentBranchesRefresh handles POST /api/recent-branches/refresh - fetches updates from remotes.
@@ -732,8 +732,10 @@ func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"branches":      branches,
 		"fetched_count": len(branches),
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "recent-branches-refresh", "err", err)
+	}
 }

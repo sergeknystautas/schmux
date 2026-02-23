@@ -8,6 +8,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSync } from '../hooks/useSync';
 import useDevStatus from '../hooks/useDevStatus';
 import Tooltip from './Tooltip';
+import { ArrowDownIcon, ArrowUpIcon } from './Icons';
 import type { WorkspaceResponse } from '../lib/types';
 
 type WorkspaceHeaderProps = {
@@ -39,36 +40,8 @@ export default function WorkspaceHeader({
     isDevLiveProp ??
     (devStatus?.source_workspace === workspace.path && !!devStatus?.source_workspace);
 
-  const arrowDown = (
-    <svg
-      width="8"
-      height="8"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="6" y1="1" x2="6" y2="11" />
-      <polyline points="3,7 6,11 9,7" />
-    </svg>
-  );
-  const arrowUp = (
-    <svg
-      width="8"
-      height="8"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="6" y1="1" x2="6" y2="11" />
-      <polyline points="3,5 6,1 9,5" />
-    </svg>
-  );
+  const arrowDown = ArrowDownIcon;
+  const arrowUp = ArrowUpIcon;
 
   // Git branch icon SVG
   const branchIcon = (

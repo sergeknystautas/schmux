@@ -7,27 +7,12 @@ import { useSessions } from '../contexts/SessionsContext';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import { formatRelativeTime, splitPath } from '../lib/utils';
 import type { GitCommitDetailResponse } from '../lib/types';
 
 const COMMIT_SIDEBAR_WIDTH_KEY = 'schmux-commit-sidebar-width';
 const COMMIT_KEYBOARD_FOCUS_KEY = 'schmux-commit-keyboard-focus';
 const MAX_MESSAGE_LINES = 3;
-
-// Format relative time (e.g., "2d ago", "3h ago")
-function formatRelativeTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays > 0) return `${diffDays}d ago`;
-  if (diffHours > 0) return `${diffHours}h ago`;
-  if (diffMins > 0) return `${diffMins}m ago`;
-  return 'just now';
-}
 
 export default function GitCommitPage() {
   const { workspaceId, commitHash } = useParams();
@@ -94,18 +79,6 @@ export default function GitCommitPage() {
   const displayMessage = messageExpanded
     ? commitData?.message
     : messageLines.slice(0, MAX_MESSAGE_LINES).join('\n');
-
-  // Helper to split path into filename and directory
-  const splitPath = (fullPath: string) => {
-    const lastSlash = fullPath.lastIndexOf('/');
-    if (lastSlash === -1) {
-      return { filename: fullPath, directory: '' };
-    }
-    return {
-      filename: fullPath.substring(lastSlash + 1),
-      directory: fullPath.substring(0, lastSlash + 1),
-    };
-  };
 
   // Loading state with workspace header
   if (loading && !workspace) {
@@ -239,7 +212,7 @@ export default function GitCommitPage() {
                         : 'diff-file-item__status--modified';
                   return (
                     <button
-                      key={index}
+                      key={path || index}
                       className={`diff-file-item${selectedFileIndex === index ? ' diff-file-item--active' : ''}`}
                       onClick={() => setSelectedFileIndex(index)}
                       data-testid={`diff-file-${index}`}

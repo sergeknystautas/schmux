@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Schmux lore: gate agent stopping on status update + friction reflection.
 # Called by Claude Code Stop hook.
 # Combines schmux status signaling with lore reflection requirement.
@@ -8,12 +9,12 @@ INPUT=$(cat)
 # Prevent infinite loops: if stop_hook_active, just signal completed and exit
 ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
 if [ "$ACTIVE" = "true" ]; then
-  [ -n "$SCHMUX_STATUS_FILE" ] && echo "completed" > "$SCHMUX_STATUS_FILE" || true
+  [ -n "${SCHMUX_STATUS_FILE:-}" ] && echo "completed" > "$SCHMUX_STATUS_FILE" || true
   exit 0
 fi
 
 # If not a schmux session, exit cleanly
-[ -n "$SCHMUX_STATUS_FILE" ] || exit 0
+[ -n "${SCHMUX_STATUS_FILE:-}" ] || exit 0
 
 # Check 1: schmux status file updated
 STATUS_OK=false
@@ -27,7 +28,7 @@ fi
 
 # Check 2: reflection entry exists in lore.jsonl from THIS session
 # Use CLAUDE_PROJECT_DIR for absolute path; fall back to relative if not set
-if [ -n "$CLAUDE_PROJECT_DIR" ]; then
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
   LORE_FILE="$CLAUDE_PROJECT_DIR/.schmux/lore.jsonl"
 else
   LORE_FILE=".schmux/lore.jsonl"

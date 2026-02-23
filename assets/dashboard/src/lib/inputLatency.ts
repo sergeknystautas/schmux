@@ -23,7 +23,7 @@ export type LatencyDistribution = {
   maxMs: number; // upper bound of the last bucket
 };
 
-class InputLatencyTracker {
+export class InputLatencyTracker {
   samples: number[] = [];
   renderSamples: number[] = [];
   private lastInputTime = 0;
@@ -104,5 +104,5 @@ export const inputLatency = new InputLatencyTracker();
 
 // Expose for Playwright benchmarks (scenario tests run against production builds)
 if (typeof window !== 'undefined') {
-  (window as any).__inputLatency = inputLatency;
+  window.__inputLatency = inputLatency;
 }

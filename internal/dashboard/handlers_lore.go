@@ -81,13 +81,15 @@ func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"enabled":            enabled,
 		"curator_configured": curatorConfigured,
 		"curate_on_dispose":  curateOnDispose,
 		"llm_target":         llmTarget,
 		"issues":             issues,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-status", "err", err)
+	}
 }
 
 // getLoreWorkspacePaths returns the .schmux/lore.jsonl paths for all workspaces
@@ -144,9 +146,11 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"proposals": proposals,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-proposals", "err", err)
+	}
 }
 
 // handleLoreProposalGet returns a single proposal by ID.
@@ -174,7 +178,9 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(proposal)
+	if err := json.NewEncoder(w).Encode(proposal); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-proposal-get", "err", err)
+	}
 }
 
 // handleLoreApply applies a proposal: creates a worktree, commits changes, pushes the branch,
@@ -296,7 +302,9 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		resp["pr_url"] = prURL
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-apply", "err", err)
+	}
 }
 
 // handleLoreDismiss marks a proposal as dismissed.
@@ -345,7 +353,9 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "dismissed"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "dismissed"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-dismiss", "err", err)
+	}
 }
 
 // handleLoreEntries returns the lore JSONL entries for a repo, aggregated from all workspace directories
@@ -387,9 +397,11 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"entries": entries,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-entries", "err", err)
+	}
 }
 
 // handleLoreCurate handles manual curation requests.
@@ -443,7 +455,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	if len(rawEntries) == 0 {
 		s.logger.Info("curate: no raw entries to process", "repo", repoName)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
+		writeJSON(w, map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
@@ -466,7 +478,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	if proposal == nil {
 		s.logger.Info("curate: LLM returned no proposal", "repo", repoName, "elapsed", elapsed.Round(time.Millisecond))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
+		writeJSON(w, map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
@@ -488,10 +500,12 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":      "curated",
 		"proposal_id": proposal.ID,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "lore-curate", "err", err)
+	}
 }
 
 // refreshLoreCurator updates the lore curator's executor based on the current

@@ -164,7 +164,7 @@ Manual TypeScript types go in `assets/dashboard/src/lib/types.ts` (not the gener
 
 ## ⚠️ API Documentation — CI-Enforced
 
-Changes to API-related packages (`internal/dashboard/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, `internal/tmux/`) **must** include a corresponding update to `docs/api.md`. CI runs `scripts/check-api-docs.sh` to enforce this.
+Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, `internal/tmux/`) **must** include a corresponding update to `docs/api.md`. CI runs `scripts/check-api-docs.sh` to enforce this.
 
 ## Code Conventions
 

@@ -216,7 +216,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "config", "err", err)
+	}
 }
 
 // handleConfigUpdate handles config update requests.
@@ -635,7 +637,7 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			Warnings:        warnings,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(warning)
+		writeJSON(w, warning)
 		return
 	}
 
@@ -645,11 +647,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		Warnings []string `json:"warnings,omitempty"`
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ConfigSaveResponse{
+	if err := json.NewEncoder(w).Encode(ConfigSaveResponse{
 		Status:   "ok",
 		Message:  "Config saved and reloaded. Changes are now in effect.",
 		Warnings: warnings,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "config-update", "err", err)
+	}
 }
 
 func cloneNetwork(src *config.NetworkConfig) *config.NetworkConfig {
@@ -701,7 +705,7 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 			clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]bool{
+		writeJSON(w, map[string]bool{
 			"client_id_set":     clientIDSet,
 			"client_secret_set": clientSecretSet,
 		})
@@ -725,7 +729,7 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		writeJSON(w, map[string]string{"status": "ok"})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}

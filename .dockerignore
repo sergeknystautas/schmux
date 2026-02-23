@@ -5,6 +5,7 @@
 !build/schmux-linux
 !build/e2e-test
 !test/
+!scripts/e2e-entrypoint.sh
 !assets/dashboard/dist/
 
 # Exclude test artifacts and node_modules from context

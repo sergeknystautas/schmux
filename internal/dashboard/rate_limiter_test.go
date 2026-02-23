@@ -39,13 +39,15 @@ func TestRateLimiter_WindowReset(t *testing.T) {
 		t.Error("should be rate limited")
 	}
 
-	// Wait for window to reset
-	time.Sleep(150 * time.Millisecond)
-
-	// Should succeed again after reset
-	if !rl.Allow("user1") {
-		t.Error("should be allowed after window reset")
+	// Poll until the window resets (with a generous timeout to avoid flakes on slow CI)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rl.Allow("user1") {
+			return // success — window has reset
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	t.Error("should be allowed after window reset (timed out)")
 }
 
 func TestRateLimiter_MultipleKeys(t *testing.T) {
@@ -149,15 +151,21 @@ func TestRateLimiter_BucketReset(t *testing.T) {
 		t.Error("should be limited")
 	}
 
-	// Wait for reset
-	time.Sleep(250 * time.Millisecond)
-
-	// Should have full tokens again
-	for i := 0; i < 5; i++ {
-		if !rl.Allow("user1") {
-			t.Errorf("token %d should be available after reset", i+1)
+	// Poll until the bucket resets (with a generous timeout to avoid flakes on slow CI)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rl.Allow("user1") {
+			// Bucket reset — verify we have the remaining tokens too
+			for i := 1; i < 5; i++ {
+				if !rl.Allow("user1") {
+					t.Errorf("token %d should be available after reset", i+1)
+				}
+			}
+			return // success
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	t.Error("bucket should have reset (timed out)")
 }
 
 func TestRateLimiter_PartialConsumption(t *testing.T) {

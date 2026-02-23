@@ -121,7 +121,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		workspaceLog.Warn("linear-sync-from-main validation error: hash missing", "workspace_id", workspaceID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: "hash is required",
 		})
@@ -133,7 +133,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -148,7 +148,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		workspaceLog.Error("linear-sync-from-main validation error: get-graph failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("failed to validate hash precondition: %v", err),
 		})
@@ -159,7 +159,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		workspaceLog.Warn("linear-sync-from-main hash mismatch: no next hash", "workspace_id", workspaceID, "requested", req.Hash)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success:    false,
 			Message:    "hash mismatch: no next hash is available",
 			Hash:       req.Hash,
@@ -171,7 +171,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 		workspaceLog.Warn("linear-sync-from-main hash mismatch", "workspace_id", workspaceID, "requested", req.Hash, "actual", actualHash)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success:    false,
 			Message:    fmt.Sprintf("hash mismatch: requested %s but next is %s", req.Hash, actualHash),
 			Hash:       req.Hash,
@@ -185,7 +185,7 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 	if s.workspace.IsWorkspaceLocked(workspaceID) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: "workspace is locked by another sync operation",
 		})
@@ -196,11 +196,13 @@ func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(linearSyncResponse{
+	if err := json.NewEncoder(w).Encode(linearSyncResponse{
 		Success:    true,
 		Message:    "sync started",
 		InProgress: true,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "linear-sync", "err", err)
+	}
 }
 
 func (s *Server) runLinearSyncFromMain(workspaceID string) {
@@ -275,7 +277,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -294,7 +296,7 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 		workspaceLog.Error("linear-sync-to-main failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(linearSyncResponse{
+		writeJSON(w, linearSyncResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to sync to main: %v", err),
 		})
@@ -317,7 +319,9 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 	workspaceLog.Info("linear-sync-to-main", "workspace_id", workspaceID, "result", successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("failed to encode response", "handler", "linear-sync-to-main", "err", err)
+	}
 }
 
 // handlePushToBranch handles POST requests to push commits to origin/branch.
@@ -348,7 +352,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"success": false,
 			"message": fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -367,7 +371,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 		workspaceLog.Error("push-to-branch failed", "workspace_id", workspaceID, "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"success": false,
 			"message": fmt.Sprintf("Failed to push to branch: %v", err),
 		})
@@ -394,7 +398,9 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 	workspaceLog.Info("push-to-branch", "workspace_id", workspaceID, "result", successMsg)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("failed to encode response", "handler", "push-to-branch", "err", err)
+	}
 }
 
 // handleLinearSyncResolveConflict handles POST requests to kick off conflict resolution.
@@ -411,7 +417,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 	if _, found := s.state.GetWorkspace(workspaceID); !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"started": false, "message": fmt.Sprintf("workspace %s not found", workspaceID),
 		})
 		return
@@ -423,7 +429,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 		if existing.Status == "in_progress" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			writeJSON(w, map[string]interface{}{
 				"started": false, "message": "operation already in progress",
 			})
 			return
@@ -591,10 +597,12 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 	// Return 202 immediately
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"started":      true,
 		"workspace_id": workspaceID,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "resolve-conflict", "err", err)
+	}
 }
 
 // handleDeleteLinearSyncResolveConflictState handles DELETE requests to dismiss a completed resolve conflict state.
@@ -615,7 +623,7 @@ func (s *Server) handleDeleteLinearSyncResolveConflictState(w http.ResponseWrite
 	if existing.Status == "in_progress" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{"message": "operation still in progress"})
+		writeJSON(w, map[string]string{"message": "operation still in progress"})
 		return
 	}
 
