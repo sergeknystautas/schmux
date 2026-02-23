@@ -1583,3 +1583,17 @@ func (e *Env) GetWorkspaceIDForSession(sessionID string) string {
 	e.T.Fatalf("Could not find workspace ID for session %s", sessionID)
 	return ""
 }
+
+// PollUntil repeatedly calls check until it returns true or the timeout expires.
+// It polls every 200ms. If the timeout expires, it calls t.Fatalf with the given message.
+func (e *Env) PollUntil(timeout time.Duration, failMsg string, check func() bool) {
+	e.T.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	e.T.Fatalf("PollUntil timed out after %v: %s", timeout, failMsg)
+}

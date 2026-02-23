@@ -47,7 +47,32 @@ func (s *Server) handleWorkspaceRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkspacePreviews(w, r)
 		return
 	}
-	s.handleLinearSync(w, r)
+
+	// Route to linear sync handler only for recognized sub-paths.
+	// Use the remainder after the workspace ID to match known routes.
+	remainder := ""
+	if slashIdx > 0 {
+		remainder = trimmed[slashIdx:]
+	}
+	switch {
+	case strings.HasSuffix(remainder, "/git-graph"),
+		strings.Contains(remainder, "/git-commit/"),
+		strings.HasSuffix(remainder, "/linear-sync-from-main"),
+		strings.HasSuffix(remainder, "/linear-sync-to-main"),
+		strings.HasSuffix(remainder, "/push-to-branch"),
+		strings.HasSuffix(remainder, "/linear-sync-resolve-conflict"),
+		strings.HasSuffix(remainder, "/linear-sync-resolve-conflict-state"),
+		strings.HasSuffix(remainder, "/git-commit-stage"),
+		strings.HasSuffix(remainder, "/git-amend"),
+		strings.HasSuffix(remainder, "/git-discard"),
+		strings.HasSuffix(remainder, "/git-uncommit"),
+		strings.HasSuffix(remainder, "/refresh-overlay"),
+		strings.HasSuffix(remainder, "/dispose"),
+		strings.HasSuffix(remainder, "/dispose-all"):
+		s.handleLinearSync(w, r)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 // isValidResourceID checks that an ID extracted from a URL path is safe:
@@ -104,7 +129,7 @@ func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request)
 		for _, p := range previews {
 			resp = append(resp, toPreviewResponse(p))
 		}
-		json.NewEncoder(w).Encode(resp)
+		writeJSON(w, resp)
 		return
 	case http.MethodPost:
 		if previewID != "" {
@@ -132,7 +157,7 @@ func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), statusCode)
 			return
 		}
-		json.NewEncoder(w).Encode(toPreviewResponse(previewItem))
+		writeJSON(w, toPreviewResponse(previewItem))
 		return
 	case http.MethodDelete:
 		if previewID == "" {
@@ -143,7 +168,7 @@ func (s *Server) handleWorkspacePreviews(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		writeJSON(w, map[string]string{"status": "ok"})
 		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

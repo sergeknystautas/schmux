@@ -308,6 +308,7 @@ export default function SessionTabs({
         onKeyDown={(e) => {
           if (disabled) return;
           if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             handleTabClick(sess.id);
           }
         }}
@@ -364,6 +365,7 @@ export default function SessionTabs({
       onKeyDown={(e) => {
         if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
           handleDiffTabClick();
         }
       }}
@@ -402,6 +404,7 @@ export default function SessionTabs({
       onKeyDown={(e) => {
         if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
           handleGitTabClick();
         }
       }}
@@ -431,6 +434,7 @@ export default function SessionTabs({
         onKeyDown={(e) => {
           if (disabled) return;
           if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             handlePreviewTabClick(preview.id);
           }
         }}
@@ -487,6 +491,7 @@ export default function SessionTabs({
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             handleResolveConflictTabClick();
           }
         }}

@@ -8,3 +8,10 @@ declare module '*.module.css' {
 declare module '*.css';
 
 declare module 'react-diff-viewer-continued';
+
+// Global test/debug properties exposed for Playwright and scenario tests.
+// These are set conditionally (dev mode or VITE_EXPOSE_TERMINAL builds).
+interface Window {
+  __schmuxTerminal?: import('@xterm/xterm').Terminal;
+  __inputLatency?: import('./lib/inputLatency').InputLatencyTracker;
+}

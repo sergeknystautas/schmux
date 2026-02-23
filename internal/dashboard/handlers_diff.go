@@ -249,7 +249,9 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "diff", "err", err)
+	}
 }
 
 // getFileContent gets file content from a specific git tree-ish.
@@ -257,7 +259,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getFileContent(ctx context.Context, workspacePath, filePath, treeish string) string {
 	if treeish == "worktree" {
 		fullPath := filepath.Join(workspacePath, filePath)
-		if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(workspacePath)+string(filepath.Separator)) && filepath.Clean(fullPath) != filepath.Clean(workspacePath) {
+		if !isPathWithinDir(fullPath, workspacePath) {
 			return ""
 		}
 		content, err := os.ReadFile(fullPath)
@@ -339,7 +341,7 @@ func (s *Server) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws s
 	// Validate file path - block path traversal
 	fullPath := filepath.Join(ws.Path, filePath)
 	cleanFullPath := filepath.Clean(fullPath)
-	if !strings.HasPrefix(cleanFullPath, filepath.Clean(ws.Path)+string(filepath.Separator)) && cleanFullPath != filepath.Clean(ws.Path) {
+	if !isPathWithinDir(fullPath, ws.Path) {
 		http.Error(w, "invalid file path", http.StatusForbidden)
 		return
 	}
@@ -565,7 +567,9 @@ func (s *Server) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws sta
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-diff", "err", err)
+	}
 }
 
 // handleOpenVSCode opens VS Code in a new window for the specified workspace.
@@ -592,7 +596,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(OpenVSCodeResponse{
+		writeJSON(w, OpenVSCodeResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -615,7 +619,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(OpenVSCodeResponse{
+		writeJSON(w, OpenVSCodeResponse{
 			Success: false,
 			Message: fmt.Sprintf("VS Code command not found\n\nTo fix this:\nOpen VS Code, press %s, then run: Shell Command: Install 'code' command in PATH", shortcut),
 		})
@@ -633,7 +637,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: fmt.Sprintf("remote host %s not found", ws.RemoteHostID),
 			})
@@ -657,7 +661,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		if host.Hostname == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: "remote host has no hostname",
 			})
@@ -684,7 +688,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("open-vscode: template parse error", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: fmt.Sprintf("invalid VSCode command template: %v", err),
 			})
@@ -709,7 +713,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("open-vscode: template execution error", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: fmt.Sprintf("failed to execute VSCode command template: %v", err),
 			})
@@ -724,7 +728,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("open-vscode: failed to parse command", "err", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: fmt.Sprintf("failed to parse VSCode command: %v", err),
 			})
@@ -733,7 +737,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		if len(args) == 0 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: "VSCode command template produced empty command",
 			})
@@ -748,7 +752,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(OpenVSCodeResponse{
+			writeJSON(w, OpenVSCodeResponse{
 				Success: false,
 				Message: "workspace directory does not exist",
 			})
@@ -765,7 +769,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("open-vscode: failed to launch", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(OpenVSCodeResponse{
+		writeJSON(w, OpenVSCodeResponse{
 			Success: false,
 			Message: fmt.Sprintf("failed to launch VS Code: %v", err),
 		})
@@ -774,7 +778,7 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 	// Success response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(OpenVSCodeResponse{
+	writeJSON(w, OpenVSCodeResponse{
 		Success: true,
 		Message: "You can now switch to VS Code.",
 	})
@@ -808,7 +812,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("diff-external: failed to decode request", "err", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: fmt.Sprintf("invalid request: %v", err),
 		})
@@ -840,7 +844,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("diff-external: no command specified and no external diff commands configured")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No diff command specified",
 		})
@@ -852,7 +856,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
@@ -869,7 +873,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "workspace directory does not exist",
 		})
@@ -921,7 +925,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	if len(files) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No changes to diff",
 		})
@@ -933,7 +937,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Parse the base command (before file paths)
 	if strings.TrimSpace(selectedCommand) == "" {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Invalid command",
 		})
@@ -951,7 +955,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("diff-external: failed to create temp dir", "err", err)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Failed to create temp dir for diff",
 		})
@@ -1067,7 +1071,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 		os.RemoveAll(tempRoot)
 		// No files were added (all were new/untracked)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No modified or deleted files to diff",
 		})
@@ -1083,7 +1087,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	// Success response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DiffExternalResponse{
+	writeJSON(w, DiffExternalResponse{
 		Success: true,
 		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
 	})
@@ -1101,7 +1105,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	if s.remoteManager == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "remote manager not available",
 		})
@@ -1112,7 +1116,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	if conn == nil || !conn.IsConnected() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "remote host not connected",
 		})
@@ -1175,7 +1179,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 
 	if len(files) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No changes to diff",
 		})
@@ -1194,7 +1198,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	tempRoot, err := difftool.TempDirForWorkspace(ws.ID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Failed to create temp dir for diff",
 		})
@@ -1285,7 +1289,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	if opened == 0 {
 		os.RemoveAll(tempRoot)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(DiffExternalResponse{
+		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No modified or deleted files to diff",
 		})
@@ -1300,7 +1304,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DiffExternalResponse{
+	writeJSON(w, DiffExternalResponse{
 		Success: true,
 		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
 	})

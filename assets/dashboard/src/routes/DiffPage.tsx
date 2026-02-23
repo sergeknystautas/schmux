@@ -9,6 +9,7 @@ import { useModal } from '../components/ModalProvider';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import { splitPath } from '../lib/utils';
 import type { DiffResponse } from '../lib/types';
 
 type ExternalDiffCommand = {
@@ -40,9 +41,11 @@ export default function DiffPage() {
   const { workspaces, loading: sessionsLoading, simulateRemote } = useSessions();
   const { alert } = useModal();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
+  const diffDataRef = useRef<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const selectedFileIndexRef = useRef(0);
   const [executingDiff, setExecutingDiff] = useState<string | null>(null);
   const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
 
@@ -64,6 +67,11 @@ export default function DiffPage() {
   });
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
+
+  // Keep refs in sync for use in effects that shouldn't re-trigger on these values
+  diffDataRef.current = diffData;
+  selectedFileIndexRef.current = selectedFileIndex;
+
   const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
   const isRemoteClient =
     window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -153,9 +161,11 @@ export default function DiffPage() {
           setDiffData(data);
 
           // Try to restore the same file by path if it still exists
+          const curDiffData = diffDataRef.current;
+          const curFileIndex = selectedFileIndexRef.current;
           const currentFilePath =
-            diffData?.files?.[selectedFileIndex]?.new_path ||
-            diffData?.files?.[selectedFileIndex]?.old_path;
+            curDiffData?.files?.[curFileIndex]?.new_path ||
+            curDiffData?.files?.[curFileIndex]?.old_path;
 
           if (currentFilePath && data.files?.length > 0) {
             const foundIndex = data.files.findIndex(
@@ -179,7 +189,7 @@ export default function DiffPage() {
     }
 
     prevGitStatsRef.current = currentStats;
-  }, [workspace, workspaceId, selectedFileIndex, diffData]);
+  }, [workspace, workspaceId]);
 
   const selectedFile = diffData?.files?.[selectedFileIndex];
 
@@ -270,18 +280,6 @@ export default function DiffPage() {
   }
 
   const hasUserCommands = externalDiffCommands && externalDiffCommands.length > 0;
-
-  // Helper to split path into filename and directory
-  const splitPath = (fullPath: string) => {
-    const lastSlash = fullPath.lastIndexOf('/');
-    if (lastSlash === -1) {
-      return { filename: fullPath, directory: '' };
-    }
-    return {
-      filename: fullPath.substring(lastSlash + 1),
-      directory: fullPath.substring(0, lastSlash + 1),
-    };
-  };
 
   // Show loading state inside the page structure (keeps header stable)
   if (loading) {
@@ -375,7 +373,7 @@ export default function DiffPage() {
                       : 'diff-file-item__status--modified';
                 return (
                   <button
-                    key={index}
+                    key={file.new_path || file.old_path || index}
                     className={`diff-file-item${selectedFileIndex === index ? ' diff-file-item--active' : ''}`}
                     onClick={() => setSelectedFileIndex(index)}
                     data-testid={`diff-file-${index}`}

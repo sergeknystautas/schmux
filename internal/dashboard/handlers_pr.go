@@ -31,7 +31,9 @@ func (s *Server) handlePRs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "prs", "err", err)
+	}
 }
 
 // handlePRRefresh handles POST /api/prs/refresh - re-runs PR discovery.
@@ -54,7 +56,9 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 			Error:         err.Error(),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			s.logger.Error("failed to encode response", "handler", "pr-refresh", "err", err)
+		}
 		return
 	}
 	if prs == nil {
@@ -75,7 +79,9 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "pr-refresh", "err", err)
+	}
 }
 
 // handlePRCheckout handles POST /api/prs/checkout - creates workspace from PR, launches session.
@@ -88,33 +94,25 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.PRCheckoutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.RepoURL == "" || req.PRNumber <= 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "repo_url and pr_number are required"})
+		writeJSONError(w, "repo_url and pr_number are required", http.StatusBadRequest)
 		return
 	}
 
 	// Look up PR from discovery cache
 	pr, found := s.prDiscovery.FindPR(req.RepoURL, req.PRNumber)
 	if !found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("PR #%d not found for %s", req.PRNumber, req.RepoURL)})
+		writeJSONError(w, fmt.Sprintf("PR #%d not found for %s", req.PRNumber, req.RepoURL), http.StatusNotFound)
 		return
 	}
 
 	// Determine target for session (explicit config required)
 	target := s.config.GetPrReviewTarget()
 	if target == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No pr_review target configured"})
+		writeJSONError(w, "No pr_review target configured", http.StatusBadRequest)
 		return
 	}
 
@@ -125,9 +123,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 	ws, err := s.workspace.CheckoutPR(ctx, pr)
 	if err != nil {
 		s.logger.Error("checkout failed", "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to checkout PR: %v", err)})
+		writeJSONError(w, fmt.Sprintf("Failed to checkout PR: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -146,9 +142,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.logger.Error("session launch failed", "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Workspace created but session launch failed: %v", err)})
+		writeJSONError(w, fmt.Sprintf("Workspace created but session launch failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -160,5 +154,7 @@ func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
 		SessionID:   sess.ID,
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "pr-checkout", "err", err)
+	}
 }

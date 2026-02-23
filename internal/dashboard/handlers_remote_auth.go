@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,6 +31,12 @@ type remoteNonce struct {
 const nonceMaxAge = 5 * time.Minute
 
 const tokenMaxAge = 30 * time.Minute
+
+// maxNonces is the maximum number of nonces and failure-tracking IPs
+// kept in memory. Beyond this limit, expired entries are evicted first;
+// if the map is still full, the oldest entry is evicted.
+const maxNonces = 1000
+const maxFailureIPs = 1000
 
 func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -81,6 +88,25 @@ func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 		for k, v := range s.remoteNonces {
 			if now.Sub(v.createdAt) > nonceMaxAge {
 				delete(s.remoteNonces, k)
+			}
+		}
+
+		// Enforce nonce map cap: evict oldest if still at limit
+		for len(s.remoteNonces) >= maxNonces {
+			var oldestKey string
+			var oldestTime time.Time
+			first := true
+			for k, v := range s.remoteNonces {
+				if first || v.createdAt.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = v.createdAt
+					first = false
+				}
+			}
+			if !first {
+				delete(s.remoteNonces, oldestKey)
+			} else {
+				break
 			}
 		}
 
@@ -184,6 +210,13 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.remoteTokenFailures == nil {
 			s.remoteTokenFailures = make(map[string]int)
+		}
+		// Enforce failure map cap: evict a random entry if at limit
+		if _, exists := s.remoteTokenFailures[ip]; !exists && len(s.remoteTokenFailures) >= maxFailureIPs {
+			for k := range s.remoteTokenFailures {
+				delete(s.remoteTokenFailures, k)
+				break
+			}
 		}
 		s.remoteTokenFailures[ip]++
 		newFailures := s.remoteTokenFailures[ip]
@@ -332,7 +365,9 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	if err := json.NewEncoder(w).Encode(map[string]bool{"ok": true}); err != nil {
+		log.Printf("handleRemoteAccessSetPassword: failed to encode response: %v", err)
+	}
 }
 
 func renderInstructionsPage() string {

@@ -1,5 +1,19 @@
 import React from 'react';
 
+/**
+ * Split a file path into filename and directory parts.
+ */
+export function splitPath(fullPath: string): { filename: string; directory: string } {
+  const lastSlash = fullPath.lastIndexOf('/');
+  if (lastSlash === -1) {
+    return { filename: fullPath, directory: '' };
+  }
+  return {
+    filename: fullPath.substring(lastSlash + 1),
+    directory: fullPath.substring(0, lastSlash + 1),
+  };
+}
+
 export function formatTimestamp(timestamp: string | number | Date): string {
   const date = new Date(timestamp);
   return date.toLocaleString();

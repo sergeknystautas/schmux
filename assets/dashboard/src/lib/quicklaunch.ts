@@ -4,32 +4,6 @@ export type QuickLaunchItem = {
 };
 
 /**
- * Merges global quicklaunch names with workspace-specific names.
- * Returns sorted alphabetically with duplicates removed.
- * @deprecated Use getQuickLaunchItems() for grouped items with scope info
- */
-export function mergeQuickLaunchNames(globalNames: string[], workspaceNames: string[]): string[] {
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  for (const name of globalNames || []) {
-    const trimmed = name.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    result.push(trimmed);
-    seen.add(trimmed);
-  }
-
-  for (const name of workspaceNames || []) {
-    const trimmed = name.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    result.push(trimmed);
-    seen.add(trimmed);
-  }
-
-  return result.sort((a, b) => a.localeCompare(b));
-}
-
-/**
  * Returns quicklaunch items grouped by scope (global vs workspace).
  * Each group is sorted alphabetically, duplicates removed (global takes precedence).
  */

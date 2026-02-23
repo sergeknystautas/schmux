@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -128,15 +129,22 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			conflictOnBranch = *ws.ConflictOnBranch
 		}
 
-		// Get default branch from workspace manager
+		// Get default branch from server-level TTL cache
 		defaultBranch := ""
-		if db, err := s.workspace.GetDefaultBranch(ctx, ws.Repo); err == nil {
+		if db, err := s.cachedDefaultBranch(ctx, ws.Repo); err == nil {
 			defaultBranch = db
+		}
+
+		// Get repo name from config
+		repoName := ""
+		if r, found := s.config.FindRepoByURL(ws.Repo); found {
+			repoName = r.Name
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:                       ws.ID,
 			Repo:                     ws.Repo,
+			RepoName:                 repoName,
 			DefaultBranch:            defaultBranch,
 			Branch:                   branch,
 			BranchURL:                branchURL,
@@ -304,7 +312,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	response := s.buildSessionsResponse()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "sessions", "err", err)
+	}
 }
 
 func parseNudgeSummary(nudge string) (string, string) {
@@ -319,4 +329,34 @@ func parseNudgeSummary(nudge string) (string, string) {
 	}
 
 	return strings.TrimSpace(result.State), strings.TrimSpace(result.Summary)
+}
+
+// cachedDefaultBranch returns the default branch for a repo URL, using a
+// server-level TTL cache to avoid calling into the workspace manager (which
+// may run git commands) on every WebSocket broadcast.
+func (s *Server) cachedDefaultBranch(ctx context.Context, repoURL string) (string, error) {
+	now := time.Now()
+
+	s.defaultBranchCacheMu.RLock()
+	entry, ok := s.defaultBranchCache[repoURL]
+	s.defaultBranchCacheMu.RUnlock()
+
+	if ok && now.Sub(entry.fetchedAt) < defaultBranchCacheTTL {
+		if entry.branch == "" {
+			return "", fmt.Errorf("default branch unknown for %s", repoURL)
+		}
+		return entry.branch, nil
+	}
+
+	// Cache miss or stale — call through to workspace manager.
+	branch, err := s.workspace.GetDefaultBranch(ctx, repoURL)
+
+	s.defaultBranchCacheMu.Lock()
+	s.defaultBranchCache[repoURL] = defaultBranchEntry{
+		branch:    branch,
+		fetchedAt: now,
+	}
+	s.defaultBranchCacheMu.Unlock()
+
+	return branch, err
 }

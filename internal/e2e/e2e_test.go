@@ -104,7 +104,12 @@ func TestE2EFullLifecycle(t *testing.T) {
 		if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 			t.Fatalf("Failed to write workspace config: %v", err)
 		}
-		time.Sleep(2 * time.Second)
+		// Poll until daemon detects the workspace config (visible via API after spawn creates a workspace).
+		// The file just needs to be on disk before spawn; verify it's readable.
+		env.PollUntil(5*time.Second, "workspace config file not readable", func() bool {
+			_, err := os.ReadFile(configPath)
+			return err == nil
+		})
 	})
 
 	// Ensure we capture artifacts if anything fails
@@ -2293,15 +2298,22 @@ func TestE2EOverlayReconcileOnDispose(t *testing.T) {
 	t.Run("04_VerifyReconcileUpdatedOverlay", func(t *testing.T) {
 		overlayPath := filepath.Join(env.HomeDir, ".schmux", "overlays", repoName, ".env")
 
-		// Give a brief moment for the reconcile to complete (it runs synchronously during dispose)
-		time.Sleep(2 * time.Second)
+		expected := "AFTER=change\nRECONCILED=true\n"
+
+		// Poll until the reconcile completes and the overlay file has the expected content
+		env.PollUntil(10*time.Second, "reconcile did not update overlay", func() bool {
+			data, err := os.ReadFile(overlayPath)
+			if err != nil {
+				return false
+			}
+			return string(data) == expected
+		})
 
 		data, err := os.ReadFile(overlayPath)
 		if err != nil {
 			t.Fatalf("Failed to read overlay .env: %v", err)
 		}
 
-		expected := "AFTER=change\nRECONCILED=true\n"
 		if string(data) != expected {
 			t.Errorf("Reconcile did not update overlay.\nGot: %q\nWant: %q", string(data), expected)
 		}

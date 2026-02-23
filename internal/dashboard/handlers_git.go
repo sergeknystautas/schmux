@@ -37,9 +37,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	// Verify workspace exists
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found: " + workspaceID})
+		writeJSONError(w, "workspace not found: "+workspaceID, http.StatusNotFound)
 		return
 	}
 
@@ -89,9 +87,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 
 	resp, err := s.workspace.GetGitGraph(ctx, workspaceID, maxTotal, mainContext)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -105,23 +101,21 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-graph", "err", err)
+	}
 }
 
 // handleRemoteGitGraph handles git graph requests for remote workspaces.
 func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
 	if s.remoteManager == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "remote manager not available"})
+		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
 		return
 	}
 
 	conn := s.remoteManager.GetConnection(ws.RemoteHostID)
 	if conn == nil || !conn.IsConnected() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "remote host not connected"})
+		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -154,16 +148,12 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	// Resolve HEAD and default branch ref
 	localHeadOutput, err := conn.RunCommand(ctx, workdir, cb.ResolveRef("HEAD"))
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "cannot resolve HEAD"})
+		writeJSONError(w, "cannot resolve HEAD", http.StatusInternalServerError)
 		return
 	}
 	localHead := strings.TrimSpace(localHeadOutput)
 	if !isValidVCSHash(localHead) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("HEAD resolved to invalid hash: %q", localHead)})
+		writeJSONError(w, fmt.Sprintf("HEAD resolved to invalid hash: %q", localHead), http.StatusInternalServerError)
 		return
 	}
 
@@ -217,18 +207,14 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	if originMainHead == "" || localHead == originMainHead {
 		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, mainContext+1))
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
 			return
 		}
 		logOutput = out
 	} else if forkPoint == "" {
 		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD", defaultBranchRef}, maxTotal))
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
 			return
 		}
 		logOutput = out
@@ -241,9 +227,7 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 		}
 		out, err := conn.RunCommand(ctx, workdir, cb.Log([]string{"HEAD"}, maxLocal))
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("log failed: %v", err)})
+			writeJSONError(w, fmt.Sprintf("log failed: %v", err), http.StatusInternalServerError)
 			return
 		}
 		logOutput = out
@@ -281,7 +265,9 @@ func (s *Server) handleRemoteGitGraph(w http.ResponseWriter, r *http.Request, ws
 	resp.LocalTruncated = localTruncated
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-git-graph", "err", err)
+	}
 }
 
 // isValidVCSHash checks if a string looks like a valid VCS hash (40+ hex characters).
@@ -310,26 +296,20 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 	afterWorkspaces := strings.TrimPrefix(path, "/api/workspaces/")
 	workspaceID, commitHash, ok := strings.Cut(afterWorkspaces, "/git-commit/")
 	if !ok || workspaceID == "" || commitHash == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid path: expected /api/workspaces/{id}/git-commit/{hash}"})
+		writeJSONError(w, "invalid path: expected /api/workspaces/{id}/git-commit/{hash}", http.StatusBadRequest)
 		return
 	}
 
 	// Verify workspace exists
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found: " + workspaceID})
+		writeJSONError(w, "workspace not found: "+workspaceID, http.StatusNotFound)
 		return
 	}
 
 	// TODO: Remote workspace support
 	if ws.RemoteHostID != "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		json.NewEncoder(w).Encode(map[string]string{"error": "commit detail not yet supported for remote workspaces"})
+		writeJSONError(w, "commit detail not yet supported for remote workspaces", http.StatusNotImplemented)
 		return
 	}
 
@@ -345,51 +325,33 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 		} else if strings.Contains(err.Error(), "commit not found") || strings.Contains(err.Error(), "workspace not found") {
 			statusCode = http.StatusNotFound
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(statusCode)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeJSONError(w, err.Error(), statusCode)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-// validateGitFilePaths checks that none of the file paths contain path traversal
-// components (e.g., "../"). Returns an error message if any path is invalid.
-func validateGitFilePaths(files []string) string {
-	for _, f := range files {
-		cleaned := filepath.Clean(f)
-		if cleaned == "." || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-			return fmt.Sprintf("invalid file path: %q", f)
-		}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-commit", "err", err)
 	}
-	return ""
 }
 
 // handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
 // Stages the specified files for commit.
 func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-commit-stage")
 	if workspaceID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -398,16 +360,12 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		Files []string `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if msg := validateGitFilePaths(req.Files); msg != "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		writeJSONError(w, msg, http.StatusBadRequest)
 		return
 	}
 
@@ -416,9 +374,7 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
 		cmd.Dir = ws.Path
 		if output, err := cmd.CombinedOutput(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git add failed: %s", string(output))})
+			writeJSONError(w, fmt.Sprintf("git add failed: %s", string(output)), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -429,39 +385,33 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 	s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Files staged"})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Files staged"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-commit-stage", "err", err)
+	}
 }
 
 // handleGitAmend handles POST /api/workspaces/{id}/git-amend.
 // Stages the specified files and amends the last commit.
 func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-amend")
 	if workspaceID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
 	if ws.GitAhead <= 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No commits to amend"})
+		writeJSONError(w, "No commits to amend", http.StatusBadRequest)
 		return
 	}
 
@@ -470,23 +420,17 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		Files []string `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if len(req.Files) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "at least one file is required"})
+		writeJSONError(w, "at least one file is required", http.StatusBadRequest)
 		return
 	}
 
 	if msg := validateGitFilePaths(req.Files); msg != "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		writeJSONError(w, msg, http.StatusBadRequest)
 		return
 	}
 
@@ -495,9 +439,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.CommandContext(ctx, "git", "add", "--", file)
 		cmd.Dir = ws.Path
 		if output, err := cmd.CombinedOutput(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git add failed: %s", string(output))})
+			writeJSONError(w, fmt.Sprintf("git add failed: %s", string(output)), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -505,9 +447,7 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(ctx, "git", "commit", "--amend", "--no-edit")
 	cmd.Dir = ws.Path
 	if output, err := cmd.CombinedOutput(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git commit --amend failed: %s", string(output))})
+		writeJSONError(w, fmt.Sprintf("git commit --amend failed: %s", string(output)), http.StatusInternalServerError)
 		return
 	}
 
@@ -517,32 +457,28 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 	s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit amended"})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit amended"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-amend", "err", err)
+	}
 }
 
 // handleGitDiscard handles POST /api/workspaces/{id}/git-discard.
 // Discards local changes. If files are specified, only those files are discarded.
 func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-discard")
 	if workspaceID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -554,18 +490,14 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		// Only allow empty/EOF body (means "discard all").
 		// Malformed JSON is an error — don't silently discard everything.
 		if !errors.Is(err, io.EOF) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			writeJSONError(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 	}
 
 	if len(req.Files) > 0 {
 		if msg := validateGitFilePaths(req.Files); msg != "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": msg})
+			writeJSONError(w, msg, http.StatusBadRequest)
 			return
 		}
 	}
@@ -614,18 +546,14 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.CommandContext(ctx, "git", "clean", "-fd")
 		cmd.Dir = ws.Path
 		if output, err := cmd.CombinedOutput(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git clean failed: %s", string(output))})
+			writeJSONError(w, fmt.Sprintf("git clean failed: %s", string(output)), http.StatusInternalServerError)
 			return
 		}
 
 		cmd = exec.CommandContext(ctx, "git", "checkout", "--", ".")
 		cmd.Dir = ws.Path
 		if output, err := cmd.CombinedOutput(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git checkout failed: %s", string(output))})
+			writeJSONError(w, fmt.Sprintf("git checkout failed: %s", string(output)), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -636,7 +564,9 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 	s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Changes discarded"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-discard", "err", err)
+	}
 }
 
 // handleGitUncommit handles POST /api/workspaces/{id}/git-uncommit.
@@ -644,32 +574,24 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 // Requires hash parameter to verify we're uncommitting the expected commit.
 func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/git-uncommit")
 	if workspaceID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace ID is required"})
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
 	}
 
 	ws, ok := s.state.GetWorkspace(workspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
 	if ws.GitAhead <= 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No commits to uncommit"})
+		writeJSONError(w, "No commits to uncommit", http.StatusBadRequest)
 		return
 	}
 
@@ -678,16 +600,12 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 		Hash string `json:"hash"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.Hash == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "hash is required"})
+		writeJSONError(w, "hash is required", http.StatusBadRequest)
 		return
 	}
 
@@ -699,17 +617,13 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	cmd.Dir = ws.Path
 	output, err := cmd.Output()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get current HEAD"})
+		writeJSONError(w, "failed to get current HEAD", http.StatusInternalServerError)
 		return
 	}
 
 	currentHead := strings.TrimSpace(string(output))
 	if currentHead != req.Hash {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{"error": "HEAD has changed, please refresh and try again"})
+		writeJSONError(w, "HEAD has changed, please refresh and try again", http.StatusConflict)
 		return
 	}
 
@@ -717,9 +631,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	cmd = exec.CommandContext(ctx, "git", "reset", "HEAD~1")
 	cmd.Dir = ws.Path
 	if output, err := cmd.CombinedOutput(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("git reset failed: %s", string(output))})
+		writeJSONError(w, fmt.Sprintf("git reset failed: %s", string(output)), http.StatusInternalServerError)
 		return
 	}
 
@@ -729,5 +641,7 @@ func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
 	s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit undone, changes are now unstaged"})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Commit undone, changes are now unstaged"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "git-uncommit", "err", err)
+	}
 }

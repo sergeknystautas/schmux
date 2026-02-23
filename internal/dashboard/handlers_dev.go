@@ -100,7 +100,9 @@ func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dev-status", "err", err)
+	}
 }
 
 // handleDevRebuild triggers a dev mode rebuild/restart for a workspace.
@@ -168,7 +170,9 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("rebuild requested", "workspace", req.WorkspaceID, "type", req.Type)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "rebuilding"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "rebuilding"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dev-rebuild", "err", err)
+	}
 
 	// Trigger dev restart after sending response
 	if s.devRestart != nil {
@@ -219,10 +223,12 @@ func (s *Server) handleDevSimulateTunnel(w http.ResponseWriter, r *http.Request)
 	s.remoteTokenMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"url":   tunnelURL,
 		"token": token,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dev-simulate-tunnel", "err", err)
+	}
 }
 
 func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +240,9 @@ func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Requ
 	s.ClearRemoteAuth()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"ok": "true"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dev-simulate-tunnel-stop", "err", err)
+	}
 }
 
 func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {
@@ -250,5 +258,7 @@ func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"ok": "true"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dev-clear-password", "err", err)
+	}
 }

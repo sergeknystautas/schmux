@@ -50,47 +50,39 @@ func BuildOneshotCommitPrompt(diff string) string {
 // Returns the prompt template for generating commit messages.
 func (s *Server) handleCommitPrompt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"prompt": CommitPrompt()})
+	if err := json.NewEncoder(w).Encode(map[string]string{"prompt": CommitPrompt()}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "commit-prompt", "err", err)
+	}
 }
 
 // handleCommitGenerate handles POST /api/commit/generate.
 // Generates a commit message by running oneshot with the commit prompt.
 func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req CommitMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.WorkspaceID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace_id is required"})
+		writeJSONError(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
 
 	ws, ok := s.state.GetWorkspace(req.WorkspaceID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "workspace not found"})
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -100,10 +92,8 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	numstatCmd.Dir = ws.Path
 	numstatOutput, err := numstatCmd.CombinedOutput()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
 		s.logger.Error("git diff --numstat failed", "output", string(numstatOutput))
-		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
+		writeJSONError(w, "git operation failed", http.StatusInternalServerError)
 		return
 	}
 	files := parseNumstat(string(numstatOutput))
@@ -113,10 +103,8 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	diffCmd.Dir = ws.Path
 	diffOutput, err := diffCmd.CombinedOutput()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
 		s.logger.Error("git diff failed", "output", string(diffOutput))
-		json.NewEncoder(w).Encode(map[string]string{"error": "git operation failed"})
+		writeJSONError(w, "git operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -134,9 +122,7 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	targetName := s.config.GetCommitMessageTarget()
 	if targetName == "" {
 		s.logger.Info("commit-generate: not configured", "workspace", req.WorkspaceID)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No commit_message target configured. Select a model in Settings > Code Review."})
+		writeJSONError(w, "No commit_message target configured. Select a model in Settings > Code Review.", http.StatusBadRequest)
 		return
 	}
 
@@ -147,28 +133,26 @@ func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
 	rawResult, err := oneshot.ExecuteTarget(ctx, s.config, targetName, prompt, schema.LabelCommitMessage, timeout, ws.Path)
 	if err != nil {
 		s.logger.Error("commit-generate: failed", "workspace", req.WorkspaceID, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("oneshot failed: %v", err)})
+		writeJSONError(w, fmt.Sprintf("oneshot failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	var result commitmessage.Result
 	if err := json.Unmarshal([]byte(rawResult), &result); err != nil {
 		s.logger.Error("commit-generate: failed to parse response", "workspace", req.WorkspaceID, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to parse response: %v", err)})
+		writeJSONError(w, fmt.Sprintf("failed to parse response: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	s.logger.Info("commit-generate: completed", "workspace", req.WorkspaceID, "elapsed", time.Since(start))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CommitMessageResponse{
+	if err := json.NewEncoder(w).Encode(CommitMessageResponse{
 		Message: strings.TrimSpace(result.Message),
 		Files:   files,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "commit-generate", "err", err)
+	}
 }
 
 // parseNumstat parses git diff --numstat output into CommitFile structs.
