@@ -1526,6 +1526,26 @@ Errors:
 - 400: "No pr_review target configured"
 - 500: "Failed to checkout PR: ..." or "Workspace created but session launch failed: ..."
 
+### GET /api/github/status
+
+Returns the GitHub CLI (`gh`) authentication status. This is the gate for all GitHub features in the UI.
+
+Response:
+
+```json
+{
+  "available": true,
+  "username": "octocat"
+}
+```
+
+Fields:
+
+- `available` (bool): Whether the `gh` CLI is installed and authenticated
+- `username` (string): The authenticated GitHub username (empty if not available)
+
+The status is checked once at daemon startup and broadcast via the dashboard WebSocket.
+
 ### GET /api/overlays
 
 Returns overlay information for all repos.
@@ -1890,6 +1910,18 @@ Unlock with sync completion metadata (sent when `linear-sync-from-main` finishes
 - `locked: false` sent when the lock is released
 - `sync_progress` is optional; included during `linear-sync-from-main` rebase with current/total commit counts
 - `sync_result` is optional; included on unlock after `linear-sync-from-main` completes
+
+GitHub CLI status (sent on connect and when status changes):
+
+```json
+{
+  "type": "github_status",
+  "github_status": {
+    "available": true,
+    "username": "octocat"
+  }
+}
+```
 
 Notes:
 

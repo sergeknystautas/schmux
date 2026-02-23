@@ -161,6 +161,11 @@ export interface GitGraphResponse {
   dirty_state?: GitGraphDirtyState;
 }
 
+export interface GitHubStatus {
+  available: boolean;
+  username?: string;
+}
+
 export interface Lore {
   enabled: boolean;
   llm_target: string;

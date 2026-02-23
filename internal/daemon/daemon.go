@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
@@ -70,6 +71,8 @@ type Daemon struct {
 	devRestartOnce sync.Once
 	shutdownCtx    context.Context
 	cancelFunc     context.CancelFunc
+
+	githubStatus contracts.GitHubStatus
 }
 
 // NewDaemon creates a new Daemon with initialized channels and context.
@@ -464,8 +467,16 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		logger.Info("loaded cached PRs from state", "count", len(prs))
 	}
 
+	// Check gh CLI authentication
+	d.githubStatus = github.CheckAuth(d.shutdownCtx)
+	if d.githubStatus.Available {
+		fmt.Printf("[daemon] GitHub authenticated as %s\n", d.githubStatus.Username)
+	} else {
+		fmt.Println("[daemon] GitHub not available (gh CLI not installed or not authenticated)")
+	}
+
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, dashboard.ServerOptions{
+	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, dashboard.ServerOptions{
 		Shutdown:    d.Shutdown,
 		DevRestart:  d.DevRestart,
 		DevProxy:    devProxy,

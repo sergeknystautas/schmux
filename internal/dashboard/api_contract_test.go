@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -39,7 +39,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	t.Cleanup(server.CloseForTest)
@@ -292,7 +292,7 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{})
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
 	t.Cleanup(server.CloseForTest)
 
 	ws := state.Workspace{
@@ -554,7 +554,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
+	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 		DevMode:     true,
 		ShutdownCtx: shutdownCtx,
 	})
@@ -627,7 +627,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
 		// Create a non-dev-mode server
 		shutdownCtx2, shutdownCancel2 := context.WithCancel(context.Background())
-		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), ServerOptions{
+		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 			DevMode:     false,
 			ShutdownCtx: shutdownCtx2,
 		})

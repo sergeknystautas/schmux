@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/gorilla/websocket"
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -138,6 +139,9 @@ type Server struct {
 	// GitHub PR discovery
 	prDiscovery *github.Discovery
 
+	// GitHub CLI auth status
+	githubStatus contracts.GitHubStatus
+
 	// Remote host manager
 	remoteManager *remote.Manager
 
@@ -217,7 +221,7 @@ type defaultBranchEntry struct {
 const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
 	shutdownCtx := opts.ShutdownCtx
 	if shutdownCtx == nil {
 		shutdownCtx = context.Background()
@@ -230,6 +234,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:          wm,
 		prDiscovery:        prd,
 		logger:             logger,
+		githubStatus:       ghStatus,
 		shutdown:           opts.Shutdown,
 		devRestart:         opts.DevRestart,
 		devProxy:           opts.DevProxy,
@@ -457,6 +462,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/prs", s.withCORS(s.withAuth(s.handlePRs)))
 	mux.HandleFunc("/api/prs/refresh", s.withCORS(s.withAuthAndCSRF(s.handlePRRefresh)))
 	mux.HandleFunc("/api/prs/checkout", s.withCORS(s.withAuthAndCSRF(s.handlePRCheckout)))
+	mux.HandleFunc("/api/github/status", s.withCORS(s.withAuth(s.handleGetGitHubStatus)))
 
 	// Lore routes
 	mux.HandleFunc("/api/lore/", s.withCORS(s.withAuthAndCSRF(s.handleLoreRouter)))
@@ -1003,6 +1009,14 @@ func (s *Server) doBroadcast() {
 				conn.Close()
 				break
 			}
+		}
+		// Send GitHub status as a separate message
+		ghPayload, err := json.Marshal(map[string]interface{}{
+			"type":          "github_status",
+			"github_status": s.githubStatus,
+		})
+		if err == nil {
+			conn.WriteMessage(websocket.TextMessage, ghPayload)
 		}
 	}
 }
