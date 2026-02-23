@@ -12,6 +12,9 @@ import {
 test.describe.serial('Edit a session nickname', () => {
   let repoPath: string;
   let sessionId: string;
+  // Use a unique nickname to avoid collisions across repeated test runs
+  // (the daemon is shared and previous sessions may still exist)
+  const testNickname = `test-nick-${Date.now()}`;
 
   test.beforeAll(async () => {
     await waitForHealthy();
@@ -62,13 +65,13 @@ test.describe.serial('Edit a session nickname', () => {
     await expect(promptInput).toBeVisible({ timeout: 5000 });
 
     // Type the new nickname
-    await promptInput.fill('my-test-session');
+    await promptInput.fill(testNickname);
 
     // Click the Save button to confirm
     await page.getByRole('button', { name: 'Save' }).click();
 
     // Verify the nickname updates in the sidebar
-    await expect(nicknameField.locator('.metadata-field__value')).toHaveText('my-test-session', {
+    await expect(nicknameField.locator('.metadata-field__value')).toHaveText(testNickname, {
       timeout: 5000,
     });
   });
@@ -87,6 +90,6 @@ test.describe.serial('Edit a session nickname', () => {
     }
 
     expect(foundSession).toBeDefined();
-    expect(foundSession!.nickname).toBe('my-test-session');
+    expect(foundSession!.nickname).toBe(testNickname);
   });
 });

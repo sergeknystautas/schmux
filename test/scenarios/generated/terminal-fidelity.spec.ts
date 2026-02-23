@@ -35,7 +35,26 @@ async function openTerminal(page: Page, sessionId: string, tmuxName: string): Pr
   await page.goto(`/sessions/${sessionId}`);
   await waitForDashboardLive(page);
   await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-  await new Promise((r) => setTimeout(r, 500));
+
+  // Wait for the terminal WebSocket to connect and bootstrap by checking
+  // if xterm.js has any content in its buffer. This avoids the race where
+  // clear escape sequences are sent before the WebSocket connects.
+  const wsDeadline = Date.now() + 10_000;
+  while (Date.now() < wsDeadline) {
+    const hasContent = await page.evaluate(() => {
+      const terminal = (window as any).__schmuxTerminal;
+      if (!terminal) return false;
+      const buffer = terminal.buffer.active;
+      for (let i = 0; i < terminal.rows; i++) {
+        const line = buffer.getLine(buffer.baseY + i);
+        if (line && line.translateToString(true).trim()) return true;
+      }
+      return false;
+    });
+    if (hasContent) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
   // Clear both scrollback and visible screen to sync state:
   // - \033[3J clears xterm.js scrollback (tmux ignores it for its own buffer)
   // - \033[H\033[2J moves cursor home and clears visible screen in both
@@ -91,7 +110,6 @@ test.describe.serial('Terminal fidelity: encoding', () => {
       'for i in $(seq 1 10); do echo "Line $i: the quick brown fox"; done'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -106,7 +124,6 @@ test.describe.serial('Terminal fidelity: encoding', () => {
       "printf '\\342\\224\\214\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\220\\n\\342\\224\\202 schmux   \\342\\224\\202\\n\\342\\224\\202 terminal \\342\\224\\202\\n\\342\\224\\224\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\200\\342\\224\\230\\n'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -121,7 +138,6 @@ test.describe.serial('Terminal fidelity: encoding', () => {
       "printf '\\xe2\\x9c\\x93 Pass: \\xe6\\x97\\xa5\\xe6\\x9c\\xac\\xe8\\xaa\\x9e\\xe3\\x83\\x86\\xe3\\x82\\xb9\\xe3\\x83\\x88\\n\\xe2\\x9c\\x97 Fail: \\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\n\\xe2\\x9a\\xa1 Done\\n'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -136,7 +152,6 @@ test.describe.serial('Terminal fidelity: encoding', () => {
       "printf '\\033[31mred \\033[32mgreen \\033[34mblue \\033[0mnormal\\n'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -148,7 +163,6 @@ test.describe.serial('Terminal fidelity: encoding', () => {
 
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'python3 -c "print(\'A\' * 200)"');
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -197,7 +211,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
       "for i in 20 40 60 80 100; do printf '\\rProgress: %d%%' $i; sleep 0.1; done; echo"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -212,7 +225,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
       "printf '\\033[2J\\033[3;5HRow3Col5\\033[7;20HRow7Col20\\033[10;1H'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -224,7 +236,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
 
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, "printf 'AAABBBCCC\\033[6D\\033[K\\n'");
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -239,7 +250,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
       'for i in $(seq 1 5); do echo "fill line $i"; done; printf \'\\033[2J\\033[HCleared\\n\''
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -255,7 +265,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
       "printf '\\033[3;8r'; for i in $(seq 1 10); do echo \"scroll-$i\"; done; printf '\\033[r'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -268,7 +277,6 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     // Hide the cursor via DECTCEM reset (same escape Claude Code uses)
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, "printf '\\033[?25l'");
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // Verify cursor is hidden in both tmux and xterm.js (live stream)
     await assertCursorVisibilityMatchesTmux(page, tmuxName);
@@ -277,9 +285,8 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-    await new Promise((r) => setTimeout(r, 1500));
 
-    // Verify cursor remains hidden after bootstrap
+    // Verify cursor remains hidden after bootstrap (retrying assertion handles rendering lag)
     await assertCursorVisibilityMatchesTmux(page, tmuxName);
 
     // Clean up: show cursor again so subsequent tests aren't affected
@@ -334,7 +341,6 @@ test.describe.serial('Terminal fidelity: alternate screen', () => {
       "printf '\\033[?1049h\\033[2J\\033[1;1HAlt screen content\\033[?1049l'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // After exiting alt screen, normal screen content should be restored
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -356,7 +362,6 @@ test.describe.serial('Terminal fidelity: alternate screen', () => {
         "\\033[5;1H'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // Compare while still in alt screen
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -409,7 +414,6 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
       'for i in $(seq 1 200); do echo "bulk-line-$i"; done'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Compare visible screen
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -431,7 +435,6 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
       "printf '\\033[?1049h\\033[2J\\033[1;1HAlt content\\033[?1049l'"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Scrollback from before alt screen should still be intact
     await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 200 });
@@ -448,7 +451,6 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
       'for i in $(seq 1 20); do echo "reconnect-line-$i"; done'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Verify first load
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -457,9 +459,8 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-    await new Promise((r) => setTimeout(r, 1500));
 
-    // Verify after reload
+    // Verify after reload (retrying assertion handles bootstrap rendering lag)
     await assertTerminalMatchesTmux(page, tmuxName);
   });
 
@@ -475,7 +476,6 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
       'for i in $(seq 1 5); do echo "cursor-test-line-$i"; done'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     // Verify cursor matches before reload (live stream)
     await assertCursorMatchesTmux(page, tmuxName);
@@ -484,9 +484,8 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-    await new Promise((r) => setTimeout(r, 1500));
 
-    // Verify cursor position matches after bootstrap
+    // Verify cursor position matches after bootstrap (retrying assertion handles lag)
     await assertCursorMatchesTmux(page, tmuxName);
   });
 });
@@ -536,7 +535,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       "for i in $(seq 1 100); do printf '\\033[32m[BUILD]\\033[0m Step %d: compiling module_%d\\n' $i $i; done"
     );
     await waitForSentinel(sessionId, buildSentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Verify build log stage
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -547,7 +545,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       "printf '\\033[?1049h\\033[2J\\033[1;1H=== TUI Dashboard ===\\033[3;1HStatus: Running\\033[5;1HProgress: 100%%'"
     );
     await waitForSentinel(sessionId, tuiSentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Verify TUI stage (alt screen)
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -555,7 +552,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     // Stage 3: Exit alt screen
     const exitSentinel = sendTmuxCommandWithSentinel(tmuxName, "printf '\\033[?1049l'");
     await waitForSentinel(sessionId, exitSentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Should be back to normal screen with build log in scrollback
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -571,7 +567,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       "for i in $(seq 1 100); do printf '\\xe2\\x9c\\x93 Line %d: \\xe4\\xb8\\xad\\xe6\\x96\\x87\\xe6\\xb5\\x8b\\xe8\\xaf\\x95 test-%d\\n' $i $i; done"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -592,7 +587,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
 
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'echo "toggles-complete"');
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });
@@ -611,7 +605,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       "for i in $(seq 1 20); do printf '\\rOverwrite pass %02d' $i; sleep 0.05; done; echo"
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Check visible screen
     await assertTerminalMatchesTmux(page, tmuxName);
@@ -639,10 +632,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     const floodSentinel = sendTmuxCommandWithSentinel(tmuxName, 'wait; echo "flood-done"');
     await waitForSentinel(sessionId, floodSentinel);
 
-    // Extra settling time for all buffered output to propagate through both tmux and xterm.
-    // The background flood with 20ms sleeps per line can have significant buffering latency.
-    await new Promise((r) => setTimeout(r, 2000));
-
     // Clear screen to establish known state after the chaotic reconnection,
     // then verify the terminal pipeline is still functional.
     sendTmuxCommand(tmuxName, 'clear');
@@ -655,7 +644,6 @@ test.describe.serial('Terminal fidelity: compounding', () => {
       'echo "reconnect-verified: terminal works after mid-stream reload"'
     );
     await waitForSentinel(sessionId, sentinel);
-    await new Promise((r) => setTimeout(r, 500));
 
     await assertTerminalMatchesTmux(page, tmuxName);
   });

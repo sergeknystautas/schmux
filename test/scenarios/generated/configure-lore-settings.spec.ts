@@ -26,6 +26,11 @@ test.describe.serial('Configure lore settings', () => {
         },
       ],
     });
+    // Reset lore config so selecting the LLM target creates a change
+    // (previous test runs may have already set it)
+    await apiPost('/api/config', {
+      lore: { llm_target: '', curate_on_dispose: 'session' },
+    });
   });
 
   test('Advanced tab shows Lore settings section', async ({ page }) => {

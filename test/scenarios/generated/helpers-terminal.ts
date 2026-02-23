@@ -106,20 +106,9 @@ export async function readXtermBuffer(
 }
 
 /**
- * Assert that the xterm.js terminal content matches tmux's capture-pane output.
- * Compares line-by-line with trimmed trailing whitespace.
- * Throws with a detailed diff on mismatch.
+ * Compare tmux and xterm.js content, returning mismatches (empty array = match).
  */
-export async function assertTerminalMatchesTmux(
-  page: Page,
-  sessionId: string,
-  options?: { scrollbackLines?: number }
-): Promise<void> {
-  const tmuxSession = sessionId;
-
-  const tmuxLines = capturePane(tmuxSession, options);
-  const xtermLines = await readXtermBuffer(page, options);
-
+function compareTerminalContent(tmuxLines: string[], xtermLines: string[]): string[] {
   const trimTrailingEmpty = (lines: string[]) => {
     const result = [...lines];
     while (result.length > 0 && result[result.length - 1].trim() === '') {
@@ -146,11 +135,42 @@ export async function assertTerminalMatchesTmux(
     }
   }
 
-  if (mismatches.length > 0) {
-    throw new Error(
-      `Terminal fidelity mismatch (${mismatches.length} rows differ):\n` + mismatches.join('\n')
-    );
+  return mismatches;
+}
+
+/**
+ * Assert that the xterm.js terminal content matches tmux's capture-pane output.
+ * Compares line-by-line with trimmed trailing whitespace.
+ * Retries up to maxRetries times to handle xterm.js rendering lag.
+ * Throws with a detailed diff on mismatch after all retries are exhausted.
+ */
+export async function assertTerminalMatchesTmux(
+  page: Page,
+  sessionId: string,
+  options?: { scrollbackLines?: number }
+): Promise<void> {
+  const tmuxSession = sessionId;
+  const maxRetries = 15;
+  const retryDelayMs = 200;
+
+  let lastMismatches: string[] = [];
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+
+    const tmuxLines = capturePane(tmuxSession, options);
+    const xtermLines = await readXtermBuffer(page, options);
+    lastMismatches = compareTerminalContent(tmuxLines, xtermLines);
+
+    if (lastMismatches.length === 0) return;
   }
+
+  throw new Error(
+    `Terminal fidelity mismatch (${lastMismatches.length} rows differ after ${maxRetries} retries):\n` +
+      lastMismatches.join('\n')
+  );
 }
 
 /**
@@ -214,18 +234,31 @@ export async function getXtermCursorPosition(page: Page): Promise<{ x: number; y
 /**
  * Assert that the xterm.js cursor position matches tmux's cursor position.
  * Both use 0-indexed coordinates.
+ * Retries to handle rendering lag.
  */
 export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): Promise<void> {
-  const tmuxCursor = getTmuxCursorPosition(tmuxSession);
-  const xtermCursor = await getXtermCursorPosition(page);
+  const maxRetries = 15;
+  const retryDelayMs = 200;
 
-  if (tmuxCursor.x !== xtermCursor.x || tmuxCursor.y !== xtermCursor.y) {
-    throw new Error(
-      `Cursor position mismatch:\n` +
-        `  tmux:  (${tmuxCursor.x}, ${tmuxCursor.y})\n` +
-        `  xterm: (${xtermCursor.x}, ${xtermCursor.y})`
-    );
+  let lastTmux = { x: 0, y: 0 };
+  let lastXterm = { x: 0, y: 0 };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+
+    lastTmux = getTmuxCursorPosition(tmuxSession);
+    lastXterm = await getXtermCursorPosition(page);
+
+    if (lastTmux.x === lastXterm.x && lastTmux.y === lastXterm.y) return;
   }
+
+  throw new Error(
+    `Cursor position mismatch (after ${maxRetries} retries):\n` +
+      `  tmux:  (${lastTmux.x}, ${lastTmux.y})\n` +
+      `  xterm: (${lastXterm.x}, ${lastXterm.y})`
+  );
 }
 
 /**
@@ -260,19 +293,32 @@ export async function getXtermCursorVisible(page: Page): Promise<boolean> {
 
 /**
  * Assert that the xterm.js cursor visibility matches tmux's cursor_flag.
+ * Retries to handle rendering lag.
  */
 export async function assertCursorVisibilityMatchesTmux(
   page: Page,
   tmuxSession: string
 ): Promise<void> {
-  const tmuxVisible = getTmuxCursorVisible(tmuxSession);
-  const xtermVisible = await getXtermCursorVisible(page);
+  const maxRetries = 15;
+  const retryDelayMs = 200;
 
-  if (tmuxVisible !== xtermVisible) {
-    throw new Error(
-      `Cursor visibility mismatch:\n` +
-        `  tmux:  ${tmuxVisible ? 'visible' : 'hidden'}\n` +
-        `  xterm: ${xtermVisible ? 'visible' : 'hidden'}`
-    );
+  let lastTmuxVisible = true;
+  let lastXtermVisible = true;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+
+    lastTmuxVisible = getTmuxCursorVisible(tmuxSession);
+    lastXtermVisible = await getXtermCursorVisible(page);
+
+    if (lastTmuxVisible === lastXtermVisible) return;
   }
+
+  throw new Error(
+    `Cursor visibility mismatch (after ${maxRetries} retries):\n` +
+      `  tmux:  ${lastTmuxVisible ? 'visible' : 'hidden'}\n` +
+      `  xterm: ${lastXtermVisible ? 'visible' : 'hidden'}`
+  );
 }

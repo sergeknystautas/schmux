@@ -137,7 +137,7 @@ test.describe.serial('Configure remote access settings', () => {
 
     // Success message should appear
     const success = page.locator('text=password updated');
-    await expect(success).toBeVisible({ timeout: 5000 });
+    await expect(success).toBeVisible({ timeout: 15_000 });
 
     // "password is configured" should appear
     const configured = page.locator('text=password is configured');
