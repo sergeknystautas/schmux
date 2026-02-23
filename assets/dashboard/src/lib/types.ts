@@ -105,6 +105,7 @@ export type {
   PrReviewUpdate,
   Notifications,
   NotificationsUpdate,
+  TLSValidateResponse,
 } from './types.generated';
 
 export interface SpawnRequest {

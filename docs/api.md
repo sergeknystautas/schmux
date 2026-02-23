@@ -720,7 +720,45 @@ Errors:
 - 400 for validation errors (plain text)
 - 500 for save/reload errors (plain text)
 
-### GET /api/auth/secrets
+### POST /api/tls/validate
+
+Validates TLS certificate and key paths without modifying configuration. Used by the UI to preview certificate details before saving.
+
+Request:
+
+```json
+{
+  "cert_path": "/path/to/cert.pem",
+  "key_path": "/path/to/key.pem"
+}
+```
+
+Response (success):
+
+```json
+{
+  "valid": true,
+  "hostname": "schmux.local",
+  "expires": "2026-12-25T00:00:00Z"
+}
+```
+
+Response (error):
+
+```json
+{
+  "valid": false,
+  "error": "Certificate file not found: /path/to/cert.pem"
+}
+```
+
+Notes:
+
+- Expands `~` to home directory in paths
+- Validates that both files exist and are readable
+- Validates that the certificate and key match (can be loaded as a pair)
+- Extracts hostname from Subject Alternative Names (SAN) or falls back to Common Name (CN)
+- Returns expiry date in RFC3339 format
 
 Returns whether GitHub auth secrets are configured (values are not returned).
 

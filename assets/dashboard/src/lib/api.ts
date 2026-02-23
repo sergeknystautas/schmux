@@ -34,6 +34,7 @@ import type {
   SpawnResult,
   SuggestBranchRequest,
   SuggestBranchResponse,
+  TLSValidateResponse,
   WorkspaceResponse,
   WorkspacePreview,
 } from './types';
@@ -279,6 +280,18 @@ export async function saveAuthSecrets(payload: {
   });
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to save auth secrets');
+  }
+  return response.json();
+}
+
+export async function validateTLS(certPath: string, keyPath: string): Promise<TLSValidateResponse> {
+  const response = await fetch('/api/tls/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ cert_path: certPath, key_path: keyPath }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to validate TLS certificates');
   }
   return response.json();
 }
