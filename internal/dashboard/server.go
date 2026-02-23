@@ -249,6 +249,9 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		cfg.GetNetworkAccess(),
 		cfg.GetPreviewPortBase(),
 		cfg.GetPreviewPortBlockSize(),
+		cfg.GetTLSEnabled(),
+		cfg.GetTLSCertPath(),
+		cfg.GetTLSKeyPath(),
 		logging.Sub(logger, "preview"),
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
