@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useStdout } from 'ink';
 import { StatusBar } from './components/StatusBar.js';
 import { LogPanel } from './components/LogPanel.js';
 import { KeyBar } from './components/KeyBar.js';
@@ -31,6 +31,8 @@ function timestamp(): string {
 
 export function App({ devRoot }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const termHeight = stdout?.rows ?? 24;
   const [workspace, setWorkspace] = useState(devRoot);
   const [frontendLines, setFrontendLines] = useState<string[]>([]);
   const [backendLines, setBackendLines] = useState<string[]>([]);
@@ -261,7 +263,7 @@ export function App({ devRoot }: AppProps) {
   }
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={termHeight}>
       <StatusBar
         devRoot={devRoot}
         workspace={workspace}
