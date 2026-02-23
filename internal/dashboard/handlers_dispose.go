@@ -13,11 +13,6 @@ import (
 )
 
 func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract session ID from chi URL param
 	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
@@ -68,11 +63,6 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 
 // handleDisposeWorkspace handles workspace disposal requests.
 func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -113,11 +103,6 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 
 // handleDisposeWorkspaceAll handles workspace disposal requests including all sessions.
 func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {

@@ -67,11 +67,6 @@ func (s *Server) devSourceWorkspacePath() string {
 
 // handleDevStatus returns the current dev mode state.
 func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -107,11 +102,6 @@ func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleDevRebuild triggers a dev mode rebuild/restart for a workspace.
 func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		WorkspaceID string `json:"workspace_id"`
 		Type        string `json:"type"` // "frontend", "backend", or "both"
@@ -210,11 +200,6 @@ func (s *Server) resumeViteWatch() {
 }
 
 func (s *Server) handleDevSimulateTunnel(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	tunnelURL := fmt.Sprintf("https://fake-tunnel-%d.trycloudflare.com", time.Now().UnixNano())
 	s.HandleTunnelConnected(tunnelURL)
 
@@ -232,11 +217,6 @@ func (s *Server) handleDevSimulateTunnel(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	s.ClearRemoteAuth()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -246,11 +226,6 @@ func (s *Server) handleDevSimulateTunnelStop(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleDevClearPassword(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	s.config.SetRemoteAccessPasswordHash("")
 	if err := s.config.Save(); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)

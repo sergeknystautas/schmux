@@ -540,20 +540,8 @@ func TestGitGraphEndpoint_UnknownWorkspace(t *testing.T) {
 	}
 }
 
-func TestGitGraphEndpoint_MethodNotAllowed(t *testing.T) {
-	server, _, _ := newTestServer(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-123/git-graph", nil)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("workspaceID", "ws-123")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	rr := httptest.NewRecorder()
-	server.handleWorkspaceGitGraph(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected status 405, got %d", rr.Code)
-	}
-}
+// TestGitGraphEndpoint_MethodNotAllowed is no longer needed because chi
+// handles 405 responses automatically via r.Get route registration.
 
 func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	// Use os.MkdirTemp instead of t.TempDir() for HOME to avoid flaky

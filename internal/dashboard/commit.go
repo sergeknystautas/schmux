@@ -49,11 +49,6 @@ func BuildOneshotCommitPrompt(diff string) string {
 // handleCommitPrompt handles GET /api/commit/prompt.
 // Returns the prompt template for generating commit messages.
 func (s *Server) handleCommitPrompt(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"prompt": CommitPrompt()}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "commit-prompt", "err", err)
@@ -63,11 +58,6 @@ func (s *Server) handleCommitPrompt(w http.ResponseWriter, r *http.Request) {
 // handleCommitGenerate handles POST /api/commit/generate.
 // Generates a commit message by running oneshot with the commit prompt.
 func (s *Server) handleCommitGenerate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req CommitMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

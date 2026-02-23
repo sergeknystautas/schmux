@@ -14,11 +14,6 @@ import (
 
 // handlePRs handles GET /api/prs - returns cached PRs.
 func (s *Server) handlePRs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	prs, lastFetched, lastErr := s.prDiscovery.GetPRs()
 	if prs == nil {
 		prs = []contracts.PullRequest{}
@@ -38,11 +33,6 @@ func (s *Server) handlePRs(w http.ResponseWriter, r *http.Request) {
 
 // handlePRRefresh handles POST /api/prs/refresh - re-runs PR discovery.
 func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	prs, retryAfter, err := s.prDiscovery.Refresh(s.config.GetRepos())
 	if err != nil {
 		cached, _, _ := s.prDiscovery.GetPRs()
@@ -86,11 +76,6 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 
 // handlePRCheckout handles POST /api/prs/checkout - creates workspace from PR, launches session.
 func (s *Server) handlePRCheckout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req contracts.PRCheckoutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

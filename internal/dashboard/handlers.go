@@ -90,11 +90,6 @@ const maxBodySize = 1 << 20
 
 // handleWorkspacesScan scans the workspace directory and reconciles with state.
 func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	result, err := s.workspace.Scan()
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("Failed to scan workspaces: %v", err), http.StatusInternalServerError)
@@ -117,11 +112,6 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 
 // handleHealthz returns a simple health check response with version info.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	v := s.GetVersionInfo()
 	response := map[string]any{
 		"status":  "ok",
@@ -143,11 +133,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdate triggers an update and shuts down the daemon.
 func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Prevent concurrent updates
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -189,11 +174,6 @@ type UpdateNicknameRequest struct {
 
 // handleUpdateNickname handles session nickname update requests.
 func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	// Extract session ID from chi URL param
@@ -238,11 +218,6 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 // Combines extraction of the latest session response with the Claude CLI call.
 // The response extraction happens internally on the server side.
 func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract session ID from chi wildcard param
 	sessionID := chi.URLParam(r, "*")
 	if sessionID == "" {
@@ -290,11 +265,6 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 // handleHasNudgenik handles GET requests to check if nudgenik is available globally.
 // Returns available: true only when a nudgenik target is configured.
 func (s *Server) handleHasNudgenik(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	available := nudgenik.IsEnabled(s.config)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]bool{"available": available}); err != nil {

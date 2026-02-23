@@ -9,11 +9,6 @@ import (
 )
 
 func (s *Server) handleRemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if s.tunnelManager == nil {
 		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
@@ -27,11 +22,6 @@ func (s *Server) handleRemoteAccessStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if s.tunnelManager == nil {
 		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
@@ -54,11 +44,6 @@ func (s *Server) handleRemoteAccessOn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoteAccessOff(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if s.tunnelManager == nil {
 		http.Error(w, "Remote access not available", http.StatusServiceUnavailable)
 		return
@@ -74,11 +59,6 @@ func (s *Server) handleRemoteAccessOff(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoteAccessTestNotification(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	ntfyTopic := ""
 	if s.config != nil {
 		ntfyTopic = s.config.GetRemoteAccessNtfyTopic()

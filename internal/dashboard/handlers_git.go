@@ -24,11 +24,6 @@ import (
 
 // handleWorkspaceGitGraph handles GET /api/workspaces/{id}/git-graph.
 func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -287,11 +282,6 @@ func isValidVCSHash(s string) bool {
 
 // handleWorkspaceGitCommit handles GET /api/workspaces/{id}/git-commit/{hash}.
 func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID and commit hash from chi URL params
 	workspaceID := chi.URLParam(r, "workspaceID")
 	commitHash := chi.URLParam(r, "hash")
@@ -338,11 +328,6 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 // handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
 // Stages the specified files for commit.
 func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
@@ -393,11 +378,6 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 // handleGitAmend handles POST /api/workspaces/{id}/git-amend.
 // Stages the specified files and amends the last commit.
 func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
@@ -465,11 +445,6 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 // handleGitDiscard handles POST /api/workspaces/{id}/git-discard.
 // Discards local changes. If files are specified, only those files are discarded.
 func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
@@ -573,11 +548,6 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 // Resets the HEAD commit, keeping changes as unstaged.
 // Requires hash parameter to verify we're uncommitting the expected commit.
 func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
