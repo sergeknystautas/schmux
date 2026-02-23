@@ -1,3 +1,5 @@
+import type { CoverageReport, FrontendCoverageReport } from './coverage.js';
+
 export type SuiteName = 'backend' | 'frontend' | 'e2e' | 'scenarios' | 'bench';
 export type SuiteStatus = 'pending' | 'building' | 'running' | 'passed' | 'failed' | 'skipped';
 
@@ -19,6 +21,8 @@ export interface SuiteResult {
   skippedTests: string[];
   testDurations: Record<string, number>; // all individual test durations
   output: string;
+  coverageReport?: CoverageReport;
+  frontendCoverageReport?: FrontendCoverageReport;
 }
 
 export interface FailedTest {

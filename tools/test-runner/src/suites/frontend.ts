@@ -1,6 +1,8 @@
 import { exec, projectRoot } from '../exec.js';
 import { parseVitestLine } from '../parsers.js';
+import { parseVitestCoverage } from '../coverage.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
+import type { FrontendCoverageReport } from '../coverage.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -29,6 +31,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   }
 
   const args = ['vitest', 'run'];
+  if (opts.coverage) args.push('--coverage');
 
   const passedTests: string[] = [];
   const failedTests: FailedTest[] = [];
@@ -86,6 +89,15 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
   const status = result.exitCode === 0 ? 'passed' : 'failed';
 
+  // Parse coverage if enabled and tests passed
+  let frontendCoverageReport: FrontendCoverageReport | undefined;
+  if (opts.coverage && status === 'passed') {
+    const parsed = parseVitestCoverage(outputLines.join('\n'));
+    if (parsed) {
+      frontendCoverageReport = parsed;
+    }
+  }
+
   onEvent('frontend', {
     type: 'suite_status',
     status: status === 'passed' ? 'passed' : 'failed',
@@ -105,7 +117,8 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     failedTests,
     skippedTests,
     testDurations,
-    outputLines.join('\n')
+    outputLines.join('\n'),
+    frontendCoverageReport
   );
 }
 
@@ -116,7 +129,8 @@ function makeResult(
   failedTests: FailedTest[],
   skippedTests: string[],
   testDurations: Record<string, number>,
-  output: string
+  output: string,
+  frontendCoverageReport?: FrontendCoverageReport
 ): SuiteResult {
   return {
     suite: 'frontend',
@@ -127,5 +141,6 @@ function makeResult(
     skippedTests,
     testDurations,
     output,
+    frontendCoverageReport,
   };
 }

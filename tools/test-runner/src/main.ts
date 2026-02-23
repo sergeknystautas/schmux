@@ -1,7 +1,14 @@
 import type { Options, SuiteName } from './types.js';
 import { checkDependencies } from './deps.js';
 import { runSuites, setupSignalHandlers } from './runner.js';
-import { printHeader, printSummary, printFlakyReport, printFinalBanner } from './ui.js';
+import {
+  printHeader,
+  printSummary,
+  printFlakyReport,
+  printFinalBanner,
+  printCoverageReport,
+  printFrontendCoverageReport,
+} from './ui.js';
 
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
@@ -156,6 +163,16 @@ async function main(): Promise<void> {
   const { results, flakyResults } = await runSuites(opts);
 
   printSummary(results, opts.suites.length > 1, opts.repeat);
+
+  // Print coverage reports if available
+  for (const r of results) {
+    if (r.coverageReport) {
+      printCoverageReport(r.coverageReport, r.suite);
+    }
+    if (r.frontendCoverageReport) {
+      printFrontendCoverageReport(r.frontendCoverageReport);
+    }
+  }
 
   if (opts.repeat > 1) {
     printFlakyReport(flakyResults, opts.repeat);

@@ -7,6 +7,7 @@ import type {
   FlakyResult,
   FailedTest,
 } from './types.js';
+import type { CoverageReport, FrontendCoverageReport } from './coverage.js';
 
 const isTTY = process.stdout.isTTY ?? false;
 
@@ -623,6 +624,121 @@ export function printFinalBanner(allPassed: boolean): void {
     console.log(chalk.green(' All tests passed!'));
   } else {
     console.log(chalk.red(' Some tests failed!'));
+  }
+}
+
+// ─── Coverage Report ────────────────────────────────────────────────────────
+
+function coverageColor(pct: number): (s: string) => string {
+  if (pct < 30) return chalk.red;
+  if (pct < 60) return chalk.yellow;
+  return chalk.green;
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+export function printCoverageReport(report: CoverageReport, label: string): void {
+  console.log('');
+  console.log(chalk.white(`  Coverage Report (${capitalize(label)})`));
+  console.log('');
+
+  const colorFn = coverageColor(report.totalCoverage);
+  console.log(`  Total: ${colorFn(`${report.totalCoverage.toFixed(1)}%`)} statements`);
+  console.log('');
+
+  // Filter out packages with 0 funcs
+  const pkgs = report.packages.filter((p) => p.funcCount > 0);
+  if (pkgs.length === 0) return;
+
+  // Build rows
+  const rows: string[][] = pkgs.map((p) => [
+    p.name,
+    coverageColor(p.avgCoverage)(`${p.avgCoverage.toFixed(1)}%`),
+    formatNumber(p.funcCount),
+    formatNumber(p.uncoveredCount),
+    formatNumber(p.loc),
+  ]);
+
+  // Total row
+  const totalFuncs = pkgs.reduce((s, p) => s + p.funcCount, 0);
+  const totalUncovered = pkgs.reduce((s, p) => s + p.uncoveredCount, 0);
+  const totalLoc = pkgs.reduce((s, p) => s + p.loc, 0);
+  rows.push([
+    `Total (${pkgs.length} packages)`,
+    colorFn(`${report.totalCoverage.toFixed(1)}%`),
+    formatNumber(totalFuncs),
+    formatNumber(totalUncovered),
+    formatNumber(totalLoc),
+  ]);
+
+  const lines = renderTable({
+    columns: [
+      { header: 'Package', align: 'left' },
+      { header: 'Coverage', align: 'right' },
+      { header: 'Funcs', align: 'right' },
+      { header: 'Uncovered', align: 'right' },
+      { header: 'LoC', align: 'right' },
+    ],
+    rows,
+    separatorAfter: [rows.length - 2],
+  });
+
+  for (const line of lines) {
+    console.log(line);
+  }
+
+  // Weakest areas: packages under 40% with >200 LoC
+  const weakPkgs = pkgs
+    .filter((p) => p.avgCoverage < 40 && p.loc > 200)
+    .sort((a, b) => a.avgCoverage - b.avgCoverage)
+    .slice(0, 3);
+
+  if (weakPkgs.length > 0 && report.uncoveredFunctions.length > 0) {
+    console.log('');
+    console.log(chalk.dim('  Weakest areas (0% coverage, most impactful):'));
+
+    for (const pkg of weakPkgs) {
+      const funcs = report.uncoveredFunctions.filter((f) => f.pkg === pkg.name).slice(0, 5);
+      if (funcs.length === 0) continue;
+
+      console.log(chalk.yellow(`    ${pkg.name}`));
+      for (const f of funcs) {
+        console.log(chalk.dim(`      ${f.file}:${f.line}`) + `         ${f.funcName}`);
+      }
+    }
+  }
+}
+
+export function printFrontendCoverageReport(report: FrontendCoverageReport): void {
+  console.log('');
+  console.log(chalk.white('  Coverage Report (Frontend)'));
+  console.log('');
+
+  const colorFn = coverageColor(report.totalCoverage);
+  console.log(`  Total: ${colorFn(`${report.totalCoverage.toFixed(1)}%`)} statements`);
+  console.log('');
+
+  if (report.directories.length === 0) return;
+
+  const rows: string[][] = report.directories.map((d) => [
+    d.name,
+    coverageColor(d.stmtsCoverage)(`${d.stmtsCoverage.toFixed(1)}%`),
+    coverageColor(d.funcsCoverage)(`${d.funcsCoverage.toFixed(1)}%`),
+  ]);
+
+  const lines = renderTable({
+    columns: [
+      { header: 'Directory', align: 'left' },
+      { header: 'Stmts', align: 'right' },
+      { header: 'Funcs', align: 'right' },
+    ],
+    rows,
+  });
+
+  for (const line of lines) {
+    console.log(line);
   }
 }
 
