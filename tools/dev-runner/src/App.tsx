@@ -24,6 +24,7 @@ interface AppProps {
 
 const MAX_LOG_LINES = 500;
 const VITE_PORT = 5173;
+const FLUSH_INTERVAL_MS = 32; // ~30fps — batches log lines to reduce Ink re-renders
 
 function timestamp(): string {
   return new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -45,18 +46,38 @@ export function App({ devRoot }: AppProps) {
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
 
+  // Buffer incoming log lines in refs, flush to state on a timer to reduce re-renders
+  const backendBuf = useRef<string[]>([]);
+  const frontendBuf = useRef<string[]>([]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (backendBuf.current.length > 0) {
+        const lines = backendBuf.current;
+        backendBuf.current = [];
+        setBackendLines((prev) => {
+          const next = [...prev, ...lines];
+          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
+        });
+      }
+      if (frontendBuf.current.length > 0) {
+        const lines = frontendBuf.current;
+        frontendBuf.current = [];
+        setFrontendLines((prev) => {
+          const next = [...prev, ...lines];
+          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
+        });
+      }
+    }, FLUSH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
   const addBackendLine = useCallback((line: string) => {
-    setBackendLines((prev) => {
-      const next = [...prev, `${timestamp()}  ${line}`];
-      return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
-    });
+    backendBuf.current.push(`${timestamp()}  ${line}`);
   }, []);
 
   const addFrontendLine = useCallback((line: string) => {
-    setFrontendLines((prev) => {
-      const next = [...prev, line];
-      return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
-    });
+    frontendBuf.current.push(line);
   }, []);
 
   // Handle daemon exit — check for exit code 42 (workspace switch)
@@ -231,6 +252,8 @@ export function App({ devRoot }: AppProps) {
   }, [backend, binaryPath, addBackendLine]);
 
   const handleClear = useCallback(() => {
+    backendBuf.current = [];
+    frontendBuf.current = [];
     setBackendLines([]);
     setFrontendLines([]);
   }, []);

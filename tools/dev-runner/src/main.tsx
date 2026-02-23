@@ -18,4 +18,47 @@ function projectRoot(): string {
 }
 
 const devRoot = projectRoot();
-render(<App devRoot={devRoot} />);
+const stdout = process.stdout;
+const originalWrite = stdout.write.bind(stdout) as typeof stdout.write;
+
+// Enter alternate screen buffer, hide cursor, clear screen
+originalWrite('\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H');
+
+// Micro-batch stdout writes and wrap with synchronized output markers (DEC 2026).
+// Ink may call stdout.write multiple times per render cycle (cursor moves, clear,
+// content). setImmediate collects all writes from one synchronous render cycle and
+// flushes them as a single atomic draw, eliminating flicker on supporting terminals.
+let writeBuf = '';
+let flushPending = false;
+
+stdout.write = function (chunk: any, encodingOrCb?: any, cb?: any) {
+  writeBuf += typeof chunk === 'string' ? chunk : chunk.toString();
+  if (!flushPending) {
+    flushPending = true;
+    setImmediate(() => {
+      const data = writeBuf;
+      writeBuf = '';
+      flushPending = false;
+      originalWrite(`\x1b[?2026h${data}\x1b[?2026l`);
+    });
+  }
+  const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+  if (callback) setImmediate(callback);
+  return true;
+} as any;
+
+let cleaned = false;
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  stdout.write = originalWrite;
+  originalWrite('\x1b[?25h\x1b[?1049l'); // show cursor, leave alt screen
+}
+
+process.on('exit', cleanup);
+
+const instance = render(<App devRoot={devRoot} />);
+instance.waitUntilExit().then(() => {
+  cleanup();
+  process.exit(0);
+});
