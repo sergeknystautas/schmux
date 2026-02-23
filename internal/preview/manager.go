@@ -323,10 +323,6 @@ func (m *Manager) ensureListener(ctx context.Context, preview state.WorkspacePre
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.touch(preview.ID)
-		if isWebSocketUpgrade(r) {
-			tunnelWebSocket(w, r, preview.TargetHost, preview.TargetPort)
-			return
-		}
 		proxy.ServeHTTP(w, r)
 	})
 
