@@ -1652,20 +1652,38 @@ Streams terminal output for a session.
 Client -> server messages:
 
 ```json
-{"type":"pause","data":""}
-{"type":"resume","data":""}
 {"type":"input","data":"raw-bytes-or-escape-seqs"}
 {"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
+{"type":"diagnostic"}
+{"type":"syncResult","data":"{\"corrected\":true,\"diffRows\":[22,23,24]}"}
 ```
+
+The `syncResult` message reports the result of a sync comparison. Sent after receiving a `sync` message from the server. Fields in `data` (JSON string):
+
+- `corrected` (bool): whether xterm.js was reset and replayed
+- `diffRows` (int[]): row indices that differed (empty if skipped due to activity guard)
 
 Server -> client messages:
 
+Binary frames contain raw terminal bytes. The first binary frame is the bootstrap snapshot (full screen capture with ANSI escape sequences and cursor positioning). Subsequent binary frames are incremental output from tmux control mode.
+
+Text frames are JSON control messages:
+
 ```json
-{"type":"full","content":"..."}       // initial full content (with ANSI state)
-{"type":"append","content":"..."}     // incremental content
-{"type":"displaced","content":"..."}  // connection displaced by another window
-{"type":"reconnect","content":"Log rotated, please reconnect"}
+{"type":"displaced","content":"..."}
+{"type":"stats","eventsDelivered":100,"eventsDropped":0,"bytesDelivered":50000,"bytesPerSec":1200,"controlModeReconnects":0,"syncChecksSent":5,"syncCorrections":0,"syncSkippedActive":2}
+{"type":"controlMode","attached":true}
+{"type":"diagnostic","diagDir":"...","counters":{...},"findings":[...],"verdict":"...","tmuxScreen":"..."}
+{"type":"sync","screen":"<ANSI-escaped tmux capture>","cursor":{"row":24,"col":3,"visible":true}}
 ```
+
+| Type          | Description                                                                                                                                                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `displaced`   | Connection displaced by another window viewing the same session                                                                                                                                                                                                                                        |
+| `stats`       | Periodic pipeline diagnostics (dev mode only, every 3s). Includes sync counters: `syncChecksSent`, `syncCorrections`, `syncSkippedActive`                                                                                                                                                              |
+| `controlMode` | tmux control mode attachment state changed                                                                                                                                                                                                                                                             |
+| `diagnostic`  | Response to a `diagnostic` request with capture data (dev mode only)                                                                                                                                                                                                                                   |
+| `sync`        | Periodic screen snapshot for desync detection. `screen` contains visible-screen-only `capture-pane -e -p` output. `cursor` contains position and visibility. Sent 500ms after bootstrap, then every 10s. The frontend compares plain-text content against its xterm.js buffer and corrects on mismatch |
 
 Errors:
 
