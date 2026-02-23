@@ -12,20 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/update"
 )
-
-// extractPathSegment extracts a path segment between a prefix and suffix from a URL path.
-// Example: extractPathSegment("/api/workspaces/ws-123/dispose", "/api/workspaces/", "/dispose") returns "ws-123"
-func extractPathSegment(path, prefix, suffix string) string {
-	s := strings.TrimPrefix(path, prefix)
-	if suffix != "" {
-		s = strings.TrimSuffix(s, suffix)
-	}
-	return s
-}
 
 // writeJSONError writes a JSON error response with the given status code.
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
@@ -192,8 +184,8 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
-	// Extract session ID from URL: /api/sessions-nickname/{session-id}
-	sessionID := strings.TrimPrefix(r.URL.Path, "/api/sessions-nickname/")
+	// Extract session ID from chi URL param
+	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
 		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
@@ -237,8 +229,8 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract session ID from URL: /api/askNudgenik/{session-id}
-	sessionID := strings.TrimPrefix(r.URL.Path, "/api/askNudgenik/")
+	// Extract session ID from chi wildcard param
+	sessionID := chi.URLParam(r, "*")
 	if sessionID == "" {
 		http.Error(w, "session ID is required", http.StatusBadRequest)
 		return

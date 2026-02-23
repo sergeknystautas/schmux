@@ -370,7 +370,8 @@ func (s *Server) Start() error {
 	r := chi.NewRouter()
 
 	// Public routes (no middleware)
-	r.HandleFunc("/remote-auth", s.handleRemoteAuth)
+	r.Get("/remote-auth", s.handleRemoteAuthGET)
+	r.Post("/remote-auth", s.handleRemoteAuthPOST)
 	r.HandleFunc("/auth/login", s.handleAuthLogin)
 	r.HandleFunc("/auth/callback", s.handleAuthCallback)
 	r.HandleFunc("/auth/logout", s.handleAuthLogout)
@@ -446,20 +447,81 @@ func (s *Server) Start() error {
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
 			r.Post("/remote-access/test-notification", s.handleRemoteAccessTestNotification)
 
-			// These handlers do their own method dispatch or path parsing internally.
-			// They'll be split in Task 4. For now, use HandleFunc to accept any method.
-			r.HandleFunc("/sessions/*", s.handleDispose)
-			r.HandleFunc("/sessions-nickname/*", s.handleUpdateNickname)
-			r.HandleFunc("/config", s.handleConfig)
-			r.HandleFunc("/auth/secrets", s.handleAuthSecrets)
-			r.HandleFunc("/models/*", s.handleModel)
-			r.HandleFunc("/diff-external/*", s.handleDiffExternal)
-			r.HandleFunc("/open-vscode/*", s.handleOpenVSCode)
-			r.HandleFunc("/config/remote-flavors", s.handleRemoteFlavors)
-			r.HandleFunc("/config/remote-flavors/*", s.handleRemoteFlavor)
-			r.HandleFunc("/remote/hosts/*", s.handleRemoteHostRoute)
-			r.HandleFunc("/workspaces/*", s.handleWorkspaceRoutes)
-			r.HandleFunc("/lore/*", s.handleLoreRouter)
+			// Session routes
+			r.Post("/sessions/{sessionID}/dispose", s.handleDispose)
+			r.Put("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
+			r.Patch("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
+
+			// Config routes
+			r.Get("/config", s.handleConfigGet)
+			r.Put("/config", s.handleConfigUpdate)
+			r.Post("/config", s.handleConfigUpdate)
+
+			// Auth secrets routes
+			r.Get("/auth/secrets", s.handleAuthSecretsGet)
+			r.Put("/auth/secrets", s.handleAuthSecretsUpdate)
+			r.Post("/auth/secrets", s.handleAuthSecretsUpdate)
+
+			// Model routes
+			r.Get("/models/{name}/configured", s.handleModelConfigured)
+			r.Post("/models/{name}/secrets", s.handleModelSecretsPost)
+			r.Delete("/models/{name}/secrets", s.handleModelSecretsDelete)
+
+			// Diff/VSCode routes
+			r.Post("/diff-external/*", s.handleDiffExternal)
+			r.Post("/open-vscode/*", s.handleOpenVSCode)
+
+			// Remote flavor routes
+			r.Get("/config/remote-flavors", s.handleGetRemoteFlavors)
+			r.Post("/config/remote-flavors", s.handleCreateRemoteFlavor)
+			r.Get("/config/remote-flavors/{id}", s.handleRemoteFlavorGet)
+			r.Put("/config/remote-flavors/{id}", s.handleRemoteFlavorUpdate)
+			r.Delete("/config/remote-flavors/{id}", s.handleRemoteFlavorDelete)
+
+			// Remote host routes
+			r.Post("/remote/hosts/{hostID}/reconnect", s.handleRemoteHostReconnect)
+			r.Delete("/remote/hosts/{hostID}", s.handleRemoteHostDisconnect)
+
+			// Workspace routes (nested group)
+			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
+				// Preview routes
+				r.Get("/previews", s.handlePreviewsList)
+				r.Post("/previews", s.handlePreviewsCreate)
+				r.Delete("/previews/{previewID}", s.handlePreviewsDelete)
+
+				// Git graph/commit routes
+				r.Get("/git-graph", s.handleWorkspaceGitGraph)
+				r.Get("/git-commit/{hash}", s.handleWorkspaceGitCommit)
+
+				// Linear sync routes
+				r.Post("/linear-sync-from-main", s.handleLinearSyncFromMain)
+				r.Post("/linear-sync-to-main", s.handleLinearSyncToMain)
+				r.Post("/push-to-branch", s.handlePushToBranch)
+				r.Post("/linear-sync-resolve-conflict", s.handleLinearSyncResolveConflict)
+				r.Delete("/linear-sync-resolve-conflict-state", s.handleDeleteLinearSyncResolveConflictState)
+
+				// Git operation routes
+				r.Post("/git-commit-stage", s.handleGitCommitStage)
+				r.Post("/git-amend", s.handleGitAmend)
+				r.Post("/git-discard", s.handleGitDiscard)
+				r.Post("/git-uncommit", s.handleGitUncommit)
+				r.Post("/refresh-overlay", s.handleRefreshOverlay)
+
+				// Workspace dispose routes
+				r.Post("/dispose", s.handleDisposeWorkspace)
+				r.Post("/dispose-all", s.handleDisposeWorkspaceAll)
+			})
+
+			// Lore routes
+			r.Get("/lore/status", s.handleLoreStatus)
+			r.Route("/lore/{repo}", func(r chi.Router) {
+				r.Get("/proposals", s.handleLoreProposals)
+				r.Get("/proposals/{proposalID}", s.handleLoreProposalGet)
+				r.Post("/proposals/{proposalID}/apply", s.handleLoreApply)
+				r.Post("/proposals/{proposalID}/dismiss", s.handleLoreDismiss)
+				r.Get("/entries", s.handleLoreEntries)
+				r.Post("/curate", s.handleLoreCurate)
+			})
 		})
 
 		// Dev-mode routes

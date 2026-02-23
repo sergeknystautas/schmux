@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/logging"
 )
 
@@ -16,8 +18,8 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract session ID from URL: /api/sessions/{id}/dispose
-	sessionID := extractPathSegment(r.URL.Path, "/api/sessions/", "/dispose")
+	// Extract session ID from chi URL param
+	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
 		writeJSONError(w, "session ID is required", http.StatusBadRequest)
 		return
@@ -69,8 +71,8 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Extract workspace ID from URL: /api/workspaces/{id}/dispose
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -116,8 +118,8 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Extract workspace ID from URL: /api/workspaces/{id}/dispose-all
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/dispose-all")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
 		return

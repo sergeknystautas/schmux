@@ -31,17 +31,6 @@ const nonceMaxAge = 5 * time.Minute
 
 const tokenMaxAge = 30 * time.Minute
 
-func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleRemoteAuthGET(w, r)
-	case http.MethodPost:
-		s.handleRemoteAuthPOST(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
 func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	nonce := r.URL.Query().Get("nonce")

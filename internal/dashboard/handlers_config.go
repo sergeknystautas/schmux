@@ -15,19 +15,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 )
 
-// handleConfig returns the config (repos and agents) for the spawn form,
-// or updates the config via POST.
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleConfigGet(w, r)
-	case http.MethodPost, http.MethodPut:
-		s.handleConfigUpdate(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
 // handleDetectTools returns detected targets from config (GET only).
 func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 	type ToolResponse struct {
@@ -685,48 +672,46 @@ func reposEqual(a, b []config.Repo) bool {
 	return true
 }
 
-// handleAuthSecrets gets or sets GitHub auth secrets.
-func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		secrets, err := config.GetAuthSecrets()
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
-			return
-		}
-		clientIDSet := false
-		clientSecretSet := false
-		if secrets.GitHub != nil {
-			clientIDSet = strings.TrimSpace(secrets.GitHub.ClientID) != ""
-			clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]bool{
-			"client_id_set":     clientIDSet,
-			"client_secret_set": clientSecretSet,
-		})
-	case http.MethodPost:
-		type SecretsRequest struct {
-			ClientID     string `json:"client_id"`
-			ClientSecret string `json:"client_secret"`
-		}
-		var req SecretsRequest
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
-			http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
-			return
-		}
-		if err := config.SaveGitHubAuthSecrets(req.ClientID, req.ClientSecret); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// handleAuthSecretsGet returns GitHub auth secrets status.
+func (s *Server) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
+	secrets, err := config.GetAuthSecrets()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+		return
 	}
+	clientIDSet := false
+	clientSecretSet := false
+	if secrets.GitHub != nil {
+		clientIDSet = strings.TrimSpace(secrets.GitHub.ClientID) != ""
+		clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{
+		"client_id_set":     clientIDSet,
+		"client_secret_set": clientSecretSet,
+	})
+}
+
+// handleAuthSecretsUpdate saves GitHub auth secrets.
+func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request) {
+	type SecretsRequest struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	var req SecretsRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
+		http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
+		return
+	}
+	if err := config.SaveGitHubAuthSecrets(req.ClientID, req.ClientSecret); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

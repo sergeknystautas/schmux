@@ -346,21 +346,27 @@ func TestAPIContract_MissingIDErrors(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
 	tests := []struct {
-		name   string
-		method string
-		path   string
-		fn     func(http.ResponseWriter, *http.Request)
+		name     string
+		method   string
+		path     string
+		fn       func(http.ResponseWriter, *http.Request)
+		paramKey string
 	}{
-		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", server.handleDispose},
-		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", server.handleLinearSync},
-		{"diff missing id", http.MethodGet, "/api/diff/", server.handleDiff},
-		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", server.handleOpenVSCode},
-		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname},
+		{"dispose missing id", http.MethodPost, "/api/sessions//dispose", server.handleDispose, "sessionID"},
+		{"dispose workspace missing id", http.MethodPost, "/api/workspaces//dispose", server.handleDisposeWorkspace, "workspaceID"},
+		{"diff missing id", http.MethodGet, "/api/diff/", server.handleDiff, ""},
+		{"open vscode missing id", http.MethodPost, "/api/open-vscode/", server.handleOpenVSCode, ""},
+		{"sessions nickname missing id", http.MethodPut, "/api/sessions-nickname/", server.handleUpdateNickname, "sessionID"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.paramKey != "" {
+				rctx := chi.NewRouteContext()
+				rctx.URLParams.Add(tt.paramKey, "")
+				req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+			}
 			rr := httptest.NewRecorder()
 			tt.fn(rr, req)
 			if rr.Code != http.StatusBadRequest {
@@ -384,15 +390,21 @@ func TestAPIContract_WorkspacePreviewCreateAndList(t *testing.T) {
 
 	body := bytes.NewBufferString(`{"target_host":"127.0.0.1","target_port":5173}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-preview/previews", body)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("workspaceID", "ws-preview")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
-	server.handleWorkspaceRoutes(rr, req)
+	server.handlePreviewsCreate(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/workspaces/ws-preview/previews", nil)
+	rctx = chi.NewRouteContext()
+	rctx.URLParams.Add("workspaceID", "ws-preview")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr = httptest.NewRecorder()
-	server.handleWorkspaceRoutes(rr, req)
+	server.handlePreviewsList(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -420,8 +432,11 @@ func TestAPIContract_WorkspacePreviewRemoteWorkspaceBlocked(t *testing.T) {
 
 	body := bytes.NewBufferString(`{"target_host":"127.0.0.1","target_port":5173}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-remote/previews", body)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("workspaceID", "ws-remote")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
-	server.handleWorkspaceRoutes(rr, req)
+	server.handlePreviewsCreate(rr, req)
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected status 422, got %d", rr.Code)
 	}
@@ -513,6 +528,9 @@ func TestGitGraphEndpoint_UnknownWorkspace(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/nonexistent/git-graph", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("workspaceID", "nonexistent")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
 	server.handleWorkspaceGitGraph(rr, req)
 
@@ -525,6 +543,9 @@ func TestGitGraphEndpoint_MethodNotAllowed(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-123/git-graph", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("workspaceID", "ws-123")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	rr := httptest.NewRecorder()
 	server.handleWorkspaceGitGraph(rr, req)
 
@@ -589,6 +610,9 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 
 	t.Run("dispose blocked for dev-live workspace", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live/dispose", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("workspaceID", "ws-dev-live")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server.handleDisposeWorkspace(rr, req)
 		if rr.Code != http.StatusConflict {
@@ -605,6 +629,9 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 
 	t.Run("dispose-all blocked for dev-live workspace", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live/dispose-all", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("workspaceID", "ws-dev-live")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server.handleDisposeWorkspaceAll(rr, req)
 		if rr.Code != http.StatusConflict {
@@ -624,6 +651,9 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 			t.Fatalf("failed to add workspace: %v", err)
 		}
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-other/dispose", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("workspaceID", "ws-other")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server.handleDisposeWorkspace(rr, req)
 		// Should NOT be 409 — the workspace is not dev-live, so it proceeds
@@ -652,6 +682,9 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 		_ = st.AddWorkspace(ws3)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/workspaces/ws-dev-live-2/dispose", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("workspaceID", "ws-dev-live-2")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 		rr := httptest.NewRecorder()
 		server2.handleDisposeWorkspace(rr, req)
 		if rr.Code == http.StatusConflict {

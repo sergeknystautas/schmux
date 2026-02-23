@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -25,83 +27,14 @@ type linearSyncResponse struct {
 	ActualHash           string `json:"actual_hash,omitempty"`
 }
 
-// handleLinearSync handles POST requests for workspace linear sync operations.
-// Dispatches to specific handlers based on URL suffix:
-// - GET /api/workspaces/{id}/git-graph - get commit graph
-// - GET /api/workspaces/{id}/git-commit/{hash} - get commit detail
-// - POST /api/workspaces/{id}/linear-sync-from-main - sync commits from main into branch
-// - POST /api/workspaces/{id}/linear-sync-to-main - sync commits from branch to main
-// - POST /api/workspaces/{id}/push-to-branch - push commits to origin/branch
-// - POST /api/workspaces/{id}/git-commit-stage - stage files for commit
-// - POST /api/workspaces/{id}/git-amend - amend last commit
-// - POST /api/workspaces/{id}/git-discard - discard all changes
-// - POST /api/workspaces/{id}/git-uncommit - reset HEAD commit, keep changes unstaged
-// - POST /api/workspaces/{id}/refresh-overlay - reapply overlay files to workspace
-func (s *Server) handleLinearSync(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	// GET routes
-	if strings.HasSuffix(path, "/git-graph") {
-		s.handleWorkspaceGitGraph(w, r)
-		return
-	}
-	if strings.Contains(path, "/git-commit/") {
-		s.handleWorkspaceGitCommit(w, r)
-		return
-	}
-
-	// DELETE routes
-	if r.Method == http.MethodDelete {
-		if strings.HasSuffix(path, "/linear-sync-resolve-conflict-state") {
-			s.handleDeleteLinearSyncResolveConflictState(w, r)
-		} else {
-			http.NotFound(w, r)
-		}
-		return
-	}
-
-	// All other routes require POST
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Route based on URL suffix
-	if strings.HasSuffix(path, "/linear-sync-from-main") {
-		s.handleLinearSyncFromMain(w, r)
-	} else if strings.HasSuffix(path, "/linear-sync-to-main") {
-		s.handleLinearSyncToMain(w, r)
-	} else if strings.HasSuffix(path, "/push-to-branch") {
-		s.handlePushToBranch(w, r)
-	} else if strings.HasSuffix(path, "/linear-sync-resolve-conflict") {
-		s.handleLinearSyncResolveConflict(w, r)
-	} else if strings.HasSuffix(path, "/git-commit-stage") {
-		s.handleGitCommitStage(w, r)
-	} else if strings.HasSuffix(path, "/git-amend") {
-		s.handleGitAmend(w, r)
-	} else if strings.HasSuffix(path, "/git-discard") {
-		s.handleGitDiscard(w, r)
-	} else if strings.HasSuffix(path, "/git-uncommit") {
-		s.handleGitUncommit(w, r)
-	} else if strings.HasSuffix(path, "/refresh-overlay") {
-		s.handleRefreshOverlay(w, r)
-	} else if strings.HasSuffix(path, "/dispose") {
-		s.handleDisposeWorkspace(w, r)
-	} else if strings.HasSuffix(path, "/dispose-all") {
-		s.handleDisposeWorkspaceAll(w, r)
-	} else {
-		http.NotFound(w, r)
-	}
-}
-
 // handleLinearSyncFromMain handles POST requests to sync commits from origin/main into branch.
 // POST /api/workspaces/{id}/linear-sync-from-main
 //
 // This performs an iterative rebase that brings commits FROM main INTO the current branch
 // one at a time, preserving local changes. Supports diverged branches.
 func (s *Server) handleLinearSyncFromMain(w http.ResponseWriter, r *http.Request) {
-	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-from-main
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-from-main")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -263,8 +196,8 @@ func (s *Server) runLinearSyncFromMain(workspaceID string) {
 //
 // This pushes the current branch's commits directly to main without a merge commit.
 func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) {
-	// Extract workspace ID from URL: /api/workspaces/{id}/linear-sync-to-main
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-to-main")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -326,8 +259,8 @@ func (s *Server) handleLinearSyncToMain(w http.ResponseWriter, r *http.Request) 
 // Request body: {"confirm": true|false}
 // If branches have diverged and confirm=false, returns needs_confirm=true with divergent commits.
 func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
-	// Extract workspace ID from URL: /api/workspaces/{id}/push-to-branch
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/push-to-branch")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -401,7 +334,7 @@ func (s *Server) handlePushToBranch(w http.ResponseWriter, r *http.Request) {
 // Returns 202 immediately; progress is streamed via the /ws/dashboard WebSocket.
 // POST /api/workspaces/{id}/linear-sync-resolve-conflict
 func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.Request) {
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-resolve-conflict")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
@@ -600,7 +533,7 @@ func (s *Server) handleLinearSyncResolveConflict(w http.ResponseWriter, r *http.
 // handleDeleteLinearSyncResolveConflictState handles DELETE requests to dismiss a completed resolve conflict state.
 // DELETE /api/workspaces/{id}/linear-sync-resolve-conflict-state
 func (s *Server) handleDeleteLinearSyncResolveConflictState(w http.ResponseWriter, r *http.Request) {
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/linear-sync-resolve-conflict-state")
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
