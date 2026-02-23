@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,6 +19,19 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
+
+// validateLoreRepo is a chi middleware that validates the {repo} URL parameter.
+// Rejects requests with repo names that contain path separators, dots, or null bytes.
+func validateLoreRepo(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repo := chi.URLParam(r, "repo")
+		if repo == "" || strings.ContainsAny(repo, "/\\.\x00") || len(repo) > 128 {
+			http.Error(w, "invalid repo name", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // handleLoreStatus returns the lore system configuration status.
 func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
