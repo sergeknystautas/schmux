@@ -526,6 +526,7 @@ func (s *Server) Start() error {
 
 			// Workspace routes (nested group)
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
+				r.Use(validateWorkspaceID)
 				// Preview routes
 				r.Get("/previews", s.handlePreviewsList)
 				r.Post("/previews", s.handlePreviewsCreate)
@@ -557,6 +558,7 @@ func (s *Server) Start() error {
 			// Lore routes
 			r.Get("/lore/status", s.handleLoreStatus)
 			r.Route("/lore/{repo}", func(r chi.Router) {
+				r.Use(validateLoreRepo)
 				r.Get("/proposals", s.handleLoreProposals)
 				r.Get("/proposals/{proposalID}", s.handleLoreProposalGet)
 				r.Post("/proposals/{proposalID}/apply", s.handleLoreApply)
@@ -733,7 +735,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, PATCH, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 
 		if r.Method == "OPTIONS" {
