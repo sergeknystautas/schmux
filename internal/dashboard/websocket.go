@@ -174,10 +174,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Subscribe to output — multiple clients can subscribe simultaneously
-	outputCh := tracker.SubscribeOutput()
-	defer tracker.UnsubscribeOutput(outputCh)
-
 	// Start reading client messages early so we can process resize before bootstrap
 	controlChan := make(chan WSMessage, 10)
 	go func() {
@@ -317,6 +313,11 @@ resizeWaitLoop:
 		}
 	}
 
+	// Subscribe to output — after capture to avoid TOCTOU double-delivery.
+	// Events arriving after subscribe are guaranteed not to be in the bootstrap snapshot.
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
+
 	if err := conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap)); err != nil {
 		return
 	}
@@ -328,28 +329,6 @@ resizeWaitLoop:
 	var syncChecksSent atomic.Int64
 	var syncCorrections atomic.Int64
 	var syncSkippedActive atomic.Int64
-
-	// Flush any output that arrived during bootstrap
-	for {
-		select {
-		case event, ok := <-outputCh:
-			if !ok {
-				return
-			}
-			if len(event.Data) > 0 {
-				send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
-				escHoldback = hb
-				if len(send) > 0 {
-					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
-						return
-					}
-				}
-			}
-		default:
-			goto drained
-		}
-	}
-drained:
 
 	// Dev mode diagnostics: ring buffer and stats ticker
 	var ringBuf *RingBuffer
@@ -409,6 +388,9 @@ drained:
 		}
 	}()
 
+	// Activity-triggered sync: large output events trigger debounced sync check
+	syncNow := make(chan struct{}, 1)
+
 	// Periodic sync check goroutine — sends screen snapshots for desync detection
 	go func() {
 		timer := time.NewTimer(500 * time.Millisecond)
@@ -419,6 +401,18 @@ drained:
 		for {
 			select {
 			case <-timer.C:
+			case <-syncNow:
+				// Debounce: wait 200ms for activity to settle
+				debounce := time.NewTimer(200 * time.Millisecond)
+			drainSync:
+				for {
+					select {
+					case <-syncNow:
+					case <-debounce.C:
+						break drainSync
+					}
+				}
+				debounce.Stop()
 			case <-sessionDead:
 				return
 			}
@@ -475,6 +469,13 @@ drained:
 				if len(send) > 0 {
 					if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
 						return
+					}
+					// Trigger activity-based sync for large output (TUI redraws)
+					if len(send) > 500 {
+						select {
+						case syncNow <- struct{}{}:
+						default: // already pending
+						}
 					}
 				}
 			}
@@ -647,10 +648,6 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Subscribe to output
-	outputCh := tracker.SubscribeOutput()
-	defer tracker.UnsubscribeOutput(outputCh)
-
 	// Bootstrap with scrollback — send as binary frame
 	// Fall back to tmux CLI capture if control mode not attached
 	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -662,6 +659,10 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	if bootstrap != "" {
 		conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap))
 	}
+
+	// Subscribe to output — after capture to avoid TOCTOU double-delivery
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
 
 	// Read-only: drain client messages (required by gorilla) but ignore input
 	controlChan := make(chan struct{})
@@ -786,10 +787,6 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 		wsConn.Close()
 	}()
 
-	// Subscribe to output from the remote pane
-	outputChan := conn.SubscribeOutput(sess.RemotePaneID)
-	defer conn.UnsubscribeOutput(sess.RemotePaneID, outputChan)
-
 	// Handle client messages (input, pause, resume)
 	controlChan := make(chan WSMessage, 10)
 	go func() {
@@ -845,6 +842,10 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
+
+	// Subscribe to output — after capture to avoid TOCTOU double-delivery
+	outputChan := conn.SubscribeOutput(sess.RemotePaneID)
+	defer conn.UnsubscribeOutput(sess.RemotePaneID, outputChan)
 
 	paused := false
 	checkTicker := time.NewTicker(5 * time.Second) // Periodic health check
