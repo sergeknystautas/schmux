@@ -5,7 +5,7 @@ import CodeReviewTab from './CodeReviewTab';
 import type { ConfigFormAction } from './useConfigForm';
 import type { Model, RunTargetResponse } from '../../lib/types';
 
-const dispatch = vi.fn<[ConfigFormAction], void>();
+const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 const detectedTargets: RunTargetResponse[] = [
   { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },

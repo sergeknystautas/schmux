@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import ConfigModals from './ConfigModals';
 import type { ConfigFormAction } from './useConfigForm';
 
-const dispatch = vi.fn<[ConfigFormAction], void>();
+const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 describe('ConfigModals', () => {
   describe('auth secrets modal', () => {

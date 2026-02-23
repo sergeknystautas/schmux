@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import WorkspacesTab from './WorkspacesTab';
 import type { ConfigFormAction } from './useConfigForm';
 
-const dispatch = vi.fn<[ConfigFormAction], void>();
+const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 const defaultProps = {
   workspacePath: '/home/user/workspaces',
