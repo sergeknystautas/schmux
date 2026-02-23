@@ -38,17 +38,6 @@ const tokenMaxAge = 30 * time.Minute
 const maxNonces = 1000
 const maxFailureIPs = 1000
 
-func (s *Server) handleRemoteAuth(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleRemoteAuthGET(w, r)
-	case http.MethodPost:
-		s.handleRemoteAuthPOST(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
 func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	nonce := r.URL.Query().Get("nonce")

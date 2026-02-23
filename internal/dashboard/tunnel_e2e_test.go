@@ -64,7 +64,8 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 	r.HandleFunc("/*", s.handleApp)
 
 	// Remote auth (unauthenticated — token/nonce/password protected)
-	r.HandleFunc("/remote-auth", s.handleRemoteAuth)
+	r.Get("/remote-auth", s.handleRemoteAuthGET)
+	r.Post("/remote-auth", s.handleRemoteAuthPOST)
 
 	// WebSocket endpoints
 	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
@@ -85,7 +86,9 @@ func newTunnelTestServer(t *testing.T, password string) *tunnelTestServer {
 			r.Post("/remote-access/on", s.handleRemoteAccessOn)
 			r.Post("/remote-access/off", s.handleRemoteAccessOff)
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
-			r.HandleFunc("/config", s.handleConfig)
+			r.Get("/config", s.handleConfigGet)
+			r.Put("/config", s.handleConfigUpdate)
+			r.Post("/config", s.handleConfigUpdate)
 		})
 	})
 
@@ -168,7 +171,7 @@ func TestTunnelE2E_FullAuthLifecycle(t *testing.T) {
 	// Step 2: Remote client clicks auth URL → token consumed, nonce issued
 	req := tunneledRequest("GET", "/remote-auth?token="+token, nil)
 	rr := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr, req)
+	tts.server.handleRemoteAuthGET(rr, req)
 
 	if rr.Code != http.StatusFound {
 		t.Fatalf("token exchange: expected 302, got %d", rr.Code)
@@ -182,7 +185,7 @@ func TestTunnelE2E_FullAuthLifecycle(t *testing.T) {
 	// Step 3: Token is consumed — replay fails
 	req2 := tunneledRequest("GET", "/remote-auth?token="+token, nil)
 	rr2 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr2, req2)
+	tts.server.handleRemoteAuthGET(rr2, req2)
 	if strings.Contains(rr2.Body.String(), `name="password"`) {
 		t.Fatal("replayed token should not show password form")
 	}
@@ -190,7 +193,7 @@ func TestTunnelE2E_FullAuthLifecycle(t *testing.T) {
 	// Step 4: Nonce shows password form
 	req3 := tunneledRequest("GET", "/remote-auth?nonce="+nonce, nil)
 	rr3 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr3, req3)
+	tts.server.handleRemoteAuthGET(rr3, req3)
 	if !strings.Contains(rr3.Body.String(), `name="password"`) {
 		t.Fatal("valid nonce should show password form")
 	}
@@ -200,7 +203,7 @@ func TestTunnelE2E_FullAuthLifecycle(t *testing.T) {
 	req4 := tunneledRequest("POST", "/remote-auth", body)
 	req4.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr4 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr4, req4)
+	tts.server.handleRemoteAuthPOST(rr4, req4)
 
 	if rr4.Code != http.StatusFound {
 		t.Fatalf("password submit: expected 302, got %d: %s", rr4.Code, rr4.Body.String())
@@ -445,7 +448,7 @@ func TestTunnelE2E_Attack_NonceReuseAfterSuccess(t *testing.T) {
 
 	req := tunneledRequest("GET", "/remote-auth?token="+token, nil)
 	rr := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr, req)
+	tts.server.handleRemoteAuthGET(rr, req)
 	nonce := strings.TrimPrefix(rr.Header().Get("Location"), "/remote-auth?nonce=")
 
 	// First password submission — success
@@ -453,7 +456,7 @@ func TestTunnelE2E_Attack_NonceReuseAfterSuccess(t *testing.T) {
 	req2 := tunneledRequest("POST", "/remote-auth", body)
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr2 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr2, req2)
+	tts.server.handleRemoteAuthPOST(rr2, req2)
 	if rr2.Code != http.StatusFound {
 		t.Fatalf("first auth: expected 302, got %d", rr2.Code)
 	}
@@ -463,7 +466,7 @@ func TestTunnelE2E_Attack_NonceReuseAfterSuccess(t *testing.T) {
 	req3 := tunneledRequest("POST", "/remote-auth", body2)
 	req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr3 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr3, req3)
+	tts.server.handleRemoteAuthPOST(rr3, req3)
 
 	if rr3.Code == http.StatusFound {
 		t.Error("nonce replay should not succeed — nonce should be consumed after first use")
@@ -512,7 +515,7 @@ func TestTunnelE2E_Attack_PasswordBruteForce(t *testing.T) {
 
 	req := tunneledRequest("GET", "/remote-auth?token="+token, nil)
 	rr := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr, req)
+	tts.server.handleRemoteAuthGET(rr, req)
 	nonce := strings.TrimPrefix(rr.Header().Get("Location"), "/remote-auth?nonce=")
 
 	// Exhaust password attempts (maxPasswordAttempts = 5)
@@ -521,7 +524,7 @@ func TestTunnelE2E_Attack_PasswordBruteForce(t *testing.T) {
 		req := tunneledRequest("POST", "/remote-auth", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
-		tts.server.handleRemoteAuth(rr, req)
+		tts.server.handleRemoteAuthPOST(rr, req)
 	}
 
 	// Now try the correct password — should be locked out
@@ -529,7 +532,7 @@ func TestTunnelE2E_Attack_PasswordBruteForce(t *testing.T) {
 	req2 := tunneledRequest("POST", "/remote-auth", body)
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr2 := httptest.NewRecorder()
-	tts.server.handleRemoteAuth(rr2, req2)
+	tts.server.handleRemoteAuthPOST(rr2, req2)
 
 	if rr2.Code == http.StatusFound {
 		t.Error("correct password after lockout should still be rejected")

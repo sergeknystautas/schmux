@@ -9,59 +9,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
-
-// handleLoreRouter dispatches lore API requests based on the URL path.
-// Routes:
-//   - GET  /api/lore/{repo}/proposals          — list proposals
-//   - GET  /api/lore/{repo}/proposals/{id}     — get single proposal
-//   - POST /api/lore/{repo}/proposals/{id}/apply   — apply a proposal
-//   - POST /api/lore/{repo}/proposals/{id}/dismiss — dismiss a proposal
-//   - GET  /api/lore/{repo}/entries            — list lore entries
-//   - POST /api/lore/{repo}/curate             — trigger manual curation
-func (s *Server) handleLoreRouter(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/lore/")
-	parts := strings.Split(path, "/")
-
-	// Global lore endpoints (no repo name required)
-	if len(parts) >= 1 && parts[0] == "status" {
-		s.handleLoreStatus(w, r)
-		return
-	}
-
-	// Validate repoName to prevent path traversal
-	if len(parts) > 0 {
-		repoName := parts[0]
-		if strings.ContainsAny(repoName, "/\\") || repoName == ".." || repoName == "." {
-			http.Error(w, "Invalid repo name", http.StatusBadRequest)
-			return
-		}
-	}
-
-	switch {
-	case len(parts) >= 4 && parts[1] == "proposals" && parts[3] == "apply":
-		s.handleLoreApply(w, r)
-	case len(parts) >= 4 && parts[1] == "proposals" && parts[3] == "dismiss":
-		s.handleLoreDismiss(w, r)
-	case len(parts) >= 3 && parts[1] == "proposals":
-		s.handleLoreProposalGet(w, r)
-	case len(parts) >= 2 && parts[1] == "proposals":
-		s.handleLoreProposals(w, r)
-	case len(parts) >= 2 && parts[1] == "entries":
-		s.handleLoreEntries(w, r)
-	case len(parts) >= 2 && parts[1] == "curate":
-		s.handleLoreCurate(w, r)
-	default:
-		http.Error(w, "not found", http.StatusNotFound)
-	}
-}
 
 // handleLoreStatus returns the lore system configuration status.
 func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
@@ -126,12 +82,11 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 2 || parts[0] == "" {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
-	repoName := parts[0]
 
 	if s.loreStore == nil {
 		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
@@ -159,12 +114,12 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 3 {
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	if repoName == "" || proposalID == "" {
 		http.Error(w, "missing repo name or proposal id", http.StatusBadRequest)
 		return
 	}
-	repoName, proposalID := parts[0], parts[2]
 
 	if s.loreStore == nil {
 		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
@@ -191,12 +146,12 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 4 {
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	if repoName == "" || proposalID == "" {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	repoName, proposalID := parts[0], parts[2]
 
 	if s.loreStore == nil {
 		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
@@ -313,12 +268,12 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 4 {
+	repoName := chi.URLParam(r, "repo")
+	proposalID := chi.URLParam(r, "proposalID")
+	if repoName == "" || proposalID == "" {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	repoName, proposalID := parts[0], parts[2]
 
 	if s.loreStore == nil {
 		http.Error(w, "lore system not enabled", http.StatusServiceUnavailable)
@@ -365,12 +320,11 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 2 {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
-	repoName := parts[0]
 
 	readPaths := s.getLoreReadPaths(repoName)
 
@@ -411,12 +365,11 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/lore/"), "/")
-	if len(parts) < 2 || parts[0] == "" {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
 		return
 	}
-	repoName := parts[0]
 
 	if s.loreCurator == nil || s.loreCurator.Executor == nil {
 		http.Error(w, "lore curator not configured (no LLM target)", http.StatusServiceUnavailable)

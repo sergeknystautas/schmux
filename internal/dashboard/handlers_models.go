@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -69,16 +71,13 @@ func buildTLS(cfg *config.Config) *contracts.TLS {
 	}
 }
 
-// handleModel handles model secret/configured requests.
-func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/models/")
-	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
-		http.Error(w, "model name and action required", http.StatusBadRequest)
+// handleModelConfigured handles GET /api/models/{name}/configured
+func (s *Server) handleModelConfigured(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		http.Error(w, "model name required", http.StatusBadRequest)
 		return
 	}
-	name := parts[0]
-	action := parts[1]
 
 	model, ok := detect.FindModel(name)
 	if !ok {
@@ -86,72 +85,81 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch action {
-	case "configured":
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		configured, err := modelConfigured(model)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]bool{"configured": configured}); err != nil {
-			s.logger.Error("failed to encode response", "handler", "model-configured", "err", err)
-		}
-	case "secrets":
-		switch r.Method {
-		case http.MethodPost:
-			type SecretsRequest struct {
-				Secrets map[string]string `json:"secrets"`
-			}
-			var req SecretsRequest
-			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-				return
-			}
-			if err := validateModelSecrets(model, req.Secrets); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			if err := config.SaveModelSecrets(model.ID, req.Secrets); err != nil {
-				http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-				s.logger.Error("failed to encode response", "handler", "model-secrets-save", "err", err)
-			}
-		case http.MethodDelete:
-			if targetInUseByNudgenikOrQuickLaunch(s.config, model.ID) {
-				http.Error(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
-				return
-			}
-			if model.Provider != "" && model.Provider != "anthropic" {
-				if err := config.DeleteProviderSecrets(model.Provider); err != nil {
-					http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
-					return
-				}
-			} else {
-				if err := config.DeleteModelSecrets(model.ID); err != nil {
-					http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
-					return
-				}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-				s.logger.Error("failed to encode response", "handler", "model-secrets-delete", "err", err)
-			}
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-	default:
-		http.Error(w, "unknown model action", http.StatusNotFound)
+	configured, err := modelConfigured(model)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"configured": configured})
+}
+
+// handleModelSecretsPost handles POST /api/models/{name}/secrets
+func (s *Server) handleModelSecretsPost(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		http.Error(w, "model name required", http.StatusBadRequest)
+		return
+	}
+
+	model, ok := detect.FindModel(name)
+	if !ok {
+		http.Error(w, "model not found", http.StatusNotFound)
+		return
+	}
+
+	type SecretsRequest struct {
+		Secrets map[string]string `json:"secrets"`
+	}
+	var req SecretsRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := validateModelSecrets(model, req.Secrets); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := config.SaveModelSecrets(model.ID, req.Secrets); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleModelSecretsDelete handles DELETE /api/models/{name}/secrets
+func (s *Server) handleModelSecretsDelete(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		http.Error(w, "model name required", http.StatusBadRequest)
+		return
+	}
+
+	model, ok := detect.FindModel(name)
+	if !ok {
+		http.Error(w, "model not found", http.StatusNotFound)
+		return
+	}
+
+	if targetInUseByNudgenikOrQuickLaunch(s.config, model.ID) {
+		http.Error(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
+		return
+	}
+	if model.Provider != "" && model.Provider != "anthropic" {
+		if err := config.DeleteProviderSecrets(model.Provider); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := config.DeleteModelSecrets(model.ID); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func targetInUseByNudgenikOrQuickLaunch(cfg *config.Config, targetName string) bool {

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -132,8 +134,8 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract workspace ID from URL: /api/workspaces/:id/refresh-overlay
-	workspaceID := extractPathSegment(r.URL.Path, "/api/workspaces/", "/refresh-overlay")
+	// Extract workspace ID from chi URL param
+	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
 		http.Error(w, "workspace ID is required", http.StatusBadRequest)
 		return
