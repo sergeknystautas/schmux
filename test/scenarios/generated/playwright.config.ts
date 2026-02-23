@@ -6,6 +6,7 @@ export default defineConfig({
   timeout: 60_000,
   retries: 1,
   workers: 1,
+  globalSetup: './global-setup.ts',
   use: {
     baseURL: 'http://localhost:7337',
     screenshot: 'only-on-failure',

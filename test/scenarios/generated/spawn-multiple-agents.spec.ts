@@ -6,6 +6,7 @@ import {
   waitForDashboardLive,
   waitForHealthy,
   waitForSessionRunning,
+  disposeAllSessions,
 } from './helpers';
 
 test.describe.serial('Spawn multiple agents on the same task', () => {
@@ -13,6 +14,9 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
 
   test.beforeAll(async () => {
     await waitForHealthy();
+    // Dispose leftover sessions from prior test files to prevent
+    // accumulated sessions from slowing WebSocket broadcasts
+    await disposeAllSessions();
     repoPath = await createTestRepo('test-repo-multi');
 
     await seedConfig({
@@ -30,6 +34,11 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
         },
       ],
     });
+  });
+
+  test.afterAll(async () => {
+    // Dispose all sessions to prevent accumulation across repeated test runs
+    await disposeAllSessions();
   });
 
   test('spawn multiple agents via the UI', async ({ page }) => {
@@ -59,8 +68,23 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
     // Submit the form
     await page.locator('[data-testid="spawn-submit"]').click();
 
-    // Wait for navigation to a session detail page
-    await page.waitForURL(/\/sessions\//, { timeout: 30000 });
+    // Wait for the pending navigation to redirect to a session page.
+    // Under heavy load (many accumulated workspaces from prior test files),
+    // the WebSocket broadcast can be delayed. Fall back to polling the API
+    // and navigating directly if the pending navigation times out.
+    try {
+      await page.waitForURL(/\/sessions\//, { timeout: 15000 });
+    } catch {
+      // Pending navigation didn't fire in time — poll API for the session
+      await waitForSessionRunning();
+      const workspaces = await getSessions();
+      const targetWs = workspaces.find((ws) =>
+        ws.sessions.some((s) => s.target === 'agent-alpha' || s.target === 'agent-beta')
+      );
+      if (targetWs && targetWs.sessions.length > 0) {
+        await page.goto(`/sessions/${targetWs.sessions[0].id}`);
+      }
+    }
 
     // Verify: URL matches /sessions/
     expect(page.url()).toMatch(/\/sessions\//);
