@@ -21,11 +21,6 @@ import (
 
 // handleLoreStatus returns the lore system configuration status.
 func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	enabled := s.config.GetLoreEnabled()
 	curateOnDispose := s.config.GetLoreCurateOnDispose()
 	llmTarget := s.config.GetLoreTarget()
@@ -78,10 +73,6 @@ func (s *Server) getLoreReadPaths(repoName string) []string {
 
 // handleLoreProposals lists all proposals for a repo.
 func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
@@ -110,10 +101,6 @@ func (s *Server) handleLoreProposals(w http.ResponseWriter, r *http.Request) {
 
 // handleLoreProposalGet returns a single proposal by ID.
 func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	repoName := chi.URLParam(r, "repo")
 	proposalID := chi.URLParam(r, "proposalID")
 	if repoName == "" || proposalID == "" {
@@ -141,10 +128,6 @@ func (s *Server) handleLoreProposalGet(w http.ResponseWriter, r *http.Request) {
 // handleLoreApply applies a proposal: creates a worktree, commits changes, pushes the branch,
 // and optionally creates a PR when auto_pr is enabled.
 func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	repoName := chi.URLParam(r, "repo")
 	proposalID := chi.URLParam(r, "proposalID")
@@ -264,10 +247,6 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 
 // handleLoreDismiss marks a proposal as dismissed.
 func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	repoName := chi.URLParam(r, "repo")
 	proposalID := chi.URLParam(r, "proposalID")
 	if repoName == "" || proposalID == "" {
@@ -316,10 +295,6 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 // handleLoreEntries returns the lore JSONL entries for a repo, aggregated from all workspace directories
 // and the central state file. Supports query parameters: state, agent, type, limit.
 func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {
 		http.Error(w, "missing repo name", http.StatusBadRequest)
@@ -360,10 +335,6 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 
 // handleLoreCurate handles manual curation requests.
 func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	repoName := chi.URLParam(r, "repo")
 	if repoName == "" {

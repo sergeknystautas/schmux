@@ -10,10 +10,6 @@ import (
 // handleDiagnosticAppend receives frontend diagnostic files and appends them
 // to an existing diagnostic directory created by the WebSocket diagnostic handler.
 func (s *Server) handleDiagnosticAppend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	var req struct {
 		DiagDir            string `json:"diagDir"`
 		XtermScreen        string `json:"xtermScreen"`

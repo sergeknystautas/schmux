@@ -250,11 +250,6 @@ func (s *Server) handleRemoteFlavorDelete(w http.ResponseWriter, r *http.Request
 
 // handleRemoteHosts handles GET /api/remote/hosts
 func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	hosts := s.state.GetRemoteHosts()
 	response := make([]RemoteHostResponse, len(hosts))
 
@@ -300,11 +295,6 @@ func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
 // This starts a connection asynchronously and returns immediately.
 // The client should poll /api/remote/hosts for status updates.
 func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Rate limiting by user (if auth enabled) or IP (without port)
 	rateLimitKey := s.normalizeIPForRateLimit(r)
 	if s.config.GetAuthEnabled() {
@@ -390,11 +380,6 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 // This starts reconnection asynchronously and returns immediately with a provisioning session ID.
 // The client should open a WebSocket to /ws/provision/{provisioningSessionId} for interactive auth.
 func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
 		http.Error(w, "Host ID required", http.StatusBadRequest)
@@ -464,11 +449,6 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 
 // handleRemoteHostDisconnect handles DELETE /api/remote/hosts/{hostID}
 func (s *Server) handleRemoteHostDisconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	hostID := chi.URLParam(r, "hostID")
 	if hostID == "" {
 		http.Error(w, "Host ID required", http.StatusBadRequest)
@@ -507,11 +487,6 @@ type RemoteFlavorStatusResponse struct {
 
 // handleRemoteFlavorStatuses returns all flavors with their connection status.
 func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	flavors := s.config.GetRemoteFlavors()
 
 	// If remote manager is available, use its real-time connection status
@@ -590,11 +565,6 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 // handleRemoteConnectStream handles GET /api/remote/hosts/connect/stream
 // This streams provisioning progress via Server-Sent Events (SSE).
 func (s *Server) handleRemoteConnectStream(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	flavorID := r.URL.Query().Get("flavor_id")
 	if flavorID == "" {
 		http.Error(w, "flavor_id required", http.StatusBadRequest)

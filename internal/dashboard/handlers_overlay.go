@@ -20,11 +20,6 @@ import (
 
 // handleOverlays returns overlay information for all repos.
 func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	type PathInfo struct {
 		Path   string `json:"path"`
 		Source string `json:"source"` // "builtin", "global", or "repo"
@@ -129,11 +124,6 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 
 // handleRefreshOverlay handles POST requests to refresh overlay files for a workspace.
 func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract workspace ID from chi URL param
 	workspaceID := chi.URLParam(r, "workspaceID")
 	if workspaceID == "" {
@@ -160,11 +150,6 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 
 // handleOverlayScan scans a workspace for gitignored files that could be added to the overlay.
 func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
@@ -243,11 +228,6 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 
 // handleOverlayAdd copies files from a workspace to the overlay directory and updates config.
 func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {
@@ -359,11 +339,6 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 
 // handleDismissNudge handles POST requests to dismiss the overlay nudge banner for a repo.
 func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
 	var req struct {

@@ -41,11 +41,6 @@ type SpawnRequest struct {
 
 // handleSpawnPost handles session spawning requests.
 func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var req SpawnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -328,11 +323,6 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 // handleSuggestBranch handles branch name suggestion requests.
 func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
@@ -386,11 +376,6 @@ func (s *Server) handleSuggestBranch(w http.ResponseWriter, r *http.Request) {
 // Gets commit log from the bare clone, generates a nickname via branch suggestion, and returns
 // everything needed to populate the spawn form.
 func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	start := time.Now()
 
@@ -551,11 +536,6 @@ type BuiltinQuickLaunchCookbook struct {
 
 // handleBuiltinQuickLaunch returns the list of built-in quick launch cookbooks.
 func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Try embedded file first (production), fall back to filesystem (development)
 	var data []byte
 	var readErr error
@@ -616,11 +596,6 @@ func (s *Server) handleBuiltinQuickLaunch(w http.ResponseWriter, r *http.Request
 // Request body: {"repo": "git@github.com:user/repo.git", "branch": "main"}
 // Response: {"conflict": false} or {"conflict": true, "workspace_id": "repo-001"}
 func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		Repo   string `json:"repo"`
 		Branch string `json:"branch"`
@@ -674,11 +649,6 @@ func (s *Server) handleCheckBranchConflict(w http.ResponseWriter, r *http.Reques
 // handleRecentBranches returns recent branches from all configured repos.
 // GET /api/recent-branches?limit=10
 func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Parse limit from query string, default to 10
 	limit := 10
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
@@ -709,11 +679,6 @@ func (s *Server) handleRecentBranches(w http.ResponseWriter, r *http.Request) {
 
 // handleRecentBranchesRefresh handles POST /api/recent-branches/refresh - fetches updates from remotes.
 func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
