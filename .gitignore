@@ -11,6 +11,10 @@
 
 # Output of the go coverage tool
 *.out
+*.out.func.txt
+
+# Test coverage reports
+assets/dashboard/coverage/
 
 # Go workspace file
 go.work
