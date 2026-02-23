@@ -79,6 +79,15 @@ export type AuthSecretsModalState = {
   error: string;
 } | null;
 
+export type TlsModalState = {
+  certPath: string;
+  keyPath: string;
+  hostname: string;
+  expires: string;
+  validating: boolean;
+  error: string;
+} | null;
+
 export type ConfigFormState = {
   // Core config fields
   workspacePath: string;
@@ -172,6 +181,7 @@ export type ConfigFormState = {
   runTargetEditModal: RunTargetEditModalState;
   quickLaunchEditModal: QuickLaunchEditModalState;
   authSecretsModal: AuthSecretsModalState;
+  tlsModal: TlsModalState;
 
   // Loading state
   loading: boolean;
@@ -209,7 +219,8 @@ export type ConfigFormAction =
   | { type: 'RESET_NEW_DIFF' }
   | { type: 'SET_RUN_TARGET_EDIT_MODAL'; modal: RunTargetEditModalState }
   | { type: 'SET_QUICK_LAUNCH_EDIT_MODAL'; modal: QuickLaunchEditModalState }
-  | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState };
+  | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState }
+  | { type: 'SET_TLS_MODAL'; modal: TlsModalState };
 
 export const initialState: ConfigFormState = {
   workspacePath: '',
@@ -294,6 +305,7 @@ export const initialState: ConfigFormState = {
   runTargetEditModal: null,
   quickLaunchEditModal: null,
   authSecretsModal: null,
+  tlsModal: null,
 
   loading: true,
   saving: false,
@@ -423,6 +435,9 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
 
     case 'SET_AUTH_SECRETS_MODAL':
       return { ...state, authSecretsModal: action.modal };
+
+    case 'SET_TLS_MODAL':
+      return { ...state, tlsModal: action.modal };
 
     default:
       return state;

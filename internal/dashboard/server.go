@@ -489,7 +489,7 @@ func (s *Server) Start() error {
 	}
 
 	scheme := "http"
-	if s.config.GetAuthEnabled() {
+	if s.config.GetTLSEnabled() {
 		scheme = "https"
 	}
 	if s.config.GetNetworkAccess() {
@@ -498,7 +498,7 @@ func (s *Server) Start() error {
 		s.logger.Info("listening", "addr", fmt.Sprintf("%s://localhost:%d", scheme, port), "network", false)
 	}
 
-	if s.config.GetAuthEnabled() {
+	if s.config.GetTLSEnabled() {
 		certPath := s.config.GetTLSCertPath()
 		keyPath := s.config.GetTLSKeyPath()
 		if err := s.httpServer.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
