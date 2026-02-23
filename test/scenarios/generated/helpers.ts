@@ -124,6 +124,29 @@ export async function disposeSession(sessionId: string): Promise<void> {
   await apiPost(`/api/sessions/${sessionId}/dispose`);
 }
 
+/**
+ * Dispose ALL running sessions across all workspaces.
+ * Useful for cleanup between repeated test runs to prevent session accumulation.
+ */
+export async function disposeAllSessions(): Promise<void> {
+  try {
+    const workspaces = await apiGet<WorkspaceItem[]>('/api/sessions');
+    for (const ws of workspaces) {
+      for (const sess of ws.sessions) {
+        if (sess.running) {
+          try {
+            await disposeSession(sess.id);
+          } catch {
+            // Ignore individual dispose failures
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore if API is not ready
+  }
+}
+
 // --- WebSocket helpers ---
 
 export async function waitForTerminalOutput(

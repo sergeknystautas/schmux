@@ -7,6 +7,7 @@ import {
   sleep,
   waitForSessionRunning,
 } from './helpers';
+import WS from 'ws';
 
 const BASE_URL = 'http://localhost:7337';
 
@@ -74,8 +75,37 @@ test.describe.serial('Dismiss conflict resolution tab after completion', () => {
       throw new Error(`Expected 202 or 409 from resolve-conflict, got ${resolveRes.status}`);
     }
 
-    // Wait for the resolution to fail (happens quickly — no LLM)
-    await sleep(5000);
+    // Wait for the resolution to reach terminal state (done or failed)
+    // by listening on the dashboard WebSocket instead of using a fixed sleep
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WS('ws://localhost:7337/ws/dashboard');
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error('CR state not terminal after 30s'));
+      }, 30_000);
+
+      ws.on('message', (data: WS.Data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (
+            msg.type === 'linear_sync_resolve_conflict' &&
+            msg.workspace_id === workspaceId &&
+            (msg.status === 'done' || msg.status === 'failed')
+          ) {
+            clearTimeout(timer);
+            ws.close();
+            resolve();
+          }
+        } catch {
+          // ignore non-JSON
+        }
+      });
+
+      ws.on('error', (err: Error) => {
+        clearTimeout(timer);
+        reject(new Error(`Dashboard WS error: ${err.message}`));
+      });
+    });
   });
 
   test('conflict resolution tab disappears on dismiss and stays gone', async ({ page }) => {
