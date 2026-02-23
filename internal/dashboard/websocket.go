@@ -933,7 +933,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	}
 
 	if s.requiresAuth() {
-		// Local requests bypass tunnel-only auth (consistent with withAuth middleware)
+		// Local requests bypass tunnel-only auth (consistent with authMiddleware)
 		if s.authEnabled() || !s.isTrustedRequest(r) {
 			if _, err := s.authenticateRequest(r); err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)

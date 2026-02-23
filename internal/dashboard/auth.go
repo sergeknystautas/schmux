@@ -124,32 +124,14 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Deprecated: use authMiddleware via r.Use() instead. Remove after migration.
+// Test-only helper wrappers - kept for backward compatibility with existing tests.
+// Production code should use authMiddleware + csrfMiddleware via r.Use() instead.
 func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	return s.authMiddleware(http.HandlerFunc(h)).ServeHTTP
 }
 
-// Deprecated: use authMiddleware + csrfMiddleware via r.Use() instead. Remove after migration.
 func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
 	return s.authMiddleware(s.csrfMiddleware(http.HandlerFunc(h))).ServeHTTP
-}
-
-func (s *Server) withAuthHandler(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.requiresAuth() {
-			h.ServeHTTP(w, r)
-			return
-		}
-		if !s.authEnabled() && s.isTrustedRequest(r) {
-			h.ServeHTTP(w, r)
-			return
-		}
-		if _, err := s.authenticateRequest(r); err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		h.ServeHTTP(w, r)
-	})
 }
 
 func (s *Server) requireAuthOrRedirect(w http.ResponseWriter, r *http.Request) bool {
