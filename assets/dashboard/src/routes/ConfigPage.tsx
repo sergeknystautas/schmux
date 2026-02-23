@@ -11,6 +11,7 @@ import {
   saveAuthSecrets,
   setRemoteAccessPassword,
   getErrorMessage,
+  validateTLS,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -303,6 +304,116 @@ export default function ConfigPage() {
     }
   }
   const combinedAuthWarnings = Array.from(new Set([...localAuthWarnings, ...state.authWarnings]));
+
+  // HTTPS derived state
+  const httpsEnabled = !!(state.authTlsCertPath.trim() && state.authTlsKeyPath.trim());
+  const tlsHostname = state.authPublicBaseURL
+    ? (() => {
+        try {
+          const url = new URL(state.authPublicBaseURL);
+          return url.hostname;
+        } catch {
+          return '';
+        }
+      })()
+    : '';
+  const tlsExpires = ''; // We don't store this, would need to validate again
+
+  const openTlsModal = () => {
+    dispatch({
+      type: 'SET_TLS_MODAL',
+      modal: {
+        certPath: state.authTlsCertPath,
+        keyPath: state.authTlsKeyPath,
+        hostname: '',
+        expires: '',
+        validating: false,
+        error: '',
+      },
+    });
+  };
+
+  const handleTlsValidate = async () => {
+    if (!state.tlsModal) return;
+    const { certPath, keyPath } = state.tlsModal;
+
+    if (!certPath.trim() || !keyPath.trim()) {
+      dispatch({
+        type: 'SET_TLS_MODAL',
+        modal: { ...state.tlsModal, error: 'Both cert and key paths are required' },
+      });
+      return;
+    }
+
+    dispatch({
+      type: 'SET_TLS_MODAL',
+      modal: { ...state.tlsModal, validating: true, error: '' },
+    });
+
+    try {
+      const result = await validateTLS(certPath, keyPath);
+      if (result.valid) {
+        dispatch({
+          type: 'SET_TLS_MODAL',
+          modal: {
+            ...state.tlsModal,
+            hostname: result.hostname || '',
+            expires: result.expires || '',
+            validating: false,
+          },
+        });
+      } else {
+        dispatch({
+          type: 'SET_TLS_MODAL',
+          modal: {
+            ...state.tlsModal,
+            validating: false,
+            error: result.error || 'Validation failed',
+          },
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'SET_TLS_MODAL',
+        modal: {
+          ...state.tlsModal,
+          validating: false,
+          error: getErrorMessage(err, 'Failed to validate TLS certificates'),
+        },
+      });
+    }
+  };
+
+  const handleTlsModalSave = () => {
+    if (!state.tlsModal) return;
+    const { certPath, keyPath, hostname, expires } = state.tlsModal;
+
+    // Update the form state with the validated paths
+    dispatch({ type: 'SET_FIELD', field: 'authTlsCertPath', value: certPath });
+    dispatch({ type: 'SET_FIELD', field: 'authTlsKeyPath', value: keyPath });
+
+    // Derive public_base_url from hostname if we have one
+    if (hostname) {
+      const port = state.authPublicBaseURL
+        ? (() => {
+            try {
+              const url = new URL(state.authPublicBaseURL);
+              return url.port || '7337';
+            } catch {
+              return '7337';
+            }
+          })()
+        : '7337';
+      dispatch({
+        type: 'SET_FIELD',
+        field: 'authPublicBaseURL',
+        value: `https://${hostname}:${port}`,
+      });
+    }
+
+    dispatch({ type: 'SET_TLS_MODAL', modal: null });
+    success('TLS certificate configured');
+  };
 
   const reloadModels = async () => {
     try {
@@ -1123,9 +1234,19 @@ export default function ConfigPage() {
               authClientIdSet={state.authClientIdSet}
               authClientSecretSet={state.authClientSecretSet}
               combinedAuthWarnings={combinedAuthWarnings}
+              httpsEnabled={httpsEnabled}
+              tlsHostname={tlsHostname}
+              tlsExpires={tlsExpires}
+              tlsModalCertPath={state.tlsModal?.certPath || ''}
+              tlsModalKeyPath={state.tlsModal?.keyPath || ''}
+              tlsModalValidating={state.tlsModal?.validating || false}
+              tlsModalHostname={state.tlsModal?.hostname || ''}
+              tlsModalExpires={state.tlsModal?.expires || ''}
+              tlsModalError={state.tlsModal?.error || ''}
               dispatch={dispatch}
               onSetPassword={handleSetPassword}
               onOpenAuthSecretsModal={openAuthSecretsModal}
+              onOpenTlsModal={openTlsModal}
               success={success}
               toastError={toastError}
             />
@@ -1211,10 +1332,14 @@ export default function ConfigPage() {
         authSecretsModal={state.authSecretsModal}
         runTargetEditModal={state.runTargetEditModal}
         quickLaunchEditModal={state.quickLaunchEditModal}
+        tlsModal={state.tlsModal}
         dispatch={dispatch}
         onSaveAuthSecrets={saveAuthSecretsModal}
         onSaveRunTargetEdit={saveRunTargetEditModal}
         onSaveQuickLaunchEdit={saveQuickLaunchEditModal}
+        onSaveTls={handleTlsModalSave}
+        onValidateTls={handleTlsValidate}
+        authPublicBaseURL={state.authPublicBaseURL}
       />
     </>
   );
