@@ -594,11 +594,11 @@ func (s *Server) isTrustedRequest(r *http.Request) bool {
 	return true
 }
 
-// withCORS wraps a handler with CORS headers and origin validation.
+// corsMiddleware is a chi-compatible middleware for CORS headers and origin validation.
 // Returns 403 Forbidden if the request origin is not allowed.
 // Sets Access-Control-Allow-Credentials when auth is enabled.
-func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
 		// Validate origin
@@ -615,7 +615,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 
 		if r.Method == "OPTIONS" {
@@ -623,8 +623,13 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		h(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Deprecated: use corsMiddleware via r.Use() instead. Remove after migration.
+func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
+	return s.corsMiddleware(http.HandlerFunc(h)).ServeHTTP
 }
 
 // isAllowedOrigin checks if a request origin should be permitted.

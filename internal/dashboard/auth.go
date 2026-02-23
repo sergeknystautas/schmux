@@ -87,39 +87,50 @@ func (s *Server) authCookieSecure() bool {
 	return parsed.Scheme == "https"
 }
 
-func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// authMiddleware is a chi-compatible middleware for authentication.
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.requiresAuth() {
-			h(w, r)
+			next.ServeHTTP(w, r)
 			return
 		}
 		// Local requests bypass tunnel-only auth (but not GitHub OAuth).
 		// The local user should always have unrestricted access.
 		if !s.authEnabled() && s.isTrustedRequest(r) {
-			h(w, r)
+			next.ServeHTTP(w, r)
 			return
 		}
 		if _, err := s.authenticateRequest(r); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		h(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
-// withAuthAndCSRF wraps a handler with both auth and CSRF validation.
+// csrfMiddleware is a chi-compatible middleware for CSRF validation.
 // Used for state-changing endpoints that need cross-site request forgery protection.
 // Local requests (from loopback) are exempt from CSRF checks.
-func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
-	return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			if !s.isTrustedRequest(r) && !s.validateCSRF(r) {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 		}
-		h(w, r)
+		next.ServeHTTP(w, r)
 	})
+}
+
+// Deprecated: use authMiddleware via r.Use() instead. Remove after migration.
+func (s *Server) withAuth(h http.HandlerFunc) http.HandlerFunc {
+	return s.authMiddleware(http.HandlerFunc(h)).ServeHTTP
+}
+
+// Deprecated: use authMiddleware + csrfMiddleware via r.Use() instead. Remove after migration.
+func (s *Server) withAuthAndCSRF(h http.HandlerFunc) http.HandlerFunc {
+	return s.authMiddleware(s.csrfMiddleware(http.HandlerFunc(h))).ServeHTTP
 }
 
 func (s *Server) withAuthHandler(h http.Handler) http.Handler {
