@@ -120,7 +120,9 @@ func (s *Server) handleOverlays(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(Response{Overlays: overlays})
+	if err := json.NewEncoder(w).Encode(Response{Overlays: overlays}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "overlays", "err", err)
+	}
 }
 
 // handleRefreshOverlay handles POST requests to refresh overlay files for a workspace.
@@ -142,16 +144,16 @@ func (s *Server) handleRefreshOverlay(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.workspace.RefreshOverlay(ctx, workspaceID); err != nil {
 		s.logger.Error("refresh-overlay error", "workspace_id", workspaceID, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	s.logger.Info("refresh-overlay success", "workspace_id", workspaceID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "refresh-overlay", "err", err)
+	}
 }
 
 // handleOverlayScan scans a workspace for gitignored files that could be added to the overlay.
@@ -232,7 +234,9 @@ func (s *Server) handleOverlayScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"candidates": candidates})
+	if err := json.NewEncoder(w).Encode(map[string]any{"candidates": candidates}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "overlay-scan", "err", err)
+	}
 }
 
 // handleOverlayAdd copies files from a workspace to the overlay directory and updates config.
@@ -341,12 +345,14 @@ func (s *Server) handleOverlayAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"success":    true,
 		"copied":     copied,
 		"registered": allNewPaths,
 		"errors":     errors,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "overlay-add", "err", err)
+	}
 }
 
 // handleDismissNudge handles POST requests to dismiss the overlay nudge banner for a repo.
@@ -398,5 +404,7 @@ func (s *Server) handleDismissNudge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dismiss-nudge", "err", err)
+	}
 }

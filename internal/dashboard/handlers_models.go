@@ -23,7 +23,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"models": resp})
+	if err := json.NewEncoder(w).Encode(map[string]any{"models": resp}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "models", "err", err)
+	}
 }
 
 func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
@@ -96,7 +98,9 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]bool{"configured": configured})
+		if err := json.NewEncoder(w).Encode(map[string]bool{"configured": configured}); err != nil {
+			s.logger.Error("failed to encode response", "handler", "model-configured", "err", err)
+		}
 	case "secrets":
 		switch r.Method {
 		case http.MethodPost:
@@ -118,7 +122,9 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+				s.logger.Error("failed to encode response", "handler", "model-secrets-save", "err", err)
+			}
 		case http.MethodDelete:
 			if targetInUseByNudgenikOrQuickLaunch(s.config, model.ID) {
 				http.Error(w, "model is in use by nudgenik or quick launch", http.StatusBadRequest)
@@ -136,7 +142,9 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+				s.logger.Error("failed to encode response", "handler", "model-secrets-delete", "err", err)
+			}
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return

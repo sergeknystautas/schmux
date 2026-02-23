@@ -8,9 +8,10 @@ import type { ConfigResponse, ConfigUpdateRequest } from '../../lib/types';
 // --- Mocks ---
 
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();
-const mockUpdateConfig = vi.fn<
-  (req: ConfigUpdateRequest) => Promise<{ status: string; warning?: string; warnings?: string[] }>
->();
+const mockUpdateConfig =
+  vi.fn<
+    (req: ConfigUpdateRequest) => Promise<{ status: string; warning?: string; warnings?: string[] }>
+  >();
 const mockGetAuthSecretsStatus = vi.fn();
 const mockGetOverlays = vi.fn();
 const mockGetBuiltinQuickLaunch = vi.fn();

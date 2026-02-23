@@ -144,6 +144,7 @@ Response:
   {
     "id": "workspace-id",
     "repo": "repo-url-or-name",
+    "repo_name": "optional-configured-name",
     "branch": "branch",
     "path": "/path/to/workspace",
     "session_count": 1,
@@ -185,6 +186,8 @@ Notes:
 
 - `last_output_at` is an in-memory runtime signal and resets after daemon restart.
 - `last_output_at` may be omitted when no activity has been observed since daemon start.
+- `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
+- Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan
 

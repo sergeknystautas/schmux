@@ -59,7 +59,9 @@ func (s *Server) handleDispose(w http.ResponseWriter, r *http.Request) {
 	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dispose-session", "err", err)
+	}
 }
 
 // handleDisposeWorkspace handles workspace disposal requests.
@@ -79,9 +81,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	// Block disposal of the workspace that is live in dev mode
 	if devPath := s.devSourceWorkspacePath(); devPath != "" {
 		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{"error": "cannot dispose workspace that is live in dev mode"})
+			writeJSONError(w, "cannot dispose workspace that is live in dev mode", http.StatusConflict)
 			return
 		}
 	}
@@ -89,9 +89,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	workspaceLog := logging.Sub(s.logger, "workspace")
 	if err := s.workspace.Dispose(workspaceID); err != nil {
 		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest) // 400 for client-side errors like dirty state
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if s.previewManager != nil {
@@ -106,7 +104,9 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dispose-workspace", "err", err)
+	}
 }
 
 // handleDisposeWorkspaceAll handles workspace disposal requests including all sessions.
@@ -126,9 +126,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	// Block disposal of the workspace that is live in dev mode
 	if devPath := s.devSourceWorkspacePath(); devPath != "" {
 		if ws, ok := s.state.GetWorkspace(workspaceID); ok && ws.Path == devPath {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{"error": "cannot dispose workspace that is live in dev mode"})
+			writeJSONError(w, "cannot dispose workspace that is live in dev mode", http.StatusConflict)
 			return
 		}
 	}
@@ -177,9 +175,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	// Then dispose the workspace
 	if err := s.workspace.Dispose(workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if s.previewManager != nil {
@@ -191,8 +187,10 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	workspaceLog.Info("dispose-all success", "workspace_id", workspaceID, "sessions_disposed", len(sessionsDisposed))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":            "ok",
 		"sessions_disposed": len(sessionsDisposed),
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "dispose-all", "err", err)
+	}
 }

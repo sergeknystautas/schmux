@@ -158,6 +158,10 @@ type Server struct {
 	// Linear sync resolve conflict state (embedded for field promotion)
 	linearSyncState
 
+	// Cached default branches: repoURL -> {branch, fetchedAt}
+	defaultBranchCache   map[string]defaultBranchEntry
+	defaultBranchCacheMu sync.RWMutex
+
 	// Lore proposal storage
 	loreStore *lore.ProposalStore
 
@@ -193,6 +197,14 @@ type versionInfo struct {
 	CheckError      error
 }
 
+// defaultBranchEntry is a cached default branch value with a timestamp.
+type defaultBranchEntry struct {
+	branch    string
+	fetchedAt time.Time
+}
+
+const defaultBranchCacheTTL = 5 * time.Minute
+
 // NewServer creates a new dashboard server.
 func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, opts ServerOptions) *Server {
 	shutdownCtx := opts.ShutdownCtx
@@ -200,26 +212,27 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		shutdownCtx = context.Background()
 	}
 	s := &Server{
-		config:          cfg,
-		state:           st,
-		statePath:       statePath,
-		session:         sm,
-		workspace:       wm,
-		prDiscovery:     prd,
-		logger:          logger,
-		shutdown:        opts.Shutdown,
-		devRestart:      opts.DevRestart,
-		devProxy:        opts.DevProxy,
-		devMode:         opts.DevMode,
-		shutdownCtx:     shutdownCtx,
-		wsConns:         make(map[string][]*wsConn),
-		sessionsConns:   make(map[*wsConn]bool),
-		rotationLocks:   make(map[string]*sync.Mutex),
-		broadcastDone:   make(chan struct{}),
-		broadcastExited: make(chan struct{}),
-		broadcastReady:  make(chan struct{}),
-		connectLimiter:  NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
-		previewDetect:   make(map[string]time.Time),
+		config:             cfg,
+		state:              st,
+		statePath:          statePath,
+		session:            sm,
+		workspace:          wm,
+		prDiscovery:        prd,
+		logger:             logger,
+		shutdown:           opts.Shutdown,
+		devRestart:         opts.DevRestart,
+		devProxy:           opts.DevProxy,
+		devMode:            opts.DevMode,
+		shutdownCtx:        shutdownCtx,
+		wsConns:            make(map[string][]*wsConn),
+		sessionsConns:      make(map[*wsConn]bool),
+		rotationLocks:      make(map[string]*sync.Mutex),
+		broadcastDone:      make(chan struct{}),
+		broadcastExited:    make(chan struct{}),
+		broadcastReady:     make(chan struct{}),
+		connectLimiter:     NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
+		previewDetect:      make(map[string]time.Time),
+		defaultBranchCache: make(map[string]defaultBranchEntry),
 		remoteAuthState: remoteAuthState{
 			remoteAuthLimiter: NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 			remoteNonces:      make(map[string]*remoteNonce),
@@ -1186,6 +1199,7 @@ type RateLimiter struct {
 	mu        sync.RWMutex
 	rate      int           // requests per window
 	window    time.Duration // time window
+	maxKeys   int           // maximum number of keys (0 = default 10000)
 	cleanupCh chan struct{} // signal cleanup goroutine to stop
 	stopOnce  sync.Once
 }
@@ -1195,12 +1209,15 @@ type bucket struct {
 	lastReset time.Time
 }
 
+const defaultMaxKeys = 10000
+
 // NewRateLimiter creates a new rate limiter.
 func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 	return &RateLimiter{
 		buckets:   make(map[string]*bucket),
 		rate:      rate,
 		window:    window,
+		maxKeys:   defaultMaxKeys,
 		cleanupCh: make(chan struct{}),
 	}
 }
@@ -1214,6 +1231,15 @@ func (rl *RateLimiter) Allow(key string) bool {
 	now := time.Now()
 
 	if !exists || now.Sub(b.lastReset) > rl.window {
+		// Before adding a new key, enforce the cap.
+		maxKeys := rl.maxKeys
+		if maxKeys <= 0 {
+			maxKeys = defaultMaxKeys
+		}
+		if !exists && len(rl.buckets) >= maxKeys {
+			// Evict the oldest entry to make room.
+			rl.evictOldestLocked()
+		}
 		// Reset bucket
 		rl.buckets[key] = &bucket{
 			tokens:    rl.rate - 1,
@@ -1228,6 +1254,24 @@ func (rl *RateLimiter) Allow(key string) bool {
 	}
 
 	return false
+}
+
+// evictOldestLocked removes the bucket with the oldest lastReset.
+// Must be called with rl.mu held.
+func (rl *RateLimiter) evictOldestLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for k, b := range rl.buckets {
+		if first || b.lastReset.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = b.lastReset
+			first = false
+		}
+	}
+	if !first {
+		delete(rl.buckets, oldestKey)
+	}
 }
 
 // cleanup removes stale buckets that haven't been used in 2x the window duration.

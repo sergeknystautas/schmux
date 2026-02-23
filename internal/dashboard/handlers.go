@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -31,7 +32,16 @@ func extractPathSegment(path, prefix, suffix string) string {
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		log.Printf("writeJSONError: failed to encode response: %v", err)
+	}
+}
+
+// writeJSON encodes v as JSON to w, logging any encode error.
+func writeJSON(w http.ResponseWriter, v any) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON: failed to encode response: %v", err)
+	}
 }
 
 // handleApp serves the React application entry point for UI routes.
@@ -108,7 +118,9 @@ func (s *Server) handleWorkspacesScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("failed to encode response", "handler", "workspaces-scan", "err", err)
+	}
 }
 
 // handleHealthz returns a simple health check response with version info.
@@ -132,7 +144,9 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "healthz", "err", err)
+	}
 }
 
 // handleUpdate triggers an update and shuts down the daemon.
@@ -146,9 +160,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
 	if s.updateInProgress {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{"error": "update already in progress"})
+		writeJSONError(w, "update already in progress", http.StatusConflict)
 		return
 	}
 	s.updateInProgress = true
@@ -159,18 +171,18 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// Run update synchronously so we can report actual success/failure
 	if err := update.Update(); err != nil {
 		s.updateInProgress = false
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("update failed: %v", err)})
+		writeJSONError(w, fmt.Sprintf("update failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	daemonLog.Info("update successful, shutting down")
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
 		"message": "Update successful. Restart schmux to use the new version.",
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "update", "err", err)
+	}
 
 	// Shutdown after sending response
 	if s.shutdown != nil {
@@ -223,7 +235,9 @@ func (s *Server) handleUpdateNickname(w http.ResponseWriter, r *http.Request) {
 	go s.BroadcastSessions()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "update-nickname", "err", err)
+	}
 }
 
 // handleAskNudgenik handles GET requests to ask NudgeNik about a session's output.
@@ -276,7 +290,9 @@ func (s *Server) handleAskNudgenik(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("failed to encode response", "handler", "ask-nudgenik", "err", err)
+	}
 }
 
 // handleHasNudgenik handles GET requests to check if nudgenik is available globally.
@@ -289,7 +305,9 @@ func (s *Server) handleHasNudgenik(w http.ResponseWriter, r *http.Request) {
 
 	available := nudgenik.IsEnabled(s.config)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"available": available})
+	if err := json.NewEncoder(w).Encode(map[string]bool{"available": available}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "has-nudgenik", "err", err)
+	}
 }
 
 // shellSplit splits a command line string into arguments, respecting quotes.

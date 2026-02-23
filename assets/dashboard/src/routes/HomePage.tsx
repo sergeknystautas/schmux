@@ -20,6 +20,7 @@ import {
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
 import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
+import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import styles from '../styles/home.module.css';
 
 // Helper to format relative date from ISO string
@@ -203,36 +204,32 @@ const RefreshIcon = () => (
 );
 
 const arrowDown = (
-  <svg
-    width="8"
-    height="8"
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ position: 'relative', top: -3, left: -2, width: 7, height: 7 }}
+  <span
+    style={{
+      position: 'relative',
+      top: -3,
+      left: -2,
+      width: 7,
+      height: 7,
+      display: 'inline-block',
+    }}
   >
-    <line x1="6" y1="1" x2="6" y2="11" />
-    <polyline points="3,7 6,11 9,7" />
-  </svg>
+    {ArrowDownIcon}
+  </span>
 );
 const arrowUp = (
-  <svg
-    width="8"
-    height="8"
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ position: 'relative', top: -3, left: -2, width: 7, height: 7 }}
+  <span
+    style={{
+      position: 'relative',
+      top: -3,
+      left: -2,
+      width: 7,
+      height: 7,
+      display: 'inline-block',
+    }}
   >
-    <line x1="6" y1="1" x2="6" y2="11" />
-    <polyline points="3,5 6,1 9,5" />
-  </svg>
+    {ArrowUpIcon}
+  </span>
 );
 
 export default function HomePage() {
@@ -269,8 +266,9 @@ export default function HomePage() {
       try {
         const data = await getOverlays();
         setOverlays(data.overlays || []);
-      } catch {
-        // silently ignore — nudge is non-critical
+      } catch (err) {
+        // Non-critical nudge — log for debugging
+        console.debug('Failed to fetch overlays:', err);
       }
     })();
   }, []);
@@ -279,8 +277,9 @@ export default function HomePage() {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
     try {
       await dismissOverlayNudge(repoName);
-    } catch {
-      // ignore — banner is already hidden locally
+    } catch (err) {
+      // Banner is already hidden locally — log for debugging
+      console.debug('Failed to dismiss overlay nudge:', err);
     }
   };
 
@@ -449,7 +448,12 @@ export default function HomePage() {
         {/* Hero Section - dismissable */}
         {!heroDismissed && (
           <div className={styles.heroSection}>
-            <button className={styles.heroDismiss} onClick={handleDismissHero} title="Dismiss">
+            <button
+              className={styles.heroDismiss}
+              onClick={handleDismissHero}
+              title="Dismiss"
+              aria-label="Dismiss hero banner"
+            >
               <CloseIcon />
             </button>
             <div className={styles.heroContent}>
@@ -787,6 +791,7 @@ export default function HomePage() {
               <button
                 onClick={() => handleDismissNudge(o.repo_name)}
                 title="Dismiss"
+                aria-label={`Dismiss overlay nudge for ${o.repo_name}`}
                 style={{
                   flexShrink: 0,
                   background: 'transparent',

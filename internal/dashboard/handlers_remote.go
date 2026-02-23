@@ -74,7 +74,9 @@ func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-flavors", "err", err)
+	}
 }
 
 // handleCreateRemoteFlavor creates a new remote flavor.
@@ -123,7 +125,7 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 	added, _ := s.config.GetRemoteFlavor(config.GenerateRemoteFlavorID(req.Flavor))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RemoteFlavorResponse{
+	if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
 		ID:                    added.ID,
 		Flavor:                added.Flavor,
 		DisplayName:           added.DisplayName,
@@ -134,7 +136,9 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 		ProvisionCommand:      added.ProvisionCommand,
 		HostnameRegex:         added.HostnameRegex,
 		VSCodeCommandTemplate: added.VSCodeCommandTemplate,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "create-remote-flavor", "err", err)
+	}
 }
 
 // handleRemoteFlavor handles GET/PUT/DELETE /api/config/remote-flavors/{id}
@@ -153,7 +157,7 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RemoteFlavorResponse{
+		if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
 			ID:                    flavor.ID,
 			Flavor:                flavor.Flavor,
 			DisplayName:           flavor.DisplayName,
@@ -164,7 +168,9 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 			ProvisionCommand:      flavor.ProvisionCommand,
 			HostnameRegex:         flavor.HostnameRegex,
 			VSCodeCommandTemplate: flavor.VSCodeCommandTemplate,
-		})
+		}); err != nil {
+			s.logger.Error("failed to encode response", "handler", "get-remote-flavor", "err", err)
+		}
 
 	case http.MethodPut:
 		// Get existing flavor first (Flavor field is immutable)
@@ -214,7 +220,7 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RemoteFlavorResponse{
+		if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
 			ID:                    rf.ID,
 			Flavor:                rf.Flavor,
 			DisplayName:           rf.DisplayName,
@@ -225,7 +231,9 @@ func (s *Server) handleRemoteFlavor(w http.ResponseWriter, r *http.Request) {
 			ProvisionCommand:      rf.ProvisionCommand,
 			HostnameRegex:         rf.HostnameRegex,
 			VSCodeCommandTemplate: rf.VSCodeCommandTemplate,
-		})
+		}); err != nil {
+			s.logger.Error("failed to encode response", "handler", "update-remote-flavor", "err", err)
+		}
 
 	case http.MethodDelete:
 		if err := s.config.RemoveRemoteFlavor(id); err != nil {
@@ -288,7 +296,9 @@ func (s *Server) handleRemoteHosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-hosts", "err", err)
+	}
 }
 
 // handleRemoteHostConnect handles POST /api/remote/hosts/connect
@@ -345,7 +355,7 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	if conn := s.remoteManager.GetConnectionByFlavorID(req.FlavorID); conn != nil && conn.IsConnected() {
 		host := conn.Host()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RemoteHostResponse{
+		if err := json.NewEncoder(w).Encode(RemoteHostResponse{
 			ID:          host.ID,
 			FlavorID:    host.FlavorID,
 			DisplayName: flavor.DisplayName,
@@ -354,7 +364,9 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 			VCS:         flavor.VCS,
 			ConnectedAt: host.ConnectedAt.Format("2006-01-02T15:04:05Z07:00"),
 			ExpiresAt:   host.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		}); err != nil {
+			s.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
+		}
 		return
 	}
 
@@ -368,13 +380,15 @@ func (s *Server) handleRemoteHostConnect(w http.ResponseWriter, r *http.Request)
 	// Return immediately with provisioning status
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(RemoteHostResponse{
+	if err := json.NewEncoder(w).Encode(RemoteHostResponse{
 		FlavorID:              req.FlavorID,
 		DisplayName:           flavor.DisplayName,
 		Status:                state.RemoteHostStatusProvisioning,
 		VCS:                   flavor.VCS,
 		ProvisioningSessionID: provisioningSessionID,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-host-connect", "err", err)
+	}
 }
 
 // handleRemoteHostReconnect handles POST /api/remote/hosts/{id}/reconnect
@@ -443,7 +457,7 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(RemoteHostResponse{
+	if err := json.NewEncoder(w).Encode(RemoteHostResponse{
 		ID:                    hostID,
 		FlavorID:              host.FlavorID,
 		DisplayName:           displayName,
@@ -451,7 +465,9 @@ func (s *Server) handleRemoteHostReconnect(w http.ResponseWriter, r *http.Reques
 		Status:                state.RemoteHostStatusReconnecting,
 		VCS:                   vcs,
 		ProvisioningSessionID: provisioningSessionID,
-	})
+	}); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-host-reconnect", "err", err)
+	}
 }
 
 // handleRemoteHostDisconnect handles DELETE /api/remote/hosts/{id}
@@ -549,7 +565,9 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			s.logger.Error("failed to encode response", "handler", "remote-flavor-statuses", "err", err)
+		}
 		return
 	}
 
@@ -592,7 +610,9 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("failed to encode response", "handler", "remote-flavor-statuses", "err", err)
+	}
 }
 
 // handleRemoteConnectStream handles GET /api/remote/hosts/connect/stream

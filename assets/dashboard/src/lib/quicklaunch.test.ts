@@ -1,36 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeQuickLaunchNames, getQuickLaunchItems } from './quicklaunch';
-
-describe('mergeQuickLaunchNames', () => {
-  it('returns empty array for empty inputs', () => {
-    expect(mergeQuickLaunchNames([], [])).toEqual([]);
-  });
-
-  it('merges and sorts global and workspace names', () => {
-    const result = mergeQuickLaunchNames(['zulu', 'alpha'], ['bravo']);
-    expect(result).toEqual(['alpha', 'bravo', 'zulu']);
-  });
-
-  it('deduplicates names (global wins)', () => {
-    const result = mergeQuickLaunchNames(['alpha', 'bravo'], ['bravo', 'charlie']);
-    expect(result).toEqual(['alpha', 'bravo', 'charlie']);
-  });
-
-  it('trims whitespace', () => {
-    const result = mergeQuickLaunchNames(['  alpha  '], ['  bravo  ']);
-    expect(result).toEqual(['alpha', 'bravo']);
-  });
-
-  it('filters out empty/blank strings', () => {
-    const result = mergeQuickLaunchNames(['alpha', '', '   '], ['bravo', '']);
-    expect(result).toEqual(['alpha', 'bravo']);
-  });
-
-  it('handles null/undefined arrays via || guard', () => {
-    const result = mergeQuickLaunchNames(null as any, undefined as any);
-    expect(result).toEqual([]);
-  });
-});
+import { getQuickLaunchItems } from './quicklaunch';
 
 describe('getQuickLaunchItems', () => {
   it('returns empty array for empty inputs', () => {
