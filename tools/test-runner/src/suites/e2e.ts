@@ -3,12 +3,15 @@ import { parseGoTestLine, GoTestOutputAccumulator } from '../parsers.js';
 import {
   isDockerAvailable,
   ensureBaseImage,
+  imageExists,
   buildImage,
   runContainer,
   removeImage,
 } from '../docker.js';
 import { buildLocalArtifacts } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
+
+const BASE_TAG = 'schmux-e2e-base';
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   const startTime = performance.now();
@@ -52,10 +55,13 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
+  // Track whether the base image was reused from cache
+  const baseCached = !opts.force && (await imageExists(BASE_TAG));
+
   // Ensure base image
   if (
     !(await ensureBaseImage({
-      tag: 'schmux-e2e-base',
+      tag: BASE_TAG,
       dockerfile: 'Dockerfile.e2e-base',
       label: 'E2E',
       force: opts.force,
@@ -75,6 +81,80 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
+  // Build ephemeral image + run container (with auto-retry on stale base image)
+  const result = await buildAndRun(opts, onEvent, imageTag);
+  if (!result) {
+    return makeResult(
+      'failed',
+      performance.now() - startTime,
+      [],
+      [],
+      [],
+      {},
+      'Failed to build E2E test image'
+    );
+  }
+
+  // Auto-retry: if 0 tests ran and the base image was cached, rebuild base and retry once
+  if (
+    result.status === 'failed' &&
+    result.passedTests.length === 0 &&
+    result.failedTests.length === 0 &&
+    baseCached &&
+    !opts.runPattern
+  ) {
+    onEvent('e2e', {
+      type: 'build_step',
+      message: '0 tests ran — rebuilding base image and retrying...',
+    });
+
+    await removeImage(BASE_TAG).catch(() => {});
+    if (
+      !(await ensureBaseImage({
+        tag: BASE_TAG,
+        dockerfile: 'Dockerfile.e2e-base',
+        label: 'E2E',
+        force: true,
+        verbose: opts.verbose,
+        onEvent,
+        suite: 'e2e',
+      }))
+    ) {
+      return makeResult(
+        'failed',
+        performance.now() - startTime,
+        [],
+        [],
+        [],
+        {},
+        'Failed to rebuild E2E base image'
+      );
+    }
+
+    const retryResult = await buildAndRun(opts, onEvent, imageTag);
+    if (!retryResult) {
+      return makeResult(
+        'failed',
+        performance.now() - startTime,
+        [],
+        [],
+        [],
+        {},
+        'Failed to build E2E test image on retry'
+      );
+    }
+
+    return { ...retryResult, durationMs: performance.now() - startTime };
+  }
+
+  return { ...result, durationMs: performance.now() - startTime };
+}
+
+async function buildAndRun(
+  opts: Options,
+  onEvent: EventCallback,
+  imageTag: string
+): Promise<SuiteResult | null> {
   // Build ephemeral image
   onEvent('e2e', { type: 'build_step', message: 'Building E2E test image...' });
   if (
@@ -91,15 +171,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       status: 'failed',
       message: 'Failed to build E2E test image',
     });
-    return makeResult(
-      'failed',
-      performance.now() - startTime,
-      [],
-      [],
-      [],
-      {},
-      'Failed to build E2E test image'
-    );
+    return null;
   }
   onEvent('e2e', { type: 'build_step', message: 'E2E test image built' });
 
@@ -164,7 +236,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       },
     });
 
-    const durationMs = performance.now() - startTime;
     const status = containerResult.exitCode === 0 ? 'passed' : 'failed';
 
     onEvent('e2e', {
@@ -175,7 +246,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
     return makeResult(
       status,
-      durationMs,
+      0, // durationMs filled by caller
       passedTests,
       failedTests,
       skippedTests,

@@ -3,6 +3,7 @@ import { parsePlaywrightLine } from '../parsers.js';
 import {
   isDockerAvailable,
   ensureBaseImage,
+  imageExists,
   buildImage,
   runContainer,
   removeImage,
@@ -11,6 +12,8 @@ import { buildLocalArtifacts, buildDashboard } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
 import { resolve } from 'node:path';
 import { rmSync, mkdirSync } from 'node:fs';
+
+const BASE_TAG = 'schmux-scenarios-base';
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   const startTime = performance.now();
@@ -77,10 +80,13 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
+  // Track whether the base image was reused from cache
+  const baseCached = !opts.force && (await imageExists(BASE_TAG));
+
   // Ensure base image
   if (
     !(await ensureBaseImage({
-      tag: 'schmux-scenarios-base',
+      tag: BASE_TAG,
       dockerfile: 'Dockerfile.scenarios-base',
       label: 'Scenario',
       force: opts.force,
@@ -100,6 +106,85 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
+  // Build ephemeral image + run container (with auto-retry on stale base image)
+  const result = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
+  if (!result) {
+    return makeResult(
+      'failed',
+      performance.now() - startTime,
+      [],
+      [],
+      [],
+      {},
+      'Failed to build scenario test image'
+    );
+  }
+
+  // Auto-retry: if 0 tests ran and the base image was cached, rebuild base and retry once
+  if (
+    result.status === 'failed' &&
+    result.passedTests.length === 0 &&
+    result.failedTests.length === 0 &&
+    baseCached &&
+    !opts.runPattern
+  ) {
+    onEvent('scenarios', {
+      type: 'build_step',
+      message: '0 tests ran — rebuilding base image and retrying...',
+    });
+
+    await removeImage(BASE_TAG).catch(() => {});
+    if (
+      !(await ensureBaseImage({
+        tag: BASE_TAG,
+        dockerfile: 'Dockerfile.scenarios-base',
+        label: 'Scenario',
+        force: true,
+        verbose: opts.verbose,
+        onEvent,
+        suite: 'scenarios',
+      }))
+    ) {
+      return makeResult(
+        'failed',
+        performance.now() - startTime,
+        [],
+        [],
+        [],
+        {},
+        'Failed to rebuild Scenario base image'
+      );
+    }
+
+    // Clean artifacts for retry
+    rmSync(artifactsDir, { recursive: true, force: true });
+    mkdirSync(artifactsDir, { recursive: true });
+
+    const retryResult = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
+    if (!retryResult) {
+      return makeResult(
+        'failed',
+        performance.now() - startTime,
+        [],
+        [],
+        [],
+        {},
+        'Failed to build scenario test image on retry'
+      );
+    }
+
+    return { ...retryResult, durationMs: performance.now() - startTime };
+  }
+
+  return { ...result, durationMs: performance.now() - startTime };
+}
+
+async function buildAndRun(
+  opts: Options,
+  onEvent: EventCallback,
+  imageTag: string,
+  artifactsDir: string
+): Promise<SuiteResult | null> {
   // Build ephemeral image
   onEvent('scenarios', { type: 'build_step', message: 'Building scenario test image...' });
   if (
@@ -116,15 +201,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       status: 'failed',
       message: 'Failed to build scenario test image',
     });
-    return makeResult(
-      'failed',
-      performance.now() - startTime,
-      [],
-      [],
-      [],
-      {},
-      'Failed to build scenario test image'
-    );
+    return null;
   }
   onEvent('scenarios', { type: 'build_step', message: 'Scenario test image built' });
 
@@ -185,7 +262,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       },
     });
 
-    const durationMs = performance.now() - startTime;
     const status = containerResult.exitCode === 0 ? 'passed' : 'failed';
 
     if (status === 'failed') {
@@ -203,7 +279,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 
     return makeResult(
       status,
-      durationMs,
+      0, // durationMs filled by caller
       passedTests,
       failedTests,
       skippedTests,
