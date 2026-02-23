@@ -3,9 +3,10 @@ import { Box, Text } from 'ink';
 
 interface KeyBarProps {
   canRestart: boolean;
+  layout: 'horizontal' | 'vertical';
 }
 
-export function KeyBar({ canRestart }: KeyBarProps) {
+export function KeyBar({ canRestart, layout }: KeyBarProps) {
   return (
     <Box borderStyle="single" borderTop={false} borderColor="gray" paddingX={1}>
       <Text>
@@ -15,6 +16,8 @@ export function KeyBar({ canRestart }: KeyBarProps) {
         <Text dimColor={!canRestart}> restart backend </Text>
         <Text bold>c</Text>
         <Text> clear logs </Text>
+        <Text bold>l</Text>
+        <Text> {layout === 'horizontal' ? 'stack' : 'split'} logs </Text>
         <Text bold>q</Text>
         <Text> quit</Text>
       </Text>
