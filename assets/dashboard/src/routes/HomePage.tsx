@@ -684,7 +684,7 @@ export default function HomePage() {
         </div>
 
         {/* Subreddit Digest Section */}
-        {subreddit?.enabled && subreddit?.content && (
+        {subreddit?.enabled && (
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
@@ -699,7 +699,13 @@ export default function HomePage() {
               )}
             </div>
             <div className={styles.sectionContent}>
-              <div className={styles.subredditContent}>{subreddit.content}</div>
+              {subreddit.content ? (
+                <div className={styles.subredditContent}>{subreddit.content}</div>
+              ) : (
+                <div className={styles.subredditContent} style={{ opacity: 0.6, fontStyle: 'italic' }}>
+                  Generating digest...
+                </div>
+              )}
             </div>
           </div>
         )}
