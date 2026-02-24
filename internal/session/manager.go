@@ -1407,6 +1407,17 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 	return tracker
 }
 
+// Stop stops all running session trackers, killing their tmux attach-client processes.
+func (m *Manager) Stop() {
+	m.mu.Lock()
+	trackers := m.trackers
+	m.trackers = make(map[string]*SessionTracker)
+	m.mu.Unlock()
+	for _, tracker := range trackers {
+		tracker.Stop()
+	}
+}
+
 func (m *Manager) stopTracker(sessionID string) {
 	m.mu.Lock()
 	tracker := m.trackers[sessionID]
