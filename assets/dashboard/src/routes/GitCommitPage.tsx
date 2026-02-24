@@ -121,7 +121,7 @@ export default function GitCommitPage() {
           </>
         )}
         <div className="diff-page">
-          <div className="loading-state" style={{ flex: 1 }}>
+          <div className="loading-state">
             <div className="spinner"></div>
             <span>Loading commit...</span>
           </div>

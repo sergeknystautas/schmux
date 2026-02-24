@@ -2598,9 +2598,18 @@ a:hover {
   min-height: 0;
 }
 
+.diff-page > .loading-state {
+  flex: 1;
+  min-height: 0;
+  align-items: flex-start;
+  border: 1px solid var(--color-accent);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background-color: var(--color-surface);
+}
+
 .diff-sidebar {
   background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-accent);
   border-right: none;
   border-radius: 0 0 0 var(--radius-lg);
   display: flex;
@@ -2608,6 +2617,11 @@ a:hover {
   overflow: hidden;
   transition: border-color var(--duration-fast) var(--easing);
   position: relative;
+}
+
+.diff-sidebar--focused {
+  border-top-width: 2px;
+  margin-top: -1px;
 }
 
 .diff-sidebar--focused::before {
@@ -2633,8 +2647,8 @@ a:hover {
 }
 
 .diff-resizer {
-  width: 4px;
-  background: var(--color-border);
+  width: 2px;
+  background: var(--color-accent);
   cursor: col-resize;
   flex-shrink: 0;
   transition: background-color var(--duration-fast) var(--easing);
@@ -2744,7 +2758,7 @@ a:hover {
 
 .diff-content {
   background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-accent);
   border-left: none;
   border-radius: 0 0 var(--radius-lg) 0;
   display: flex;
@@ -2754,6 +2768,11 @@ a:hover {
   min-width: 0;
   transition: border-color var(--duration-fast) var(--easing);
   position: relative;
+}
+
+.diff-content--focused {
+  border-top-width: 2px;
+  margin-top: -1px;
 }
 
 .diff-content--focused::before {
@@ -3821,11 +3840,20 @@ a:hover {
 }
 
 .git-dag__scroll {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-accent);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   background-color: var(--color-surface);
   padding: var(--spacing-lg);
   min-height: 0;
+}
+
+.git-dag .loading-state {
+  flex: 1;
+  min-height: 0;
+  align-items: flex-start;
+  border: 1px solid var(--color-accent);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background-color: var(--color-surface);
 }
 
 .git-dag__container {
