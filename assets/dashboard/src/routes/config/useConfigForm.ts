@@ -76,6 +76,7 @@ export type QuickLaunchEditModalState = {
 export type AuthSecretsModalState = {
   clientId: string;
   clientSecret: string;
+  clientSecretWasSet: boolean;
   error: string;
 } | null;
 
@@ -139,6 +140,10 @@ export type ConfigFormState = {
   authTlsKeyPath: string;
   authClientIdSet: boolean;
   authClientSecretSet: boolean;
+  authClientId: string;
+  authClientSecret: string;
+  authClientSecretWasSet: boolean;
+  authSecretsChanged: boolean;
   authWarnings: string[];
   apiNeedsRestart: boolean;
   soundDisabled: boolean;
@@ -270,6 +275,10 @@ export const initialState: ConfigFormState = {
   authTlsKeyPath: '',
   authClientIdSet: false,
   authClientSecretSet: false,
+  authClientId: '',
+  authClientSecret: '',
+  authClientSecretWasSet: false,
+  authSecretsChanged: false,
   authWarnings: [],
   apiNeedsRestart: false,
   soundDisabled: false,
@@ -524,7 +533,8 @@ export function useConfigForm(initialStep: number = 1) {
         state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
         state.remoteAccessNotifyCommand !== oc.remoteAccessNotifyCommand ||
         state.desyncEnabled !== oc.desyncEnabled ||
-        state.desyncTarget !== oc.desyncTarget
+        state.desyncTarget !== oc.desyncTarget ||
+        state.authSecretsChanged
       );
     },
     [state]

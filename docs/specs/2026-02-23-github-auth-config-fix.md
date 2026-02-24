@@ -3,6 +3,7 @@
 ## Problem
 
 When editing GitHub OAuth credentials in the config modal:
+
 1. Client ID shows blank instead of the actual value
 2. Client Secret shows blank, giving no indication a secret exists
 
@@ -26,6 +27,7 @@ Return the actual `client_id` value (it's not a secret - visible in GitHub OAuth
 **`POST /api/auth/secrets`**:
 
 Modify to support partial updates:
+
 - If `client_secret` is omitted or empty, keep existing secret unchanged
 - Still requires both values if no secret exists yet (validation)
 
@@ -39,19 +41,20 @@ Extend `AuthSecretsModalState` to track whether secret was previously set:
 type AuthSecretsModalState = {
   clientId: string;
   clientSecret: string;
-  clientSecretWasSet: boolean;  // new field
+  clientSecretWasSet: boolean; // new field
   error: string;
 } | null;
 ```
 
 **Modal Behavior** (`assets/dashboard/src/routes/config/ConfigModals.tsx`):
 
-| Field | When secret NOT set | When secret IS set |
-|-------|---------------------|---------------------|
-| Client ID | Blank | Shows actual value |
-| Client Secret | Blank | Shows `••••••••` |
+| Field         | When secret NOT set | When secret IS set |
+| ------------- | ------------------- | ------------------ |
+| Client ID     | Blank               | Shows actual value |
+| Client Secret | Blank               | Shows `••••••••`   |
 
 **Secret Field Interaction:**
+
 - On focus: clears mask to blank (ready for new input)
 - Placeholder text when secret exists: "Enter new secret (leave blank to keep existing)"
 
@@ -109,6 +112,7 @@ const saveAuthSecretsModal = async () => {
 ### GET /api/auth/secrets
 
 **Response:**
+
 ```json
 {
   "client_id": "string",        // actual value, empty string if not set
@@ -119,14 +123,16 @@ const saveAuthSecretsModal = async () => {
 ### POST /api/auth/secrets
 
 **Request:**
+
 ```json
 {
-  "client_id": "string",        // required
-  "client_secret": "string"     // optional; if omitted/empty, keep existing
+  "client_id": "string", // required
+  "client_secret": "string" // optional; if omitted/empty, keep existing
 }
 ```
 
 **Behavior:**
+
 - If no secret exists and `client_secret` is empty/omitted → 400 error
 - If secret exists and `client_secret` is empty/omitted → keep existing, update client_id only
 - If `client_secret` has value → update secret

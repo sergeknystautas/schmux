@@ -217,11 +217,21 @@ export default function ConfigPage() {
           dispatch({
             type: 'SET_FIELD',
             field: 'authClientIdSet',
-            value: !!authStatus.client_id_set,
+            value: !!authStatus.client_id,
           });
           dispatch({
             type: 'SET_FIELD',
             field: 'authClientSecretSet',
+            value: !!authStatus.client_secret_set,
+          });
+          dispatch({
+            type: 'SET_FIELD',
+            field: 'authClientId',
+            value: authStatus.client_id || '',
+          });
+          dispatch({
+            type: 'SET_FIELD',
+            field: 'authClientSecretWasSet',
             value: !!authStatus.client_secret_set,
           });
         }
@@ -537,6 +547,34 @@ export default function ConfigPage() {
       };
 
       const result = await updateConfig(updateRequest);
+
+      // Save staged GitHub OAuth credentials if changed
+      if (state.authSecretsChanged && state.authClientId.trim()) {
+        const secretPayload: { client_id: string; client_secret?: string } = {
+          client_id: state.authClientId.trim(),
+        };
+        // Only include secret if user entered a new one
+        if (state.authClientSecret.trim()) {
+          secretPayload.client_secret = state.authClientSecret.trim();
+        }
+        await saveAuthSecrets(secretPayload);
+        dispatch({ type: 'SET_FIELD', field: 'authSecretsChanged', value: false });
+        dispatch({ type: 'SET_FIELD', field: 'authClientSecret', value: '' }); // Clear staged secret
+        // Reload auth status after saving
+        const authStatus = await getAuthSecretsStatus();
+        dispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!authStatus.client_id });
+        dispatch({
+          type: 'SET_FIELD',
+          field: 'authClientSecretSet',
+          value: !!authStatus.client_secret_set,
+        });
+        dispatch({
+          type: 'SET_FIELD',
+          field: 'authClientSecretWasSet',
+          value: !!authStatus.client_secret_set,
+        });
+      }
+
       reloadConfig();
       localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
       dispatch({ type: 'SET_FIELD', field: 'authWarnings', value: result.warnings || [] });
@@ -915,48 +953,62 @@ export default function ConfigPage() {
     dispatch({ type: 'SET_QUICK_LAUNCH_EDIT_MODAL', modal: null });
   };
 
-  const openAuthSecretsModal = () => {
+  const openAuthSecretsModal = async () => {
+    const status = await getAuthSecretsStatus();
     dispatch({
       type: 'SET_AUTH_SECRETS_MODAL',
-      modal: { clientId: '', clientSecret: '', error: '' },
+      modal: {
+        clientId: status.client_id || '',
+        clientSecret: status.client_secret_set ? '••••••••' : '',
+        clientSecretWasSet: status.client_secret_set,
+        error: '',
+      },
     });
   };
 
-  const saveAuthSecretsModal = async () => {
+  const saveAuthSecretsModal = () => {
     if (!state.authSecretsModal) return;
-    const { clientId, clientSecret } = state.authSecretsModal;
+    const { clientId, clientSecret, clientSecretWasSet } = state.authSecretsModal;
 
-    if (!clientId.trim() || !clientSecret.trim()) {
+    // Validate client ID is required
+    if (!clientId.trim()) {
       dispatch({
         type: 'SET_AUTH_SECRETS_MODAL',
         modal: {
           ...state.authSecretsModal,
-          error: 'Both client ID and client secret are required',
+          error: 'Client ID is required',
         },
       });
       return;
     }
 
-    try {
-      await saveAuthSecrets({ client_id: clientId.trim(), client_secret: clientSecret.trim() });
-      const authStatus = await getAuthSecretsStatus();
-      dispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!authStatus.client_id_set });
-      dispatch({
-        type: 'SET_FIELD',
-        field: 'authClientSecretSet',
-        value: !!authStatus.client_secret_set,
-      });
-      dispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
-      success('GitHub credentials saved');
-    } catch (err) {
+    // Validate client secret is required for first-time setup
+    if (!clientSecretWasSet && !clientSecret.trim()) {
       dispatch({
         type: 'SET_AUTH_SECRETS_MODAL',
         modal: {
           ...state.authSecretsModal,
-          error: getErrorMessage(err, 'Failed to save credentials'),
+          error: 'Client secret is required for initial setup',
         },
       });
+      return;
     }
+
+    // Stage credentials in form state (save with "Save Changes")
+    // Only store new secret if user entered one (not the mask)
+    const newSecret = clientSecret.trim() && clientSecret !== '••••••••' ? clientSecret.trim() : '';
+    dispatch({ type: 'SET_FIELD', field: 'authClientId', value: clientId.trim() });
+    dispatch({ type: 'SET_FIELD', field: 'authClientSecret', value: newSecret });
+    dispatch({ type: 'SET_FIELD', field: 'authClientSecretWasSet', value: clientSecretWasSet });
+    dispatch({ type: 'SET_FIELD', field: 'authSecretsChanged', value: true });
+    dispatch({ type: 'SET_FIELD', field: 'authClientIdSet', value: !!clientId.trim() });
+    dispatch({
+      type: 'SET_FIELD',
+      field: 'authClientSecretSet',
+      value: clientSecretWasSet || !!newSecret,
+    });
+    dispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
+    success('Credentials staged - click Save Changes to apply');
   };
 
   const handleSetPassword = async () => {

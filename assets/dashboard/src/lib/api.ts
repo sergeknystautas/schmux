@@ -261,7 +261,7 @@ export async function updateConfig(
 }
 
 export async function getAuthSecretsStatus(): Promise<{
-  client_id_set: boolean;
+  client_id: string;
   client_secret_set: boolean;
 }> {
   const response = await fetch('/api/auth/secrets');
@@ -271,7 +271,7 @@ export async function getAuthSecretsStatus(): Promise<{
 
 export async function saveAuthSecrets(payload: {
   client_id: string;
-  client_secret: string;
+  client_secret?: string;
 }): Promise<{ status: string }> {
   const response = await fetch('/api/auth/secrets', {
     method: 'POST',

@@ -294,7 +294,7 @@ func TestManagerWebSocketProxying(t *testing.T) {
 	if err := st.Save(); err != nil {
 		t.Fatalf("save state: %v", err)
 	}
-	m := NewManager(st, 3, 20, false, 53000, 10, nil)
+	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
