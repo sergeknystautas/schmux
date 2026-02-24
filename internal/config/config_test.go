@@ -1974,3 +1974,126 @@ func TestValidate_NegativeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDashboardSXEnabled(t *testing.T) {
+	t.Run("nil network", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetDashboardSXEnabled() {
+			t.Error("expected false for nil Network")
+		}
+	})
+
+	t.Run("nil dashboardsx", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{}}
+		if cfg.GetDashboardSXEnabled() {
+			t.Error("expected false for nil DashboardSX")
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{
+			DashboardSX: &DashboardSXConfig{Enabled: false},
+		}}
+		if cfg.GetDashboardSXEnabled() {
+			t.Error("expected false for disabled")
+		}
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{
+			DashboardSX: &DashboardSXConfig{Enabled: true},
+		}}
+		if !cfg.GetDashboardSXEnabled() {
+			t.Error("expected true for enabled")
+		}
+	})
+}
+
+func TestGetDashboardSXCode(t *testing.T) {
+	cfg := &Config{Network: &NetworkConfig{
+		DashboardSX: &DashboardSXConfig{Code: "12345"},
+	}}
+	if got := cfg.GetDashboardSXCode(); got != "12345" {
+		t.Errorf("GetDashboardSXCode() = %q, want %q", got, "12345")
+	}
+}
+
+func TestGetDashboardSXHostname(t *testing.T) {
+	t.Run("with code", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{
+			DashboardSX: &DashboardSXConfig{Code: "12345"},
+		}}
+		if got := cfg.GetDashboardSXHostname(); got != "12345.dashboard.sx" {
+			t.Errorf("GetDashboardSXHostname() = %q, want %q", got, "12345.dashboard.sx")
+		}
+	})
+
+	t.Run("empty code", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetDashboardSXHostname(); got != "" {
+			t.Errorf("GetDashboardSXHostname() = %q, want empty", got)
+		}
+	})
+}
+
+func TestDashboardSXConfig_JSONRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := CreateDefault(configPath)
+	cfg.Network = &NetworkConfig{
+		DashboardSX: &DashboardSXConfig{
+			Enabled: true,
+			Code:    "12345",
+			Email:   "test@example.com",
+			IP:      "192.168.1.100",
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !loaded.GetDashboardSXEnabled() {
+		t.Error("DashboardSX.Enabled should be true after roundtrip")
+	}
+	if got := loaded.GetDashboardSXCode(); got != "12345" {
+		t.Errorf("DashboardSX.Code = %q, want %q", got, "12345")
+	}
+	if got := loaded.GetDashboardSXEmail(); got != "test@example.com" {
+		t.Errorf("DashboardSX.Email = %q, want %q", got, "test@example.com")
+	}
+	if got := loaded.GetDashboardSXIP(); got != "192.168.1.100" {
+		t.Errorf("DashboardSX.IP = %q, want %q", got, "192.168.1.100")
+	}
+}
+
+func TestGetDashboardSXEmail(t *testing.T) {
+	t.Run("nil network", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetDashboardSXEmail(); got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("nil dashboardsx", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{}}
+		if got := cfg.GetDashboardSXEmail(); got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("with email", func(t *testing.T) {
+		cfg := &Config{Network: &NetworkConfig{
+			DashboardSX: &DashboardSXConfig{Email: "user@example.com"},
+		}}
+		if got := cfg.GetDashboardSXEmail(); got != "user@example.com" {
+			t.Errorf("GetDashboardSXEmail() = %q, want %q", got, "user@example.com")
+		}
+	})
+}

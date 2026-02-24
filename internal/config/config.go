@@ -346,16 +346,26 @@ type XtermConfig struct {
 	OperationTimeoutMs int `json:"operation_timeout_ms"`
 }
 
+// DashboardSXConfig holds dashboard.sx HTTPS provisioning configuration.
+type DashboardSXConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Code       string `json:"code,omitempty"`
+	Email      string `json:"email,omitempty"`
+	IP         string `json:"ip,omitempty"`
+	ServiceURL string `json:"service_url,omitempty"`
+}
+
 // NetworkConfig controls server binding and TLS.
 type NetworkConfig struct {
-	BindAddress            string     `json:"bind_address,omitempty"`
-	Port                   int        `json:"port,omitempty"`
-	PublicBaseURL          string     `json:"public_base_url,omitempty"`
-	PreviewMaxPerWorkspace int        `json:"preview_max_per_workspace,omitempty"`
-	PreviewMaxGlobal       int        `json:"preview_max_global,omitempty"`
-	PreviewPortBase        int        `json:"preview_port_base,omitempty"`
-	PreviewPortBlockSize   int        `json:"preview_port_block_size,omitempty"`
-	TLS                    *TLSConfig `json:"tls,omitempty"`
+	BindAddress            string             `json:"bind_address,omitempty"`
+	Port                   int                `json:"port,omitempty"`
+	PublicBaseURL          string             `json:"public_base_url,omitempty"`
+	PreviewMaxPerWorkspace int                `json:"preview_max_per_workspace,omitempty"`
+	PreviewMaxGlobal       int                `json:"preview_max_global,omitempty"`
+	PreviewPortBase        int                `json:"preview_port_base,omitempty"`
+	PreviewPortBlockSize   int                `json:"preview_port_block_size,omitempty"`
+	TLS                    *TLSConfig         `json:"tls,omitempty"`
+	DashboardSX            *DashboardSXConfig `json:"dashboardsx,omitempty"`
 }
 
 // TLSConfig holds TLS certificate paths.
@@ -1542,6 +1552,55 @@ func (c *Config) GetTLSEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getTLSCertPathLocked() != "" && c.getTLSKeyPathLocked() != ""
+}
+
+// GetDashboardSXEnabled returns whether dashboard.sx HTTPS is enabled.
+func (c *Config) GetDashboardSXEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil || c.Network.DashboardSX == nil {
+		return false
+	}
+	return c.Network.DashboardSX.Enabled
+}
+
+// GetDashboardSXCode returns the dashboard.sx code.
+func (c *Config) GetDashboardSXCode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil || c.Network.DashboardSX == nil {
+		return ""
+	}
+	return c.Network.DashboardSX.Code
+}
+
+// GetDashboardSXIP returns the dashboard.sx IP address.
+func (c *Config) GetDashboardSXIP() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil || c.Network.DashboardSX == nil {
+		return ""
+	}
+	return c.Network.DashboardSX.IP
+}
+
+// GetDashboardSXEmail returns the email used for Let's Encrypt certificate provisioning.
+func (c *Config) GetDashboardSXEmail() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Network == nil || c.Network.DashboardSX == nil {
+		return ""
+	}
+	return c.Network.DashboardSX.Email
+}
+
+// GetDashboardSXHostname returns the full dashboard.sx hostname (e.g. "12345.dashboard.sx").
+func (c *Config) GetDashboardSXHostname() string {
+	code := c.GetDashboardSXCode()
+	if code == "" {
+		return ""
+	}
+	return code + ".dashboard.sx"
 }
 
 // GetAuthEnabled returns whether auth is enabled.
