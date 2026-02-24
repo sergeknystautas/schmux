@@ -31,10 +31,12 @@ function ProposalCard({
   onDismiss: (p: LoreProposal) => void;
   applying: boolean;
 }) {
-  const [activeFile, setActiveFile] = useState(Object.keys(proposal.proposed_files)[0] || '');
+  const [activeFile, setActiveFile] = useState(
+    Object.keys(proposal.proposed_files || {})[0] || ''
+  );
   const [showEntries, setShowEntries] = useState(false);
   const { theme } = useTheme();
-  const files = Object.keys(proposal.proposed_files);
+  const files = Object.keys(proposal.proposed_files || {});
 
   const entriesUsedCount = proposal.entries_used?.length || 0;
   const entriesDiscardedCount = proposal.entries_discarded
