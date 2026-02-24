@@ -479,6 +479,7 @@ func (s *Server) Start() error {
 		r.Get("/prs", s.handlePRs)
 		r.Get("/hasNudgenik", s.handleHasNudgenik)
 		r.Get("/askNudgenik/*", s.handleAskNudgenik)
+		r.Get("/subreddit", s.handleSubreddit)
 		r.Get("/remote/hosts", s.handleRemoteHosts)
 		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)
 		r.Get("/remote/flavor-statuses", s.handleRemoteFlavorStatuses)
