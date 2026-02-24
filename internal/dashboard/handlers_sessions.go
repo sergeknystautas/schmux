@@ -35,6 +35,11 @@ type SessionResponseItem struct {
 	RemotePaneID     string `json:"remote_pane_id,omitempty"`
 	RemoteHostname   string `json:"remote_hostname,omitempty"`
 	RemoteFlavorName string `json:"remote_flavor_name,omitempty"`
+	// Persona fields (denormalized from persona manager at broadcast time)
+	PersonaID    string `json:"persona_id,omitempty"`
+	PersonaIcon  string `json:"persona_icon,omitempty"`
+	PersonaColor string `json:"persona_color,omitempty"`
+	PersonaName  string `json:"persona_name,omitempty"`
 }
 
 // WorkspaceResponseItem represents a workspace in the API response.
@@ -248,6 +253,17 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			}
 		}
 
+		// Resolve persona info for display
+		var personaID, personaIcon, personaColor, personaName string
+		if sess.PersonaID != "" && s.personaManager != nil {
+			personaID = sess.PersonaID
+			if p, err := s.personaManager.Get(sess.PersonaID); err == nil {
+				personaIcon = p.Icon
+				personaColor = p.Color
+				personaName = p.Name
+			}
+		}
+
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponseItem{
 			ID:               sess.ID,
 			Target:           sess.Target,
@@ -266,6 +282,10 @@ func (s *Server) buildSessionsResponse() []WorkspaceResponseItem {
 			RemotePaneID:     sess.RemotePaneID,
 			RemoteHostname:   remoteHostname,
 			RemoteFlavorName: remoteFlavorName,
+			PersonaID:        personaID,
+			PersonaIcon:      personaIcon,
+			PersonaColor:     personaColor,
+			PersonaName:      personaName,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}

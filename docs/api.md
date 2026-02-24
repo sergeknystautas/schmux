@@ -176,7 +176,11 @@ Response:
         "running": true,
         "attach_cmd": "tmux attach ...",
         "nudge_state": "optional",
-        "nudge_summary": "optional"
+        "nudge_summary": "optional",
+        "persona_id": "optional",
+        "persona_icon": "optional",
+        "persona_color": "optional",
+        "persona_name": "optional"
       }
     ],
     "previews": [
@@ -298,7 +302,8 @@ Request:
   "nickname": "optional",
   "targets": { "target-name": 1 },
   "workspace_id": "optional",
-  "resume": false
+  "resume": false,
+  "persona_id": "optional"
 }
 ```
 
@@ -312,6 +317,7 @@ Contract (pre-2093ccf):
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
+- `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The persona ID is stored on the session and used to display persona badges in the dashboard.
 
 Resume mode (`resume: true`):
 
@@ -1754,6 +1760,108 @@ Response:
   ]
 }
 ```
+
+## Personas API
+
+Personas are named behavioral profiles (system prompts + visual identity) that shape how agents operate. Each persona is a YAML file with frontmatter metadata and a body containing the system prompt. Five built-in personas are provided on first run.
+
+### GET /api/personas
+
+Returns all personas sorted by name.
+
+Response:
+
+```json
+{
+  "personas": [
+    {
+      "id": "security-auditor",
+      "name": "Security Auditor",
+      "icon": "🔒",
+      "color": "#e74c3c",
+      "prompt": "You are a security expert...",
+      "expectations": "Produce a structured report.",
+      "built_in": true
+    }
+  ]
+}
+```
+
+### GET /api/personas/{id}
+
+Returns a single persona by ID.
+
+Response: a `Persona` object (same shape as items in the list response).
+
+Errors:
+
+- 400: "invalid persona ID" (must be lowercase alphanumeric + hyphens)
+- 404: "persona not found: {id}"
+
+### POST /api/personas
+
+Creates a new persona.
+
+Request:
+
+```json
+{
+  "id": "my-reviewer",
+  "name": "My Reviewer",
+  "icon": "👀",
+  "color": "#9b59b6",
+  "prompt": "You review code carefully...",
+  "expectations": "optional"
+}
+```
+
+Response: the created `Persona` object.
+
+Errors:
+
+- 400: "invalid persona ID" / missing required fields (id, name, icon, color, prompt)
+- 409: "persona already exists: {id}"
+
+### PUT /api/personas/{id}
+
+Updates an existing persona. All fields are optional; only provided fields are changed.
+
+Request:
+
+```json
+{
+  "name": "Updated Name",
+  "icon": "🔍",
+  "color": "#2ecc71",
+  "prompt": "Updated prompt...",
+  "expectations": "Updated expectations"
+}
+```
+
+Response: the updated `Persona` object.
+
+Errors:
+
+- 400: "invalid persona ID"
+- 404: "persona not found: {id}"
+
+### DELETE /api/personas/{id}
+
+Deletes a custom persona, or resets a built-in persona to its default content.
+
+Response: 204 No Content
+
+Errors:
+
+- 400: "invalid persona ID"
+- 404: "persona not found: {id}"
+- 500: "failed to delete/reset persona: ..."
+
+Notes:
+
+- Built-in personas are restored from embedded defaults rather than permanently deleted
+- The `persona_id` field in `SpawnRequest` references these IDs
+- Session responses include denormalized `persona_icon`, `persona_color`, and `persona_name` fields (computed at broadcast time from the persona manager, not persisted)
 
 ## Remote Access
 

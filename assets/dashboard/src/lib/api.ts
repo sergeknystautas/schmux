@@ -38,6 +38,12 @@ import type {
   WorkspaceResponse,
   WorkspacePreview,
 } from './types';
+import type {
+  Persona,
+  PersonaListResponse,
+  PersonaCreateRequest,
+  PersonaUpdateRequest,
+} from './types.generated';
 import { csrfHeaders } from './csrf';
 
 // Custom error types that preserve API response fields
@@ -1019,4 +1025,40 @@ export async function testRemoteAccessNotification(): Promise<void> {
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to send test notification');
   }
+}
+
+// --- Persona API ---
+
+export async function getPersonas(): Promise<PersonaListResponse> {
+  const response = await fetch('/api/personas');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch personas');
+  return response.json();
+}
+
+export async function createPersona(req: PersonaCreateRequest): Promise<Persona> {
+  const response = await fetch('/api/personas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to create persona');
+  return response.json();
+}
+
+export async function updatePersona(id: string, req: PersonaUpdateRequest): Promise<Persona> {
+  const response = await fetch(`/api/personas/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to update persona');
+  return response.json();
+}
+
+export async function deletePersona(id: string): Promise<void> {
+  const response = await fetch(`/api/personas/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to delete persona');
 }

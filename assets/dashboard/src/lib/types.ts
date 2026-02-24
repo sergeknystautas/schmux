@@ -16,6 +16,11 @@ export interface SessionResponse {
   remote_pane_id?: string;
   remote_hostname?: string;
   remote_flavor_name?: string;
+  // Persona fields
+  persona_id?: string;
+  persona_icon?: string;
+  persona_color?: string;
+  persona_name?: string;
 }
 
 export interface WorkspaceResponse {
@@ -120,6 +125,7 @@ export interface SpawnRequest {
   resume?: boolean; // resume mode: use agent's resume command
   remote_flavor_id?: string; // optional: spawn on remote host
   new_branch?: string; // create new workspace with this branch from source workspace
+  persona_id?: string; // optional: behavioral persona for the agent
 }
 
 export interface SpawnResult {

@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -37,6 +38,7 @@ type SpawnRequest struct {
 	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
 	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
 	NewBranch       string         `json:"new_branch,omitempty"`       // create new workspace with this branch from source workspace
+	PersonaID       string         `json:"persona_id,omitempty"`       // optional: behavioral persona for the agent
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -217,6 +219,17 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	// Global counter for nickname numbering across all targets
 	globalIndex := 0
 
+	// Resolve persona prompt if persona_id is provided
+	var personaPrompt string
+	if req.PersonaID != "" {
+		p, err := s.personaManager.Get(req.PersonaID)
+		if err != nil {
+			writeJSONError(w, fmt.Sprintf("persona not found: %s", req.PersonaID), http.StatusBadRequest)
+			return
+		}
+		personaPrompt = formatPersonaPrompt(p)
+	}
+
 	for targetName, count := range req.Targets {
 		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
 		if !found {
@@ -268,14 +281,16 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// Local spawn - use existing Spawn()
 				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
-					RepoURL:     req.Repo,
-					Branch:      req.Branch,
-					TargetName:  targetName,
-					Prompt:      req.Prompt,
-					Nickname:    nickname,
-					WorkspaceID: req.WorkspaceID,
-					Resume:      req.Resume,
-					NewBranch:   req.NewBranch,
+					RepoURL:       req.Repo,
+					Branch:        req.Branch,
+					TargetName:    targetName,
+					Prompt:        req.Prompt,
+					Nickname:      nickname,
+					WorkspaceID:   req.WorkspaceID,
+					Resume:        req.Resume,
+					NewBranch:     req.NewBranch,
+					PersonaID:     req.PersonaID,
+					PersonaPrompt: personaPrompt,
 				})
 			}
 
@@ -703,4 +718,15 @@ func (s *Server) handleRecentBranchesRefresh(w http.ResponseWriter, r *http.Requ
 	}); err != nil {
 		s.logger.Error("failed to encode response", "handler", "recent-branches-refresh", "err", err)
 	}
+}
+
+// formatPersonaPrompt formats a persona's content for injection as a system prompt file.
+func formatPersonaPrompt(p *persona.Persona) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Persona: %s\n\n", p.Name)
+	if p.Expectations != "" {
+		fmt.Fprintf(&b, "### Behavioral Expectations\n%s\n\n", strings.TrimSpace(p.Expectations))
+	}
+	fmt.Fprintf(&b, "### Instructions\n%s\n", strings.TrimSpace(p.Prompt))
+	return b.String()
 }

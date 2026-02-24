@@ -592,7 +592,14 @@ export default function SessionDetailPage() {
             </div>
           ) : (
             <div className="log-viewer">
-              <div className="log-viewer__header">
+              <div
+                className="log-viewer__header"
+                style={
+                  sessionData.persona_color
+                    ? { borderBottom: `6px solid ${sessionData.persona_color}` }
+                    : undefined
+                }
+              >
                 <div className="log-viewer__info">
                   <Tooltip
                     content={
@@ -832,6 +839,20 @@ export default function SessionDetailPage() {
                 style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}
               >
                 Not set
+              </span>
+            </div>
+          )}
+
+          {sessionData.persona_id && (
+            <div className="metadata-field">
+              <span className="metadata-field__label">Persona</span>
+              <span className="metadata-field__value">
+                {sessionData.persona_icon && (
+                  <span style={{ color: sessionData.persona_color, marginRight: '4px' }}>
+                    {sessionData.persona_icon}
+                  </span>
+                )}
+                {sessionData.persona_name || sessionData.persona_id}
               </span>
             </div>
           )}

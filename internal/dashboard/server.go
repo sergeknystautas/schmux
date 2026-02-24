@@ -27,6 +27,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -183,6 +184,9 @@ type Server struct {
 
 	// Curation state tracking for WebSocket broadcast
 	curationTracker *CurationTracker
+
+	// Persona manager
+	personaManager *persona.Manager
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -280,6 +284,14 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		logging.Sub(logger, "preview"),
 	)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
+
+	// Initialize persona manager
+	personasDir := filepath.Join(filepath.Dir(statePath), "personas")
+	s.personaManager = persona.NewManager(personasDir)
+	if err := s.personaManager.EnsureBuiltins(); err != nil {
+		logger.Warn("failed to ensure built-in personas", "err", err)
+	}
+
 	if mgr, ok := wm.(*workspace.Manager); ok {
 		mgr.SetOnLockChangeFn(s.BroadcastWorkspaceLocked)
 		mgr.SetSyncProgressFn(func(workspaceID string, current, total int) {
@@ -535,6 +547,13 @@ func (s *Server) Start() error {
 			r.Get("/config/remote-flavors/{id}", s.handleRemoteFlavorGet)
 			r.Put("/config/remote-flavors/{id}", s.handleRemoteFlavorUpdate)
 			r.Delete("/config/remote-flavors/{id}", s.handleRemoteFlavorDelete)
+
+			// Persona routes
+			r.Get("/personas", s.handleListPersonas)
+			r.Post("/personas", s.handleCreatePersona)
+			r.Get("/personas/{id}", s.handleGetPersona)
+			r.Put("/personas/{id}", s.handleUpdatePersona)
+			r.Delete("/personas/{id}", s.handleDeletePersona)
 
 			// Remote host routes
 			r.Post("/remote/hosts/{hostID}/reconnect", s.handleRemoteHostReconnect)

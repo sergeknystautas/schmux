@@ -840,6 +840,15 @@ export default function AppShell() {
                               )}
                               {sess.nickname || sess.target}
                             </span>
+                            {sess.persona_icon && (
+                              <span
+                                className="nav-session__persona-badge"
+                                title={sess.persona_name}
+                                style={{ color: sess.persona_color }}
+                              >
+                                {sess.persona_icon}
+                              </span>
+                            )}
                             <span className="nav-session__activity">{activityDisplay}</span>
                           </div>
                           {!wsLocked && nudgePreviewElement && (
@@ -858,6 +867,22 @@ export default function AppShell() {
           {isDevMode && <TmuxDiagnostic />}
           {isDevMode && <TypingPerformance />}
           <div className="nav-links">
+            <NavLink
+              to="/personas"
+              className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
+            >
+              <svg
+                className="nav-link__icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span>Personas</span>
+            </NavLink>
             {config?.repos?.length > 0 && (
               <NavLink
                 to="/overlays"

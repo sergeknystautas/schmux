@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getConfig, spawnSessions, getErrorMessage, suggestBranch } from '../lib/api';
+import { getConfig, spawnSessions, getErrorMessage, suggestBranch, getPersonas } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useRequireConfig, useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -18,6 +18,7 @@ import type {
   SpawnResult,
   SuggestBranchResponse,
 } from '../lib/types';
+import type { Persona } from '../lib/types.generated';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
 // ============================================================================
@@ -168,6 +169,8 @@ export default function SpawnPage() {
   const skipNextPersist = useRef(false);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState('');
 
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
@@ -265,6 +268,14 @@ export default function SpawnPage() {
         setPromptableTargets(promptableItems);
         setCommandTargets(commandItems);
         setModels(cfg.models || []);
+
+        // Fetch personas
+        try {
+          const personaData = await getPersonas();
+          if (active) setPersonas(personaData.personas || []);
+        } catch {
+          // Non-fatal: personas are optional
+        }
       } catch (err) {
         if (!active) return;
         setConfigError(getErrorMessage(err, 'Failed to load config'));
@@ -636,6 +647,7 @@ export default function SpawnPage() {
             workspace_id: prefillWorkspaceId || '',
             resume: true,
             remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+            persona_id: selectedPersonaId || undefined,
           });
           if (handleSpawnResult(response)) {
             saveLastRepo(actualRepo);
@@ -686,6 +698,7 @@ export default function SpawnPage() {
           targets: { [command]: 1 },
           workspace_id: prefillWorkspaceId || '',
           remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
+          persona_id: selectedPersonaId || undefined,
         });
         if (handleSpawnResult(response)) {
           saveLastRepo(actualRepo);
@@ -708,6 +721,7 @@ export default function SpawnPage() {
       getDefaultBranch,
       handleSpawnResult,
       toastError,
+      selectedPersonaId,
     ]
   );
 
@@ -782,6 +796,7 @@ export default function SpawnPage() {
         workspace_id: prefillWorkspaceId || '',
         remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
         new_branch: newBranch,
+        persona_id: selectedPersonaId || undefined,
       });
       if (handleSpawnResult(response)) {
         saveLastRepo(actualRepo);
@@ -811,6 +826,7 @@ export default function SpawnPage() {
     generateBranchName,
     toastError,
     handleSpawnResult,
+    selectedPersonaId,
   ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
@@ -919,13 +935,18 @@ export default function SpawnPage() {
                   {mode === 'fresh' && !isRemoteWithoutProvisioning ? (
                     /* Single agent + fresh mode: agent and repo side-by-side */
                     <>
+                      <label
+                        className="form-group__label"
+                        style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
+                      >
+                        Agent
+                      </label>
                       <div
                         data-testid="agent-repo-row"
                         style={{
                           display: 'flex',
                           gap: 'var(--spacing-md)',
                           alignItems: 'flex-start',
-                          gridColumn: '1 / -1',
                         }}
                       >
                         <select
@@ -1001,41 +1022,48 @@ export default function SpawnPage() {
                       )}
                     </>
                   ) : (
-                    /* Single agent + workspace mode: agent alone, full width */
-                    <select
-                      className="select"
-                      data-testid="agent-select"
-                      value={
-                        promptableList.find((item) => (targetCounts[item.name] || 0) > 0)?.name ||
-                        ''
-                      }
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '__multiple__') {
-                          setModelSelectionMode('multiple');
-                        } else if (val === '__advanced__') {
-                          setModelSelectionMode('advanced');
-                        } else if (val) {
-                          toggleAgent(val);
-                        } else {
-                          const selected = promptableList.find(
-                            (item) => (targetCounts[item.name] || 0) > 0
-                          );
-                          if (selected) toggleAgent(selected.name);
+                    /* Single agent + workspace mode: agent alone */
+                    <>
+                      <label
+                        className="form-group__label"
+                        style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
+                      >
+                        Agent
+                      </label>
+                      <select
+                        className="select"
+                        data-testid="agent-select"
+                        value={
+                          promptableList.find((item) => (targetCounts[item.name] || 0) > 0)?.name ||
+                          ''
                         }
-                      }}
-                      style={{ gridColumn: '1 / -1' }}
-                    >
-                      <option value="">Select agent...</option>
-                      {promptableList.map((item) => (
-                        <option key={item.name} value={item.name}>
-                          {item.label}
-                        </option>
-                      ))}
-                      <option disabled>──────────</option>
-                      <option value="__multiple__">Multiple agents</option>
-                      <option value="__advanced__">Advanced</option>
-                    </select>
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '__multiple__') {
+                            setModelSelectionMode('multiple');
+                          } else if (val === '__advanced__') {
+                            setModelSelectionMode('advanced');
+                          } else if (val) {
+                            toggleAgent(val);
+                          } else {
+                            const selected = promptableList.find(
+                              (item) => (targetCounts[item.name] || 0) > 0
+                            );
+                            if (selected) toggleAgent(selected.name);
+                          }
+                        }}
+                      >
+                        <option value="">Select agent...</option>
+                        {promptableList.map((item) => (
+                          <option key={item.name} value={item.name}>
+                            {item.label}
+                          </option>
+                        ))}
+                        <option disabled>──────────</option>
+                        <option value="__multiple__">Multiple agents</option>
+                        <option value="__advanced__">Advanced</option>
+                      </select>
+                    </>
                   )}
                 </>
               ) : (
@@ -1228,6 +1256,33 @@ export default function SpawnPage() {
                   </div>
                 </>
               )}
+            </>
+          )}
+
+          {/* Persona selector */}
+          {personas.length > 0 && (
+            <>
+              <label
+                htmlFor="persona-select"
+                className="form-group__label"
+                style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
+              >
+                Persona
+              </label>
+              <select
+                id="persona-select"
+                className="select"
+                data-testid="persona-select"
+                value={selectedPersonaId}
+                onChange={(e) => setSelectedPersonaId(e.target.value)}
+              >
+                <option value="">No persona</option>
+                {personas.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.icon} {p.name}
+                  </option>
+                ))}
+              </select>
             </>
           )}
 

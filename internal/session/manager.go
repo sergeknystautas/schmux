@@ -568,15 +568,17 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
 type SpawnOptions struct {
-	RepoURL     string
-	Branch      string
-	TargetName  string
-	Prompt      string
-	Command     string
-	Nickname    string
-	WorkspaceID string
-	Resume      bool
-	NewBranch   string
+	RepoURL       string
+	Branch        string
+	TargetName    string
+	Prompt        string
+	Command       string
+	Nickname      string
+	WorkspaceID   string
+	Resume        bool
+	NewBranch     string
+	PersonaID     string
+	PersonaPrompt string // Pre-resolved persona prompt content (set by handler)
 }
 
 // Spawn creates a new session.
@@ -666,6 +668,16 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		return nil, err
 	}
 
+	// Inject persona prompt if provided
+	if opts.PersonaPrompt != "" {
+		personaFilePath := filepath.Join(w.Path, ".schmux", fmt.Sprintf("persona-%s.md", sessionID))
+		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0644); err != nil {
+			m.logger.Warn("failed to write persona file", "err", err)
+		} else {
+			command = appendPersonaFlags(command, baseTool, personaFilePath)
+		}
+	}
+
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := opts.Nickname
 	if opts.Nickname != "" {
@@ -698,6 +710,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		WorkspaceID: w.ID,
 		Target:      opts.TargetName,
 		Nickname:    uniqueNickname,
+		PersonaID:   opts.PersonaID,
 		TmuxSession: tmuxSession,
 		CreatedAt:   time.Now(),
 		Pid:         pid,
@@ -976,6 +989,20 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+ensure.SignalingInstructionsFilePath()))
 	default:
 		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
+	}
+}
+
+// appendPersonaFlags injects persona prompt via CLI flag for the appropriate agent.
+// Uses file-based injection via --append-system-prompt-file for Claude,
+// and agent instruction file markers for other tools.
+func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
+	switch baseTool {
+	case "claude":
+		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(personaFilePath))
+	default:
+		// For non-Claude tools (codex, gemini), persona is injected via agent instruction
+		// files at the workspace level, so no CLI flag needed here.
+		return cmd
 	}
 }
 
