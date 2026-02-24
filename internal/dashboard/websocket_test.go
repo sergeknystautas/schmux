@@ -147,6 +147,7 @@ func TestTerminalSizeTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get tracker: %v", err)
 	}
+	t.Cleanup(tracker.Stop)
 
 	// Initially, terminal size fields should be zero
 	if tracker.LastTerminalCols != 0 || tracker.LastTerminalRows != 0 {
@@ -176,6 +177,7 @@ func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get tracker: %v", err)
 	}
+	t.Cleanup(tracker.Stop)
 
 	// Simulate terminal size being stored from a resize message
 	tracker.LastTerminalCols = 120
