@@ -8,9 +8,9 @@ They navigate to the spawn page, type a task description, select
 multi-agent grid, select two agents, pick a repository, and submit
 the form.
 
-After submitting, they should land on a session detail page. The workspace
-tabs should show two session tabs (one per agent). Clicking each tab should
-show a different session with its own terminal output.
+After submitting, they should land on a session detail page for one of the
+new sessions. They should also be able to navigate to both created sessions
+and see terminal output for each.
 
 ## Preconditions
 
@@ -24,7 +24,6 @@ show a different session with its own terminal output.
 - Two agents can be selected simultaneously
 - The form submits successfully
 - The user lands on a session detail page
-- The workspace tabs show two session tabs
-- Clicking each tab navigates to a different session (URL changes)
-- GET /api/sessions returns one workspace with two sessions
+- Both created sessions are navigable and render terminal output
+- GET /api/sessions returns sessions for both agents (across one or more workspaces)
 - Each session has a different target

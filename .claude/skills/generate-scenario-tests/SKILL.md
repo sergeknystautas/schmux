@@ -14,6 +14,7 @@ You are generating Playwright test files from plain English scenario description
 3. Read the existing generated test as a template: `test/scenarios/generated/spawn-single-session.spec.ts`
 4. For each scenario file, read the relevant React components to understand:
    - What `data-testid` attributes exist (search for `data-testid` in `assets/dashboard/src/`)
+   - For `<select>` controls, what the actual `<option value>` strings are (do not assume labels map to values)
    - What routes exist (`assets/dashboard/src/App.tsx`)
    - What API endpoints are called (`internal/dashboard/handlers.go`)
 
@@ -29,6 +30,7 @@ You are generating Playwright test files from plain English scenario description
 
 - Use helpers from `helpers.ts` — do NOT duplicate helper logic in tests
 - Use `data-testid` selectors as the primary selector strategy
+- When selecting dropdown options in Playwright, use the real option `value` (e.g. `__multiple__`), not a guessed label-derived value
 - Each scenario file produces exactly one `.spec.ts` file
 - Each `.spec.ts` file has one `test.describe` block with one or more `test` blocks
 - Use real agent commands like `sh -c 'echo hello; sleep 600'` for test agents (mirrors `internal/e2e/e2e.go` line 240)
