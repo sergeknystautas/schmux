@@ -835,8 +835,18 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 		return true
 	}
 
-	// Allow any origin if network access is enabled
-	return s.config.GetNetworkAccess()
+	// When network access is enabled, allow origins on the same port (any host).
+	// This permits access from LAN IPs (e.g., http://192.168.1.5:7337) while
+	// blocking unrelated websites (e.g., https://evil.com).
+	// CSRF tokens provide defense-in-depth for state-changing requests.
+	if s.config.GetNetworkAccess() {
+		parsed, err := url.Parse(origin)
+		if err == nil && parsed.Port() == fmt.Sprintf("%d", port) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // normalizeOrigin extracts scheme://host from a URL string.

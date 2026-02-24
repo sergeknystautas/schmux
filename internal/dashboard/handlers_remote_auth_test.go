@@ -512,9 +512,13 @@ func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 		BindAddress: "0.0.0.0",
 	}
 
-	// Before tunnel: network_access=true should allow any origin
-	if !server.isAllowedOrigin("http://evil.com") {
-		t.Error("should allow any origin when no tunnel and network_access=true")
+	// Before tunnel: network_access=true should allow same-port origins
+	if !server.isAllowedOrigin("http://192.168.1.100:7337") {
+		t.Error("should allow same-port LAN origin when no tunnel and network_access=true")
+	}
+	// But should reject unrelated origins (different port or no port)
+	if server.isAllowedOrigin("http://evil.com") {
+		t.Error("should reject unrelated origin even with network_access=true")
 	}
 
 	// Connect tunnel
@@ -535,10 +539,15 @@ func TestIsAllowedOrigin_RestrictedWhenTunnelActive(t *testing.T) {
 		t.Error("should reject arbitrary origins when tunnel is active, even with network_access=true")
 	}
 
-	// After tunnel stops, should revert
+	// LAN origin should also be REJECTED when tunnel is active (tunnel restricts to localhost + tunnel URL only)
+	if server.isAllowedOrigin("http://192.168.1.100:7337") {
+		t.Error("should reject LAN origins when tunnel is active")
+	}
+
+	// After tunnel stops, should revert to same-port policy
 	server.ClearRemoteAuth()
-	if !server.isAllowedOrigin("http://evil.com") {
-		t.Error("should allow any origin again after tunnel stops with network_access=true")
+	if !server.isAllowedOrigin("http://192.168.1.100:7337") {
+		t.Error("should allow same-port LAN origin again after tunnel stops with network_access=true")
 	}
 }
 
