@@ -115,6 +115,7 @@ func (tts *tunnelTestServer) simulateTunnelConnect(t *testing.T) string {
 }
 
 // makeRemoteCookie creates a valid remote session cookie value for testing.
+// Uses the testUA constant for the UA fingerprint binding.
 func (tts *tunnelTestServer) makeRemoteCookie(t *testing.T) string {
 	t.Helper()
 	nowStr := fmt.Sprintf("%d", time.Now().Unix())
@@ -122,15 +123,17 @@ func (tts *tunnelTestServer) makeRemoteCookie(t *testing.T) string {
 	secret := tts.server.remoteSessionSecret
 	tts.server.remoteTokenMu.Unlock()
 
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	return nowStr + "." + sig
+	return payload + "." + sig
 }
 
 // tunneledRequest creates an HTTP request that simulates being proxied
 // through cloudflared: RemoteAddr is loopback, Cf-Connecting-IP is the
-// remote client's real IP.
+// remote client's real IP. Sets User-Agent to testUA for cookie validation.
 func tunneledRequest(method, path string, body *strings.Reader) *http.Request {
 	var req *http.Request
 	if body != nil {
@@ -141,6 +144,7 @@ func tunneledRequest(method, path string, body *strings.Reader) *http.Request {
 	req.RemoteAddr = "127.0.0.1:54321"
 	req.Header.Set("Cf-Connecting-IP", "203.0.113.50")
 	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	req.Header.Set("User-Agent", testUA)
 	return req
 }
 
@@ -484,7 +488,9 @@ func TestTunnelE2E_Attack_CookieFromDifferentTunnelSession(t *testing.T) {
 	cookie1 := tts.makeRemoteCookie(t)
 
 	// Verify cookie works
-	if !tts.server.validateRemoteCookie(cookie1) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", testUA)
+	if !tts.server.validateRemoteCookie(cookie1, req) {
 		t.Fatal("cookie should be valid during first tunnel session")
 	}
 
@@ -493,13 +499,13 @@ func TestTunnelE2E_Attack_CookieFromDifferentTunnelSession(t *testing.T) {
 	tts.simulateTunnelConnect(t)
 
 	// Old cookie from previous tunnel session should be rejected
-	if tts.server.validateRemoteCookie(cookie1) {
+	if tts.server.validateRemoteCookie(cookie1, req) {
 		t.Error("cookie from previous tunnel session should be rejected after restart")
 	}
 
 	// New cookie should work
 	cookie2 := tts.makeRemoteCookie(t)
-	if !tts.server.validateRemoteCookie(cookie2) {
+	if !tts.server.validateRemoteCookie(cookie2, req) {
 		t.Error("new cookie should be valid after tunnel restart")
 	}
 }
@@ -648,6 +654,7 @@ func TestTunnelE2E_WebSocket_DashboardAcceptsAuthenticatedRequest(t *testing.T) 
 	}
 	header := http.Header{}
 	header.Set("Cf-Connecting-IP", "203.0.113.50")
+	header.Set("User-Agent", testUA)
 
 	// Construct a cookie header manually
 	parsedURL, _ := url.Parse(tts.httpServer.URL)

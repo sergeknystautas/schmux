@@ -1782,7 +1782,7 @@ Form Parameters:
 - `nonce`: Short-lived nonce (obtained by exchanging the one-time token)
 - `password`: User-entered password
 
-On success: Sets `schmux_remote` cookie (HMAC-signed timestamp) and redirects to `/`.
+On success: Sets `schmux_remote` cookie (HMAC-signed timestamp + User-Agent fingerprint, 12h TTL) and redirects to `/`.
 
 On failure: Re-renders password page with error message and remaining attempts count.
 
@@ -1790,7 +1790,7 @@ Notes:
 
 - Maximum 5 password attempts per nonce; after that the nonce is invalidated
 - On first GET with token, the token is consumed and replaced with a short-lived nonce
-- The `schmux_remote` cookie is HttpOnly, Secure, SameSite=Lax
+- The `schmux_remote` cookie is HttpOnly, Secure, SameSite=Lax, bound to User-Agent
 
 ### POST /api/remote-access/set-password
 
