@@ -72,9 +72,9 @@ func (s *Server) handleCreatePersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// "new" is reserved for the dashboard create route (/personas/new)
-	if req.ID == "new" {
-		http.Error(w, `"new" is a reserved ID`, http.StatusBadRequest)
+	// "create" is reserved for the dashboard route (/personas/create)
+	if req.ID == "create" {
+		http.Error(w, `"create" is a reserved ID`, http.StatusBadRequest)
 		return
 	}
 

@@ -1819,7 +1819,7 @@ Response: the created `Persona` object.
 
 Errors:
 
-- 400: "invalid persona ID" / missing required fields (id, name, icon, color, prompt)
+- 400: "invalid persona ID" / missing required fields (id, name, icon, color, prompt) / `"create"` is a reserved ID
 - 409: "persona already exists: {id}"
 
 ### PUT /api/personas/{id}

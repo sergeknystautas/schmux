@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import PersonasPage from './PersonasPage';
+import PersonasListPage from './PersonasListPage';
+import PersonaCreatePage from './PersonaCreatePage';
 
 // --- Mocks ---
 
@@ -51,25 +52,36 @@ import { getPersonas, createPersona } from '../lib/api';
 const mockGetPersonas = vi.mocked(getPersonas);
 const mockCreatePersona = vi.mocked(createPersona);
 
-function renderPage(initialRoute = '/personas') {
+function renderListPage(initialRoute = '/personas') {
   return render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route path="/personas" element={<PersonasPage />} />
-        <Route path="/personas/:personaId" element={<PersonasPage />} />
+        <Route path="/personas" element={<PersonasListPage />} />
+        <Route path="/personas/create" element={<PersonaCreatePage />} />
       </Routes>
     </MemoryRouter>
   );
 }
 
-describe('PersonasPage', () => {
+function renderCreatePage() {
+  return render(
+    <MemoryRouter initialEntries={['/personas/create']}>
+      <Routes>
+        <Route path="/personas" element={<PersonasListPage />} />
+        <Route path="/personas/create" element={<PersonaCreatePage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+describe('PersonasListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetPersonas.mockResolvedValue({ personas: mockPersonas });
   });
 
   it('renders a list of persona cards', async () => {
-    renderPage();
+    renderListPage();
 
     await waitFor(() => {
       expect(screen.getByTestId('persona-card-security-auditor')).toBeDefined();
@@ -78,7 +90,7 @@ describe('PersonasPage', () => {
   });
 
   it('shows icon and name on each card', async () => {
-    renderPage();
+    renderListPage();
 
     await waitFor(() => {
       expect(screen.getByText('Security Auditor')).toBeDefined();
@@ -88,9 +100,9 @@ describe('PersonasPage', () => {
     });
   });
 
-  it('opens create form when Create Persona is clicked', async () => {
+  it('navigates to create form when Create Persona is clicked', async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderListPage();
 
     await waitFor(() => {
       expect(screen.getByText('Create Persona')).toBeDefined();
@@ -105,6 +117,28 @@ describe('PersonasPage', () => {
     expect(screen.getByLabelText('Personality')).toBeDefined();
   });
 
+  it('handles loading state', () => {
+    mockGetPersonas.mockReturnValue(new Promise(() => {})); // never resolves
+    renderListPage();
+    expect(screen.getByText('Loading...')).toBeDefined();
+  });
+
+  it('handles error state', async () => {
+    mockGetPersonas.mockRejectedValue(new Error('Network error'));
+    renderListPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Network error')).toBeDefined();
+    });
+  });
+});
+
+describe('PersonaCreatePage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetPersonas.mockResolvedValue({ personas: mockPersonas });
+  });
+
   it('submits create form with correct data', async () => {
     const user = userEvent.setup();
     mockCreatePersona.mockResolvedValue({
@@ -117,13 +151,7 @@ describe('PersonasPage', () => {
       built_in: false,
     });
 
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText('Create Persona')).toBeDefined();
-    });
-
-    await user.click(screen.getByText('Create Persona'));
+    renderCreatePage();
 
     await waitFor(() => {
       expect(screen.getByLabelText('Name')).toBeDefined();
@@ -147,30 +175,15 @@ describe('PersonasPage', () => {
     });
   });
 
-  it('handles loading state', () => {
-    mockGetPersonas.mockReturnValue(new Promise(() => {})); // never resolves
-    renderPage();
-    expect(screen.getByText('Loading...')).toBeDefined();
-  });
-
-  it('handles error state', async () => {
-    mockGetPersonas.mockRejectedValue(new Error('Network error'));
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeDefined();
-    });
-  });
-
-  it('rejects creating a persona with reserved ID "new"', async () => {
+  it('rejects creating a persona with reserved ID "create"', async () => {
     const user = userEvent.setup();
-    renderPage('/personas/new');
+    renderCreatePage();
 
     await waitFor(() => {
       expect(screen.getByTestId('persona-form')).toBeDefined();
     });
 
-    await user.type(screen.getByLabelText('Name'), 'New');
+    await user.type(screen.getByLabelText('Name'), 'Create');
     await user.type(screen.getByLabelText('Icon (emoji)'), '🆕');
     await user.type(screen.getByLabelText('Personality'), 'Some prompt');
 
@@ -178,7 +191,7 @@ describe('PersonasPage', () => {
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith(
-        expect.stringContaining('"new" is a reserved ID')
+        expect.stringContaining('"create" is a reserved ID')
       );
     });
     expect(mockCreatePersona).not.toHaveBeenCalled();

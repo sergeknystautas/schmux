@@ -25,7 +25,9 @@ import LegacyTerminalPage from './routes/LegacyTerminalPage';
 import NotFoundPage from './routes/NotFoundPage';
 import OverlayPage from './routes/OverlayPage';
 import LorePage from './routes/LorePage';
-import PersonasPage from './routes/PersonasPage';
+import PersonasListPage from './routes/PersonasListPage';
+import PersonaCreatePage from './routes/PersonaCreatePage';
+import PersonaEditPage from './routes/PersonaEditPage';
 
 export default function App() {
   const location = useLocation();
@@ -63,8 +65,9 @@ export default function App() {
                         <Route path="/config" element={<ConfigPage />} />
                         <Route path="/settings/remote" element={<RemoteSettingsPage />} />
                         <Route path="/overlays" element={<OverlayPage />} />
-                        <Route path="/personas" element={<PersonasPage />} />
-                        <Route path="/personas/:personaId" element={<PersonasPage />} />
+                        <Route path="/personas" element={<PersonasListPage />} />
+                        <Route path="/personas/create" element={<PersonaCreatePage />} />
+                        <Route path="/personas/:personaId" element={<PersonaEditPage />} />
                         <Route path="/lore" element={<LorePage />} />
                         <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                         <Route path="*" element={<NotFoundPage />} />
