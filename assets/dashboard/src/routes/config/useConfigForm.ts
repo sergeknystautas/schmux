@@ -52,6 +52,8 @@ export type ConfigSnapshot = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  subredditTarget: string;
+  subredditHours: number;
   remoteAccessEnabled: boolean;
   remoteAccessTimeoutMinutes: number;
   remoteAccessNtfyTopic: string;
@@ -155,6 +157,10 @@ export type ConfigFormState = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+
+  // Subreddit
+  subredditTarget: string;
+  subredditHours: number;
 
   // Remote access
   remoteAccessEnabled: boolean;
@@ -289,6 +295,9 @@ export const initialState: ConfigFormState = {
   loreLLMTarget: '',
   loreCurateOnDispose: 'session',
   loreAutoPR: false,
+
+  subredditTarget: '',
+  subredditHours: 24,
 
   remoteAccessEnabled: false,
   remoteAccessTimeoutMinutes: 0,
@@ -528,6 +537,8 @@ export function useConfigForm(initialStep: number = 1) {
         state.loreLLMTarget !== oc.loreLLMTarget ||
         state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
         state.loreAutoPR !== oc.loreAutoPR ||
+        state.subredditTarget !== oc.subredditTarget ||
+        state.subredditHours !== oc.subredditHours ||
         state.remoteAccessEnabled !== oc.remoteAccessEnabled ||
         state.remoteAccessTimeoutMinutes !== oc.remoteAccessTimeoutMinutes ||
         state.remoteAccessNtfyTopic !== oc.remoteAccessNtfyTopic ||
@@ -624,6 +635,8 @@ export function useConfigForm(initialStep: number = 1) {
       loreLLMTarget: state.loreLLMTarget,
       loreCurateOnDispose: state.loreCurateOnDispose,
       loreAutoPR: state.loreAutoPR,
+      subredditTarget: state.subredditTarget,
+      subredditHours: state.subredditHours,
       remoteAccessEnabled: state.remoteAccessEnabled,
       remoteAccessTimeoutMinutes: state.remoteAccessTimeoutMinutes,
       remoteAccessNtfyTopic: state.remoteAccessNtfyTopic,

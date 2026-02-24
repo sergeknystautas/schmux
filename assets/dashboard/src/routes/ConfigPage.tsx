@@ -150,6 +150,8 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
+            subredditTarget: data.subreddit?.target || '',
+            subredditHours: data.subreddit?.hours || 24,
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -202,6 +204,8 @@ export default function ConfigPage() {
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
             loreAutoPR: data.lore?.auto_pr || false,
+            subredditTarget: data.subreddit?.target || '',
+            subredditHours: data.subreddit?.hours || 24,
             remoteAccessEnabled: data.remote_access?.enabled || false,
             remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
             remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',
@@ -530,6 +534,10 @@ export default function ConfigPage() {
           llm_target: state.loreLLMTarget,
           curate_on_dispose: state.loreCurateOnDispose,
           auto_pr: state.loreAutoPR,
+        },
+        subreddit: {
+          target: state.subredditTarget,
+          hours: state.subredditHours,
         },
         model_versions: state.modelVersions,
         remote_access: {
@@ -1310,6 +1318,8 @@ export default function ConfigPage() {
               loreLLMTarget={state.loreLLMTarget}
               loreCurateOnDispose={state.loreCurateOnDispose}
               loreAutoPR={state.loreAutoPR}
+              subredditTarget={state.subredditTarget}
+              subredditHours={state.subredditHours}
               nudgenikTarget={state.nudgenikTarget}
               viewedBuffer={state.viewedBuffer}
               nudgenikSeenInterval={state.nudgenikSeenInterval}

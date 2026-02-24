@@ -222,6 +222,66 @@ func TestGetNudgenikSeenIntervalMs(t *testing.T) {
 	})
 }
 
+func TestGetSubredditTarget(t *testing.T) {
+	t.Run("returns empty string when not configured", func(t *testing.T) {
+		cfg := &Config{}
+		got := cfg.GetSubredditTarget()
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns empty string when subreddit config exists but target is empty", func(t *testing.T) {
+		cfg := &Config{Subreddit: &SubredditConfig{}}
+		got := cfg.GetSubredditTarget()
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+
+	t.Run("returns configured target", func(t *testing.T) {
+		cfg := &Config{Subreddit: &SubredditConfig{Target: "sonnet"}}
+		got := cfg.GetSubredditTarget()
+		if got != "sonnet" {
+			t.Errorf("got %q, want %q", got, "sonnet")
+		}
+	})
+
+	t.Run("trims whitespace from target", func(t *testing.T) {
+		cfg := &Config{Subreddit: &SubredditConfig{Target: "  sonnet  "}}
+		got := cfg.GetSubredditTarget()
+		if got != "sonnet" {
+			t.Errorf("got %q, want %q", got, "sonnet")
+		}
+	})
+}
+
+func TestGetSubredditHours(t *testing.T) {
+	t.Run("returns default 24 when not configured", func(t *testing.T) {
+		cfg := &Config{}
+		got := cfg.GetSubredditHours()
+		if got != 24 {
+			t.Errorf("got %d, want 24 (default)", got)
+		}
+	})
+
+	t.Run("returns default 24 when hours is zero", func(t *testing.T) {
+		cfg := &Config{Subreddit: &SubredditConfig{Hours: 0}}
+		got := cfg.GetSubredditHours()
+		if got != 24 {
+			t.Errorf("got %d, want 24 (default)", got)
+		}
+	})
+
+	t.Run("returns configured hours", func(t *testing.T) {
+		cfg := &Config{Subreddit: &SubredditConfig{Hours: 48}}
+		got := cfg.GetSubredditHours()
+		if got != 48 {
+			t.Errorf("got %d, want 48", got)
+		}
+	})
+}
+
 func TestGetGitStatusPollIntervalMs(t *testing.T) {
 	t.Run("returns configured value", func(t *testing.T) {
 		cfg := &Config{

@@ -8,6 +8,8 @@ type AdvancedTabProps = {
   loreLLMTarget: string;
   loreCurateOnDispose: string;
   loreAutoPR: boolean;
+  subredditTarget: string;
+  subredditHours: number;
   nudgenikTarget: string;
   viewedBuffer: number;
   nudgenikSeenInterval: number;
@@ -39,6 +41,8 @@ export default function AdvancedTab({
   loreLLMTarget,
   loreCurateOnDispose,
   loreAutoPR,
+  subredditTarget,
+  subredditHours,
   nudgenikTarget,
   viewedBuffer,
   nudgenikSeenInterval,
@@ -159,6 +163,51 @@ export default function AdvancedTab({
             </label>
             <p className="form-group__hint">
               Automatically open a pull request when a lore proposal is applied.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Subreddit Digest</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label">Target</label>
+            <TargetSelect
+              value={subredditTarget}
+              onChange={(v) => setField('subredditTarget', v)}
+              includeDisabledOption={false}
+              includeNoneOption="None (disabled)"
+              detectedTargets={detectedTargets}
+              models={models}
+              promptableTargets={promptableTargets}
+            />
+            <p className="form-group__hint">
+              Promptable target for generating casual subreddit-style digests of recent commits.
+              Leave disabled to hide the digest card from the home page.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label">Lookback Hours</label>
+            <input
+              type="number"
+              className="input input--compact"
+              min="1"
+              max="168"
+              value={subredditHours === 0 ? 24 : subredditHours}
+              onChange={(e) =>
+                setField(
+                  'subredditHours',
+                  e.target.value === '' ? 24 : parseInt(e.target.value) || 24
+                )
+              }
+              disabled={!subredditTarget}
+            />
+            <p className="form-group__hint">
+              How many hours of commits to include in the digest (default: 24 hours)
             </p>
           </div>
         </div>

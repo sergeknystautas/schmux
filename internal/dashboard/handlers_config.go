@@ -184,6 +184,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			CurateOnDispose: s.config.GetLoreCurateOnDispose(),
 			AutoPR:          s.config.GetLoreAutoPR(),
 		},
+		Subreddit: contracts.Subreddit{
+			Target: s.config.GetSubredditTarget(),
+			Hours:  s.config.GetSubredditHours(),
+		},
 		RemoteAccess: contracts.RemoteAccess{
 			Enabled:         s.config.GetRemoteAccessEnabled(),
 			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
@@ -519,6 +523,18 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Lore.AutoPR != nil {
 			autoPR := *req.Lore.AutoPR
 			cfg.Lore.AutoPR = &autoPR
+		}
+	}
+
+	if req.Subreddit != nil {
+		if cfg.Subreddit == nil {
+			cfg.Subreddit = &config.SubredditConfig{}
+		}
+		if req.Subreddit.Target != nil {
+			cfg.Subreddit.Target = strings.TrimSpace(*req.Subreddit.Target)
+		}
+		if req.Subreddit.Hours != nil {
+			cfg.Subreddit.Hours = *req.Subreddit.Hours
 		}
 	}
 

@@ -20,7 +20,13 @@ import {
   getSubreddit,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
-import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo, SubredditResponse } from '../lib/types';
+import type {
+  WorkspaceResponse,
+  RecentBranch,
+  PullRequest,
+  OverlayInfo,
+  SubredditResponse,
+} from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import styles from '../styles/home.module.css';
 
@@ -687,14 +693,13 @@ export default function HomePage() {
               </h2>
               {subreddit.generated_at && (
                 <span className={styles.subredditMeta}>
-                  {subreddit.commit_count ?? 0} commits · {formatRelativeDate(subreddit.generated_at)}
+                  {subreddit.commit_count ?? 0} commits ·{' '}
+                  {formatRelativeDate(subreddit.generated_at)}
                 </span>
               )}
             </div>
             <div className={styles.sectionContent}>
-              <div className={styles.subredditContent}>
-                {subreddit.content}
-              </div>
+              <div className={styles.subredditContent}>{subreddit.content}</div>
             </div>
           </div>
         )}
