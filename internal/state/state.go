@@ -264,7 +264,7 @@ func (s *State) saveNow() error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
 
@@ -289,6 +289,11 @@ func (s *State) saveNow() error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath) // Clean up temp file
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	// Restrict permissions: state contains workspace paths, remote host info, and session metadata.
+	if err := os.Chmod(path, 0600); err != nil {
+		return fmt.Errorf("failed to set state file permissions: %w", err)
 	}
 
 	return nil

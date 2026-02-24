@@ -1316,6 +1316,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		logging.Sub(s.logger, "ws/dashboard").Error("upgrade error", "err", err)
 		return
 	}
+	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 
 	// Wrap the connection in a wsConn for concurrent write safety
 	conn := &wsConn{conn: rawConn}

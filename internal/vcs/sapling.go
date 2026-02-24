@@ -20,7 +20,7 @@ func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
 	if revision == "HEAD" {
 		slRev = ".^"
 	}
-	return fmt.Sprintf("sl cat -r %s %s", slRev, shellutil.Quote(path))
+	return fmt.Sprintf("sl cat -r %s %s", shellutil.Quote(slRev), shellutil.Quote(path))
 }
 
 func (s *SaplingCommandBuilder) FileContent(path string) string {
@@ -37,12 +37,16 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	// "rev:shorthash" format, not full hex hashes like git's %P.
 	revset := "ancestors(.)"
 	if len(refs) > 1 {
-		revset = fmt.Sprintf("ancestors(%s)", strings.Join(refs, "+"))
+		quotedRefs := make([]string, len(refs))
+		for i, ref := range refs {
+			quotedRefs[i] = ref
+		}
+		revset = fmt.Sprintf("ancestors(%s)", strings.Join(quotedRefs, "+"))
 	} else if len(refs) == 1 && refs[0] != "HEAD" {
 		revset = fmt.Sprintf("ancestors(%s)", refs[0])
 	}
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r '%s' --limit %d",
-		revset, maxCount)
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s --limit %d",
+		shellutil.Quote(revset), maxCount)
 }
 
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
@@ -57,7 +61,7 @@ func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string
 		}
 	}
 	revset := fmt.Sprintf("(%s)::%s", forkPoint, strings.Join(refExprs, "+"))
-	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r '%s'", revset)
+	return fmt.Sprintf("sl log -T '{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n' -r %s", shellutil.Quote(revset))
 }
 
 func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
@@ -65,7 +69,7 @@ func (s *SaplingCommandBuilder) ResolveRef(ref string) string {
 	if ref == "HEAD" {
 		slRef = "."
 	}
-	return fmt.Sprintf("sl log -T '{node}' -r '%s' --limit 1", slRef)
+	return fmt.Sprintf("sl log -T '{node}' -r %s --limit 1", shellutil.Quote(slRef))
 }
 
 func (s *SaplingCommandBuilder) MergeBase(ref1, ref2 string) string {
@@ -73,7 +77,8 @@ func (s *SaplingCommandBuilder) MergeBase(ref1, ref2 string) string {
 	if slRef1 == "HEAD" {
 		slRef1 = "."
 	}
-	return fmt.Sprintf("sl log -T '{node}' -r 'ancestor(%s, %s)' --limit 1", slRef1, slRef2)
+	revset := fmt.Sprintf("ancestor(%s, %s)", slRef1, slRef2)
+	return fmt.Sprintf("sl log -T '{node}' -r %s --limit 1", shellutil.Quote(revset))
 }
 
 func (s *SaplingCommandBuilder) DefaultBranchRef(branch string) string {
@@ -94,8 +99,9 @@ func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {
 		if exclude == "HEAD" {
 			exclude = "."
 		}
-		return fmt.Sprintf("sl log -T '.' -r 'only(%s, %s)' | wc -l", include, exclude)
+		revset := fmt.Sprintf("only(%s, %s)", include, exclude)
+		return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(revset))
 	}
 	// Fallback for other range specs
-	return fmt.Sprintf("sl log -T '.' -r '%s' | wc -l", rangeSpec)
+	return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(rangeSpec))
 }

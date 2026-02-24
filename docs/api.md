@@ -529,7 +529,7 @@ Paste an image from the browser clipboard into a tmux session.
 
 Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the specified tmux session so the terminal application picks up the image.
 
-Request:
+Request (max 10MB body):
 
 ```json
 {
@@ -1023,7 +1023,7 @@ Request:
 
 ```json
 {
-  "command": "command-name" // optional; name from configured external_diff_commands, or a raw command string
+  "command": "command-name" // optional; name from configured external_diff_commands or built-in commands (e.g. "VS Code")
 }
 ```
 
@@ -1035,7 +1035,7 @@ Response:
 
 Errors:
 
-- 400 with JSON: `{"success":false,"message":"No diff command specified"}` / `{"success":false,"message":"invalid request: ..."}`
+- 400 with JSON: `{"success":false,"message":"No diff command specified"}` / `{"success":false,"message":"Unknown diff command: ..."}` / `{"success":false,"message":"invalid request: ..."}`
 - 404 with JSON: `{"success":false,"message":"workspace {id} not found"}` / `{"success":false,"message":"workspace directory does not exist"}`
 - 200 with JSON: `{"success":false,"message":"No changes to diff"}` / `{"success":false,"message":"No modified or deleted files to diff"}`
 
