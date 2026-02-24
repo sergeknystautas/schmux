@@ -18,6 +18,7 @@ const (
 	LabelNudgeNik        = "nudgenik"
 	LabelBranchSuggest   = "branch-suggest"
 	LabelLoreCurator     = "lore-curator"
+	LabelSubreddit       = "subreddit"
 )
 
 // schemaEntry holds a type and optional skip fields for schema generation.
