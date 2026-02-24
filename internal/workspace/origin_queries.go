@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -90,18 +89,13 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 
 // cloneOriginQueryRepo clones a repository as a bare clone for branch/commit querying.
 func (m *Manager) cloneOriginQueryRepo(ctx context.Context, url, path string) error {
-	args := []string{"clone", "--bare", url, path}
-	cmd := exec.CommandContext(ctx, "git", args...)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone --bare failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, "", "clone", "--bare", url, path); err != nil {
+		return fmt.Errorf("git clone --bare failed: %w", err)
 	}
 
 	// Configure fetch refspec so 'git fetch' updates remote tracking branches
-	configCmd := exec.CommandContext(ctx, "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	configCmd.Dir = path
-	if output, err := configCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+		return fmt.Errorf("git config fetch refspec failed: %w", err)
 	}
 
 	return nil
@@ -124,10 +118,8 @@ func (m *Manager) prepareOriginQueryRepo(ctx context.Context, queryRepoPath, rep
 }
 
 func (m *Manager) ensureOriginFetchRefspec(ctx context.Context, queryRepoPath string) error {
-	configCmd := exec.CommandContext(ctx, "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	configCmd.Dir = queryRepoPath
-	if output, err := configCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+		return fmt.Errorf("git config fetch refspec failed: %w", err)
 	}
 	return nil
 }
@@ -135,41 +127,33 @@ func (m *Manager) ensureOriginFetchRefspec(ctx context.Context, queryRepoPath st
 func (m *Manager) fetchOriginQueryRepo(ctx context.Context, queryRepoPath, repoURL string) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(fetchCtx, "git", "fetch", "--prune", "origin")
-	cmd.Dir = queryRepoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if _, err := m.runGit(fetchCtx, "", RefreshTriggerPoller, queryRepoPath, "fetch", "--prune", "origin"); err != nil {
 		// Try to get repo name from config for better error messages
 		repoName := repoURL
 		if repo, found := m.config.FindRepoByURL(repoURL); found {
 			repoName = repo.Name
 		}
-		return fmt.Errorf("git fetch failed for origin query repo %s: %w: %s", repoName, err, string(output))
+		return fmt.Errorf("git fetch failed for origin query repo %s: %w", repoName, err)
 	}
 	return nil
 }
 
 func (m *Manager) setOriginHead(ctx context.Context, queryRepoPath string) error {
-	cmd := exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "-a")
-	cmd.Dir = queryRepoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git remote set-head failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "remote", "set-head", "origin", "-a"); err != nil {
+		return fmt.Errorf("git remote set-head failed: %w", err)
 	}
 	return nil
 }
 
 func (m *Manager) originHeadExists(ctx context.Context, queryRepoPath string) bool {
-	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/HEAD")
-	cmd.Dir = queryRepoPath
-	return cmd.Run() == nil
+	return m.runGitErr(ctx, "", RefreshTriggerExplicit, queryRepoPath, "show-ref", "--verify", "--quiet", "refs/remotes/origin/HEAD") == nil
 }
 
 // ensureCorrectOriginURL checks that the bare repo's origin URL matches the
 // expected URL from config, and corrects it if mismatched. This handles cases
 // where a repo was cloned with a different protocol (e.g., SSH vs HTTPS).
 func (m *Manager) ensureCorrectOriginURL(ctx context.Context, repoPath, expectedURL string) {
-	cmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, repoPath, "config", "--get", "remote.origin.url")
 	if err != nil {
 		return
 	}
@@ -178,10 +162,8 @@ func (m *Manager) ensureCorrectOriginURL(ctx context.Context, repoPath, expected
 		return
 	}
 	m.logger.Info("fixing origin URL mismatch", "repo", filepath.Base(repoPath), "from", currentURL, "to", expectedURL)
-	fix := exec.CommandContext(ctx, "git", "remote", "set-url", "origin", expectedURL)
-	fix.Dir = repoPath
-	if out, err := fix.CombinedOutput(); err != nil {
-		m.logger.Warn("failed to fix origin URL", "err", err, "output", string(out))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, repoPath, "remote", "set-url", "origin", expectedURL); err != nil {
+		m.logger.Warn("failed to fix origin URL", "err", err)
 	}
 }
 
@@ -190,9 +172,7 @@ func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath 
 		return false
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "for-each-ref", "--count", "1", "refs/remotes/origin/")
-	cmd.Dir = queryRepoPath
-	output, err := cmd.Output()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "for-each-ref", "--count", "1", "refs/remotes/origin/")
 	if err != nil {
 		return true
 	}
@@ -295,15 +275,12 @@ func (m *Manager) getRecentBranchesFromBare(ctx context.Context, queryRepoPath, 
 		return nil, fmt.Errorf("default branch unknown: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "for-each-ref",
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "for-each-ref",
 		"--sort=-committerdate",
 		"--count", strconv.Itoa(limit+5), // fetch extra to account for filtered branches
 		"--format=%(refname:short)|%(committerdate:iso8601)|%(subject)",
 		"refs/remotes/origin/",
 	)
-	cmd.Dir = queryRepoPath
-
-	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git for-each-ref failed: %w", err)
 	}
@@ -361,18 +338,14 @@ func (m *Manager) getRecentBranchesFromBare(ctx context.Context, queryRepoPath, 
 // getDefaultBranch detects the default branch for a bare repo.
 // Returns empty string if detection fails.
 func (m *Manager) getDefaultBranch(ctx context.Context, queryRepoPath string) string {
-	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = queryRepoPath
-	output, err := cmd.Output()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
 		return strings.TrimPrefix(ref, "refs/remotes/origin/")
 	}
 
-	cmd = exec.CommandContext(ctx, "git", "symbolic-ref", "HEAD")
-	cmd.Dir = queryRepoPath
-	output, err = cmd.Output()
+	output, err = m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "symbolic-ref", "HEAD")
 	if err == nil {
 		ref := strings.TrimSpace(string(output))
 		if strings.HasPrefix(ref, "refs/heads/") {
@@ -416,14 +389,11 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 	}
 
 	const commitDelimiter = "---COMMIT---"
-	cmd := exec.CommandContext(ctx, "git", "log",
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, queryRepoPath, "log",
 		"--format=%B"+commitDelimiter,
 		fmt.Sprintf("--max-count=%d", limit),
 		fmt.Sprintf("origin/%s..origin/%s", defaultBranch, branch),
 	)
-	cmd.Dir = queryRepoPath
-
-	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log failed: %w", err)
 	}
