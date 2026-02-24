@@ -235,6 +235,37 @@ export interface PRsResponse {
   error?: string;
 }
 
+export interface Persona {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  prompt: string;
+  expectations: string;
+  built_in: boolean;
+}
+
+export interface PersonaCreateRequest {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  prompt: string;
+  expectations?: string;
+}
+
+export interface PersonaListResponse {
+  personas: Persona[];
+}
+
+export interface PersonaUpdateRequest {
+  name?: string;
+  icon?: string;
+  color?: string;
+  prompt?: string;
+  expectations?: string;
+}
+
 export interface PrReview {
   target: string;
 }

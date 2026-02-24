@@ -33,6 +33,9 @@ func main() {
 		reflect.TypeOf(contracts.PRsResponse{}),
 		reflect.TypeOf(contracts.TLSValidateRequest{}),
 		reflect.TypeOf(contracts.TLSValidateResponse{}),
+		reflect.TypeOf(contracts.PersonaListResponse{}),
+		reflect.TypeOf(contracts.PersonaCreateRequest{}),
+		reflect.TypeOf(contracts.PersonaUpdateRequest{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

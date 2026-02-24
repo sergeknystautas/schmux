@@ -115,6 +115,7 @@ type Session struct {
 	WorkspaceID  string    `json:"workspace_id"`
 	Target       string    `json:"target"`
 	Nickname     string    `json:"nickname,omitempty"` // Optional human-friendly name
+	PersonaID    string    `json:"persona_id,omitempty"`
 	TmuxSession  string    `json:"tmux_session"`
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"` // PID of the target process from tmux pane
