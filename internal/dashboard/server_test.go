@@ -36,22 +36,28 @@ func TestIsAllowedOrigin(t *testing.T) {
 		}
 	})
 
-	t.Run("localhost allowed with https when auth enabled", func(t *testing.T) {
+	t.Run("localhost allowed with https when TLS enabled", func(t *testing.T) {
 		cfg := &config.Config{
-			Network:       &config.NetworkConfig{Port: 7337},
+			Network: &config.NetworkConfig{
+				Port: 7337,
+				TLS: &config.TLSConfig{
+					CertPath: "/path/to/cert.pem",
+					KeyPath:  "/path/to/key.pem",
+				},
+			},
 			AccessControl: &config.AccessControlConfig{Enabled: true},
 		}
 		s := &Server{config: cfg}
 
 		if !s.isAllowedOrigin("https://localhost:7337") {
-			t.Error("https://localhost:7337 should be allowed when auth enabled")
+			t.Error("https://localhost:7337 should be allowed when TLS enabled")
 		}
 		if !s.isAllowedOrigin("https://127.0.0.1:7337") {
-			t.Error("https://127.0.0.1:7337 should be allowed when auth enabled")
+			t.Error("https://127.0.0.1:7337 should be allowed when TLS enabled")
 		}
-		// http should NOT be allowed when auth enabled
+		// http should NOT be allowed when TLS enabled
 		if s.isAllowedOrigin("http://localhost:7337") {
-			t.Error("http://localhost:7337 should NOT be allowed when auth enabled")
+			t.Error("http://localhost:7337 should NOT be allowed when TLS enabled")
 		}
 	})
 
