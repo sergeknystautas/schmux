@@ -104,7 +104,7 @@ func TestIsAllowedOrigin(t *testing.T) {
 		}
 	})
 
-	t.Run("any origin allowed when network_access enabled", func(t *testing.T) {
+	t.Run("same-port origins allowed when network_access enabled", func(t *testing.T) {
 		cfg := &config.Config{
 			Network: &config.NetworkConfig{
 				Port:        7337,
@@ -114,10 +114,13 @@ func TestIsAllowedOrigin(t *testing.T) {
 		s := &Server{config: cfg}
 
 		if !s.isAllowedOrigin("http://192.168.1.100:7337") {
-			t.Error("LAN IP should be allowed when network_access enabled")
+			t.Error("LAN IP on same port should be allowed when network_access enabled")
 		}
-		if !s.isAllowedOrigin("http://any-hostname:8080") {
-			t.Error("any origin should be allowed when network_access enabled")
+		if s.isAllowedOrigin("http://any-hostname:8080") {
+			t.Error("different port should be rejected even when network_access enabled")
+		}
+		if s.isAllowedOrigin("https://evil.com") {
+			t.Error("unrelated origin should be rejected even when network_access enabled")
 		}
 	})
 
