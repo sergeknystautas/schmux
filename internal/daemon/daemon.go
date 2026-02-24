@@ -1068,6 +1068,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Shutdown telemetry (flush pending events)
 	tel.Shutdown()
 
+	// Stop session manager (kills tmux attach-client processes)
+	sm.Stop()
+
 	// Stop tunnel manager
 	tunnelMgr.Stop()
 
