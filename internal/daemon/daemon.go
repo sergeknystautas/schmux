@@ -21,6 +21,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
+	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -263,7 +264,7 @@ func Status() (running bool, url string, startedAt string, err error) {
 		if cfgPort := cfg.GetPort(); cfgPort != 0 {
 			url = fmt.Sprintf("http://localhost:%d", cfgPort)
 		}
-		if cfg.GetAuthEnabled() && cfg.GetPublicBaseURL() != "" {
+		if cfg.GetPublicBaseURL() != "" {
 			url = cfg.GetPublicBaseURL()
 		}
 	}
@@ -344,6 +345,31 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if cfg.GetAuthEnabled() {
 		if _, err := config.EnsureSessionSecret(); err != nil {
 			return fmt.Errorf("failed to initialize auth session secret: %w", err)
+		}
+	}
+
+	// Check dashboard.sx certificate expiry and start background services
+	if cfg.GetDashboardSXEnabled() {
+		if status, err := dashboardsx.GetStatus(cfg); err == nil && status.HasCert && status.DaysUntilExpiry < 30 {
+			fmt.Printf("[dashboardsx] certificate expires in %d days — run 'schmux dashboardsx renew-cert'\n", status.DaysUntilExpiry)
+		}
+
+		// Start heartbeat and auto-renewal goroutines
+		instanceKey, err := dashboardsx.EnsureInstanceKey()
+		if err != nil {
+			fmt.Printf("[dashboardsx] warning: failed to read instance key: %v\n", err)
+		} else {
+			serviceURL := dashboardsx.DefaultServiceURL
+			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
+				serviceURL = cfg.Network.DashboardSX.ServiceURL
+			}
+			client := dashboardsx.NewClient(serviceURL, instanceKey, cfg.GetDashboardSXCode())
+
+			go dashboardsx.StartHeartbeat(d.shutdownCtx, client)
+
+			if email := cfg.GetDashboardSXEmail(); email != "" {
+				go dashboardsx.StartAutoRenewal(d.shutdownCtx, client, email)
+			}
 		}
 	}
 
