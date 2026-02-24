@@ -12,7 +12,7 @@ General conventions:
 
 - JSON requests/responses use `Content-Type: application/json`.
 - Many error responses use plain text via `http.Error`; do not assume JSON unless specified.
-- CORS: when auth is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When `bind_address` is `0.0.0.0`, any origin is allowed.
+- CORS: when TLS is disabled, requests are allowed from `http://localhost:7337` and `http://127.0.0.1:7337`. When TLS is enabled, the scheme switches to `https`. When `bind_address` is `0.0.0.0`, any origin is allowed.
 - When auth is enabled, CORS is restricted to the derived allowed origins (must include `public_base_url`) and `Access-Control-Allow-Credentials: true` is set.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
 - Trusted request bypass: when `remote_access` is not enabled in config, all requests are considered trusted and bypass tunnel auth checks. When `remote_access` is enabled, only loopback requests without tunnel forwarding headers (`Cf-Connecting-IP`, `X-Forwarded-For`) are trusted.
@@ -607,6 +607,13 @@ Response:
     "tls": {
       "cert_path": "/path/to/schmux.local.pem",
       "key_path": "/path/to/schmux.local-key.pem"
+    },
+    "dashboardsx": {
+      "enabled": false,
+      "code": "",
+      "email": "",
+      "ip": "",
+      "service_url": ""
     }
   },
   "access_control": {
@@ -628,6 +635,8 @@ Response:
   "needs_restart": false
 }
 ```
+
+**TLS behavior**: The server serves HTTPS whenever `network.tls.cert_path` and `network.tls.key_path` are both set, regardless of whether `access_control.enabled` is true. This allows dashboard.sx HTTPS without requiring GitHub auth.
 
 ### POST/PUT /api/config
 
@@ -673,6 +682,12 @@ Request:
     "tls": {
       "cert_path": "/path/to/schmux.local.pem",
       "key_path": "/path/to/schmux.local-key.pem"
+    },
+    "dashboardsx": {
+      "enabled": false,
+      "code": "",
+      "ip": "",
+      "service_url": ""
     }
   },
   "access_control": {
@@ -760,9 +775,26 @@ Notes:
 - Extracts hostname from Subject Alternative Names (SAN) or falls back to Common Name (CN)
 - Returns expiry date in RFC3339 format
 
+### GET /api/dashboardsx/callback
+
+Handles the OAuth callback from dashboard.sx after the user authenticates with GitHub. The browser is redirected here with a one-time `callback_token`. The handler exchanges it for registration info, provisions a TLS certificate via automated DNS-01 challenge, and updates the config.
+
+Query parameters:
+
+- `callback_token` (required): one-time token from dashboard.sx (expires after 5 minutes)
+
+Response: HTML page confirming setup is complete, with instructions to restart the daemon.
+
+Errors:
+
+- 400 if `callback_token` is missing
+- 403 if the returned instance key doesn't match the local one
+- 502 if the token exchange or DNS provider setup fails
+- 500 if cert provisioning or config save fails
+
 ### GET /api/auth/secrets
 
-Returns GitHub OAuth credentials status.
+Returns whether GitHub auth secrets are configured (values are not returned).
 
 Response:
 
