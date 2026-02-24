@@ -78,6 +78,16 @@ If a newer version is available, the response includes:
 }
 ```
 
+### GET /api/debug/tmux-leak
+
+Dev diagnostics endpoint returning simple tmux counts for the sidebar:
+
+- `tmux_sessions.count` — `tmux list-sessions` line count
+- `os_processes.attach_session_process_count` — `ps` count of tmux `attach-session` processes
+- `os_processes.tmux_process_count` — `ps` count of tmux-related processes
+
+Errors from `tmux`/`ps` are reported in `tmux_sessions_error` / `ps_error` fields when present.
+
 ### POST /api/update
 
 Triggers a self-update to the latest version from GitHub releases.

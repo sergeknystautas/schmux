@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { inputLatency } from '../lib/inputLatency';
 import type { LatencyDistribution } from '../lib/inputLatency';
 
+type TmuxCounts = {
+  sessions?: number;
+  attach?: number;
+  tmux?: number;
+};
+
 function colorForMs(ms: number): string {
   if (ms <= 10) return '#0dbc79';
   if (ms <= 50) return '#e5e510';
@@ -19,10 +25,44 @@ function barColor(ms: number): string {
 
 export default function TypingPerformance() {
   const [, setTick] = useState(0);
+  const [tmuxCounts, setTmuxCounts] = useState<TmuxCounts | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch('/api/debug/tmux-leak', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setTmuxCounts({
+          sessions: data?.tmux_sessions?.count,
+          attach: data?.os_processes?.attach_session_process_count,
+          tmux: data?.os_processes?.tmux_process_count,
+        });
+      } catch {
+        // Best-effort dev diagnostics only.
+      }
+    };
+    load();
+    const id = setInterval(load, 1000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void load();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const stats = inputLatency.getStats();
@@ -30,6 +70,11 @@ export default function TypingPerformance() {
 
   return (
     <div className="typing-perf">
+      {tmuxCounts && (
+        <div className="typing-perf__empty" title="sessions / attach-session procs / tmux procs">
+          Tmux: {tmuxCounts.sessions ?? '?'} / {tmuxCounts.attach ?? '?'} / {tmuxCounts.tmux ?? '?'}
+        </div>
+      )}
       <div className="typing-perf__header">
         <span className="nav-section-title">Typing Performance</span>
         {stats && stats.count > 0 && (
