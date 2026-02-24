@@ -925,20 +925,54 @@ export async function getLoreEntries(
   return res.json();
 }
 
-export async function triggerLoreCuration(
+export async function clearLoreEntries(
   repoName: string
-): Promise<{ status: string; proposal_id?: string }> {
+): Promise<{ status: string; cleared: number }> {
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/entries`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) await parseErrorResponse(res, 'Failed to clear lore entries');
+  return res.json();
+}
+
+export async function startLoreCuration(repoName: string): Promise<{ id: string; status: string }> {
   const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
-  if (!res.ok) await parseErrorResponse(res, 'Failed to trigger lore curation');
+  if (!res.ok) {
+    await parseErrorResponse(res, 'Failed to trigger lore curation');
+  }
   return res.json();
 }
 
 export async function getLoreStatus(): Promise<LoreStatusResponse> {
   const res = await fetch('/api/lore/status');
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore status');
+  return res.json();
+}
+
+export interface CurationRunInfo {
+  id: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+export async function getLoreCurations(repoName: string): Promise<{ runs: CurationRunInfo[] }> {
+  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curations`);
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation runs');
+  return res.json();
+}
+
+export async function getLoreCurationLog(
+  repoName: string,
+  id: string
+): Promise<{ events: Record<string, unknown>[] }> {
+  const res = await fetch(
+    `/api/lore/${encodeURIComponent(repoName)}/curations/${encodeURIComponent(id)}/log`
+  );
+  if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation log');
   return res.json();
 }
 

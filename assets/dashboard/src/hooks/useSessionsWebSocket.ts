@@ -6,6 +6,8 @@ import type {
   OverlayChangeEvent,
   RemoteAccessStatus,
   WorkspaceSyncResultEvent,
+  CuratorStreamEvent,
+  CurationRun,
 } from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
@@ -89,6 +91,18 @@ function isPendingNavigationMessage(
   );
 }
 
+function isCuratorEventMessage(
+  data: Record<string, unknown>
+): data is { type: 'curator_event'; event: CuratorStreamEvent } {
+  return data.type === 'curator_event' && isObject(data.event);
+}
+
+function isCuratorStateMessage(
+  data: Record<string, unknown>
+): data is { type: 'curator_state'; run: CurationRun } {
+  return data.type === 'curator_state' && isObject(data.run);
+}
+
 function parseSyncProgress(v: unknown): { current: number; total: number } | undefined {
   if (!isObject(v)) return undefined;
   if (!isNumber(v.current) || !isNumber(v.total)) return undefined;
@@ -128,6 +142,7 @@ type SessionsWebSocketState = {
   overlayEvents: OverlayChangeEvent[];
   clearOverlayEvents: () => void;
   remoteAccessStatus: RemoteAccessStatus;
+  curatorEvents: Record<string, CuratorStreamEvent[]>;
 };
 
 export default function useSessionsWebSocket(opts?: {
@@ -148,6 +163,7 @@ export default function useSessionsWebSocket(opts?: {
   const [remoteAccessStatus, setRemoteAccessStatus] = useState<RemoteAccessStatus>({
     state: 'off',
   });
+  const [curatorEvents, setCuratorEvents] = useState<Record<string, CuratorStreamEvent[]>>({});
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
   const wsRef = useRef<WebSocket | null>(null);
@@ -265,6 +281,27 @@ export default function useSessionsWebSocket(opts?: {
           setRemoteAccessStatus(data.data);
         } else if (isPendingNavigationMessage(data)) {
           onPreviewDetectedRef.current?.(data.id1, data.id2);
+        } else if (isCuratorEventMessage(data)) {
+          const ev = data.event as CuratorStreamEvent;
+          setCuratorEvents((prev) => {
+            const existing = prev[ev.repo] || [];
+            const lastExisting = existing[existing.length - 1];
+            // If the last event was terminal, this is a new run — start fresh
+            if (
+              lastExisting &&
+              (lastExisting.event_type === 'curator_done' ||
+                lastExisting.event_type === 'curator_error')
+            ) {
+              return { ...prev, [ev.repo]: [ev] };
+            }
+            return { ...prev, [ev.repo]: [...existing, ev] };
+          });
+        } else if (isCuratorStateMessage(data)) {
+          const run = data.run as CurationRun;
+          setCuratorEvents((prev) => ({
+            ...prev,
+            [run.repo]: run.events,
+          }));
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -337,5 +374,6 @@ export default function useSessionsWebSocket(opts?: {
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,
+    curatorEvents,
   };
 }

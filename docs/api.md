@@ -1646,22 +1646,114 @@ Response:
 }
 ```
 
-### POST /api/lore/{repo}/curate
+### DELETE /api/lore/{repo}/entries
 
-Triggers manual curation for a repo. Requires an LLM target to be configured.
+Clears all raw signal entries by truncating workspace `lore.jsonl` files for the given repo.
 
 Response:
 
 ```json
 {
-  "status": "curated",
-  "proposal_id": "..."
+  "status": "cleared",
+  "cleared": 3
+}
+```
+
+### POST /api/lore/{repo}/curate
+
+Triggers manual curation for a repo. Returns immediately with a curation ID; progress events stream via the `/ws/dashboard` WebSocket as `curator_event` messages.
+
+Response:
+
+```json
+{
+  "id": "cur-myrepo-20260222-153045",
+  "status": "started"
+}
+```
+
+If there are no raw entries to curate:
+
+```json
+{
+  "id": "",
+  "status": "no_raw_entries"
 }
 ```
 
 Errors:
 
 - 503: "lore curator not configured (no LLM target)" or "lore system not enabled"
+- 409: "curation already running for {repo}"
+
+### GET /api/lore/{repo}/curations
+
+Lists past curation run logs for a repo.
+
+Response:
+
+```json
+{
+  "runs": [
+    {
+      "id": "cur-myrepo-20260222-153045",
+      "size_bytes": 12345,
+      "created_at": "2026-02-22T15:30:45Z"
+    }
+  ]
+}
+```
+
+Notes:
+
+- Each curation run is stored as a subdirectory under `~/.schmux/lore-curator-runs/{repo}/{id}/`
+- Each directory contains: `prompt.txt`, `run.sh`, `events.jsonl`, and `output.txt` or `error.txt`
+- `size_bytes` reports the size of `events.jsonl` within the directory
+- Sorted newest first
+- Returns empty `runs` array if no curation runs exist
+
+### GET /api/lore/{repo}/curations/{id}/log
+
+Returns the JSONL event log for a specific curation run (reads `events.jsonl` from the run directory).
+
+Response:
+
+```json
+{
+  "events": [
+    {"type": "system", "subtype": "init", ...},
+    {"type": "assistant", "message": {...}, ...},
+    {"type": "result", "duration_ms": 15000, ...}
+  ]
+}
+```
+
+Notes:
+
+- Each event is a raw JSON object from the Claude CLI stream-json output
+- The curation ID must not contain path separators
+- Returns 404 if the log file does not exist
+
+### GET /api/lore/{repo}/curations/active
+
+Returns all active (in-progress) curation runs with their buffered events. Used on page load / WebSocket reconnect to recover state.
+
+Response:
+
+```json
+{
+  "runs": [
+    {
+      "id": "cur-myrepo-20260222-153045",
+      "repo": "myrepo",
+      "started_at": "2026-02-22T15:30:45Z",
+      "events": [...],
+      "done": false,
+      "error": ""
+    }
+  ]
+}
+```
 
 ## Remote Access
 
@@ -1927,6 +2019,48 @@ GitHub CLI status (sent on connect and when status changes):
 Notes:
 
 - Sessions updates use trailing debounce (100ms) to coalesce rapid changes into single broadcasts
+
+Curator event (sent per streaming event during lore curation):
+
+```json
+{
+  "type": "curator_event",
+  "repo": "myrepo",
+  "timestamp": "2026-02-22T15:30:46Z",
+  "event_type": "assistant",
+  "subtype": "",
+  "raw": { ... }
+}
+```
+
+- `event_type` values include: `system`, `assistant`, `user`, `result`, `error`, `server_error`, `overloaded_error`, `curator_done`, `curator_error`
+- `raw` contains the full stream-json event from Claude CLI
+- Error events (`error` or any type ending in `_error` like `server_error`, `overloaded_error`) indicate LLM API errors; `raw` may contain `{"error":{"type":"...","message":"..."}}` (wrapped) or `{"type":"server_error","detail":"...","status_code":500}` (direct)
+- Terminal events (`curator_done`, `curator_error`) include `proposal_id`/`file_count` or `error` in `raw`
+
+Curator state (sent on WebSocket connect to recover active and recently completed curations):
+
+```json
+{
+  "type": "curator_state",
+  "runs": [
+    {
+      "id": "cur-myrepo-20260222-153045",
+      "repo": "myrepo",
+      "started_at": "2026-02-22T15:30:45Z",
+      "completed_at": "2026-02-22T15:32:10Z",
+      "events": [...],
+      "done": false,
+      "error": ""
+    }
+  ]
+}
+```
+
+- Active (in-progress) runs are always sent on connect
+- Recently completed runs (within 60s) are also sent, so reconnecting clients learn about completions/errors that happened while disconnected
+- `completed_at` is set when the run finishes (omitted if still in progress)
+
 - `workspace_locked` messages are sent immediately (not debounced)
 - No client-to-server messages expected; the connection is kept alive by reading
 

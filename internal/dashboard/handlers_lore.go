@@ -42,7 +42,7 @@ func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
 
 	var issues []string
 	if enabled && !curatorConfigured {
-		issues = append(issues, "No LLM target configured \u2014 curator cannot run. Set lore.llm_target in config.")
+		issues = append(issues, "No LLM target configured — curator cannot run. Set lore.llm_target in config.")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -199,18 +199,20 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "repo not found", http.StatusNotFound)
 		return
 	}
-	bareDir := filepath.Join(s.config.GetWorktreeBasePath(), barePath)
+	bareDir := s.config.ResolveBareRepoDir(barePath)
 	workDir := filepath.Join(os.TempDir(), "schmux-lore-apply")
 	os.MkdirAll(workDir, 0755)
 
 	result, err := lore.ApplyProposal(r.Context(), proposal, bareDir, workDir)
 	if err != nil {
+		s.logger.Error("apply proposal error", "repo", repoName, "proposal", proposalID, "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Always push the branch after a successful commit
 	if err := lore.PushBranch(r.Context(), bareDir, result.Branch); err != nil {
+		s.logger.Error("push branch error", "repo", repoName, "branch", result.Branch, "err", err)
 		http.Error(w, fmt.Sprintf("commit succeeded but push failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -347,7 +349,37 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleLoreEntriesClear truncates all workspace lore.jsonl files for the given repo,
+// effectively clearing the raw signal queue.
+func (s *Server) handleLoreEntriesClear(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
+		http.Error(w, "missing repo name", http.StatusBadRequest)
+		return
+	}
+
+	paths := s.getLoreWorkspacePaths(repoName)
+	cleared := 0
+	for _, p := range paths {
+		if err := os.Truncate(p, 0); err != nil {
+			if !os.IsNotExist(err) {
+				s.logger.Warn("failed to truncate lore file", "path", p, "err", err)
+			}
+			continue
+		}
+		cleared++
+	}
+
+	s.logger.Info("cleared raw signals", "repo", repoName, "files_truncated", cleared)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "cleared",
+		"cleared": cleared,
+	})
+}
+
 // handleLoreCurate handles manual curation requests.
+// Returns immediately with a curation ID; events stream via WebSocket.
 func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 	repoName := chi.URLParam(r, "repo")
@@ -365,6 +397,12 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Guard: only one curation per repo at a time
+	if s.curationTracker.IsRunning(repoName) {
+		http.Error(w, "curation already in progress", http.StatusConflict)
+		return
+	}
+
 	// Find the repo config by name
 	var barePath string
 	found := false
@@ -379,56 +417,226 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "repo not found", http.StatusNotFound)
 		return
 	}
-	bareDir := filepath.Join(s.config.GetWorktreeBasePath(), barePath)
+	bareDir := s.config.ResolveBareRepoDir(barePath)
 
-	// Read raw entries from all workspace directories + central state
+	// Read entries
 	readPaths := s.getLoreReadPaths(repoName)
 	rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
 	if err != nil {
 		s.logger.Error("read entries error", "err", err)
-		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("failed to read lore entries: %v", err), http.StatusInternalServerError)
 		return
 	}
-
 	if len(rawEntries) == 0 {
 		s.logger.Info("curate: no raw entries to process", "repo", repoName)
 		w.Header().Set("Content-Type", "application/json")
-		writeJSON(w, map[string]string{"status": "no_raw_entries"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "no_raw_entries"})
 		return
 	}
 
-	s.logger.Info("curate: found raw entries, calling LLM", "repo", repoName, "count", len(rawEntries))
+	// Prepare curator prompt
+	instrFiles, fileHashes, err := s.loreCurator.ReadInstructionFiles(r.Context(), bareDir)
+	if err != nil {
+		s.logger.Error("read instruction files error", "repo", repoName, "err", err)
+		http.Error(w, fmt.Sprintf("failed to read instruction files: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if len(instrFiles) == 0 {
+		s.logger.Error("no instruction files found", "repo", repoName, "bare_dir", bareDir)
+		http.Error(w, "no instruction files found", http.StatusInternalServerError)
+		return
+	}
+	prompt := lore.BuildCuratorPrompt(instrFiles, rawEntries)
+
+	// Start curation tracking
+	curationID := fmt.Sprintf("cur-%s-%s", repoName, time.Now().UTC().Format("20060102-150405"))
+	if _, err := s.curationTracker.Start(repoName, curationID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	// Return immediately with curation ID
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": curationID, "status": "started"})
+
+	// Run curation in background goroutine
+	go s.runStreamingCuration(repoName, curationID, prompt, instrFiles, fileHashes, rawEntries, bareDir)
+}
+
+// writeLogEvent appends a JSON event to the curation JSONL log file.
+func writeLogEvent(logFile *os.File, raw json.RawMessage) {
+	if logFile == nil {
+		return
+	}
+	logFile.Write(raw)
+	logFile.Write([]byte("\n"))
+}
+
+// generateRunScript creates a shell script that reproduces the curator call.
+func generateRunScript(cfg *config.Config, targetName, schemaLabel string, streaming bool) string {
+	cmdInfo, err := oneshot.ResolveTargetCommand(cfg, targetName, schemaLabel, streaming)
+	if err != nil {
+		return fmt.Sprintf("#!/bin/sh\n# Could not resolve target command: %s\nexit 1\n", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("#!/bin/sh\n")
+	sb.WriteString("# Reproduce this curator run\n")
+	sb.WriteString("# Generated by schmux — edit freely\n\n")
+
+	for k, v := range cmdInfo.Env {
+		fmt.Fprintf(&sb, "export %s=%q\n", k, v)
+	}
+	if len(cmdInfo.Env) > 0 {
+		sb.WriteString("\n")
+	}
+
+	// Build the command, piping prompt.txt via stdin
+	var quotedArgs []string
+	for _, a := range cmdInfo.Args {
+		if strings.ContainsAny(a, " \t\n\"'\\$`") {
+			quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
+		} else {
+			quotedArgs = append(quotedArgs, a)
+		}
+	}
+	fmt.Fprintf(&sb, "cat \"$(dirname \"$0\")/prompt.txt\" | \\\n  %s\n", strings.Join(quotedArgs, " \\\n  "))
+
+	return sb.String()
+}
+
+// writeDebugFile writes a file to the per-run debug directory if runDir is non-empty.
+func writeDebugFile(runDir, filename, content string) {
+	if runDir == "" {
+		return
+	}
+	os.WriteFile(filepath.Join(runDir, filename), []byte(content), 0644)
+}
+
+// runStreamingCuration runs the streaming curation in the background,
+// broadcasting events via WebSocket and writing debug files to a per-run directory.
+func (s *Server) runStreamingCuration(repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, bareDir string) {
+	ctx, cancel := context.WithTimeout(s.shutdownCtx, 10*time.Minute)
+	defer cancel()
+
+	s.logger.Info("starting streaming curation", "repo", repoName, "curation_id", curationID, "entries", len(entries))
 	start := time.Now()
 
-	// Use a detached context with its own timeout — the LLM call can take
-	// 30-120s and we don't want it cancelled if the browser disconnects.
-	curateCtx, curateCancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer curateCancel()
-
-	// Use CurateWithEntries so we pass the pre-aggregated entries
-	proposal, err := s.loreCurator.CurateWithEntries(curateCtx, repoName, bareDir, rawEntries)
-	elapsed := time.Since(start)
+	// Create per-run directory
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		s.logger.Error("curation failed", "elapsed", elapsed.Round(time.Millisecond), "err", err)
-		http.Error(w, "curation failed", http.StatusInternalServerError)
-		return
+		s.logger.Error("failed to resolve home dir", "repo", repoName, "err", err)
 	}
-	if proposal == nil {
-		s.logger.Info("curate: LLM returned no proposal", "repo", repoName, "elapsed", elapsed.Round(time.Millisecond))
-		w.Header().Set("Content-Type", "application/json")
-		writeJSON(w, map[string]string{"status": "no_raw_entries"})
+	var runDir string
+	var logFile *os.File
+	if homeDir != "" {
+		runDir = filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName, curationID)
+		os.MkdirAll(runDir, 0755)
+
+		// Write prompt.txt
+		os.WriteFile(filepath.Join(runDir, "prompt.txt"), []byte(prompt), 0644)
+
+		// Write run.sh
+		target := s.config.GetLoreTarget()
+		streaming := s.streamingExecutor != nil
+		runScript := generateRunScript(s.config, target, schema.LabelLoreCurator, streaming)
+		os.WriteFile(filepath.Join(runDir, "run.sh"), []byte(runScript), 0755)
+
+		// Create events.jsonl
+		logFile, _ = os.Create(filepath.Join(runDir, "events.jsonl"))
+		if logFile != nil {
+			defer logFile.Close()
+		}
+	}
+
+	// Choose executor: streaming if available, otherwise fallback to non-streaming
+	if s.streamingExecutor != nil {
+		s.runWithStreamingExecutor(ctx, repoName, curationID, prompt, instrFiles, fileHashes, entries, runDir, logFile, start)
+	} else {
+		s.runWithLegacyExecutor(ctx, repoName, curationID, prompt, instrFiles, fileHashes, entries, bareDir, runDir, logFile, start)
+	}
+}
+
+// runWithStreamingExecutor runs curation using the streaming executor with event callbacks.
+func (s *Server) runWithStreamingExecutor(ctx context.Context, repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, runDir string, logFile *os.File, start time.Time) {
+	onEvent := func(ev oneshot.StreamEvent) {
+		curatorEvent := CuratorEvent{
+			Repo:      repoName,
+			Timestamp: time.Now().UTC(),
+			EventType: ev.Type,
+			Subtype:   ev.Subtype,
+			Raw:       ev.Raw,
+		}
+		s.curationTracker.AddEvent(repoName, curatorEvent)
+		s.BroadcastCuratorEvent(curatorEvent)
+
+		if ev.Type == "error" || strings.HasSuffix(ev.Type, "_error") || len(ev.Error) > 0 {
+			s.logger.Error("curator stream error", "repo", repoName, "curation_id", curationID, "raw", string(ev.Raw))
+		}
+
+		// Append to JSONL file
+		if logFile != nil {
+			logFile.Write(ev.Raw)
+			logFile.Write([]byte("\n"))
+		}
+	}
+
+	rawResponse, err := s.streamingExecutor(ctx, prompt, schema.LabelLoreCurator, 10*time.Minute, "", onEvent)
+	if err != nil {
+		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
+		writeLogEvent(logFile, errRaw)
+		writeDebugFile(runDir, "error.txt", err.Error())
+		s.completeCurationWithError(repoName, fmt.Errorf("streaming executor failed: %w", err))
 		return
 	}
 
-	s.logger.Info("curate: proposal created", "repo", repoName, "proposal", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
+	writeDebugFile(runDir, "output.txt", rawResponse)
+	s.finalizeCuration(repoName, curationID, rawResponse, instrFiles, fileHashes, entries, start, logFile)
+}
+
+// runWithLegacyExecutor runs curation using the non-streaming executor (fallback).
+func (s *Server) runWithLegacyExecutor(ctx context.Context, repoName, curationID, prompt string, instrFiles, fileHashes map[string]string, entries []lore.Entry, bareDir, runDir string, logFile *os.File, start time.Time) {
+	response, err := s.loreCurator.Executor(ctx, prompt, 10*time.Minute)
+	if err != nil {
+		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
+		writeLogEvent(logFile, errRaw)
+		writeDebugFile(runDir, "error.txt", err.Error())
+		s.completeCurationWithError(repoName, fmt.Errorf("curator LLM call failed: %w", err))
+		return
+	}
+
+	writeDebugFile(runDir, "output.txt", response)
+	s.finalizeCuration(repoName, curationID, response, instrFiles, fileHashes, entries, start, logFile)
+}
+
+// finalizeCuration parses the response, builds proposal, saves it, and marks entries.
+func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, instrFiles, fileHashes map[string]string, entries []lore.Entry, start time.Time, logFile *os.File) {
+	elapsed := time.Since(start)
+
+	result, err := lore.ParseCuratorResponse(rawResponse)
+	if err != nil {
+		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
+		writeLogEvent(logFile, errRaw)
+		s.completeCurationWithError(repoName, fmt.Errorf("failed to parse curator response: %w", err))
+		return
+	}
+
+	proposal, err := lore.BuildProposal(repoName, result, instrFiles, fileHashes, entries)
+	if err != nil {
+		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
+		writeLogEvent(logFile, errRaw)
+		s.completeCurationWithError(repoName, fmt.Errorf("failed to build proposal: %w", err))
+		return
+	}
 
 	if err := s.loreStore.Save(proposal); err != nil {
-		s.logger.Error("save proposal error", "err", err)
-		http.Error(w, "failed to save proposal", http.StatusInternalServerError)
+		errRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_error","error":%q}`, err.Error()))
+		writeLogEvent(logFile, errRaw)
+		s.completeCurationWithError(repoName, fmt.Errorf("failed to save proposal: %w", err))
 		return
 	}
 
-	// Mark source entries as "proposed" in the central state JSONL
+	// Mark entries as proposed
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
 		wsPaths := s.getLoreWorkspacePaths(repoName)
@@ -437,13 +645,147 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      "curated",
-		"proposal_id": proposal.ID,
-	}); err != nil {
-		s.logger.Error("failed to encode response", "handler", "lore-curate", "err", err)
+	doneRaw := json.RawMessage(fmt.Sprintf(`{"type":"curator_done","proposal_id":%q,"file_count":%d}`, proposal.ID, len(proposal.ProposedFiles)))
+	writeLogEvent(logFile, doneRaw)
+
+	s.curationTracker.Complete(repoName, nil)
+	s.BroadcastCuratorEvent(CuratorEvent{
+		Repo:      repoName,
+		Timestamp: time.Now().UTC(),
+		EventType: "curator_done",
+		Raw:       doneRaw,
+	})
+
+	s.logger.Info("proposal created", "repo", repoName, "proposal", proposal.ID, "files", len(proposal.ProposedFiles), "entries_used", len(proposal.EntriesUsed), "elapsed", elapsed.Round(time.Millisecond))
+}
+
+// completeCurationWithError marks a curation as failed and broadcasts the error.
+func (s *Server) completeCurationWithError(repoName string, err error) {
+	s.logger.Error("curation error", "repo", repoName, "err", err)
+	s.curationTracker.Complete(repoName, err)
+	s.BroadcastCuratorEvent(CuratorEvent{
+		Repo:      repoName,
+		Timestamp: time.Now().UTC(),
+		EventType: "curator_error",
+		Raw:       json.RawMessage(fmt.Sprintf(`{"error":%q}`, err.Error())),
+	})
+}
+
+// handleLoreCurationsActive returns all active curation runs with their buffered events.
+func (s *Server) handleLoreCurationsActive(w http.ResponseWriter, r *http.Request) {
+	runs := s.curationTracker.Active()
+	if runs == nil {
+		runs = []*CurationRun{}
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runs)
+}
+
+// handleLoreCurationsList returns past curation run logs for a repo.
+func (s *Server) handleLoreCurationsList(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if repoName == "" {
+		http.Error(w, "missing repo name", http.StatusBadRequest)
+		return
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "failed to resolve home directory", http.StatusInternalServerError)
+		return
+	}
+	runDir := filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName)
+
+	entries, err := os.ReadDir(runDir)
+	if err != nil {
+		// Directory doesn't exist — no runs yet
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"runs": []interface{}{}})
+		return
+	}
+
+	type runInfo struct {
+		ID        string `json:"id"`
+		SizeBytes int64  `json:"size_bytes"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	var runs []runInfo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		id := entry.Name()
+
+		// Check for events.jsonl to report size; fall back to 0
+		var sizeBytes int64
+		eventsPath := filepath.Join(runDir, id, "events.jsonl")
+		if fi, err := os.Stat(eventsPath); err == nil {
+			sizeBytes = fi.Size()
+		}
+
+		runs = append(runs, runInfo{
+			ID:        id,
+			SizeBytes: sizeBytes,
+			CreatedAt: info.ModTime().UTC().Format(time.RFC3339),
+		})
+	}
+
+	// Sort newest first (by filename which contains timestamp)
+	for i, j := 0, len(runs)-1; i < j; i, j = i+1, j-1 {
+		runs[i], runs[j] = runs[j], runs[i]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"runs": runs})
+}
+
+// handleLoreCurationLog returns the JSONL log content for a specific curation run.
+func (s *Server) handleLoreCurationLog(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	curationID := chi.URLParam(r, "curationID")
+	if repoName == "" || curationID == "" {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Validate curation ID — no path separators allowed
+	if strings.ContainsAny(curationID, "/\\") || curationID == ".." || curationID == "." {
+		http.Error(w, "invalid curation ID", http.StatusBadRequest)
+		return
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "failed to resolve home directory", http.StatusInternalServerError)
+		return
+	}
+
+	logPath := filepath.Join(homeDir, ".schmux", "lore-curator-runs", repoName, curationID, "events.jsonl")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		http.Error(w, "log file not found", http.StatusNotFound)
+		return
+	}
+
+	var events []json.RawMessage
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Validate it's valid JSON
+		if json.Valid([]byte(line)) {
+			events = append(events, json.RawMessage(line))
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"events": events})
 }
 
 // refreshLoreCurator updates the lore curator's executor based on the current

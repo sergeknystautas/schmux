@@ -101,7 +101,8 @@ export default function AdvancedTab({
               <span>Enable lore system</span>
             </label>
             <p className="form-group__hint">
-              Capture agent learnings and curate them into documentation proposals.
+              A system that continuously learns about where agents make mistakes and automatically
+              turns them into suggestions for updates to their instructions.
             </p>
           </div>
 

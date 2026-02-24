@@ -207,6 +207,26 @@
   border-color: var(--border-hover, #555);
 }
 
+.deleteButton {
+  padding: 0.375rem 1rem;
+  background: transparent;
+  color: var(--color-error, #e55);
+  border: 1px solid var(--color-error, #e55);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: var(--color-error, #e55);
+  color: #fff;
+}
+
+.deleteButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Sections */
 .section {
   margin-bottom: 2rem;
@@ -402,4 +422,29 @@
 .curateButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.curateArea {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.curateArea .curateButton {
+  margin-left: 0;
+}
+
+.curateStatus {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary, #aaa);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.curateElapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  min-width: 2.5em;
 }

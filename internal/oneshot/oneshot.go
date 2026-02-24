@@ -1,6 +1,8 @@
 package oneshot
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -18,6 +21,62 @@ import (
 
 // ErrTargetNotFound is returned when a target name cannot be resolved.
 var ErrTargetNotFound = errors.New("target not found")
+
+// CommandInfo describes the resolved command and environment for a oneshot target,
+// without executing it. Useful for generating reproducible run scripts.
+type CommandInfo struct {
+	Args []string          // Full command arguments (e.g. ["claude", "--print", ...])
+	Env  map[string]string // Extra environment variables (secrets, model config)
+}
+
+// ResolveTargetCommand resolves a target name to its full command and env
+// without executing it. The streaming parameter controls whether to resolve
+// for streaming mode (oneshot-streaming) or regular oneshot mode.
+func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string, streaming bool) (*CommandInfo, error) {
+	target, err := resolveTarget(cfg, targetName)
+	if err != nil {
+		return nil, err
+	}
+	if !target.Promptable {
+		return nil, fmt.Errorf("target %s must be promptable", targetName)
+	}
+
+	if target.Kind == targetKindUser {
+		// User-defined targets: command is the raw command string
+		parts := strings.Fields(target.Command)
+		return &CommandInfo{Args: parts, Env: target.Env}, nil
+	}
+
+	// Resolve schema
+	schemaArg := ""
+	if schemaLabel != "" {
+		schemaPath, err := resolveSchema(schemaLabel)
+		if err != nil {
+			return nil, err
+		}
+		if target.ToolName == "claude" {
+			content, err := os.ReadFile(schemaPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+			}
+			schemaArg = string(content)
+		} else {
+			schemaArg = schemaPath
+		}
+	}
+
+	mode := detect.ToolModeOneshot
+	if streaming {
+		mode = detect.ToolModeOneshotStreaming
+	}
+
+	cmdParts, err := detect.BuildCommandParts(target.ToolName, target.Command, mode, schemaArg, target.Model)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CommandInfo{Args: cmdParts, Env: target.Env}, nil
+}
 
 // Schema labels - re-exported from schema package for backwards compatibility.
 const (
@@ -111,6 +170,7 @@ func ExecuteCommand(ctx context.Context, command, prompt string, env map[string]
 	}
 
 	execCmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	execCmd.Stdin = strings.NewReader(prompt)
 	if len(env) > 0 {
 		execCmd.Env = mergeEnv(env)
@@ -157,6 +217,183 @@ func ExecuteTarget(ctx context.Context, cfg *config.Config, targetName, prompt, 
 		return ExecuteCommand(timeoutCtx, target.Command, prompt, target.Env, dir)
 	}
 	return Execute(timeoutCtx, target.ToolName, target.Command, prompt, schemaLabel, target.Env, dir, target.Model)
+}
+
+// StreamEvent represents a single JSON event from claude's stream-json output.
+type StreamEvent struct {
+	Type    string          `json:"type"`            // "system", "assistant", "user", "result"
+	Subtype string          `json:"subtype"`         // for system events: "init", "hook_started", etc.
+	Error   json.RawMessage `json:"error,omitempty"` // present when the event carries an error (API failures, etc.)
+	Raw     json.RawMessage `json:"-"`               // the full raw JSON line
+}
+
+// ResultEvent is the final event in a stream-json output, containing structured output.
+type ResultEvent struct {
+	Type             string          `json:"type"`
+	Subtype          string          `json:"subtype"`
+	IsError          bool            `json:"is_error"`
+	DurationMs       int64           `json:"duration_ms"`
+	Result           string          `json:"result"`
+	StructuredOutput json.RawMessage `json:"structured_output"`
+}
+
+// ExecuteTargetStreaming runs a one-shot execution with stream-json output,
+// calling onEvent for each JSON event as it arrives. Returns the structured_output
+// from the final result event.
+func ExecuteTargetStreaming(ctx context.Context, cfg *config.Config, targetName, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(StreamEvent)) (string, error) {
+	if prompt == "" {
+		return "", fmt.Errorf("prompt cannot be empty")
+	}
+	if schemaLabel == "" {
+		return "", fmt.Errorf("schema label cannot be empty")
+	}
+
+	target, err := resolveTarget(cfg, targetName)
+	if err != nil {
+		return "", err
+	}
+	if !target.Promptable {
+		return "", fmt.Errorf("target %s must be promptable", targetName)
+	}
+	if target.Kind == targetKindUser {
+		return "", fmt.Errorf("streaming mode is not supported for user-defined targets")
+	}
+
+	// Resolve schema
+	schemaArg := ""
+	if schemaLabel != "" {
+		schemaPath, err := resolveSchema(schemaLabel)
+		if err != nil {
+			return "", err
+		}
+		if target.ToolName == "claude" {
+			content, err := os.ReadFile(schemaPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+			}
+			schemaArg = string(content)
+		} else {
+			schemaArg = schemaPath
+		}
+	}
+
+	// Build command with streaming mode
+	cmdParts, err := detect.BuildCommandParts(target.ToolName, target.Command, detect.ToolModeOneshotStreaming, schemaArg, target.Model)
+	if err != nil {
+		return "", err
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	execCmd := exec.CommandContext(timeoutCtx, cmdParts[0], cmdParts[1:]...)
+	execCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	execCmd.Stdin = strings.NewReader(prompt)
+	if len(target.Env) > 0 {
+		execCmd.Env = mergeEnv(target.Env)
+	}
+	if dir != "" {
+		execCmd.Dir = dir
+	}
+
+	// Set up stdout pipe for streaming
+	stdout, err := execCmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	var stderrBuf bytes.Buffer
+	execCmd.Stderr = &stderrBuf
+
+	if err := execCmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Kill the entire process group on context cancellation so grandchild
+	// processes don't keep the stdout pipe open (which would block scanner.Scan).
+	go func() {
+		<-timeoutCtx.Done()
+		if execCmd.Process != nil {
+			_ = syscall.Kill(-execCmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+
+	// Read stdout line by line
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // up to 1MB per line
+
+	var resultEvent *ResultEvent
+	var sawErrors bool
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		// Parse type and subtype
+		var ev StreamEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue // skip non-JSON lines
+		}
+		// Store raw bytes (make a copy since scanner reuses buffer)
+		raw := make([]byte, len(line))
+		copy(raw, line)
+		ev.Raw = json.RawMessage(raw)
+
+		if onEvent != nil {
+			onEvent(ev)
+		}
+
+		// Track error events
+		if ev.Type == "error" || strings.HasSuffix(ev.Type, "_error") || len(ev.Error) > 0 {
+			sawErrors = true
+		}
+
+		// Track result event
+		if ev.Type == "result" {
+			var re ResultEvent
+			if err := json.Unmarshal(line, &re); err == nil {
+				resultEvent = &re
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("timed out after %s — the LLM took too long to respond", timeout)
+		}
+		return "", fmt.Errorf("error reading stdout: %w", err)
+	}
+
+	// Wait for command to finish
+	waitErr := execCmd.Wait()
+
+	if resultEvent != nil {
+		if resultEvent.IsError {
+			return "", fmt.Errorf("agent returned error: %s", resultEvent.Result)
+		}
+		if len(resultEvent.StructuredOutput) > 0 {
+			return string(resultEvent.StructuredOutput), nil
+		}
+		return resultEvent.Result, nil
+	}
+
+	// Check for timeout after wait
+	if timeoutCtx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("timed out after %s — the LLM took too long to respond", timeout)
+	}
+
+	if waitErr != nil {
+		stderr := stderrBuf.String()
+		if stderr != "" {
+			return "", fmt.Errorf("agent failed: %w\nstderr: %s", waitErr, stderr)
+		}
+		return "", fmt.Errorf("agent failed: %w", waitErr)
+	}
+
+	if sawErrors {
+		return "", fmt.Errorf("LLM API returned errors (see event log above)")
+	}
+
+	return "", fmt.Errorf("no result event found in stream output")
 }
 
 func mergeEnv(extra map[string]string) []string {

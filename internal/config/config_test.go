@@ -2097,3 +2097,38 @@ func TestGetDashboardSXEmail(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveBareRepoDir_Found(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	reposDir := filepath.Join(tmpDir, "repos")
+	os.MkdirAll(filepath.Join(reposDir, "myrepo.git"), 0755)
+
+	cfg := CreateDefault(configPath)
+	cfg.WorktreeBasePath = reposDir
+
+	got := cfg.ResolveBareRepoDir("myrepo.git")
+	want := filepath.Join(reposDir, "myrepo.git")
+	if got != want {
+		t.Errorf("ResolveBareRepoDir() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveBareRepoDir_FallbackWhenMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	reposDir := filepath.Join(tmpDir, "repos")
+	os.MkdirAll(reposDir, 0755)
+
+	cfg := CreateDefault(configPath)
+	cfg.WorktreeBasePath = reposDir
+
+	// Repo doesn't exist anywhere — should fall back to repos dir
+	got := cfg.ResolveBareRepoDir("myrepo.git")
+	want := filepath.Join(reposDir, "myrepo.git")
+	if got != want {
+		t.Errorf("ResolveBareRepoDir() = %q, want %q", got, want)
+	}
+}
