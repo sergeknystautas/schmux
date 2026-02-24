@@ -529,7 +529,7 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 	}
 
 	// Call updateLocalDefaultBranch — should fast-forward local main
-	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir)
 
 	// Verify local main now matches origin/main
 	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != remoteMainHash {
@@ -583,7 +583,7 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 	}
 
 	// Call updateLocalDefaultBranch — should skip because main is checked out
-	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir)
 
 	// Local main should NOT have moved
 	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != initialHash {
@@ -644,7 +644,7 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 	}
 
 	// Call updateLocalDefaultBranch — should skip because branches diverged
-	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir)
 
 	// Local main should NOT have moved
 	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != localHash {
@@ -694,7 +694,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
 		t.Fatalf("gitFetch() failed: %v", err)
 	}
-	m.updateLocalDefaultBranch(ctx, bareRepoPath, remoteDir)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir)
 
 	// Create a worktree on main — should get the latest commit
 	worktreePath := filepath.Join(tmpDir, "wt-main")

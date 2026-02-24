@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -17,19 +16,15 @@ import (
 // servers). We add the refspec so that 'git fetch' creates remote tracking branches.
 func (m *Manager) cloneBareRepo(ctx context.Context, url, path string) error {
 	m.logger.Info("cloning bare repository", "url", url, "path", path)
-	args := []string{"clone", "--bare", url, path}
-	cmd := exec.CommandContext(ctx, "git", args...)
 
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone --bare failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, "", "clone", "--bare", url, path); err != nil {
+		return fmt.Errorf("git clone --bare failed: %w", err)
 	}
 
 	// Configure fetch refspec so 'git fetch' creates remote tracking branches
 	// Without this, origin/main won't exist after fetch
-	configCmd := exec.CommandContext(ctx, "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	configCmd.Dir = path
-	if output, err := configCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config fetch refspec failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+		return fmt.Errorf("git config fetch refspec failed: %w", err)
 	}
 
 	m.logger.Info("bare repository cloned", "path", path)
@@ -103,15 +98,11 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 	m.logger.Info("adding worktree", "base", worktreeBasePath, "path", workspacePath, "branch", branch)
 
 	// Check if local branch exists
-	localBranchCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	localBranchCmd.Dir = worktreeBasePath
-	localBranchExists := localBranchCmd.Run() == nil
+	localBranchExists := m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch) == nil
 
 	// Check if remote branch exists
 	remoteBranch := "origin/" + branch
-	remoteBranchCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/"+remoteBranch)
-	remoteBranchCmd.Dir = worktreeBasePath
-	remoteBranchExists := remoteBranchCmd.Run() == nil
+	remoteBranchExists := m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", "refs/remotes/"+remoteBranch) == nil
 
 	// When both local and remote branches exist, check if local has diverged
 	// from remote (e.g., after a force-push of the default branch). If diverged,
@@ -120,15 +111,11 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 	if localBranchExists && remoteBranchExists && !m.isBranchInWorktree(ctx, worktreeBasePath, branch) {
 		localRef := "refs/heads/" + branch
 		remoteRef := "refs/remotes/origin/" + branch
-		ffCheck := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", localRef, remoteRef)
-		ffCheck.Dir = worktreeBasePath
-		if ffCheck.Run() != nil {
+		if m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "merge-base", "--is-ancestor", localRef, remoteRef) != nil {
 			// Local branch has diverged from remote — reset to match remote
 			m.logger.Info("local branch diverged from origin, resetting", "branch", branch)
-			updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
-			updateCmd.Dir = worktreeBasePath
-			if output, err := updateCmd.CombinedOutput(); err != nil {
-				return fmt.Errorf("failed to reset diverged local %s: %w: %s", branch, err, string(output))
+			if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "update-ref", localRef, remoteRef); err != nil {
+				return fmt.Errorf("failed to reset diverged local %s: %w", branch, err)
 			}
 		}
 	}
@@ -150,11 +137,8 @@ func (m *Manager) addWorktree(ctx context.Context, worktreeBasePath, workspacePa
 		args = []string{"worktree", "add", "-b", branch, workspacePath, "origin/" + defaultBranch}
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = worktreeBasePath
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, args...); err != nil {
+		return fmt.Errorf("git worktree add failed: %w", err)
 	}
 
 	m.logger.Info("worktree added", "path", workspacePath)
@@ -194,16 +178,12 @@ func (m *Manager) ensureUniqueBranch(ctx context.Context, worktreeBasePath, bran
 
 func (m *Manager) branchSourceRef(ctx context.Context, worktreeBasePath, branch string) (string, error) {
 	remoteRef := "refs/remotes/origin/" + branch
-	remoteCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", remoteRef)
-	remoteCmd.Dir = worktreeBasePath
-	if remoteCmd.Run() == nil {
+	if m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", remoteRef) == nil {
 		return "origin/" + branch, nil
 	}
 
 	localRef := "refs/heads/" + branch
-	localCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
-	localCmd.Dir = worktreeBasePath
-	if localCmd.Run() == nil {
+	if m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", localRef) == nil {
 		return branch, nil
 	}
 
@@ -212,25 +192,19 @@ func (m *Manager) branchSourceRef(ctx context.Context, worktreeBasePath, branch 
 
 func (m *Manager) localBranchExists(ctx context.Context, worktreeBasePath, branch string) bool {
 	localRef := "refs/heads/" + branch
-	localCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
-	localCmd.Dir = worktreeBasePath
-	return localCmd.Run() == nil
+	return m.runGitErr(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", localRef) == nil
 }
 
 func (m *Manager) createBranchFromRef(ctx context.Context, worktreeBasePath, branch, sourceRef string) error {
-	cmd := exec.CommandContext(ctx, "git", "branch", branch, sourceRef)
-	cmd.Dir = worktreeBasePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git branch %s %s failed: %w: %s", branch, sourceRef, err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "branch", branch, sourceRef); err != nil {
+		return fmt.Errorf("git branch %s %s failed: %w", branch, sourceRef, err)
 	}
 	return nil
 }
 
 func (m *Manager) deleteBranch(ctx context.Context, worktreeBasePath, branch string) error {
-	cmd := exec.CommandContext(ctx, "git", "branch", "-D", branch)
-	cmd.Dir = worktreeBasePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git branch -D %s failed: %w: %s", branch, err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "branch", "-D", branch); err != nil {
+		return fmt.Errorf("git branch -D %s failed: %w", branch, err)
 	}
 	return nil
 }
@@ -247,10 +221,7 @@ func defaultRandSuffix(length int) string {
 // isBranchInWorktree checks if a branch is already checked out in any worktree.
 // Uses `git worktree list --porcelain` for stable, machine-readable output.
 func (m *Manager) isBranchInWorktree(ctx context.Context, worktreeBasePath, branch string) bool {
-	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
-	cmd.Dir = worktreeBasePath
-
-	output, err := cmd.Output()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return false // If we can't check, assume not in use
 	}
@@ -271,12 +242,8 @@ func (m *Manager) isBranchInWorktree(ctx context.Context, worktreeBasePath, bran
 func (m *Manager) removeWorktree(ctx context.Context, worktreeBasePath, workspacePath string) error {
 	m.logger.Info("removing worktree", "base", worktreeBasePath, "path", workspacePath)
 
-	args := []string{"worktree", "remove", "--force", workspacePath}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = worktreeBasePath
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree remove failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "remove", "--force", workspacePath); err != nil {
+		return fmt.Errorf("git worktree remove failed: %w", err)
 	}
 
 	m.logger.Info("worktree removed", "path", workspacePath)
@@ -288,12 +255,8 @@ func (m *Manager) removeWorktree(ctx context.Context, worktreeBasePath, workspac
 func (m *Manager) pruneWorktrees(ctx context.Context, worktreeBasePath string) error {
 	m.logger.Debug("pruning stale worktrees", "base", worktreeBasePath)
 
-	args := []string{"worktree", "prune"}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = worktreeBasePath
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree prune failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "prune"); err != nil {
+		return fmt.Errorf("git worktree prune failed: %w", err)
 	}
 
 	m.logger.Debug("worktrees pruned", "base", worktreeBasePath)
@@ -311,37 +274,27 @@ func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error 
 	}
 
 	// Run git init
-	initCmd := exec.CommandContext(ctx, "git", "init")
-	initCmd.Dir = path
-	if output, err := initCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git init failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "init"); err != nil {
+		return fmt.Errorf("git init failed: %w", err)
 	}
 
 	// Configure user for initial commit (required for git commit)
-	configUserCmd := exec.CommandContext(ctx, "git", "config", "user.email", "schmux@localhost")
-	configUserCmd.Dir = path
-	if output, err := configUserCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config user.email failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "config", "user.email", "schmux@localhost"); err != nil {
+		return fmt.Errorf("git config user.email failed: %w", err)
 	}
 
-	configNameCmd := exec.CommandContext(ctx, "git", "config", "user.name", "schmux")
-	configNameCmd.Dir = path
-	if output, err := configNameCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git config user.name failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "config", "user.name", "schmux"); err != nil {
+		return fmt.Errorf("git config user.name failed: %w", err)
 	}
 
 	// Create and checkout the branch
-	branchCmd := exec.CommandContext(ctx, "git", "checkout", "-b", branch)
-	branchCmd.Dir = path
-	if output, err := branchCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout -b %s failed: %w: %s", branch, err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "checkout", "-b", branch); err != nil {
+		return fmt.Errorf("git checkout -b %s failed: %w", branch, err)
 	}
 
 	// Create an empty commit for a valid git state
-	commitCmd := exec.CommandContext(ctx, "git", "commit", "--allow-empty", "-m", "Initial commit")
-	commitCmd.Dir = path
-	if output, err := commitCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, path, "commit", "--allow-empty", "-m", "Initial commit"); err != nil {
+		return fmt.Errorf("git commit failed: %w", err)
 	}
 
 	m.logger.Info("local repository initialized", "path", path)
@@ -352,11 +305,9 @@ func (m *Manager) initLocalRepo(ctx context.Context, path, branch string) error 
 // Deprecated: Use ensureWorktreeBase + addWorktree for new workspaces.
 func (m *Manager) cloneRepo(ctx context.Context, url, path string) error {
 	m.logger.Info("cloning repository", "url", url, "path", path)
-	args := []string{"clone", url, path}
-	cmd := exec.CommandContext(ctx, "git", args...)
 
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, "", "clone", url, path); err != nil {
+		return fmt.Errorf("git clone failed: %w", err)
 	}
 
 	m.logger.Info("repository cloned", "path", path)

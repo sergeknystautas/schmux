@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -442,7 +441,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	}
 
 	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, worktreeBasePath, repoURL)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL)
 
 	createdUniqueBranch := false
 	if m.config.UseWorktrees() {
@@ -779,7 +778,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, w.Path, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, workspaceID, RefreshTriggerPoller, w.Path, w.Repo)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
@@ -1048,7 +1047,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	}
 
 	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, worktreeBasePath, source.Repo)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo)
 
 	// 10. Check if branch already exists
 	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {
@@ -1098,10 +1097,8 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
 		// Checkout the new branch
-		checkoutCmd := exec.CommandContext(ctx, "git", "checkout", newBranch)
-		checkoutCmd.Dir = workspacePath
-		if output, err := checkoutCmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("git checkout failed: %w: %s", err, string(output))
+		if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, workspacePath, "checkout", newBranch); err != nil {
+			return nil, fmt.Errorf("git checkout failed: %w", err)
 		}
 	}
 
@@ -1149,11 +1146,9 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 // getWorkspaceHEAD returns the current commit hash for a workspace.
 func (m *Manager) getWorkspaceHEAD(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD failed: %w: %s", err, string(output))
+		return "", fmt.Errorf("git rev-parse HEAD failed: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -1162,12 +1157,8 @@ func (m *Manager) getWorkspaceHEAD(ctx context.Context, dir string) (string, err
 func (m *Manager) addWorktreeForBranch(ctx context.Context, worktreeBasePath, workspacePath, branch string) error {
 	m.logger.Debug("adding worktree for branch", "base", worktreeBasePath, "path", workspacePath, "branch", branch)
 
-	args := []string{"worktree", "add", workspacePath, branch}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = worktreeBasePath
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree add failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "add", workspacePath, branch); err != nil {
+		return fmt.Errorf("git worktree add failed: %w", err)
 	}
 
 	m.logger.Info("worktree added", "path", workspacePath)

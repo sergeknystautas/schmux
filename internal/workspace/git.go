@@ -14,6 +14,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 )
 
+// runGitErr is a convenience wrapper around runGit that discards stdout.
+// Used for commands where only the exit code matters (e.g., show-ref --verify --quiet).
+func (m *Manager) runGitErr(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string, args ...string) error {
+	_, err := m.runGit(ctx, workspaceID, trigger, dir, args...)
+	return err
+}
+
 var branchNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+(?:[._/-][a-zA-Z0-9_]+)*$`)
 
 // ErrInvalidBranchName is returned when a branch name fails validation.
@@ -82,6 +89,11 @@ func resolveWorktreeBaseFromWorktree(worktreePath string) (string, error) {
 
 // gitFetch runs git fetch. For worktrees, fetches from the worktree base.
 func (m *Manager) gitFetch(ctx context.Context, dir string) error {
+	return m.gitFetchInstrumented(ctx, "", RefreshTriggerExplicit, dir)
+}
+
+// gitFetchInstrumented runs git fetch with telemetry recording.
+func (m *Manager) gitFetchInstrumented(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string) error {
 	// Resolve to worktree base if this is a worktree
 	fetchDir := dir
 	if isWorktree(dir) {
@@ -90,12 +102,8 @@ func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 		}
 	}
 
-	args := []string{"fetch"}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = fetchDir
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git fetch failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, workspaceID, trigger, fetchDir, "fetch"); err != nil {
+		return fmt.Errorf("git fetch failed: %w", err)
 	}
 
 	return nil
@@ -107,7 +115,7 @@ func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 // Only updates when:
 //   - The branch is not checked out in any worktree (safe to update ref)
 //   - The update is a fast-forward (origin is ahead of local, not diverged)
-func (m *Manager) updateLocalDefaultBranch(ctx context.Context, bareRepoPath, repoURL string) {
+func (m *Manager) updateLocalDefaultBranch(ctx context.Context, workspaceID string, trigger RefreshTrigger, bareRepoPath, repoURL string) {
 	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 	if err != nil || defaultBranch == "" {
 		return
@@ -123,31 +131,23 @@ func (m *Manager) updateLocalDefaultBranch(ctx context.Context, bareRepoPath, re
 	remoteRef := "refs/remotes/origin/" + defaultBranch
 
 	// Check that origin/<default> exists
-	checkCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", remoteRef)
-	checkCmd.Dir = bareRepoPath
-	if checkCmd.Run() != nil {
+	if m.runGitErr(ctx, workspaceID, trigger, bareRepoPath, "show-ref", "--verify", "--quiet", remoteRef) != nil {
 		return // remote ref doesn't exist
 	}
 
 	// Check that local ref exists (it should, since bare clone creates it)
-	localCheckCmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", localRef)
-	localCheckCmd.Dir = bareRepoPath
-	if localCheckCmd.Run() != nil {
+	if m.runGitErr(ctx, workspaceID, trigger, bareRepoPath, "show-ref", "--verify", "--quiet", localRef) != nil {
 		return // local ref doesn't exist, nothing to update
 	}
 
 	// Verify this would be a fast-forward: local must be an ancestor of origin
-	ffCheckCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", localRef, remoteRef)
-	ffCheckCmd.Dir = bareRepoPath
-	if ffCheckCmd.Run() != nil {
+	if m.runGitErr(ctx, workspaceID, trigger, bareRepoPath, "merge-base", "--is-ancestor", localRef, remoteRef) != nil {
 		return // not a fast-forward (diverged or local is ahead)
 	}
 
 	// Fast-forward the local ref to match origin
-	updateCmd := exec.CommandContext(ctx, "git", "update-ref", localRef, remoteRef)
-	updateCmd.Dir = bareRepoPath
-	if output, err := updateCmd.CombinedOutput(); err != nil {
-		m.logger.Warn("failed to fast-forward local branch", "branch", defaultBranch, "err", err, "output", string(output))
+	if _, err := m.runGit(ctx, workspaceID, trigger, bareRepoPath, "update-ref", localRef, remoteRef); err != nil {
+		m.logger.Warn("failed to fast-forward local branch", "branch", defaultBranch, "err", err)
 	}
 }
 
@@ -157,11 +157,9 @@ func (m *Manager) gitCheckoutBranch(ctx context.Context, dir, branch string, rem
 	if remoteBranchExists {
 		args = append(args, "origin/"+branch)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
 
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, args...); err != nil {
+		return fmt.Errorf("git checkout failed: %w", err)
 	}
 
 	return nil
@@ -178,9 +176,7 @@ func (m *Manager) isUpToDateWithDefault(ctx context.Context, dir, repoURL string
 		return false
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", "origin/"+defaultBranch)
-	cmd.Dir = dir
-	return cmd.Run() == nil
+	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "merge-base", "--is-ancestor", "HEAD", "origin/"+defaultBranch) == nil
 }
 
 // gitPullRebase runs git pull --rebase origin <branch>.
@@ -188,21 +184,15 @@ func (m *Manager) isUpToDateWithDefault(ctx context.Context, dir, repoURL string
 // upstream config. For local repos without origin, skips the pull.
 func (m *Manager) gitPullRebase(ctx context.Context, dir, branch string) error {
 	// Check if origin remote exists
-	remoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-	remoteCmd.Dir = dir
-	if _, err := remoteCmd.CombinedOutput(); err != nil {
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "remote", "get-url", "origin"); err != nil {
 		// No origin remote - local-only repo, nothing to pull
 		m.logger.Debug("no origin remote, skipping pull")
 		return nil
 	}
 
 	// Explicitly pull from origin/<branch> to avoid broken upstream config
-	args := []string{"pull", "--rebase", "origin", branch}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git pull failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "pull", "--rebase", "origin", branch); err != nil {
+		return fmt.Errorf("git pull failed: %w", err)
 	}
 
 	return nil
@@ -210,18 +200,14 @@ func (m *Manager) gitPullRebase(ctx context.Context, dir, branch string) error {
 
 // gitHasOriginRemote checks if the repo has an origin remote configured.
 func (m *Manager) gitHasOriginRemote(ctx context.Context, dir string) bool {
-	remoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-	remoteCmd.Dir = dir
-	return remoteCmd.Run() == nil
+	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "remote", "get-url", "origin") == nil
 }
 
 // gitRemoteBranchExists checks for refs/remotes/origin/<branch>.
 func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string) (bool, error) {
 	ref := "refs/remotes/origin/" + branch
-	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref)
-	cmd.Dir = dir
 
-	if err := cmd.Run(); err != nil {
+	if err := m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "show-ref", "--verify", "--quiet", ref); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return false, nil
 		}
@@ -233,12 +219,8 @@ func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string)
 
 // gitCheckoutDot runs git checkout -- .
 func (m *Manager) gitCheckoutDot(ctx context.Context, dir string) error {
-	args := []string{"checkout", "--", "."}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout -- . failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "checkout", "--", "."); err != nil {
+		return fmt.Errorf("git checkout -- . failed: %w", err)
 	}
 
 	return nil
@@ -246,13 +228,14 @@ func (m *Manager) gitCheckoutDot(ctx context.Context, dir string) error {
 
 // gitCurrentBranch returns the current branch name for a directory.
 func (m *Manager) gitCurrentBranch(ctx context.Context, dir string) (string, error) {
-	args := []string{"rev-parse", "--abbrev-ref", "HEAD"}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	return m.gitCurrentBranchInstrumented(ctx, "", RefreshTriggerExplicit, dir)
+}
 
-	output, err := cmd.CombinedOutput()
+// gitCurrentBranchInstrumented returns the current branch name with telemetry recording.
+func (m *Manager) gitCurrentBranchInstrumented(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string) (string, error) {
+	output, err := m.runGit(ctx, workspaceID, trigger, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse failed: %w: %s", err, string(output))
+		return "", fmt.Errorf("git rev-parse failed: %w", err)
 	}
 
 	return strings.TrimSpace(string(output)), nil
@@ -260,12 +243,8 @@ func (m *Manager) gitCurrentBranch(ctx context.Context, dir string) (string, err
 
 // gitClean runs git clean -fd.
 func (m *Manager) gitClean(ctx context.Context, dir string) error {
-	args := []string{"clean", "-fd"}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clean failed: %w: %s", err, string(output))
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "clean", "-fd"); err != nil {
+		return fmt.Errorf("git clean failed: %w", err)
 	}
 
 	return nil
@@ -290,8 +269,7 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 	// --numstat shows: added/deleted lines filename
 	// HEAD compares against last commit (includes both staged and unstaged)
 	// --find-renames finds renames
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
-	output, err := cmd.Output()
+	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "diff", "HEAD", "--numstat", "--find-renames", "--diff-filter=ADM")
 	if err != nil {
 		// No changes is not an error
 		output = []byte{}
@@ -318,8 +296,7 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 			status = "deleted"
 		} else {
 			// Check if file exists in HEAD to determine if it's added or modified
-			checkCmd := exec.CommandContext(ctx, "git", "-C", dir, "cat-file", "-e", "HEAD:"+filePath)
-			if err := checkCmd.Run(); err != nil {
+			if m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "cat-file", "-e", "HEAD:"+filePath) != nil {
 				// File doesn't exist in HEAD, so it's new
 				status = "added"
 			}
@@ -333,8 +310,7 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 
 	// Get untracked files (same as diff endpoint)
 	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
-	untrackedCmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--others", "--exclude-standard")
-	untrackedOutput, err := untrackedCmd.Output()
+	untrackedOutput, err := m.runGit(ctx, "", RefreshTriggerExplicit, dir, "ls-files", "--others", "--exclude-standard")
 	if err == nil {
 		untrackedLines := strings.Split(string(untrackedOutput), "\n")
 		for _, filePath := range untrackedLines {
@@ -355,28 +331,24 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 // Returns true if `git merge-base HEAD <ref>` succeeds (i.e., the histories are related).
 // Returns false if there is no common ancestor (e.g., orphaned/force-pushed branch).
 func (m *Manager) hasCommonAncestor(ctx context.Context, dir, ref string) bool {
-	cmd := exec.CommandContext(ctx, "git", "merge-base", "HEAD", ref)
-	cmd.Dir = dir
-	return cmd.Run() == nil
+	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "merge-base", "HEAD", ref) == nil
 }
 
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int)
-func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
+func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
-	_ = m.gitFetch(ctx, dir)
+	_ = m.gitFetchInstrumented(ctx, workspaceID, trigger, dir)
 
 	// Fast-forward local default branch in bare clone to match origin
 	if isWorktree(dir) {
 		if bareRepoPath, err := resolveWorktreeBaseFromWorktree(dir); err == nil {
-			m.updateLocalDefaultBranch(ctx, bareRepoPath, repoURL)
+			m.updateLocalDefaultBranch(ctx, workspaceID, trigger, bareRepoPath, repoURL)
 		}
 	}
 
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
-	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
-	statusCmd.Dir = dir
-	output, err := statusCmd.CombinedOutput()
+	output, err := m.runGit(ctx, workspaceID, trigger, dir, "status", "--porcelain")
 	trimmedOutput := strings.TrimSpace(string(output))
 	dirty = err == nil && len(trimmedOutput) > 0
 
@@ -391,12 +363,10 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	// - behind = commits in default branch not in this branch
 	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 	if err == nil {
-		revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...origin/"+defaultBranch)
-		revListCmd.Dir = dir
-		output, err = revListCmd.CombinedOutput()
+		output, err = m.runGit(ctx, workspaceID, trigger, dir, "rev-list", "--left-right", "--count", "HEAD...origin/"+defaultBranch)
 		if err != nil {
 			// No upstream or other error - log but continue to calculate line changes
-			m.logger.Debug("git rev-list failed", "ref", "origin/"+defaultBranch, "dir", dir, "output", strings.TrimSpace(string(output)))
+			m.logger.Debug("git rev-list failed", "ref", "origin/"+defaultBranch, "dir", dir)
 		} else {
 			// Parse output: "ahead\tbehind" (e.g., "3\t2" means 3 ahead, 2 behind)
 			parts := strings.Split(strings.TrimSpace(string(output)), "\t")
@@ -409,7 +379,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 
 	// Check if local HEAD matches origin/{branch} (indicates commits are synced to remote branch)
 	// Get current branch name first
-	currentBranch, _ := m.gitCurrentBranch(ctx, dir)
+	currentBranch, _ := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, dir)
 	if currentBranch != "" && currentBranch != "HEAD" {
 		// Check if origin/{branch} exists
 		remoteBranchExists, _ = m.gitRemoteBranchExists(ctx, dir, currentBranch)
@@ -417,13 +387,8 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 			remoteRef := "origin/" + currentBranch
 
 			// Check if commits are synced (HEAD is an ancestor of remote AND remote is an ancestor of HEAD)
-			mergeBaseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", "HEAD", remoteRef)
-			mergeBaseCmd.Dir = dir
-			isAncestor := mergeBaseCmd.Run() == nil
-
-			reverseCmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", remoteRef, "HEAD")
-			reverseCmd.Dir = dir
-			remoteIsAncestor := reverseCmd.Run() == nil
+			isAncestor := m.runGitErr(ctx, workspaceID, trigger, dir, "merge-base", "--is-ancestor", "HEAD", remoteRef) == nil
+			remoteIsAncestor := m.runGitErr(ctx, workspaceID, trigger, dir, "merge-base", "--is-ancestor", remoteRef, "HEAD") == nil
 
 			// Commits are synced if HEAD is an ancestor of remote AND remote is an ancestor of HEAD
 			// (meaning they point to the same commit)
@@ -431,9 +396,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 
 			// Calculate unique commits using rev-list --left-right --count
 			// Output format: "left\tright" where left = commits remote has, right = commits local has
-			revListCmd := exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
-			revListCmd.Dir = dir
-			revOutput, revErr := revListCmd.CombinedOutput()
+			revOutput, revErr := m.runGit(ctx, workspaceID, trigger, dir, "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
 			if revErr == nil {
 				parts := strings.Split(strings.TrimSpace(string(revOutput)), "\t")
 				if len(parts) == 2 {
@@ -447,9 +410,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 	// Get line additions/deletions from uncommitted changes using diff --numstat HEAD
 	// Using HEAD includes both staged and unstaged changes
 	// Output format per line: "additions\tdeletions\tfilename"
-	diffCmd := exec.CommandContext(ctx, "git", "diff", "--numstat", "HEAD")
-	diffCmd.Dir = dir
-	output, err = diffCmd.CombinedOutput()
+	output, err = m.runGit(ctx, workspaceID, trigger, dir, "diff", "--numstat", "HEAD")
 	if err == nil {
 		trimmed := strings.TrimSpace(string(output))
 		if trimmed != "" {
@@ -470,9 +431,7 @@ func (m *Manager) gitStatus(ctx context.Context, dir, repoURL string) (dirty boo
 
 	// Get untracked files and count their lines as additions
 	// ls-files --others --exclude-standard lists untracked files (respecting .gitignore)
-	untrackedCmd := exec.CommandContext(ctx, "git", "ls-files", "--others", "--exclude-standard")
-	untrackedCmd.Dir = dir
-	untrackedOutput, err := untrackedCmd.Output()
+	untrackedOutput, err := m.runGit(ctx, workspaceID, trigger, dir, "ls-files", "--others", "--exclude-standard")
 	if err == nil {
 		untrackedLines := strings.Split(string(untrackedOutput), "\n")
 		for _, filePath := range untrackedLines {
@@ -554,9 +513,7 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*GitS
 	status := &GitSafetyStatus{Safe: true}
 
 	// Check for dirty state (any changes: modified, added, removed, or untracked)
-	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
-	statusCmd.Dir = w.Path
-	output, err := statusCmd.CombinedOutput()
+	output, err := m.runGit(ctx, workspaceID, RefreshTriggerExplicit, w.Path, "status", "--porcelain")
 	if err != nil {
 		// Git command failed - this might mean the repo is corrupt, treat as unsafe
 		status.Safe = false
