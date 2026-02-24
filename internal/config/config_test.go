@@ -1857,13 +1857,13 @@ func TestValidate_NegativeCases(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		cfg          Config
+		cfg          *Config
 		wantContains string
 	}{
 		// validateRunTargets errors
 		{
 			name: "empty run target name",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
@@ -1872,7 +1872,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "missing command",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "my-agent", Type: RunTargetTypePromptable, Command: ""},
 				},
@@ -1881,7 +1881,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "invalid type",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "my-agent", Type: "bogus", Command: "echo hi"},
 				},
@@ -1890,7 +1890,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "duplicate target names",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo a"},
 					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo b"},
@@ -1901,7 +1901,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		// validateQuickLaunch errors
 		{
 			name: "empty quick launch name",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
@@ -1913,7 +1913,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "duplicate quick launch names",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
@@ -1926,7 +1926,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "empty target in quick launch",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
@@ -1938,7 +1938,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "target not found in quick launch",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
@@ -1950,7 +1950,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 		},
 		{
 			name: "promptable target without prompt in quick launch",
-			cfg: Config{
+			cfg: &Config{
 				RunTargets: []RunTarget{
 					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
 				},
