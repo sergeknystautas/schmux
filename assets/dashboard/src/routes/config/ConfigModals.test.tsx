@@ -11,7 +11,12 @@ describe('ConfigModals', () => {
     it('renders when authSecretsModal is set', () => {
       render(
         <ConfigModals
-          authSecretsModal={{ clientId: '', clientSecret: '', error: '' }}
+          authSecretsModal={{
+            clientId: '',
+            clientSecret: '',
+            clientSecretWasSet: false,
+            error: '',
+          }}
           runTargetEditModal={null}
           quickLaunchEditModal={null}
           tlsModal={null}
@@ -52,7 +57,12 @@ describe('ConfigModals', () => {
       const onSaveAuthSecrets = vi.fn();
       render(
         <ConfigModals
-          authSecretsModal={{ clientId: 'id', clientSecret: 'secret', error: '' }}
+          authSecretsModal={{
+            clientId: 'id',
+            clientSecret: 'secret',
+            clientSecretWasSet: false,
+            error: '',
+          }}
           runTargetEditModal={null}
           quickLaunchEditModal={null}
           tlsModal={null}
@@ -72,7 +82,12 @@ describe('ConfigModals', () => {
     it('shows error when set', () => {
       render(
         <ConfigModals
-          authSecretsModal={{ clientId: '', clientSecret: '', error: 'Bad creds' }}
+          authSecretsModal={{
+            clientId: '',
+            clientSecret: '',
+            clientSecretWasSet: false,
+            error: 'Bad creds',
+          }}
           runTargetEditModal={null}
           quickLaunchEditModal={null}
           tlsModal={null}
@@ -92,7 +107,12 @@ describe('ConfigModals', () => {
       dispatch.mockClear();
       render(
         <ConfigModals
-          authSecretsModal={{ clientId: '', clientSecret: '', error: '' }}
+          authSecretsModal={{
+            clientId: '',
+            clientSecret: '',
+            clientSecretWasSet: false,
+            error: '',
+          }}
           runTargetEditModal={null}
           quickLaunchEditModal={null}
           tlsModal={null}
