@@ -1,7 +1,14 @@
 import type { CoverageReport, FrontendCoverageReport } from './coverage.js';
 
 export type SuiteName = 'backend' | 'frontend' | 'e2e' | 'scenarios' | 'bench';
-export type SuiteStatus = 'pending' | 'building' | 'running' | 'passed' | 'failed' | 'skipped';
+export type SuiteStatus =
+  | 'pending'
+  | 'building'
+  | 'running'
+  | 'passed'
+  | 'failed'
+  | 'broken'
+  | 'skipped';
 
 // Events emitted by suite runners as tests execute
 export type TestEvent =
@@ -14,7 +21,7 @@ export type TestEvent =
 
 export interface SuiteResult {
   suite: SuiteName;
-  status: 'passed' | 'failed' | 'skipped';
+  status: 'passed' | 'failed' | 'broken' | 'skipped';
   durationMs: number;
   passedTests: string[];
   failedTests: FailedTest[];
@@ -39,6 +46,7 @@ export interface Options {
   coverage: boolean;
   force: boolean;
   noCache: boolean;
+  quick: boolean;
   runPattern: string | null;
   repeat: number;
 }

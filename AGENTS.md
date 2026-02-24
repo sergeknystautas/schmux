@@ -29,13 +29,14 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `go run ./cmd/gen-types` — generate TypeScript types from Go contracts.
 - `go run ./cmd/build-dashboard` — build the React dashboard (installs npm deps, runs vite build).
-- `./test.sh --all` — run all tests (unit + E2E) - **recommended before commits**.
-- `./test.sh` — run unit tests only (default).
-- `./test.sh --race` — run unit tests with race detector.
-- `./test.sh --coverage` — run unit tests with coverage report.
+- `./test.sh` — run all tests (unit + E2E + scenarios) - **recommended before commits**.
+- `./test.sh --quick` — run fast tests only (backend + frontend, no Docker).
+- `./test.sh --race` — run all tests with race detector.
+- `./test.sh --coverage` — run all tests with coverage report.
 - `./test.sh --e2e` — run E2E tests only (requires Docker).
+- `./test.sh --scenarios` — run scenario tests only (Playwright, requires Docker).
 - `./test.sh --help` — see all options.
-- `go test ./...` — run unit tests directly (alternative to test.sh).
+- `go test ./...` — run Go unit tests directly (alternative to `./test.sh --quick`).
 - `./schmux start` / `./schmux stop` / `./schmux status` — manage the daemon locally.
 
 ## Coding Style & Naming Conventions
@@ -101,7 +102,7 @@ Key patterns:
 - **Pending navigation**: After spawning a session, use the pending navigation system (not polling) to navigate once the session appears via WebSocket.
 - **Two WebSocket endpoints**: `/ws/dashboard` (server→client session/workspace broadcasts) and `/ws/terminal/{id}` (bidirectional terminal I/O).
 - **WebSocket write safety**: Always use the `wsConn` wrapper (which has a mutex) — gorilla WebSocket is not concurrent-safe for writes.
-- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh` (included in unit test suite).
+- **Tests**: Vitest + React Testing Library. 130+ tests in `assets/dashboard/src/`. Run via `./test.sh --quick` (included in unit test suite).
 - **Vite chunks**: vendor (react, react-dom, react-router-dom) and xterm (@xterm/\*) are split into separate chunks in `vite.config.js`.
 
 ## Dev Mode (`./dev.sh`)

@@ -64,9 +64,10 @@ go run ./cmd/build-dashboard
 ./test.sh --all
 
 # Run tests with various options
-./test.sh              # Unit tests only (default)
-./test.sh --race       # Unit tests with race detector
-./test.sh --coverage   # Unit tests with coverage report
+./test.sh              # All tests (same as --all)
+./test.sh --quick      # Fast tests only (backend + frontend, no Docker)
+./test.sh --race       # All tests with race detector
+./test.sh --coverage   # All tests with coverage report
 ./test.sh --e2e        # E2E tests only (requires Docker)
 ./test.sh --scenarios  # Scenario tests only (Playwright, requires Docker)
 ./test.sh --help       # See all options
@@ -105,8 +106,8 @@ The pre-commit hook automatically formats staged Go, TypeScript, JavaScript, CSS
 
 For faster iteration during development:
 
-- Run unit tests only: `./test.sh` (or `go test ./...`)
-- Skip E2E tests and let CI handle them on PRs
+- Run unit tests only: `./test.sh --quick` (or `go test ./...`)
+- Skip E2E/scenario tests and let CI handle them on PRs
 
 ## Code Architecture
 

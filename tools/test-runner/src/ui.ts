@@ -33,6 +33,8 @@ function statusIcon(status: SuiteStatus): string {
       return chalk.green('✓');
     case 'failed':
       return chalk.red('✗');
+    case 'broken':
+      return chalk.red('⚠');
     case 'skipped':
       return chalk.dim('○');
   }
@@ -185,7 +187,7 @@ class SerialDisplay implements ProgressDisplay {
         this.clearCounter();
         if (event.status === 'passed') {
           console.log(chalk.green(`  ✓ ${event.message}`));
-        } else if (event.status === 'failed') {
+        } else if (event.status === 'failed' || event.status === 'broken') {
           console.log(chalk.red(`  ✗ ${event.message}`));
         } else {
           console.log(chalk.dim(`  ${statusIcon(event.status)} ${event.message}`));
@@ -290,7 +292,11 @@ class ParallelDisplay implements ProgressDisplay {
         state.lastActivity = event.message;
         break;
       case 'suite_status':
-        if (event.status === 'running' || event.status === 'building') {
+        if (
+          event.status === 'running' ||
+          event.status === 'building' ||
+          event.status === 'broken'
+        ) {
           state.status = event.status;
         }
         state.lastActivity = event.message;
@@ -316,7 +322,8 @@ class ParallelDisplay implements ProgressDisplay {
     const state = this.suiteStates.get(result.suite);
     if (!state) return;
 
-    state.status = result.status === 'passed' ? 'passed' : 'failed';
+    state.status =
+      result.status === 'passed' ? 'passed' : result.status === 'broken' ? 'broken' : 'failed';
     state.elapsed = result.durationMs;
     state.passed = result.passedTests.length;
     state.failed = result.failedTests.length;
@@ -327,7 +334,7 @@ class ParallelDisplay implements ProgressDisplay {
     if (isTTY) {
       this.render();
     } else {
-      const icon = result.status === 'passed' ? '✓' : '✗';
+      const icon = result.status === 'passed' ? '✓' : result.status === 'broken' ? '⚠' : '✗';
       console.log(
         `  ${icon} [${result.suite}] ${result.status} — ${counts} (${formatDuration(result.durationMs)})`
       );
@@ -415,12 +422,9 @@ function deduplicateTestCounts(r: SuiteResult): { passed: number; failed: number
 export function printSummary(results: SuiteResult[], parallel = false, repeat = 1): void {
   console.log('');
 
-  // Sort: failures first
-  const sorted = [...results].sort((a, b) => {
-    if (a.status === 'failed' && b.status !== 'failed') return -1;
-    if (a.status !== 'failed' && b.status === 'failed') return 1;
-    return 0;
-  });
+  // Sort: broken/failures first
+  const statusPriority = (s: string) => (s === 'broken' ? 0 : s === 'failed' ? 1 : 2);
+  const sorted = [...results].sort((a, b) => statusPriority(a.status) - statusPriority(b.status));
 
   const isRepeat = repeat > 1;
 
@@ -436,15 +440,19 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
     const icon =
       r.status === 'passed'
         ? chalk.green('✓')
-        : r.status === 'failed'
-          ? chalk.red('✗')
-          : chalk.dim('○');
+        : r.status === 'broken'
+          ? chalk.red('⚠')
+          : r.status === 'failed'
+            ? chalk.red('✗')
+            : chalk.dim('○');
 
     totalDurationSum += r.durationMs;
     totalDurationMax = Math.max(totalDurationMax, r.durationMs);
 
     let tests: string;
-    if (isRepeat) {
+    if (r.status === 'broken') {
+      tests = chalk.red('broken');
+    } else if (isRepeat) {
       const counts = deduplicateTestCounts(r);
       totalPassed += counts.passed;
       totalFailed += counts.failed;
@@ -486,6 +494,17 @@ export function printSummary(results: SuiteResult[], parallel = false, repeat = 
 
   for (const line of lines) {
     console.log(line);
+  }
+
+  // Print build errors for suites that are broken (build failed, no tests ran)
+  const buildFailures = sorted.filter((r) => r.status === 'broken' && r.output);
+  for (const r of buildFailures) {
+    console.log('');
+    console.log(chalk.red(`  ${capitalize(r.suite)} build broken:`));
+    const lines = r.output.trim().split('\n').slice(-20);
+    for (const line of lines) {
+      console.log(chalk.dim(`    ${line}`));
+    }
   }
 
   // Print failed test rerun commands (skip in repeat mode — flaky report covers it)
@@ -619,9 +638,11 @@ export function printHeader(): void {
 
 // ─── Final Banner ──────────────────────────────────────────────────────────
 
-export function printFinalBanner(allPassed: boolean): void {
+export function printFinalBanner(allPassed: boolean, hasBroken = false): void {
   if (allPassed) {
     console.log(chalk.green(' All tests passed!'));
+  } else if (hasBroken) {
+    console.log(chalk.red(' Build broken — tests could not run!'));
   } else {
     console.log(chalk.red(' Some tests failed!'));
   }

@@ -25,8 +25,8 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       cwd: dashboardDir,
     });
     if (install.exitCode !== 0) {
-      onEvent('frontend', { type: 'suite_status', status: 'failed', message: 'npm ci failed' });
-      return makeResult('failed', install.durationMs, [], [], [], {}, install.stderr);
+      onEvent('frontend', { type: 'suite_status', status: 'broken', message: 'npm ci failed' });
+      return makeResult('broken', install.durationMs, [], [], [], {}, install.stderr);
     }
   }
 
@@ -123,7 +123,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 }
 
 function makeResult(
-  status: 'passed' | 'failed',
+  status: 'passed' | 'failed' | 'broken',
   durationMs: number,
   passedTests: string[],
   failedTests: FailedTest[],

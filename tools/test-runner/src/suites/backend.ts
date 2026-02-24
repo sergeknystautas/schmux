@@ -21,10 +21,10 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   if (!moduleLine) {
     onEvent('backend', {
       type: 'suite_status',
-      status: 'failed',
+      status: 'broken',
       message: 'Could not parse module path from go.mod',
     });
-    return makeResult('failed', 0, [], [], [], {}, '');
+    return makeResult('broken', 0, [], [], [], {}, '');
   }
   const modulePath = moduleLine[1];
 
@@ -35,8 +35,8 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     cwd: root,
   });
   if (listResult.exitCode !== 0) {
-    onEvent('backend', { type: 'suite_status', status: 'failed', message: 'go list failed' });
-    return makeResult('failed', listResult.durationMs, [], [], [], {}, listResult.stderr);
+    onEvent('backend', { type: 'suite_status', status: 'broken', message: 'go list failed' });
+    return makeResult('broken', listResult.durationMs, [], [], [], {}, listResult.stderr);
   }
 
   const packages = listResult.stdout
@@ -132,7 +132,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 }
 
 function makeResult(
-  status: 'passed' | 'failed',
+  status: 'passed' | 'failed' | 'broken',
   durationMs: number,
   passedTests: string[],
   failedTests: FailedTest[],

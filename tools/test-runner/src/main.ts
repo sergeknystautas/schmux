@@ -19,6 +19,7 @@ function parseArgs(argv: string[]): Options {
     coverage: false,
     force: false,
     noCache: false,
+    quick: false,
     runPattern: null,
     repeat: 1,
   };
@@ -65,6 +66,7 @@ function parseArgs(argv: string[]): Options {
       case '--quick':
         opts.race = false;
         opts.coverage = false;
+        opts.quick = true;
         break;
       case '--force':
         opts.force = true;
@@ -101,9 +103,16 @@ function parseArgs(argv: string[]): Options {
     }
   }
 
-  // Default: backend + frontend (unless filtering with --run)
+  // Default: all suites (unless --quick or --run narrows it)
   if (!explicitSuite) {
-    opts.suites = opts.runPattern ? ['backend'] : ['backend', 'frontend'];
+    if (opts.quick) {
+      opts.suites = ['backend', 'frontend'];
+    } else if (opts.runPattern) {
+      opts.suites = ['backend'];
+    } else {
+      opts.all = true;
+      opts.suites = ['backend', 'frontend', 'e2e', 'scenarios'];
+    }
   }
 
   return opts;
@@ -118,13 +127,11 @@ function printHelp(): void {
   console.log('  --scenarios     Run scenario tests only (Playwright)');
   console.log('  --frontend      Run frontend tests only');
   console.log('  --bench         Run latency benchmarks only (requires tmux)');
-  console.log(
-    '  --all           Run all test suites in parallel (backend, frontend, E2E, scenarios)'
-  );
+  console.log('  --all           Run all test suites in parallel (same as default, explicit)');
   console.log('  --race          Run with race detector');
   console.log('  --verbose       Run with verbose output');
   console.log('  --coverage      Run with coverage report');
-  console.log('  --quick         Run without race detector or coverage (fast)');
+  console.log('  --quick         Run only fast tests (backend + frontend, no Docker)');
   console.log('  --force         Force rebuild Docker base images (skip cache)');
   console.log('  --no-cache      Invalidate Go test cache (force re-run)');
   console.log(
@@ -134,10 +141,15 @@ function printHelp(): void {
   console.log('  --help          Show this help message');
   console.log('');
   console.log('Examples:');
-  console.log('  ./test.sh                                    # Run backend + frontend tests');
-  console.log('  ./test.sh --all                              # Run all tests in parallel');
   console.log(
-    '  ./test.sh --race --verbose                   # Backend tests with race detector and verbose'
+    '  ./test.sh                                    # Run all tests (backend, frontend, e2e, scenarios)'
+  );
+  console.log(
+    '  ./test.sh --quick                            # Run fast tests only (backend + frontend)'
+  );
+  console.log('  ./test.sh --all                              # Same as default — run all tests');
+  console.log(
+    '  ./test.sh --race --verbose                   # All tests with race detector and verbose'
   );
   console.log('  ./test.sh --e2e                              # E2E tests only');
   console.log('  ./test.sh --e2e --run TestE2EOverlayCompounding  # Single E2E test');
@@ -179,7 +191,8 @@ async function main(): Promise<void> {
   }
 
   const allPassed = results.every((r) => r.status === 'passed');
-  printFinalBanner(allPassed);
+  const hasBroken = results.some((r) => r.status === 'broken');
+  printFinalBanner(allPassed, hasBroken);
 
   process.exit(allPassed ? 0 : 1);
 }
