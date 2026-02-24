@@ -1032,14 +1032,38 @@ func (c *Config) Reload() error {
 	newCfg.path = configPath
 	newCfg.populateBarePaths()
 
-	// Replace all fields under write lock, preserving only the mutexes.
+	// Replace all fields under write lock, preserving mutexes and cache.
 	c.mu.Lock()
-	existingMu := c.mu
-	existingRepoURLMu := c.repoURLMu
-	newCfg.path = configPath
-	*c = newCfg
-	c.mu = existingMu
-	c.repoURLMu = existingRepoURLMu
+	c.ConfigVersion = newCfg.ConfigVersion
+	c.WorkspacePath = newCfg.WorkspacePath
+	c.WorktreeBasePath = newCfg.WorktreeBasePath
+	c.SourceCodeManagement = newCfg.SourceCodeManagement
+	c.Repos = newCfg.Repos
+	c.RunTargets = newCfg.RunTargets
+	c.QuickLaunch = newCfg.QuickLaunch
+	c.ExternalDiffCommands = newCfg.ExternalDiffCommands
+	c.ExternalDiffCleanupAfterMs = newCfg.ExternalDiffCleanupAfterMs
+	c.Nudgenik = newCfg.Nudgenik
+	c.BranchSuggest = newCfg.BranchSuggest
+	c.ConflictResolve = newCfg.ConflictResolve
+	c.Compound = newCfg.Compound
+	c.Overlay = newCfg.Overlay
+	c.Lore = newCfg.Lore
+	c.Sessions = newCfg.Sessions
+	c.Xterm = newCfg.Xterm
+	c.Network = newCfg.Network
+	c.AccessControl = newCfg.AccessControl
+	c.PrReview = newCfg.PrReview
+	c.CommitMessage = newCfg.CommitMessage
+	c.Desync = newCfg.Desync
+	c.Notifications = newCfg.Notifications
+	c.RemoteFlavors = newCfg.RemoteFlavors
+	c.RemoteWorkspace = newCfg.RemoteWorkspace
+	c.RemoteAccess = newCfg.RemoteAccess
+	c.Models = newCfg.Models
+	c.TelemetryEnabled = newCfg.TelemetryEnabled
+	c.InstallationID = newCfg.InstallationID
+	c.path = configPath
 	c.mu.Unlock()
 
 	// Invalidate repo URL cache
