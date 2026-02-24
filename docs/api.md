@@ -522,6 +522,34 @@ Errors:
 - 400: "session ID is required"
 - 500: "Failed to dispose session: ..."
 
+### POST /api/clipboard-paste
+
+Paste an image from the browser clipboard into a tmux session.
+
+Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the specified tmux session so the terminal application picks up the image.
+
+Request:
+
+```json
+{
+  "sessionId": "session-uuid",
+  "imageBase64": "iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 400: "method not allowed", "invalid request body", "sessionId and imageBase64 are required", "invalid base64 image data"
+- 404: "session not found"
+- 500: "failed to process image", "failed to set clipboard: ...", "remote manager not configured", "session tracker not found", "failed to send input"
+- 503: "remote host not connected"
+
 ### POST /api/workspaces/{workspaceId}/dispose
 
 Dispose a workspace (fails if workspace has active sessions).
