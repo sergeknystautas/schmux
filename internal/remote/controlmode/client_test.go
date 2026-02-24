@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+type ackWriter struct {
+	sb    *strings.Builder
+	ackFn func()
+}
+
+func (w *ackWriter) Write(p []byte) (int, error) {
+	n, err := w.sb.Write(p)
+	if err == nil && w.ackFn != nil {
+		w.ackFn()
+	}
+	return n, err
+}
+
 func TestParser_NewParser(t *testing.T) {
 	input := strings.NewReader("test input")
 
@@ -268,6 +281,111 @@ func TestExecuteTimeoutNoLeak(t *testing.T) {
 	if goroutineLeak > 10 {
 		t.Errorf("potential goroutine leak: baseline=%d, final=%d, leaked=%d",
 			baselineGoroutines, finalGoroutines, goroutineLeak)
+	}
+}
+
+func TestClientSendKeys_MetaEnterPreserved(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	var buf strings.Builder
+	w := &ackWriter{
+		sb: &buf,
+		ackFn: func() {
+			parser.responses <- CommandResponse{Success: true}
+		},
+	}
+	client := NewClient(w, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	if err := client.SendKeys(context.Background(), "%1", "\x1b\r"); err != nil {
+		t.Fatalf("SendKeys returned error: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "send-keys -t %1 M-Enter\n") {
+		t.Fatalf("expected M-Enter command, got %q", got)
+	}
+	if strings.Contains(got, "send-keys -t %1 Escape\n") || strings.Contains(got, "send-keys -t %1 Enter\n") {
+		t.Fatalf("expected meta-enter to remain a single key, got %q", got)
+	}
+
+}
+
+func TestClientSendKeys_LiteralAndMetaEnterSequence(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	var buf strings.Builder
+	w := &ackWriter{
+		sb: &buf,
+		ackFn: func() {
+			parser.responses <- CommandResponse{Success: true}
+		},
+	}
+	client := NewClient(w, parser, nil)
+	client.Start()
+	defer client.Close()
+
+	if err := client.SendKeys(context.Background(), "%7", "abc\x1b\rd"); err != nil {
+		t.Fatalf("SendKeys returned error: %v", err)
+	}
+
+	got := buf.String()
+	expectedParts := []string{
+		"send-keys -t %7 -l 'abc'\n",
+		"send-keys -t %7 M-Enter\n",
+		"send-keys -t %7 -l 'd'\n",
+	}
+	for _, part := range expectedParts {
+		if !strings.Contains(got, part) {
+			t.Fatalf("missing %q in %q", part, got)
+		}
+	}
+
+	// Assert order (cheaply).
+	last := -1
+	for _, part := range expectedParts {
+		idx := strings.Index(got, part)
+		if idx == -1 || idx < last {
+			t.Fatalf("unexpected order in %q", got)
+		}
+		last = idx
+	}
+}
+
+func TestClientSendKeys_MetaBackspacePreserved(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{name: "esc-del", in: "\x1b\x7f"},
+		{name: "esc-bs", in: "\x1b\b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser(strings.NewReader(""), nil)
+			var buf strings.Builder
+			w := &ackWriter{
+				sb: &buf,
+				ackFn: func() {
+					parser.responses <- CommandResponse{Success: true}
+				},
+			}
+			client := NewClient(w, parser, nil)
+			client.Start()
+			defer client.Close()
+
+			if err := client.SendKeys(context.Background(), "%2", tt.in); err != nil {
+				t.Fatalf("SendKeys returned error: %v", err)
+			}
+
+			got := buf.String()
+			if !strings.Contains(got, "send-keys -t %2 M-BSpace\n") {
+				t.Fatalf("expected M-BSpace command, got %q", got)
+			}
+			if strings.Contains(got, "send-keys -t %2 Escape\n") || strings.Contains(got, "send-keys -t %2 BSpace\n") {
+				t.Fatalf("expected meta-backspace to remain a single key, got %q", got)
+			}
+		})
 	}
 }
 
