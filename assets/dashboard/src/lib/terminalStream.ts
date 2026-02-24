@@ -169,6 +169,7 @@ export default class TerminalStream {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      macOptionIsMeta: true,
       allowProposedApi: true, // Required for registerDecoration API
       theme: {
         background: '#1e1e1e',
@@ -200,6 +201,30 @@ export default class TerminalStream {
     // this.terminal.loadAddon(new Unicode11Addon());
     // this.terminal.unicode.activeVersion = '11';
     this.terminal.open(this.containerElement);
+    // xterm.js doesn't reliably emit Alt/Option+Enter through onData on macOS,
+    // but Codex uses Meta/Alt+Enter for inserting a blank line. Map it
+    // explicitly to the common terminal encoding: ESC + CR.
+    (
+      this.terminal as Terminal & {
+        attachCustomKeyEventHandler?: (handler: (e: KeyboardEvent) => boolean) => void;
+      }
+    ).attachCustomKeyEventHandler?.((e: KeyboardEvent) => {
+      if (
+        e.type === 'keydown' &&
+        e.altKey &&
+        (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter')
+      ) {
+        e.preventDefault();
+        this.sendInput('\x1b\r');
+        return false;
+      }
+      if (e.type === 'keydown' && e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        this.sendInput('\x1b\x7f');
+        return false;
+      }
+      return true;
+    });
     this.terminal.onData((data) => {
       this.sendInput(data);
     });

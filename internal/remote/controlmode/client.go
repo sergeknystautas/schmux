@@ -318,6 +318,21 @@ func (c *Client) SendKeys(ctx context.Context, paneID, keys string) error {
 		case 127:
 			keyName = "BSpace"
 		case '\x1b':
+			// Meta/Alt-modified Enter is commonly encoded as ESC + CR/LF.
+			// Preserve it as a single tmux key instead of splitting into
+			// separate Escape + Enter keypresses.
+			if i+1 < len(keys) && (keys[i+1] == '\r' || keys[i+1] == '\n') {
+				keyName = "M-Enter"
+				advance = 2
+				break
+			}
+			// Meta/Alt-modified Backspace/Delete is commonly encoded as
+			// ESC + DEL (0x7f) or ESC + BS (0x08) depending on terminal config.
+			if i+1 < len(keys) && (keys[i+1] == 127 || keys[i+1] == '\b') {
+				keyName = "M-BSpace"
+				advance = 2
+				break
+			}
 			// Check for escape sequences (e.g., arrow keys: ESC [ A)
 			if i+2 < len(keys) && keys[i+1] == '[' {
 				// CSI sequence: ESC [ ... <final byte 0x40-0x7E>
