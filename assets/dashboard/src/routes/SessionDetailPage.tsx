@@ -345,6 +345,25 @@ export default function SessionDetailPage() {
     return () => unregisterAction('w', false, scope);
   }, [registerAction, unregisterAction, handleDispose, sessionId]);
 
+  // Register keyboard shortcut for resume/scroll to bottom (Down arrow)
+  useEffect(() => {
+    if (!sessionId) return;
+    const scope = { type: 'session', id: sessionId } as const;
+    const action = {
+      key: 'ArrowDown',
+      description: 'Resume / scroll to bottom',
+      handler: () => {
+        terminalStreamRef.current?.jumpToBottom();
+        terminalStreamRef.current?.focus();
+      },
+      scope,
+    };
+
+    registerAction(action);
+
+    return () => unregisterAction('ArrowDown', false, scope);
+  }, [registerAction, unregisterAction, sessionId]);
+
   const handleEditNickname = async () => {
     if (!sessionId || !sessionData) return;
     let newNickname: string | null = sessionData.nickname || '';
