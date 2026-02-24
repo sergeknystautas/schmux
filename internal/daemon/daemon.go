@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -316,6 +320,16 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	schmuxDir := filepath.Join(homeDir, ".schmux")
 	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
+	}
+
+	// Dev mode: backup config files before loading
+	if devMode {
+		if err := createDevConfigBackup(schmuxDir); err != nil {
+			logger.Warn("failed to create dev config backup", "err", err)
+		}
+		// Cleanup old backups (>3 days)
+		backupDir := filepath.Join(schmuxDir, "backups")
+		cleanupOldBackups(backupDir, 3*24*time.Hour)
 	}
 
 	pidFile := filepath.Join(schmuxDir, pidFileName)
@@ -1211,4 +1225,124 @@ func findOtherTmuxServerOwners(currentUID int) []string {
 	}
 
 	return owners
+}
+
+// createDevConfigBackup creates a tar.gz backup of config.json, secrets.json, and state.json
+// in the ~/.schmux/backups/ directory. Missing files are skipped silently.
+// The backup filename format is: config-<timestamp>_<cwd-basename>.tar.gz
+func createDevConfigBackup(schmuxDir string) error {
+	// Create backups directory
+	backupDir := filepath.Join(schmuxDir, "backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	// Get current working directory name for the backup filename
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	dirName := filepath.Base(cwd)
+
+	// Generate timestamp in UTC
+	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05")
+
+	// Create backup filename
+	backupFilename := fmt.Sprintf("config-%s_%s.tar.gz", timestamp, dirName)
+	backupPath := filepath.Join(backupDir, backupFilename)
+
+	// Create the tar.gz file
+	backupFile, err := os.Create(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	defer backupFile.Close()
+
+	gzWriter := gzip.NewWriter(backupFile)
+	defer gzWriter.Close()
+
+	tarWriter := tar.NewWriter(gzWriter)
+	defer tarWriter.Close()
+
+	// Files to backup (in order)
+	filesToBackup := []string{"config.json", "secrets.json", "state.json"}
+
+	for _, filename := range filesToBackup {
+		filePath := filepath.Join(schmuxDir, filename)
+
+		// Skip if file doesn't exist
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Read file content
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", filename, err)
+		}
+
+		// Get file info for header
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to stat %s: %w", filename, err)
+		}
+
+		// Create tar header
+		header := &tar.Header{
+			Name:     filename,
+			Size:     info.Size(),
+			Mode:     int64(info.Mode()),
+			ModTime:  info.ModTime(),
+			Typeflag: tar.TypeReg,
+		}
+
+		// Write header
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return fmt.Errorf("failed to write header for %s: %w", filename, err)
+		}
+
+		// Write file content
+		if _, err := io.Copy(tarWriter, bytes.NewReader(content)); err != nil {
+			return fmt.Errorf("failed to write %s to archive: %w", filename, err)
+		}
+	}
+
+	return nil
+}
+
+// cleanupOldBackups deletes backup files older than maxAge from the backup directory.
+// Only files matching the pattern "config-*.tar.gz" are considered.
+func cleanupOldBackups(backupDir string, maxAge time.Duration) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		// Only consider config backup files
+		if !strings.HasPrefix(name, "config-") || !strings.HasSuffix(name, ".tar.gz") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		// Delete if older than cutoff
+		if info.ModTime().Before(cutoff) {
+			filePath := filepath.Join(backupDir, name)
+			if err := os.Remove(filePath); err == nil {
+				// Log deletion (we don't have access to logger here, but could pass it in)
+				// For now, silently delete
+			}
+		}
+	}
 }
