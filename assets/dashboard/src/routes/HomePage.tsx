@@ -17,9 +17,10 @@ import {
   getErrorMessage,
   linearSyncFromMain,
   getGitGraph,
+  getSubreddit,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
-import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo } from '../lib/types';
+import type { WorkspaceResponse, RecentBranch, PullRequest, OverlayInfo, SubredditResponse } from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
 import styles from '../styles/home.module.css';
 
@@ -254,6 +255,7 @@ export default function HomePage() {
   });
   const [overlays, setOverlays] = useState<OverlayInfo[]>([]);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
+  const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
 
   const handleDismissHero = () => {
     setHeroDismissed(true);
@@ -269,6 +271,19 @@ export default function HomePage() {
       } catch (err) {
         // Non-critical nudge — log for debugging
         console.debug('Failed to fetch overlays:', err);
+      }
+    })();
+  }, []);
+
+  // Fetch subreddit digest
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getSubreddit();
+        setSubreddit(data);
+      } catch (err) {
+        // Non-critical — log for debugging
+        console.debug('Failed to fetch subreddit:', err);
       }
     })();
   }, []);
@@ -661,6 +676,28 @@ export default function HomePage() {
             )}
           </div>
         </div>
+
+        {/* Subreddit Digest Section */}
+        {subreddit?.enabled && subreddit?.content && (
+          <div className={styles.sectionCard}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <span style={{ fontSize: '1.1em' }}>📢</span>
+                What&apos;s New
+              </h2>
+              {subreddit.generated_at && (
+                <span className={styles.subredditMeta}>
+                  {subreddit.commit_count ?? 0} commits · {formatRelativeDate(subreddit.generated_at)}
+                </span>
+              )}
+            </div>
+            <div className={styles.sectionContent}>
+              <div className={styles.subredditContent}>
+                {subreddit.content}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Right Column - Workspaces */}
