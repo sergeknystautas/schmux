@@ -52,6 +52,7 @@ type Manager struct {
 	compoundReconcile    func(workspaceID string)                     // reconcile overlay before dispose
 	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
 	telemetry            telemetry.Telemetry                          // optional, for usage tracking
+	ioTelemetry          *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
 }
 
 // New creates a new workspace manager.
@@ -165,6 +166,17 @@ func (m *Manager) SetCompoundReconcile(fn func(workspaceID string)) {
 // SetTelemetry sets the telemetry client for usage tracking.
 func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 	m.telemetry = t
+}
+
+// SetIOWorkspaceTelemetry sets the I/O telemetry collector for git command instrumentation.
+func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {
+	m.ioTelemetry = tel
+}
+
+// IOWorkspaceTelemetrySnapshot returns a point-in-time snapshot of git command telemetry.
+// If reset is true, all data is cleared after taking the snapshot.
+func (m *Manager) IOWorkspaceTelemetrySnapshot(reset bool) IOWorkspaceTelemetrySnapshot {
+	return m.ioTelemetry.Snapshot(reset)
 }
 
 // trackWorkspaceCreated sends a telemetry event for workspace creation.
