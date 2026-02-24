@@ -27,11 +27,11 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   if (!(await isDockerAvailable())) {
     onEvent('scenarios', {
       type: 'suite_status',
-      status: 'failed',
+      status: 'broken',
       message: 'Docker is not installed or not running',
     });
     return makeResult(
-      'failed',
+      'broken',
       performance.now() - startTime,
       [],
       [],
@@ -55,28 +55,30 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     status: 'building',
     message: 'Building local artifacts...',
   });
-  if (!(await buildLocalArtifacts(onEvent))) {
+  const artifactsBuild = await buildLocalArtifacts(onEvent);
+  if (!artifactsBuild.ok) {
     return makeResult(
-      'failed',
+      'broken',
       performance.now() - startTime,
       [],
       [],
       [],
       {},
-      'Failed to build local artifacts'
+      artifactsBuild.errorOutput || 'Failed to build local artifacts'
     );
   }
 
   // Build dashboard (needed for scenarios, not for E2E)
-  if (!(await buildDashboard(onEvent))) {
+  const dashboardBuild = await buildDashboard(onEvent);
+  if (!dashboardBuild.ok) {
     return makeResult(
-      'failed',
+      'broken',
       performance.now() - startTime,
       [],
       [],
       [],
       {},
-      'Failed to build dashboard'
+      dashboardBuild.errorOutput || 'Failed to build dashboard'
     );
   }
 
@@ -96,7 +98,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     }))
   ) {
     return makeResult(
-      'failed',
+      'broken',
       performance.now() - startTime,
       [],
       [],
@@ -110,7 +112,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   const result = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
   if (!result) {
     return makeResult(
-      'failed',
+      'broken',
       performance.now() - startTime,
       [],
       [],
@@ -120,17 +122,21 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
-  // Auto-retry: if 0 tests ran and the base image was cached, rebuild base and retry once
+  // Auto-retry: if all tests failed (or none ran) and the base image was cached,
+  // rebuild base and retry once — a stale base image can cause total failure
   if (
     result.status === 'failed' &&
     result.passedTests.length === 0 &&
-    result.failedTests.length === 0 &&
     baseCached &&
     !opts.runPattern
   ) {
+    const reason =
+      result.failedTests.length === 0
+        ? '0 tests ran'
+        : `all ${result.failedTests.length} tests failed`;
     onEvent('scenarios', {
       type: 'build_step',
-      message: '0 tests ran — rebuilding base image and retrying...',
+      message: `${reason} — rebuilding base image and retrying...`,
     });
 
     await removeImage(BASE_TAG).catch(() => {});
@@ -146,7 +152,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       }))
     ) {
       return makeResult(
-        'failed',
+        'broken',
         performance.now() - startTime,
         [],
         [],
@@ -163,7 +169,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     const retryResult = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
     if (!retryResult) {
       return makeResult(
-        'failed',
+        'broken',
         performance.now() - startTime,
         [],
         [],
@@ -198,7 +204,7 @@ async function buildAndRun(
   ) {
     onEvent('scenarios', {
       type: 'suite_status',
-      status: 'failed',
+      status: 'broken',
       message: 'Failed to build scenario test image',
     });
     return null;
@@ -292,7 +298,7 @@ async function buildAndRun(
 }
 
 function makeResult(
-  status: 'passed' | 'failed',
+  status: 'passed' | 'failed' | 'broken',
   durationMs: number,
   passedTests: string[],
   failedTests: FailedTest[],

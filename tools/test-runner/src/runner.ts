@@ -73,7 +73,7 @@ async function runParallel(opts: Options): Promise<SuiteResult[]> {
     display.onEvent(suite, event);
   };
 
-  const buildPromises: Promise<boolean>[] = [];
+  const buildPromises: Promise<{ ok: boolean }>[] = [];
 
   if (needsDocker) {
     buildPromises.push(buildLocalArtifacts(buildEvent));
@@ -84,7 +84,7 @@ async function runParallel(opts: Options): Promise<SuiteResult[]> {
 
   if (buildPromises.length > 0) {
     const buildResults = await Promise.all(buildPromises);
-    if (buildResults.some((r) => !r)) {
+    if (buildResults.some((r) => !r.ok)) {
       display.stop();
       // Still return partial results — the suites that needed builds will fail
     }

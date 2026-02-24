@@ -17,6 +17,27 @@ export interface DockerRunOptions {
   verbose?: boolean;
 }
 
+/** Emit the last N lines of a failed command's combined output */
+function emitBuildFailure(
+  onEvent: EventCallback | undefined,
+  suite: SuiteName,
+  label: string,
+  result: { stdout: string; stderr: string }
+): void {
+  if (!onEvent) return;
+  const combined = (result.stderr || result.stdout).trim();
+  if (!combined) return;
+
+  onEvent(suite, { type: 'output_line', line: '' });
+  onEvent(suite, { type: 'output_line', line: `── ${label} output ──` });
+  const lines = combined.split('\n');
+  const tail = lines.slice(-30);
+  for (const line of tail) {
+    onEvent(suite, { type: 'output_line', line });
+  }
+  onEvent(suite, { type: 'output_line', line: '' });
+}
+
 export async function isDockerAvailable(): Promise<boolean> {
   const result = await exec({ cmd: 'docker', args: ['info'], cwd: projectRoot() });
   return result.exitCode === 0;
@@ -69,6 +90,14 @@ export async function ensureBaseImage(opts: {
       type: 'build_step',
       message: `Failed to build ${opts.label} base image`,
     });
+    if (!opts.verbose) {
+      emitBuildFailure(
+        opts.onEvent,
+        opts.suite ?? 'e2e',
+        `docker build ${opts.dockerfile}`,
+        result
+      );
+    }
     return false;
   }
 
@@ -92,6 +121,10 @@ export async function buildImage(opts: DockerBuildOptions): Promise<boolean> {
         }
       : undefined,
   });
+
+  if (result.exitCode !== 0 && !opts.verbose) {
+    emitBuildFailure(opts.onEvent, opts.suite ?? 'e2e', `docker build ${opts.dockerfile}`, result);
+  }
 
   return result.exitCode === 0;
 }

@@ -19,10 +19,10 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   if (tmuxCheck.exitCode !== 0) {
     onEvent('bench', {
       type: 'suite_status',
-      status: 'failed',
+      status: 'broken',
       message: 'tmux is not installed (required for benchmarks)',
     });
-    return makeResult('failed', 0, [], 'tmux is not available');
+    return makeResult('broken', 0, [], 'tmux is not available');
   }
 
   // Create bench results directory
@@ -333,7 +333,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 }
 
 function makeResult(
-  status: 'passed' | 'failed',
+  status: 'passed' | 'failed' | 'broken',
   durationMs: number,
   failedNames: string[],
   output: string
