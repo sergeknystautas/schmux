@@ -472,6 +472,14 @@ export interface LoreStatusResponse {
   issues: string[];
 }
 
+export interface SubredditResponse {
+  content?: string;
+  generated_at?: string;
+  hours?: number;
+  commit_count?: number;
+  enabled: boolean;
+}
+
 export type RemoteAccessStatus = {
   state: 'off' | 'starting' | 'connected' | 'error';
   url?: string;
