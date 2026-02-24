@@ -133,6 +133,7 @@ type ConfigResponse struct {
 	Desync                     Desync                `json:"desync"`
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
+	Subreddit                  Subreddit             `json:"subreddit"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
@@ -247,6 +248,7 @@ type ConfigUpdateRequest struct {
 	Desync                     *DesyncUpdate          `json:"desync,omitempty"`
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
+	Subreddit                  *SubredditUpdate       `json:"subreddit,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
@@ -287,6 +289,18 @@ type LoreUpdate struct {
 	LLMTarget       *string `json:"llm_target,omitempty"`
 	CurateOnDispose *string `json:"curate_on_dispose,omitempty"`
 	AutoPR          *bool   `json:"auto_pr,omitempty"`
+}
+
+// Subreddit represents subreddit digest configuration in the API response.
+type Subreddit struct {
+	Target string `json:"target"` // LLM target for generation, empty = disabled
+	Hours  int    `json:"hours"`  // Lookback window in hours, default 24
+}
+
+// SubredditUpdate represents partial subreddit config updates.
+type SubredditUpdate struct {
+	Target *string `json:"target,omitempty"`
+	Hours  *int    `json:"hours,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.

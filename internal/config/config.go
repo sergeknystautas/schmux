@@ -90,6 +90,7 @@ type Config struct {
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
 	RemoteAccess               *RemoteAccessConfig    `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
+	Subreddit                  *SubredditConfig       `json:"subreddit,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
@@ -263,6 +264,12 @@ type NudgenikConfig struct {
 	Target         string `json:"target,omitempty"`
 	ViewedBufferMs int    `json:"viewed_buffer_ms,omitempty"`
 	SeenIntervalMs int    `json:"seen_interval_ms,omitempty"`
+}
+
+// SubredditConfig represents configuration for the subreddit digest feature.
+type SubredditConfig struct {
+	Target string `json:"target,omitempty"` // LLM target for generation, empty = disabled
+	Hours  int    `json:"hours,omitempty"`  // Lookback window in hours, default 24
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -643,6 +650,26 @@ func (c *Config) getNudgenikTargetLocked() string {
 		return ""
 	}
 	return strings.TrimSpace(c.Nudgenik.Target)
+}
+
+// GetSubredditTarget returns the configured subreddit target name, if any.
+func (c *Config) GetSubredditTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Subreddit.Target)
+}
+
+// GetSubredditHours returns the lookback window in hours, defaulting to 24.
+func (c *Config) GetSubredditHours() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Subreddit == nil || c.Subreddit.Hours <= 0 {
+		return 24
+	}
+	return c.Subreddit.Hours
 }
 
 // GetBranchSuggestTarget returns the configured branch suggestion target name, if any.

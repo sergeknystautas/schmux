@@ -87,6 +87,7 @@ const configFixture: ConfigResponse = {
   desync: { enabled: false, target: '' },
   notifications: { sound_disabled: false, confirm_before_close: false },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
+  subreddit: { target: '', hours: 24 },
   remote_access: {
     enabled: false,
     timeout_minutes: 0,

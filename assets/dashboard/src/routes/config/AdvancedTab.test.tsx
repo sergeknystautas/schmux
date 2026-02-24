@@ -28,6 +28,8 @@ const defaultProps = {
   loreLLMTarget: '',
   loreCurateOnDispose: 'session',
   loreAutoPR: false,
+  subredditTarget: '',
+  subredditHours: 24,
   nudgenikTarget: '',
   viewedBuffer: 5000,
   nudgenikSeenInterval: 2000,

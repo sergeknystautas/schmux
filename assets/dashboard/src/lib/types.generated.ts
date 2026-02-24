@@ -50,6 +50,7 @@ export interface ConfigResponse {
   desync: Desync;
   notifications: Notifications;
   lore: Lore;
+  subreddit: Subreddit;
   remote_access: RemoteAccess;
   needs_restart: boolean;
 }
@@ -74,6 +75,7 @@ export interface ConfigUpdateRequest {
   desync?: DesyncUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
+  subreddit?: SubredditUpdate;
   remote_access?: RemoteAccessUpdate;
   model_versions?: Record<string, string>;
 }
@@ -356,6 +358,16 @@ export interface SessionsUpdate {
   git_status_poll_interval_ms?: number;
   git_clone_timeout_ms?: number;
   git_status_timeout_ms?: number;
+}
+
+export interface Subreddit {
+  target: string;
+  hours: number;
+}
+
+export interface SubredditUpdate {
+  target?: string;
+  hours?: number;
 }
 
 export interface TLS {

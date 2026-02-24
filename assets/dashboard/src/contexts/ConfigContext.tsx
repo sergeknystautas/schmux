@@ -71,6 +71,10 @@ const DEFAULT_CONFIG: ConfigResponse = {
     curate_on_dispose: 'session',
     auto_pr: false,
   },
+  subreddit: {
+    target: '',
+    hours: 24,
+  },
   remote_access: {
     enabled: true,
     timeout_minutes: 0,

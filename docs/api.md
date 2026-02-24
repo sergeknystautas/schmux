@@ -756,6 +756,10 @@ Request:
       "ntfy_topic": "my-schmux-topic",
       "command": ""
     }
+  },
+  "subreddit": {
+    "target": "claude",
+    "hours": 24
   }
 }
 ```
@@ -1987,6 +1991,34 @@ Errors:
 
 - 405: "Method not allowed"
 - 500: "remote access not available" (tunnel manager not initialized)
+
+## Subreddit Digest
+
+### GET /api/subreddit
+
+Returns the cached subreddit digest content. The digest is generated hourly by the daemon using the configured LLM target.
+
+Response (cached content available):
+
+```json
+{
+  "content": "## r/schmux\n\n**Posted by u/devbot** • 24h ago\n\n### What's new this week..."
+}
+```
+
+Response (no content yet or generation failed):
+
+```json
+{}
+```
+
+The content is markdown-formatted text styled like a Reddit post. Empty response indicates:
+- Subreddit digest is disabled (no target configured)
+- No commits in the lookback period
+- Generation hasn't completed yet
+- Previous generation failed
+
+Configuration is via the config API (`subreddit.target` and `subreddit.hours` fields).
 
 ## WebSocket
 
