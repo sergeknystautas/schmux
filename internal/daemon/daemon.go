@@ -1278,7 +1278,7 @@ func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath 
 	logger.Info("generating digest", "commits", len(commits))
 
 	// Generate new digest
-	newCache, err := subreddit.Generate(ctx, cfg, nil, commits, cachePath, 0)
+	newCache, err := subreddit.Generate(ctx, cfg, cfg, nil, commits, cachePath, 0)
 	if err != nil {
 		if errors.Is(err, subreddit.ErrDisabled) {
 			logger.Debug("subreddit disabled, skipping")

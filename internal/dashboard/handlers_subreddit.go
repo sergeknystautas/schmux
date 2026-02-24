@@ -87,7 +87,7 @@ func (s *Server) generateSubreddit(ctx context.Context) (subreddit.Cache, error)
 	s.logger.Debug("generating digest", "commits", len(commits))
 
 	// Generate new digest
-	cache, err := subreddit.Generate(ctx, cfg, nil, commits, "", 0)
+	cache, err := subreddit.Generate(ctx, cfg, cfg, nil, commits, "", 0)
 	if err != nil {
 		return subreddit.Cache{}, err
 	}
