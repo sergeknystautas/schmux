@@ -421,6 +421,7 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
+	mux.HandleFunc("/api/debug/tmux-leak", s.withCORS(s.withAuth(s.handleDebugTmuxLeak)))
 	mux.HandleFunc("/api/update", s.withCORS(s.withAuthAndCSRF(s.handleUpdate)))
 	mux.HandleFunc("/api/auth/secrets", s.withCORS(s.withAuthAndCSRF(s.handleAuthSecrets)))
 	mux.HandleFunc("/api/hasNudgenik", s.withCORS(s.withAuth(s.handleHasNudgenik)))
