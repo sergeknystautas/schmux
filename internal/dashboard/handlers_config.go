@@ -698,15 +698,15 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Failed to read secrets: %v", err), http.StatusInternalServerError)
 			return
 		}
-		clientIDSet := false
+		clientID := ""
 		clientSecretSet := false
 		if secrets.GitHub != nil {
-			clientIDSet = strings.TrimSpace(secrets.GitHub.ClientID) != ""
+			clientID = strings.TrimSpace(secrets.GitHub.ClientID)
 			clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
 		}
 		w.Header().Set("Content-Type", "application/json")
-		writeJSON(w, map[string]bool{
-			"client_id_set":     clientIDSet,
+		writeJSON(w, map[string]interface{}{
+			"client_id":         clientID,
 			"client_secret_set": clientSecretSet,
 		})
 	case http.MethodPost:
@@ -720,11 +720,31 @@ func (s *Server) handleAuthSecrets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(req.ClientID) == "" || strings.TrimSpace(req.ClientSecret) == "" {
-			http.Error(w, "client_id and client_secret are required", http.StatusBadRequest)
+		if strings.TrimSpace(req.ClientID) == "" {
+			http.Error(w, "client_id is required", http.StatusBadRequest)
 			return
 		}
-		if err := config.SaveGitHubAuthSecrets(req.ClientID, req.ClientSecret); err != nil {
+		// Check if a secret already exists
+		existingSecrets, err := config.GetAuthSecrets()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read existing secrets: %v", err), http.StatusInternalServerError)
+			return
+		}
+		existingSecret := ""
+		if existingSecrets.GitHub != nil {
+			existingSecret = existingSecrets.GitHub.ClientSecret
+		}
+		// If no new secret provided and no existing secret, error
+		if strings.TrimSpace(req.ClientSecret) == "" && strings.TrimSpace(existingSecret) == "" {
+			http.Error(w, "client_secret is required for initial setup", http.StatusBadRequest)
+			return
+		}
+		// Use existing secret if new one not provided
+		secretToSave := strings.TrimSpace(req.ClientSecret)
+		if secretToSave == "" {
+			secretToSave = existingSecret
+		}
+		if err := config.SaveGitHubAuthSecrets(req.ClientID, secretToSave); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 			return
 		}

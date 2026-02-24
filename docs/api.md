@@ -760,20 +760,27 @@ Notes:
 - Extracts hostname from Subject Alternative Names (SAN) or falls back to Common Name (CN)
 - Returns expiry date in RFC3339 format
 
-Returns whether GitHub auth secrets are configured (values are not returned).
+### GET /api/auth/secrets
+
+Returns GitHub OAuth credentials status.
 
 Response:
 
 ```json
 {
-  "client_id_set": true,
+  "client_id": "Ov23li...",
   "client_secret_set": true
 }
 ```
 
+Notes:
+
+- `client_id` is the actual value (not a boolean) since it's not a secret - it's visible in GitHub OAuth app settings
+- `client_secret_set` indicates whether a secret has been configured (the actual secret value is never returned)
+
 ### POST /api/auth/secrets
 
-Saves GitHub auth secrets.
+Saves GitHub auth secrets. Supports partial updates.
 
 Request:
 
@@ -784,6 +791,12 @@ Request:
 }
 ```
 
+Notes:
+
+- `client_id` is required
+- `client_secret` is optional; if omitted or empty, keeps the existing secret
+- For initial setup, `client_secret` is required (returns 400 if missing and no secret exists)
+
 Response:
 
 ```json
@@ -792,7 +805,7 @@ Response:
 
 Errors:
 
-- 400 for missing secrets (plain text)
+- 400 for missing client_id, or missing client_secret on initial setup (plain text)
 - 500 for save errors (plain text)
 
 ### GET /api/detect-tools

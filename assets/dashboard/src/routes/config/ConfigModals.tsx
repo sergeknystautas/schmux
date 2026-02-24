@@ -184,7 +184,11 @@ export default function ConfigModals({
                 <input
                   type="password"
                   className="input"
-                  placeholder="Enter client secret"
+                  placeholder={
+                    authSecretsModal.clientSecretWasSet
+                      ? 'Enter new secret (leave blank to keep existing)'
+                      : 'Enter client secret'
+                  }
                   value={authSecretsModal.clientSecret}
                   onChange={(e) =>
                     dispatch({
@@ -192,6 +196,15 @@ export default function ConfigModals({
                       modal: { ...authSecretsModal, clientSecret: e.target.value },
                     })
                   }
+                  onFocus={(e) => {
+                    // Clear the mask when user focuses to enter new value
+                    if (e.target.value === '••••••••') {
+                      dispatch({
+                        type: 'SET_AUTH_SECRETS_MODAL',
+                        modal: { ...authSecretsModal, clientSecret: '' },
+                      });
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') onSaveAuthSecrets();
                   }}
