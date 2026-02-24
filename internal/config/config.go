@@ -84,7 +84,8 @@ type Config struct {
 	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
 	CommitMessage              *CommitMessageConfig   `json:"commit_message,omitempty"`
-	Desync                     *DesyncConfig          `json:"desync,omitempty"`
+	Desync                     *DesyncConfig                `json:"desync,omitempty"`
+	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig  `json:"io_workspace_telemetry,omitempty"`
 	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
 	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
@@ -217,6 +218,12 @@ type CommitMessageConfig struct {
 type DesyncConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"` // enable/disable desync diagnostics
 	Target  string `json:"target,omitempty"`  // run target to invoke after diagnostic capture
+}
+
+// IOWorkspaceTelemetryConfig holds configuration for I/O workspace telemetry collection.
+type IOWorkspaceTelemetryConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"` // enable/disable I/O workspace telemetry
+	Target  string `json:"target,omitempty"`  // run target for telemetry processing
 }
 
 // NotificationsConfig holds configuration for dashboard notifications.
@@ -986,6 +993,26 @@ func (c *Config) GetDesyncTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.Desync.Target)
+}
+
+// GetIOWorkspaceTelemetryEnabled returns whether I/O workspace telemetry is enabled.
+func (c *Config) GetIOWorkspaceTelemetryEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.IOWorkspaceTelemetry == nil || c.IOWorkspaceTelemetry.Enabled == nil {
+		return false
+	}
+	return *c.IOWorkspaceTelemetry.Enabled
+}
+
+// GetIOWorkspaceTelemetryTarget returns the configured target for I/O workspace telemetry.
+func (c *Config) GetIOWorkspaceTelemetryTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.IOWorkspaceTelemetry == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.IOWorkspaceTelemetry.Target)
 }
 
 // GetNotificationSoundEnabled returns whether notification sounds are enabled.

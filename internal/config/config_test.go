@@ -2712,3 +2712,13 @@ func TestTimeoutDurationConverters(t *testing.T) {
 		})
 	}
 }
+
+func TestIOWorkspaceTelemetryDefaults(t *testing.T) {
+	cfg := &Config{}
+	if cfg.GetIOWorkspaceTelemetryEnabled() {
+		t.Fatal("expected default false")
+	}
+	if cfg.GetIOWorkspaceTelemetryTarget() != "" {
+		t.Fatal("expected default empty target")
+	}
+}
