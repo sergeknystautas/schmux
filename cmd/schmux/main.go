@@ -172,6 +172,13 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "dashboardsx":
+		cmd := NewDashboardSXCommand()
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -204,6 +211,12 @@ func printUsage() {
 	fmt.Println("  remote on       Start remote access tunnel")
 	fmt.Println("  remote off      Stop remote access tunnel")
 	fmt.Println("  remote status   Show remote access tunnel status")
+	fmt.Println()
+	fmt.Println("HTTPS (dashboard.sx):")
+	fmt.Println("  dashboardsx setup       Set up HTTPS via Let's Encrypt")
+	fmt.Println("  dashboardsx status      Show dashboard.sx status")
+	fmt.Println("  dashboardsx disable     Disable HTTPS")
+	fmt.Println("  dashboardsx renew-cert  Renew the TLS certificate")
 	fmt.Println()
 	fmt.Println("Other:")
 	fmt.Println("  auth github  Configure GitHub auth")
