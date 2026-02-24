@@ -608,6 +608,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Refresh lore curator executor when lore target changes
 	s.refreshLoreCurator(cfg)
 
+	// Trigger subreddit generation if newly enabled
+	if req.Subreddit != nil {
+		s.TriggerSubredditGeneration()
+	}
+
 	// Ensure overlay directories exist for all repos if repos were actually updated
 	newRepos := cfg.GetRepos()
 	if !reposEqual(oldRepos, newRepos) {
