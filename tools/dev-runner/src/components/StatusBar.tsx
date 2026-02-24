@@ -15,6 +15,7 @@ function statusDot(status: ProcessStatus): React.ReactNode {
       return <Text color="green">●</Text>;
     case 'starting':
     case 'building':
+    case 'pulling':
       return <Text color="yellow">●</Text>;
     case 'crashed':
     case 'stopped':
@@ -31,6 +32,8 @@ function statusLabel(status: ProcessStatus): string {
       return 'running';
     case 'starting':
       return 'starting';
+    case 'pulling':
+      return 'pulling';
     case 'building':
       return 'building';
     case 'crashed':

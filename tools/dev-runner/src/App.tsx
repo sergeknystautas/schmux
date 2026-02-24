@@ -6,6 +6,7 @@ import { KeyBar } from './components/KeyBar.js';
 import { useProcess } from './hooks/useProcess.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { build } from './lib/build.js';
+import { gitPull } from './lib/git.js';
 import { killPort } from './lib/ports.js';
 import {
   ensureSchmuxDir,
@@ -308,6 +309,28 @@ export function App({ devRoot, plain }: AppProps) {
     }
   }, [backend, binaryPath, addBackendLine]);
 
+  const handlePull = useCallback(async () => {
+    setBackendStatusOverride('pulling');
+    addBackendLine('Pulling latest changes...');
+    const pullResult = await gitPull(devRoot, addBackendLine);
+    if (!pullResult.success) {
+      addBackendLine('Pull failed — not restarting');
+      setBackendStatusOverride(null);
+      return;
+    }
+    addBackendLine('Pull succeeded, rebuilding...');
+    setBackendStatusOverride('building');
+    await backend.stop();
+    const result = await build(workspaceRef.current, binaryPath, addBackendLine);
+    setBackendStatusOverride(null);
+    if (result.success) {
+      addBackendLine('Build succeeded, restarting daemon...');
+      backend.start();
+    } else {
+      addBackendLine('Build failed');
+    }
+  }, [backend, binaryPath, addBackendLine, devRoot]);
+
   const handleClear = useCallback(() => {
     if (plain) return; // can't un-write lines from stdout
     backendBuf.current = [];
@@ -328,10 +351,14 @@ export function App({ devRoot, plain }: AppProps) {
     setLayout((prev) => (prev === 'horizontal' ? 'vertical' : 'horizontal'));
   }, [plain]);
 
-  const canRestart = phase === 'running' && effectiveBackendStatus !== 'building';
+  const canRestart =
+    phase === 'running' &&
+    effectiveBackendStatus !== 'building' &&
+    effectiveBackendStatus !== 'pulling';
 
   useKeyboard({
     onRestart: handleRestart,
+    onPull: handlePull,
     onClear: handleClear,
     onQuit: handleQuit,
     onToggleLayout: handleToggleLayout,
