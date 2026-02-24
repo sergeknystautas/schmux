@@ -36,6 +36,7 @@ This approach:
 ### Mechanical (automatable)
 
 - Run `./test.sh` — unit tests pass
+- Run `go vet ./...` — static analysis passes
 - If API-related packages changed (`internal/dashboard/`, `internal/config/`, `internal/state/`, `internal/workspace/`, `internal/session/`, `internal/tmux/`), `docs/api.md` must also be modified in the staged changes
 
 ### Judgment (agent self-assessment)
@@ -134,7 +135,7 @@ When this becomes a product feature, the shape would be:
 {
   "dod": {
     "before_commit": {
-      "run": ["./test.sh"],
+      "run": ["./test.sh", "go vet ./..."],
       "require_docs_update": {
         "when_changed": ["internal/dashboard/", "internal/config/"],
         "update": ["docs/api.md"]

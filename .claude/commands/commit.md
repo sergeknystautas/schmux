@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*)
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(./test.sh*), Bash(go vet:*)
 description: Create a git commit with definition-of-done enforcement
 ---
 
@@ -32,7 +32,17 @@ Run `./test.sh` now and wait for it to complete.
 
 ---
 
-### Step 2: API Documentation Check
+### Step 2: Run Go Vet
+
+Run `go vet ./...` now and wait for it to complete.
+
+**If go vet reports issues:** STOP. Do not commit. Fix the issues, then re-invoke `/commit` from the beginning.
+
+**If go vet passes:** Continue to Step 3.
+
+---
+
+### Step 3: API Documentation Check
 
 Examine the staged changes. If any staged file path starts with any of these prefixes:
 
@@ -49,11 +59,11 @@ Run `git diff --cached --name-only` to see what is staged.
 
 **If API-related files are staged but `docs/api.md` is not:** STOP. Update `docs/api.md` to reflect your API changes, stage it with `git add docs/api.md`, then re-invoke `/commit` from the beginning.
 
-**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 3.
+**If no API-related files are staged, or `docs/api.md` is already staged:** Continue to Step 4.
 
 ---
 
-### Step 3: Self-Assessment Checklist
+### Step 4: Self-Assessment Checklist
 
 Answer each item with YES or NO based on the actual state of your changes. A rationalized YES is a NO.
 
@@ -69,11 +79,11 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
 
 **If any item is NO:** STOP. Fix the gap, then re-invoke `/commit` from the beginning.
 
-**If all items are YES:** Continue to Step 4.
+**If all items are YES:** Continue to Step 5.
 
 ---
 
-### Step 4: Create the Commit
+### Step 5: Create the Commit
 
 All checks passed. Stage all relevant files and create a single commit.
 
