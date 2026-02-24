@@ -224,7 +224,7 @@ func TestCacheAge(t *testing.T) {
 
 func TestGenerateDisabled(t *testing.T) {
 	cfg := mockConfig{target: ""}
-	_, err := Generate(context.Background(), cfg, nil, nil, "", 24)
+	_, err := Generate(context.Background(), cfg, nil, nil, nil, "", 24)
 	if !errors.Is(err, ErrDisabled) {
 		t.Errorf("Generate() error = %v, want ErrDisabled", err)
 	}
@@ -233,15 +233,15 @@ func TestGenerateDisabled(t *testing.T) {
 func TestGenerateWithCommits(t *testing.T) {
 	// Note: This test verifies the disabled check and basic flow.
 	// Full LLM integration is tested via daemon integration tests.
-	// With nil config passed to oneshot, the LLM call will fail,
+	// With nil fullCfg, the type assertion will fail,
 	// so we test that the function properly propagates that error.
 	cfg := mockConfig{target: "sonnet"}
 	commits := []CommitInfo{
 		{Repo: "test", Subject: "test commit"},
 	}
-	_, err := Generate(context.Background(), cfg, nil, commits, "", 24)
-	// Expect error because oneshot.ExecuteTarget fails with nil config
+	_, err := Generate(context.Background(), cfg, nil, nil, commits, "", 24)
+	// Expect error because nil fullCfg fails type assertion
 	if err == nil {
-		t.Error("Generate() expected error with nil config, got nil")
+		t.Error("Generate() expected error with nil fullCfg, got nil")
 	}
 }

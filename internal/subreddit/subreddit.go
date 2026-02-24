@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
@@ -184,7 +185,8 @@ type RepoInfo struct {
 }
 
 // Generate creates a new subreddit digest.
-func Generate(ctx context.Context, cfg Config, gatherFunc GatherFunc, repos []CommitInfo, cachePath string, hours int) (Cache, error) {
+// The fullCfg parameter must be a *config.Config for oneshot execution.
+func Generate(ctx context.Context, cfg Config, fullCfg any, gatherFunc GatherFunc, repos []CommitInfo, cachePath string, hours int) (Cache, error) {
 	target := cfg.GetSubredditTarget()
 	if target == "" {
 		return Cache{}, ErrDisabled
@@ -210,8 +212,14 @@ func Generate(ctx context.Context, cfg Config, gatherFunc GatherFunc, repos []Co
 	// Build prompt
 	prompt := BuildPrompt(commits, hours)
 
+	// Type assert fullCfg to *config.Config for oneshot
+	cfgPtr, ok := fullCfg.(*config.Config)
+	if !ok {
+		return Cache{}, fmt.Errorf("invalid config type for oneshot execution")
+	}
+
 	// Call LLM via oneshot (use DefaultTimeout)
-	response, err := oneshot.ExecuteTarget(ctx, nil, target, prompt, schema.LabelSubreddit, DefaultTimeout, "")
+	response, err := oneshot.ExecuteTarget(ctx, cfgPtr, target, prompt, schema.LabelSubreddit, DefaultTimeout, "")
 	if err != nil {
 		return Cache{}, fmt.Errorf("LLM call failed: %w", err)
 	}
