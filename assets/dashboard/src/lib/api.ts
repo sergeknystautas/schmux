@@ -32,6 +32,7 @@ import type {
   ScanResult,
   SpawnRequest,
   SpawnResult,
+  SubredditResponse,
   SuggestBranchRequest,
   SuggestBranchResponse,
   TLSValidateResponse,
@@ -1027,7 +1028,9 @@ export async function testRemoteAccessNotification(): Promise<void> {
   }
 }
 
-// --- Persona API ---
+// ============================================================================
+// Persona API
+// ============================================================================
 
 export async function getPersonas(): Promise<PersonaListResponse> {
   const response = await fetch('/api/personas');
@@ -1061,4 +1064,14 @@ export async function deletePersona(id: string): Promise<void> {
     headers: { ...csrfHeaders() },
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to delete persona');
+}
+
+// ============================================================================
+// Subreddit Digest API
+// ============================================================================
+
+export async function getSubreddit(): Promise<SubredditResponse> {
+  const response = await fetch('/api/subreddit');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch subreddit digest');
+  return response.json();
 }
