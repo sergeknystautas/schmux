@@ -2,12 +2,6 @@ import { useState, useEffect } from 'react';
 import { inputLatency } from '../lib/inputLatency';
 import type { LatencyDistribution } from '../lib/inputLatency';
 
-type TmuxCounts = {
-  sessions?: number;
-  attach?: number;
-  tmux?: number;
-};
-
 function colorForMs(ms: number): string {
   if (ms <= 10) return '#0dbc79';
   if (ms <= 50) return '#e5e510';
@@ -25,44 +19,21 @@ function barColor(ms: number): string {
 
 export default function TypingPerformance() {
   const [, setTick] = useState(0);
-  const [tmuxCounts, setTmuxCounts] = useState<TmuxCounts | null>(null);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('typing-perf-collapsed') === '1'
+  );
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('typing-perf-collapsed', next ? '1' : '0');
+      return next;
+    });
+  };
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      try {
-        const res = await fetch('/api/debug/tmux-leak', { credentials: 'same-origin' });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        setTmuxCounts({
-          sessions: data?.tmux_sessions?.count,
-          attach: data?.os_processes?.attach_session_process_count,
-          tmux: data?.os_processes?.tmux_process_count,
-        });
-      } catch {
-        // Best-effort dev diagnostics only.
-      }
-    };
-    load();
-    const id = setInterval(load, 1000);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        void load();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
   }, []);
 
   const stats = inputLatency.getStats();
@@ -70,25 +41,26 @@ export default function TypingPerformance() {
 
   return (
     <div className="typing-perf">
-      {tmuxCounts && (
-        <div className="typing-perf__empty" title="sessions / attach-session procs / tmux procs">
-          Tmux: {tmuxCounts.sessions ?? '?'} / {tmuxCounts.attach ?? '?'} / {tmuxCounts.tmux ?? '?'}
-        </div>
-      )}
       <div className="typing-perf__header">
-        <span className="nav-section-title">Typing Performance</span>
-        {stats && stats.count > 0 && (
+        <button className="diag-pane__toggle" onClick={toggleCollapsed}>
+          <span className={`diag-pane__chevron${collapsed ? '' : ' diag-pane__chevron--open'}`}>
+            ▶
+          </span>
+          <span className="nav-section-title">Typing Performance</span>
+        </button>
+        {!collapsed && stats && stats.count > 0 && (
           <button className="typing-perf__reset" onClick={() => inputLatency.reset()}>
             Reset
           </button>
         )}
       </div>
 
-      {!stats || stats.count < 3 ? (
-        <div className="typing-perf__empty">Type in a terminal to collect samples</div>
-      ) : (
-        dist && <Histogram dist={dist} median={stats.median} p99={stats.p99} />
-      )}
+      {!collapsed &&
+        (!stats || stats.count < 3 ? (
+          <div className="typing-perf__empty">Type in a terminal to collect samples</div>
+        ) : (
+          dist && <Histogram dist={dist} median={stats.median} p99={stats.p99} />
+        ))}
     </div>
   );
 }

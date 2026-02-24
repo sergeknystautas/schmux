@@ -7,6 +7,7 @@ import Tooltip from './Tooltip';
 import KeyboardModeIndicator from './KeyboardModeIndicator';
 import TypingPerformance from './TypingPerformance';
 import CurationStatus from './CurationStatus';
+import TmuxDiagnostic from './TmuxDiagnostic';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -854,6 +855,7 @@ export default function AppShell() {
           </div>
 
           {isDevMode && <CurationStatus />}
+          {isDevMode && <TmuxDiagnostic />}
           {isDevMode && <TypingPerformance />}
           <div className="nav-links">
             {config?.repos?.length > 0 && (
