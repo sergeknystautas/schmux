@@ -26,6 +26,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/preview"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -176,6 +177,12 @@ type Server struct {
 	// Dashboard.sx provision status (in-memory, resets on restart)
 	dsxProvision   dsxProvisionStatus
 	dsxProvisionMu sync.Mutex
+
+	// Streaming executor for observable curation
+	streamingExecutor StreamingExecutorFunc
+
+	// Curation state tracking for WebSocket broadcast
+	curationTracker *CurationTracker
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -250,6 +257,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		connectLimiter:     NewRateLimiter(3, 1*time.Minute), // 3 connects per minute
 		previewDetect:      make(map[string]time.Time),
 		defaultBranchCache: make(map[string]defaultBranchEntry),
+		curationTracker:    NewCurationTracker(),
 		remoteAuthState: remoteAuthState{
 			remoteAuthLimiter: NewRateLimiter(5, 1*time.Minute), // 5 auth attempts per minute per IP
 			remoteNonces:      make(map[string]*remoteNonce),
@@ -303,6 +311,14 @@ func (s *Server) SetLoreStore(store *lore.ProposalStore) {
 // SetLoreCurator sets the lore curator for manual curation requests.
 func (s *Server) SetLoreCurator(c *lore.Curator) {
 	s.loreCurator = c
+}
+
+// StreamingExecutorFunc is a function that runs a streaming one-shot execution.
+type StreamingExecutorFunc func(ctx context.Context, prompt, schemaLabel string, timeout time.Duration, dir string, onEvent func(oneshot.StreamEvent)) (string, error)
+
+// SetStreamingExecutor sets the streaming executor for observable curation.
+func (s *Server) SetStreamingExecutor(fn StreamingExecutorFunc) {
+	s.streamingExecutor = fn
 }
 
 // SetTunnelManager sets the tunnel manager for remote access.
@@ -557,6 +573,7 @@ func (s *Server) Start() error {
 
 			// Lore routes
 			r.Get("/lore/status", s.handleLoreStatus)
+			r.Get("/lore/curations/active", s.handleLoreCurationsActive)
 			r.Route("/lore/{repo}", func(r chi.Router) {
 				r.Use(validateLoreRepo)
 				r.Get("/proposals", s.handleLoreProposals)
@@ -564,7 +581,10 @@ func (s *Server) Start() error {
 				r.Post("/proposals/{proposalID}/apply", s.handleLoreApply)
 				r.Post("/proposals/{proposalID}/dismiss", s.handleLoreDismiss)
 				r.Get("/entries", s.handleLoreEntries)
+				r.Delete("/entries", s.handleLoreEntriesClear)
 				r.Post("/curate", s.handleLoreCurate)
+				r.Get("/curations", s.handleLoreCurationsList)
+				r.Get("/curations/{curationID}/log", s.handleLoreCurationLog)
 			})
 		})
 
@@ -1241,6 +1261,22 @@ func (s *Server) BroadcastPendingNavigation(navType string, id1, id2 string) {
 	s.broadcastToAllDashboardConns(data)
 }
 
+// BroadcastCuratorEvent sends a curator stream event to all connected dashboard WebSocket clients.
+func (s *Server) BroadcastCuratorEvent(event CuratorEvent) {
+	msg := struct {
+		Type  string       `json:"type"`
+		Event CuratorEvent `json:"event"`
+	}{
+		Type:  "curator_event",
+		Event: event,
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
 // handleDashboardWebSocket handles WebSocket connections for real-time dashboard updates.
 func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if auth is required (GitHub OAuth or tunnel active)
@@ -1301,6 +1337,37 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 		}
 		if err := conn.WriteMessage(websocket.TextMessage, crPayload); err != nil {
 			return
+		}
+	}
+
+	// Send active curations so reconnecting clients see current state
+	if runs := s.curationTracker.Active(); len(runs) > 0 {
+		for _, run := range runs {
+			msg := struct {
+				Type string       `json:"type"`
+				Run  *CurationRun `json:"run"`
+			}{Type: "curator_state", Run: run}
+			if curPayload, err := json.Marshal(msg); err == nil {
+				if err := conn.WriteMessage(websocket.TextMessage, curPayload); err != nil {
+					return
+				}
+			}
+		}
+	}
+
+	// Send recently completed curations so reconnecting clients
+	// learn about completions/errors that happened while disconnected.
+	if runs := s.curationTracker.Recent(60 * time.Second); len(runs) > 0 {
+		for _, run := range runs {
+			msg := struct {
+				Type string       `json:"type"`
+				Run  *CurationRun `json:"run"`
+			}{Type: "curator_state", Run: run}
+			if curPayload, err := json.Marshal(msg); err == nil {
+				if err := conn.WriteMessage(websocket.TextMessage, curPayload); err != nil {
+					return
+				}
+			}
 		}
 	}
 

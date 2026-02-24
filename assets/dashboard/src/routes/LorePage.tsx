@@ -6,13 +6,18 @@ import {
   getLoreStatus,
   applyLoreProposal,
   dismissLoreProposal,
-  triggerLoreCuration,
+  clearLoreEntries,
+  getLoreCurations,
+  getLoreCurationLog,
   getErrorMessage,
 } from '../lib/api';
+import type { CurationRunInfo } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
+import { useCuration } from '../contexts/CurationContext';
 import { useToast } from '../components/ToastProvider';
 import useTheme from '../hooks/useTheme';
-import type { LoreProposal, LoreEntry, LoreStatusResponse } from '../lib/types';
+import CuratorTerminal from '../components/CuratorTerminal';
+import type { LoreProposal, LoreEntry, LoreStatusResponse, CuratorStreamEvent } from '../lib/types';
 import styles from '../styles/lore.module.css';
 
 function ProposalCard({
@@ -158,6 +163,7 @@ export default function LorePage() {
   const { config } = useConfig();
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
+  const { activeCurations, pendingCurations, startCuration, onComplete } = useCuration();
 
   const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');
   const [loading, setLoading] = useState(true);
@@ -168,8 +174,8 @@ export default function LorePage() {
   const [allTypes, setAllTypes] = useState<string[]>([]);
   const [applyingId, setApplyingId] = useState<string | null>(null);
 
-  // Re-curate state
-  const [curating, setCurating] = useState(false);
+  const curationState = activeRepo ? activeCurations[activeRepo] : undefined;
+  const curating = !!curationState || pendingCurations.has(activeRepo);
 
   // Lore system status
   const [loreStatus, setLoreStatus] = useState<LoreStatusResponse | null>(null);
@@ -179,6 +185,13 @@ export default function LorePage() {
   const [showSignals, setShowSignals] = useState(
     () => localStorage.getItem('lore-signals-open') === 'true'
   );
+  const [showPastRuns, setShowPastRuns] = useState(false);
+
+  // Past curation runs
+  const [pastRuns, setPastRuns] = useState<CurationRunInfo[]>([]);
+  const [pastRunEvents, setPastRunEvents] = useState<CuratorStreamEvent[] | null>(null);
+  const [pastRunActiveId, setPastRunActiveId] = useState<string | null>(null);
+  const [pastRunLoading, setPastRunLoading] = useState(false);
 
   // Entry filter state
   const [entryFilters, setEntryFilters] = useState<{
@@ -235,13 +248,29 @@ export default function LorePage() {
     }
   }, [activeRepo]);
 
+  const loadPastRuns = useCallback(async () => {
+    if (!activeRepo) return;
+    try {
+      const data = await getLoreCurations(activeRepo);
+      setPastRuns(data.runs || []);
+    } catch {
+      // Non-critical; silently ignore errors
+    }
+  }, [activeRepo]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     const statusPromise = getLoreStatus()
       .then(setLoreStatus)
       .catch(() => {});
-    await Promise.all([loadProposals(), loadEntries(), loadFilterOptions(), statusPromise]);
+    await Promise.all([
+      loadProposals(),
+      loadEntries(),
+      loadFilterOptions(),
+      loadPastRuns(),
+      statusPromise,
+    ]);
 
     // Fetch pending counts for all repos (for tab badges)
     if (repos.length > 1) {
@@ -258,7 +287,7 @@ export default function LorePage() {
     }
 
     setLoading(false);
-  }, [loadProposals, loadEntries, loadFilterOptions, repos]);
+  }, [loadProposals, loadEntries, loadFilterOptions, loadPastRuns, repos]);
 
   // Initial load when repo changes
   useEffect(() => {
@@ -275,10 +304,20 @@ export default function LorePage() {
     loadEntries();
   }, [entryFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Handle curation completion (refresh data)
+  useEffect(() => {
+    return onComplete((repoName) => {
+      if (repoName !== activeRepo) return;
+      loadData();
+    });
+  }, [activeRepo, onComplete, loadData]);
+
   const handleTabChange = (repoName: string) => {
     setActiveRepo(repoName);
     setEntryFilters({});
     filtersInitialized.current = false;
+    setPastRunActiveId(null);
+    setPastRunEvents(null);
   };
 
   const handleApply = async (proposal: LoreProposal) => {
@@ -306,21 +345,46 @@ export default function LorePage() {
     }
   };
 
-  const handleReCurate = async () => {
+  const handleReCurate = () => {
     if (!activeRepo) return;
-    setCurating(true);
+    startCuration(activeRepo);
+  };
+
+  const handleClearSignals = async () => {
+    if (!activeRepo) return;
     try {
-      const result = await triggerLoreCuration(activeRepo);
-      if (result.status === 'no_raw_entries') {
-        toastError('No raw entries to curate');
-      } else {
-        toastSuccess('Curation complete — new proposal created');
-      }
+      const result = await clearLoreEntries(activeRepo);
+      toastSuccess(`Deleted ${result.cleared} signal file(s)`);
       loadData();
     } catch (err) {
-      toastError(getErrorMessage(err, 'Failed to trigger curation'));
+      toastError(getErrorMessage(err, 'Failed to clear signals'));
+    }
+  };
+
+  const handleViewPastRun = async (runId: string) => {
+    if (!activeRepo) return;
+    if (pastRunActiveId === runId) {
+      setPastRunActiveId(null);
+      setPastRunEvents(null);
+      return;
+    }
+    setPastRunActiveId(runId);
+    setPastRunLoading(true);
+    try {
+      const data = await getLoreCurationLog(activeRepo, runId);
+      const events: CuratorStreamEvent[] = (data.events || []).map((raw) => ({
+        repo: activeRepo,
+        timestamp: (raw.timestamp as string) || '',
+        event_type: (raw.type as string) || 'unknown',
+        subtype: (raw.subtype as string) || '',
+        raw: raw as Record<string, unknown>,
+      }));
+      setPastRunEvents(events);
+    } catch (err) {
+      toastError(getErrorMessage(err, 'Failed to load curation log'));
+      setPastRunActiveId(null);
     } finally {
-      setCurating(false);
+      setPastRunLoading(false);
     }
   };
 
@@ -412,7 +476,7 @@ export default function LorePage() {
         ) : (
           <div className="empty-state">
             <p className="empty-state__description">
-              No pending proposals. Learnings will appear here when agents encounter friction.
+              No pending proposals for agents instructions changes.
             </p>
           </div>
         )}
@@ -435,6 +499,54 @@ export default function LorePage() {
                       {new Date(p.created_at).toLocaleDateString()}
                     </span>
                     <span className={styles.historySummary}>{p.diff_summary}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Past Runs — collapsed by default */}
+        {pastRuns.length > 0 && (
+          <section className={styles.section}>
+            <button className={styles.toggleButton} onClick={() => setShowPastRuns(!showPastRuns)}>
+              {showPastRuns ? '\u25BC' : '\u25B6'} Past Runs ({pastRuns.length})
+            </button>
+            {showPastRuns && (
+              <div className={styles.historyList}>
+                {pastRuns.map((run) => (
+                  <div key={run.id}>
+                    <button
+                      className={`${styles.historyItem} ${pastRunActiveId === run.id ? styles.activeTab : ''}`}
+                      style={{
+                        cursor: 'pointer',
+                        width: '100%',
+                        textAlign: 'left',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                      }}
+                      onClick={() => handleViewPastRun(run.id)}
+                    >
+                      <span className={styles.historyDate}>
+                        {new Date(run.created_at).toLocaleString()}
+                      </span>
+                      <span className={styles.historySummary}>{run.id}</span>
+                      <span className={styles.entryTool}>
+                        {run.size_bytes > 1024
+                          ? `${Math.round(run.size_bytes / 1024)}KB`
+                          : `${run.size_bytes}B`}
+                      </span>
+                    </button>
+                    {pastRunActiveId === run.id && (
+                      <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                        {pastRunLoading ? (
+                          <p className={styles.empty}>Loading log...</p>
+                        ) : pastRunEvents ? (
+                          <CuratorTerminal events={pastRunEvents} />
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -488,12 +600,27 @@ export default function LorePage() {
                   ))}
                 </select>
                 <button
-                  className={styles.curateButton}
-                  onClick={handleReCurate}
-                  disabled={curating}
+                  className={styles.deleteButton}
+                  onClick={handleClearSignals}
+                  disabled={curating || rawEntries.length === 0}
                 >
-                  {curating ? 'Curating...' : 'Trigger Curation'}
+                  Delete Signals
                 </button>
+                <div className={styles.curateArea}>
+                  <button
+                    className={styles.curateButton}
+                    onClick={handleReCurate}
+                    disabled={curating}
+                  >
+                    {curating ? 'Curating...' : 'Trigger Curation'}
+                  </button>
+                  {curationState && (
+                    <span className={styles.curateStatus}>
+                      {curationState.message}
+                      <span className={styles.curateElapsed}>{curationState.elapsed}s</span>
+                    </span>
+                  )}
+                </div>
               </div>
               <div className={styles.entriesList} data-testid="lore-entries">
                 {rawEntries.length === 0 ? (

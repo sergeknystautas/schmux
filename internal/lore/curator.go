@@ -58,9 +58,34 @@ func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir strin
 		return nil, nil
 	}
 
-	// Read instruction files that exist
-	instrFiles := make(map[string]string)
-	fileHashes := make(map[string]string)
+	instrFiles, fileHashes, err := c.ReadInstructionFiles(ctx, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(instrFiles) == 0 {
+		return nil, fmt.Errorf("no instruction files found in %s", repoDir)
+	}
+
+	// Build prompt and call LLM
+	prompt := BuildCuratorPrompt(instrFiles, entries)
+	response, err := c.Executor(ctx, prompt, 10*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("curator LLM call failed: %w", err)
+	}
+
+	result, err := ParseCuratorResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse curator response: %w", err)
+	}
+
+	return BuildProposal(repoName, result, instrFiles, fileHashes, entries)
+}
+
+// ReadInstructionFiles reads instruction files from disk or bare repo,
+// returning file contents and SHA-256 hashes. Files that don't exist are skipped.
+func (c *Curator) ReadInstructionFiles(ctx context.Context, repoDir string) (contents map[string]string, hashes map[string]string, err error) {
+	contents = make(map[string]string)
+	hashes = make(map[string]string)
 	for _, name := range c.InstructionFiles {
 		var contentBytes []byte
 		if c.BareRepo {
@@ -76,30 +101,18 @@ func (c *Curator) CurateWithEntries(ctx context.Context, repoName, repoDir strin
 				if os.IsNotExist(err) {
 					continue
 				}
-				return nil, fmt.Errorf("failed to read %s: %w", name, err)
+				return nil, nil, fmt.Errorf("failed to read %s: %w", name, err)
 			}
 		}
-		instrFiles[name] = string(contentBytes)
+		contents[name] = string(contentBytes)
 		hash := sha256.Sum256(contentBytes)
-		fileHashes[name] = "sha256:" + hex.EncodeToString(hash[:])
+		hashes[name] = "sha256:" + hex.EncodeToString(hash[:])
 	}
+	return contents, hashes, nil
+}
 
-	if len(instrFiles) == 0 {
-		return nil, fmt.Errorf("no instruction files found in %s", repoDir)
-	}
-
-	// Build prompt and call LLM
-	prompt := BuildCuratorPrompt(instrFiles, entries)
-	response, err := c.Executor(ctx, prompt, 120*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("curator LLM call failed: %w", err)
-	}
-
-	result, err := ParseCuratorResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse curator response: %w", err)
-	}
-
+// BuildProposal validates a CuratorResponse against the input data and assembles a Proposal.
+func BuildProposal(repoName string, result *CuratorResponse, instrFiles, fileHashes map[string]string, entries []Entry) (*Proposal, error) {
 	// Validate LLM response: proposed file keys must exist in instruction files
 	for key := range result.ProposedFiles {
 		if _, ok := instrFiles[key]; !ok {
@@ -197,12 +210,28 @@ INSTRUCTION FILES:
 		fmt.Fprintf(&sb, "\n=== %s ===\n%s\n", name, content)
 	}
 
-	// Separate entries by type
+	// Separate entries by type and deduplicate
 	var failures, reflections []Entry
+	failureSeen := make(map[string]bool)
+	reflectionSeen := make(map[string]bool)
 	for _, e := range entries {
 		if e.Type == "failure" {
+			key := fmt.Sprintf("%s|%s|%s|%s", e.Tool, e.Category, e.InputSummary, e.ErrorSummary)
+			if failureSeen[key] {
+				continue
+			}
+			failureSeen[key] = true
 			failures = append(failures, e)
 		} else {
+			// Skip empty/none reflections — agents sometimes write "none" when they have nothing to report
+			text := strings.TrimSpace(e.Text)
+			if text == "" || strings.EqualFold(text, "none") {
+				continue
+			}
+			if reflectionSeen[text] {
+				continue
+			}
+			reflectionSeen[text] = true
 			reflections = append(reflections, e)
 		}
 	}

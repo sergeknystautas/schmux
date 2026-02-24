@@ -542,6 +542,28 @@ func (c *Config) GetWorktreeBasePath() string {
 	return filepath.Join(homeDir, ".schmux", "repos")
 }
 
+// ResolveBareRepoDir returns the full directory path for a bare repo,
+// checking both the worktree base path (repos/) and the query path (query/).
+// Returns the first path where the repo exists on disk, falling back to the
+// worktree base path if neither exists.
+func (c *Config) ResolveBareRepoDir(barePath string) string {
+	reposPath := c.GetWorktreeBasePath()
+	queryPath := c.GetQueryRepoPath()
+
+	for _, basePath := range []string{reposPath, queryPath} {
+		if basePath == "" {
+			continue
+		}
+		fullPath := filepath.Join(basePath, barePath)
+		if _, err := os.Stat(fullPath); err == nil {
+			return fullPath
+		}
+	}
+
+	// Fallback to repos path (original behavior)
+	return filepath.Join(reposPath, barePath)
+}
+
 // GetQueryRepoPath returns the path for query repos used for branch/commit querying.
 // Always ~/.schmux/query/ - separate from worktree base repos.
 func (c *Config) GetQueryRepoPath() string {

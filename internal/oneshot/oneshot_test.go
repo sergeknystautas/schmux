@@ -2,7 +2,9 @@ package oneshot
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
@@ -346,6 +348,102 @@ func TestParseResponse(t *testing.T) {
 				t.Errorf("parseResponse() = %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestStreamEventParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string
+		wantType    string
+		wantSubtype string
+	}{
+		{
+			name:        "system init event",
+			line:        `{"type":"system","subtype":"init","session_id":"abc123"}`,
+			wantType:    "system",
+			wantSubtype: "init",
+		},
+		{
+			name:     "assistant event",
+			line:     `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}`,
+			wantType: "assistant",
+		},
+		{
+			name:     "result event",
+			line:     `{"type":"result","subtype":"success","is_error":false,"result":"done","structured_output":{"key":"value"}}`,
+			wantType: "result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ev StreamEvent
+			if err := json.Unmarshal([]byte(tt.line), &ev); err != nil {
+				t.Fatalf("failed to parse: %v", err)
+			}
+			if ev.Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", ev.Type, tt.wantType)
+			}
+			if tt.wantSubtype != "" && ev.Subtype != tt.wantSubtype {
+				t.Errorf("Subtype = %q, want %q", ev.Subtype, tt.wantSubtype)
+			}
+		})
+	}
+}
+
+func TestResultEventParsing(t *testing.T) {
+	line := `{"type":"result","subtype":"success","is_error":false,"duration_ms":5000,"result":"done","structured_output":{"proposed_files":{"README.md":"# Hello"},"diff_summary":"Added readme"}}`
+
+	var re ResultEvent
+	if err := json.Unmarshal([]byte(line), &re); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if re.Type != "result" {
+		t.Errorf("Type = %q, want 'result'", re.Type)
+	}
+	if re.IsError {
+		t.Error("IsError should be false")
+	}
+	if re.DurationMs != 5000 {
+		t.Errorf("DurationMs = %d, want 5000", re.DurationMs)
+	}
+	if len(re.StructuredOutput) == 0 {
+		t.Fatal("StructuredOutput should not be empty")
+	}
+	// Verify we can extract the structured output as a string
+	output := string(re.StructuredOutput)
+	if !contains(output, "proposed_files") {
+		t.Errorf("StructuredOutput should contain 'proposed_files', got: %s", output)
+	}
+}
+
+func TestResultEventErrorParsing(t *testing.T) {
+	line := `{"type":"result","subtype":"error","is_error":true,"result":"something went wrong","structured_output":null}`
+
+	var re ResultEvent
+	if err := json.Unmarshal([]byte(line), &re); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if !re.IsError {
+		t.Error("IsError should be true")
+	}
+	if re.Result != "something went wrong" {
+		t.Errorf("Result = %q, want 'something went wrong'", re.Result)
+	}
+}
+
+func TestExecuteTargetStreamingInputValidation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := ExecuteTargetStreaming(ctx, nil, "test", "", "schema", time.Minute, "", nil)
+	if err == nil || !contains(err.Error(), "prompt cannot be empty") {
+		t.Errorf("expected 'prompt cannot be empty' error, got: %v", err)
+	}
+
+	_, err = ExecuteTargetStreaming(ctx, nil, "test", "prompt", "", time.Minute, "", nil)
+	if err == nil || !contains(err.Error(), "schema label cannot be empty") {
+		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,26 @@ func TestBuildCommandParts_ResumeWithModel(t *testing.T) {
 		if got[i] != wantPart {
 			t.Errorf("BuildCommandParts() part[%d]=%q, want %q", i, got[i], wantPart)
 		}
+	}
+}
+
+func TestBuildCommandParts_OneshotStreaming(t *testing.T) {
+	parts, err := BuildCommandParts("claude", "claude", ToolModeOneshotStreaming, `{"type":"object"}`, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--json-schema", `{"type":"object"}`}
+	if !reflect.DeepEqual(parts, expected) {
+		t.Errorf("got %v, want %v", parts, expected)
+	}
+}
+
+func TestBuildCommandParts_OneshotStreamingCodexError(t *testing.T) {
+	_, err := BuildCommandParts("codex", "codex", ToolModeOneshotStreaming, `{"type":"object"}`, nil)
+	if err == nil {
+		t.Fatal("expected error for codex with streaming mode")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("error %q should contain 'not supported'", err.Error())
 	}
 }

@@ -471,3 +471,22 @@ export type RemoteAccessStatus = {
   url?: string;
   error?: string;
 };
+
+/** A single stream-json event from the curator LLM */
+export interface CuratorStreamEvent {
+  repo: string;
+  timestamp: string;
+  event_type: string; // "system" | "assistant" | "user" | "result" | "curator_done" | "curator_error"
+  subtype?: string;
+  raw: Record<string, unknown>;
+}
+
+/** Full state of an active curation run (sent on WebSocket connect) */
+export interface CurationRun {
+  id: string;
+  repo: string;
+  started_at: string;
+  events: CuratorStreamEvent[];
+  done: boolean;
+  error?: string;
+}

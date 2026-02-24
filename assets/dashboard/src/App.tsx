@@ -7,6 +7,7 @@ import KeyboardProvider from './contexts/KeyboardContext';
 import { ConfigProvider } from './contexts/ConfigContext';
 import { SessionsProvider } from './contexts/SessionsContext';
 import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
+import { CurationProvider } from './contexts/CurationContext';
 import HomePage from './routes/HomePage';
 import SpawnPage from './routes/SpawnPage';
 import TipsPage from './routes/TipsPage';
@@ -35,36 +36,38 @@ export default function App() {
             <SessionsProvider>
               <ViewedSessionsProvider>
                 <KeyboardProvider>
-                  <Routes>
-                    <Route element={<AppShell />}>
-                      <Route path="/" element={<HomePage />} />
-                      <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-                      <Route
-                        path="/diff/:workspaceId/img/:filepath"
-                        element={<ImagePreviewPage />}
-                      />
-                      <Route
-                        path="/diff/:workspaceId/md/:filepath"
-                        element={<MarkdownPreviewPage />}
-                      />
-                      <Route path="/diff/:workspaceId" element={<DiffPage />} />
-                      <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
-                      <Route path="/git/:workspaceId" element={<GitGraphPage />} />
-                      <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
-                      <Route
-                        path="/resolve-conflict/:workspaceId"
-                        element={<LinearSyncResolveConflictPage />}
-                      />
-                      <Route path="/spawn" element={<SpawnPage key={location.key} />} />
-                      <Route path="/tips" element={<TipsPage />} />
-                      <Route path="/config" element={<ConfigPage />} />
-                      <Route path="/settings/remote" element={<RemoteSettingsPage />} />
-                      <Route path="/overlays" element={<OverlayPage />} />
-                      <Route path="/lore" element={<LorePage />} />
-                      <Route path="/terminal.html" element={<LegacyTerminalPage />} />
-                      <Route path="*" element={<NotFoundPage />} />
-                    </Route>
-                  </Routes>
+                  <CurationProvider>
+                    <Routes>
+                      <Route element={<AppShell />}>
+                        <Route path="/" element={<HomePage />} />
+                        <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
+                        <Route
+                          path="/diff/:workspaceId/img/:filepath"
+                          element={<ImagePreviewPage />}
+                        />
+                        <Route
+                          path="/diff/:workspaceId/md/:filepath"
+                          element={<MarkdownPreviewPage />}
+                        />
+                        <Route path="/diff/:workspaceId" element={<DiffPage />} />
+                        <Route path="/preview/:workspaceId/:previewId" element={<PreviewPage />} />
+                        <Route path="/git/:workspaceId" element={<GitGraphPage />} />
+                        <Route path="/git/:workspaceId/:commitHash" element={<GitCommitPage />} />
+                        <Route
+                          path="/resolve-conflict/:workspaceId"
+                          element={<LinearSyncResolveConflictPage />}
+                        />
+                        <Route path="/spawn" element={<SpawnPage key={location.key} />} />
+                        <Route path="/tips" element={<TipsPage />} />
+                        <Route path="/config" element={<ConfigPage />} />
+                        <Route path="/settings/remote" element={<RemoteSettingsPage />} />
+                        <Route path="/overlays" element={<OverlayPage />} />
+                        <Route path="/lore" element={<LorePage />} />
+                        <Route path="/terminal.html" element={<LegacyTerminalPage />} />
+                        <Route path="*" element={<NotFoundPage />} />
+                      </Route>
+                    </Routes>
+                  </CurationProvider>
                 </KeyboardProvider>
               </ViewedSessionsProvider>
             </SessionsProvider>

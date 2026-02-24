@@ -9,9 +9,10 @@ import (
 type ToolMode string
 
 const (
-	ToolModeInteractive ToolMode = "interactive"
-	ToolModeOneshot     ToolMode = "oneshot"
-	ToolModeResume      ToolMode = "resume"
+	ToolModeInteractive      ToolMode = "interactive"
+	ToolModeOneshot          ToolMode = "oneshot"
+	ToolModeOneshotStreaming ToolMode = "oneshot-streaming"
+	ToolModeResume           ToolMode = "resume"
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
@@ -52,11 +53,18 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSche
 	var newArgs []string
 	switch toolName {
 	case "claude":
-		newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "json")
+		if mode == ToolModeOneshotStreaming {
+			newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose")
+		} else {
+			newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "json")
+		}
 		if jsonSchema != "" {
 			newArgs = append(newArgs, "--json-schema", jsonSchema)
 		}
 	case "codex":
+		if mode == ToolModeOneshotStreaming {
+			return nil, fmt.Errorf("tool %s: oneshot-streaming mode is not supported (supported: claude)", toolName)
+		}
 		newArgs = append(existingArgs, "exec", "--json")
 		// Inject model flag for Codex if specified
 		if model != nil && model.ModelFlag != "" {

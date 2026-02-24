@@ -21,6 +21,7 @@ import type {
   OverlayChangeEvent,
   RemoteAccessStatus,
   WorkspaceSyncResultEvent,
+  CuratorStreamEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -46,6 +47,7 @@ type SessionsContextValue = {
   remoteAccessStatus: RemoteAccessStatus;
   simulateRemote: boolean;
   setSimulateRemote: (value: boolean) => void;
+  curatorEvents: Record<string, CuratorStreamEvent[]>;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -66,6 +68,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     overlayEvents,
     clearOverlayEvents,
     remoteAccessStatus,
+    curatorEvents,
   } = useSessionsWebSocket({
     onPreviewDetected: (workspaceId, previewId) => {
       setPendingNavigationState({ type: 'preview', workspaceId, previewId });
@@ -315,6 +318,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       markOverlaysRead,
       simulateRemote,
       setSimulateRemote,
+      curatorEvents,
     }),
     [
       workspaces,
@@ -338,6 +342,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       markOverlaysRead,
       simulateRemote,
       setSimulateRemote,
+      curatorEvents,
     ]
   );
 
