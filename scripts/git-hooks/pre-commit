@@ -26,8 +26,8 @@ fi
 # Ensure prettier is available (only if we have prettier-eligible files)
 if [ -n "$PRETTIER_FILES" ]; then
     if ! (cd assets/dashboard && npm list prettier >/dev/null 2>&1); then
-        echo "Error: prettier is not installed. Run 'cd assets/dashboard && npm install' first."
-        exit 1
+        echo "Installing prettier..."
+        (cd assets/dashboard && npm install --save-dev prettier)
     fi
 fi
 
