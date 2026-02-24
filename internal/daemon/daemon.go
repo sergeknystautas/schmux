@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/subreddit"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -1000,6 +1001,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
 	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
 
+	// Start subreddit digest hourly generation if enabled
+	if subreddit.IsEnabled(cfg) {
+		subredditLog := logging.Sub(logger, "subreddit")
+		subredditCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
+		go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditCachePath, subredditLog)
+	}
+
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
 	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() })
@@ -1211,6 +1219,82 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 	}
 
 	return string(payload)
+}
+
+// startSubredditHourlyGenerator starts a background goroutine that generates
+// subreddit digests hourly.
+func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cachePath string, logger *log.Logger) {
+	// Run every hour
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	// Wait a bit before first check to let daemon start
+	select {
+	case <-time.After(30 * time.Second):
+		// Ready to start generating
+	case <-ctx.Done():
+		return
+	}
+
+	// Do initial generation on startup
+	generateSubredditDigest(ctx, cfg, cachePath, logger)
+
+	for {
+		select {
+		case <-ticker.C:
+			generateSubredditDigest(ctx, cfg, cachePath, logger)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// generateSubredditDigest generates a new subreddit digest if the cache is stale.
+func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath string, logger *log.Logger) {
+	// Check if cache is stale (older than 1 hour)
+	cache, err := subreddit.ReadCache(cachePath)
+	if err == nil && !cache.IsStale(1*time.Hour) {
+		logger.Debug("cache is fresh, skipping generation")
+		return
+	}
+
+	// Build repo info list
+	var repos []subreddit.RepoInfo
+	for _, r := range cfg.GetRepos() {
+		repos = append(repos, subreddit.RepoInfo{
+			Name:          r.Name,
+			BarePath:      r.BarePath,
+			DefaultBranch: "main", // Use main as default; gatherRepoCommits falls back to this anyway
+		})
+	}
+
+	// Gather commits from all repos
+	commits, err := subreddit.GatherCommits(ctx, repos, cfg.GetWorktreeBasePath(), cfg.GetSubredditHours())
+	if err != nil {
+		logger.Warn("failed to gather commits", "err", err)
+		// Continue with empty commits - the digest will show "quiet period"
+	}
+
+	logger.Info("generating digest", "commits", len(commits))
+
+	// Generate new digest
+	newCache, err := subreddit.Generate(ctx, cfg, nil, commits, cachePath, 0)
+	if err != nil {
+		if errors.Is(err, subreddit.ErrDisabled) {
+			logger.Debug("subreddit disabled, skipping")
+			return
+		}
+		logger.Error("failed to generate digest", "err", err)
+		return
+	}
+
+	// Write cache
+	if err := subreddit.WriteCache(cachePath, newCache); err != nil {
+		logger.Error("failed to write cache", "err", err)
+		return
+	}
+
+	logger.Info("digest generated", "commits", newCache.CommitCount)
 }
 
 // validateSessionAccess checks for user mismatch between daemon and tmux server.

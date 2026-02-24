@@ -1,10 +1,12 @@
 package subreddit
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -174,8 +176,15 @@ type Config interface {
 	GetSubredditHours() int
 }
 
+// RepoInfo contains the info needed to gather commits from a repo.
+type RepoInfo struct {
+	Name          string
+	BarePath      string
+	DefaultBranch string
+}
+
 // Generate creates a new subreddit digest.
-func Generate(ctx interface{}, cfg Config, gatherFunc GatherFunc, repos []CommitInfo, cachePath string, hours int) (Cache, error) {
+func Generate(ctx context.Context, cfg Config, gatherFunc GatherFunc, repos []CommitInfo, cachePath string, hours int) (Cache, error) {
 	target := cfg.GetSubredditTarget()
 	if target == "" {
 		return Cache{}, ErrDisabled
@@ -199,22 +208,84 @@ func Generate(ctx interface{}, cfg Config, gatherFunc GatherFunc, repos []Commit
 	}
 
 	// Build prompt
-	_ = BuildPrompt(commits, hours) // Used in full implementation via oneshot.ExecuteTarget
+	prompt := BuildPrompt(commits, hours)
 
-	// Note: The actual LLM call would happen here via oneshot.ExecuteTarget
-	// For now, return a placeholder since the full integration requires:
-	// 1. Context with timeout
-	// 2. oneshot.ExecuteTarget call
-	// 3. ParseResult on the response
-	// This is a minimal implementation to pass tests
+	// Call LLM via oneshot (use DefaultTimeout)
+	response, err := oneshot.ExecuteTarget(ctx, nil, target, prompt, schema.LabelSubreddit, DefaultTimeout, "")
+	if err != nil {
+		return Cache{}, fmt.Errorf("LLM call failed: %w", err)
+	}
 
-	return Cache{
-		Content:     "",
+	// Parse response
+	result, err := ParseResult(response)
+	if err != nil {
+		return Cache{}, fmt.Errorf("parse response: %w", err)
+	}
+
+	cache := Cache{
+		Content:     result.Content,
 		GeneratedAt: time.Now(),
 		Hours:       hours,
 		CommitCount: len(commits),
-	}, nil
+	}
+
+	return cache, nil
 }
 
 // GatherFunc is a function that gathers commits for the digest.
 type GatherFunc func(hours int) ([]CommitInfo, error)
+
+// GatherCommits collects commits from all configured repos over the given hours.
+func GatherCommits(ctx context.Context, repos []RepoInfo, worktreeBasePath string, hours int) ([]CommitInfo, error) {
+	var allCommits []CommitInfo
+
+	for _, repo := range repos {
+		if repo.BarePath == "" {
+			continue
+		}
+		bareDir := worktreeBasePath + "/" + repo.BarePath
+		commits, err := gatherRepoCommits(ctx, bareDir, repo.Name, repo.DefaultBranch, hours)
+		if err != nil {
+			// Log but continue - don't fail the whole digest for one repo
+			continue
+		}
+		allCommits = append(allCommits, commits...)
+	}
+
+	return allCommits, nil
+}
+
+// gatherRepoCommits gets commits from a single bare repo.
+func gatherRepoCommits(ctx context.Context, bareDir, repoName, defaultBranch string, hours int) ([]CommitInfo, error) {
+	since := fmt.Sprintf("%d.hours.ago", hours)
+	branch := defaultBranch
+	if branch == "" {
+		branch = "main"
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "log",
+		"--since="+since,
+		"--pretty=format:%s",
+		"origin/"+branch,
+	)
+	cmd.Dir = bareDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log failed: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var commits []CommitInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		commits = append(commits, CommitInfo{
+			Repo:    repoName,
+			Subject: line,
+		})
+	}
+
+	return commits, nil
+}
