@@ -19,12 +19,20 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// builtinDiffCommands defines diff commands that are always available,
+// matching the BUILTIN_DIFF_COMMANDS constant in the React frontend.
+// The backend MUST be the source of truth for what commands can execute.
+var builtinDiffCommands = []config.ExternalDiffCommand{
+	{Name: "VS Code", Command: `code --diff "$LOCAL" "$REMOTE"`},
+}
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID from chi URL param
@@ -781,7 +789,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type DiffExternalRequest struct {
-		Command string `json:"command"` // Can be a command name from config, or a raw command string
+		Command string `json:"command"` // Command name (looked up in config or built-in list)
 	}
 
 	type DiffExternalResponse struct {
@@ -805,19 +813,36 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	// Get the external diff commands from config
 	externalDiffCommands := s.config.GetExternalDiffCommands()
 
-	// Find the command to use
+	// Find the command to use — only allow commands from config or built-in list.
+	// req.Command is a command NAME (not a raw shell string).
 	var selectedCommand string
 	if req.Command != "" {
-		// First, try to find the command by name in the config
+		// Search configured commands by name
 		for _, cmd := range externalDiffCommands {
 			if cmd.Name == req.Command {
 				selectedCommand = cmd.Command
 				break
 			}
 		}
-		// If not found in config, use the command string directly (for built-in commands)
+		// Search built-in commands by name
 		if selectedCommand == "" {
-			selectedCommand = req.Command
+			for _, cmd := range builtinDiffCommands {
+				if cmd.Name == req.Command {
+					selectedCommand = cmd.Command
+					break
+				}
+			}
+		}
+		// Reject unknown command names — never use req.Command as a raw shell string
+		if selectedCommand == "" {
+			s.logger.Warn("diff-external: unknown command name", "name", req.Command)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, DiffExternalResponse{
+				Success: false,
+				Message: fmt.Sprintf("Unknown diff command: %s", req.Command),
+			})
+			return
 		}
 	} else if len(externalDiffCommands) > 0 {
 		// No command specified, use the first configured command
@@ -959,7 +984,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				s.logger.Error("diff-external: failed to create temp dir for file", "err", err)
 				continue
 			}
-			tmpFile, err := os.Create(tmpPath)
+			tmpFile, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 			if err != nil {
 				s.logger.Error("diff-external: failed to create temp file", "err", err)
 				continue
@@ -1006,7 +1031,7 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 				s.logger.Error("diff-external: failed to create temp dir for file", "err", err)
 				continue
 			}
-			tmpFile, err := os.Create(tmpPath)
+			tmpFile, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 			if err != nil {
 				s.logger.Error("diff-external: failed to create temp file", "err", err)
 				continue
@@ -1213,10 +1238,10 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 			if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
 				continue
 			}
-			if err := os.WriteFile(oldPath, []byte(oldContent), 0o644); err != nil {
+			if err := os.WriteFile(oldPath, []byte(oldContent), 0o600); err != nil {
 				continue
 			}
-			if err := os.WriteFile(newPath, []byte(newContent), 0o644); err != nil {
+			if err := os.WriteFile(newPath, []byte(newContent), 0o600); err != nil {
 				continue
 			}
 
@@ -1245,7 +1270,7 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 			if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
 				continue
 			}
-			if err := os.WriteFile(oldPath, []byte(oldContent), 0o644); err != nil {
+			if err := os.WriteFile(oldPath, []byte(oldContent), 0o600); err != nil {
 				continue
 			}
 

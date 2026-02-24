@@ -25,9 +25,9 @@ func BuildReviewPrompt(pr contracts.PullRequest, workspacePath, workspaceBranch 
 	b.WriteString("  The PR code is already in your working directory. Read the files directly.\n")
 
 	if pr.Body != "" {
-		b.WriteString("\n")
+		b.WriteString("\n<pr_description>\n")
 		b.WriteString(pr.Body)
-		b.WriteString("\n")
+		b.WriteString("\n</pr_description>\n")
 	}
 
 	b.WriteString("\nPlease review this pull request. ")

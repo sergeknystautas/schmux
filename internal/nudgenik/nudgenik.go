@@ -126,7 +126,7 @@ func AskForExtracted(ctx context.Context, cfg *config.Config, extracted string) 
 		return Result{}, ErrDisabled
 	}
 
-	input := Prompt + extracted
+	input := strings.Replace(Prompt, "{{AGENT_LAST_RESPONSE}}", extracted, 1)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, nudgenikTimeout)
 	defer cancel()

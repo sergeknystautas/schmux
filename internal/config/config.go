@@ -1264,7 +1264,9 @@ func (c *Config) Save() error {
 	}
 
 	// Restrict permissions: config may contain sensitive data (e.g., password hashes)
-	os.Chmod(configPath, 0600)
+	if err := os.Chmod(configPath, 0600); err != nil {
+		return fmt.Errorf("failed to set config file permissions: %w", err)
+	}
 
 	// Invalidate the repo URL cache since repos may have changed
 	c.repoURLMu.Lock()

@@ -162,6 +162,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return
 	}
+	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 	conn := &wsConn{conn: rawConn}
 	s.RegisterWebSocket(sessionID, conn)
 	defer func() {
@@ -640,6 +641,7 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
+	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
@@ -777,6 +779,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return
 	}
+	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 
 	// Wrap the connection for concurrent write safety
 	wsConn := &wsConn{conn: rawConn}
@@ -994,6 +997,7 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return
 	}
+	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 
 	// Wrap the connection for concurrent write safety
 	wsConn := &wsConn{conn: rawConn}

@@ -15,7 +15,7 @@ func (g *GitCommandBuilder) DiffNumstat() string {
 }
 
 func (g *GitCommandBuilder) ShowFile(path, revision string) string {
-	return fmt.Sprintf("git show %s:%s", revision, path)
+	return fmt.Sprintf("git show %s", shellutil.Quote(revision+":"+path))
 }
 
 func (g *GitCommandBuilder) FileContent(path string) string {
@@ -33,7 +33,9 @@ func (g *GitCommandBuilder) Log(refs []string, maxCount int) string {
 		"--topo-order",
 		fmt.Sprintf("--max-count=%d", maxCount),
 	}
-	args = append(args, refs...)
+	for _, ref := range refs {
+		args = append(args, shellutil.Quote(ref))
+	}
 	return strings.Join(args, " ")
 }
 
@@ -43,17 +45,19 @@ func (g *GitCommandBuilder) LogRange(refs []string, forkPoint string) string {
 		"--format=%H|%h|%s|%an|%aI|%P",
 		"--topo-order",
 	}
-	args = append(args, refs...)
-	args = append(args, "--not", forkPoint+"^")
+	for _, ref := range refs {
+		args = append(args, shellutil.Quote(ref))
+	}
+	args = append(args, "--not", shellutil.Quote(forkPoint+"^"))
 	return strings.Join(args, " ")
 }
 
 func (g *GitCommandBuilder) ResolveRef(ref string) string {
-	return fmt.Sprintf("git rev-parse --verify %s", ref)
+	return fmt.Sprintf("git rev-parse --verify %s", shellutil.Quote(ref))
 }
 
 func (g *GitCommandBuilder) MergeBase(ref1, ref2 string) string {
-	return fmt.Sprintf("git merge-base %s %s", ref1, ref2)
+	return fmt.Sprintf("git merge-base %s %s", shellutil.Quote(ref1), shellutil.Quote(ref2))
 }
 
 func (g *GitCommandBuilder) DefaultBranchRef(branch string) string {
@@ -66,5 +70,5 @@ func (g *GitCommandBuilder) DetectDefaultBranch() string {
 }
 
 func (g *GitCommandBuilder) RevListCount(rangeSpec string) string {
-	return fmt.Sprintf("git rev-list --count %s", rangeSpec)
+	return fmt.Sprintf("git rev-list --count %s", shellutil.Quote(rangeSpec))
 }

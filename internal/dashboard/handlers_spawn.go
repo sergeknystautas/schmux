@@ -418,14 +418,14 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 		"3. Identify what's been completed, what's in progress, and what remains\n\n"
 
 	if len(subjects) > 0 {
-		prompt += "Here is the commit history on this branch:\n\n"
+		prompt += "<commit_history>\n"
 		for i, msg := range subjects {
 			if i > 0 {
 				prompt += "\n"
 			}
 			prompt += "---\n" + msg + "\n"
 		}
-		prompt += "---\n\n"
+		prompt += "---\n</commit_history>\n\n"
 	}
 
 	prompt += "Summarize your findings, then ask what to work on next."
@@ -434,7 +434,7 @@ func (s *Server) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.Request
 	nickname := ""
 	if branchsuggest.IsEnabled(s.config) && len(subjects) > 0 {
 		commitSummary := strings.Join(subjects, "\n")
-		suggestionPrompt := fmt.Sprintf("Branch: %s\n\nCommit messages:\n%s", req.Branch, commitSummary)
+		suggestionPrompt := fmt.Sprintf("Branch: %s\n\n<commit_messages>\n%s\n</commit_messages>", req.Branch, commitSummary)
 
 		workspaceLog.Info("prepare-branch-spawn: asking for nickname", "commits", len(subjects))
 		result, err := branchsuggest.AskForPrompt(ctx, s.config, suggestionPrompt)

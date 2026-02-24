@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 const (
@@ -240,9 +241,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("failed to execute connect command template: %w", err)
 	}
 
-	// Parse the command string into args
+	// Parse the command string into args (supports quoted arguments for paths with spaces)
 	cmdLine := cmdStr.String()
-	args := strings.Fields(cmdLine)
+	args, err := shellutil.Split(cmdLine)
+	if err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("failed to parse connect command: %w", err)
+	}
 	if len(args) == 0 {
 		c.mu.Unlock()
 		return fmt.Errorf("connect command template produced empty command")
@@ -358,9 +363,13 @@ func (c *Connection) Reconnect(ctx context.Context, hostname string) error {
 		return fmt.Errorf("failed to execute reconnect command template: %w", err)
 	}
 
-	// Parse the command string into args
+	// Parse the command string into args (supports quoted arguments for paths with spaces)
 	cmdLine := cmdStr.String()
-	args := strings.Fields(cmdLine)
+	args, err := shellutil.Split(cmdLine)
+	if err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("failed to parse reconnect command: %w", err)
+	}
 	if len(args) == 0 {
 		c.mu.Unlock()
 		return fmt.Errorf("reconnect command template produced empty command")

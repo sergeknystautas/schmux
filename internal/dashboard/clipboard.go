@@ -28,6 +28,11 @@ func (s *Server) handleClipboardPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body to 10MB to prevent unbounded memory allocation.
+	// Clipboard images are typically small; 10MB is generous.
+	const maxClipboardBodySize = 10 * 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxClipboardBodySize)
+
 	var req clipboardPasteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request body", http.StatusBadRequest)
