@@ -22,7 +22,7 @@ const maxPasswordAttempts = 5
 
 const minPasswordLength = 8
 
-const remoteSessionMaxAge = 24 * time.Hour
+const remoteSessionMaxAge = 12 * time.Hour
 
 type remoteNonce struct {
 	createdAt time.Time
@@ -37,6 +37,17 @@ const tokenMaxAge = 30 * time.Minute
 // if the map is still full, the oldest entry is evicted.
 const maxNonces = 1000
 const maxFailureIPs = 1000
+
+// uaFingerprint returns the first 16 hex chars of SHA-256(userAgent).
+// If userAgent is empty, it uses the sentinel "none" so the cookie is
+// still bound (to "requests with no UA") rather than unbound.
+func uaFingerprint(userAgent string) string {
+	if userAgent == "" {
+		userAgent = "none"
+	}
+	h := sha256.Sum256([]byte(userAgent))
+	return hex.EncodeToString(h[:])[:16]
+}
 
 func (s *Server) handleRemoteAuthGET(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
@@ -236,19 +247,21 @@ func (s *Server) handleRemoteAuthPOST(w http.ResponseWriter, r *http.Request) {
 	secret := s.remoteSessionSecret
 	s.remoteTokenMu.Unlock()
 
-	s.setRemoteSessionCookie(w, secret)
+	s.setRemoteSessionCookie(w, r, secret)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
+func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, r *http.Request, secret []byte) {
 	now := fmt.Sprintf("%d", time.Now().Unix())
+	uaHash := uaFingerprint(r.UserAgent())
+	payload := now + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(now))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "schmux_remote",
-		Value:    now + "." + sig,
+		Value:    payload + "." + sig,
 		Path:     "/",
 		MaxAge:   int(remoteSessionMaxAge.Seconds()),
 		HttpOnly: true,
@@ -272,9 +285,9 @@ func (s *Server) setRemoteSessionCookie(w http.ResponseWriter, secret []byte) {
 	})
 }
 
-func (s *Server) validateRemoteCookie(value string) bool {
-	parts := strings.SplitN(value, ".", 2)
-	if len(parts) != 2 {
+func (s *Server) validateRemoteCookie(value string, r *http.Request) bool {
+	parts := strings.SplitN(value, ".", 3)
+	if len(parts) != 3 {
 		return false
 	}
 
@@ -287,6 +300,11 @@ func (s *Server) validateRemoteCookie(value string) bool {
 		return false
 	}
 
+	// Verify UA fingerprint matches the current request
+	if parts[1] != uaFingerprint(r.UserAgent()) {
+		return false
+	}
+
 	s.remoteTokenMu.Lock()
 	secret := s.remoteSessionSecret
 	s.remoteTokenMu.Unlock()
@@ -296,10 +314,10 @@ func (s *Server) validateRemoteCookie(value string) bool {
 	}
 
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(parts[0]))
+	mac.Write([]byte(parts[0] + "." + parts[1]))
 	expected := hex.EncodeToString(mac.Sum(nil))
 
-	return hmac.Equal([]byte(parts[1]), []byte(expected))
+	return hmac.Equal([]byte(parts[2]), []byte(expected))
 }
 
 func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Request) {

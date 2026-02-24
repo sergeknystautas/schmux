@@ -169,7 +169,7 @@ func (s *Server) authenticateRequest(r *http.Request) (*authSession, error) {
 	// Try remote session cookie
 	remoteCookie, err := r.Cookie("schmux_remote")
 	if err == nil {
-		if s.validateRemoteCookie(remoteCookie.Value) {
+		if s.validateRemoteCookie(remoteCookie.Value, r) {
 			return &authSession{Login: "remote"}, nil
 		}
 	}

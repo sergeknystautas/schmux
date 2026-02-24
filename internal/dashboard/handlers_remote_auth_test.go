@@ -17,6 +17,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const testUA = "TestAgent/1.0"
+
 func TestValidateRemoteCookie_ExpiredCookie(t *testing.T) {
 	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
 	defer server.CloseForTest()
@@ -29,13 +31,17 @@ func TestValidateRemoteCookie_ExpiredCookie(t *testing.T) {
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
 
+	uaHash := uaFingerprint(testUA)
+	payload := oldTimestamp + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(oldTimestamp))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
-	cookieValue := oldTimestamp + "." + sig
+	cookieValue := payload + "." + sig
 
-	if server.validateRemoteCookie(cookieValue) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", testUA)
+	if server.validateRemoteCookie(cookieValue, req) {
 		t.Error("expected expired cookie to be rejected")
 	}
 }
@@ -51,13 +57,17 @@ func TestValidateRemoteCookie_FreshCookie(t *testing.T) {
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
 
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
-	cookieValue := nowStr + "." + sig
+	cookieValue := payload + "." + sig
 
-	if !server.validateRemoteCookie(cookieValue) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", testUA)
+	if !server.validateRemoteCookie(cookieValue, req) {
 		t.Error("expected fresh cookie to be accepted")
 	}
 }
@@ -73,13 +83,17 @@ func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
 
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	cookieValue := nowStr + "." + sig
+	cookieValue := payload + "." + sig
 
 	// Verify it's valid before clearing
-	if !server.validateRemoteCookie(cookieValue) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", testUA)
+	if !server.validateRemoteCookie(cookieValue, req) {
 		t.Fatal("cookie should be valid before clear")
 	}
 
@@ -87,7 +101,7 @@ func TestClearRemoteAuth_InvalidatesCookies(t *testing.T) {
 	server.ClearRemoteAuth()
 
 	// Cookie should now be invalid
-	if server.validateRemoteCookie(cookieValue) {
+	if server.validateRemoteCookie(cookieValue, req) {
 		t.Error("cookie should be invalid after ClearRemoteAuth")
 	}
 }
@@ -166,13 +180,16 @@ func TestRemoteAccessOff_RequiresCSRFWhenRemoteSession(t *testing.T) {
 	server.remoteTokenMu.Lock()
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
 	// POST with valid remote cookie but NO CSRF token from a non-local address
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.Header.Set("User-Agent", testUA)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
 	req.RemoteAddr = "1.2.3.4:12345" // non-local to trigger CSRF check
 
 	rr := httptest.NewRecorder()
@@ -224,13 +241,16 @@ func TestRemoteAccessOff_AllowsLocalRequestWithoutCSRF(t *testing.T) {
 	server.remoteTokenMu.Lock()
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
 	// POST from localhost — should NOT require CSRF
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.Header.Set("User-Agent", testUA)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
 	req.RemoteAddr = "127.0.0.1:12345" // local
 
 	rr := httptest.NewRecorder()
@@ -622,13 +642,16 @@ func TestCSRF_RequiredForTunneledRequests(t *testing.T) {
 	server.remoteTokenMu.Lock()
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 
 	// POST from 127.0.0.1 with Cf-Connecting-IP (tunneled), no CSRF token
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
-	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: nowStr + "." + sig})
+	req.Header.Set("User-Agent", testUA)
+	req.AddCookie(&http.Cookie{Name: "schmux_remote", Value: payload + "." + sig})
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("Cf-Connecting-IP", "1.2.3.4")
 
@@ -796,13 +819,17 @@ func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
 	secret := server.remoteSessionSecret
 	server.remoteTokenMu.Unlock()
 
+	uaHash := uaFingerprint(testUA)
+	payload := nowStr + "." + uaHash
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(nowStr))
+	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	cookieValue := nowStr + "." + sig
+	cookieValue := payload + "." + sig
 
 	// Verify cookie is valid
-	if !server.validateRemoteCookie(cookieValue) {
+	req3, _ := http.NewRequest("GET", "/", nil)
+	req3.Header.Set("User-Agent", testUA)
+	if !server.validateRemoteCookie(cookieValue, req3) {
 		t.Fatal("cookie should be valid before password change")
 	}
 
@@ -819,7 +846,7 @@ func TestSetPassword_InvalidatesExistingSessions(t *testing.T) {
 	}
 
 	// Verify old cookie is now invalid
-	if server.validateRemoteCookie(cookieValue) {
+	if server.validateRemoteCookie(cookieValue, req3) {
 		t.Error("old cookie should be invalid after password change")
 	}
 }
@@ -885,5 +912,74 @@ func TestDisablingRemoteAccess_ClearsAuthState(t *testing.T) {
 	req.RemoteAddr = "1.2.3.4:12345" // Non-loopback
 	if !server.isTrustedRequest(req) {
 		t.Error("expected all requests to be trusted when remote_access is disabled")
+	}
+}
+
+// makeRemoteCookieWithUA creates a remote cookie value bound to the given User-Agent.
+func makeRemoteCookieWithUA(secret []byte, userAgent string) string {
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	uaHash := uaFingerprint(userAgent)
+	payload := nowStr + "." + uaHash
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return payload + "." + sig
+}
+
+func TestValidateRemoteCookie_RejectsWrongUA(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+
+	originalUA := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
+	cookieValue := makeRemoteCookieWithUA(secret, originalUA)
+
+	// Same UA: should pass
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", originalUA)
+	if !server.validateRemoteCookie(cookieValue, req) {
+		t.Error("expected cookie to be accepted with matching UA")
+	}
+
+	// Different UA: should fail
+	req2, _ := http.NewRequest("GET", "/", nil)
+	req2.Header.Set("User-Agent", "curl/7.88.0")
+	if server.validateRemoteCookie(cookieValue, req2) {
+		t.Error("expected cookie to be rejected with different UA")
+	}
+}
+
+func TestValidateRemoteCookie_EmptyUA(t *testing.T) {
+	server := newTestServerWithTunnel(t, tunnel.NewManager(tunnel.ManagerConfig{}, nil))
+	defer server.CloseForTest()
+	server.HandleTunnelConnected("https://test.trycloudflare.com")
+
+	server.remoteTokenMu.Lock()
+	secret := server.remoteSessionSecret
+	server.remoteTokenMu.Unlock()
+
+	cookieValue := makeRemoteCookieWithUA(secret, "")
+
+	// Empty UA request: should pass
+	req, _ := http.NewRequest("GET", "/", nil)
+	if !server.validateRemoteCookie(cookieValue, req) {
+		t.Error("expected cookie to be accepted when both creation and validation have empty UA")
+	}
+
+	// Non-empty UA request: should fail
+	req2, _ := http.NewRequest("GET", "/", nil)
+	req2.Header.Set("User-Agent", "Mozilla/5.0")
+	if server.validateRemoteCookie(cookieValue, req2) {
+		t.Error("expected cookie created with empty UA to be rejected when request has a UA")
+	}
+}
+
+func TestRemoteSessionMaxAge_Is12Hours(t *testing.T) {
+	if remoteSessionMaxAge != 12*time.Hour {
+		t.Errorf("expected remoteSessionMaxAge to be 12h, got %v", remoteSessionMaxAge)
 	}
 }
