@@ -9,6 +9,30 @@ import { csrfHeaders } from './csrf';
 import { stripAnsi } from './ansiStrip';
 import { compareScreens } from './syncCompare';
 
+/**
+ * Send a clipboard image to the server, which writes it to the system
+ * clipboard and triggers Ctrl+V in the tmux session.
+ */
+async function pasteImageToSession(sessionId: string, imageBlob: Blob): Promise<void> {
+  const buf = await imageBlob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const imageBase64 = btoa(binary);
+
+  const resp = await fetch('/api/clipboard-paste', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ sessionId, imageBase64 }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: 'unknown' }));
+    console.error('[clipboard-paste] failed:', err);
+  }
+}
+
 type TerminalStreamOptions = {
   followTail?: boolean;
   followCheckbox?: HTMLInputElement | null;
@@ -67,6 +91,9 @@ export default class TerminalStream {
   isDragging: boolean;
   dragStartLine: number | null;
   dragIsSelecting: boolean;
+
+  // Clipboard image paste interception
+  private imagePasteHandler: ((e: Event) => void) | null = null;
 
   // Control mode health
   onControlModeChange: ((attached: boolean) => void) | null = null;
@@ -176,6 +203,27 @@ export default class TerminalStream {
     this.terminal.onData((data) => {
       this.sendInput(data);
     });
+
+    // Intercept paste events: if the clipboard contains an image, upload it
+    // to the server (which writes to system clipboard + sends Ctrl+V) instead
+    // of letting xterm.js handle it as a text paste.
+    this.imagePasteHandler = (e: Event) => {
+      const ce = e as ClipboardEvent;
+      const items = ce.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const blob = item.getAsFile();
+          if (blob) {
+            pasteImageToSession(this.sessionId, blob);
+          }
+          return;
+        }
+      }
+    };
+    document.addEventListener('paste', this.imagePasteHandler, { capture: true });
 
     this._attachScrollListener();
     this.terminal.writeln('\x1b[90mConnecting to session...\x1b[0m');
@@ -429,6 +477,10 @@ export default class TerminalStream {
       this.scrollViewport.removeEventListener('scroll', this.scrollHandler);
       this.scrollHandler = null;
       this.scrollViewport = null;
+    }
+    if (this.imagePasteHandler) {
+      document.removeEventListener('paste', this.imagePasteHandler, { capture: true });
+      this.imagePasteHandler = null;
     }
     // Dispose terminal before closing WebSocket so the onmessage guard
     // (if (this.terminal)) prevents writes to a disposed terminal.
