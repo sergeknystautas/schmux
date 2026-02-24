@@ -167,6 +167,17 @@ type Server struct {
 
 	// Lore curator for manual curation
 	loreCurator *lore.Curator
+
+	// Dashboard.sx provision status (in-memory, resets on restart)
+	dsxProvision   dsxProvisionStatus
+	dsxProvisionMu sync.Mutex
+}
+
+// dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
+type dsxProvisionStatus struct {
+	Status  string `json:"status"`  // "", "registered", "provisioning", "complete", "error"
+	Domain  string `json:"domain"`  // e.g. "47293.dashboard.sx"
+	Message string `json:"message"` // human-readable status message
 }
 
 // remoteAuthState groups remote access authentication fields.
@@ -403,6 +414,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
 	mux.HandleFunc("/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("/auth/me", s.withCORS(s.withAuth(s.handleAuthMe)))
+
+	// Dashboard.sx callback (no auth required - hit by browser redirect before HTTPS is configured)
+	mux.HandleFunc("/api/dashboardsx/callback", s.handleDashboardSXCallback)
+	mux.HandleFunc("/api/dashboardsx/provision-status", s.handleDashboardSXProvisionStatus)
 
 	// API routes
 	mux.HandleFunc("/api/healthz", s.withCORS(s.withAuth(s.handleHealthz)))
@@ -646,7 +661,7 @@ func (s *Server) withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 // isAllowedOrigin checks if a request origin should be permitted.
 // Allowed origins:
-//   - The configured public_base_url (https when auth enabled, http when disabled)
+//   - The configured public_base_url (https when TLS enabled, http when disabled)
 //   - localhost or 127.0.0.1 on the configured port
 //   - Any origin if network_access is enabled
 func (s *Server) isAllowedOrigin(origin string) bool {
@@ -655,7 +670,7 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 	}
 
 	port := s.config.GetPort()
-	authEnabled := s.config.GetAuthEnabled()
+	tlsEnabled := s.config.GetTLSEnabled()
 
 	// When a remote tunnel is active, restrict origins to localhost and the tunnel URL only
 	s.remoteTokenMu.Lock()
@@ -686,8 +701,8 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 		if configuredOrigin, err := normalizeOrigin(base); err == nil && origin == configuredOrigin {
 			return true
 		}
-		// When auth is disabled, also allow http version of the hostname
-		if !authEnabled {
+		// When TLS is disabled, also allow http version of the hostname
+		if !tlsEnabled {
 			if parsed, err := url.Parse(base); err == nil {
 				if origin == "http://"+parsed.Host {
 					return true
@@ -698,7 +713,7 @@ func (s *Server) isAllowedOrigin(origin string) bool {
 
 	// Allow localhost
 	scheme := "http"
-	if authEnabled {
+	if tlsEnabled {
 		scheme = "https"
 	}
 	if origin == fmt.Sprintf("%s://localhost:%d", scheme, port) ||
