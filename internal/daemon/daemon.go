@@ -465,6 +465,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	wm.SetHooksDir(hooksDir)
 	sm.SetHooksDir(hooksDir)
 
+	// Wire I/O workspace telemetry if enabled
+	if cfg.GetIOWorkspaceTelemetryEnabled() {
+		ioTel := workspace.NewIOWorkspaceTelemetry()
+		wm.SetIOWorkspaceTelemetry(ioTel)
+	}
+
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
 		workspaceLog.Warn("failed to ensure overlay directories", "err", err)
