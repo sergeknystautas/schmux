@@ -884,6 +884,10 @@ body {
   height: 16px;
 }
 
+.app-shell--collapsed .more-menu__toggle {
+  display: none;
+}
+
 /* Small variants */
 .connection-pill--sm {
   padding: 2px var(--spacing-sm);
@@ -1011,6 +1015,110 @@ body {
 .nav-badge--danger {
   background: var(--color-danger);
   color: #fff;
+}
+
+/* MoreMenu component */
+.more-menu__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.more-menu__toggle:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.more-menu__toggle-text {
+  font-weight: 500;
+}
+
+.more-menu__arrow {
+  transition: transform 0.15s ease;
+}
+
+.more-menu__arrow--open {
+  transform: rotate(180deg);
+}
+
+.more-menu__dropdown {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  z-index: 1000;
+  margin-bottom: 4px;
+}
+
+.more-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+  border-left: 3px solid transparent;
+}
+
+.more-menu__item:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.more-menu__item--active {
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-left-color: var(--color-accent);
+}
+
+.more-menu__item--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.more-menu__item-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.more-menu__item-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.more-menu__item-label {
+  flex: 1;
+  font-size: var(--font-size-sm);
+}
+
+.more-menu__badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.more-menu__badge--danger {
+  background-color: var(--color-error-subtle, rgba(239, 68, 68, 0.15));
+  color: var(--color-error);
 }
 
 /* Remote Access Panel */

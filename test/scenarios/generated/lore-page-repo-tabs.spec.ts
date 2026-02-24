@@ -33,8 +33,10 @@ test.describe.serial('Lore page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
+    // Open the More menu to access Lore link
+    await page.click('button.more-menu__toggle');
     // There should be exactly one "Lore" link, not one per repo
-    const loreLinks = page.locator('a.nav-link', { hasText: /^Lore/ });
+    const loreLinks = page.locator('.more-menu__dropdown a', { hasText: /^Lore/ });
     await expect(loreLinks).toHaveCount(1);
   });
 
@@ -42,7 +44,9 @@ test.describe.serial('Lore page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    const loreLink = page.locator('a.nav-link', { hasText: /^Lore/ });
+    // Open the More menu to access Lore link
+    await page.click('button.more-menu__toggle');
+    const loreLink = page.locator('.more-menu__dropdown a', { hasText: /^Lore/ });
     await loreLink.click();
 
     // URL should be /lore with no repo name parameter
