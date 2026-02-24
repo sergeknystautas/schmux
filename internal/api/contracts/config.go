@@ -131,6 +131,7 @@ type ConfigResponse struct {
 	PrReview                   PrReview              `json:"pr_review"`
 	CommitMessage              CommitMessage         `json:"commit_message"`
 	Desync                     Desync                `json:"desync"`
+	IOWorkspaceTelemetry       IOWorkspaceTelemetry  `json:"io_workspace_telemetry"`
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
 	Subreddit                  Subreddit             `json:"subreddit"`
@@ -143,6 +144,18 @@ type ConfigResponse struct {
 type Desync struct {
 	Enabled bool   `json:"enabled"`
 	Target  string `json:"target"`
+}
+
+// IOWorkspaceTelemetry represents I/O workspace telemetry configuration in the API response.
+type IOWorkspaceTelemetry struct {
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
+}
+
+// IOWorkspaceTelemetryUpdate represents partial I/O workspace telemetry config updates.
+type IOWorkspaceTelemetryUpdate struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Target  *string `json:"target,omitempty"`
 }
 
 // PrReview represents PR review configuration in the API response.
@@ -246,8 +259,9 @@ type ConfigUpdateRequest struct {
 	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
 	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
 	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
-	Desync                     *DesyncUpdate          `json:"desync,omitempty"`
-	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
+	Desync                     *DesyncUpdate                `json:"desync,omitempty"`
+	IOWorkspaceTelemetry       *IOWorkspaceTelemetryUpdate  `json:"io_workspace_telemetry,omitempty"`
+	Notifications              *NotificationsUpdate         `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
 	Subreddit                  *SubredditUpdate       `json:"subreddit,omitempty"`
 	FloorManager               *FloorManagerUpdate    `json:"floor_manager,omitempty"`

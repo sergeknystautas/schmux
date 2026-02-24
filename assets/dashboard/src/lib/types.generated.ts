@@ -48,6 +48,7 @@ export interface ConfigResponse {
   pr_review: PrReview;
   commit_message: CommitMessage;
   desync: Desync;
+  io_workspace_telemetry: IOWorkspaceTelemetry;
   notifications: Notifications;
   lore: Lore;
   subreddit: Subreddit;
@@ -74,6 +75,7 @@ export interface ConfigUpdateRequest {
   pr_review?: PrReviewUpdate;
   commit_message?: CommitMessageUpdate;
   desync?: DesyncUpdate;
+  io_workspace_telemetry?: IOWorkspaceTelemetryUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   subreddit?: SubredditUpdate;
@@ -182,6 +184,16 @@ export interface GitGraphResponse {
 export interface GitHubStatus {
   available: boolean;
   username?: string;
+}
+
+export interface IOWorkspaceTelemetry {
+  enabled: boolean;
+  target: string;
+}
+
+export interface IOWorkspaceTelemetryUpdate {
+  enabled?: boolean;
+  target?: string;
 }
 
 export interface Lore {
@@ -417,4 +429,3 @@ export interface XtermUpdate {
   query_timeout_ms?: number;
   operation_timeout_ms?: number;
 }
-

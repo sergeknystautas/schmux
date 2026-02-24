@@ -174,6 +174,10 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Enabled: s.config.GetDesyncEnabled(),
 			Target:  s.config.GetDesyncTarget(),
 		},
+		IOWorkspaceTelemetry: contracts.IOWorkspaceTelemetry{
+			Enabled: s.config.GetIOWorkspaceTelemetryEnabled(),
+			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
+		},
 		Notifications: contracts.Notifications{
 			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
 			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
@@ -493,6 +497,23 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		// Nil out if everything is at zero value
 		if (cfg.Desync.Enabled == nil || !*cfg.Desync.Enabled) && cfg.Desync.Target == "" {
 			cfg.Desync = nil
+		}
+	}
+
+	if req.IOWorkspaceTelemetry != nil {
+		if cfg.IOWorkspaceTelemetry == nil {
+			cfg.IOWorkspaceTelemetry = &config.IOWorkspaceTelemetryConfig{}
+		}
+		if req.IOWorkspaceTelemetry.Enabled != nil {
+			enabled := *req.IOWorkspaceTelemetry.Enabled
+			cfg.IOWorkspaceTelemetry.Enabled = &enabled
+		}
+		if req.IOWorkspaceTelemetry.Target != nil {
+			cfg.IOWorkspaceTelemetry.Target = strings.TrimSpace(*req.IOWorkspaceTelemetry.Target)
+		}
+		// Nil out if everything is at zero value
+		if (cfg.IOWorkspaceTelemetry.Enabled == nil || !*cfg.IOWorkspaceTelemetry.Enabled) && cfg.IOWorkspaceTelemetry.Target == "" {
+			cfg.IOWorkspaceTelemetry = nil
 		}
 	}
 
