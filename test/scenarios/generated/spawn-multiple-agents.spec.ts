@@ -48,8 +48,8 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
     // Fill the prompt textarea
     await page.locator('[data-testid="spawn-prompt"]').fill('Compare approaches for auth module');
 
-    // Switch to "Multiple Agents" mode
-    await page.locator('select').filter({ hasText: 'Single Agent' }).selectOption('multiple');
+    // Switch to "Multiple agents" mode via the agent dropdown
+    await page.locator('[data-testid="agent-select"]').selectOption('__multiple__');
 
     // Click both agent toggle buttons
     await page.locator('[data-testid="agent-agent-alpha"]').click();
