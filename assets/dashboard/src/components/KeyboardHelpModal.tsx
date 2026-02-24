@@ -21,6 +21,7 @@ const shortcuts = [
   { key: 'Shift+N', description: 'Spawn new session (always general)' },
   { key: 'W', description: 'Dispose session' },
   { key: 'Shift+W', description: 'Dispose workspace' },
+  { key: '↓', description: 'Resume / scroll to bottom (session)' },
   { key: 'V', description: 'Open workspace in VS Code' },
   { key: 'D', description: 'Go to diff page' },
   { key: 'G', description: 'Go to git graph' },
