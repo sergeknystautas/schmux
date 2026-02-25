@@ -188,6 +188,12 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target: s.config.GetSubredditTarget(),
 			Hours:  s.config.GetSubredditHours(),
 		},
+		FloorManager: contracts.FloorManager{
+			Enabled:           s.config.GetFloorManagerEnabled(),
+			Target:            s.config.GetFloorManagerTarget(),
+			RotationThreshold: s.config.GetFloorManagerRotationThreshold(),
+			DebounceMs:        s.config.GetFloorManagerDebounceMs(),
+		},
 		RemoteAccess: contracts.RemoteAccess{
 			Enabled:         s.config.GetRemoteAccessEnabled(),
 			TimeoutMinutes:  s.config.GetRemoteAccessTimeoutMinutes(),
@@ -538,6 +544,25 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.FloorManager != nil {
+		if cfg.FloorManager == nil {
+			cfg.FloorManager = &config.FloorManagerConfig{}
+		}
+		if req.FloorManager.Enabled != nil {
+			enabled := *req.FloorManager.Enabled
+			cfg.FloorManager.Enabled = &enabled
+		}
+		if req.FloorManager.Target != nil {
+			cfg.FloorManager.Target = strings.TrimSpace(*req.FloorManager.Target)
+		}
+		if req.FloorManager.RotationThreshold != nil {
+			cfg.FloorManager.RotationThreshold = *req.FloorManager.RotationThreshold
+		}
+		if req.FloorManager.DebounceMs != nil {
+			cfg.FloorManager.DebounceMs = *req.FloorManager.DebounceMs
+		}
+	}
+
 	if req.ModelVersions != nil {
 		cfg.SetModelVersions(*req.ModelVersions)
 	}
@@ -611,6 +636,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	// Trigger subreddit generation if newly enabled
 	if req.Subreddit != nil {
 		s.TriggerSubredditGeneration()
+	}
+
+	// Toggle floor manager if enabled changed
+	if req.FloorManager != nil && req.FloorManager.Enabled != nil && OnFloorManagerToggle != nil {
+		OnFloorManagerToggle(*req.FloorManager.Enabled)
 	}
 
 	// Ensure overlay directories exist for all repos if repos were actually updated

@@ -60,6 +60,10 @@ export type ConfigSnapshot = {
   remoteAccessNotifyCommand: string;
   desyncEnabled: boolean;
   desyncTarget: string;
+  fmEnabled: boolean;
+  fmTarget: string;
+  fmRotationThreshold: number;
+  fmDebounceMs: number;
 };
 
 export type RunTargetEditModalState = {
@@ -177,6 +181,12 @@ export type ConfigFormState = {
   // Desync
   desyncEnabled: boolean;
   desyncTarget: string;
+
+  // Floor Manager
+  fmEnabled: boolean;
+  fmTarget: string;
+  fmRotationThreshold: number;
+  fmDebounceMs: number;
 
   // Overlays
   overlays: OverlayInfo[];
@@ -313,12 +323,17 @@ export const initialState: ConfigFormState = {
   desyncEnabled: false,
   desyncTarget: '',
 
+  fmEnabled: false,
+  fmTarget: '',
+  fmRotationThreshold: 150,
+  fmDebounceMs: 2000,
+
   overlays: [],
   loadingOverlays: true,
 
   originalConfig: null,
 
-  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null },
+  stepErrors: { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null },
 
   runTargetEditModal: null,
   quickLaunchEditModal: null,
@@ -545,6 +560,10 @@ export function useConfigForm(initialStep: number = 1) {
         state.remoteAccessNotifyCommand !== oc.remoteAccessNotifyCommand ||
         state.desyncEnabled !== oc.desyncEnabled ||
         state.desyncTarget !== oc.desyncTarget ||
+        state.fmEnabled !== oc.fmEnabled ||
+        state.fmTarget !== oc.fmTarget ||
+        state.fmRotationThreshold !== oc.fmRotationThreshold ||
+        state.fmDebounceMs !== oc.fmDebounceMs ||
         state.authSecretsChanged
       );
     },
@@ -643,6 +662,10 @@ export function useConfigForm(initialStep: number = 1) {
       remoteAccessNotifyCommand: state.remoteAccessNotifyCommand,
       desyncEnabled: state.desyncEnabled,
       desyncTarget: state.desyncTarget,
+      fmEnabled: state.fmEnabled,
+      fmTarget: state.fmTarget,
+      fmRotationThreshold: state.fmRotationThreshold,
+      fmDebounceMs: state.fmDebounceMs,
     };
   }, [state]);
 

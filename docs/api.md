@@ -678,6 +678,12 @@ Response:
       "command": ""
     }
   },
+  "floor_manager": {
+    "enabled": false,
+    "target": "claude",
+    "rotation_threshold": 150,
+    "debounce_ms": 2000
+  },
   "needs_restart": false
 }
 ```
@@ -1569,6 +1575,46 @@ Response:
   "overlays": [{ "repo_name": "repo", "path": "/path", "exists": true, "file_count": 0 }]
 }
 ```
+
+## Floor Manager API
+
+### GET /api/floor-manager
+
+Returns the floor manager status.
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "tmux_session": "schmux-floor-manager",
+  "running": true,
+  "injection_count": 42,
+  "rotation_threshold": 150
+}
+```
+
+Fields:
+
+- `enabled` — whether floor manager is enabled in config
+- `tmux_session` — name of the tmux session (empty if not running)
+- `running` — whether the tmux session is alive
+- `injection_count` — number of signal injections in the current shift
+- `rotation_threshold` — configured threshold for forced rotation
+
+### POST /api/floor-manager/end-shift
+
+Signals the floor manager that the current shift rotation is acknowledged. Called by `schmux end-shift` CLI command. The floor manager agent should save its memory to `memory.md` before this is called.
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Error cases:
+
+- `500` — floor manager not configured
 
 ## Lore API
 

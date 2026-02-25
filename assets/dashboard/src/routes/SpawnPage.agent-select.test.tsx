@@ -59,6 +59,7 @@ const configFixture: ConfigResponse = {
   notifications: { sound_disabled: false, confirm_before_close: false },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
   subreddit: { target: '', hours: 24 },
+  floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },
   remote_access: {
     enabled: false,
     timeout_minutes: 0,

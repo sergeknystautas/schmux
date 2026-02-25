@@ -9,9 +9,13 @@ const TOOLS_COLLAPSED_KEY = 'schmux-tools-collapsed';
 
 type ToolsSectionProps = {
   navCollapsed?: boolean;
+  disableCollapse?: boolean;
 };
 
-export default function ToolsSection({ navCollapsed = false }: ToolsSectionProps) {
+export default function ToolsSection({
+  navCollapsed = false,
+  disableCollapse = false,
+}: ToolsSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem(TOOLS_COLLAPSED_KEY);
@@ -156,26 +160,28 @@ export default function ToolsSection({ navCollapsed = false }: ToolsSectionProps
 
   return (
     <div className="tools-section" data-testid="tools-section">
-      {isCollapsed ? (
+      {isCollapsed || disableCollapse ? (
         /* Collapsed: chevron + horizontal icon row */
         <div className="tools-section__collapsed">
-          <button
-            className="tools-section__chevron"
-            onClick={() => setIsCollapsed(false)}
-            aria-label="Expand tools"
-            data-testid="tools-expand-btn"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
+          {!disableCollapse && (
+            <button
+              className="tools-section__chevron"
+              onClick={() => setIsCollapsed(false)}
+              aria-label="Expand tools"
+              data-testid="tools-expand-btn"
             >
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          </button>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </button>
+          )}
           <div className="tools-section__icons">
             {visibleItems.map((item) => (
               <Tooltip key={item.to} content={`${item.label}${getBadgeLabel(item)}`}>
@@ -206,25 +212,27 @@ export default function ToolsSection({ navCollapsed = false }: ToolsSectionProps
       ) : (
         /* Expanded: section header + vertical list */
         <>
-          <button
-            className="tools-section__header"
-            onClick={() => setIsCollapsed(true)}
-            aria-label="Collapse tools"
-            data-testid="tools-collapse-btn"
-          >
-            <svg
-              className="tools-section__header-chevron"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
+          {!disableCollapse && (
+            <button
+              className="tools-section__header"
+              onClick={() => setIsCollapsed(true)}
+              aria-label="Collapse tools"
+              data-testid="tools-collapse-btn"
             >
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-            <span className="tools-section__header-label">Tools</span>
-          </button>
+              <svg
+                className="tools-section__header-chevron"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+              <span className="tools-section__header-label">Tools</span>
+            </button>
+          )}
           <div className="tools-section__list">
             {visibleItems.map((item) => (
               <NavLink

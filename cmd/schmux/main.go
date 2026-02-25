@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/daemon"
@@ -179,6 +181,20 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "end-shift":
+		httpClient := &http.Client{Timeout: 5 * time.Second}
+		resp, err := httpClient.Post(cli.GetDefaultURL()+"/api/floor-manager/end-shift", "application/json", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			fmt.Fprintf(os.Stderr, "Error: server returned %d\n", resp.StatusCode)
+			os.Exit(1)
+		}
+		fmt.Println("Shift rotation acknowledged.")
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -203,6 +219,7 @@ func printUsage() {
 	fmt.Println("  list            List sessions")
 	fmt.Println("  attach          Attach to a session")
 	fmt.Println("  dispose         Dispose a session")
+	fmt.Println("  end-shift       Signal floor manager shift rotation complete")
 	fmt.Println()
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")

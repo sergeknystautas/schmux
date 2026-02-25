@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
 import { useConfig, useRequireConfig } from '../contexts/ConfigContext';
@@ -20,6 +20,8 @@ import {
   getSubreddit,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
+import TerminalStream from '../lib/terminalStream';
+import { useFloorManager } from '../hooks/useFloorManager';
 import type {
   WorkspaceResponse,
   RecentBranch,
@@ -263,6 +265,11 @@ export default function HomePage() {
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [subreddit, setSubreddit] = useState<SubredditResponse | null>(null);
 
+  // Floor manager
+  const fm = useFloorManager();
+  const fmTerminalRef = useRef<HTMLDivElement | null>(null);
+  const fmTerminalStreamRef = useRef<TerminalStream | null>(null);
+
   const handleDismissHero = () => {
     setHeroDismissed(true);
     localStorage.setItem('home-hero-dismissed', 'true');
@@ -293,6 +300,25 @@ export default function HomePage() {
       }
     })();
   }, []);
+
+  // Floor manager terminal stream
+  useEffect(() => {
+    if (!fm.enabled || !fm.running || !fm.tmuxSession || !fmTerminalRef.current) return;
+
+    const terminalStream = new TerminalStream(fm.tmuxSession, fmTerminalRef.current, {
+      followTail: true,
+    });
+    fmTerminalStreamRef.current = terminalStream;
+
+    terminalStream.initialized.then(() => {
+      terminalStream.connect();
+    });
+
+    return () => {
+      terminalStream.disconnect();
+      fmTerminalStreamRef.current = null;
+    };
+  }, [fm.enabled, fm.running, fm.tmuxSession]);
 
   const handleDismissNudge = async (repoName: string) => {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
@@ -461,6 +487,189 @@ export default function HomePage() {
   };
 
   const loading = sessionsLoading || configLoading;
+
+  // Shared sidebar content: workspaces, connection, tips
+  const sidebarContent = (
+    <>
+      <div className={styles.sectionCard}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>
+            <FolderIcon />
+            Active Workspaces ({workspaces.length})
+          </h2>
+          <div className={styles.headerActions}>
+            <Tooltip content="Sync workspaces that are behind main">
+              <span>
+                <button
+                  className={styles.scanButton}
+                  onClick={handlePull}
+                  disabled={pulling || workspaces.filter((ws) => ws.git_behind > 0).length === 0}
+                  data-testid="pull-workspaces"
+                >
+                  {pulling ? 'Pulling...' : 'Pull'}
+                </button>
+              </span>
+            </Tooltip>
+            <Tooltip content="Scan for workspace changes">
+              <span>
+                <button
+                  className={styles.scanButton}
+                  onClick={handleScan}
+                  disabled={scanning}
+                  data-testid="scan-workspaces"
+                >
+                  <ScanIcon />
+                  {scanning ? 'Scanning...' : 'Scan'}
+                </button>
+              </span>
+            </Tooltip>
+          </div>
+        </div>
+
+        <div className={styles.sectionContent}>
+          {loading ? (
+            <div className={styles.loadingState}>
+              <div className="spinner spinner--small" />
+              <span>Loading workspaces...</span>
+            </div>
+          ) : workspaces.length === 0 ? (
+            <div className={styles.emptyState}>
+              <p className={styles.emptyStateText}>No active workspaces</p>
+              <p className={styles.emptyStateHint}>
+                Spawn a session to create your first workspace
+              </p>
+            </div>
+          ) : (
+            <div className={styles.workspaceTable} data-testid="workspace-list">
+              <div className={styles.tableBody}>
+                {workspaces.map((ws) => {
+                  const runningCount = ws.sessions.filter((s) => s.running).length;
+                  return (
+                    <button
+                      key={ws.id}
+                      className={styles.workspaceRow}
+                      onClick={() => handleWorkspaceClick(ws.id)}
+                      type="button"
+                      data-testid={`workspace-${ws.id}`}
+                    >
+                      <div className={styles.workspaceInfo}>
+                        <span className={styles.workspaceBranch}>{ws.branch}</span>
+                        <span className={styles.workspaceRepo}>{getRepoName(ws.repo)}</span>
+                      </div>
+                      <div className={styles.workspaceStats}>
+                        <span className={styles.gitStats}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                            {ws.git_behind}
+                            {arrowDown}
+                          </span>{' '}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                            {ws.git_ahead}
+                            {arrowUp}
+                          </span>
+                        </span>
+                        {runningCount > 0 && (
+                          <span className={styles.runningBadge}>{runningCount}</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Connection Status */}
+      {!loading && (
+        <div className={styles.connectionStatus}>
+          <span
+            className={`${styles.connectionDot} ${connected ? styles.connectionDotConnected : styles.connectionDotDisconnected}`}
+          />
+          <span className={styles.connectionText}>
+            {connected ? 'Live updates' : 'Reconnecting...'}
+          </span>
+        </div>
+      )}
+
+      {/* Tips */}
+      <div className={styles.tipsCard}>
+        <div className={styles.tipItem}>
+          <span className={styles.tipKey}>Tip:</span>
+          <span className={styles.tipText}>
+            Use <code>tmux attach -t SESSION_NAME</code> to connect directly from terminal
+          </span>
+        </div>
+      </div>
+    </>
+  );
+
+  // FM-enabled layout: terminal takes center stage
+  if (fm.enabled) {
+    return (
+      <div className={`${styles.homePage} ${styles.homePageFM}`}>
+        {/* FM Terminal */}
+        <div className={styles.fmTerminalColumn}>
+          <div
+            className={styles.sectionCard}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+          >
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>
+                <TerminalIcon />
+                Floor Manager
+              </h2>
+              {fm.running && (
+                <span className={styles.runningBadge}>{fm.injectionCount} signals</span>
+              )}
+            </div>
+            <div
+              className="log-viewer__output"
+              ref={fmTerminalRef}
+              data-testid="fm-terminal"
+              style={{ flex: 1, minHeight: 400 }}
+            />
+            {!fm.running && (
+              <div className={styles.fmLoading}>
+                <div className="spinner spinner--small" />
+                <span>Starting floor manager...</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div className={styles.fmSideColumn}>
+          {!heroDismissed && (
+            <div className={styles.heroSection}>
+              <button
+                className={styles.heroDismiss}
+                onClick={handleDismissHero}
+                title="Dismiss"
+                aria-label="Dismiss hero banner"
+              >
+                <CloseIcon />
+              </button>
+              <div className={styles.heroContent}>
+                <h1 className={styles.heroTitle}>
+                  <span className={styles.heroIcon}>
+                    <TerminalIcon />
+                  </span>
+                  schmux
+                </h1>
+                <p className={styles.heroSubtitle}>
+                  Multi-agent orchestration for AI coding assistants
+                </p>
+              </div>
+            </div>
+          )}
+          {sidebarContent}
+        </div>
+      </div>
+    );
+  }
+
+  // Standard layout (FM disabled)
 
   return (
     <div className={styles.homePage}>

@@ -620,3 +620,76 @@
     padding: var(--spacing-md);
   }
 }
+
+/* =============================================================================
+ * FLOOR MANAGER LAYOUT
+ * ============================================================================= */
+
+.homePageFM {
+  grid-template-columns: 3fr 2fr;
+  max-width: none;
+  min-height: calc(100vh - var(--spacing-xl) * 2);
+}
+
+.fmTerminalColumn {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fmTerminalColumn :global(.log-viewer__output) {
+  overflow: hidden;
+  min-width: 0;
+}
+
+.fmTerminalColumn :global(.xterm) {
+  min-width: 0;
+}
+
+.fmSideColumn {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.fmLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 1220px) {
+  .homePageFM {
+    grid-template-columns: 1fr;
+    margin: calc(-1 * var(--spacing-xl));
+    padding: var(--spacing-md);
+    width: calc(100% + var(--spacing-xl) * 2);
+    min-height: calc(100vh);
+    gap: 0;
+  }
+
+  .fmSideColumn {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .homePageFM {
+    margin: calc(-1 * var(--spacing-sm));
+    padding: var(--spacing-sm) var(--spacing-sm) 0;
+    width: calc(100% + var(--spacing-sm) * 2);
+    min-height: 0;
+    height: calc(100% + var(--spacing-sm));
+  }
+
+  .fmTerminalColumn {
+    flex: 1;
+    min-height: 0;
+  }
+}

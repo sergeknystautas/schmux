@@ -912,6 +912,9 @@ export default function AppShell() {
 
         <Outlet />
       </main>
+      <div className="tools-section--mobile-only">
+        <ToolsSection navCollapsed={false} disableCollapse />
+      </div>
     </div>
   );
 }

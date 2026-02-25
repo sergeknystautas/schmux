@@ -23,6 +23,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
@@ -187,6 +188,9 @@ type Server struct {
 
 	// Persona manager
 	personaManager *persona.Manager
+
+	// Floor manager
+	floorManager *floormanager.Manager
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -338,6 +342,14 @@ func (s *Server) SetTunnelManager(tm *tunnel.Manager) {
 	s.tunnelManager = tm
 }
 
+// SetFloorManager sets the floor manager for status and end-shift endpoints.
+func (s *Server) SetFloorManager(fm *floormanager.Manager) {
+	s.floorManager = fm
+}
+
+// OnFloorManagerToggle is a callback for config changes to floor_manager.enabled.
+var OnFloorManagerToggle func(enabled bool)
+
 // HandleTunnelConnected handles a newly connected tunnel by generating an auth token and sending notifications.
 func (s *Server) HandleTunnelConnected(tunnelURL string) {
 	// Generate one-time token (32 bytes, hex-encoded)
@@ -480,6 +492,7 @@ func (s *Server) Start() error {
 		r.Get("/hasNudgenik", s.handleHasNudgenik)
 		r.Get("/askNudgenik/*", s.handleAskNudgenik)
 		r.Get("/subreddit", s.handleSubreddit)
+		r.Get("/floor-manager", s.handleGetFloorManager)
 		r.Get("/remote/hosts", s.handleRemoteHosts)
 		r.Get("/remote/hosts/connect/stream", s.handleRemoteConnectStream)
 		r.Get("/remote/flavor-statuses", s.handleRemoteFlavorStatuses)
@@ -517,6 +530,7 @@ func (s *Server) Start() error {
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
 			r.Post("/remote-access/test-notification", s.handleRemoteAccessTestNotification)
 			r.Post("/clipboard-paste", s.handleClipboardPaste)
+			r.Post("/floor-manager/end-shift", s.handleEndShift)
 
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", s.handleDispose)

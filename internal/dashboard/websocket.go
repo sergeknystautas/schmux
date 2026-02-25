@@ -127,6 +127,14 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Check if this is the floor manager session
+	if s.floorManager != nil && s.floorManager.TmuxSession() == sessionID {
+		if tracker := s.floorManager.Tracker(); tracker != nil {
+			s.handleFMTerminalWebSocket(w, r, sessionID, tracker)
+			return
+		}
+	}
+
 	// Check if session is running
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 	if !s.session.IsRunning(ctx, sessionID) {
@@ -703,6 +711,134 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 			}
 		case <-controlChan:
 			return
+		}
+	}
+}
+
+// handleFMTerminalWebSocket handles WebSocket connections for the floor manager
+// tmux session. Supports bidirectional I/O (input + output) since the operator
+// types commands into the FM terminal.
+func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Request,
+	tmuxName string, tracker *session.SessionTracker) {
+
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 8192,
+		CheckOrigin:     s.checkWSOrigin,
+	}
+
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	rawConn.SetReadLimit(64 * 1024)
+	conn := &wsConn{conn: rawConn}
+	defer conn.Close()
+
+	// Wait briefly for tracker to attach before subscribing
+	deadline := time.Now().Add(2 * time.Second)
+	for !tracker.IsAttached() && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	// Start reading client messages
+	controlChan := make(chan WSMessage, 10)
+	go func() {
+		defer close(controlChan)
+		for {
+			msgType, msg, err := rawConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.TextMessage {
+				var wsMsg WSMessage
+				if err := json.Unmarshal(msg, &wsMsg); err == nil {
+					controlChan <- wsMsg
+				}
+			}
+		}
+	}()
+
+	// Wait for initial resize from frontend
+	resizeDeadline := time.Now().Add(100 * time.Millisecond)
+resizeWait:
+	for time.Now().Before(resizeDeadline) {
+		select {
+		case msg, ok := <-controlChan:
+			if !ok {
+				return
+			}
+			if msg.Type == "resize" {
+				var rd struct {
+					Cols int `json:"cols"`
+					Rows int `json:"rows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &rd); err == nil && rd.Cols > 0 && rd.Rows > 0 {
+					tracker.Resize(rd.Cols, rd.Rows)
+					break resizeWait
+				}
+			}
+		case <-time.After(time.Until(resizeDeadline)):
+			break resizeWait
+		}
+	}
+
+	// Bootstrap with scrollback
+	capCtx, capCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	bootstrap, err := tracker.CaptureLastLines(capCtx, bootstrapCaptureLines)
+	if err != nil {
+		bootstrap, _ = tmux.CaptureLastLines(capCtx, tmuxName, bootstrapCaptureLines, true)
+	}
+	capCancel()
+	if bootstrap != "" {
+		conn.WriteMessage(websocket.BinaryMessage, []byte(bootstrap))
+	}
+
+	// Subscribe to output after bootstrap
+	outputCh := tracker.SubscribeOutput()
+	defer tracker.UnsubscribeOutput(outputCh)
+
+	// Escape-sequence holdback
+	var escHoldback []byte
+
+	// Stream output and process input
+	for {
+		select {
+		case event, ok := <-outputCh:
+			if !ok {
+				if len(escHoldback) > 0 {
+					conn.WriteMessage(websocket.BinaryMessage, escHoldback)
+				}
+				return
+			}
+			if len(event.Data) == 0 {
+				continue
+			}
+			send, hb := escbuf.SplitClean(escHoldback, []byte(event.Data))
+			escHoldback = hb
+			if len(send) > 0 {
+				if err := conn.WriteMessage(websocket.BinaryMessage, send); err != nil {
+					return
+				}
+			}
+		case msg, ok := <-controlChan:
+			if !ok {
+				return
+			}
+			switch msg.Type {
+			case "input":
+				if err := tracker.SendInput(msg.Data); err != nil {
+					s.logger.Error("fm terminal: failed to send input", "err", err)
+				}
+			case "resize":
+				var rd struct {
+					Cols int `json:"cols"`
+					Rows int `json:"rows"`
+				}
+				if err := json.Unmarshal([]byte(msg.Data), &rd); err == nil && rd.Cols > 0 && rd.Rows > 0 {
+					tracker.Resize(rd.Cols, rd.Rows)
+				}
+			}
 		}
 	}
 }

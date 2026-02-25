@@ -51,6 +51,7 @@ export interface ConfigResponse {
   notifications: Notifications;
   lore: Lore;
   subreddit: Subreddit;
+  floor_manager: FloorManager;
   remote_access: RemoteAccess;
   needs_restart: boolean;
 }
@@ -76,6 +77,7 @@ export interface ConfigUpdateRequest {
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;
   subreddit?: SubredditUpdate;
+  floor_manager?: FloorManagerUpdate;
   remote_access?: RemoteAccessUpdate;
   model_versions?: Record<string, string>;
 }
@@ -114,6 +116,20 @@ export interface FileDiff {
   lines_added: number;
   lines_removed: number;
   is_binary: boolean;
+}
+
+export interface FloorManager {
+  enabled: boolean;
+  target: string;
+  rotation_threshold: number;
+  debounce_ms: number;
+}
+
+export interface FloorManagerUpdate {
+  enabled?: boolean;
+  target?: string;
+  rotation_threshold?: number;
+  debounce_ms?: number;
 }
 
 export interface GitCommitDetailResponse {

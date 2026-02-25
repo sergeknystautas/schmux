@@ -718,7 +718,7 @@ export default function SessionDetailPage() {
                     </button>
                   </Tooltip>
                   <Tooltip content="Toggle sidebar">
-                    <button className="btn btn--sm" onClick={toggleSidebar}>
+                    <button className="btn btn--sm sidebar-toggle-btn" onClick={toggleSidebar}>
                       <svg
                         width="14"
                         height="14"

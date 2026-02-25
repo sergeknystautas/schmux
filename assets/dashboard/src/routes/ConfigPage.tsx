@@ -22,14 +22,31 @@ import WorkspacesTab from './config/WorkspacesTab';
 import SessionsTab from './config/SessionsTab';
 import QuickLaunchTab from './config/QuickLaunchTab';
 import CodeReviewTab from './config/CodeReviewTab';
+import FloorManagerTab from './config/FloorManagerTab';
 import AccessTab from './config/AccessTab';
 import AdvancedTab from './config/AdvancedTab';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, ConfigUpdateRequest, Model, RunTargetResponse } from '../lib/types';
 
-const TOTAL_STEPS = 6;
-const TABS = ['Workspaces', 'Sessions', 'Quick Launch', 'Code Review', 'Access', 'Advanced'];
-const TAB_SLUGS = ['workspaces', 'sessions', 'quicklaunch', 'codereview', 'access', 'advanced'];
+const TOTAL_STEPS = 7;
+const TABS = [
+  'Workspaces',
+  'Sessions',
+  'Quick Launch',
+  'Code Review',
+  'Floor Manager',
+  'Access',
+  'Advanced',
+];
+const TAB_SLUGS = [
+  'workspaces',
+  'sessions',
+  'quicklaunch',
+  'codereview',
+  'floormanager',
+  'access',
+  'advanced',
+];
 
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 const slugToStep = (slug: string | null) => {
@@ -159,6 +176,10 @@ export default function ConfigPage() {
             remoteAccessPasswordHashSet: data.remote_access?.password_hash_set || false,
             desyncEnabled: data.desync?.enabled || false,
             desyncTarget: data.desync?.target || '',
+            fmEnabled: data.floor_manager?.enabled || false,
+            fmTarget: data.floor_manager?.target || '',
+            fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
+            fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
             models: data.models || [],
           },
         });
@@ -212,6 +233,10 @@ export default function ConfigPage() {
             remoteAccessNotifyCommand: data.remote_access?.notify?.command || '',
             desyncEnabled: data.desync?.enabled || false,
             desyncTarget: data.desync?.target || '',
+            fmEnabled: data.floor_manager?.enabled || false,
+            fmTarget: data.floor_manager?.target || '',
+            fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
+            fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
           };
           dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
         }
@@ -447,7 +472,7 @@ export default function ConfigPage() {
       } else if (state.repos.length === 0) {
         error = 'Add at least one repository';
       }
-    } else if (step === 6) {
+    } else if (step === 7) {
       if (
         !state.xtermQueryTimeout ||
         !state.xtermOperationTimeout ||
@@ -551,6 +576,12 @@ export default function ConfigPage() {
         desync: {
           enabled: state.desyncEnabled,
           target: state.desyncTarget || '',
+        },
+        floor_manager: {
+          enabled: state.fmEnabled,
+          target: state.fmTarget || '',
+          rotation_threshold: state.fmRotationThreshold,
+          debounce_ms: state.fmDebounceMs,
         },
       };
 
@@ -1274,6 +1305,19 @@ export default function ConfigPage() {
           )}
 
           {currentTab === 5 && (
+            <FloorManagerTab
+              fmEnabled={state.fmEnabled}
+              fmTarget={state.fmTarget}
+              fmRotationThreshold={state.fmRotationThreshold}
+              fmDebounceMs={state.fmDebounceMs}
+              detectedTargets={state.detectedTargets}
+              models={state.models}
+              promptableTargets={state.promptableTargets}
+              dispatch={dispatch}
+            />
+          )}
+
+          {currentTab === 6 && (
             <AccessTab
               networkAccess={state.networkAccess}
               remoteAccessEnabled={state.remoteAccessEnabled}
@@ -1312,7 +1356,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 6 && (
+          {currentTab === 7 && (
             <AdvancedTab
               loreEnabled={state.loreEnabled}
               loreLLMTarget={state.loreLLMTarget}

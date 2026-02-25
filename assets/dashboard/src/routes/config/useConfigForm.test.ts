@@ -53,6 +53,10 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     remoteAccessNotifyCommand: '',
     desyncEnabled: false,
     desyncTarget: '',
+    fmEnabled: false,
+    fmTarget: '',
+    fmRotationThreshold: 150,
+    fmDebounceMs: 2000,
     ...overrides,
   };
 }

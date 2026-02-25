@@ -318,7 +318,7 @@ export default class TerminalStream {
     }
     this.resizeDebounceTimer = setTimeout(() => {
       this.fitTerminal();
-    }, 150);
+    }, 300);
   }
 
   // Central measurement function - calculates terminal dimensions from the rendered terminal
