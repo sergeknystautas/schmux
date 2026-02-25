@@ -35,6 +35,8 @@ const defaultProps = {
   nudgenikSeenInterval: 2000,
   desyncEnabled: false,
   desyncTarget: '',
+  ioWorkspaceTelemetryEnabled: false,
+  ioWorkspaceTelemetryTarget: '',
   branchSuggestTarget: '',
   conflictResolveTarget: '',
   soundDisabled: false,

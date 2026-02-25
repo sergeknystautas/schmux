@@ -15,6 +15,8 @@ type AdvancedTabProps = {
   nudgenikSeenInterval: number;
   desyncEnabled: boolean;
   desyncTarget: string;
+  ioWorkspaceTelemetryEnabled: boolean;
+  ioWorkspaceTelemetryTarget: string;
   branchSuggestTarget: string;
   conflictResolveTarget: string;
   soundDisabled: boolean;
@@ -48,6 +50,8 @@ export default function AdvancedTab({
   nudgenikSeenInterval,
   desyncEnabled,
   desyncTarget,
+  ioWorkspaceTelemetryEnabled,
+  ioWorkspaceTelemetryTarget,
   branchSuggestTarget,
   conflictResolveTarget,
   soundDisabled,
@@ -310,6 +314,53 @@ export default function AdvancedTab({
               value={desyncTarget}
               onChange={(v) => setField('desyncTarget', v)}
               disabled={!desyncEnabled}
+              includeDisabledOption={false}
+              includeNoneOption="None (capture only)"
+              detectedTargets={detectedTargets}
+              models={models}
+              promptableTargets={promptableTargets}
+            />
+            <p className="form-group__hint">
+              When a target is selected, a diagnostic capture will automatically spawn an agent
+              session to analyze the captured data. Leave as &quot;None&quot; to capture files
+              without spawning an agent.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">IO Workspace Telemetry</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--spacing-xs)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={ioWorkspaceTelemetryEnabled}
+                onChange={(e) => setField('ioWorkspaceTelemetryEnabled', e.target.checked)}
+              />
+              Enable IO workspace telemetry
+            </label>
+            <p className="form-group__hint">
+              When enabled, workspace git operations are instrumented with timing telemetry.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label">Target</label>
+            <TargetSelect
+              value={ioWorkspaceTelemetryTarget}
+              onChange={(v) => setField('ioWorkspaceTelemetryTarget', v)}
+              disabled={!ioWorkspaceTelemetryEnabled}
               includeDisabledOption={false}
               includeNoneOption="None (capture only)"
               detectedTargets={detectedTargets}
