@@ -702,7 +702,10 @@ export default function HomePage() {
               {subreddit.content ? (
                 <div className={styles.subredditContent}>{subreddit.content}</div>
               ) : (
-                <div className={styles.subredditContent} style={{ opacity: 0.6, fontStyle: 'italic' }}>
+                <div
+                  className={styles.subredditContent}
+                  style={{ opacity: 0.6, fontStyle: 'italic' }}
+                >
                   Generating digest...
                 </div>
               )}

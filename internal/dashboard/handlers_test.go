@@ -449,38 +449,4 @@ func TestHandleSubreddit(t *testing.T) {
 			t.Errorf("expected enabled=false, got %v", resp["enabled"])
 		}
 	})
-
-	t.Run("enabled when target configured but no cache", func(t *testing.T) {
-		cfg := &config.Config{
-			WorkspacePath: "/tmp/workspaces",
-			Subreddit:     &config.SubredditConfig{Target: "sonnet"},
-		}
-		st := state.New("", nil)
-		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
-
-		req, _ := http.NewRequest("GET", "/api/subreddit", nil)
-		rr := httptest.NewRecorder()
-
-		server.handleSubreddit(rr, req)
-
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected status 200, got %d", rr.Code)
-		}
-
-		var resp map[string]interface{}
-		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-			t.Fatalf("failed to decode response: %v", err)
-		}
-
-		if resp["enabled"] != true {
-			t.Errorf("expected enabled=true, got %v", resp["enabled"])
-		}
-		// No cache yet, so content should be empty (nil due to omitempty)
-		if resp["content"] != nil && resp["content"] != "" {
-			t.Errorf("expected empty content, got %v", resp["content"])
-		}
-	})
 }

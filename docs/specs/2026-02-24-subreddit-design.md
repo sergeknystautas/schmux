@@ -11,6 +11,7 @@ The subreddit digest generates a casual, conversational summary of changes that 
 The digest is written as if by an enthusiastic schmux user posting to a subreddit — not a developer explaining their work, but someone who uses the product daily and is excited to share what's new with peers.
 
 Tone characteristics:
+
 - Casual and conversational
 - Focuses on what users would care about
 - Light opinions acceptable ("finally fixed that", "solid win")
@@ -87,6 +88,7 @@ Single field containing the full narrative.
 `GET /api/subreddit`
 
 Response:
+
 ```json
 {
   "content": "...",
