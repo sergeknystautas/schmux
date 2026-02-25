@@ -934,3 +934,62 @@ func TestGenerateUniqueNickname(t *testing.T) {
 		}
 	})
 }
+
+func TestAppendPersonaFlags(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		cmd              string
+		baseTool         string
+		personaFilePath  string
+		shouldContain    string
+		shouldNotContain string
+	}{
+		{
+			name:            "claude appends system prompt flag",
+			cmd:             "claude --dangerously-skip-permissions",
+			baseTool:        "claude",
+			personaFilePath: "/home/user/.schmux/persona.md",
+			shouldContain:   "--append-system-prompt-file",
+		},
+		{
+			name:             "codex returns cmd unchanged",
+			cmd:              "codex -c 'instructions'",
+			baseTool:         "codex",
+			personaFilePath:  "/home/user/.schmux/persona.md",
+			shouldNotContain: "--append-system-prompt-file",
+		},
+		{
+			name:             "gemini returns cmd unchanged",
+			cmd:              "gemini",
+			baseTool:         "gemini",
+			personaFilePath:  "/tmp/persona.md",
+			shouldNotContain: "--append-system-prompt-file",
+		},
+		{
+			name:            "claude persona path with spaces is quoted",
+			cmd:             "claude",
+			baseTool:        "claude",
+			personaFilePath: "/home/user/my project/persona.md",
+			shouldContain:   "'/home/user/my project/persona.md'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendPersonaFlags(tt.cmd, tt.baseTool, tt.personaFilePath)
+
+			if tt.shouldContain != "" && !strings.Contains(got, tt.shouldContain) {
+				t.Errorf("appendPersonaFlags() = %q, should contain %q", got, tt.shouldContain)
+			}
+			if tt.shouldNotContain != "" && strings.Contains(got, tt.shouldNotContain) {
+				t.Errorf("appendPersonaFlags() = %q, should NOT contain %q", got, tt.shouldNotContain)
+			}
+
+			// All results should start with the original command
+			if !strings.HasPrefix(got, tt.cmd) {
+				t.Errorf("appendPersonaFlags() = %q, should start with original cmd %q", got, tt.cmd)
+			}
+		})
+	}
+}

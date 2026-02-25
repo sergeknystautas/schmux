@@ -164,3 +164,45 @@ func TestGetAgentInstructionConfigForTarget(t *testing.T) {
 		t.Error("expected ok=false for unknown target")
 	}
 }
+
+func TestFindToolInList(t *testing.T) {
+	t.Parallel()
+	tools := []Tool{
+		{Name: "claude", Command: "claude", Agentic: true},
+		{Name: "codex", Command: "codex", Agentic: true},
+		{Name: "gemini", Command: "gemini", Agentic: true},
+	}
+
+	tests := []struct {
+		name      string
+		searchFor string
+		wantFound bool
+		wantName  string
+	}{
+		{"finds first tool", "claude", true, "claude"},
+		{"finds middle tool", "codex", true, "codex"},
+		{"finds last tool", "gemini", true, "gemini"},
+		{"returns false for unknown", "unknown", false, ""},
+		{"empty name not found", "", false, ""},
+		{"case-sensitive match", "Claude", false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool, found := FindToolInList(tools, tt.searchFor)
+			if found != tt.wantFound {
+				t.Errorf("FindToolInList(%q) found = %v, want %v", tt.searchFor, found, tt.wantFound)
+			}
+			if found && tool.Name != tt.wantName {
+				t.Errorf("FindToolInList(%q).Name = %q, want %q", tt.searchFor, tool.Name, tt.wantName)
+			}
+		})
+	}
+
+	t.Run("empty list returns false", func(t *testing.T) {
+		_, found := FindToolInList(nil, "claude")
+		if found {
+			t.Error("expected false for nil tool list")
+		}
+	})
+}
