@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/events"
 )
 
 func TestParseEntry(t *testing.T) {
@@ -1071,5 +1073,115 @@ func TestMarkEntriesByTextFromEntries(t *testing.T) {
 	}
 	if entries[0].ProposalID != "prop-test" {
 		t.Errorf("expected proposal_id 'prop-test', got %q", entries[0].ProposalID)
+	}
+}
+
+func TestEventLineToEntry_Failure(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"ts":"2026-02-13T14:00:00Z","type":"failure","tool":"Bash","input":"npm build","error":"exit code 1","category":"build"}`)
+	el := events.EventLine{
+		RawEvent: events.RawEvent{Ts: "2026-02-13T14:00:00Z", Type: "failure"},
+		Data:     data,
+	}
+
+	entry := eventLineToEntry(el, "sess-1", "ws-1")
+
+	if entry.Type != "failure" {
+		t.Errorf("Type = %q, want 'failure'", entry.Type)
+	}
+	if entry.Session != "sess-1" {
+		t.Errorf("Session = %q, want 'sess-1'", entry.Session)
+	}
+	if entry.Workspace != "ws-1" {
+		t.Errorf("Workspace = %q, want 'ws-1'", entry.Workspace)
+	}
+	if entry.Tool != "Bash" {
+		t.Errorf("Tool = %q, want 'Bash'", entry.Tool)
+	}
+	if entry.InputSummary != "npm build" {
+		t.Errorf("InputSummary = %q, want 'npm build'", entry.InputSummary)
+	}
+	if entry.ErrorSummary != "exit code 1" {
+		t.Errorf("ErrorSummary = %q, want 'exit code 1'", entry.ErrorSummary)
+	}
+	if entry.Category != "build" {
+		t.Errorf("Category = %q, want 'build'", entry.Category)
+	}
+	wantTS := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+	if !entry.Timestamp.Equal(wantTS) {
+		t.Errorf("Timestamp = %v, want %v", entry.Timestamp, wantTS)
+	}
+}
+
+func TestEventLineToEntry_Reflection(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"ts":"2026-02-13T15:00:00Z","type":"reflection","text":"always run tests before committing"}`)
+	el := events.EventLine{
+		RawEvent: events.RawEvent{Ts: "2026-02-13T15:00:00Z", Type: "reflection"},
+		Data:     data,
+	}
+
+	entry := eventLineToEntry(el, "sess-2", "ws-2")
+
+	if entry.Type != "reflection" {
+		t.Errorf("Type = %q, want 'reflection'", entry.Type)
+	}
+	if entry.Text != "always run tests before committing" {
+		t.Errorf("Text = %q, want 'always run tests before committing'", entry.Text)
+	}
+}
+
+func TestEventLineToEntry_Friction(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"ts":"2026-02-13T16:00:00Z","type":"friction","text":"build system is confusing"}`)
+	el := events.EventLine{
+		RawEvent: events.RawEvent{Ts: "2026-02-13T16:00:00Z", Type: "friction"},
+		Data:     data,
+	}
+
+	entry := eventLineToEntry(el, "sess-3", "ws-3")
+
+	if entry.Type != "friction" {
+		t.Errorf("Type = %q, want 'friction'", entry.Type)
+	}
+	if entry.Text != "build system is confusing" {
+		t.Errorf("Text = %q, want 'build system is confusing'", entry.Text)
+	}
+}
+
+func TestEventLineToEntry_UnknownType(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"ts":"2026-02-13T17:00:00Z","type":"unknown"}`)
+	el := events.EventLine{
+		RawEvent: events.RawEvent{Ts: "2026-02-13T17:00:00Z", Type: "unknown"},
+		Data:     data,
+	}
+
+	entry := eventLineToEntry(el, "sess-4", "ws-4")
+
+	// Unknown type should still populate base fields
+	if entry.Type != "unknown" {
+		t.Errorf("Type = %q, want 'unknown'", entry.Type)
+	}
+	if entry.Tool != "" || entry.Text != "" {
+		t.Errorf("expected empty Tool and Text for unknown type, got Tool=%q Text=%q", entry.Tool, entry.Text)
+	}
+}
+
+func TestEventLineToEntry_MalformedData(t *testing.T) {
+	t.Parallel()
+	el := events.EventLine{
+		RawEvent: events.RawEvent{Ts: "2026-02-13T18:00:00Z", Type: "failure"},
+		Data:     []byte(`not valid json`),
+	}
+
+	entry := eventLineToEntry(el, "sess-5", "ws-5")
+
+	// Should still produce an entry with base fields, just empty tool/error
+	if entry.Type != "failure" {
+		t.Errorf("Type = %q, want 'failure'", entry.Type)
+	}
+	if entry.Tool != "" {
+		t.Errorf("expected empty Tool for malformed data, got %q", entry.Tool)
 	}
 }

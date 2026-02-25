@@ -161,3 +161,127 @@ func TestSkipFields(t *testing.T) {
 	t.Logf("Schema with internal: %s", schemaWithInternal)
 	t.Logf("Schema without internal: %s", schemaWithoutInternal)
 }
+
+// TestSchemaType is used for Register/Get/Labels tests.
+type TestSchemaType struct {
+	Value string   `json:"value" required:"true"`
+	_     struct{} `additionalProperties:"false"`
+}
+
+func TestRegisterAndGet(t *testing.T) {
+	label := "test-register-get"
+	Register(label, TestSchemaType{})
+
+	schema, err := Get(label)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if schema == "" {
+		t.Fatal("Get() returned empty schema")
+	}
+
+	// Verify it's valid JSON
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(schema), &parsed); err != nil {
+		t.Fatalf("schema is not valid JSON: %v", err)
+	}
+
+	// Second call should return cached result
+	schema2, err := Get(label)
+	if err != nil {
+		t.Fatalf("Get() second call error: %v", err)
+	}
+	if schema2 != schema {
+		t.Error("cached schema should be identical")
+	}
+}
+
+func TestGet_UnknownLabel(t *testing.T) {
+	_, err := Get("nonexistent-label-12345")
+	if err == nil {
+		t.Error("expected error for unknown label")
+	}
+}
+
+func TestLabels(t *testing.T) {
+	label := "test-labels-check"
+	Register(label, TestSchemaType{})
+
+	labels := Labels()
+	found := false
+	for _, l := range labels {
+		if l == label {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Labels() does not contain registered label %q", label)
+	}
+}
+
+func TestFixAdditionalProperties(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input map[string]any
+		check func(t *testing.T, node map[string]any)
+	}{
+		{
+			name: "adds properties when additionalProperties is schema object",
+			input: map[string]any{
+				"type":                 "object",
+				"additionalProperties": map[string]any{"type": "string"},
+			},
+			check: func(t *testing.T, node map[string]any) {
+				if _, ok := node["properties"]; !ok {
+					t.Error("expected 'properties' to be added")
+				}
+			},
+		},
+		{
+			name: "does not add properties when additionalProperties is false",
+			input: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+			},
+			check: func(t *testing.T, node map[string]any) {
+				if _, ok := node["properties"]; ok {
+					t.Error("should not add 'properties' when additionalProperties is false")
+				}
+			},
+		},
+		{
+			name: "no additionalProperties does nothing",
+			input: map[string]any{
+				"type": "string",
+			},
+			check: func(t *testing.T, node map[string]any) {
+				if _, ok := node["properties"]; ok {
+					t.Error("should not add 'properties' when no additionalProperties")
+				}
+			},
+		},
+		{
+			name: "preserves existing properties",
+			input: map[string]any{
+				"type":                 "object",
+				"additionalProperties": map[string]any{"type": "string"},
+				"properties":           map[string]any{"existing": map[string]any{"type": "number"}},
+			},
+			check: func(t *testing.T, node map[string]any) {
+				props := node["properties"].(map[string]any)
+				if _, ok := props["existing"]; !ok {
+					t.Error("existing property should be preserved")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixAdditionalProperties(tt.input)
+			tt.check(t, tt.input)
+		})
+	}
+}

@@ -2192,3 +2192,248 @@ func TestResolveBareRepoDir_FallbackWhenMissing(t *testing.T) {
 		t.Errorf("ResolveBareRepoDir() = %q, want %q", got, want)
 	}
 }
+
+func TestFindRepoByURL(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Repos: []Repo{
+			{Name: "project-a", URL: "git@github.com:user/project-a.git"},
+			{Name: "project-b", URL: "https://github.com/user/project-b.git"},
+		},
+	}
+
+	t.Run("finds repo by SSH URL", func(t *testing.T) {
+		repo, found := cfg.FindRepoByURL("git@github.com:user/project-a.git")
+		if !found {
+			t.Fatal("expected to find repo")
+		}
+		if repo.Name != "project-a" {
+			t.Errorf("Name = %q, want 'project-a'", repo.Name)
+		}
+	})
+
+	t.Run("finds repo by HTTPS URL", func(t *testing.T) {
+		repo, found := cfg.FindRepoByURL("https://github.com/user/project-b.git")
+		if !found {
+			t.Fatal("expected to find repo")
+		}
+		if repo.Name != "project-b" {
+			t.Errorf("Name = %q, want 'project-b'", repo.Name)
+		}
+	})
+
+	t.Run("returns false for unknown URL", func(t *testing.T) {
+		_, found := cfg.FindRepoByURL("https://github.com/user/unknown.git")
+		if found {
+			t.Error("expected found=false for unknown URL")
+		}
+	})
+
+	t.Run("second call uses cache", func(t *testing.T) {
+		// Call again — should hit the cache path
+		repo, found := cfg.FindRepoByURL("git@github.com:user/project-a.git")
+		if !found {
+			t.Fatal("expected to find repo from cache")
+		}
+		if repo.Name != "project-a" {
+			t.Errorf("Name = %q, want 'project-a'", repo.Name)
+		}
+	})
+}
+
+func TestGetRunTarget(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		RunTargets: []RunTarget{
+			{Name: "claude", Type: RunTargetTypePromptable, Command: "claude"},
+			{Name: "codex", Type: RunTargetTypePromptable, Command: "codex"},
+			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash run.sh"},
+		},
+	}
+
+	t.Run("finds target by name", func(t *testing.T) {
+		target, found := cfg.GetRunTarget("claude")
+		if !found {
+			t.Fatal("expected to find target")
+		}
+		if target.Command != "claude" {
+			t.Errorf("Command = %q, want 'claude'", target.Command)
+		}
+	})
+
+	t.Run("returns false for unknown target", func(t *testing.T) {
+		_, found := cfg.GetRunTarget("nonexistent")
+		if found {
+			t.Error("expected found=false")
+		}
+	})
+}
+
+func TestGetDetectedRunTarget(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		RunTargets: []RunTarget{
+			{Name: "claude", Source: RunTargetSourceDetected, Command: "claude"},
+			{Name: "my-script", Source: "", Command: "bash run.sh"},
+		},
+	}
+
+	t.Run("finds detected target", func(t *testing.T) {
+		target, found := cfg.GetDetectedRunTarget("claude")
+		if !found {
+			t.Fatal("expected to find detected target")
+		}
+		if target.Command != "claude" {
+			t.Errorf("Command = %q, want 'claude'", target.Command)
+		}
+	})
+
+	t.Run("skips non-detected target", func(t *testing.T) {
+		_, found := cfg.GetDetectedRunTarget("my-script")
+		if found {
+			t.Error("expected found=false for non-detected target")
+		}
+	})
+}
+
+func TestGetDetectedRunTargets(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		RunTargets: []RunTarget{
+			{Name: "claude", Source: RunTargetSourceDetected, Command: "claude"},
+			{Name: "codex", Source: RunTargetSourceDetected, Command: "codex"},
+			{Name: "my-script", Source: "", Command: "bash"},
+		},
+	}
+
+	targets := cfg.GetDetectedRunTargets()
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 detected targets, got %d", len(targets))
+	}
+}
+
+func TestGetBindAddress(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    string
+	}{
+		{"nil network defaults to localhost", nil, "127.0.0.1"},
+		{"empty bind address defaults to localhost", &NetworkConfig{}, "127.0.0.1"},
+		{"custom bind address", &NetworkConfig{BindAddress: "0.0.0.0"}, "0.0.0.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Network: tt.network}
+			got := cfg.GetBindAddress()
+			if got != tt.want {
+				t.Errorf("GetBindAddress() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetNetworkAccess(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    bool
+	}{
+		{"nil network is not accessible", nil, false},
+		{"localhost is not accessible", &NetworkConfig{BindAddress: "127.0.0.1"}, false},
+		{"0.0.0.0 is accessible", &NetworkConfig{BindAddress: "0.0.0.0"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Network: tt.network}
+			got := cfg.GetNetworkAccess()
+			if got != tt.want {
+				t.Errorf("GetNetworkAccess() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPort(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		network *NetworkConfig
+		want    int
+	}{
+		{"nil network defaults to 7337", nil, 7337},
+		{"zero port defaults to 7337", &NetworkConfig{Port: 0}, 7337},
+		{"negative port defaults to 7337", &NetworkConfig{Port: -1}, 7337},
+		{"custom port", &NetworkConfig{Port: 8080}, 8080},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Network: tt.network}
+			got := cfg.GetPort()
+			if got != tt.want {
+				t.Errorf("GetPort() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUseWorktrees(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		scm  string
+		want bool
+	}{
+		{"default (empty) uses worktrees", "", true},
+		{"explicit git-worktree", SourceCodeManagementGitWorktree, true},
+		{"git-clone does not use worktrees", SourceCodeManagementGit, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{SourceCodeManagement: tt.scm}
+			got := cfg.UseWorktrees()
+			if got != tt.want {
+				t.Errorf("UseWorktrees() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTimeoutDurationConverters(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Sessions: &SessionsConfig{
+			GitCloneTimeoutMs:  30000,
+			GitStatusTimeoutMs: 5000,
+		},
+		Xterm: &XtermConfig{
+			QueryTimeoutMs:     1000,
+			OperationTimeoutMs: 2000,
+		},
+	}
+
+	tests := []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"GitCloneTimeout", cfg.GitCloneTimeout(), 30 * time.Second},
+		{"GitStatusTimeout", cfg.GitStatusTimeout(), 5 * time.Second},
+		{"XtermQueryTimeout", cfg.XtermQueryTimeout(), time.Second},
+		{"XtermOperationTimeout", cfg.XtermOperationTimeout(), 2 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
