@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/log"
@@ -17,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -447,6 +449,140 @@ func TestHandleSubreddit(t *testing.T) {
 
 		if resp["enabled"] != false {
 			t.Errorf("expected enabled=false, got %v", resp["enabled"])
+		}
+	})
+}
+
+func TestIsValidVCSHash(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		s    string
+		want bool
+	}{
+		{"valid SHA-1 lowercase", "da39a3ee5e6b4b0d3255bfef95601890afd80709", true},
+		{"valid SHA-1 uppercase", "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", true},
+		{"valid SHA-1 mixed case", "Da39a3Ee5e6b4b0d3255bfEF95601890aFd80709", true},
+		{"valid SHA-256 (64 chars)", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", true},
+		{"too short (39 chars)", "da39a3ee5e6b4b0d3255bfef95601890afd8070", false},
+		{"empty string", "", false},
+		{"non-hex characters", "ga39a3ee5e6b4b0d3255bfef95601890afd80709", false},
+		{"spaces in hash", "da39a3ee 5e6b4b0d 3255bfef 95601890 afd80709", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isValidVCSHash(tt.s)
+			if got != tt.want {
+				t.Errorf("isValidVCSHash(%q) = %v, want %v", tt.s, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsPathWithinDir(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		fullPath string
+		baseDir  string
+		want     bool
+	}{
+		{"file within dir", "/home/user/workspace/file.go", "/home/user/workspace", true},
+		{"nested file", "/home/user/workspace/sub/file.go", "/home/user/workspace", true},
+		{"dir equals base", "/home/user/workspace", "/home/user/workspace", true},
+		{"path traversal escape", "/home/user/workspace/../secrets/key", "/home/user/workspace", false},
+		{"sibling dir with prefix match", "/home/user/workspace-evil/file.go", "/home/user/workspace", false},
+		{"completely outside", "/etc/passwd", "/home/user/workspace", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isPathWithinDir(tt.fullPath, tt.baseDir)
+			if got != tt.want {
+				t.Errorf("isPathWithinDir(%q, %q) = %v, want %v", tt.fullPath, tt.baseDir, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseNumstat(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses normal numstat output", func(t *testing.T) {
+		input := "10\t3\tsrc/main.go\n5\t0\tsrc/util.go\n"
+		files := parseNumstat(input)
+		if len(files) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(files))
+		}
+		if files[0].Path != "src/main.go" || files[0].Added != 10 || files[0].Deleted != 3 {
+			t.Errorf("files[0] = %+v, want Path=src/main.go Added=10 Deleted=3", files[0])
+		}
+		if files[1].Path != "src/util.go" || files[1].Added != 5 || files[1].Deleted != 0 {
+			t.Errorf("files[1] = %+v, want Path=src/util.go Added=5 Deleted=0", files[1])
+		}
+	})
+
+	t.Run("handles binary files (dash for added/deleted)", func(t *testing.T) {
+		input := "-\t-\timage.png\n"
+		files := parseNumstat(input)
+		if len(files) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(files))
+		}
+		// Binary files have "-" which Sscanf can't parse as int → stays 0
+		if files[0].Path != "image.png" || files[0].Added != 0 || files[0].Deleted != 0 {
+			t.Errorf("binary file = %+v, want Path=image.png Added=0 Deleted=0", files[0])
+		}
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		files := parseNumstat("")
+		if files != nil {
+			t.Errorf("expected nil, got %v", files)
+		}
+	})
+
+	t.Run("skips malformed lines", func(t *testing.T) {
+		input := "10\t3\tvalid.go\ngarbage\n5\t0\tother.go\n"
+		files := parseNumstat(input)
+		if len(files) != 2 {
+			t.Fatalf("expected 2 files (skipping garbage), got %d", len(files))
+		}
+	})
+}
+
+func TestFormatPersonaPrompt(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with expectations", func(t *testing.T) {
+		p := &persona.Persona{
+			Name:         "QA Engineer",
+			Expectations: "Find bugs before users do.",
+			Prompt:       "You are a QA engineer.",
+		}
+		got := formatPersonaPrompt(p)
+		if !strings.Contains(got, "## Persona: QA Engineer") {
+			t.Error("missing persona header")
+		}
+		if !strings.Contains(got, "### Behavioral Expectations") {
+			t.Error("missing expectations section")
+		}
+		if !strings.Contains(got, "### Instructions") {
+			t.Error("missing instructions section")
+		}
+	})
+
+	t.Run("without expectations", func(t *testing.T) {
+		p := &persona.Persona{
+			Name:   "Coder",
+			Prompt: "Write code.",
+		}
+		got := formatPersonaPrompt(p)
+		if strings.Contains(got, "### Behavioral Expectations") {
+			t.Error("should not include expectations section when empty")
+		}
+		if !strings.Contains(got, "### Instructions") {
+			t.Error("missing instructions section")
 		}
 	})
 }
