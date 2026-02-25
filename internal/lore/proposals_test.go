@@ -1,6 +1,8 @@
 package lore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -126,4 +128,65 @@ func writeTestFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestHashFileContent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns sha256 prefixed hash", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "test.md")
+		content := "# Hello World\n"
+		writeTestFile(t, path, content)
+
+		got, err := HashFileContent(path)
+		if err != nil {
+			t.Fatalf("HashFileContent() error: %v", err)
+		}
+
+		// Verify against independently computed hash
+		h := sha256.Sum256([]byte(content))
+		want := "sha256:" + hex.EncodeToString(h[:])
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("different content produces different hash", func(t *testing.T) {
+		dir := t.TempDir()
+		path1 := filepath.Join(dir, "a.md")
+		path2 := filepath.Join(dir, "b.md")
+		writeTestFile(t, path1, "content A")
+		writeTestFile(t, path2, "content B")
+
+		hash1, _ := HashFileContent(path1)
+		hash2, _ := HashFileContent(path2)
+		if hash1 == hash2 {
+			t.Error("different files should produce different hashes")
+		}
+	})
+
+	t.Run("returns error for nonexistent file", func(t *testing.T) {
+		_, err := HashFileContent("/nonexistent/path/file.md")
+		if err == nil {
+			t.Error("expected error for nonexistent file")
+		}
+	})
+
+	t.Run("empty file produces valid hash", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "empty.md")
+		writeTestFile(t, path, "")
+
+		got, err := HashFileContent(path)
+		if err != nil {
+			t.Fatalf("HashFileContent() error: %v", err)
+		}
+		if len(got) == 0 {
+			t.Error("expected non-empty hash for empty file")
+		}
+		if got[:7] != "sha256:" {
+			t.Errorf("hash should start with 'sha256:', got %q", got)
+		}
+	})
 }

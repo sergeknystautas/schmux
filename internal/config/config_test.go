@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -2400,6 +2401,280 @@ func TestUseWorktrees(t *testing.T) {
 			got := cfg.UseWorktrees()
 			if got != tt.want {
 				t.Errorf("UseWorktrees() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsValidPublicBaseURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://example.com", true},
+		{"https://my.domain.io:8443", true},
+		{"http://localhost", true},
+		{"http://localhost:7337", true},
+		{"http://example.com", false},    // HTTP only allowed for localhost
+		{"ftp://example.com", false},     // wrong scheme
+		{"", false},                      // empty
+		{"not-a-url", false},             // no scheme
+		{"://missing-scheme", false},     // malformed
+		{"https://", false},              // no host
+		{"http://127.0.0.1:7337", false}, // HTTP not allowed for non-localhost
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := IsValidPublicBaseURL(tt.url)
+			if got != tt.want {
+				t.Errorf("IsValidPublicBaseURL(%q) = %v, want %v", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCompoundEnabled(t *testing.T) {
+	t.Parallel()
+	t.Run("defaults to true when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if !cfg.GetCompoundEnabled() {
+			t.Error("expected true by default")
+		}
+	})
+
+	t.Run("returns true when Enabled is nil", func(t *testing.T) {
+		cfg := &Config{Compound: &CompoundConfig{}}
+		if !cfg.GetCompoundEnabled() {
+			t.Error("expected true when Enabled is nil")
+		}
+	})
+
+	t.Run("returns false when explicitly disabled", func(t *testing.T) {
+		disabled := false
+		cfg := &Config{Compound: &CompoundConfig{Enabled: &disabled}}
+		if cfg.GetCompoundEnabled() {
+			t.Error("expected false when explicitly disabled")
+		}
+	})
+
+	t.Run("returns true when explicitly enabled", func(t *testing.T) {
+		enabled := true
+		cfg := &Config{Compound: &CompoundConfig{Enabled: &enabled}}
+		if !cfg.GetCompoundEnabled() {
+			t.Error("expected true when explicitly enabled")
+		}
+	})
+}
+
+func TestGetCompoundDebounceMs(t *testing.T) {
+	t.Parallel()
+	t.Run("defaults to 2000 when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetCompoundDebounceMs(); got != 2000 {
+			t.Errorf("got %d, want 2000", got)
+		}
+	})
+
+	t.Run("defaults to 2000 when zero", func(t *testing.T) {
+		cfg := &Config{Compound: &CompoundConfig{DebounceMs: 0}}
+		if got := cfg.GetCompoundDebounceMs(); got != 2000 {
+			t.Errorf("got %d, want 2000", got)
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{Compound: &CompoundConfig{DebounceMs: 5000}}
+		if got := cfg.GetCompoundDebounceMs(); got != 5000 {
+			t.Errorf("got %d, want 5000", got)
+		}
+	})
+}
+
+func TestGetNotificationSoundEnabled(t *testing.T) {
+	t.Parallel()
+	t.Run("defaults to true when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if !cfg.GetNotificationSoundEnabled() {
+			t.Error("expected true by default")
+		}
+	})
+
+	t.Run("returns true when SoundDisabled is false", func(t *testing.T) {
+		cfg := &Config{Notifications: &NotificationsConfig{SoundDisabled: false}}
+		if !cfg.GetNotificationSoundEnabled() {
+			t.Error("expected true when SoundDisabled is false")
+		}
+	})
+
+	t.Run("returns false when SoundDisabled is true", func(t *testing.T) {
+		cfg := &Config{Notifications: &NotificationsConfig{SoundDisabled: true}}
+		if cfg.GetNotificationSoundEnabled() {
+			t.Error("expected false when SoundDisabled is true")
+		}
+	})
+}
+
+func TestGetConfirmBeforeClose(t *testing.T) {
+	t.Parallel()
+	t.Run("defaults to false when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if cfg.GetConfirmBeforeClose() {
+			t.Error("expected false by default")
+		}
+	})
+
+	t.Run("returns configured value", func(t *testing.T) {
+		cfg := &Config{Notifications: &NotificationsConfig{ConfirmBeforeClose: true}}
+		if !cfg.GetConfirmBeforeClose() {
+			t.Error("expected true when configured")
+		}
+	})
+}
+
+func TestGetModelVersion(t *testing.T) {
+	t.Parallel()
+	t.Run("returns empty when nil", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetModelVersion("claude-sonnet"); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("returns empty when versions nil", func(t *testing.T) {
+		cfg := &Config{Models: &ModelsConfig{}}
+		if got := cfg.GetModelVersion("claude-sonnet"); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("returns configured version", func(t *testing.T) {
+		cfg := &Config{Models: &ModelsConfig{
+			Versions: map[string]string{"claude-sonnet": "claude-sonnet-4-5-20250929"},
+		}}
+		got := cfg.GetModelVersion("claude-sonnet")
+		if got != "claude-sonnet-4-5-20250929" {
+			t.Errorf("got %q, want 'claude-sonnet-4-5-20250929'", got)
+		}
+	})
+
+	t.Run("returns empty for unknown model", func(t *testing.T) {
+		cfg := &Config{Models: &ModelsConfig{
+			Versions: map[string]string{"claude-sonnet": "v1"},
+		}}
+		if got := cfg.GetModelVersion("claude-opus"); got != "" {
+			t.Errorf("got %q, want empty for unknown model", got)
+		}
+	})
+}
+
+func TestDetectedToolsFromConfig(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		RunTargets: []RunTarget{
+			{Name: "claude", Source: RunTargetSourceDetected, Command: "/usr/bin/claude"},
+			{Name: "codex", Source: RunTargetSourceDetected, Command: "/usr/bin/codex"},
+			{Name: "my-script", Source: "", Command: "bash run.sh"}, // user target, not detected
+		},
+	}
+
+	tools := DetectedToolsFromConfig(cfg)
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 detected tools, got %d", len(tools))
+	}
+	if tools[0].Name != "claude" || tools[0].Command != "/usr/bin/claude" {
+		t.Errorf("tools[0] = %+v, want Name='claude' Command='/usr/bin/claude'", tools[0])
+	}
+	if tools[1].Name != "codex" || tools[1].Command != "/usr/bin/codex" {
+		t.Errorf("tools[1] = %+v, want Name='codex' Command='/usr/bin/codex'", tools[1])
+	}
+}
+
+func TestMergeDetectedRunTargets(t *testing.T) {
+	t.Parallel()
+	t.Run("preserves user targets and adds detected", func(t *testing.T) {
+		existing := []RunTarget{
+			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash run.sh", Source: ""},
+			{Name: "old-detected", Type: RunTargetTypePromptable, Command: "old", Source: RunTargetSourceDetected},
+		}
+		detected := []detect.Tool{
+			{Name: "claude", Command: "/usr/bin/claude"},
+			{Name: "codex", Command: "/usr/bin/codex"},
+		}
+
+		merged := MergeDetectedRunTargets(existing, detected)
+
+		// Should have: user target + 2 detected (old detected target is dropped)
+		if len(merged) != 3 {
+			t.Fatalf("expected 3 merged targets, got %d", len(merged))
+		}
+
+		// First should be the user target
+		if merged[0].Name != "my-script" || merged[0].Source != "" {
+			t.Errorf("merged[0] should be user target, got %+v", merged[0])
+		}
+
+		// Detected targets should have correct Source
+		if merged[1].Source != RunTargetSourceDetected {
+			t.Errorf("merged[1].Source = %q, want 'detected'", merged[1].Source)
+		}
+		if merged[2].Source != RunTargetSourceDetected {
+			t.Errorf("merged[2].Source = %q, want 'detected'", merged[2].Source)
+		}
+	})
+
+	t.Run("empty existing returns only detected", func(t *testing.T) {
+		detected := []detect.Tool{{Name: "claude", Command: "claude"}}
+		merged := MergeDetectedRunTargets(nil, detected)
+		if len(merged) != 1 {
+			t.Fatalf("expected 1, got %d", len(merged))
+		}
+	})
+
+	t.Run("empty detected returns only user targets", func(t *testing.T) {
+		existing := []RunTarget{
+			{Name: "script", Command: "bash", Source: ""},
+		}
+		merged := MergeDetectedRunTargets(existing, nil)
+		if len(merged) != 1 {
+			t.Fatalf("expected 1, got %d", len(merged))
+		}
+	})
+}
+
+func TestIsTargetPromptable(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		RunTargets: []RunTarget{
+			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash"},
+			{Name: "my-agent", Type: RunTargetTypePromptable, Command: "agent"},
+		},
+	}
+	detected := []RunTarget{
+		{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
+	}
+
+	tests := []struct {
+		name           string
+		target         string
+		wantPromptable bool
+		wantFound      bool
+	}{
+		{"user promptable target", "my-agent", true, true},
+		{"user command target", "my-script", false, true},
+		{"detected tool", "claude", true, true},
+		{"unknown target", "nonexistent", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			promptable, found := IsTargetPromptable(cfg, detected, tt.target)
+			if promptable != tt.wantPromptable {
+				t.Errorf("promptable = %v, want %v", promptable, tt.wantPromptable)
+			}
+			if found != tt.wantFound {
+				t.Errorf("found = %v, want %v", found, tt.wantFound)
 			}
 		})
 	}

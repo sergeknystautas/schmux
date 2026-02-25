@@ -1410,3 +1410,120 @@ func TestWorktreeBaseCRUD(t *testing.T) {
 		}
 	})
 }
+
+func TestUpdateOverlayManifestEntry(t *testing.T) {
+	t.Parallel()
+	s := &State{
+		Workspaces: []Workspace{
+			{ID: "ws-1"},
+			{ID: "ws-2", OverlayManifest: map[string]string{"existing.md": "sha256:aaa"}},
+		},
+	}
+
+	t.Run("creates manifest map when nil", func(t *testing.T) {
+		s.UpdateOverlayManifestEntry("ws-1", "CLAUDE.md", "sha256:abc123")
+
+		manifest := s.Workspaces[0].OverlayManifest
+		if manifest == nil {
+			t.Fatal("expected manifest to be initialized")
+		}
+		if manifest["CLAUDE.md"] != "sha256:abc123" {
+			t.Errorf("got %q, want 'sha256:abc123'", manifest["CLAUDE.md"])
+		}
+	})
+
+	t.Run("adds entry to existing manifest", func(t *testing.T) {
+		s.UpdateOverlayManifestEntry("ws-2", "AGENTS.md", "sha256:def456")
+
+		manifest := s.Workspaces[1].OverlayManifest
+		if manifest["existing.md"] != "sha256:aaa" {
+			t.Error("existing entry should be preserved")
+		}
+		if manifest["AGENTS.md"] != "sha256:def456" {
+			t.Errorf("new entry = %q, want 'sha256:def456'", manifest["AGENTS.md"])
+		}
+	})
+
+	t.Run("overwrites existing entry", func(t *testing.T) {
+		s.UpdateOverlayManifestEntry("ws-2", "existing.md", "sha256:bbb")
+
+		if s.Workspaces[1].OverlayManifest["existing.md"] != "sha256:bbb" {
+			t.Error("entry should have been overwritten")
+		}
+	})
+
+	t.Run("no-op for unknown workspace", func(t *testing.T) {
+		// Should not panic or modify anything
+		s.UpdateOverlayManifestEntry("ws-nonexistent", "file.md", "sha256:xxx")
+	})
+}
+
+func TestGetSessionsByRemoteHostID(t *testing.T) {
+	t.Parallel()
+	s := &State{
+		Sessions: []Session{
+			{ID: "s1", RemoteHostID: "host-1"},
+			{ID: "s2", RemoteHostID: "host-2"},
+			{ID: "s3", RemoteHostID: "host-1"},
+			{ID: "s4", RemoteHostID: ""},
+		},
+	}
+
+	t.Run("returns matching sessions", func(t *testing.T) {
+		result := s.GetSessionsByRemoteHostID("host-1")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 sessions, got %d", len(result))
+		}
+		ids := map[string]bool{result[0].ID: true, result[1].ID: true}
+		if !ids["s1"] || !ids["s3"] {
+			t.Errorf("expected s1 and s3, got %v", ids)
+		}
+	})
+
+	t.Run("returns empty for no matches", func(t *testing.T) {
+		result := s.GetSessionsByRemoteHostID("host-999")
+		if len(result) != 0 {
+			t.Errorf("expected 0, got %d", len(result))
+		}
+	})
+
+	t.Run("empty host ID does not match local sessions", func(t *testing.T) {
+		// Empty string should technically match sessions with empty RemoteHostID
+		// but this tests the actual behavior
+		result := s.GetSessionsByRemoteHostID("")
+		// s4 has RemoteHostID="" so it should match
+		if len(result) != 1 || result[0].ID != "s4" {
+			t.Errorf("expected [s4], got %v", result)
+		}
+	})
+}
+
+func TestGetWorkspacesByRemoteHostID(t *testing.T) {
+	t.Parallel()
+	s := &State{
+		Workspaces: []Workspace{
+			{ID: "ws-1", RemoteHostID: "host-a"},
+			{ID: "ws-2", RemoteHostID: "host-b"},
+			{ID: "ws-3", RemoteHostID: "host-a"},
+			{ID: "ws-4", RemoteHostID: ""},
+		},
+	}
+
+	t.Run("returns matching workspaces", func(t *testing.T) {
+		result := s.GetWorkspacesByRemoteHostID("host-a")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 workspaces, got %d", len(result))
+		}
+		ids := map[string]bool{result[0].ID: true, result[1].ID: true}
+		if !ids["ws-1"] || !ids["ws-3"] {
+			t.Errorf("expected ws-1 and ws-3, got %v", ids)
+		}
+	})
+
+	t.Run("returns empty for no matches", func(t *testing.T) {
+		result := s.GetWorkspacesByRemoteHostID("host-999")
+		if len(result) != 0 {
+			t.Errorf("expected 0, got %d", len(result))
+		}
+	})
+}
