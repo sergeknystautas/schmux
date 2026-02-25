@@ -2013,6 +2013,7 @@ Response (no content yet or generation failed):
 ```
 
 The content is markdown-formatted text styled like a Reddit post. Empty response indicates:
+
 - Subreddit digest is disabled (no target configured)
 - No commits in the lookback period
 - Generation hasn't completed yet
