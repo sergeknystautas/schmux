@@ -35,10 +35,13 @@ import {
   getLoreProposals,
   type DevStatus,
 } from '../lib/api';
+import type { WorkspaceResponse } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import ToolsSection from './ToolsSection';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
+const WORKSPACE_SORT_KEY = 'schmux-workspace-sort';
+type WorkspaceSortMode = 'alpha' | 'time';
 
 export default function AppShell() {
   const { toggleTheme } = useTheme();
@@ -61,6 +64,9 @@ export default function AppShell() {
   const location = useLocation();
   const { sessionId } = useParams();
   const [navCollapsed, setNavCollapsed] = useLocalStorage(NAV_COLLAPSED_KEY, false);
+  const [workspaceSort, setWorkspaceSort] = useState<WorkspaceSortMode>(() => {
+    return (localStorage.getItem(WORKSPACE_SORT_KEY) as WorkspaceSortMode) || 'alpha';
+  });
   const { mode, registerAction, unregisterAction, context } = useKeyboardMode();
   const { show: showHelp } = useHelpModal();
   const { alert, confirm, show } = useModal();
@@ -88,6 +94,47 @@ export default function AppShell() {
   const [devRebuildPhase, setDevRebuildPhase] = useState<'building' | 'restarting' | null>(
     'building'
   );
+
+  // Persist workspace sort preference
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_SORT_KEY, workspaceSort);
+  }, [workspaceSort]);
+
+  // Sort workspaces based on current preference
+  const sortedWorkspaces = useMemo(() => {
+    if (!workspaces) return workspaces;
+
+    const sorted = [...workspaces];
+
+    if (workspaceSort === 'alpha') {
+      sorted.sort((a, b) => {
+        const repoA = a.repo_name || getRepoName(a.repo);
+        const repoB = b.repo_name || getRepoName(b.repo);
+        if (repoA !== repoB) return repoA.localeCompare(repoB);
+        return a.branch.localeCompare(b.branch);
+      });
+    } else {
+      // Time sort: most recent session activity first
+      sorted.sort((a, b) => {
+        const getTime = (ws: WorkspaceResponse): number => {
+          const times =
+            ws.sessions
+              ?.filter((s) => s.last_output_at)
+              .map((s) => new Date(s.last_output_at!).getTime()) || [];
+          return times.length > 0 ? Math.max(...times) : 0;
+        };
+        const timeA = getTime(a);
+        const timeB = getTime(b);
+        // Most recent first, workspaces with no sessions go to bottom
+        if (timeA === 0 && timeB === 0) return 0;
+        if (timeA === 0) return 1;
+        if (timeB === 0) return -1;
+        return timeB - timeA;
+      });
+    }
+
+    return sorted;
+  }, [workspaces, workspaceSort, getRepoName]);
 
   useEffect(() => {
     if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;
@@ -601,14 +648,30 @@ export default function AppShell() {
 
           <div className="nav-workspaces">
             <div className="nav-section-header">
-              <span className="nav-section-title">Workspaces</span>
+              <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
+              <div className="nav-sort-toggle">
+                <button
+                  className={`nav-sort-toggle__btn${workspaceSort === 'alpha' ? ' nav-sort-toggle__btn--active' : ''}`}
+                  onClick={() => setWorkspaceSort('alpha')}
+                  title="Sort alphabetically"
+                >
+                  abc
+                </button>
+                <button
+                  className={`nav-sort-toggle__btn${workspaceSort === 'time' ? ' nav-sort-toggle__btn--active' : ''}`}
+                  onClick={() => setWorkspaceSort('time')}
+                  title="Sort by most recent activity"
+                >
+                  12:00
+                </button>
+              </div>
             </div>
             {(!workspaces || workspaces.length === 0) && (
               <div className="nav-empty-state">
                 <p>No workspaces yet</p>
               </div>
             )}
-            {workspaces?.map((workspace) => {
+            {sortedWorkspaces?.map((workspace) => {
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
