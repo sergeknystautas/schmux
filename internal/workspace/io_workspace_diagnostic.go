@@ -19,16 +19,16 @@ type IOWorkspaceDiagnosticCapture struct {
 }
 
 type ioWorkspaceDiagnosticMeta struct {
-	Timestamp       string                                              `json:"timestamp"`
-	TotalCommands   int64                                               `json:"totalCommands"`
-	TotalDurationMS float64                                             `json:"totalDurationMs"`
-	Counters        map[string]int64                                    `json:"counters"`
-	TriggerCounts   map[string]int64                                    `json:"triggerCounts"`
-	SpanDurations   map[string]WorkspaceRefreshDurationStats            `json:"spanDurations"`
-	ByTriggerSpans  map[string]map[string]WorkspaceRefreshDurationStats `json:"byTriggerSpans"`
+	Timestamp        string                                              `json:"timestamp"`
+	TotalCommands    int64                                               `json:"totalCommands"`
+	TotalDurationMS  float64                                             `json:"totalDurationMs"`
+	Counters         map[string]int64                                    `json:"counters"`
+	TriggerCounts    map[string]int64                                    `json:"triggerCounts"`
+	SpanDurations    map[string]WorkspaceRefreshDurationStats            `json:"spanDurations"`
+	ByTriggerSpans   map[string]map[string]WorkspaceRefreshDurationStats `json:"byTriggerSpans"`
 	ByWorkspaceSpans map[string]map[string]WorkspaceRefreshDurationStats `json:"byWorkspaceSpans"`
-	Findings        []string                                            `json:"findings"`
-	Verdict         string                                              `json:"verdict"`
+	Findings         []string                                            `json:"findings"`
+	Verdict          string                                              `json:"verdict"`
 }
 
 // NewIOWorkspaceDiagnosticCapture creates a new diagnostic capture from a telemetry snapshot,
@@ -116,9 +116,9 @@ func formatByWorkspace(snap IOWorkspaceTelemetrySnapshot) string {
 		var totalDuration float64
 
 		type cmdDuration struct {
-			cmdType    string
-			totalMS    float64
-			count      int64
+			cmdType string
+			totalMS float64
+			count   int64
 		}
 		var cmds []cmdDuration
 

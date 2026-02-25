@@ -243,30 +243,30 @@ type AccessControlUpdate struct {
 
 // ConfigUpdateRequest represents the API request for POST/PUT /api/config.
 type ConfigUpdateRequest struct {
-	WorkspacePath              *string                `json:"workspace_path,omitempty"`
-	SourceCodeManagement       *string                `json:"source_code_management,omitempty"`
-	Repos                      []Repo                 `json:"repos,omitempty"`
-	RunTargets                 []RunTarget            `json:"run_targets,omitempty"`
-	QuickLaunch                []QuickLaunch          `json:"quick_launch,omitempty"`
-	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
-	ExternalDiffCleanupAfterMs *int                   `json:"external_diff_cleanup_after_ms,omitempty"`
-	Nudgenik                   *NudgenikUpdate        `json:"nudgenik,omitempty"`
-	BranchSuggest              *BranchSuggestUpdate   `json:"branch_suggest,omitempty"`
-	ConflictResolve            *ConflictResolveUpdate `json:"conflict_resolve,omitempty"`
-	Sessions                   *SessionsUpdate        `json:"sessions,omitempty"`
-	Xterm                      *XtermUpdate           `json:"xterm,omitempty"`
-	Network                    *NetworkUpdate         `json:"network,omitempty"`
-	AccessControl              *AccessControlUpdate   `json:"access_control,omitempty"`
-	PrReview                   *PrReviewUpdate        `json:"pr_review,omitempty"`
-	CommitMessage              *CommitMessageUpdate   `json:"commit_message,omitempty"`
-	Desync                     *DesyncUpdate                `json:"desync,omitempty"`
-	IOWorkspaceTelemetry       *IOWorkspaceTelemetryUpdate  `json:"io_workspace_telemetry,omitempty"`
-	Notifications              *NotificationsUpdate         `json:"notifications,omitempty"`
-	Lore                       *LoreUpdate            `json:"lore,omitempty"`
-	Subreddit                  *SubredditUpdate       `json:"subreddit,omitempty"`
-	FloorManager               *FloorManagerUpdate    `json:"floor_manager,omitempty"`
-	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
-	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
+	WorkspacePath              *string                     `json:"workspace_path,omitempty"`
+	SourceCodeManagement       *string                     `json:"source_code_management,omitempty"`
+	Repos                      []Repo                      `json:"repos,omitempty"`
+	RunTargets                 []RunTarget                 `json:"run_targets,omitempty"`
+	QuickLaunch                []QuickLaunch               `json:"quick_launch,omitempty"`
+	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs *int                        `json:"external_diff_cleanup_after_ms,omitempty"`
+	Nudgenik                   *NudgenikUpdate             `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestUpdate        `json:"branch_suggest,omitempty"`
+	ConflictResolve            *ConflictResolveUpdate      `json:"conflict_resolve,omitempty"`
+	Sessions                   *SessionsUpdate             `json:"sessions,omitempty"`
+	Xterm                      *XtermUpdate                `json:"xterm,omitempty"`
+	Network                    *NetworkUpdate              `json:"network,omitempty"`
+	AccessControl              *AccessControlUpdate        `json:"access_control,omitempty"`
+	PrReview                   *PrReviewUpdate             `json:"pr_review,omitempty"`
+	CommitMessage              *CommitMessageUpdate        `json:"commit_message,omitempty"`
+	Desync                     *DesyncUpdate               `json:"desync,omitempty"`
+	IOWorkspaceTelemetry       *IOWorkspaceTelemetryUpdate `json:"io_workspace_telemetry,omitempty"`
+	Notifications              *NotificationsUpdate        `json:"notifications,omitempty"`
+	Lore                       *LoreUpdate                 `json:"lore,omitempty"`
+	Subreddit                  *SubredditUpdate            `json:"subreddit,omitempty"`
+	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
+	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
+	ModelVersions              *map[string]string          `json:"model_versions,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

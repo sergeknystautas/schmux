@@ -20,7 +20,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// ioWorkspaceTelemetryProvider is implemented by workspace.Manager when IO telemetry is enabled.
+type ioWorkspaceTelemetryProvider interface {
+	IOWorkspaceTelemetrySnapshot(reset bool) workspace.IOWorkspaceTelemetrySnapshot
+}
 
 const bootstrapCaptureLines = 5000
 
@@ -347,6 +353,9 @@ resizeWaitLoop:
 	var prevTime time.Time
 	if s.devMode {
 		ringBuf = NewRingBuffer(256 * 1024) // 256KB
+	}
+	_, hasIOTelemetry := s.workspace.(ioWorkspaceTelemetryProvider)
+	if s.devMode || hasIOTelemetry {
 		statsTicker = time.NewTicker(3 * time.Second)
 		statsTickerC = statsTicker.C
 		prevTime = time.Now()
@@ -489,29 +498,43 @@ resizeWaitLoop:
 				}
 			}
 		case <-statsTickerC:
-			counters := tracker.DiagnosticCounters()
-			now := time.Now()
-			elapsed := now.Sub(prevTime).Seconds()
-			currentBytes := counters["bytesDelivered"]
-			var bytesPerSec int64
-			if elapsed > 0 {
-				bytesPerSec = int64(float64(currentBytes-prevBytes) / elapsed)
+			if s.devMode {
+				counters := tracker.DiagnosticCounters()
+				now := time.Now()
+				elapsed := now.Sub(prevTime).Seconds()
+				currentBytes := counters["bytesDelivered"]
+				var bytesPerSec int64
+				if elapsed > 0 {
+					bytesPerSec = int64(float64(currentBytes-prevBytes) / elapsed)
+				}
+				prevBytes = currentBytes
+				prevTime = now
+				statsMsg := WSStatsMessage{
+					Type:              "stats",
+					EventsDelivered:   counters["eventsDelivered"],
+					EventsDropped:     counters["eventsDropped"],
+					BytesDelivered:    counters["bytesDelivered"],
+					BytesPerSec:       bytesPerSec,
+					Reconnects:        counters["controlModeReconnects"],
+					SyncChecksSent:    syncChecksSent.Load(),
+					SyncCorrections:   syncCorrections.Load(),
+					SyncSkippedActive: syncSkippedActive.Load(),
+				}
+				data, _ := json.Marshal(statsMsg)
+				conn.WriteMessage(websocket.TextMessage, data)
 			}
-			prevBytes = currentBytes
-			prevTime = now
-			statsMsg := WSStatsMessage{
-				Type:              "stats",
-				EventsDelivered:   counters["eventsDelivered"],
-				EventsDropped:     counters["eventsDropped"],
-				BytesDelivered:    counters["bytesDelivered"],
-				BytesPerSec:       bytesPerSec,
-				Reconnects:        counters["controlModeReconnects"],
-				SyncChecksSent:    syncChecksSent.Load(),
-				SyncCorrections:   syncCorrections.Load(),
-				SyncSkippedActive: syncSkippedActive.Load(),
+			if ioProvider, ok := s.workspace.(ioWorkspaceTelemetryProvider); ok {
+				ioSnap := ioProvider.IOWorkspaceTelemetrySnapshot(false)
+				ioStatsMsg := map[string]interface{}{
+					"type":            "io-workspace-stats",
+					"totalCommands":   ioSnap.TotalCommands,
+					"totalDurationMs": ioSnap.TotalDurationMS,
+					"triggerCounts":   ioSnap.TriggerCounts,
+					"counters":        ioSnap.Counters,
+				}
+				ioData, _ := json.Marshal(ioStatsMsg)
+				conn.WriteMessage(websocket.TextMessage, ioData)
 			}
-			data, _ := json.Marshal(statsMsg)
-			conn.WriteMessage(websocket.TextMessage, data)
 		case <-sessionDead:
 			// Flush any held-back bytes before closing
 			if len(escHoldback) > 0 {
@@ -628,6 +651,28 @@ resizeWaitLoop:
 				}
 				data, _ := json.Marshal(resp)
 				conn.WriteMessage(websocket.TextMessage, data)
+			case "io-workspace-diagnostic":
+				ioProvider, ok := s.workspace.(ioWorkspaceTelemetryProvider)
+				if !ok {
+					break
+				}
+				ioSnap := ioProvider.IOWorkspaceTelemetrySnapshot(false)
+				ioDiag := workspace.NewIOWorkspaceDiagnosticCapture(ioSnap, time.Now())
+				ioDiagDir := filepath.Join(os.Getenv("HOME"), ".schmux", "diagnostics",
+					fmt.Sprintf("%s-io-workspace", time.Now().Format("2006-01-02T15-04-05")))
+				if err := ioDiag.WriteToDir(ioDiagDir); err != nil {
+					logging.Sub(s.logger, "io-workspace-diagnostic").Error("write failed", "err", err)
+					break
+				}
+				ioResp := map[string]interface{}{
+					"type":     "io-workspace-diagnostic",
+					"diagDir":  ioDiagDir,
+					"counters": ioSnap.Counters,
+					"findings": ioDiag.Findings,
+					"verdict":  ioDiag.Verdict,
+				}
+				ioData, _ := json.Marshal(ioResp)
+				conn.WriteMessage(websocket.TextMessage, ioData)
 			}
 		}
 	}

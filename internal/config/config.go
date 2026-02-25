@@ -63,36 +63,36 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	ConfigVersion              string                 `json:"config_version,omitempty"`
-	WorkspacePath              string                 `json:"workspace_path"`
-	WorktreeBasePath           string                 `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
-	SourceCodeManagement       string                 `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
-	Repos                      []Repo                 `json:"repos"`
-	RunTargets                 []RunTarget            `json:"run_targets"`
-	QuickLaunch                []QuickLaunch          `json:"quick_launch"`
-	ExternalDiffCommands       []ExternalDiffCommand  `json:"external_diff_commands,omitempty"`
-	ExternalDiffCleanupAfterMs int                    `json:"external_diff_cleanup_after_ms,omitempty"`
-	Nudgenik                   *NudgenikConfig        `json:"nudgenik,omitempty"`
-	BranchSuggest              *BranchSuggestConfig   `json:"branch_suggest,omitempty"`
-	ConflictResolve            *ConflictResolveConfig `json:"conflict_resolve,omitempty"`
-	Compound                   *CompoundConfig        `json:"compound,omitempty"`
-	Overlay                    *OverlayConfig         `json:"overlay,omitempty"`
-	Lore                       *LoreConfig            `json:"lore,omitempty"`
-	Sessions                   *SessionsConfig        `json:"sessions,omitempty"`
-	Xterm                      *XtermConfig           `json:"xterm,omitempty"`
-	Network                    *NetworkConfig         `json:"network,omitempty"`
-	AccessControl              *AccessControlConfig   `json:"access_control,omitempty"`
-	PrReview                   *PrReviewConfig        `json:"pr_review,omitempty"`
-	CommitMessage              *CommitMessageConfig   `json:"commit_message,omitempty"`
-	Desync                     *DesyncConfig                `json:"desync,omitempty"`
-	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig  `json:"io_workspace_telemetry,omitempty"`
-	Notifications              *NotificationsConfig   `json:"notifications,omitempty"`
-	RemoteFlavors              []RemoteFlavor         `json:"remote_flavors,omitempty"`
-	RemoteWorkspace            *RemoteWorkspaceConfig `json:"remote_workspace,omitempty"`
-	RemoteAccess               *RemoteAccessConfig    `json:"remote_access,omitempty"`
-	Models                     *ModelsConfig          `json:"models,omitempty"`
-	Subreddit                  *SubredditConfig       `json:"subreddit,omitempty"`
-	FloorManager               *FloorManagerConfig    `json:"floor_manager,omitempty"`
+	ConfigVersion              string                      `json:"config_version,omitempty"`
+	WorkspacePath              string                      `json:"workspace_path"`
+	WorktreeBasePath           string                      `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
+	SourceCodeManagement       string                      `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
+	Repos                      []Repo                      `json:"repos"`
+	RunTargets                 []RunTarget                 `json:"run_targets"`
+	QuickLaunch                []QuickLaunch               `json:"quick_launch"`
+	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`
+	ExternalDiffCleanupAfterMs int                         `json:"external_diff_cleanup_after_ms,omitempty"`
+	Nudgenik                   *NudgenikConfig             `json:"nudgenik,omitempty"`
+	BranchSuggest              *BranchSuggestConfig        `json:"branch_suggest,omitempty"`
+	ConflictResolve            *ConflictResolveConfig      `json:"conflict_resolve,omitempty"`
+	Compound                   *CompoundConfig             `json:"compound,omitempty"`
+	Overlay                    *OverlayConfig              `json:"overlay,omitempty"`
+	Lore                       *LoreConfig                 `json:"lore,omitempty"`
+	Sessions                   *SessionsConfig             `json:"sessions,omitempty"`
+	Xterm                      *XtermConfig                `json:"xterm,omitempty"`
+	Network                    *NetworkConfig              `json:"network,omitempty"`
+	AccessControl              *AccessControlConfig        `json:"access_control,omitempty"`
+	PrReview                   *PrReviewConfig             `json:"pr_review,omitempty"`
+	CommitMessage              *CommitMessageConfig        `json:"commit_message,omitempty"`
+	Desync                     *DesyncConfig               `json:"desync,omitempty"`
+	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig `json:"io_workspace_telemetry,omitempty"`
+	Notifications              *NotificationsConfig        `json:"notifications,omitempty"`
+	RemoteFlavors              []RemoteFlavor              `json:"remote_flavors,omitempty"`
+	RemoteWorkspace            *RemoteWorkspaceConfig      `json:"remote_workspace,omitempty"`
+	RemoteAccess               *RemoteAccessConfig         `json:"remote_access,omitempty"`
+	Models                     *ModelsConfig               `json:"models,omitempty"`
+	Subreddit                  *SubredditConfig            `json:"subreddit,omitempty"`
+	FloorManager               *FloorManagerConfig         `json:"floor_manager,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
