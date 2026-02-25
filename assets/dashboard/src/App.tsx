@@ -28,6 +28,7 @@ import LorePage from './routes/LorePage';
 import PersonasListPage from './routes/PersonasListPage';
 import PersonaCreatePage from './routes/PersonaCreatePage';
 import PersonaEditPage from './routes/PersonaEditPage';
+import EventsPage from './routes/EventsPage';
 
 export default function App() {
   const location = useLocation();
@@ -69,6 +70,7 @@ export default function App() {
                         <Route path="/personas/create" element={<PersonaCreatePage />} />
                         <Route path="/personas/:personaId" element={<PersonaEditPage />} />
                         <Route path="/lore" element={<LorePage />} />
+                        <Route path="/events" element={<EventsPage />} />
                         <Route path="/terminal.html" element={<LegacyTerminalPage />} />
                         <Route path="*" element={<NotFoundPage />} />
                       </Route>

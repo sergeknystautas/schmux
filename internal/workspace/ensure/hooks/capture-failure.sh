@@ -1,7 +1,8 @@
 #!/bin/bash
-# Schmux lore: capture tool failures as structured lore entries.
+# Schmux events: capture tool failures as structured failure events.
 # Called by Claude Code PostToolUseFailure hook.
 # Reads JSON from stdin with: tool_name, tool_input, error, is_interrupt
+# Writes failure event to $SCHMUX_EVENTS_FILE (per-session append-only JSONL).
 
 set -euo pipefail
 
@@ -52,30 +53,17 @@ case "$ERROR" in
     CATEGORY="timeout" ;;
 esac
 
-# Read workspace and session IDs from env (set by schmux at session spawn)
-WS_ID="${SCHMUX_WORKSPACE_ID:-unknown}"
-SESSION_ID="${SCHMUX_SESSION_ID:-unknown}"
+# Output: append failure event to session event file
+[ -n "${SCHMUX_EVENTS_FILE:-}" ] || exit 0
 
-# Build and append the lore entry
-# Use CLAUDE_PROJECT_DIR for absolute path; fall back to relative if not set
-if [ -n "$CLAUDE_PROJECT_DIR" ]; then
-  LORE_FILE="$CLAUDE_PROJECT_DIR/.schmux/lore.jsonl"
-else
-  LORE_FILE=".schmux/lore.jsonl"
-fi
-mkdir -p "$(dirname "$LORE_FILE")"
-
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 jq -n -c \
-  --arg ts "$TIMESTAMP" \
-  --arg ws "$WS_ID" \
-  --arg session "$SESSION_ID" \
+  --arg ts "$TS" \
   --arg tool "$TOOL" \
-  --arg input_summary "$INPUT_SUMMARY" \
-  --arg error_summary "$ERROR" \
+  --arg input "$INPUT_SUMMARY" \
+  --arg error "$ERROR" \
   --arg category "$CATEGORY" \
-  '{ts: $ts, ws: $ws, session: $session, agent: "claude-code", type: "failure", tool: $tool, input_summary: $input_summary, error_summary: $error_summary, category: $category}' \
-  >> "$LORE_FILE"
+  '{ts: $ts, type: "failure", tool: $tool, input: $input, error: $error, category: $category}' \
+  >> "$SCHMUX_EVENTS_FILE"
 
 exit 0

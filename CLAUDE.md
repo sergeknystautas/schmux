@@ -204,6 +204,7 @@ Routes:
 - `/resolve-conflict/{workspaceId}` - Linear sync conflict resolution
 - `/config` - Settings editor
 - `/settings/remote` - Remote flavor configuration
+- `/events` - Event monitor (dev mode only)
 - `/ws/terminal/{id}` - WebSocket for live terminal output
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates
 

@@ -55,9 +55,9 @@ export function truncateStart(text: string, maxLength = 40): string {
  * Shared nudge state emoji map used in AppShell sidebar and SessionTabs.
  */
 export const nudgeStateEmoji: Record<string, string> = {
-  'Needs Authorization': '\u26D4\uFE0F',
+  'Needs Input': '\u26D4\uFE0F',
   'Needs Feature Clarification': '\uD83D\uDD0D',
-  'Needs User Testing': '\uD83D\uDC40',
+  'Needs Attention': '\uD83D\uDC40',
   Completed: '\u2705',
   Error: '\u274C',
 };

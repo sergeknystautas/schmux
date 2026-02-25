@@ -81,6 +81,11 @@ func (m *Manager) SetGitWatcher(gw *GitWatcher) {
 	m.gitWatcher = gw
 }
 
+// SetHooksDir sets the centralized hooks directory on the ensurer.
+func (m *Manager) SetHooksDir(dir string) {
+	m.ensurer.SetHooksDir(dir)
+}
+
 // LockWorkspace attempts to lock a workspace for a sync operation.
 // Returns true if the lock was acquired, false if already locked by another sync.
 // Blocks until any in-flight UpdateGitStatus on this workspace completes.

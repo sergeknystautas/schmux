@@ -202,6 +202,7 @@ Notes:
 - `last_output_at` is an in-memory runtime signal and resets after daemon restart.
 - `last_output_at` may be omitted when no activity has been observed since daemon start.
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
+- `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started).
 - Unrecognized workspace sub-routes return 404.
 
 ### POST /api/workspaces/scan
@@ -1658,7 +1659,7 @@ Response:
 
 ### DELETE /api/lore/{repo}/entries
 
-Clears all raw signal entries by truncating workspace `lore.jsonl` files for the given repo.
+Clears all raw event entries by truncating per-session event JSONL files for the given repo.
 
 Response:
 
@@ -2218,6 +2219,25 @@ Remote access status update:
 }
 ```
 
+Event monitor (dev mode only, broadcasts all unified events):
+
+```json
+{
+  "type": "event",
+  "session_id": "ws1-abc123",
+  "event": {
+    "ts": "2026-02-24T10:00:00Z",
+    "type": "status",
+    "state": "working",
+    "message": "Running tests"
+  }
+}
+```
+
+- Only sent when dev mode is active
+- `event.type` values: `status`, `failure`, `reflection`, `friction`
+- `event` contains the raw event JSON from the unified events system
+
 ### WS /ws/provision/{provisionId}
 
 Streams PTY I/O for remote host provisioning. Provides interactive terminal access during remote host setup.
@@ -2529,3 +2549,23 @@ When dev mode is active, the healthz response includes an additional field:
   "dev_mode": true
 }
 ```
+
+### GET /api/dev/events/history
+
+Returns the most recent 200 events from all workspace event files, sorted chronologically. Used to bootstrap the event monitor on page load.
+
+Response:
+
+```json
+[
+  {
+    "session_id": "ws1-abc123",
+    "event": { "ts": "2026-02-24T10:00:00Z", "type": "status", "state": "working" },
+    "ts": "2026-02-24T10:00:00Z"
+  }
+]
+```
+
+- Scans `<workspace>/.schmux/events/*.jsonl` across all active workspaces
+- Session ID is derived from the filename (without `.jsonl` extension)
+- Returns at most 200 events, sorted oldest-first

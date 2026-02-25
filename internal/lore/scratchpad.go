@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/events"
 )
 
 // scratchpadMu serializes JSONL mutations to prevent read-then-append race conditions.
@@ -249,6 +250,39 @@ func MarkEntriesByTextMulti(sourcePaths []string, destPath string, stateChange s
 				}); err != nil {
 					return err
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// MarkEntriesByTextFromEntries marks entries matching the given texts by writing
+// state-change records to destPath. Unlike MarkEntriesByTextMulti, this takes
+// pre-read entries instead of file paths.
+func MarkEntriesByTextFromEntries(sourceEntries []Entry, destPath string, stateChange string, entryTexts []string, proposalID string) error {
+	scratchpadMu.Lock()
+	defer scratchpadMu.Unlock()
+
+	textSet := make(map[string]bool, len(entryTexts))
+	for _, t := range entryTexts {
+		textSet[t] = true
+	}
+
+	marked := make(map[string]bool)
+	for _, e := range sourceEntries {
+		if e.StateChange != "" {
+			continue
+		}
+		key := e.EntryKey()
+		if textSet[key] && !marked[key] {
+			marked[key] = true
+			if err := appendEntryToFile(destPath, Entry{
+				Timestamp:   time.Now().UTC(),
+				StateChange: stateChange,
+				EntryTS:     e.Timestamp.Format(time.RFC3339),
+				ProposalID:  proposalID,
+			}); err != nil {
+				return err
 			}
 		}
 	}
@@ -519,6 +553,66 @@ func ReadEntriesMulti(paths []string, filter EntryFilter) ([]Entry, error) {
 		all = filter(all)
 	}
 	return all, nil
+}
+
+// loreEventTypes are the event types that map to lore entries.
+var loreEventTypes = map[string]bool{"failure": true, "reflection": true, "friction": true}
+
+// ReadEntriesFromEvents reads lore-relevant events from per-session event files.
+// It scans <workspacePath>/.schmux/events/*.jsonl for failure, reflection, friction events
+// and converts them to lore Entry values.
+func ReadEntriesFromEvents(workspacePath, workspaceID string, filter EntryFilter) ([]Entry, error) {
+	pattern := filepath.Join(workspacePath, ".schmux", "events", "*.jsonl")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []Entry
+	for _, f := range files {
+		sessionID := strings.TrimSuffix(filepath.Base(f), ".jsonl")
+		eventLines, err := events.ReadEvents(f, func(raw events.RawEvent) bool {
+			return loreEventTypes[raw.Type]
+		})
+		if err != nil {
+			continue
+		}
+		for _, el := range eventLines {
+			entry := eventLineToEntry(el, sessionID, workspaceID)
+			entries = append(entries, entry)
+		}
+	}
+	if filter != nil {
+		entries = filter(entries)
+	}
+	return entries, nil
+}
+
+// eventLineToEntry converts an event line to a lore Entry.
+func eventLineToEntry(el events.EventLine, sessionID, workspaceID string) Entry {
+	ts, _ := time.Parse(time.RFC3339, el.Ts)
+	entry := Entry{
+		Timestamp: ts,
+		Workspace: workspaceID,
+		Session:   sessionID,
+		Type:      el.Type,
+	}
+	switch el.Type {
+	case "failure":
+		var fe events.FailureEvent
+		if err := json.Unmarshal(el.Data, &fe); err == nil {
+			entry.Tool = fe.Tool
+			entry.InputSummary = fe.Input
+			entry.ErrorSummary = fe.Error
+			entry.Category = fe.Category
+		}
+	case "reflection", "friction":
+		var re events.ReflectionEvent
+		if err := json.Unmarshal(el.Data, &re); err == nil {
+			entry.Text = re.Text
+		}
+	}
+	return entry
 }
 
 // LoreStateDir returns the central lore state directory for a repo: ~/.schmux/lore/<repoName>/.

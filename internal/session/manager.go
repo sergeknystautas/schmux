@@ -16,9 +16,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/remote"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -41,7 +41,7 @@ type Manager struct {
 	logger                  *log.Logger
 	ensurer                 *ensure.Ensurer
 	remoteManager           *remote.Manager // Optional, for remote sessions
-	signalCallback          func(sessionID string, sig signal.Signal)
+	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
 	trackers                map[string]*SessionTracker
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
@@ -54,10 +54,10 @@ type Manager struct {
 
 // remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
 type remoteSignalMonitor struct {
-	watcher         *signal.RemoteSignalWatcher
-	watcherWindowID string
-	watcherPaneID   string
-	stopCh          chan struct{}
+	remoteEventWatcher *events.RemoteEventWatcher
+	watcherWindowID    string
+	watcherPaneID      string
+	stopCh             chan struct{}
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -99,10 +99,16 @@ func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
 }
 
-// SetSignalCallback sets the callback invoked when a session emits a signal.
+// SetHooksDir sets the centralized hooks directory on the ensurer.
 // Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetSignalCallback(cb func(sessionID string, sig signal.Signal)) {
-	m.signalCallback = cb
+func (m *Manager) SetHooksDir(dir string) {
+	m.ensurer.SetHooksDir(dir)
+}
+
+// SetEventHandlers sets the event handlers for the unified event system.
+// Must be called before Start() — not safe for concurrent use.
+func (m *Manager) SetEventHandlers(handlers map[string][]events.EventHandler) {
+	m.eventHandlers = handlers
 }
 
 // SetOutputCallback sets the callback for terminal output chunks from local trackers.
@@ -148,15 +154,15 @@ func (m *Manager) trackSessionCreated(sessionID, workspaceID, target string) {
 }
 
 // StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
-// the signal file and emits sentinel-wrapped output. A goroutine subscribes to the
-// watcher pane's output and invokes the signal callback on changes.
+// the event file and emits sentinel-wrapped output. A goroutine subscribes to the
+// watcher pane's output and dispatches events via handlers.
 // The goroutine automatically reconnects when the output channel closes (e.g., due to
 // a dropped remote connection), retrying until explicitly stopped via StopRemoteSignalMonitor.
 func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	if m.remoteManager == nil || sess.RemotePaneID == "" || sess.RemoteHostID == "" {
 		return
 	}
-	if m.signalCallback == nil {
+	if len(m.eventHandlers) == 0 {
 		return
 	}
 
@@ -168,9 +174,8 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 
 	sessionID := sess.ID
 	hostID := sess.RemoteHostID
-	signalCb := m.signalCallback
 
-	// Determine workspace path for the signal file before inserting into the map,
+	// Determine workspace path for the event file before inserting into the map,
 	// so we never create a dangling entry with an unclosed stopCh.
 	workspacePath := ""
 	if ws, ok := m.state.GetWorkspace(sess.WorkspaceID); ok {
@@ -182,11 +187,11 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 	}
 	if workspacePath == "" {
 		m.mu.Unlock()
-		signalLog := logging.Sub(m.logger, "signal")
-		signalLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
+		eventsLog := logging.Sub(m.logger, "events")
+		eventsLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
 		return
 	}
-	statusFilePath := filepath.Join(workspacePath, ".schmux", "signal", sessionID)
+	eventsFilePath := filepath.Join(workspacePath, ".schmux", "events", sessionID+".jsonl")
 
 	stopCh := make(chan struct{})
 	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
@@ -225,13 +230,13 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
 			}
-			windowName := "schmux-signal-" + shortID
+			windowName := "schmux-events-" + shortID
 
 			ctx := context.Background()
 			windowID, paneID, err := conn.CreateSession(ctx, windowName, workspacePath, "")
 			if err != nil {
-				signalLog := logging.Sub(m.logger, "signal")
-				signalLog.Error("failed to create watcher window", "session", sessionID, "err", err)
+				eventsLog := logging.Sub(m.logger, "events")
+				eventsLog.Error("failed to create watcher window", "session", sessionID, "err", err)
 				select {
 				case <-stopCh:
 					return
@@ -249,11 +254,11 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 			case <-time.After(200 * time.Millisecond):
 			}
 
-			// Type the watcher script into the pane
-			watcherScript := signal.WatcherScript(statusFilePath)
+			// Type the event watcher script into the pane
+			watcherScript := events.RemoteWatcherScript(eventsFilePath)
 			if err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
-				signalLog := logging.Sub(m.logger, "signal")
-				signalLog.Error("failed to send watcher script", "session", sessionID, "err", err)
+				eventsLog := logging.Sub(m.logger, "events")
+				eventsLog.Error("failed to send watcher script", "session", sessionID, "err", err)
 				conn.KillSession(ctx, windowID)
 				select {
 				case <-stopCh:
@@ -263,37 +268,17 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 				}
 			}
 
-			// Create the watcher and subscribe to output
-			watcher := signal.NewRemoteSignalWatcher(sessionID, func(sig signal.Signal) {
-				signalCb(sessionID, sig)
-			})
-			watcher.SetLogger(m.logger)
+			// Create the event watcher
+			remoteEvWatcher := events.NewRemoteEventWatcher(sessionID, m.eventHandlers)
 
 			// Update the monitor reference
 			m.mu.Lock()
 			if mon := m.remoteDetectors[sessionID]; mon != nil {
-				mon.watcher = watcher
+				mon.remoteEventWatcher = remoteEvWatcher
 				mon.watcherWindowID = windowID
 				mon.watcherPaneID = paneID
 			}
 			m.mu.Unlock()
-
-			// Initial state recovery: read current signal file content
-			catCtx, catCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			output, err := conn.RunCommand(catCtx, workspacePath, fmt.Sprintf("cat .schmux/signal/%s 2>/dev/null", sessionID))
-			catCancel()
-			if err == nil && strings.TrimSpace(output) != "" {
-				if lastSig := signal.ParseSignalFile(output); lastSig != nil {
-					storedSess, ok := m.state.GetSession(sessionID)
-					if ok {
-						nudgeState := signal.MapStateToNudge(lastSig.State)
-						storedNudgeState := extractNudgeState(storedSess.Nudge)
-						if storedNudgeState != nudgeState {
-							signalCb(sessionID, *lastSig)
-						}
-					}
-				}
-			}
 
 			// Subscribe to output from the watcher pane
 			outputCh := conn.SubscribeOutput(paneID)
@@ -310,7 +295,7 @@ func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
 						break inner
 					}
 					if event.Data != "" {
-						watcher.ProcessOutput(event.Data)
+						remoteEvWatcher.ProcessOutput(event.Data)
 					}
 				}
 			}
@@ -416,7 +401,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "signal", sessionID),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(flavor.WorkspacePath, ".schmux", "events", sessionID+".jsonl"),
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -502,12 +487,12 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 					m.logger.Error("queued session: failed to save state", "session", sessionID, "err", err)
 				}
 				if updatedStatus == "running" {
-					// Ensure .schmux/signal directory exists on remote host for file-based signaling
+					// Ensure .schmux/events directory exists on remote host
 					qConn := m.remoteManager.GetConnection(host.ID)
 					if qConn != nil && qConn.IsConnected() {
 						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); mkErr != nil {
-							m.logger.Warn("failed to create .schmux/signal directory", "session", sessionID, "err", mkErr)
+						if _, mkErr := qConn.RunCommand(mkCtx, flavor.WorkspacePath, "mkdir -p .schmux/events"); mkErr != nil {
+							m.logger.Warn("failed to create .schmux/events directory", "session", sessionID, "err", mkErr)
 						}
 						mkCancel()
 					}
@@ -524,10 +509,10 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 	// Connected - create immediately (existing code path)
 
-	// Ensure .schmux/signal directory exists on remote host for file-based signaling
+	// Ensure .schmux/events directory exists on remote host
 	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
-	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/signal"); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory on remote host", "err", err)
+	if _, err := conn.RunCommand(mkdirCtx, flavor.WorkspacePath, "mkdir -p .schmux/events"); err != nil {
+		m.logger.Warn("failed to create .schmux/events directory on remote host", "err", err)
 	}
 	mkdirCancel()
 
@@ -638,10 +623,10 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	// Ensure .schmux/signal directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
+	// Ensure .schmux/events directory exists for event-based signaling
+	eventsDir := filepath.Join(w.Path, ".schmux", "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		m.logger.Warn("failed to create .schmux/events directory", "err", err)
 	}
 
 	// Resolve model if target is a model kind
@@ -660,7 +645,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
 	})
 
 	command, err := buildCommand(resolved, opts.Prompt, model, opts.Resume, false)
@@ -769,10 +754,10 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Ensure .schmux/signal directory exists for file-based signaling
-	schmuxDir := filepath.Join(w.Path, ".schmux", "signal")
-	if err := os.MkdirAll(schmuxDir, 0755); err != nil {
-		m.logger.Warn("failed to create .schmux/signal directory", "err", err)
+	// Ensure .schmux/events directory exists for event-based signaling
+	eventsDirCmd := filepath.Join(w.Path, ".schmux", "events")
+	if err := os.MkdirAll(eventsDirCmd, 0755); err != nil {
+		m.logger.Warn("failed to create .schmux/events directory", "err", err)
 	}
 
 	// Inject schmux signaling environment variables into the command
@@ -780,7 +765,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
-		"SCHMUX_STATUS_FILE":  filepath.Join(w.Path, ".schmux", "signal", sessionID),
+		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
 	}
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 
@@ -1355,20 +1340,12 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 		return existing
 	}
 
-	// Build signal file path from workspace path
-	var signalFilePath string
+	// Build event file path from workspace path
+	var eventFilePath string
 	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-		signalFilePath = filepath.Join(ws.Path, ".schmux", "signal", sess.ID)
+		eventFilePath = filepath.Join(ws.Path, ".schmux", "events", sess.ID+".jsonl")
 	}
 
-	var cb func(signal.Signal)
-	if m.signalCallback != nil {
-		sessionID := sess.ID
-		signalCb := m.signalCallback
-		cb = func(sig signal.Signal) {
-			signalCb(sessionID, sig)
-		}
-	}
 	var outputCb func([]byte)
 	if m.outputCallback != nil {
 		sessionID := sess.ID
@@ -1377,31 +1354,10 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionTracker {
 			handler(sessionID, chunk)
 		}
 	}
-	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, signalFilePath, cb, outputCb, m.logger)
+	tracker := NewSessionTracker(sess.ID, sess.TmuxSession, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
 	m.trackers[sess.ID] = tracker
 
-	// Recover signal state from file (replaces scrollback recovery).
-	// Collect the signal to fire AFTER releasing the lock to avoid
-	// invoking the callback (which acquires state.mu) under m.mu.
-	var pendingSignal *signal.Signal
-	if fw := tracker.fileWatcher; fw != nil {
-		if lastSig := fw.ReadCurrent(); lastSig != nil {
-			storedSess, ok := m.state.GetSession(sess.ID)
-			if ok {
-				nudgeState := signal.MapStateToNudge(lastSig.State)
-				if storedSess.Nudge != nudgeState && cb != nil {
-					pendingSignal = lastSig
-				}
-			}
-		}
-	}
-
 	m.mu.Unlock()
-
-	// Fire recovered signal callback outside the lock.
-	if pendingSignal != nil {
-		cb(*pendingSignal)
-	}
 
 	tracker.Start()
 	return tracker

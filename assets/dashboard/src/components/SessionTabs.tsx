@@ -278,12 +278,12 @@ export default function SessionTabs({
       sess.nudge_state === 'Working' ||
       (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
 
+    const isIdleState = sess.nudge_state === 'Idle';
+
     // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
     let nudgePreviewElement: React.ReactNode = null;
-    if (!isWorkingState) {
-      const nudgeEmoji = sess.nudge_state
-        ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
-        : null;
+    if (!isWorkingState && !isIdleState) {
+      const nudgeEmoji = sess.nudge_state ? nudgeStateEmoji[sess.nudge_state] || null : null;
       if (nudgeEmoji) {
         nudgePreviewElement = nudgeSummary
           ? `${nudgeEmoji} ${nudgeSummary}`

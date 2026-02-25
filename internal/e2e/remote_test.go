@@ -585,10 +585,10 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 			}
 		}
 
-		// Verify hooks reference SCHMUX_STATUS_FILE
+		// Verify hooks reference SCHMUX_EVENTS_FILE
 		hooksStr := string(hooksRaw)
-		if !strings.Contains(hooksStr, "SCHMUX_STATUS_FILE") {
-			t.Error("Hooks do not reference SCHMUX_STATUS_FILE")
+		if !strings.Contains(hooksStr, "SCHMUX_EVENTS_FILE") {
+			t.Error("Hooks do not reference SCHMUX_EVENTS_FILE")
 		}
 
 		// Verify state values are present in the commands

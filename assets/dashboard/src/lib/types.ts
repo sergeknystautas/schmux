@@ -504,3 +504,24 @@ export interface CurationRun {
   done: boolean;
   error?: string;
 }
+
+/** A raw event from the unified events system, streamed via WebSocket in dev mode. */
+export type MonitorEvent = {
+  session_id: string;
+  event: {
+    ts: string;
+    type: string;
+    // Status fields
+    state?: string;
+    message?: string;
+    intent?: string;
+    blockers?: string;
+    // Failure fields
+    tool?: string;
+    input?: string;
+    error?: string;
+    category?: string;
+    // Reflection/friction fields
+    text?: string;
+  };
+};

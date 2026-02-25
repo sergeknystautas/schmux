@@ -212,6 +212,10 @@ Linear sync conflict resolution progress view.
 
 Remote flavor configuration for SSH-based remote workspaces.
 
+### Event Monitor (`/events`, dev mode only)
+
+Real-time event monitor for the unified events system. Shows all events (status, failure, reflection, friction) from active sessions. Sidebar panel shows the last 5 events; full page view at `/events` provides a filterable table with type and session filters, auto-scroll, and expandable rows for raw JSON inspection.
+
 ### Authentication (Optional)
 
 When enabled, the dashboard requires GitHub login and runs over HTTPS. Configure this under **Settings → Advanced → Access Control** or via `schmux auth github`.

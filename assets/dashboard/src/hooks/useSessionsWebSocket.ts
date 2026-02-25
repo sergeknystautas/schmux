@@ -8,6 +8,7 @@ import type {
   WorkspaceSyncResultEvent,
   CuratorStreamEvent,
   CurationRun,
+  MonitorEvent,
 } from '../lib/types';
 
 const RECONNECT_DELAY_MS = 2000;
@@ -103,6 +104,12 @@ function isCuratorStateMessage(
   return data.type === 'curator_state' && isObject(data.run);
 }
 
+function isMonitorEventMessage(
+  data: Record<string, unknown>
+): data is { type: 'event'; session_id: string; event: Record<string, unknown> } {
+  return data.type === 'event' && isString(data.session_id) && isObject(data.event);
+}
+
 function parseSyncProgress(v: unknown): { current: number; total: number } | undefined {
   if (!isObject(v)) return undefined;
   if (!isNumber(v.current) || !isNumber(v.total)) return undefined;
@@ -143,6 +150,8 @@ type SessionsWebSocketState = {
   clearOverlayEvents: () => void;
   remoteAccessStatus: RemoteAccessStatus;
   curatorEvents: Record<string, CuratorStreamEvent[]>;
+  monitorEvents: MonitorEvent[];
+  clearMonitorEvents: () => void;
 };
 
 export default function useSessionsWebSocket(opts?: {
@@ -164,6 +173,7 @@ export default function useSessionsWebSocket(opts?: {
     state: 'off',
   });
   const [curatorEvents, setCuratorEvents] = useState<Record<string, CuratorStreamEvent[]>>({});
+  const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([]);
   const onPreviewDetectedRef = useRef(opts?.onPreviewDetected);
   onPreviewDetectedRef.current = opts?.onPreviewDetected;
   const wsRef = useRef<WebSocket | null>(null);
@@ -302,6 +312,15 @@ export default function useSessionsWebSocket(opts?: {
             ...prev,
             [run.repo]: run.events,
           }));
+        } else if (isMonitorEventMessage(data)) {
+          setMonitorEvents((prev) => {
+            const next = [
+              ...prev,
+              { session_id: data.session_id, event: data.event as MonitorEvent['event'] },
+            ];
+            // Ring buffer: keep last 200
+            return next.length > 200 ? next.slice(next.length - 200) : next;
+          });
         }
       } catch (e) {
         console.error('[ws/dashboard] failed to parse message:', e);
@@ -361,6 +380,10 @@ export default function useSessionsWebSocket(opts?: {
     setSyncResultEvents([]);
   }, []);
 
+  const clearMonitorEvents = useCallback(() => {
+    setMonitorEvents([]);
+  }, []);
+
   return {
     workspaces,
     connected,
@@ -375,5 +398,7 @@ export default function useSessionsWebSocket(opts?: {
     clearOverlayEvents,
     remoteAccessStatus,
     curatorEvents,
+    monitorEvents,
+    clearMonitorEvents,
   };
 }

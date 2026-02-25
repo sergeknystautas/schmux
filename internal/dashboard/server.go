@@ -611,6 +611,7 @@ func (s *Server) Start() error {
 		// Dev-mode routes
 		if s.devMode {
 			r.Get("/dev/status", s.handleDevStatus)
+			r.Get("/dev/events/history", s.handleEventsHistory)
 			r.Group(func(r chi.Router) {
 				r.Use(s.csrfMiddleware)
 				r.Post("/dev/rebuild", s.handleDevRebuild)
@@ -1299,6 +1300,25 @@ func (s *Server) BroadcastCuratorEvent(event CuratorEvent) {
 	}{
 		Type:  "curator_event",
 		Event: event,
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	s.broadcastToAllDashboardConns(payload)
+}
+
+// BroadcastEvent sends a raw event to all connected dashboard WebSocket clients.
+// Used by the event monitor (dev mode only).
+func (s *Server) BroadcastEvent(sessionID string, data json.RawMessage) {
+	msg := struct {
+		Type      string          `json:"type"`
+		SessionID string          `json:"session_id"`
+		Event     json.RawMessage `json:"event"`
+	}{
+		Type:      "event",
+		SessionID: sessionID,
+		Event:     data,
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
