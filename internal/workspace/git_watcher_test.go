@@ -128,6 +128,105 @@ func TestResolveSharedBaseRefs(t *testing.T) {
 	}
 }
 
+func TestSuppressionPathsForGitCommandDir_Worktree(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	baseRepo := filepath.Join(tmpDir, "base.git")
+	baseRefs := filepath.Join(baseRepo, "refs")
+	worktreeGitDir := filepath.Join(baseRepo, "worktrees", "wt")
+	if err := os.MkdirAll(baseRefs, 0755); err != nil {
+		t.Fatalf("failed to create base refs: %v", err)
+	}
+	if err := os.MkdirAll(worktreeGitDir, 0755); err != nil {
+		t.Fatalf("failed to create worktree gitdir: %v", err)
+	}
+
+	worktree := filepath.Join(tmpDir, "wt")
+	if err := os.MkdirAll(worktree, 0755); err != nil {
+		t.Fatalf("failed to create worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+worktreeGitDir+"\n"), 0644); err != nil {
+		t.Fatalf("failed to write .git file: %v", err)
+	}
+
+	paths := suppressionPathsForGitCommandDir(worktree)
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 suppression paths, got %d: %v", len(paths), paths)
+	}
+	if paths[0] != filepath.Clean(worktreeGitDir) && paths[1] != filepath.Clean(worktreeGitDir) {
+		t.Errorf("worktree gitdir missing from suppression paths: %v", paths)
+	}
+	if paths[0] != filepath.Clean(baseRefs) && paths[1] != filepath.Clean(baseRefs) {
+		t.Errorf("base refs missing from suppression paths: %v", paths)
+	}
+}
+
+func TestSuppressionPathsForGitCommandDir_BareRepo(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	bare := filepath.Join(tmpDir, "repo.git")
+	if err := os.MkdirAll(filepath.Join(bare, "refs"), 0755); err != nil {
+		t.Fatalf("failed to create refs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(bare, "objects"), 0755); err != nil {
+		t.Fatalf("failed to create objects: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bare, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("failed to write HEAD: %v", err)
+	}
+
+	paths := suppressionPathsForGitCommandDir(bare)
+	if len(paths) != 1 || paths[0] != filepath.Clean(bare) {
+		t.Fatalf("unexpected suppression paths for bare repo: %v", paths)
+	}
+}
+
+func TestInternalSuppressionLifecycle(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	gw := NewGitWatcher(cfg, nil, nil, testLogger())
+	if gw == nil {
+		t.Fatal("NewGitWatcher() returned nil")
+	}
+	defer gw.Stop()
+
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0755); err != nil {
+		t.Fatalf("failed to create refs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(gitDir, "objects"), 0755); err != nil {
+		t.Fatalf("failed to create objects: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatalf("failed to write HEAD: %v", err)
+	}
+
+	release := gw.BeginInternalGitSuppressionForDir(gitDir)
+	if !gw.isSuppressedPath(filepath.Join(gitDir, "refs", "heads", "main")) {
+		t.Fatal("expected path to be suppressed while command is active")
+	}
+
+	release()
+	if !gw.isSuppressedPath(filepath.Join(gitDir, "FETCH_HEAD")) {
+		t.Fatal("expected path to remain suppressed during grace period")
+	}
+
+	// Force expiration to avoid sleeping for the grace period in tests.
+	gw.suppressedPathsMu.Lock()
+	key := filepath.Clean(gitDir)
+	state := gw.suppressedPaths[key]
+	state.active = 0
+	state.until = time.Now().Add(-time.Millisecond)
+	gw.suppressedPaths[key] = state
+	gw.suppressedPathsMu.Unlock()
+
+	if gw.isSuppressedPath(filepath.Join(gitDir, "refs", "heads", "main")) {
+		t.Fatal("expected suppression to expire after grace period")
+	}
+}
+
 func TestWatcherDisabledByConfig(t *testing.T) {
 	t.Parallel()
 	disabled := false
@@ -259,7 +358,11 @@ func TestNewDirsWatched(t *testing.T) {
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
 	refsDir := filepath.Join(gitDir, "refs")
+	logsDir := filepath.Join(gitDir, "logs")
 	if err := os.MkdirAll(refsDir, 0755); err != nil {
+		t.Fatalf("failed to create dirs: %v", err)
+	}
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		t.Fatalf("failed to create dirs: %v", err)
 	}
 
@@ -276,22 +379,31 @@ func TestNewDirsWatched(t *testing.T) {
 		t.Fatal("NewGitWatcher() returned nil")
 	}
 	gw.AddWorkspace("test-001", tmpDir)
+
+	// refs/ should not be watched (high-noise remote/shared ref churn belongs to poller)
+	gw.watchedPathsMu.Lock()
+	_, refsWatched := gw.watchedPaths[refsDir]
+	gw.watchedPathsMu.Unlock()
+	if refsWatched {
+		t.Fatal("did not expect refs/ directory to be watched")
+	}
+
 	gw.Start()
 	defer gw.Stop()
 
-	// Create a new subdirectory under refs/ (simulates git fetch creating new remote)
-	newRemoteDir := filepath.Join(refsDir, "remotes", "origin")
-	if err := os.MkdirAll(newRemoteDir, 0755); err != nil {
-		t.Fatalf("failed to create remote dir: %v", err)
+	// Create a new subdirectory under logs/ and ensure CREATE handling adds a watch.
+	newLogsDir := filepath.Join(logsDir, "refs", "heads")
+	if err := os.MkdirAll(newLogsDir, 0755); err != nil {
+		t.Fatalf("failed to create logs dir: %v", err)
 	}
 
-	// Poll until the new directory appears in watched paths
-	intermediateDir := filepath.Join(refsDir, "remotes")
+	// Poll until the new directory (or its parent) appears in watched paths
+	intermediateDir := filepath.Join(logsDir, "refs")
 	deadline := time.Now().Add(2 * time.Second)
 	var watched, intermediateWatched bool
 	for time.Now().Before(deadline) {
 		gw.watchedPathsMu.Lock()
-		_, watched = gw.watchedPaths[newRemoteDir]
+		_, watched = gw.watchedPaths[newLogsDir]
 		_, intermediateWatched = gw.watchedPaths[intermediateDir]
 		gw.watchedPathsMu.Unlock()
 
@@ -302,7 +414,7 @@ func TestNewDirsWatched(t *testing.T) {
 	}
 
 	if !watched && !intermediateWatched {
-		t.Error("expected new subdirectory under refs/ to be watched after CREATE event")
+		t.Error("expected new subdirectory under logs/ to be watched after CREATE event")
 	}
 }
 

@@ -205,9 +205,15 @@ func (m *Manager) gitHasOriginRemote(ctx context.Context, dir string) bool {
 
 // gitRemoteBranchExists checks for refs/remotes/origin/<branch>.
 func (m *Manager) gitRemoteBranchExists(ctx context.Context, dir, branch string) (bool, error) {
+	return m.gitRemoteBranchExistsInstrumented(ctx, "", RefreshTriggerExplicit, dir, branch)
+}
+
+// gitRemoteBranchExistsInstrumented checks for refs/remotes/origin/<branch> with
+// telemetry attribution for the caller's trigger/workspace.
+func (m *Manager) gitRemoteBranchExistsInstrumented(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, branch string) (bool, error) {
 	ref := "refs/remotes/origin/" + branch
 
-	if err := m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "show-ref", "--verify", "--quiet", ref); err != nil {
+	if err := m.runGitErr(ctx, workspaceID, trigger, dir, "show-ref", "--verify", "--quiet", ref); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return false, nil
 		}
@@ -331,7 +337,11 @@ func (m *Manager) GetDirtyFiles(ctx context.Context, dir string) ([]GitChangedFi
 // Returns true if `git merge-base HEAD <ref>` succeeds (i.e., the histories are related).
 // Returns false if there is no common ancestor (e.g., orphaned/force-pushed branch).
 func (m *Manager) hasCommonAncestor(ctx context.Context, dir, ref string) bool {
-	return m.runGitErr(ctx, "", RefreshTriggerExplicit, dir, "merge-base", "HEAD", ref) == nil
+	return m.hasCommonAncestorInstrumented(ctx, "", RefreshTriggerExplicit, dir, ref)
+}
+
+func (m *Manager) hasCommonAncestorInstrumented(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, ref string) bool {
+	return m.runGitErr(ctx, workspaceID, trigger, dir, "merge-base", "HEAD", ref) == nil
 }
 
 // gitStatus calculates the git status for a workspace directory.
@@ -382,7 +392,7 @@ func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger Ref
 	currentBranch, _ := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, dir)
 	if currentBranch != "" && currentBranch != "HEAD" {
 		// Check if origin/{branch} exists
-		remoteBranchExists, _ = m.gitRemoteBranchExists(ctx, dir, currentBranch)
+		remoteBranchExists, _ = m.gitRemoteBranchExistsInstrumented(ctx, workspaceID, trigger, dir, currentBranch)
 		if remoteBranchExists {
 			remoteRef := "origin/" + currentBranch
 
