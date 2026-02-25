@@ -3,6 +3,7 @@ package compound
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,6 +401,37 @@ func TestExecuteMerge_JSONLLineUnion(t *testing.T) {
 	if strings.Count(result, `"text":"A"`) != 1 {
 		t.Error("A should appear exactly once (deduped)")
 	}
+}
+
+// --- MergeAction.String tests ---
+
+func TestMergeAction_String(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		action MergeAction
+		want   string
+	}{
+		{MergeActionSkip, "skip"},
+		{MergeActionFastPath, "fast-path"},
+		{MergeActionLLMMerge, "llm-merge"},
+		{MergeAction(99), "unknown(99)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := tt.action.String()
+			if got != tt.want {
+				t.Errorf("MergeAction(%d).String() = %q, want %q", int(tt.action), got, tt.want)
+			}
+		})
+	}
+
+	t.Run("satisfies fmt.Stringer", func(t *testing.T) {
+		got := fmt.Sprintf("%s", MergeActionFastPath)
+		if got != "fast-path" {
+			t.Errorf("fmt.Sprintf(%%s) = %q, want 'fast-path'", got)
+		}
+	})
 }
 
 // --- DetermineMergeAction table-driven ---

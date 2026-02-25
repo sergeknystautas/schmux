@@ -1213,3 +1213,200 @@ func TestFlushPending_NoPending(t *testing.T) {
 	// Should not panic when no pending saves
 	s.FlushPending()
 }
+
+func TestGetWorkspacePreviews(t *testing.T) {
+	s := New("", nil)
+
+	// Insert previews across two workspaces
+	s.UpsertPreview(WorkspacePreview{ID: "prev-1", WorkspaceID: "ws-1", TargetHost: "127.0.0.1", TargetPort: 3000})
+	s.UpsertPreview(WorkspacePreview{ID: "prev-2", WorkspaceID: "ws-1", TargetHost: "127.0.0.1", TargetPort: 5173})
+	s.UpsertPreview(WorkspacePreview{ID: "prev-3", WorkspaceID: "ws-2", TargetHost: "127.0.0.1", TargetPort: 8080})
+
+	t.Run("returns only matching workspace previews", func(t *testing.T) {
+		got := s.GetWorkspacePreviews("ws-1")
+		if len(got) != 2 {
+			t.Fatalf("GetWorkspacePreviews('ws-1') returned %d previews, want 2", len(got))
+		}
+		ids := map[string]bool{}
+		for _, p := range got {
+			ids[p.ID] = true
+		}
+		if !ids["prev-1"] || !ids["prev-2"] {
+			t.Errorf("expected prev-1 and prev-2, got %v", ids)
+		}
+	})
+
+	t.Run("returns empty slice for unknown workspace", func(t *testing.T) {
+		got := s.GetWorkspacePreviews("nonexistent")
+		if got == nil {
+			t.Error("expected non-nil empty slice, got nil")
+		}
+		if len(got) != 0 {
+			t.Errorf("expected 0 previews, got %d", len(got))
+		}
+	})
+}
+
+func TestGetPreviews(t *testing.T) {
+	s := New("", nil)
+
+	t.Run("returns empty slice when no previews", func(t *testing.T) {
+		got := s.GetPreviews()
+		if len(got) != 0 {
+			t.Errorf("expected 0 previews, got %d", len(got))
+		}
+	})
+
+	t.Run("returns all previews", func(t *testing.T) {
+		s.UpsertPreview(WorkspacePreview{ID: "p1", WorkspaceID: "ws-1"})
+		s.UpsertPreview(WorkspacePreview{ID: "p2", WorkspaceID: "ws-2"})
+
+		got := s.GetPreviews()
+		if len(got) != 2 {
+			t.Fatalf("expected 2 previews, got %d", len(got))
+		}
+	})
+}
+
+func TestRemoveWorkspacePreviews(t *testing.T) {
+	s := New("", nil)
+	s.UpsertPreview(WorkspacePreview{ID: "p1", WorkspaceID: "ws-1"})
+	s.UpsertPreview(WorkspacePreview{ID: "p2", WorkspaceID: "ws-1"})
+	s.UpsertPreview(WorkspacePreview{ID: "p3", WorkspaceID: "ws-2"})
+
+	t.Run("removes matching and returns count", func(t *testing.T) {
+		removed := s.RemoveWorkspacePreviews("ws-1")
+		if removed != 2 {
+			t.Errorf("RemoveWorkspacePreviews() = %d, want 2", removed)
+		}
+
+		// ws-2 preview should survive
+		remaining := s.GetPreviews()
+		if len(remaining) != 1 {
+			t.Fatalf("expected 1 remaining preview, got %d", len(remaining))
+		}
+		if remaining[0].ID != "p3" {
+			t.Errorf("remaining preview ID = %q, want 'p3'", remaining[0].ID)
+		}
+	})
+
+	t.Run("returns zero for no matches", func(t *testing.T) {
+		removed := s.RemoveWorkspacePreviews("nonexistent")
+		if removed != 0 {
+			t.Errorf("RemoveWorkspacePreviews() = %d, want 0", removed)
+		}
+	})
+}
+
+func TestUpdateOverlayManifest(t *testing.T) {
+	s := New("", nil)
+	s.AddWorkspace(Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: "/tmp"})
+
+	t.Run("sets manifest on existing workspace", func(t *testing.T) {
+		manifest := map[string]string{"file.txt": "abc123"}
+		s.UpdateOverlayManifest("ws-1", manifest)
+
+		ws, found := s.GetWorkspace("ws-1")
+		if !found {
+			t.Fatal("workspace not found")
+		}
+		if ws.OverlayManifest["file.txt"] != "abc123" {
+			t.Errorf("OverlayManifest['file.txt'] = %q, want 'abc123'", ws.OverlayManifest["file.txt"])
+		}
+	})
+
+	t.Run("replaces existing manifest entirely", func(t *testing.T) {
+		newManifest := map[string]string{"other.txt": "def456"}
+		s.UpdateOverlayManifest("ws-1", newManifest)
+
+		ws, _ := s.GetWorkspace("ws-1")
+		if _, exists := ws.OverlayManifest["file.txt"]; exists {
+			t.Error("old manifest entry 'file.txt' should not exist after replacement")
+		}
+		if ws.OverlayManifest["other.txt"] != "def456" {
+			t.Errorf("OverlayManifest['other.txt'] = %q, want 'def456'", ws.OverlayManifest["other.txt"])
+		}
+	})
+
+	t.Run("no-ops for unknown workspace", func(t *testing.T) {
+		// Should not panic or error
+		s.UpdateOverlayManifest("nonexistent", map[string]string{"x": "y"})
+	})
+}
+
+func TestWorktreeBaseCRUD(t *testing.T) {
+	s := New("", nil)
+
+	t.Run("GetWorktreeBases returns empty slice when nil", func(t *testing.T) {
+		bases := s.GetWorktreeBases()
+		if bases == nil {
+			t.Error("expected non-nil empty slice, got nil")
+		}
+		if len(bases) != 0 {
+			t.Errorf("expected 0 bases, got %d", len(bases))
+		}
+	})
+
+	t.Run("AddWorktreeBase inserts new entry", func(t *testing.T) {
+		err := s.AddWorktreeBase(WorktreeBase{
+			RepoURL: "git@github.com:user/repo.git",
+			Path:    "/home/user/.schmux/repos/repo.git",
+		})
+		if err != nil {
+			t.Fatalf("AddWorktreeBase() error: %v", err)
+		}
+
+		bases := s.GetWorktreeBases()
+		if len(bases) != 1 {
+			t.Fatalf("expected 1 base, got %d", len(bases))
+		}
+		if bases[0].RepoURL != "git@github.com:user/repo.git" {
+			t.Errorf("RepoURL = %q, want 'git@github.com:user/repo.git'", bases[0].RepoURL)
+		}
+	})
+
+	t.Run("AddWorktreeBase upserts by RepoURL", func(t *testing.T) {
+		err := s.AddWorktreeBase(WorktreeBase{
+			RepoURL: "git@github.com:user/repo.git",
+			Path:    "/updated/path",
+		})
+		if err != nil {
+			t.Fatalf("AddWorktreeBase() error: %v", err)
+		}
+
+		bases := s.GetWorktreeBases()
+		if len(bases) != 1 {
+			t.Fatalf("expected 1 base after upsert, got %d", len(bases))
+		}
+		if bases[0].Path != "/updated/path" {
+			t.Errorf("Path = %q, want '/updated/path' (should have been updated)", bases[0].Path)
+		}
+	})
+
+	t.Run("GetWorktreeBaseByURL finds entry", func(t *testing.T) {
+		wb, found := s.GetWorktreeBaseByURL("git@github.com:user/repo.git")
+		if !found {
+			t.Fatal("expected to find worktree base")
+		}
+		if wb.Path != "/updated/path" {
+			t.Errorf("Path = %q, want '/updated/path'", wb.Path)
+		}
+	})
+
+	t.Run("GetWorktreeBaseByURL returns false for unknown", func(t *testing.T) {
+		_, found := s.GetWorktreeBaseByURL("unknown-url")
+		if found {
+			t.Error("expected found=false for unknown URL")
+		}
+	})
+
+	t.Run("GetWorktreeBases returns defensive copy", func(t *testing.T) {
+		bases := s.GetWorktreeBases()
+		bases[0].Path = "mutated"
+
+		original := s.GetWorktreeBases()
+		if original[0].Path == "mutated" {
+			t.Error("GetWorktreeBases should return a copy, not the original slice")
+		}
+	})
+}
