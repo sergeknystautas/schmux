@@ -1133,7 +1133,7 @@ body {
   height: 16px;
 }
 
-.app-shell--collapsed .more-menu__toggle {
+.app-shell--collapsed .tools-section {
   display: none;
 }
 
@@ -1266,56 +1266,51 @@ body {
   color: #fff;
 }
 
-/* MoreMenu component */
-.more-menu__toggle {
+/* Tools Section */
+.tools-section {
+  margin-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--spacing-xs);
+}
+
+.tools-section__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-lg);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-lg);
   background: none;
   border: none;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  width: 100%;
+  color: var(--color-text-faint);
 }
 
-.more-menu__toggle:hover {
-  background-color: var(--color-surface-alt);
-  color: var(--color-text);
+.tools-section__header:hover {
+  color: var(--color-text-muted);
 }
 
-.more-menu__toggle-text {
-  font-weight: 500;
+.tools-section__header-chevron {
+  flex-shrink: 0;
 }
 
-.more-menu__arrow {
-  transition: transform 0.15s ease;
+.tools-section__header-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.more-menu__arrow--open {
-  transform: rotate(180deg);
+/* Expanded: vertical list */
+.tools-section__list {
+  display: flex;
+  flex-direction: column;
 }
 
-.more-menu__dropdown {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
-  z-index: 1000;
-  margin-bottom: 4px;
-}
-
-.more-menu__item {
+.tools-section__item {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
   color: var(--color-text-muted);
   text-decoration: none;
   transition:
@@ -1324,39 +1319,39 @@ body {
   border-left: 3px solid transparent;
 }
 
-.more-menu__item:hover {
+.tools-section__item:hover {
   background-color: var(--color-surface-alt);
   color: var(--color-text);
 }
 
-.more-menu__item--active {
+.tools-section__item--active {
   background-color: var(--color-accent-subtle);
   color: var(--color-accent);
   border-left-color: var(--color-accent);
 }
 
-.more-menu__item--disabled {
+.tools-section__item--disabled {
   opacity: 0.5;
   pointer-events: none;
 }
 
-.more-menu__item-icon {
+.tools-section__item-icon {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
 }
 
-.more-menu__item-icon svg {
+.tools-section__item-icon svg {
   width: 100%;
   height: 100%;
 }
 
-.more-menu__item-label {
+.tools-section__item-label {
   flex: 1;
   font-size: var(--font-size-sm);
 }
 
-.more-menu__badge {
+.tools-section__item-badge {
   font-size: 0.65rem;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -1365,9 +1360,101 @@ body {
   font-weight: 600;
 }
 
-.more-menu__badge--danger {
+.tools-section__item-badge--danger {
   background-color: var(--color-error-subtle, rgba(239, 68, 68, 0.15));
   color: var(--color-error);
+}
+
+/* Collapsed: horizontal icon bar */
+.tools-section__collapsed {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) var(--spacing-lg);
+}
+
+.tools-section__chevron {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tools-section__chevron:hover {
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-alt);
+}
+
+.tools-section__icons {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex: 1;
+}
+
+.tools-section__icons > :last-child {
+  margin-left: auto;
+}
+
+.tools-section__icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.tools-section__icon:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.tools-section__icon--active {
+  color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+}
+
+.tools-section__icon--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.tools-section__icon-svg {
+  width: 16px;
+  height: 16px;
+  display: flex;
+}
+
+.tools-section__icon-svg svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tools-section__icon-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+}
+
+.tools-section__icon-badge--danger {
+  background-color: var(--color-error);
 }
 
 /* Remote Access Panel */
