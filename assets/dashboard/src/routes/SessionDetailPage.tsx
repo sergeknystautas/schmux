@@ -260,7 +260,7 @@ export default function SessionDetailPage() {
     }
 
     // Build diagnostic prompt
-    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. The directory contains: meta.json (pipeline counters and automated findings), screen-tmux.txt (what tmux shows), screen-xterm.txt (what xterm.js renders), screen-diff.txt (line-by-line differences), ringbuffer-backend.txt (last 256KB sent by backend), ringbuffer-frontend.txt (last 256KB received by frontend). Analyze the diffs and ring buffers to identify the root cause of any visual discrepancies between tmux and xterm.js.`;
+    const prompt = `Investigate the terminal desync diagnostic capture at ${result.diagDir}. Read the meta.json, screen-tmux.txt, screen-xterm.txt, screen-diff.txt, ringbuffer-backend.txt, and ringbuffer-frontend.txt to understand the visual discrepancies. Then analyze the relevant source code to understand why these discrepancies exist and identify root causes. Propose concrete fixes if warranted.`;
 
     try {
       const response = await spawnSessions({
@@ -310,7 +310,7 @@ export default function SessionDetailPage() {
       return;
     }
 
-    const ioPrompt = `Investigate the IO workspace telemetry diagnostic capture at ${result.diagDir}. The directory contains: meta.json (git command counters, timing stats, automated findings and verdict), commands-ringbuffer.txt (recent git commands with timing), slow-commands.txt (commands exceeding 100ms), by-workspace.txt (per-workspace breakdown). Analyze the data to identify git performance bottlenecks, excessive polling, or disproportionate command costs.`;
+    const ioPrompt = `Investigate the IO workspace telemetry diagnostic capture at ${result.diagDir}. Read the meta.json, commands-ringbuffer.txt, slow-commands.txt, and by-workspace.txt to understand the git command patterns. Then analyze the relevant source code to understand why these patterns exist and identify root causes of any performance issues. Propose concrete optimizations if warranted.`;
 
     try {
       const response = await spawnSessions({
