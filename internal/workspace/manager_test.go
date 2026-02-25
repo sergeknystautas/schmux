@@ -21,6 +21,36 @@ func testLogger() *log.Logger {
 	return log.NewWithOptions(io.Discard, log.Options{})
 }
 
+func TestExtractRepoHost(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		repoURL string
+		want    string
+	}{
+		{"https URL", "https://github.com/user/repo.git", "github.com"},
+		{"https URL no .git", "https://github.com/user/repo", "github.com"},
+		{"http URL", "http://gitlab.com/user/repo.git", "gitlab.com"},
+		{"git@ SSH URL", "git@github.com:user/repo.git", "github.com"},
+		{"git@ with port", "git@gitlab.example.com:user/repo.git", "gitlab.example.com"},
+		{"ssh:// URL", "ssh://git@bitbucket.org/user/repo", "git@bitbucket.org"},
+		{"local repo", "local:myproject", "local"},
+		{"unknown format", "just-a-string", "unknown"},
+		{"empty string", "", "unknown"},
+		{"https host only", "https://example.com", "example.com"},
+		{"ssh host only", "ssh://myhost.net", "myhost.net"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRepoHost(tt.repoURL)
+			if got != tt.want {
+				t.Errorf("extractRepoHost(%q) = %q, want %q", tt.repoURL, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractWorkspaceNumber(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

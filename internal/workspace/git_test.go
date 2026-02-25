@@ -792,3 +792,81 @@ func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
 		t.Error("hasCommonAncestor() returned true for orphan branch with no shared history")
 	}
 }
+
+func TestCountLinesCapped(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		content  string
+		maxBytes int
+		want     int
+	}{
+		{
+			name:     "simple file with newlines",
+			content:  "line1\nline2\nline3\n",
+			maxBytes: 1000,
+			want:     3,
+		},
+		{
+			name:     "file without trailing newline",
+			content:  "line1\nline2\nline3",
+			maxBytes: 1000,
+			want:     3,
+		},
+		{
+			name:     "empty file",
+			content:  "",
+			maxBytes: 1000,
+			want:     0,
+		},
+		{
+			name:     "single line no newline",
+			content:  "hello",
+			maxBytes: 1000,
+			want:     1,
+		},
+		{
+			name:     "single line with newline",
+			content:  "hello\n",
+			maxBytes: 1000,
+			want:     1,
+		},
+		{
+			name:     "capped before end of file",
+			content:  "aaa\nbbb\nccc\nddd\neee\n",
+			maxBytes: 8, // only reads "aaa\nbbb\n" (8 bytes)
+			want:     2,
+		},
+		{
+			name:     "cap mid-line counts partial line",
+			content:  "aaa\nbbbb",
+			maxBytes: 6, // reads "aaa\nbb" (6 bytes), partial "bb" counts as a line
+			want:     2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "test.txt")
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := countLinesCapped(path, tt.maxBytes)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("countLinesCapped(%q, %d) = %d, want %d", tt.content, tt.maxBytes, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountLinesCapped_FileNotFound(t *testing.T) {
+	t.Parallel()
+	_, err := countLinesCapped("/nonexistent/file.txt", 1000)
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}

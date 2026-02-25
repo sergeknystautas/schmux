@@ -756,3 +756,181 @@ func TestSetTerminalCaptureCallback(t *testing.T) {
 		t.Errorf("callback received wrong values: %q, %q, %q", capturedSessionID, capturedWorkspaceID, capturedOutput)
 	}
 }
+
+func TestMergeEnvMaps(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		base      map[string]string
+		overrides map[string]string
+		want      map[string]string
+	}{
+		{
+			name:      "both nil returns nil",
+			base:      nil,
+			overrides: nil,
+			want:      nil,
+		},
+		{
+			name:      "nil base with overrides",
+			base:      nil,
+			overrides: map[string]string{"A": "1"},
+			want:      map[string]string{"A": "1"},
+		},
+		{
+			name:      "base with nil overrides",
+			base:      map[string]string{"A": "1"},
+			overrides: nil,
+			want:      map[string]string{"A": "1"},
+		},
+		{
+			name:      "overrides take precedence",
+			base:      map[string]string{"A": "old", "B": "keep"},
+			overrides: map[string]string{"A": "new", "C": "added"},
+			want:      map[string]string{"A": "new", "B": "keep", "C": "added"},
+		},
+		{
+			name:      "empty maps return empty (not nil)",
+			base:      map[string]string{},
+			overrides: map[string]string{},
+			want:      map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeEnvMaps(tt.base, tt.overrides)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("mergeEnvMaps() = %v, want nil", got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("mergeEnvMaps() has %d entries, want %d", len(got), len(tt.want))
+			}
+			for k, wantV := range tt.want {
+				if gotV, ok := got[k]; !ok || gotV != wantV {
+					t.Errorf("mergeEnvMaps()[%q] = %q, want %q", k, gotV, wantV)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildEnvPrefix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "single var",
+			env:  map[string]string{"FOO": "bar"},
+			want: "FOO='bar'",
+		},
+		{
+			name: "multiple vars sorted alphabetically",
+			env:  map[string]string{"Z_VAR": "z", "A_VAR": "a"},
+			want: "A_VAR='a' Z_VAR='z'",
+		},
+		{
+			name: "empty map",
+			env:  map[string]string{},
+			want: "",
+		},
+		{
+			name: "value with spaces is quoted",
+			env:  map[string]string{"MSG": "hello world"},
+			want: "MSG='hello world'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildEnvPrefix(tt.env)
+			if got != tt.want {
+				t.Errorf("buildEnvPrefix() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNicknameExists(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("", nil)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	// Add sessions with known tmux names
+	st.AddSession(state.Session{ID: "s1", TmuxSession: "my-session"})
+	st.AddSession(state.Session{ID: "s2", TmuxSession: "other-session"})
+
+	tests := []struct {
+		name      string
+		nickname  string
+		excludeID string
+		wantID    string
+	}{
+		{"finds existing by tmux name", "my-session", "", "s1"},
+		{"finds other session", "other-session", "", "s2"},
+		{"sanitized match (dots to dashes)", "my.session", "", "s1"},
+		{"empty nickname returns empty", "", "", ""},
+		{"no match returns empty", "nonexistent", "", ""},
+		{"excludes specified session", "my-session", "s1", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := m.nicknameExists(tt.nickname, tt.excludeID)
+			if got != tt.wantID {
+				t.Errorf("nicknameExists(%q, %q) = %q, want %q", tt.nickname, tt.excludeID, got, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestGenerateUniqueNickname(t *testing.T) {
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("", nil)
+	statePath := t.TempDir() + "/state.json"
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+
+	t.Run("empty returns empty", func(t *testing.T) {
+		got := m.generateUniqueNickname("")
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("unique name returned as-is", func(t *testing.T) {
+		got := m.generateUniqueNickname("fresh-name")
+		if got != "fresh-name" {
+			t.Errorf("expected 'fresh-name', got %q", got)
+		}
+	})
+
+	t.Run("conflict appends number suffix", func(t *testing.T) {
+		// Register a session with this tmux name
+		st.AddSession(state.Session{ID: "s1", TmuxSession: "taken"})
+
+		got := m.generateUniqueNickname("taken")
+		if got != "taken (1)" {
+			t.Errorf("expected 'taken (1)', got %q", got)
+		}
+	})
+
+	t.Run("multiple conflicts increment suffix", func(t *testing.T) {
+		// "taken" is already registered from previous subtest.
+		// Register "taken (1)" as well.
+		st.AddSession(state.Session{ID: "s2", TmuxSession: sanitizeNickname("taken (1)")})
+
+		got := m.generateUniqueNickname("taken")
+		if got != "taken (2)" {
+			t.Errorf("expected 'taken (2)', got %q", got)
+		}
+	})
+}

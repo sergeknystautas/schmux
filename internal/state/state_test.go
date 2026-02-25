@@ -1124,3 +1124,92 @@ func TestRemoveWorkspaceRemovesPreviews(t *testing.T) {
 		t.Fatal("other workspace preview should remain")
 	}
 }
+
+func TestUpdateSessionFunc(t *testing.T) {
+	s := New("", nil)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test", Target: "claude"})
+
+	t.Run("updates session via callback", func(t *testing.T) {
+		found := s.UpdateSessionFunc("sess-1", func(sess *Session) {
+			sess.Target = "codex"
+			sess.Nudge = "updated"
+		})
+		if !found {
+			t.Fatal("expected found=true")
+		}
+
+		sess, ok := s.GetSession("sess-1")
+		if !ok {
+			t.Fatal("session should exist")
+		}
+		if sess.Target != "codex" {
+			t.Errorf("Target = %q, want 'codex'", sess.Target)
+		}
+		if sess.Nudge != "updated" {
+			t.Errorf("Nudge = %q, want 'updated'", sess.Nudge)
+		}
+	})
+
+	t.Run("returns false for nonexistent session", func(t *testing.T) {
+		found := s.UpdateSessionFunc("nonexistent", func(sess *Session) {
+			sess.Target = "should-not-happen"
+		})
+		if found {
+			t.Error("expected found=false for nonexistent session")
+		}
+	})
+}
+
+func TestUpdateSessionFunc_Concurrent(t *testing.T) {
+	s := New("", nil)
+	s.AddSession(Session{ID: "sess-1", TmuxSession: "test"})
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.UpdateSessionFunc("sess-1", func(sess *Session) {
+				sess.NudgeSeq++
+			})
+		}()
+	}
+	wg.Wait()
+
+	sess, _ := s.GetSession("sess-1")
+	if sess.NudgeSeq != uint64(goroutines) {
+		t.Errorf("NudgeSeq = %d, want %d (concurrent increments should be serialized)", sess.NudgeSeq, goroutines)
+	}
+}
+
+func TestFlushPending(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	s := New(statePath, nil)
+
+	// Add data and trigger batched save
+	s.AddWorkspace(Workspace{ID: "ws-flush", Repo: "repo", Branch: "main", Path: "/tmp"})
+	s.SaveBatched()
+
+	// File should not exist yet (batching hasn't fired)
+	time.Sleep(50 * time.Millisecond)
+
+	// Flush should force the save immediately
+	s.FlushPending()
+
+	// File should now exist with the workspace
+	loaded, err := Load(statePath, nil)
+	if err != nil {
+		t.Fatalf("Load() after FlushPending failed: %v", err)
+	}
+	if len(loaded.Workspaces) != 1 {
+		t.Errorf("expected 1 workspace after flush, got %d", len(loaded.Workspaces))
+	}
+}
+
+func TestFlushPending_NoPending(t *testing.T) {
+	s := New("", nil)
+	// Should not panic when no pending saves
+	s.FlushPending()
+}
