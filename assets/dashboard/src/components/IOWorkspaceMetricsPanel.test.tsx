@@ -23,16 +23,16 @@ describe('IOWorkspaceMetricsPanel', () => {
     expect(screen.getByText('0ms')).toBeInTheDocument();
   });
 
-  it('renders Capture button when onCapture provided', () => {
+  it('renders Diagnose button when onCapture provided', () => {
     const onCapture = vi.fn();
     render(<IOWorkspaceMetricsPanel stats={stats} onCapture={onCapture} />);
-    expect(screen.getByText('Capture')).toBeInTheDocument();
+    expect(screen.getByText('Diagnose')).toBeInTheDocument();
   });
 
-  it('calls onCapture when Capture button clicked', async () => {
+  it('calls onCapture when Diagnose button clicked', async () => {
     const onCapture = vi.fn();
     render(<IOWorkspaceMetricsPanel stats={stats} onCapture={onCapture} />);
-    await userEvent.click(screen.getByText('Capture'));
+    await userEvent.click(screen.getByText('Diagnose'));
     expect(onCapture).toHaveBeenCalledTimes(1);
   });
 
@@ -45,8 +45,8 @@ describe('IOWorkspaceMetricsPanel', () => {
     expect(screen.getByText('poller')).toBeInTheDocument();
   });
 
-  it('does not render Capture button when onCapture not provided', () => {
+  it('does not render Diagnose button when onCapture not provided', () => {
     render(<IOWorkspaceMetricsPanel stats={stats} />);
-    expect(screen.queryByText('Capture')).not.toBeInTheDocument();
+    expect(screen.queryByText('Diagnose')).not.toBeInTheDocument();
   });
 });

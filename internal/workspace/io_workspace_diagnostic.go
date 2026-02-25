@@ -203,16 +203,20 @@ func computeFindings(snap IOWorkspaceTelemetrySnapshot) ([]string, string) {
 		}
 	}
 
-	// Flag total command count per second (if snapshot duration > 0)
-	if snap.TotalDurationMS > 0 && snap.TotalCommands > 0 {
-		durationSec := snap.TotalDurationMS / 1000.0
-		if durationSec > 0 {
-			rate := float64(snap.TotalCommands) / durationSec
-			finding := fmt.Sprintf("Command rate: %.1f commands/sec (%d commands in %.1fms)",
-				rate, snap.TotalCommands, snap.TotalDurationMS)
-			findings = append(findings, finding)
-			if dominantPattern == "" && rate > 10 {
-				dominantPattern = "high command rate"
+	// Flag total command count per second (using wall-clock time)
+	if snap.StartedAt != "" && snap.SnapshotAt != "" && snap.TotalCommands > 0 {
+		startedAt, errStart := time.Parse(time.RFC3339Nano, snap.StartedAt)
+		snapshotAt, errSnap := time.Parse(time.RFC3339Nano, snap.SnapshotAt)
+		if errStart == nil && errSnap == nil {
+			elapsedSec := snapshotAt.Sub(startedAt).Seconds()
+			if elapsedSec > 0 {
+				rate := float64(snap.TotalCommands) / elapsedSec
+				finding := fmt.Sprintf("Command rate: %.2f commands/sec (%d commands in %.1fs)",
+					rate, snap.TotalCommands, elapsedSec)
+				findings = append(findings, finding)
+				if dominantPattern == "" && rate > 10 {
+					dominantPattern = "high command rate"
+				}
 			}
 		}
 	}

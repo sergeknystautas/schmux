@@ -119,6 +119,7 @@ func (r *refreshSlowSpanRing) reset() {
 
 // IOWorkspaceTelemetrySnapshot holds a point-in-time snapshot of all telemetry data.
 type IOWorkspaceTelemetrySnapshot struct {
+	StartedAt        string                                              `json:"started_at"`
 	SnapshotAt       string                                              `json:"snapshot_at"`
 	TotalCommands    int64                                               `json:"total_commands"`
 	TotalDurationMS  float64                                             `json:"total_duration_ms"`
@@ -138,6 +139,7 @@ type IOWorkspaceTelemetrySnapshot struct {
 // execution telemetry. All methods are nil-safe (no-op on nil receiver).
 type IOWorkspaceTelemetry struct {
 	mu               sync.Mutex
+	startedAt        time.Time // when telemetry started (or was last reset)
 	totalCommands    int64
 	totalDurationMS  float64
 	counters         map[string]int64                          // command type -> count
@@ -152,6 +154,7 @@ type IOWorkspaceTelemetry struct {
 // NewIOWorkspaceTelemetry creates a new telemetry collector.
 func NewIOWorkspaceTelemetry() *IOWorkspaceTelemetry {
 	return &IOWorkspaceTelemetry{
+		startedAt:        time.Now(),
 		counters:         make(map[string]int64),
 		triggerCounts:    make(map[string]int64),
 		spanDurations:    make(map[string]*refreshDurationAgg),
@@ -269,6 +272,7 @@ func (t *IOWorkspaceTelemetry) Snapshot(reset bool) IOWorkspaceTelemetrySnapshot
 	defer t.mu.Unlock()
 
 	snap := IOWorkspaceTelemetrySnapshot{
+		StartedAt:        t.startedAt.UTC().Format(time.RFC3339Nano),
 		SnapshotAt:       time.Now().UTC().Format(time.RFC3339Nano),
 		TotalCommands:    t.totalCommands,
 		TotalDurationMS:  t.totalDurationMS,
@@ -305,6 +309,7 @@ func (t *IOWorkspaceTelemetry) Reset() {
 
 // resetLocked clears all data. Must be called with mu held.
 func (t *IOWorkspaceTelemetry) resetLocked() {
+	t.startedAt = time.Now()
 	t.totalCommands = 0
 	t.totalDurationMS = 0
 	t.counters = make(map[string]int64)
