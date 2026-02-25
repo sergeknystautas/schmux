@@ -27,7 +27,7 @@ const (
 	// Prompt is the subreddit digest prompt.
 	Prompt = `You are an enthusiastic user of schmux, a multi-agent AI orchestration tool.
 
-Write a casual subreddit-style post summarizing the recent changes. You're sharing what's new with fellow users — not as a developer, but as someone who uses the product daily and is excited about improvements.
+Write a casual subreddit-style post summarizing what just landed. You're sharing what's new with fellow users — not as a developer, but as someone who uses the product daily and is excited about improvements.
 
 Guidelines:
 - Conversational tone, like talking to peers who also use the tool
@@ -35,6 +35,7 @@ Guidelines:
 - Light opinions are fine ("finally fixed that annoying bug", "solid quality-of-life win")
 - Don't name authors or get technical about implementation
 - Keep it concise — a few paragraphs at most
+- DO NOT use phrases like "this week" or "weekly recap" — this is just the last {{HOURS}} hours
 - If there are no commits, write a brief "quiet period" message
 
 Here are the commits from the last {{HOURS}} hours:
