@@ -180,10 +180,10 @@ export default function KeyboardProvider({ children }: { children: React.ReactNo
         return;
       }
 
-      // Normalize the pressed key.
-      // For letters, uppercase means Shift was held - normalize to lowercase.
-      // For other keys (?, /, etc.), use as-is and don't require shiftKey flag.
-      const pressedKey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      // Normalize the pressed key to lowercase for consistent comparison.
+      // For letters, uppercase means Shift was held - we check shiftKey separately.
+      // For special keys like ArrowDown, we compare lowercase to lowercase.
+      const pressedKey = e.key.toLowerCase();
 
       // For letters (a-z), we need to check if Shift was used to produce uppercase
       const isLetter = pressedKey >= 'a' && pressedKey <= 'z';
