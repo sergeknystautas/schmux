@@ -85,6 +85,11 @@ export default function AppShell() {
   // Ref for scrolling active workspace into view
   const activeWorkspaceRef = useRef<HTMLDivElement | null>(null);
 
+  // Debounce workspace sort during keyboard navigation:
+  // Freeze the sort order for 2s after the last Cmd+Up/Down keypress
+  const navSnapshotRef = useRef<WorkspaceResponse[] | null>(null);
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
   const isRemoteAccess = isRemoteClient() || simulateRemote;
@@ -126,10 +131,20 @@ export default function AppShell() {
         const timeA = getTime(a);
         const timeB = getTime(b);
         // Most recent first, workspaces with no sessions go to bottom
-        if (timeA === 0 && timeB === 0) return 0;
+        if (timeA === 0 && timeB === 0) {
+          const repoA = a.repo_name || getRepoName(a.repo);
+          const repoB = b.repo_name || getRepoName(b.repo);
+          if (repoA !== repoB) return repoA.localeCompare(repoB);
+          return a.branch.localeCompare(b.branch);
+        }
         if (timeA === 0) return 1;
         if (timeB === 0) return -1;
-        return timeB - timeA;
+        if (timeA !== timeB) return timeB - timeA;
+        // Equal timestamps: secondary sort alphabetically
+        const repoA = a.repo_name || getRepoName(a.repo);
+        const repoB = b.repo_name || getRepoName(b.repo);
+        if (repoA !== repoB) return repoA.localeCompare(repoB);
+        return a.branch.localeCompare(b.branch);
       });
     }
 
@@ -271,7 +286,7 @@ export default function AppShell() {
     navigate(`/sessions/${sessId}`);
   };
 
-  // Scroll active workspace into view when it changes
+  // Scroll active workspace into view when it changes or sort order reshuffles
   useEffect(() => {
     if (activeWorkspaceRef.current) {
       activeWorkspaceRef.current.scrollIntoView({
@@ -279,7 +294,7 @@ export default function AppShell() {
         block: 'nearest',
       });
     }
-  }, [currentWorkspaceId, activeWorkspaceId]);
+  }, [currentWorkspaceId, activeWorkspaceId, sortedWorkspaces]);
 
   // Register global keyboard actions (always available)
   useEffect(() => {
@@ -390,46 +405,71 @@ export default function AppShell() {
         return;
       }
 
-      // Cmd+Up: Previous workspace
-      if (e.key === 'ArrowUp') {
-        if (!workspaces?.length) return;
+      // Cmd+Up / Cmd+Down: Navigate workspaces using a frozen sort snapshot
+      // to prevent reshuffling mid-navigation (especially in time-sort mode).
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (!sortedWorkspaces?.length) return;
 
+        // Snapshot the current sort order on first keypress; hold for 2s after last
+        if (!navSnapshotRef.current) {
+          navSnapshotRef.current = sortedWorkspaces;
+        }
+        if (navTimerRef.current) clearTimeout(navTimerRef.current);
+        navTimerRef.current = setTimeout(() => {
+          navSnapshotRef.current = null;
+          navTimerRef.current = null;
+        }, 2000);
+
+        const frozen = navSnapshotRef.current;
+
+        if (e.key === 'ArrowUp') {
+          const currentIndex = context.workspaceId
+            ? frozen.findIndex((ws) => ws.id === context.workspaceId)
+            : -1;
+          if (currentIndex <= 0) return; // Already at first or not in a workspace
+
+          e.preventDefault();
+          navigateToWorkspace(navigate, frozen, frozen[currentIndex - 1].id);
+          return;
+        }
+
+        // ArrowDown
         const currentIndex = context.workspaceId
-          ? workspaces.findIndex((ws) => ws.id === context.workspaceId)
-          : -1;
-        if (currentIndex <= 0) return; // Already at first or not in a workspace
-
-        e.preventDefault();
-        navigateToWorkspace(navigate, workspaces, workspaces[currentIndex - 1].id);
-        return;
-      }
-
-      // Cmd+Down: Next workspace
-      if (e.key === 'ArrowDown') {
-        if (!workspaces?.length) return;
-
-        const currentIndex = context.workspaceId
-          ? workspaces.findIndex((ws) => ws.id === context.workspaceId)
+          ? frozen.findIndex((ws) => ws.id === context.workspaceId)
           : -1;
 
         // If not in any workspace, go to first workspace
         if (currentIndex === -1) {
           e.preventDefault();
-          navigateToWorkspace(navigate, workspaces, workspaces[0].id);
+          navigateToWorkspace(navigate, frozen, frozen[0].id);
           return;
         }
 
-        if (currentIndex >= workspaces.length - 1) return; // Already at last
+        if (currentIndex >= frozen.length - 1) return; // Already at last
 
         e.preventDefault();
-        navigateToWorkspace(navigate, workspaces, workspaces[currentIndex + 1].id);
+        navigateToWorkspace(navigate, frozen, frozen[currentIndex + 1].id);
         return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [workspaces, context.workspaceId, context.sessionId, navigate, location.pathname]);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      if (navTimerRef.current) {
+        clearTimeout(navTimerRef.current);
+        navSnapshotRef.current = null;
+        navTimerRef.current = null;
+      }
+    };
+  }, [
+    workspaces,
+    sortedWorkspaces,
+    context.workspaceId,
+    context.sessionId,
+    navigate,
+    location.pathname,
+  ]);
 
   // Register workspace-specific keyboard actions based on active context
   useEffect(() => {
