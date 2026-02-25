@@ -886,3 +886,190 @@ func TestMarkEntriesByTextMulti_DeduplicatesAcrossFiles(t *testing.T) {
 		t.Fatalf("expected 1 state-change record (deduplicated), got %d", len(entries))
 	}
 }
+
+func TestResolveEntryState(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name       string
+		entry      Entry
+		allEntries []Entry
+		want       string
+	}{
+		{
+			name:  "raw entry with no state changes",
+			entry: Entry{Timestamp: baseTime, Type: "operational", Text: "fact"},
+			allEntries: []Entry{
+				{Timestamp: baseTime, Type: "operational", Text: "fact"},
+			},
+			want: "raw",
+		},
+		{
+			name:  "entry with proposed state",
+			entry: Entry{Timestamp: baseTime, Type: "operational", Text: "fact"},
+			allEntries: []Entry{
+				{Timestamp: baseTime, Type: "operational", Text: "fact"},
+				{Timestamp: baseTime.Add(time.Hour), StateChange: "proposed", EntryTS: baseTime.Format(time.RFC3339)},
+			},
+			want: "proposed",
+		},
+		{
+			name:  "latest state change wins",
+			entry: Entry{Timestamp: baseTime, Type: "operational", Text: "fact"},
+			allEntries: []Entry{
+				{Timestamp: baseTime, Type: "operational", Text: "fact"},
+				{Timestamp: baseTime.Add(time.Hour), StateChange: "proposed", EntryTS: baseTime.Format(time.RFC3339)},
+				{Timestamp: baseTime.Add(2 * time.Hour), StateChange: "applied", EntryTS: baseTime.Format(time.RFC3339)},
+			},
+			want: "applied",
+		},
+		{
+			name:  "state change record returns empty",
+			entry: Entry{Timestamp: baseTime, StateChange: "proposed", EntryTS: "2026-02-13T13:00:00Z"},
+			allEntries: []Entry{
+				{Timestamp: baseTime, StateChange: "proposed", EntryTS: "2026-02-13T13:00:00Z"},
+			},
+			want: "",
+		},
+		{
+			name:  "state change for different entry does not affect this one",
+			entry: Entry{Timestamp: baseTime, Type: "operational", Text: "fact A"},
+			allEntries: []Entry{
+				{Timestamp: baseTime, Type: "operational", Text: "fact A"},
+				{Timestamp: baseTime.Add(time.Minute), Type: "operational", Text: "fact B"},
+				{Timestamp: baseTime.Add(time.Hour), StateChange: "dismissed", EntryTS: baseTime.Add(time.Minute).Format(time.RFC3339)},
+			},
+			want: "raw",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ResolveEntryState(tt.entry, tt.allEntries)
+			if got != tt.want {
+				t.Errorf("ResolveEntryState() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterByParams(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	entries := []Entry{
+		{Timestamp: baseTime, Agent: "claude-code", Type: "operational", Text: "fact one"},
+		{Timestamp: baseTime.Add(time.Minute), Agent: "codex", Type: "codebase", Text: "fact two"},
+		{Timestamp: baseTime.Add(2 * time.Minute), Agent: "claude-code", Type: "failure", Tool: "Bash", InputSummary: "npm build"},
+		{Timestamp: baseTime.Add(time.Hour), StateChange: "proposed", EntryTS: baseTime.Format(time.RFC3339)},
+	}
+
+	tests := []struct {
+		name      string
+		state     string
+		agent     string
+		entryType string
+		limit     int
+		wantCount int
+		wantTexts []string
+	}{
+		{
+			name:      "no filters returns all non-state-change entries",
+			wantCount: 3,
+		},
+		{
+			name:      "filter by agent",
+			agent:     "claude-code",
+			wantCount: 2,
+		},
+		{
+			name:      "filter by type",
+			entryType: "codebase",
+			wantCount: 1,
+			wantTexts: []string{"fact two"},
+		},
+		{
+			name:      "filter by state=raw excludes proposed entries",
+			state:     "raw",
+			wantCount: 2, // fact two (raw) + failure (raw), fact one is proposed
+		},
+		{
+			name:      "filter by state=proposed",
+			state:     "proposed",
+			wantCount: 1,
+			wantTexts: []string{"fact one"},
+		},
+		{
+			name:      "limit restricts results",
+			limit:     1,
+			wantCount: 1,
+		},
+		{
+			name:      "combined filters",
+			agent:     "claude-code",
+			state:     "raw",
+			wantCount: 1, // only the failure entry (claude-code + raw)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter := FilterByParams(tt.state, tt.agent, tt.entryType, tt.limit)
+			result := filter(entries)
+			if len(result) != tt.wantCount {
+				texts := make([]string, len(result))
+				for i, e := range result {
+					texts[i] = e.EntryKey()
+				}
+				t.Fatalf("got %d entries %v, want %d", len(result), texts, tt.wantCount)
+			}
+			if tt.wantTexts != nil {
+				for i, want := range tt.wantTexts {
+					if i >= len(result) {
+						break
+					}
+					got := result[i].Text
+					if got != want {
+						t.Errorf("result[%d].Text = %q, want %q", i, got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMarkEntriesByTextFromEntries(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+
+	sourceEntries := []Entry{
+		{Timestamp: baseTime, Type: "operational", Text: "fact one"},
+		{Timestamp: baseTime.Add(time.Minute), Type: "codebase", Text: "fact two"},
+		// state-change records should be skipped
+		{Timestamp: baseTime.Add(time.Hour), StateChange: "proposed", EntryTS: baseTime.Format(time.RFC3339)},
+	}
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "state.jsonl")
+
+	err := MarkEntriesByTextFromEntries(sourceEntries, destPath, "applied", []string{"fact one", "nonexistent"}, "prop-test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read the dest file - should have one state-change record for "fact one"
+	entries, err := ReadEntries(destPath, nil)
+	if err != nil {
+		t.Fatalf("unexpected error reading dest: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 state-change record, got %d", len(entries))
+	}
+	if entries[0].StateChange != "applied" {
+		t.Errorf("expected state_change 'applied', got %q", entries[0].StateChange)
+	}
+	if entries[0].ProposalID != "prop-test" {
+		t.Errorf("expected proposal_id 'prop-test', got %q", entries[0].ProposalID)
+	}
+}
