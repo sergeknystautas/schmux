@@ -22,6 +22,10 @@ import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import ConnectionProgressModal from '../components/ConnectionProgressModal';
 import { StreamMetricsPanel, type BackendStats } from '../components/StreamMetricsPanel';
+import {
+  IOWorkspaceMetricsPanel,
+  type IOWorkspaceStats,
+} from '../components/IOWorkspaceMetricsPanel';
 import type { SequenceBreakRecord } from '../lib/streamDiagnostics';
 
 export default function SessionDetailPage() {
@@ -70,12 +74,19 @@ export default function SessionDetailPage() {
     frameSizeDist?: { buckets: number[]; maxCount: number; maxBytes: number } | null;
   } | null>(null);
 
+  const [ioWorkspaceStats, setIOWorkspaceStats] = useState<IOWorkspaceStats | null>(null);
+
   // Use a ref for desync config so the terminal effect can read the latest value
   // without adding config to its dependency array (which would cause terminal re-creation).
   const desyncEnabledRef = useRef(config.desync?.enabled ?? false);
   useEffect(() => {
     desyncEnabledRef.current = config.desync?.enabled ?? false;
   }, [config.desync?.enabled]);
+
+  const ioWorkspaceTelemetryEnabledRef = useRef(config.io_workspace_telemetry?.enabled ?? false);
+  useEffect(() => {
+    ioWorkspaceTelemetryEnabledRef.current = config.io_workspace_telemetry?.enabled ?? false;
+  }, [config.io_workspace_telemetry?.enabled]);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const sessionMissing = !sessionsLoading && !sessionsError && sessionId && !sessionData;
@@ -139,6 +150,9 @@ export default function SessionDetailPage() {
   const diagnosticCompleteRef = useRef<
     (result: { diagDir: string; verdict: string; findings: string[] }) => void
   >(() => {});
+  const ioWorkspaceDiagnosticCompleteRef = useRef<
+    (result: { diagDir: string; verdict: string; findings: string[] }) => void
+  >(() => {});
 
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
@@ -192,6 +206,15 @@ export default function SessionDetailPage() {
           });
         }
       }, 3000);
+    }
+
+    if (ioWorkspaceTelemetryEnabledRef.current) {
+      terminalStream.onIOWorkspaceStatsUpdate = (stats) => {
+        setIOWorkspaceStats(stats as unknown as IOWorkspaceStats);
+      };
+      terminalStream.onIOWorkspaceDiagnosticComplete = (result) => {
+        ioWorkspaceDiagnosticCompleteRef.current(result);
+      };
     }
 
     terminalStream.initialized.then(() => {
@@ -262,6 +285,56 @@ export default function SessionDetailPage() {
       }
     } catch (err) {
       toastError(`Failed to spawn diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
+    }
+  };
+
+  ioWorkspaceDiagnosticCompleteRef.current = async (result: {
+    diagDir: string;
+    verdict: string;
+    findings: string[];
+  }) => {
+    success(`IO workspace capture: ${result.verdict} (${result.diagDir})`);
+
+    const diagTarget = config.io_workspace_telemetry?.target || '';
+    let target = diagTarget;
+    if (!target) {
+      const promptable = config.run_targets?.find((t) => t.type === 'promptable');
+      target = promptable?.name || '';
+    }
+
+    const ws = workspaces?.find((w) => w.id === sessionData?.workspace_id);
+    if (!target || !ws) {
+      if (!target) {
+        success(`IO workspace diagnostic files saved to ${result.diagDir}`);
+      }
+      return;
+    }
+
+    const ioPrompt = `Investigate the IO workspace telemetry diagnostic capture at ${result.diagDir}. The directory contains: meta.json (git command counters, timing stats, automated findings and verdict), commands-ringbuffer.txt (recent git commands with timing), slow-commands.txt (commands exceeding 100ms), by-workspace.txt (per-workspace breakdown). Analyze the data to identify git performance bottlenecks, excessive polling, or disproportionate command costs.`;
+
+    try {
+      const response = await spawnSessions({
+        repo: ws.repo,
+        branch: ws.branch,
+        prompt: ioPrompt,
+        nickname: 'io-diagnose',
+        targets: { [target]: 1 },
+        workspace_id: ws.id,
+      });
+
+      const spawnResult = response[0];
+      if (spawnResult.error) {
+        toastError(`Failed to spawn IO diagnostic agent: ${spawnResult.error}`);
+        return;
+      }
+
+      success('Spawned IO diagnostic agent');
+      if (spawnResult.session_id) {
+        await waitForSession(spawnResult.session_id);
+        navigate(`/sessions/${spawnResult.session_id}`);
+      }
+    } catch (err) {
+      toastError(`Failed to spawn IO diagnostic agent: ${getErrorMessage(err, 'Unknown error')}`);
     }
   };
 
@@ -654,6 +727,12 @@ export default function SessionDetailPage() {
                       backendStats={backendStats}
                       frontendStats={frontendStats}
                       onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                    />
+                  )}
+                  {config.io_workspace_telemetry?.enabled && (
+                    <IOWorkspaceMetricsPanel
+                      stats={ioWorkspaceStats}
+                      onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
                     />
                   )}
                 </div>
