@@ -883,6 +883,47 @@ body {
   color: var(--color-text-faint);
 }
 
+.nav-sort-toggle {
+  display: flex;
+  gap: 0;
+  margin-left: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 10px !important;
+  line-height: 1;
+}
+
+.nav-sort-toggle__btn {
+  padding: 1px 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-faint);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 10px !important;
+  line-height: 1;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.nav-sort-toggle__btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.nav-sort-toggle__btn--active {
+  background: var(--color-text-faint);
+  color: var(--color-bg);
+}
+
+.nav-sort-toggle__btn--active:hover {
+  background: var(--color-text);
+}
+
 .nav-section-add {
   background: none;
   border: none;
