@@ -33,10 +33,8 @@ test.describe.serial('Overlay page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    // Open the More menu to access Overlays link
-    await page.click('button.more-menu__toggle');
-    // There should be exactly one "Overlays" link, not one per repo
-    const overlayLinks = page.locator('.more-menu__dropdown a', { hasText: 'Overlays' });
+    // Overlays link is visible in the Tools section (expanded by default)
+    const overlayLinks = page.locator('.tools-section__list a', { hasText: 'Overlays' });
     await expect(overlayLinks).toHaveCount(1);
 
     // The link should NOT contain a repo name suffix
@@ -47,9 +45,8 @@ test.describe.serial('Overlay page with repo tabs', () => {
     await page.goto('/');
     await waitForDashboardLive(page);
 
-    // Open the More menu to access Overlays link
-    await page.click('button.more-menu__toggle');
-    const overlayLink = page.locator('.more-menu__dropdown a', { hasText: 'Overlays' });
+    // Overlays link is visible in the Tools section (expanded by default)
+    const overlayLink = page.locator('.tools-section__list a', { hasText: 'Overlays' });
     await overlayLink.click();
 
     // URL should be /overlays with no repo name parameter

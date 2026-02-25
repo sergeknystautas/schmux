@@ -36,7 +36,7 @@ import {
   type DevStatus,
 } from '../lib/api';
 import RemoteAccessPanel from './RemoteAccessPanel';
-import MoreMenu from './MoreMenu';
+import ToolsSection from './ToolsSection';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 
@@ -872,7 +872,7 @@ export default function AppShell() {
           {isDevMode && <TmuxDiagnostic />}
           {isDevMode && <TypingPerformance />}
           <RemoteAccessPanel />
-          <MoreMenu collapsed={navCollapsed} />
+          <ToolsSection navCollapsed={navCollapsed} />
         </div>
       </nav>
 
