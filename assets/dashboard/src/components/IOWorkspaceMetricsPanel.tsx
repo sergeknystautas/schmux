@@ -50,7 +50,7 @@ export function IOWorkspaceMetricsPanel({ stats, onCapture }: Props) {
       </div>
       {onCapture && (
         <button className="btn btn--sm" onClick={onCapture}>
-          Capture
+          Diagnose
         </button>
       )}
       {expanded && (
