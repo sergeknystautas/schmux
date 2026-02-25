@@ -8,16 +8,16 @@ Lightweight, toggleable telemetry harness that instruments `exec.Command` calls 
 
 This system mirrors the terminal desync diagnostic system end-to-end:
 
-| Terminal Desync Diagnostic | IO Workspace Telemetry |
-|---------------------------|------------------------|
-| `RefreshTelemetry` — in-memory collector (`internal/workspace/refresh_telemetry.go`) | `IOWorkspaceTelemetry` — in-memory collector |
-| `DiagnosticCapture` + `WriteToDir` (`internal/dashboard/diagnostic.go`) | `IOWorkspaceDiagnosticCapture` + `WriteToDir` |
-| `StreamMetricsPanel` — live metrics panel with "Diagnose" button | `IOWorkspaceMetricsPanel` — live metrics panel with "Capture" button |
-| `StreamDiagnostics` — frontend diagnostics class | Frontend stats consumer for IO workspace |
-| `WSStatsMessage` — periodic stats over terminal WebSocket | `WSIOWorkspaceStatsMessage` — periodic stats over terminal WebSocket |
-| `"diagnostic"` WebSocket message triggers capture | `"io-workspace-diagnostic"` WebSocket message triggers capture |
-| Config: `desyncEnabled` checkbox + `desyncTarget` selector in AdvancedTab | Config: `ioWorkspaceTelemetryEnabled` checkbox + `ioWorkspaceTelemetryTarget` selector in AdvancedTab |
-| Capture auto-spawns agent session to analyze when target is set | Capture auto-spawns agent session to analyze `meta.json` when target is set |
+| Terminal Desync Diagnostic                                                           | IO Workspace Telemetry                                                                                |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `RefreshTelemetry` — in-memory collector (`internal/workspace/refresh_telemetry.go`) | `IOWorkspaceTelemetry` — in-memory collector                                                          |
+| `DiagnosticCapture` + `WriteToDir` (`internal/dashboard/diagnostic.go`)              | `IOWorkspaceDiagnosticCapture` + `WriteToDir`                                                         |
+| `StreamMetricsPanel` — live metrics panel with "Diagnose" button                     | `IOWorkspaceMetricsPanel` — live metrics panel with "Capture" button                                  |
+| `StreamDiagnostics` — frontend diagnostics class                                     | Frontend stats consumer for IO workspace                                                              |
+| `WSStatsMessage` — periodic stats over terminal WebSocket                            | `WSIOWorkspaceStatsMessage` — periodic stats over terminal WebSocket                                  |
+| `"diagnostic"` WebSocket message triggers capture                                    | `"io-workspace-diagnostic"` WebSocket message triggers capture                                        |
+| Config: `desyncEnabled` checkbox + `desyncTarget` selector in AdvancedTab            | Config: `ioWorkspaceTelemetryEnabled` checkbox + `ioWorkspaceTelemetryTarget` selector in AdvancedTab |
+| Capture auto-spawns agent session to analyze when target is set                      | Capture auto-spawns agent session to analyze `meta.json` when target is set                           |
 
 ## Architecture
 
@@ -37,17 +37,17 @@ Lives in `internal/workspace/`. Same shape as `RefreshTelemetry`:
 
 Each slow command entry:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `ts` | string | RFC3339Nano |
-| `command` | string | Full git command (e.g. `git status --porcelain`) |
-| `workspace_id` | string | Workspace ID |
-| `working_dir` | string | Working directory |
-| `trigger` | string | `poller` / `watcher` / `explicit` |
-| `duration_ms` | float64 | Execution time |
-| `exit_code` | int | Process exit code |
-| `stdout_bytes` | int64 | Bytes on stdout |
-| `stderr_bytes` | int64 | Bytes on stderr |
+| Field          | Type    | Description                                      |
+| -------------- | ------- | ------------------------------------------------ |
+| `ts`           | string  | RFC3339Nano                                      |
+| `command`      | string  | Full git command (e.g. `git status --porcelain`) |
+| `workspace_id` | string  | Workspace ID                                     |
+| `working_dir`  | string  | Working directory                                |
+| `trigger`      | string  | `poller` / `watcher` / `explicit`                |
+| `duration_ms`  | float64 | Execution time                                   |
+| `exit_code`    | int     | Process exit code                                |
+| `stdout_bytes` | int64   | Bytes on stdout                                  |
+| `stderr_bytes` | int64   | Bytes on stderr                                  |
 
 ### 2. Diagnostic Capture: `IOWorkspaceDiagnosticCapture`
 
@@ -85,6 +85,7 @@ Mirrors `DiagnosticCapture`. Struct with a `WriteToDir(dir string) error` method
 Mirrors the terminal diagnostic trigger. The capture is triggered by sending a `"io-workspace-diagnostic"` message on the terminal WebSocket (`/ws/terminal/{id}`), same as the terminal diagnostic uses `"diagnostic"`.
 
 On receiving this message:
+
 1. Snapshot the in-memory `IOWorkspaceTelemetry`
 2. Compute `findings` and `verdict`
 3. Write diagnostic directory via `WriteToDir`
@@ -100,6 +101,7 @@ Mirrors the "Terminal Desync Diagnostics" section in AdvancedTab:
 - **Hint text**: "When enabled, workspace git operations are instrumented with timing telemetry. When a target is selected, a diagnostic capture will automatically spawn an agent session to analyze the captured data."
 
 Config fields in Go:
+
 - `io_workspace_telemetry_enabled *bool` (default `false`)
 - `io_workspace_telemetry_target string` (default `""`)
 
@@ -108,11 +110,13 @@ Config fields in Go:
 Mirrors `StreamMetricsPanel`. Shown when IO workspace telemetry is enabled.
 
 **Collapsed view** (pill):
+
 - Total commands count
 - Total duration
 - Commands/sec
 
 **Expanded view** (dropdown on click):
+
 - Total commands
 - Total duration
 - Commands/sec
@@ -121,6 +125,7 @@ Mirrors `StreamMetricsPanel`. Shown when IO workspace telemetry is enabled.
 - Workspace count
 
 **"Capture" button** (mirrors "Diagnose" button):
+
 - Sends `"io-workspace-diagnostic"` message over the WebSocket
 - Receives response with `diagDir`, `counters`, `findings`, `verdict`
 - If target is configured, agent session spawns automatically

@@ -2080,6 +2080,7 @@ Client -> server messages:
 {"type":"input","data":"raw-bytes-or-escape-seqs"}
 {"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
 {"type":"diagnostic"}
+{"type":"io-workspace-diagnostic"}
 {"type":"syncResult","data":"{\"corrected\":true,\"diffRows\":[22,23,24]}"}
 ```
 
@@ -2099,6 +2100,8 @@ Text frames are JSON control messages:
 {"type":"stats","eventsDelivered":100,"eventsDropped":0,"bytesDelivered":50000,"bytesPerSec":1200,"controlModeReconnects":0,"syncChecksSent":5,"syncCorrections":0,"syncSkippedActive":2}
 {"type":"controlMode","attached":true}
 {"type":"diagnostic","diagDir":"...","counters":{...},"findings":[...],"verdict":"...","tmuxScreen":"..."}
+{"type":"io-workspace-stats","totalCommands":42,"totalDurationMs":1234.5,"triggerCounts":{"poller":30,"watcher":12},"counters":{"git_status":20,"git_fetch":10}}
+{"type":"io-workspace-diagnostic","diagDir":"...","counters":{...},"findings":[...],"verdict":"..."}
 {"type":"sync","screen":"<ANSI-escaped tmux capture>","cursor":{"row":24,"col":3,"visible":true}}
 ```
 
@@ -2108,6 +2111,8 @@ Text frames are JSON control messages:
 | `stats`       | Periodic pipeline diagnostics (dev mode only, every 3s). Includes sync counters: `syncChecksSent`, `syncCorrections`, `syncSkippedActive`                                                                                                                                                              |
 | `controlMode` | tmux control mode attachment state changed                                                                                                                                                                                                                                                             |
 | `diagnostic`  | Response to a `diagnostic` request with capture data (dev mode only)                                                                                                                                                                                                                                   |
+| `io-workspace-stats` | Periodic IO workspace telemetry stats (every 3s when io_workspace_telemetry enabled). Includes command counts, total duration, per-trigger and per-command-type breakdowns                                                                                                                     |
+| `io-workspace-diagnostic` | Response to an `io-workspace-diagnostic` request. Writes capture to `~/.schmux/diagnostics/` and returns counters, findings, verdict, and diagDir                                                                                                                                     |
 | `sync`        | Periodic screen snapshot for desync detection. `screen` contains visible-screen-only `capture-pane -e -p` output. `cursor` contains position and visibility. Sent 500ms after bootstrap, then every 10s. The frontend compares plain-text content against its xterm.js buffer and corrects on mismatch |
 
 Errors:
