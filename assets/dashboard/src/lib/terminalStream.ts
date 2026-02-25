@@ -108,6 +108,13 @@ export default class TerminalStream {
     | null = null;
   onSyncCorrection: ((diffRows: number[]) => void) | null = null;
 
+  // IO workspace telemetry
+  latestIOWorkspaceStats: Record<string, unknown> | null = null;
+  onIOWorkspaceStatsUpdate: ((stats: Record<string, unknown>) => void) | null = null;
+  onIOWorkspaceDiagnosticComplete:
+    | ((result: { diagDir: string; verdict: string; findings: string[] }) => void)
+    | null = null;
+
   constructor(
     sessionId: string,
     containerElement: HTMLElement,
@@ -575,11 +582,20 @@ export default class TerminalStream {
     this.onDiagnosticResponse = null;
     this.onDiagnosticComplete = null;
     this.latestStats = null;
+    this.onIOWorkspaceStatsUpdate = null;
+    this.onIOWorkspaceDiagnosticComplete = null;
+    this.latestIOWorkspaceStats = null;
   }
 
   sendDiagnostic(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'diagnostic' }));
+    }
+  }
+
+  sendIOWorkspaceDiagnostic(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'io-workspace-diagnostic' }));
     }
   }
 
@@ -635,6 +651,19 @@ export default class TerminalStream {
       case 'diagnostic':
         this.onDiagnosticResponse?.(msg);
         break;
+      case 'io-workspace-stats':
+        this.latestIOWorkspaceStats = msg;
+        this.onIOWorkspaceStatsUpdate?.(msg);
+        break;
+      case 'io-workspace-diagnostic': {
+        const ioMsg = msg as Record<string, unknown>;
+        this.onIOWorkspaceDiagnosticComplete?.({
+          diagDir: (ioMsg.diagDir as string) || '',
+          verdict: (ioMsg.verdict as string) || '',
+          findings: (ioMsg.findings as string[]) || [],
+        });
+        break;
+      }
       case 'controlMode':
         this.onControlModeChange?.((msg as any).attached);
         break;

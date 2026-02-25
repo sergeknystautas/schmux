@@ -61,6 +61,10 @@ const DEFAULT_CONFIG: ConfigResponse = {
     enabled: false,
     target: '',
   },
+  io_workspace_telemetry: {
+    enabled: false,
+    target: '',
+  },
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,
