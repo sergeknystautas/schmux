@@ -71,8 +71,10 @@ const configFixture: ConfigResponse = {
 };
 
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();
+const mockGetPersonas = vi.fn<() => Promise<{ personas: unknown[] }>>();
 vi.mock('../lib/api', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...(args as [])),
+  getPersonas: (...args: unknown[]) => mockGetPersonas(...(args as [])),
   spawnSessions: vi.fn(),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   suggestBranch: vi.fn(),
@@ -171,6 +173,7 @@ describe('SpawnPage unified agent dropdown', () => {
     localStorage.clear();
     sessionStorage.clear();
     mockGetConfig.mockResolvedValue(configFixture);
+    mockGetPersonas.mockResolvedValue({ personas: [] });
   });
 
   it('renders the unified agent dropdown with agents and special options', async () => {
@@ -273,5 +276,37 @@ describe('SpawnPage unified agent dropdown', () => {
       // The "Single agent" button should be gone
       expect(screen.queryByRole('button', { name: 'Single agent' })).not.toBeInTheDocument();
     });
+  });
+
+  it('shows persona dropdown in same row as agent and repo when personas exist', async () => {
+    // Mock personas to be returned
+    mockGetPersonas.mockResolvedValue({
+      personas: [
+        {
+          id: 'builder',
+          name: 'Builder',
+          icon: '🏗️',
+          color: '#3498db',
+          prompt: 'Build things',
+          expectations: '',
+          built_in: true,
+        },
+      ],
+    });
+
+    renderSpawnPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-select')).toBeInTheDocument();
+    });
+
+    // Persona should be visible when personas exist
+    expect(screen.getByTestId('persona-select')).toBeInTheDocument();
+
+    // All three (agent, persona, repo) should be in the agent-repo-row container
+    const row = screen.getByTestId('agent-repo-row');
+    expect(within(row).getByTestId('agent-select')).toBeInTheDocument();
+    expect(within(row).getByTestId('persona-select')).toBeInTheDocument();
+    expect(within(row).getByTestId('spawn-repo-select')).toBeInTheDocument();
   });
 });

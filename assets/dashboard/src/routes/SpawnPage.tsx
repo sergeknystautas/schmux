@@ -933,14 +933,8 @@ export default function SpawnPage() {
               {modelSelectionMode === 'single' ? (
                 <>
                   {mode === 'fresh' && !isRemoteWithoutProvisioning ? (
-                    /* Single agent + fresh mode: agent and repo side-by-side */
-                    <>
-                      <label
-                        className="form-group__label"
-                        style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
-                      >
-                        Agent
-                      </label>
+                    /* Single agent + fresh mode: agent, persona (if available), and repo in flex row */
+                    <div style={{ gridColumn: '1 / -1' }}>
                       <div
                         data-testid="agent-repo-row"
                         style={{
@@ -971,7 +965,7 @@ export default function SpawnPage() {
                               if (selected) toggleAgent(selected.name);
                             }
                           }}
-                          style={{ width: '50%', flexShrink: 0 }}
+                          style={{ flex: 1 }}
                         >
                           <option value="">Select agent...</option>
                           {promptableList.map((item) => (
@@ -983,87 +977,123 @@ export default function SpawnPage() {
                           <option value="__multiple__">Multiple agents</option>
                           <option value="__advanced__">Advanced</option>
                         </select>
-                        <div style={{ flex: 1 }}>
+                        {personas.length > 0 && (
                           <select
-                            id="repo"
+                            id="persona-select"
                             className="select"
-                            required
-                            value={repo}
-                            data-testid="spawn-repo-select"
-                            onChange={(event) => {
-                              setRepo(event.target.value);
-                              if (event.target.value !== '__new__') {
-                                setNewRepoName('');
-                              }
-                            }}
+                            data-testid="persona-select"
+                            value={selectedPersonaId}
+                            onChange={(e) => setSelectedPersonaId(e.target.value)}
+                            style={{ flex: 1 }}
                           >
-                            <option value="">Select repository...</option>
-                            {repos.map((item) => (
-                              <option key={item.url} value={item.url}>
-                                {item.name}
+                            <option value="">No persona</option>
+                            {personas.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.icon} {p.name}
                               </option>
                             ))}
-                            <option value="__new__">+ Create New Repository</option>
                           </select>
-                        </div>
+                        )}
+                        <select
+                          id="repo"
+                          className="select"
+                          required
+                          value={repo}
+                          data-testid="spawn-repo-select"
+                          onChange={(event) => {
+                            setRepo(event.target.value);
+                            if (event.target.value !== '__new__') {
+                              setNewRepoName('');
+                            }
+                          }}
+                          style={{ flex: 1 }}
+                        >
+                          <option value="">Select repository...</option>
+                          {repos.map((item) => (
+                            <option key={item.url} value={item.url}>
+                              {item.name}
+                            </option>
+                          ))}
+                          <option value="__new__">+ Create New Repository</option>
+                        </select>
                       </div>
                       {repo === '__new__' && (
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <input
-                            type="text"
-                            id="newRepoName"
-                            className="input"
-                            value={newRepoName}
-                            onChange={(event) => setNewRepoName(event.target.value)}
-                            placeholder="Repository name"
-                            required
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          id="newRepoName"
+                          className="input"
+                          value={newRepoName}
+                          onChange={(event) => setNewRepoName(event.target.value)}
+                          placeholder="Repository name"
+                          required
+                          style={{ marginTop: 'var(--spacing-sm)' }}
+                        />
                       )}
-                    </>
+                    </div>
                   ) : (
-                    /* Single agent + workspace mode: agent alone */
-                    <>
-                      <label
-                        className="form-group__label"
-                        style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
-                      >
-                        Agent
-                      </label>
-                      <select
-                        className="select"
-                        data-testid="agent-select"
-                        value={
-                          promptableList.find((item) => (targetCounts[item.name] || 0) > 0)?.name ||
-                          ''
-                        }
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === '__multiple__') {
-                            setModelSelectionMode('multiple');
-                          } else if (val === '__advanced__') {
-                            setModelSelectionMode('advanced');
-                          } else if (val) {
-                            toggleAgent(val);
-                          } else {
-                            const selected = promptableList.find(
-                              (item) => (targetCounts[item.name] || 0) > 0
-                            );
-                            if (selected) toggleAgent(selected.name);
-                          }
+                    /* Single agent + workspace mode: agent and persona (if available) in flex row */
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <div
+                        data-testid="agent-persona-row"
+                        style={{
+                          display: 'flex',
+                          gap: 'var(--spacing-md)',
+                          alignItems: 'flex-start',
                         }}
                       >
-                        <option value="">Select agent...</option>
-                        {promptableList.map((item) => (
-                          <option key={item.name} value={item.name}>
-                            {item.label}
-                          </option>
-                        ))}
-                        <option disabled>──────────</option>
-                        <option value="__multiple__">Multiple agents</option>
-                        <option value="__advanced__">Advanced</option>
-                      </select>
-                    </>
+                        <select
+                          className="select"
+                          data-testid="agent-select"
+                          value={
+                            promptableList.find((item) => (targetCounts[item.name] || 0) > 0)
+                              ?.name || ''
+                          }
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__multiple__') {
+                              setModelSelectionMode('multiple');
+                            } else if (val === '__advanced__') {
+                              setModelSelectionMode('advanced');
+                            } else if (val) {
+                              toggleAgent(val);
+                            } else {
+                              const selected = promptableList.find(
+                                (item) => (targetCounts[item.name] || 0) > 0
+                              );
+                              if (selected) toggleAgent(selected.name);
+                            }
+                          }}
+                          style={{ flex: 1 }}
+                        >
+                          <option value="">Select agent...</option>
+                          {promptableList.map((item) => (
+                            <option key={item.name} value={item.name}>
+                              {item.label}
+                            </option>
+                          ))}
+                          <option disabled>──────────</option>
+                          <option value="__multiple__">Multiple agents</option>
+                          <option value="__advanced__">Advanced</option>
+                        </select>
+                        {personas.length > 0 && (
+                          <select
+                            id="persona-select-workspace"
+                            className="select"
+                            data-testid="persona-select"
+                            value={selectedPersonaId}
+                            onChange={(e) => setSelectedPersonaId(e.target.value)}
+                            style={{ flex: 1 }}
+                          >
+                            <option value="">No persona</option>
+                            {personas.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.icon} {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </>
               ) : (
@@ -1253,58 +1283,43 @@ export default function SpawnPage() {
                         })}
                       </div>
                     )}
+
+                    {/* Persona selector for multiple/advanced modes */}
+                    {personas.length > 0 && (
+                      <select
+                        className="select"
+                        data-testid="persona-select"
+                        value={selectedPersonaId}
+                        onChange={(e) => setSelectedPersonaId(e.target.value)}
+                        style={{ marginTop: 'var(--spacing-md)', width: '100%', maxWidth: '300px' }}
+                      >
+                        <option value="">No persona</option>
+                        {personas.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.icon} {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 </>
               )}
             </>
           )}
 
-          {/* Persona selector */}
-          {personas.length > 0 && (
-            <>
-              <label
-                htmlFor="persona-select"
-                className="form-group__label"
-                style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
-              >
-                Persona
-              </label>
-              <select
-                id="persona-select"
-                className="select"
-                data-testid="persona-select"
-                value={selectedPersonaId}
-                onChange={(e) => setSelectedPersonaId(e.target.value)}
-              >
-                <option value="">No persona</option>
-                {personas.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.icon} {p.name}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-
           {/* Branch (shown on suggestion failure or when suggestion is disabled) */}
           {mode === 'fresh' && !isRemoteWithoutProvisioning && showBranchInput && (
-            <>
-              <label
-                htmlFor="branch"
-                className="form-group__label"
-                style={{ marginBottom: 0, whiteSpace: 'nowrap' }}
-              >
-                Branch
-              </label>
+            <div style={{ gridColumn: '1 / -1' }}>
               <input
                 type="text"
                 id="branch"
                 className="input"
                 value={branch}
                 onChange={(event) => setBranch(event.target.value)}
-                placeholder="e.g. feature/my-branch"
+                placeholder="Branch (e.g. feature/my-branch)"
+                style={{ width: '100%' }}
               />
-            </>
+            </div>
           )}
         </div>
 
