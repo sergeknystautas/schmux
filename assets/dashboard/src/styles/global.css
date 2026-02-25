@@ -1268,9 +1268,7 @@ body {
 
 /* Tools Section */
 .tools-section {
-  margin-top: var(--spacing-sm);
   border-top: 1px solid var(--color-border);
-  padding-top: var(--spacing-xs);
 }
 
 .tools-section__header {
