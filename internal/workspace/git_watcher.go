@@ -41,10 +41,23 @@ type GitWatcher struct {
 	lastStatusHash   map[string]string
 	lastStatusHashMu sync.Mutex
 
+	// suppressedPaths tracks short-lived path-prefix suppressions for fsnotify
+	// events caused by schmux's own git commands. Keys are cleaned absolute-ish
+	// path prefixes (e.g. a gitdir or shared refs dir).
+	suppressedPaths   map[string]suppressionState
+	suppressedPathsMu sync.Mutex
+
 	// stopCh signals the event loop to exit.
 	stopCh   chan struct{}
 	stopOnce sync.Once
 }
+
+type suppressionState struct {
+	active int
+	until  time.Time
+}
+
+const internalGitEventSuppressGrace = 750 * time.Millisecond
 
 // NewGitWatcher creates a new git watcher. Returns nil if watching is disabled
 // in config.
@@ -61,15 +74,16 @@ func NewGitWatcher(cfg *config.Config, mgr *Manager, broadcast func(), logger *l
 	}
 
 	return &GitWatcher{
-		watcher:        w,
-		cfg:            cfg,
-		mgr:            mgr,
-		broadcast:      broadcast,
-		logger:         logger,
-		watchedPaths:   make(map[string][]string),
-		debounceTimers: make(map[string]*time.Timer),
-		lastStatusHash: make(map[string]string),
-		stopCh:         make(chan struct{}),
+		watcher:         w,
+		cfg:             cfg,
+		mgr:             mgr,
+		broadcast:       broadcast,
+		logger:          logger,
+		watchedPaths:    make(map[string][]string),
+		debounceTimers:  make(map[string]*time.Timer),
+		lastStatusHash:  make(map[string]string),
+		suppressedPaths: make(map[string]suppressionState),
+		stopCh:          make(chan struct{}),
 	}
 }
 
@@ -107,19 +121,13 @@ func (gw *GitWatcher) AddWorkspace(workspaceID, workspacePath string) {
 	// Watch the gitdir itself (catches HEAD, index, packed-refs, FETCH_HEAD changes)
 	gw.addWatch(gitDir, workspaceID)
 
-	// Watch refs/ tree
-	refsDir := filepath.Join(gitDir, "refs")
-	gw.watchRecursive(refsDir, workspaceID)
-
-	// Watch logs/ directory
+	// Watch logs/ directory (captures HEAD reflog and related local branch movement).
+	//
+	// Intentionally do NOT watch refs/ (including shared worktree-base refs/):
+	// ref updates are high-noise (especially fetch/remotes) and are handled by the
+	// poller. The watcher is for fast local workspace feedback.
 	logsDir := filepath.Join(gitDir, "logs")
 	gw.watchRecursive(logsDir, workspaceID)
-
-	// For worktrees, also watch the shared base repo's refs/
-	baseRefsDir := resolveSharedBaseRefs(gitDir)
-	if baseRefsDir != "" && baseRefsDir != refsDir {
-		gw.watchRecursive(baseRefsDir, workspaceID)
-	}
 
 	gw.logger.Info("watching", "workspace_id", workspaceID, "gitdir", gitDir)
 }
@@ -175,7 +183,7 @@ func (gw *GitWatcher) eventLoop() {
 
 // handleEvent maps an fsnotify event to workspace IDs and resets debounce timers.
 func (gw *GitWatcher) handleEvent(event fsnotify.Event) {
-	// On CREATE events for directories, add a watch (handles new refs subdirs)
+	// On CREATE events for directories, add a watch (handles new logs/ subdirs, etc.)
 	if event.Has(fsnotify.Create) {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			gw.watchedPathsMu.Lock()
@@ -190,11 +198,161 @@ func (gw *GitWatcher) handleEvent(event fsnotify.Event) {
 		}
 	}
 
+	// Ignore short-lived git metadata churn caused by schmux's own git commands.
+	// Keep this check after CREATE handling so we still add watches for new dirs.
+	if gw.isSuppressedPath(event.Name) {
+		return
+	}
+
 	// Map the event path to workspace IDs
 	workspaceIDs := gw.findWorkspaceIDs(event.Name)
 	for _, id := range workspaceIDs {
 		gw.resetDebounce(id)
 	}
+}
+
+// BeginInternalGitSuppressionForDir suppresses watcher refreshes for git metadata
+// events under the git paths associated with dir while a schmux-run git command is
+// in flight, plus a small grace period after completion. It returns a release func.
+func (gw *GitWatcher) BeginInternalGitSuppressionForDir(dir string) func() {
+	if gw == nil || dir == "" {
+		return func() {}
+	}
+
+	paths := suppressionPathsForGitCommandDir(dir)
+	if len(paths) == 0 {
+		return func() {}
+	}
+
+	gw.suppressedPathsMu.Lock()
+	for _, p := range paths {
+		state := gw.suppressedPaths[p]
+		state.active++
+		gw.suppressedPaths[p] = state
+	}
+	gw.suppressedPathsMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			now := time.Now()
+			until := now.Add(internalGitEventSuppressGrace)
+
+			gw.suppressedPathsMu.Lock()
+			defer gw.suppressedPathsMu.Unlock()
+
+			for _, p := range paths {
+				state, ok := gw.suppressedPaths[p]
+				if !ok {
+					continue
+				}
+				if state.active > 0 {
+					state.active--
+				}
+				if state.until.Before(until) {
+					state.until = until
+				}
+				if state.active == 0 && !now.Before(state.until) {
+					delete(gw.suppressedPaths, p)
+				} else {
+					gw.suppressedPaths[p] = state
+				}
+			}
+		})
+	}
+}
+
+func (gw *GitWatcher) isSuppressedPath(path string) bool {
+	if gw == nil || path == "" {
+		return false
+	}
+	cleanPath := filepath.Clean(path)
+	now := time.Now()
+
+	gw.suppressedPathsMu.Lock()
+	defer gw.suppressedPathsMu.Unlock()
+
+	suppressed := false
+	for prefix, state := range gw.suppressedPaths {
+		// Opportunistic cleanup of expired entries.
+		if state.active == 0 && !now.Before(state.until) {
+			delete(gw.suppressedPaths, prefix)
+			continue
+		}
+		if state.active > 0 || now.Before(state.until) {
+			if pathHasPrefix(cleanPath, prefix) {
+				suppressed = true
+			}
+		}
+	}
+	return suppressed
+}
+
+func pathHasPrefix(path, prefix string) bool {
+	path = filepath.Clean(path)
+	prefix = filepath.Clean(prefix)
+	if path == prefix {
+		return true
+	}
+	if prefix == "." || prefix == string(filepath.Separator) {
+		return strings.HasPrefix(path, prefix)
+	}
+	return strings.HasPrefix(path, prefix+string(filepath.Separator))
+}
+
+func suppressionPathsForGitCommandDir(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	add := func(out *[]string, p string) {
+		if p == "" {
+			return
+		}
+		cp := filepath.Clean(p)
+		if _, ok := seen[cp]; ok {
+			return
+		}
+		seen[cp] = struct{}{}
+		*out = append(*out, cp)
+	}
+
+	var out []string
+
+	// Workspace path (regular clone or worktree path)
+	if gitDir, err := resolveGitDir(dir); err == nil {
+		add(&out, gitDir)
+		add(&out, resolveSharedBaseRefs(gitDir))
+		return out
+	}
+
+	// Bare repo / git metadata dir path (e.g. shared worktree base or query repo)
+	if looksLikeGitMetadataDir(dir) {
+		add(&out, dir)
+	}
+
+	return out
+}
+
+func looksLikeGitMetadataDir(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return false
+	}
+	// Heuristic: git metadata dirs (bare repos or .git dirs) have HEAD and refs/ (or objects/)
+	if _, err := os.Stat(filepath.Join(dir, "HEAD")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, "refs")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "objects")); err == nil {
+		return true
+	}
+	return false
 }
 
 // findWorkspaceIDs returns workspace IDs associated with the given path.
@@ -255,7 +413,7 @@ func (gw *GitWatcher) refreshWorkspace(workspaceID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), gw.cfg.GitStatusTimeout())
 	defer cancel()
 
-	w, err := gw.mgr.UpdateGitStatus(ctx, workspaceID)
+	w, err := gw.mgr.updateGitStatusWithTrigger(ctx, workspaceID, RefreshTriggerWatcher)
 	if err != nil {
 		if errors.Is(err, ErrWorkspaceLocked) {
 			return

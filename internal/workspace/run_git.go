@@ -18,6 +18,12 @@ func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger Refres
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
+	releaseWatcherSuppression := func() {}
+	if m != nil && m.gitWatcher != nil {
+		releaseWatcherSuppression = m.gitWatcher.BeginInternalGitSuppressionForDir(dir)
+	}
+	defer releaseWatcherSuppression()
+
 	start := time.Now()
 	stdout, err := cmd.Output()
 	duration := time.Since(start)

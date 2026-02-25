@@ -744,7 +744,16 @@ func extractWorkspaceNumber(id string) (int, error) {
 
 // UpdateGitStatus refreshes the git status for a single workspace.
 // Returns the updated workspace or an error.
+//
+// Public callers are treated as explicit refreshes. Internal poller/watcher paths
+// should call updateGitStatusWithTrigger so telemetry attribution remains accurate.
 func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*state.Workspace, error) {
+	return m.updateGitStatusWithTrigger(ctx, workspaceID, RefreshTriggerExplicit)
+}
+
+// updateGitStatusWithTrigger refreshes git status for a single workspace with
+// explicit telemetry attribution of the triggering source.
+func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID string, trigger RefreshTrigger) (*state.Workspace, error) {
 	// Bail out early if context is already cancelled (e.g. during shutdown)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -778,10 +787,10 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, workspaceID, RefreshTriggerPoller, w.Path, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, workspaceID, trigger, w.Path, w.Repo)
 
 	// Detect actual current branch (may differ from state if user manually switched)
-	actualBranch, err := m.gitCurrentBranch(ctx, w.Path)
+	actualBranch, err := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, w.Path)
 	if err != nil {
 		m.logger.Warn("failed to get current branch", "id", w.ID, "err", err)
 		actualBranch = w.Branch // fallback to existing state
@@ -791,7 +800,7 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 	orphaned := false
 	if defaultBranch, dbErr := m.GetDefaultBranch(ctx, w.Repo); dbErr == nil {
 		defaultRef := "origin/" + defaultBranch
-		if !m.hasCommonAncestor(ctx, w.Path, defaultRef) {
+		if !m.hasCommonAncestorInstrumented(ctx, workspaceID, trigger, w.Path, defaultRef) {
 			orphaned = true
 		}
 	}
@@ -812,7 +821,9 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 
 	// Check if the branch exists on the remote (cached to avoid per-broadcast git calls)
 	if wb, found := m.state.GetWorktreeBaseByURL(w.Repo); found {
-		w.RemoteBranchExists = RemoteBranchExists(ctx, wb.Path, w.Branch)
+		if exists, existsErr := m.gitRemoteBranchExistsInstrumented(ctx, workspaceID, trigger, wb.Path, w.Branch); existsErr == nil {
+			w.RemoteBranchExists = exists
+		}
 	}
 
 	// Update the workspace in state (this updates the in-memory copy)
@@ -839,7 +850,7 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 			continue
 		}
 
-		if _, err := m.UpdateGitStatus(ctx, w.ID); err != nil {
+		if _, err := m.updateGitStatusWithTrigger(ctx, w.ID, RefreshTriggerPoller); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
 			}
