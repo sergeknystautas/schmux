@@ -30,6 +30,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
@@ -561,6 +562,61 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 	sm.SetEventHandlers(eventHandlers)
+
+	// Floor manager
+	fmLog := logging.Sub(logger, "floor-manager")
+	var fm *floormanager.Manager
+	var fmInjector *floormanager.Injector
+
+	startFloorManager := func() {
+		if fm != nil {
+			return // already running
+		}
+		fm = floormanager.New(cfg, sm, homeDir, fmLog)
+		fmInjector = floormanager.NewInjector(fm, cfg.GetFloorManagerDebounceMs(), fmLog)
+		server.SetFloorManager(fm)
+		eventHandlers["status"] = append(eventHandlers["status"], fmInjector)
+		sm.SetEventHandlers(eventHandlers)
+		if err := fm.Start(d.shutdownCtx); err != nil {
+			fmLog.Error("failed to start floor manager", "err", err)
+			fm = nil
+			fmInjector = nil
+			server.SetFloorManager(nil)
+		}
+	}
+
+	stopFloorManager := func() {
+		if fm == nil {
+			return
+		}
+		fmInjector.Stop()
+		fm.Stop()
+		server.SetFloorManager(nil)
+		// Rebuild event handlers without the injector
+		eventHandlers["status"] = []events.EventHandler{dashHandler}
+		if devMode {
+			monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
+				server.BroadcastEvent(sessionID, data)
+			})
+			eventHandlers["status"] = append(eventHandlers["status"], monitorHandler)
+		}
+		sm.SetEventHandlers(eventHandlers)
+		fm = nil
+		fmInjector = nil
+	}
+
+	if cfg.GetFloorManagerEnabled() {
+		startFloorManager()
+	}
+
+	// Wire config toggle callback for floor manager
+	dashboard.OnFloorManagerToggle = func(enabled bool) {
+		if enabled {
+			startFloorManager()
+		} else {
+			stopFloorManager()
+		}
+	}
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
@@ -1116,6 +1172,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	if compounder != nil {
 		compounder.Stop()
 	}
+
+	// Stop floor manager
+	stopFloorManager()
 
 	// Stop dashboard server
 	if err := server.Stop(); err != nil {

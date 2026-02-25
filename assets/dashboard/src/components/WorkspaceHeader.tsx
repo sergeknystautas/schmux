@@ -217,7 +217,7 @@ export default function WorkspaceHeader({
           {!isRemoteAccess && (
             <Tooltip content="Open in VS Code">
               <button
-                className="btn btn--sm btn--ghost btn--bordered"
+                className="btn btn--sm btn--ghost btn--bordered vscode-btn"
                 disabled={openingVSCode}
                 onClick={handleOpenVSCode}
                 aria-label={`Open ${workspace.id} in VS Code`}

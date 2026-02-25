@@ -1267,6 +1267,11 @@ body {
 }
 
 /* Tools Section */
+.tools-section--mobile-only {
+  display: none;
+  background-color: var(--color-surface);
+}
+
 .tools-section {
   border-top: 1px solid var(--color-border);
 }
@@ -5185,7 +5190,7 @@ body.keyboard-mode-active::after {
   .app-shell,
   .app-shell--collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto 1fr auto;
     height: 100dvh;
   }
 
@@ -5211,8 +5216,21 @@ body.keyboard-mode-active::after {
   .remote-access-panel,
   .tmux-diag,
   .typing-perf,
+  .event-monitor,
   .nav-collapse-btn {
     display: none;
+  }
+
+  .tools-section {
+    display: none;
+  }
+
+  .tools-section--mobile-only {
+    display: block;
+  }
+
+  .tools-section--mobile-only .tools-section {
+    display: block;
   }
 
   /* --- Workspace strip: horizontal scrollable tabs --- */
@@ -5348,6 +5366,12 @@ body.keyboard-mode-active::after {
   .app-header__actions {
     gap: var(--spacing-xs);
     flex-shrink: 0;
+  }
+
+  .vscode-btn,
+  .iterm2-link,
+  .sidebar-toggle-btn {
+    display: none;
   }
 
   /* --- Session Tabs: flatten hierarchy so accessory can reorder below content --- */

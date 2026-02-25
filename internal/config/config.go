@@ -91,6 +91,7 @@ type Config struct {
 	RemoteAccess               *RemoteAccessConfig    `json:"remote_access,omitempty"`
 	Models                     *ModelsConfig          `json:"models,omitempty"`
 	Subreddit                  *SubredditConfig       `json:"subreddit,omitempty"`
+	FloorManager               *FloorManagerConfig    `json:"floor_manager,omitempty"`
 
 	// Telemetry settings
 	TelemetryEnabled *bool  `json:"telemetry_enabled,omitempty"` // default true
@@ -270,6 +271,14 @@ type NudgenikConfig struct {
 type SubredditConfig struct {
 	Target string `json:"target,omitempty"` // LLM target for generation, empty = disabled
 	Hours  int    `json:"hours,omitempty"`  // Lookback window in hours, default 24
+}
+
+// FloorManagerConfig configures the floor manager singleton agent.
+type FloorManagerConfig struct {
+	Enabled           *bool  `json:"enabled,omitempty"`
+	Target            string `json:"target,omitempty"`
+	RotationThreshold int    `json:"rotation_threshold,omitempty"`
+	DebounceMs        int    `json:"debounce_ms,omitempty"`
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -670,6 +679,46 @@ func (c *Config) GetSubredditHours() int {
 		return 24
 	}
 	return c.Subreddit.Hours
+}
+
+// GetFloorManagerEnabled returns whether the floor manager is enabled.
+func (c *Config) GetFloorManagerEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FloorManager == nil || c.FloorManager.Enabled == nil {
+		return false
+	}
+	return *c.FloorManager.Enabled
+}
+
+// GetFloorManagerTarget returns the configured floor manager target name.
+func (c *Config) GetFloorManagerTarget() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FloorManager == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.FloorManager.Target)
+}
+
+// GetFloorManagerRotationThreshold returns the rotation threshold, defaulting to 150.
+func (c *Config) GetFloorManagerRotationThreshold() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FloorManager == nil || c.FloorManager.RotationThreshold <= 0 {
+		return 150
+	}
+	return c.FloorManager.RotationThreshold
+}
+
+// GetFloorManagerDebounceMs returns the debounce interval in ms, defaulting to 2000.
+func (c *Config) GetFloorManagerDebounceMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FloorManager == nil || c.FloorManager.DebounceMs <= 0 {
+		return 2000
+	}
+	return c.FloorManager.DebounceMs
 }
 
 // GetBranchSuggestTarget returns the configured branch suggestion target name, if any.

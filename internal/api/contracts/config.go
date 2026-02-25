@@ -134,6 +134,7 @@ type ConfigResponse struct {
 	Notifications              Notifications         `json:"notifications"`
 	Lore                       Lore                  `json:"lore"`
 	Subreddit                  Subreddit             `json:"subreddit"`
+	FloorManager               FloorManager          `json:"floor_manager"`
 	RemoteAccess               RemoteAccess          `json:"remote_access"`
 	NeedsRestart               bool                  `json:"needs_restart"`
 }
@@ -249,6 +250,7 @@ type ConfigUpdateRequest struct {
 	Notifications              *NotificationsUpdate   `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate            `json:"lore,omitempty"`
 	Subreddit                  *SubredditUpdate       `json:"subreddit,omitempty"`
+	FloorManager               *FloorManagerUpdate    `json:"floor_manager,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate    `json:"remote_access,omitempty"`
 	ModelVersions              *map[string]string     `json:"model_versions,omitempty"`
 }
@@ -301,6 +303,22 @@ type Subreddit struct {
 type SubredditUpdate struct {
 	Target *string `json:"target,omitempty"`
 	Hours  *int    `json:"hours,omitempty"`
+}
+
+// FloorManager represents floor manager configuration in the API response.
+type FloorManager struct {
+	Enabled           bool   `json:"enabled"`
+	Target            string `json:"target"`
+	RotationThreshold int    `json:"rotation_threshold"`
+	DebounceMs        int    `json:"debounce_ms"`
+}
+
+// FloorManagerUpdate represents partial floor manager config updates.
+type FloorManagerUpdate struct {
+	Enabled           *bool   `json:"enabled,omitempty"`
+	Target            *string `json:"target,omitempty"`
+	RotationThreshold *int    `json:"rotation_threshold,omitempty"`
+	DebounceMs        *int    `json:"debounce_ms,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.

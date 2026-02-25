@@ -75,6 +75,12 @@ const DEFAULT_CONFIG: ConfigResponse = {
     target: '',
     hours: 24,
   },
+  floor_manager: {
+    enabled: false,
+    target: '',
+    rotation_threshold: 150,
+    debounce_ms: 2000,
+  },
   remote_access: {
     enabled: true,
     timeout_minutes: 0,
