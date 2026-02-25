@@ -64,6 +64,8 @@ export type ConfigSnapshot = {
   fmTarget: string;
   fmRotationThreshold: number;
   fmDebounceMs: number;
+  ioWorkspaceTelemetryEnabled: boolean;
+  ioWorkspaceTelemetryTarget: string;
 };
 
 export type RunTargetEditModalState = {
@@ -187,6 +189,10 @@ export type ConfigFormState = {
   fmTarget: string;
   fmRotationThreshold: number;
   fmDebounceMs: number;
+
+  // IO Workspace Telemetry
+  ioWorkspaceTelemetryEnabled: boolean;
+  ioWorkspaceTelemetryTarget: string;
 
   // Overlays
   overlays: OverlayInfo[];
@@ -327,6 +333,8 @@ export const initialState: ConfigFormState = {
   fmTarget: '',
   fmRotationThreshold: 150,
   fmDebounceMs: 2000,
+  ioWorkspaceTelemetryEnabled: false,
+  ioWorkspaceTelemetryTarget: '',
 
   overlays: [],
   loadingOverlays: true,
@@ -564,6 +572,8 @@ export function useConfigForm(initialStep: number = 1) {
         state.fmTarget !== oc.fmTarget ||
         state.fmRotationThreshold !== oc.fmRotationThreshold ||
         state.fmDebounceMs !== oc.fmDebounceMs ||
+        state.ioWorkspaceTelemetryEnabled !== oc.ioWorkspaceTelemetryEnabled ||
+        state.ioWorkspaceTelemetryTarget !== oc.ioWorkspaceTelemetryTarget ||
         state.authSecretsChanged
       );
     },
@@ -666,6 +676,8 @@ export function useConfigForm(initialStep: number = 1) {
       fmTarget: state.fmTarget,
       fmRotationThreshold: state.fmRotationThreshold,
       fmDebounceMs: state.fmDebounceMs,
+      ioWorkspaceTelemetryEnabled: state.ioWorkspaceTelemetryEnabled,
+      ioWorkspaceTelemetryTarget: state.ioWorkspaceTelemetryTarget,
     };
   }, [state]);
 

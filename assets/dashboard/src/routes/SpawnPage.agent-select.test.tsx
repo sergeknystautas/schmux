@@ -56,6 +56,7 @@ const configFixture: ConfigResponse = {
   pr_review: { target: '' },
   commit_message: { target: '' },
   desync: { enabled: false, target: '' },
+  io_workspace_telemetry: { enabled: false, target: '' },
   notifications: { sound_disabled: false, confirm_before_close: false },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
   subreddit: { target: '', hours: 24 },

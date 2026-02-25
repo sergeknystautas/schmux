@@ -180,6 +180,8 @@ export default function ConfigPage() {
             fmTarget: data.floor_manager?.target || '',
             fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
+            ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
+            ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
             models: data.models || [],
           },
         });
@@ -237,6 +239,8 @@ export default function ConfigPage() {
             fmTarget: data.floor_manager?.target || '',
             fmRotationThreshold: data.floor_manager?.rotation_threshold || 150,
             fmDebounceMs: data.floor_manager?.debounce_ms || 2000,
+            ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
+            ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
           };
           dispatch({ type: 'SET_ORIGINAL', config: originalConfig });
         }
@@ -582,6 +586,10 @@ export default function ConfigPage() {
           target: state.fmTarget || '',
           rotation_threshold: state.fmRotationThreshold,
           debounce_ms: state.fmDebounceMs,
+        },
+        io_workspace_telemetry: {
+          enabled: state.ioWorkspaceTelemetryEnabled,
+          target: state.ioWorkspaceTelemetryTarget || '',
         },
       };
 
@@ -1369,6 +1377,8 @@ export default function ConfigPage() {
               nudgenikSeenInterval={state.nudgenikSeenInterval}
               desyncEnabled={state.desyncEnabled}
               desyncTarget={state.desyncTarget}
+              ioWorkspaceTelemetryEnabled={state.ioWorkspaceTelemetryEnabled}
+              ioWorkspaceTelemetryTarget={state.ioWorkspaceTelemetryTarget}
               branchSuggestTarget={state.branchSuggestTarget}
               conflictResolveTarget={state.conflictResolveTarget}
               soundDisabled={state.soundDisabled}

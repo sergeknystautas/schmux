@@ -57,6 +57,8 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     fmTarget: '',
     fmRotationThreshold: 150,
     fmDebounceMs: 2000,
+    ioWorkspaceTelemetryEnabled: false,
+    ioWorkspaceTelemetryTarget: '',
     ...overrides,
   };
 }
@@ -503,6 +505,8 @@ describe('useConfigForm', () => {
             remoteAccessNotifyCommand: snapshot.remoteAccessNotifyCommand,
             desyncEnabled: snapshot.desyncEnabled,
             desyncTarget: snapshot.desyncTarget,
+            ioWorkspaceTelemetryEnabled: snapshot.ioWorkspaceTelemetryEnabled,
+            ioWorkspaceTelemetryTarget: snapshot.ioWorkspaceTelemetryTarget,
           },
         });
       });
@@ -560,6 +564,8 @@ describe('useConfigForm', () => {
             remoteAccessNotifyCommand: snapshot.remoteAccessNotifyCommand,
             desyncEnabled: snapshot.desyncEnabled,
             desyncTarget: snapshot.desyncTarget,
+            ioWorkspaceTelemetryEnabled: snapshot.ioWorkspaceTelemetryEnabled,
+            ioWorkspaceTelemetryTarget: snapshot.ioWorkspaceTelemetryTarget,
           },
         });
       });

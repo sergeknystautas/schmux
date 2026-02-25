@@ -15,6 +15,7 @@
 ### Task 1: In-Memory Collector — `IOWorkspaceTelemetry`
 
 **Files:**
+
 - Create: `internal/workspace/io_workspace_telemetry.go`
 - Create: `internal/workspace/io_workspace_telemetry_test.go`
 
@@ -133,6 +134,7 @@ Expected: FAIL — types not defined
 **Step 3: Write implementation**
 
 Create `internal/workspace/io_workspace_telemetry.go`. Mirror `refresh_telemetry.go` exactly — same ring buffer, same aggregation, same nil-safety pattern. Key differences:
+
 - Records full git commands instead of named spans
 - Has both a slow command ring (128 entries, >=100ms) and a full command ring (512 entries, all commands)
 - Extracts command type from args (e.g. `["status", "--porcelain"]` → `"git_status"`)
@@ -140,6 +142,7 @@ Create `internal/workspace/io_workspace_telemetry.go`. Mirror `refresh_telemetry
 - `RecordCommand(bin string, args []string, workspaceID, workingDir string, trigger RefreshTrigger, duration time.Duration, exitCode int, stdoutBytes, stderrBytes int64)`
 
 Snapshot type: `IOWorkspaceTelemetrySnapshot` with fields:
+
 - `SnapshotAt`, `TotalCommands`, `TotalDurationMS`
 - `Counters` (map[string]int64 — per command type)
 - `TriggerCounts` (map[string]int64)
@@ -161,6 +164,7 @@ Expected: PASS
 ```
 git add internal/workspace/io_workspace_telemetry.go internal/workspace/io_workspace_telemetry_test.go
 ```
+
 Message: `feat(telemetry): add IOWorkspaceTelemetry in-memory collector`
 
 ---
@@ -168,6 +172,7 @@ Message: `feat(telemetry): add IOWorkspaceTelemetry in-memory collector`
 ### Task 2: Diagnostic Capture — `IOWorkspaceDiagnosticCapture`
 
 **Files:**
+
 - Create: `internal/workspace/io_workspace_diagnostic.go`
 - Create: `internal/workspace/io_workspace_diagnostic_test.go`
 
@@ -243,6 +248,7 @@ Expected: FAIL
 **Step 3: Write implementation**
 
 Create `internal/workspace/io_workspace_diagnostic.go`:
+
 - `IOWorkspaceDiagnosticCapture` struct holding the snapshot + timestamp
 - `NewIOWorkspaceDiagnosticCapture(snap IOWorkspaceTelemetrySnapshot, ts time.Time) *IOWorkspaceDiagnosticCapture`
 - `WriteToDir(dir string) error` — mirrors `DiagnosticCapture.WriteToDir` at `internal/dashboard/diagnostic.go:38-69`
@@ -271,6 +277,7 @@ Message: `feat(telemetry): add IOWorkspaceDiagnosticCapture with WriteToDir`
 ### Task 3: Command Instrumentation — `runGit` wrapper
 
 **Files:**
+
 - Modify: `internal/workspace/manager.go` (Manager struct at line 32, add `ioTelemetry` field)
 - Create: `internal/workspace/run_git.go`
 - Create: `internal/workspace/run_git_test.go`
@@ -372,11 +379,13 @@ func (m *Manager) runGit(ctx context.Context, workspaceID string, trigger Refres
 ```
 
 Add to Manager struct in `manager.go:32`:
+
 ```go
 ioTelemetry *IOWorkspaceTelemetry
 ```
 
 Add setter method:
+
 ```go
 func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {
 	m.ioTelemetry = tel
@@ -384,6 +393,7 @@ func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {
 ```
 
 Add snapshot method (for the WebSocket handler to call):
+
 ```go
 func (m *Manager) IOWorkspaceTelemetrySnapshot(reset bool) IOWorkspaceTelemetrySnapshot {
 	return m.ioTelemetry.Snapshot(reset)
@@ -406,6 +416,7 @@ Message: `feat(telemetry): add runGit instrumented command wrapper`
 ### Task 4: Refactor call sites to use `runGit`
 
 **Files:**
+
 - Modify: `internal/workspace/git.go` — bulk of exec.CommandContext calls (lines 95, 127, 134, 141, 148, 161, 182, 192, 202, 214, 222, 238, 251, 265, 294, 322, 337, 359, 385, 404, 432, 438, 450, 468, 493, 583)
 - Modify: `internal/workspace/origin_queries.go` — lines 94, 101, 127, 138, 152, 161, 170, 181, 193, 298, 364, 373, 419
 - Modify: `internal/workspace/worktree.go` — lines 21, 29, 106, 112, 123, 128, 153, 197, 204, 215, 221, 230, 250, 275, 292, 314, 321, 327, 334, 341, 356
@@ -417,6 +428,7 @@ Message: `feat(telemetry): add runGit instrumented command wrapper`
 For each function, identify the workspaceID and trigger from context. Functions called from the poller loop use `RefreshTriggerPoller`. Functions called from the watcher use `RefreshTriggerWatcher`. Functions called from API handlers use `RefreshTriggerExplicit`.
 
 Some functions are standalone (not on Manager). These either:
+
 - Get refactored to accept `*Manager` or an `ioTelemetry` parameter
 - Or stay as-is with no telemetry (if they're rarely called or not in the hot path)
 
@@ -449,6 +461,7 @@ Message: `refactor(workspace): replace raw exec.Command with instrumented runGit
 ### Task 5: Config fields
 
 **Files:**
+
 - Modify: `internal/config/config.go` — add fields near desync (line 87), add getter methods near desync getters (lines 873-891)
 - Modify: `internal/api/contracts/config.go` — add types near `Desync` (line 140)
 - Modify: `internal/config/config_test.go` — add test for new getters
@@ -481,11 +494,13 @@ Expected: FAIL
 In `internal/config/config.go`:
 
 Add struct near line 87 (next to `Desync`):
+
 ```go
 IOWorkspaceTelemetry *IOWorkspaceTelemetryConfig `json:"io_workspace_telemetry,omitempty"`
 ```
 
 Add config struct near `DesyncConfig` (line 215):
+
 ```go
 type IOWorkspaceTelemetryConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"`
@@ -494,6 +509,7 @@ type IOWorkspaceTelemetryConfig struct {
 ```
 
 Add getter methods near desync getters (line 873):
+
 ```go
 func (c *Config) GetIOWorkspaceTelemetryEnabled() bool {
 	if c == nil || c.IOWorkspaceTelemetry == nil || c.IOWorkspaceTelemetry.Enabled == nil {
@@ -511,6 +527,7 @@ func (c *Config) GetIOWorkspaceTelemetryTarget() string {
 ```
 
 In `internal/api/contracts/config.go`, near `Desync` (line 140):
+
 ```go
 type IOWorkspaceTelemetry struct {
 	Enabled bool   `json:"enabled"`
@@ -543,6 +560,7 @@ Message: `feat(config): add io_workspace_telemetry config fields`
 ### Task 6: Daemon wiring
 
 **Files:**
+
 - Modify: `internal/daemon/daemon.go` — near RefreshTelemetry wiring and poller loop (lines 868-896)
 - Modify: `internal/workspace/manager.go` — already has `SetIOWorkspaceTelemetry` from Task 3
 
@@ -573,6 +591,7 @@ Message: `feat(daemon): wire IOWorkspaceTelemetry when config enabled`
 ### Task 7: WebSocket handler — capture trigger and stats ticker
 
 **Files:**
+
 - Modify: `internal/dashboard/websocket.go` — add `"io-workspace-diagnostic"` case near `"diagnostic"` case (line 566), add stats ticker near existing stats ticker (line 482)
 - Modify: `internal/dashboard/server.go` — ensure workspace manager is accessible from WebSocket handler
 
@@ -648,6 +667,7 @@ Message: `feat(websocket): add io-workspace-diagnostic capture and stats broadca
 ### Task 8: Config UI — AdvancedTab section
 
 **Files:**
+
 - Modify: `assets/dashboard/src/routes/config/AdvancedTab.tsx` — add section after "Terminal Desync Diagnostics" (line 276)
 - Modify: `assets/dashboard/src/routes/config/AdvancedTab.test.tsx` — add props
 - Modify: `assets/dashboard/src/routes/config/useConfigForm.ts` — add state fields near desync (lines 172-173, 304-305, 535-536, 631-632)
@@ -658,6 +678,7 @@ Mirror: the "Terminal Desync Diagnostics" section exactly (lines 230-276 of Adva
 **Step 1: Add state fields to `useConfigForm.ts`**
 
 Near `desyncEnabled`/`desyncTarget` in all locations:
+
 - `ConfigSnapshot` (line 59-60): add `ioWorkspaceTelemetryEnabled: boolean; ioWorkspaceTelemetryTarget: string;`
 - `ConfigFormState` (line 172-173): add same
 - `initialState` (line 304-305): add `ioWorkspaceTelemetryEnabled: false, ioWorkspaceTelemetryTarget: '',`
@@ -675,7 +696,14 @@ After the "Terminal Desync Diagnostics" section (line 276), add:
   </div>
   <div className="settings-section__body">
     <div className="form-group">
-      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)', cursor: 'pointer' }}>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--spacing-xs)',
+          cursor: 'pointer',
+        }}
+      >
         <input
           type="checkbox"
           checked={ioWorkspaceTelemetryEnabled}
@@ -700,7 +728,8 @@ After the "Terminal Desync Diagnostics" section (line 276), add:
         promptableTargets={promptableTargets}
       />
       <p className="form-group__hint">
-        When a target is selected, a diagnostic capture will automatically spawn an agent session to analyze the captured data.
+        When a target is selected, a diagnostic capture will automatically spawn an agent session to
+        analyze the captured data.
       </p>
     </div>
   </div>
@@ -729,6 +758,7 @@ Message: `feat(dashboard): add IO workspace telemetry toggle in AdvancedTab`
 ### Task 9: Frontend — Live Metrics Panel
 
 **Files:**
+
 - Create: `assets/dashboard/src/components/IOWorkspaceMetricsPanel.tsx`
 - Create: `assets/dashboard/src/components/IOWorkspaceMetricsPanel.test.tsx`
 - Modify: `assets/dashboard/src/routes/SessionDetailPage.tsx` — render panel near `StreamMetricsPanel` (line 626)
@@ -739,6 +769,7 @@ Mirror: `StreamMetricsPanel` (lines 1-435) and the diagnostic flow in `SessionDe
 **Step 1: Create `IOWorkspaceMetricsPanel`**
 
 Mirror `StreamMetricsPanel` structure:
+
 - Props: `stats` (from WebSocket `io-workspace-stats` messages), `onCapture` callback
 - Collapsed pill: total commands, total duration, commands/sec
 - Expanded dropdown: full breakdown
@@ -759,6 +790,7 @@ case 'io-workspace-diagnostic':
 ```
 
 Add `sendIOWorkspaceDiagnostic()` method (mirrors `sendDiagnostic()`):
+
 ```typescript
 sendIOWorkspaceDiagnostic(): void {
   if (this.ws?.readyState === WebSocket.OPEN) {
@@ -772,12 +804,14 @@ sendIOWorkspaceDiagnostic(): void {
 Near where `StreamMetricsPanel` is rendered (line 626):
 
 ```tsx
-{config.io_workspace_telemetry?.enabled && (
-  <IOWorkspaceMetricsPanel
-    stats={ioWorkspaceStats}
-    onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
-  />
-)}
+{
+  config.io_workspace_telemetry?.enabled && (
+    <IOWorkspaceMetricsPanel
+      stats={ioWorkspaceStats}
+      onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
+    />
+  );
+}
 ```
 
 Add the auto-spawn agent flow (mirrors lines 213-266) for `io-workspace-diagnostic` response — same pattern: get target from config, find workspace, build prompt pointing at `diagDir`, spawn session.
@@ -796,6 +830,7 @@ Message: `feat(dashboard): add IOWorkspaceMetricsPanel with live stats and captu
 ### Task 10: Build dashboard and integration test
 
 **Files:**
+
 - None new — integration verification
 
 **Step 1: Build dashboard**
