@@ -157,6 +157,16 @@ func Start() error {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 
+	// Ensure tmux log directory exists and start tmux server from there so
+	// verbose server logs land in ~/.schmux/tmux/ on a fresh server start.
+	tmuxLogDir := filepath.Join(schmuxDir, "tmux")
+	if err := os.MkdirAll(tmuxLogDir, 0755); err != nil {
+		return fmt.Errorf("failed to create tmux log directory: %w", err)
+	}
+	tmuxStart := exec.Command("tmux", "-v", "start-server")
+	tmuxStart.Dir = tmuxLogDir
+	_ = tmuxStart.Run() // no-op if server already running; ignore error
+
 	// Get the path to the current executable
 	execPath, err := os.Executable()
 	if err != nil {
