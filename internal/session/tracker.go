@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -12,8 +11,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -48,7 +47,7 @@ type SessionTracker struct {
 	tmuxSession    string
 	paneID         string
 	state          state.StateStore
-	fileWatcher    *signal.FileWatcher
+	eventWatcher   *events.EventWatcher
 	outputCallback func([]byte)
 	logger         *log.Logger
 
@@ -84,9 +83,9 @@ func (t *SessionTracker) IsAttached() bool {
 }
 
 // NewSessionTracker creates a tracker for a session.
-// If signalFilePath is non-empty and signalCallback is non-nil, a FileWatcher
-// is created to detect signal changes via filesystem notifications.
-func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signalFilePath string, signalCallback func(signal.Signal), outputCallback func([]byte), logger *log.Logger) *SessionTracker {
+// If eventFilePath is non-empty and eventHandlers is non-nil, an EventWatcher
+// is created for the unified event system.
+func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, eventFilePath string, eventHandlers map[string][]events.EventHandler, outputCallback func([]byte), logger *log.Logger) *SessionTracker {
 	t := &SessionTracker{
 		sessionID:      sessionID,
 		tmuxSession:    tmuxSession,
@@ -96,14 +95,14 @@ func NewSessionTracker(sessionID, tmuxSession string, st state.StateStore, signa
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 	}
-	if signalFilePath != "" && signalCallback != nil {
-		fw, err := signal.NewFileWatcher(sessionID, signalFilePath, signalCallback, t.logger)
+	if eventFilePath != "" && eventHandlers != nil && len(eventHandlers) > 0 {
+		ew, err := events.NewEventWatcher(eventFilePath, sessionID, eventHandlers)
 		if err != nil {
 			if t.logger != nil {
-				t.logger.Warn("failed to create file watcher", "session", sessionID, "err", err)
+				t.logger.Warn("failed to create event watcher", "session", sessionID, "err", err)
 			}
 		} else {
-			t.fileWatcher = fw
+			t.eventWatcher = ew
 		}
 	}
 	return t
@@ -119,8 +118,8 @@ func (t *SessionTracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.stopCh)
 		t.closeControlMode()
-		if t.fileWatcher != nil {
-			t.fileWatcher.Stop()
+		if t.eventWatcher != nil {
+			t.eventWatcher.Stop()
 		}
 		// Close all subscriber channels
 		t.subsMu.Lock()
@@ -505,20 +504,4 @@ func (t *SessionTracker) waitOrStop(d time.Duration) bool {
 	case <-t.stopCh:
 		return true
 	}
-}
-
-// extractNudgeState parses the state field from a JSON nudge string.
-// The nudge is stored as JSON like {"state":"Completed","summary":"Done","source":"agent"}.
-// If the nudge is empty or not valid JSON, returns the raw string as a fallback.
-func extractNudgeState(nudge string) string {
-	if nudge == "" {
-		return ""
-	}
-	var parsed struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal([]byte(nudge), &parsed); err != nil {
-		return nudge // if not JSON, treat as raw state string
-	}
-	return parsed.State
 }

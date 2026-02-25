@@ -18,7 +18,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
-	"github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -708,43 +707,120 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// HandleAgentSignal processes a file-based signal from an agent and updates the session nudge state.
-func (s *Server) HandleAgentSignal(sessionID string, sig signal.Signal) {
-	// Map signal state to nudge format for frontend compatibility
+// HandleStatusEvent processes a status event from the unified event system.
+// Maps event fields to nudge format for frontend compatibility.
+//
+// State priority prevents transient states from overwriting terminal/blocking ones:
+//   - Tier 0 (transient): Working, Idle
+//   - Tier 1 (blocking):  Needs Input, Needs Attention, Needs Feature Clarification
+//   - Tier 2 (terminal):  Completed, Error
+//
+// "Working" is special — it always overwrites (means a new turn started).
+// All other states can only overwrite states at the same or lower tier.
+func (s *Server) HandleStatusEvent(sessionID, state, message, intent, blockers string) {
+	// Map event state to nudge format for frontend compatibility
+	nudgeState := mapEventStateToNudge(state)
+
+	// State priority: check if the incoming state is allowed to overwrite the current one.
+	// "Working" is the universal reset (new turn started) and always overwrites.
+	currentSession, _ := s.state.GetSession(sessionID)
+	if nudgeState != "Working" && currentSession.Nudge != "" {
+		var currentNudge nudgenik.Result
+		if err := json.Unmarshal([]byte(currentSession.Nudge), &currentNudge); err == nil {
+			if nudgeStateTier(nudgeState) < nudgeStateTier(currentNudge.State) {
+				logging.Sub(s.logger, "events").Debug("skipping lower-priority state",
+					"session_id", sessionID, "incoming", nudgeState, "current", currentNudge.State)
+				return
+			}
+		}
+	}
+
+	summary := message
+	if summary == "" && intent != "" {
+		summary = intent
+	}
+
 	nudgeResult := nudgenik.Result{
-		State:   signal.MapStateToNudge(sig.State),
-		Summary: sig.Message,
+		State:   nudgeState,
+		Summary: summary,
 		Source:  "agent",
 	}
 
-	// Update nudge atomically — avoids overwriting concurrent changes to other session fields
+	// Update nudge atomically
 	payload, err := json.Marshal(nudgeResult)
 	if err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to serialize nudge", "session_id", sessionID, "err", err)
+		logging.Sub(s.logger, "events").Error("failed to serialize nudge", "session_id", sessionID, "err", err)
 		return
 	}
+
+	// Skip nudge seq increment if the nudge payload hasn't changed.
+	// This prevents duplicate sounds when hooks fire multiple times
+	// for the same permission prompt (e.g., permission_prompt + elicitation_dialog).
+	nudgeChanged := currentSession.Nudge != string(payload)
+
 	if err := s.state.UpdateSessionNudge(sessionID, string(payload)); err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to update nudge", "session_id", sessionID, "err", err)
+		logging.Sub(s.logger, "events").Error("failed to update nudge", "session_id", sessionID, "err", err)
 		return
 	}
 
 	// Update last signal time
-	s.state.UpdateSessionLastSignal(sessionID, sig.Timestamp)
+	s.state.UpdateSessionLastSignal(sessionID, time.Now())
 
-	seq := s.state.IncrementNudgeSeq(sessionID)
+	var seq uint64
+	if nudgeChanged {
+		seq = s.state.IncrementNudgeSeq(sessionID)
+	} else {
+		seq = s.state.GetNudgeSeq(sessionID)
+	}
 
 	if err := s.state.Save(); err != nil {
-		logging.Sub(s.logger, "signal").Error("failed to save state", "session_id", sessionID, "err", err)
+		logging.Sub(s.logger, "events").Error("failed to save state", "session_id", sessionID, "err", err)
 		return
 	}
 
-	logging.Sub(s.logger, "signal").Info("received signal", "session_id", sessionID, "state", sig.State, "seq", seq, "message", sig.Message)
+	logging.Sub(s.logger, "events").Info("received status event", "session_id", sessionID, "state", state, "seq", seq, "message", message)
 
 	// Broadcast via debouncer
 	go s.BroadcastSessions()
 }
 
-// handleRemoteTerminalWebSocket streams terminal output from a remote session via control mode.
+// mapEventStateToNudge maps event state strings to nudge display states.
+func mapEventStateToNudge(state string) string {
+	switch state {
+	case "needs_input":
+		return "Needs Input"
+	case "needs_testing":
+		return "Needs Attention"
+	case "completed":
+		return "Completed"
+	case "error":
+		return "Error"
+	case "working":
+		return "Working"
+	case "idle":
+		return "Idle"
+	default:
+		return state
+	}
+}
+
+// nudgeStateTier returns the priority tier of a nudge display state.
+// Higher tiers represent more "important" states that shouldn't be
+// overwritten by lower-tier transient states.
+//
+//	Tier 0: Working, Idle (transient activity indicators)
+//	Tier 1: Needs Input, Needs Attention, Needs Feature Clarification (blocking)
+//	Tier 2: Completed, Error (terminal)
+func nudgeStateTier(displayState string) int {
+	switch displayState {
+	case "Needs Input", "Needs Attention", "Needs Feature Clarification":
+		return 1
+	case "Completed", "Error":
+		return 2
+	default:
+		return 0
+	}
+}
 func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Request, sess *state.Session) {
 	sessionID := sess.ID
 

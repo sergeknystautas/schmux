@@ -122,7 +122,7 @@ type Session struct {
 	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
 	LastSignalAt time.Time `json:"-"`   // Last time agent sent a direct signal (in-memory only, not persisted)
 	// NudgeSeq is a monotonic counter for frontend notification dedup.
-	// Only incremented by direct agent signals (HandleAgentSignal), NOT by
+	// Only incremented by direct agent status events (HandleStatusEvent), NOT by
 	// nudgenik polls or manual nudge clears — the UI notification sound
 	// should only fire when an agent explicitly requests attention.
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`

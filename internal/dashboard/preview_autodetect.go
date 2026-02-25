@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/signal"
 )
 
 const previewAutoDetectCooldown = 45 * time.Second
@@ -158,10 +157,13 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 // Groups: 1=scheme, 2=host, 3=:port (with colon), 4=port (digits only)
 var urlRegex = regexp.MustCompile(`(?i)(https?)://([a-zA-Z0-9.\[\]-]+)(:(\d+))?`)
 
+// ansiRegex matches ANSI escape sequences (CSI, OSC, and single-character escapes).
+var ansiRegex = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z@]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[^[\]])`)
+
 // detectPortsFromChunk finds http(s):// URLs in terminal output and extracts ports.
 // Defaults to 80 for http, 443 for https if no port specified.
 func detectPortsFromChunk(chunk []byte) []int {
-	clean := string(signal.StripANSIBytes(nil, chunk))
+	clean := ansiRegex.ReplaceAllString(string(chunk), "")
 	if clean == "" {
 		return nil
 	}

@@ -10,7 +10,12 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
-import { playAttentionSound, isAttentionState, warmupAudioContext } from '../lib/notificationSound';
+import {
+  soundForState,
+  playAttentionSound,
+  playCompletionSound,
+  warmupAudioContext,
+} from '../lib/notificationSound';
 import { removePreviewIframe } from '../lib/previewKeepAlive';
 import type {
   SessionWithWorkspace,
@@ -22,6 +27,7 @@ import type {
   RemoteAccessStatus,
   WorkspaceSyncResultEvent,
   CuratorStreamEvent,
+  MonitorEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -48,6 +54,8 @@ type SessionsContextValue = {
   simulateRemote: boolean;
   setSimulateRemote: (value: boolean) => void;
   curatorEvents: Record<string, CuratorStreamEvent[]>;
+  monitorEvents: MonitorEvent[];
+  clearMonitorEvents: () => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -69,6 +77,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     clearOverlayEvents,
     remoteAccessStatus,
     curatorEvents,
+    monitorEvents,
+    clearMonitorEvents,
   } = useSessionsWebSocket({
     onPreviewDetected: (workspaceId, previewId) => {
       setPendingNavigationState({ type: 'preview', workspaceId, previewId });
@@ -137,7 +147,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
 
   // Detect nudge state changes and play notification sound
   useEffect(() => {
-    let shouldPlaySound = false;
+    let soundToPlay: 'attention' | 'completion' | null = null;
 
     Object.entries(sessionsById).forEach(([sessionId, session]) => {
       const nudgeSeq = session.nudge_seq ?? 0;
@@ -150,9 +160,15 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       const storageKey = `schmux:ack:${sessionId}`;
       const lastAckedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
 
-      if (nudgeSeq > lastAckedSeq && isAttentionState(session.nudge_state)) {
-        shouldPlaySound = true;
-        localStorage.setItem(storageKey, String(nudgeSeq));
+      if (nudgeSeq > lastAckedSeq) {
+        const sound = soundForState(session.nudge_state);
+        if (sound !== null) {
+          // Attention sound takes priority over completion if multiple fire
+          if (soundToPlay !== 'attention') {
+            soundToPlay = sound;
+          }
+          localStorage.setItem(storageKey, String(nudgeSeq));
+        }
       }
     });
 
@@ -173,8 +189,12 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (shouldPlaySound && !config?.notifications?.sound_disabled) {
-      playAttentionSound();
+    if (soundToPlay && !config?.notifications?.sound_disabled) {
+      if (soundToPlay === 'attention') {
+        playAttentionSound();
+      } else {
+        playCompletionSound();
+      }
     }
   }, [sessionsById, config?.notifications?.sound_disabled]);
 
@@ -319,6 +339,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       simulateRemote,
       setSimulateRemote,
       curatorEvents,
+      monitorEvents,
+      clearMonitorEvents,
     }),
     [
       workspaces,
@@ -343,6 +365,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       simulateRemote,
       setSimulateRemote,
       curatorEvents,
+      monitorEvents,
+      clearMonitorEvents,
     ]
   );
 

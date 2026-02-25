@@ -34,9 +34,9 @@ Do NOT:
 - ask clarifying questions
 
 Choose exactly ONE state from the list below:
-- Needs Authorization
+- Needs Input
 - Needs Feature Clarification
-- Needs User Testing
+- Needs Attention
 - Completed
 
 If multiple states appear applicable, choose the primary blocking or terminal state.

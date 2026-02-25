@@ -8,6 +8,7 @@ import KeyboardModeIndicator from './KeyboardModeIndicator';
 import TypingPerformance from './TypingPerformance';
 import CurationStatus from './CurationStatus';
 import TmuxDiagnostic from './TmuxDiagnostic';
+import EventMonitor from './EventMonitor';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -785,12 +786,14 @@ export default function AppShell() {
                         sess.nudge_state === 'Working' ||
                         (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
 
+                      const isIdleState = sess.nudge_state === 'Idle';
+
                       // Determine what to show in row2
                       // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
                       let nudgePreviewElement: React.ReactNode = null;
-                      if (!isWorkingState) {
+                      if (!isWorkingState && !isIdleState) {
                         const nudgeEmoji = sess.nudge_state
-                          ? nudgeStateEmoji[sess.nudge_state] || '\uD83D\uDCDD'
+                          ? nudgeStateEmoji[sess.nudge_state] || null
                           : null;
                         if (nudgeEmoji) {
                           nudgePreviewElement = nudgeSummary
@@ -865,6 +868,7 @@ export default function AppShell() {
           </div>
 
           {isDevMode && <CurationStatus />}
+          {isDevMode && <EventMonitor />}
           {isDevMode && <TmuxDiagnostic />}
           {isDevMode && <TypingPerformance />}
           <RemoteAccessPanel />

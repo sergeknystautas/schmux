@@ -57,32 +57,55 @@ func (s *Server) handleLoreStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// getLoreWorkspacePaths returns the .schmux/lore.jsonl paths for all workspaces
-// belonging to the given repo name.
-func (s *Server) getLoreWorkspacePaths(repoName string) []string {
-	// Find the repo URL by name
+// loreWorkspace holds workspace path and ID for reading lore entries.
+type loreWorkspace struct {
+	Path string
+	ID   string
+}
+
+// getLoreWorkspaces returns workspace info for all workspaces belonging to the given repo.
+func (s *Server) getLoreWorkspaces(repoName string) []loreWorkspace {
 	repo, found := s.config.FindRepo(repoName)
 	if !found {
 		return nil
 	}
 
-	var paths []string
-	for _, ws := range s.state.GetWorkspaces() {
-		if ws.Repo == repo.URL {
-			paths = append(paths, filepath.Join(ws.Path, ".schmux", "lore.jsonl"))
+	var ws []loreWorkspace
+	for _, w := range s.state.GetWorkspaces() {
+		if w.Repo == repo.URL {
+			ws = append(ws, loreWorkspace{Path: w.Path, ID: w.ID})
 		}
 	}
-	return paths
+	return ws
 }
 
-// getLoreReadPaths returns all paths to read lore from: workspace JSONL files + central state file.
-func (s *Server) getLoreReadPaths(repoName string) []string {
-	paths := s.getLoreWorkspacePaths(repoName)
+// readLoreEntries reads lore entries from per-session event files across all workspaces
+// for the given repo, plus the central state file. Applies the optional filter.
+func (s *Server) readLoreEntries(repoName string, filter lore.EntryFilter) ([]lore.Entry, error) {
+	var all []lore.Entry
+
+	// Read from per-session event files
+	for _, ws := range s.getLoreWorkspaces(repoName) {
+		entries, err := lore.ReadEntriesFromEvents(ws.Path, ws.ID, nil)
+		if err != nil {
+			continue
+		}
+		all = append(all, entries...)
+	}
+
+	// Read from central state file (state-change records)
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		paths = append(paths, statePath)
+		stateEntries, err := lore.ReadEntries(statePath, nil)
+		if err == nil {
+			all = append(all, stateEntries...)
+		}
 	}
-	return paths
+
+	if filter != nil {
+		all = filter(all)
+	}
+	return all, nil
 }
 
 // handleLoreProposals lists all proposals for a repo.
@@ -242,8 +265,8 @@ func (s *Server) handleLoreApply(w http.ResponseWriter, r *http.Request) {
 	// Mark source entries as "applied" in the central state JSONL
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		wsPaths := s.getLoreWorkspacePaths(repoName)
-		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
+		entries, _ := s.readLoreEntries(repoName, nil)
+		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "applied", proposal.EntriesUsed, proposalID); err != nil {
 			s.logger.Warn("failed to mark entries as applied", "err", err)
 		}
 	}
@@ -296,8 +319,8 @@ func (s *Server) handleLoreDismiss(w http.ResponseWriter, r *http.Request) {
 	// Mark source entries as "dismissed" in the central state JSONL
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		wsPaths := s.getLoreWorkspacePaths(repoName)
-		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
+		entries, _ := s.readLoreEntries(repoName, nil)
+		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "dismissed", proposal.EntriesUsed, proposalID); err != nil {
 			s.logger.Warn("failed to mark entries as dismissed", "err", err)
 		}
 	}
@@ -317,8 +340,6 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	readPaths := s.getLoreReadPaths(repoName)
-
 	// Parse query params for filtering
 	q := r.URL.Query()
 	state := q.Get("state")
@@ -334,7 +355,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 		filter = lore.FilterByParams(state, agent, entryType, limit)
 	}
 
-	entries, err := lore.ReadEntriesMulti(readPaths, filter)
+	entries, err := s.readLoreEntries(repoName, filter)
 	if err != nil {
 		s.logger.Error("read entries error", "err", err)
 		http.Error(w, "failed to read lore entries", http.StatusInternalServerError)
@@ -349,7 +370,7 @@ func (s *Server) handleLoreEntries(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLoreEntriesClear truncates all workspace lore.jsonl files for the given repo,
+// handleLoreEntriesClear removes per-session event files for the given repo,
 // effectively clearing the raw signal queue.
 func (s *Server) handleLoreEntriesClear(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
@@ -358,16 +379,22 @@ func (s *Server) handleLoreEntriesClear(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	paths := s.getLoreWorkspacePaths(repoName)
 	cleared := 0
-	for _, p := range paths {
-		if err := os.Truncate(p, 0); err != nil {
-			if !os.IsNotExist(err) {
-				s.logger.Warn("failed to truncate lore file", "path", p, "err", err)
-			}
+	for _, ws := range s.getLoreWorkspaces(repoName) {
+		pattern := filepath.Join(ws.Path, ".schmux", "events", "*.jsonl")
+		files, err := filepath.Glob(pattern)
+		if err != nil {
 			continue
 		}
-		cleared++
+		for _, f := range files {
+			if err := os.Truncate(f, 0); err != nil {
+				if !os.IsNotExist(err) {
+					s.logger.Warn("failed to truncate event file", "path", f, "err", err)
+				}
+				continue
+			}
+			cleared++
+		}
 	}
 
 	s.logger.Info("cleared raw signals", "repo", repoName, "files_truncated", cleared)
@@ -420,8 +447,7 @@ func (s *Server) handleLoreCurate(w http.ResponseWriter, r *http.Request) {
 	bareDir := s.config.ResolveBareRepoDir(barePath)
 
 	// Read entries
-	readPaths := s.getLoreReadPaths(repoName)
-	rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
+	rawEntries, err := s.readLoreEntries(repoName, lore.FilterRaw())
 	if err != nil {
 		s.logger.Error("read entries error", "err", err)
 		http.Error(w, fmt.Sprintf("failed to read lore entries: %v", err), http.StatusInternalServerError)
@@ -639,8 +665,8 @@ func (s *Server) finalizeCuration(repoName, curationID, rawResponse string, inst
 	// Mark entries as proposed
 	statePath, err := lore.LoreStatePath(repoName)
 	if err == nil {
-		wsPaths := s.getLoreWorkspacePaths(repoName)
-		if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+		entries, _ := s.readLoreEntries(repoName, nil)
+		if err := lore.MarkEntriesByTextFromEntries(entries, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
 			s.logger.Warn("failed to mark entries as proposed", "err", err)
 		}
 	}

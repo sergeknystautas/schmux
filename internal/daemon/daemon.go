@@ -29,6 +29,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
@@ -37,7 +38,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/session"
-	schmuxsignal "github.com/sergeknystautas/schmux/internal/signal"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/subreddit"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -323,6 +323,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
+	// Ensure centralized hook scripts are written to ~/.schmux/hooks/
+	hooksDir, err := ensure.EnsureGlobalHookScripts(homeDir)
+	if err != nil {
+		logger.Warn("failed to write global hook scripts", "err", err)
+	}
+
 	// Dev mode: backup config files before loading
 	if devMode {
 		if err := createDevConfigBackup(schmuxDir); err != nil {
@@ -444,6 +450,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	wm.SetTelemetry(tel)
 	sm.SetTelemetry(tel)
 
+	// Wire centralized hooks directory to managers
+	wm.SetHooksDir(hooksDir)
+	sm.SetHooksDir(hooksDir)
+
 	// Ensure overlay directories exist for all repos
 	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
 		workspaceLog.Warn("failed to ensure overlay directories", "err", err)
@@ -523,11 +533,24 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}, remoteAccessLog)
 	server.SetTunnelManager(tunnelMgr)
 
-	// Wire signal detection: file watcher → session manager → dashboard server
-	// MUST happen before tracker creation so trackers capture a non-nil callback.
-	sm.SetSignalCallback(func(sessionID string, sig schmuxsignal.Signal) {
-		server.HandleAgentSignal(sessionID, sig)
+	// Wire event system: event watcher → session manager → dashboard server
+	dashHandler := events.NewDashboardHandler(func(sessionID, state, message, intent, blockers string) {
+		server.HandleStatusEvent(sessionID, state, message, intent, blockers)
 	})
+	eventHandlers := map[string][]events.EventHandler{
+		"status": {dashHandler},
+	}
+
+	// Dev mode: add monitor handler that forwards all events to WebSocket
+	if devMode {
+		monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
+			server.BroadcastEvent(sessionID, data)
+		})
+		for _, eventType := range []string{"status", "failure", "reflection", "friction"} {
+			eventHandlers[eventType] = append(eventHandlers[eventType], monitorHandler)
+		}
+	}
+	sm.SetEventHandlers(eventHandlers)
 
 	// Start output trackers for running sessions restored from state.
 	for _, sess := range st.GetSessions() {
@@ -810,28 +833,28 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			}
 			debounce := time.Duration(cfg.GetLoreCurateDebounceMs()) * time.Millisecond
 			loreCurateTimer = time.AfterFunc(debounce, func() {
-				// Collect workspace lore paths (raw entries only)
-				var wsPaths []string
+				// Read raw entries from per-session event files + state file
+				var allEntries []lore.Entry
 				for _, w := range st.GetWorkspaces() {
 					if w.Repo == repoURL && w.RemoteHostID == "" {
-						wsPaths = append(wsPaths, filepath.Join(w.Path, ".schmux", "lore.jsonl"))
+						entries, err := lore.ReadEntriesFromEvents(w.Path, w.ID, nil)
+						if err != nil {
+							continue
+						}
+						allEntries = append(allEntries, entries...)
 					}
 				}
 				// Central state file for state-change records
 				statePath, stateErr := lore.LoreStatePath(repoName)
-
-				// Build combined read paths: workspace files + state file
-				readPaths := append([]string{}, wsPaths...)
 				if stateErr == nil {
-					readPaths = append(readPaths, statePath)
+					stateEntries, err := lore.ReadEntries(statePath, nil)
+					if err == nil {
+						allEntries = append(allEntries, stateEntries...)
+					}
 				}
 
-				// Read raw entries from all paths
-				rawEntries, err := lore.ReadEntriesMulti(readPaths, lore.FilterRaw())
-				if err != nil {
-					loreLog.Error("failed to read entries", "err", err)
-					return
-				}
+				// Apply raw filter
+				rawEntries := lore.FilterRaw()(allEntries)
 				if len(rawEntries) == 0 {
 					loreLog.Debug("no raw entries to curate", "repo", repoName)
 					return
@@ -928,7 +951,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 				// Mark source entries as "proposed" in the central state JSONL
 				if stateErr == nil {
-					if err := lore.MarkEntriesByTextMulti(wsPaths, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
+					if err := lore.MarkEntriesByTextFromEntries(rawEntries, statePath, "proposed", proposal.EntriesUsed, proposal.ID); err != nil {
 						loreLog.Warn("failed to mark entries as proposed", "err", err)
 					}
 				}
