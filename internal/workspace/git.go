@@ -94,6 +94,36 @@ func (m *Manager) gitFetch(ctx context.Context, dir string) error {
 
 // gitFetchInstrumented runs git fetch with telemetry recording.
 func (m *Manager) gitFetchInstrumented(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string) error {
+	return m.gitFetchInstrumentedWithRound(ctx, workspaceID, trigger, dir, nil)
+}
+
+// gitFetchInstrumentedWithRound runs git fetch with telemetry recording and optional
+// per-poll-round deduplication keyed by the effective fetch dir.
+func (m *Manager) gitFetchInstrumentedWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir string, round *gitFetchPollRound) error {
+	fetchDir := resolveGitFetchDir(dir)
+	fetchKey := ""
+	if fetchDir != "" {
+		fetchKey = filepath.Clean(fetchDir)
+	}
+
+	runFetch := func(fetchCtx context.Context) error {
+		if _, err := m.runGit(fetchCtx, workspaceID, trigger, fetchDir, "fetch"); err != nil {
+			return fmt.Errorf("git fetch failed: %w", err)
+		}
+		return nil
+	}
+
+	if round != nil {
+		return round.Do(ctx, fetchKey, runFetch)
+	}
+
+	return runFetch(ctx)
+}
+
+func resolveGitFetchDir(dir string) string {
+	if dir == "" {
+		return dir
+	}
 	// Resolve to worktree base if this is a worktree
 	fetchDir := dir
 	if isWorktree(dir) {
@@ -102,11 +132,7 @@ func (m *Manager) gitFetchInstrumented(ctx context.Context, workspaceID string, 
 		}
 	}
 
-	if _, err := m.runGit(ctx, workspaceID, trigger, fetchDir, "fetch"); err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
-	}
-
-	return nil
+	return fetchDir
 }
 
 // updateLocalDefaultBranch fast-forwards the local default branch in a bare clone
@@ -347,8 +373,12 @@ func (m *Manager) hasCommonAncestorInstrumented(ctx context.Context, workspaceID
 // gitStatus calculates the git status for a workspace directory.
 // Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int)
 func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
+	return m.gitStatusWithRound(ctx, workspaceID, trigger, dir, repoURL, nil)
+}
+
+func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, fetchRound *gitFetchPollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
 	// Fetch to get latest remote state for accurate ahead/behind counts
-	_ = m.gitFetchInstrumented(ctx, workspaceID, trigger, dir)
+	_ = m.gitFetchInstrumentedWithRound(ctx, workspaceID, trigger, dir, fetchRound)
 
 	// Fast-forward local default branch in bare clone to match origin
 	if isWorktree(dir) {

@@ -754,6 +754,10 @@ func (m *Manager) UpdateGitStatus(ctx context.Context, workspaceID string) (*sta
 // updateGitStatusWithTrigger refreshes git status for a single workspace with
 // explicit telemetry attribution of the triggering source.
 func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID string, trigger RefreshTrigger) (*state.Workspace, error) {
+	return m.updateGitStatusWithTriggerAndRound(ctx, workspaceID, trigger, nil)
+}
+
+func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, fetchRound *gitFetchPollRound) (*state.Workspace, error) {
 	// Bail out early if context is already cancelled (e.g. during shutdown)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -787,7 +791,7 @@ func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID st
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatus(ctx, workspaceID, trigger, w.Path, w.Repo)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, fetchRound)
 
 	// Detect actual current branch (may differ from state if user manually switched)
 	actualBranch, err := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, w.Path)
@@ -838,6 +842,7 @@ func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID st
 // This is called periodically by the background goroutine.
 func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
+	fetchRound := newGitFetchPollRound()
 
 	for _, w := range workspaces {
 		// Stop iterating if context is cancelled (shutdown in progress)
@@ -850,7 +855,7 @@ func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 			continue
 		}
 
-		if _, err := m.updateGitStatusWithTrigger(ctx, w.ID, RefreshTriggerPoller); err != nil {
+		if _, err := m.updateGitStatusWithTriggerAndRound(ctx, w.ID, RefreshTriggerPoller, fetchRound); err != nil {
 			if errors.Is(err, ErrWorkspaceLocked) {
 				continue
 			}
