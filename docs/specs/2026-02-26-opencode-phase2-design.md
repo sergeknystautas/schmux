@@ -8,26 +8,26 @@ Phase 2 promotes Claude-only features into tool-agnostic abstractions and implem
 
 ### What's Still Claude-Only
 
-| Feature | How It Works Today | Why It's a Problem |
-|---------|-------------------|--------------------|
-| Lifecycle hooks | `.claude/settings.local.json` with 6 events + 3 shell scripts | `ClaudeHooks()`, `buildClaudeHooksMap()`, `WrapCommandWithHooks()` all hardcoded to Claude |
-| Persona injection | `appendPersonaFlags()` has `case "claude"` switch using `--append-system-prompt-file` | Other tools use instruction file append; OpenCode needs env var overlay |
-| `/commit` command | `.claude/commands/commit.md` checked into repo | OpenCode supports `.opencode/commands/` but has no commit command |
-| Resume mode | `ResumeArgs()` is a separate method | Resume is a flavor of interactive; should be merged |
+| Feature           | How It Works Today                                                                    | Why It's a Problem                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Lifecycle hooks   | `.claude/settings.local.json` with 6 events + 3 shell scripts                         | `ClaudeHooks()`, `buildClaudeHooksMap()`, `WrapCommandWithHooks()` all hardcoded to Claude |
+| Persona injection | `appendPersonaFlags()` has `case "claude"` switch using `--append-system-prompt-file` | Other tools use instruction file append; OpenCode needs env var overlay                    |
+| `/commit` command | `.claude/commands/commit.md` checked into repo                                        | OpenCode supports `.opencode/commands/` but has no commit command                          |
+| Resume mode       | `ResumeArgs()` is a separate method                                                   | Resume is a flavor of interactive; should be merged                                        |
 
 ### OpenCode's Capabilities (Discovery Results)
 
-| Capability | OpenCode Support |
-|------------|-----------------|
-| Lifecycle hooks | Rich plugin system: `.opencode/plugins/*.ts` with 25+ events |
-| Stop gating | `stop` hook: can block termination, inject continuation via `client.session.prompt()` |
-| System prompt transform | `experimental.chat.system.transform` plugin hook |
-| Commands | `.opencode/commands/*.md` with description/agent/model frontmatter |
-| Skills | `.opencode/skills/NAME/SKILL.md` (also reads `.claude/skills/`) |
-| Config | `opencode.json` with `instructions` field for additional prompt files |
-| Config overlay | `OPENCODE_CONFIG_CONTENT` env var merges with project config |
-| Session management | `--session ID`, `--continue`, `--fork` |
-| Environment | `OPENCODE=1`, `AGENT=1` injected into subprocesses |
+| Capability              | OpenCode Support                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| Lifecycle hooks         | Rich plugin system: `.opencode/plugins/*.ts` with 25+ events                          |
+| Stop gating             | `stop` hook: can block termination, inject continuation via `client.session.prompt()` |
+| System prompt transform | `experimental.chat.system.transform` plugin hook                                      |
+| Commands                | `.opencode/commands/*.md` with description/agent/model frontmatter                    |
+| Skills                  | `.opencode/skills/NAME/SKILL.md` (also reads `.claude/skills/`)                       |
+| Config                  | `opencode.json` with `instructions` field for additional prompt files                 |
+| Config overlay          | `OPENCODE_CONFIG_CONTENT` env var merges with project config                          |
+| Session management      | `--session ID`, `--continue`, `--fork`                                                |
+| Environment             | `OPENCODE=1`, `AGENT=1` injected into subprocesses                                    |
 
 ## Design
 
@@ -97,27 +97,27 @@ type SpawnContext struct {
 
 `ResumeArgs()` is removed. `InteractiveArgs(model, resume)` handles both:
 
-| Tool | `InteractiveArgs(model, false)` | `InteractiveArgs(nil, true)` |
-|------|---------------------------------|------------------------------|
-| Claude | `["--model", "sonnet"]` | `["--continue"]` |
-| Codex | `["--model", "o3"]` | `["resume", "--last"]` |
-| Gemini | `["--model", "2.5-pro"]` | `["-r", "latest"]` |
-| OpenCode | `["--model", "anthropic/sonnet"]` | `["--continue"]` |
+| Tool     | `InteractiveArgs(model, false)`   | `InteractiveArgs(nil, true)` |
+| -------- | --------------------------------- | ---------------------------- |
+| Claude   | `["--model", "sonnet"]`           | `["--continue"]`             |
+| Codex    | `["--model", "o3"]`               | `["resume", "--last"]`       |
+| Gemini   | `["--model", "2.5-pro"]`          | `["-r", "latest"]`           |
+| OpenCode | `["--model", "anthropic/sonnet"]` | `["--continue"]`             |
 
 `BuildCommandParts` update: `ToolModeResume` calls `adapter.InteractiveArgs(nil, true)`.
 
 ### Per-Adapter Support Matrix
 
-| Method | Claude | Codex | Gemini | OpenCode |
-|--------|--------|-------|--------|----------|
-| SupportsHooks | true | false | false | true |
-| SetupHooks | .claude/settings.local.json + shell scripts | no-op | no-op | .opencode/plugins/schmux.ts |
-| CleanupHooks | remove schmux hooks from settings.local.json | no-op | no-op | remove .opencode/plugins/schmux.ts |
-| WrapRemoteCommand | inline JSON creation | pass-through | pass-through | inline plugin file creation |
-| PersonaInjection | CLIFlag | InstructionFile | InstructionFile | ConfigOverlay |
-| PersonaArgs | --append-system-prompt-file PATH | nil | nil | nil |
-| SpawnEnv | nil | nil | nil | OPENCODE_CONFIG_CONTENT |
-| SetupCommands | no-op (checked in) | no-op | no-op | generate .opencode/commands/commit.md |
+| Method            | Claude                                       | Codex           | Gemini          | OpenCode                              |
+| ----------------- | -------------------------------------------- | --------------- | --------------- | ------------------------------------- |
+| SupportsHooks     | true                                         | false           | false           | true                                  |
+| SetupHooks        | .claude/settings.local.json + shell scripts  | no-op           | no-op           | .opencode/plugins/schmux.ts           |
+| CleanupHooks      | remove schmux hooks from settings.local.json | no-op           | no-op           | remove .opencode/plugins/schmux.ts    |
+| WrapRemoteCommand | inline JSON creation                         | pass-through    | pass-through    | inline plugin file creation           |
+| PersonaInjection  | CLIFlag                                      | InstructionFile | InstructionFile | ConfigOverlay                         |
+| PersonaArgs       | --append-system-prompt-file PATH             | nil             | nil             | nil                                   |
+| SpawnEnv          | nil                                          | nil             | nil             | OPENCODE_CONFIG_CONTENT               |
+| SetupCommands     | no-op (checked in)                           | no-op           | no-op           | generate .opencode/commands/commit.md |
 
 ### OpenCode Hook Plugin
 
@@ -125,48 +125,49 @@ Schmux generates `.opencode/plugins/schmux.ts` — a single TypeScript file that
 
 **Event mapping:**
 
-| Claude Hook Event | Script | OpenCode Plugin Hook | Behavior |
-|-------------------|--------|---------------------|----------|
-| SessionStart | inline | `event` → `session.created` | Emit `{type:"status", state:"working"}` |
-| SessionEnd | inline | `event` → `session.idle` | Emit `{type:"status", state:"completed"}` |
-| UserPromptSubmit | inline | `event` → `message.updated` (user) | Emit `{type:"status", state:"working", intent:"..."}` |
-| Stop | stop-status-check.sh + stop-lore-check.sh | `stop` hook | Check events file for status + reflection, inject continuation if missing |
-| Notification (permission) | inline | `event` → `permission.asked` | Emit `{type:"status", state:"needs_input"}` |
-| PostToolUseFailure | capture-failure.sh | `event` → `tool.execute.after` | Classify error, emit `{type:"failure", tool, error, category}` |
+| Claude Hook Event         | Script                                    | OpenCode Plugin Hook               | Behavior                                                                  |
+| ------------------------- | ----------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
+| SessionStart              | inline                                    | `event` → `session.created`        | Emit `{type:"status", state:"working"}`                                   |
+| SessionEnd                | inline                                    | `event` → `session.idle`           | Emit `{type:"status", state:"completed"}`                                 |
+| UserPromptSubmit          | inline                                    | `event` → `message.updated` (user) | Emit `{type:"status", state:"working", intent:"..."}`                     |
+| Stop                      | stop-status-check.sh + stop-lore-check.sh | `stop` hook                        | Check events file for status + reflection, inject continuation if missing |
+| Notification (permission) | inline                                    | `event` → `permission.asked`       | Emit `{type:"status", state:"needs_input"}`                               |
+| PostToolUseFailure        | capture-failure.sh                        | `event` → `tool.execute.after`     | Classify error, emit `{type:"failure", tool, error, category}`            |
 
 **Plugin structure:**
 
 ```typescript
-import type { Plugin } from "@opencode-ai/core"
+import type { Plugin } from '@opencode-ai/core';
 
 export const SchmuxPlugin: Plugin = async ({ $ }) => {
-    const eventsFile = process.env.SCHMUX_EVENTS_FILE
-    if (!eventsFile) return {}
+  const eventsFile = process.env.SCHMUX_EVENTS_FILE;
+  if (!eventsFile) return {};
 
-    const appendEvent = (event: Record<string, unknown>) => {
-        const line = JSON.stringify({ ts: new Date().toISOString(), ...event })
-        Bun.write(Bun.file(eventsFile), line + "\n", { append: true })
-    }
+  const appendEvent = (event: Record<string, unknown>) => {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+    Bun.write(Bun.file(eventsFile), line + '\n', { append: true });
+  };
 
-    return {
-        event: async ({ event }) => {
-            // Map OpenCode events to schmux JSONL events
-            // session.created → status:working
-            // session.idle → status:completed
-            // permission.asked → status:needs_input
-            // tool.execute.after (with error) → failure event with classification
-            // message.updated (user role) → status:working with intent
-        },
-        stop: async ({ input }) => {
-            // Read events file, check for status + reflection
-            // If missing, return { result: "prevent", message: "..." }
-            // Uses client.session.prompt() to inject continuation
-        },
-    }
-}
+  return {
+    event: async ({ event }) => {
+      // Map OpenCode events to schmux JSONL events
+      // session.created → status:working
+      // session.idle → status:completed
+      // permission.asked → status:needs_input
+      // tool.execute.after (with error) → failure event with classification
+      // message.updated (user role) → status:working with intent
+    },
+    stop: async ({ input }) => {
+      // Read events file, check for status + reflection
+      // If missing, return { result: "prevent", message: "..." }
+      // Uses client.session.prompt() to inject continuation
+    },
+  };
+};
 ```
 
 **Environment variables injected at spawn:**
+
 - `SCHMUX_ENABLED=1`
 - `SCHMUX_SESSION_ID=<sessionID>`
 - `SCHMUX_WORKSPACE_ID=<workspaceID>`
@@ -221,21 +222,21 @@ Generation happens in `SetupCommands(workspacePath)` — Claude returns no-op (c
 
 ### Files Changed
 
-| File | Change |
-|------|--------|
-| `internal/detect/adapter.go` | Add Phase 2 methods, PersonaInjection type, HookContext/SpawnContext types |
-| `internal/detect/adapter_claude.go` | Merge resume into InteractiveArgs, implement hook/persona methods (delegate to ensure) |
-| `internal/detect/adapter_codex.go` | Merge resume, stub Phase 2 methods |
-| `internal/detect/adapter_gemini.go` | Merge resume, stub Phase 2 methods |
-| `internal/detect/adapter_opencode.go` | Merge resume, implement hooks/persona/commands |
-| `internal/detect/adapter_test.go` | Update tests for merged resume, add Phase 2 tests |
-| `internal/detect/commands.go` | Update BuildCommandParts for merged resume |
-| `internal/detect/commands_test.go` | Update resume test cases |
-| `internal/workspace/ensure/manager.go` | Refactor to use adapter.SetupHooks/CleanupHooks, remove SupportsHooks function |
-| `internal/workspace/ensure/opencode_plugin.go` | NEW — OpenCode plugin template and generation |
-| `internal/workspace/ensure/opencode_plugin_test.go` | NEW — tests for plugin generation |
-| `internal/session/manager.go` | Replace appendPersonaFlags switch with adapter dispatch, wire SpawnEnv |
-| `internal/session/manager_test.go` | Update persona tests for adapter dispatch |
+| File                                                | Change                                                                                 |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `internal/detect/adapter.go`                        | Add Phase 2 methods, PersonaInjection type, HookContext/SpawnContext types             |
+| `internal/detect/adapter_claude.go`                 | Merge resume into InteractiveArgs, implement hook/persona methods (delegate to ensure) |
+| `internal/detect/adapter_codex.go`                  | Merge resume, stub Phase 2 methods                                                     |
+| `internal/detect/adapter_gemini.go`                 | Merge resume, stub Phase 2 methods                                                     |
+| `internal/detect/adapter_opencode.go`               | Merge resume, implement hooks/persona/commands                                         |
+| `internal/detect/adapter_test.go`                   | Update tests for merged resume, add Phase 2 tests                                      |
+| `internal/detect/commands.go`                       | Update BuildCommandParts for merged resume                                             |
+| `internal/detect/commands_test.go`                  | Update resume test cases                                                               |
+| `internal/workspace/ensure/manager.go`              | Refactor to use adapter.SetupHooks/CleanupHooks, remove SupportsHooks function         |
+| `internal/workspace/ensure/opencode_plugin.go`      | NEW — OpenCode plugin template and generation                                          |
+| `internal/workspace/ensure/opencode_plugin_test.go` | NEW — tests for plugin generation                                                      |
+| `internal/session/manager.go`                       | Replace appendPersonaFlags switch with adapter dispatch, wire SpawnEnv                 |
+| `internal/session/manager_test.go`                  | Update persona tests for adapter dispatch                                              |
 
 ### What Gets Deleted
 

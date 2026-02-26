@@ -411,11 +411,11 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 		return nil, err
 	}
 
-	// For Claude targets, prepend hooks provisioning to the command so hooks
-	// are in place before Claude Code starts (it captures hooks at startup).
+	// For tools with hook support, prepend hooks provisioning to the command
+	// so hooks are in place before the agent starts (it captures hooks at startup).
 	baseTool := detect.GetBaseToolName(targetName)
-	if ensure.SupportsHooks(baseTool) {
-		command, err = ensure.WrapCommandWithHooks(command)
+	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
+		command, err = adapter.WrapRemoteCommand(command)
 		if err != nil {
 			m.logger.Warn("failed to wrap command with hooks provisioning", "err", err)
 		}
@@ -739,6 +739,18 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 			m.logger.Warn("failed to write persona file", "err", err)
 		} else {
 			command = appendPersonaFlags(command, baseTool, personaFilePath)
+
+			// Inject spawn-time env vars (e.g., OPENCODE_CONFIG_CONTENT for persona)
+			if adapter := detect.GetAdapter(baseTool); adapter != nil {
+				spawnEnv := adapter.SpawnEnv(detect.SpawnContext{
+					WorkspacePath: w.Path,
+					SessionID:     sessionID,
+					PersonaPath:   personaFilePath,
+				})
+				if len(spawnEnv) > 0 {
+					resolved.Env = mergeEnvMaps(resolved.Env, spawnEnv)
+				}
+			}
 		}
 	}
 
@@ -1039,16 +1051,25 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	return cmd
 }
 
-// appendPersonaFlags injects persona prompt via CLI flag for the appropriate agent.
-// Uses file-based injection via --append-system-prompt-file for Claude,
-// and agent instruction file markers for other tools.
+// appendPersonaFlags injects persona prompt via CLI flag for tools that support it.
+// Only tools with PersonaCLIFlag injection method get flags appended.
+// Other tools use instruction file append or SpawnEnv for persona injection.
 func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
-	switch baseTool {
-	case "claude":
-		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(personaFilePath))
+	adapter := detect.GetAdapter(baseTool)
+	if adapter == nil {
+		return cmd
+	}
+
+	switch adapter.PersonaInjection() {
+	case detect.PersonaCLIFlag:
+		args := adapter.PersonaArgs(personaFilePath)
+		for _, arg := range args {
+			cmd = fmt.Sprintf("%s %s", cmd, shellutil.Quote(arg))
+		}
+		return cmd
 	default:
-		// For non-Claude tools (codex, gemini), persona is injected via agent instruction
-		// files at the workspace level, so no CLI flag needed here.
+		// PersonaInstructionFile: handled by ensure package (instruction file append)
+		// PersonaConfigOverlay: handled by SpawnEnv (environment variable)
 		return cmd
 	}
 }

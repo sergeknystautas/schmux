@@ -35,13 +35,13 @@ func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSche
 
 	switch mode {
 	case ToolModeInteractive:
-		modeArgs = adapter.InteractiveArgs(model)
+		modeArgs = adapter.InteractiveArgs(model, false)
 	case ToolModeOneshot:
 		modeArgs, err = adapter.OneshotArgs(model, jsonSchema)
 	case ToolModeOneshotStreaming:
 		modeArgs, err = adapter.StreamingArgs(model, jsonSchema)
 	case ToolModeResume:
-		modeArgs = adapter.ResumeArgs()
+		modeArgs = adapter.InteractiveArgs(nil, true)
 	default:
 		return nil, fmt.Errorf("tool %s: unknown mode %q", toolName, mode)
 	}

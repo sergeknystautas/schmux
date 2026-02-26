@@ -16,7 +16,10 @@ func (a *CodexAdapter) Detect(ctx context.Context) (Tool, bool) {
 	return (&codexDetector{}).Detect(ctx)
 }
 
-func (a *CodexAdapter) InteractiveArgs(model *Model) []string {
+func (a *CodexAdapter) InteractiveArgs(model *Model, resume bool) []string {
+	if resume {
+		return []string{"resume", "--last"}
+	}
 	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
 		return []string{model.ModelFlag, model.ModelValue}
 	}
@@ -38,10 +41,6 @@ func (a *CodexAdapter) StreamingArgs(model *Model, jsonSchema string) ([]string,
 	return nil, fmt.Errorf("tool codex: oneshot-streaming mode is not supported")
 }
 
-func (a *CodexAdapter) ResumeArgs() []string {
-	return []string{"resume", "--last"}
-}
-
 func (a *CodexAdapter) InstructionConfig() AgentInstructionConfig {
 	return AgentInstructionConfig{InstructionDir: ".codex", InstructionFile: "AGENTS.md"}
 }
@@ -53,3 +52,19 @@ func (a *CodexAdapter) SignalingStrategy() SignalingStrategy {
 func (a *CodexAdapter) SignalingArgs(filePath string) []string {
 	return []string{"-c", "model_instructions_file=" + filePath}
 }
+
+func (a *CodexAdapter) SupportsHooks() bool { return false }
+
+func (a *CodexAdapter) SetupHooks(ctx HookContext) error { return nil }
+
+func (a *CodexAdapter) CleanupHooks(workspacePath string) error { return nil }
+
+func (a *CodexAdapter) WrapRemoteCommand(command string) (string, error) { return command, nil }
+
+func (a *CodexAdapter) PersonaInjection() PersonaInjection { return PersonaInstructionFile }
+
+func (a *CodexAdapter) PersonaArgs(filePath string) []string { return nil }
+
+func (a *CodexAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
+
+func (a *CodexAdapter) SetupCommands(workspacePath string) error { return nil }

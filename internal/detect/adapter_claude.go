@@ -13,7 +13,10 @@ func (a *ClaudeAdapter) Detect(ctx context.Context) (Tool, bool) {
 	return (&claudeDetector{}).Detect(ctx)
 }
 
-func (a *ClaudeAdapter) InteractiveArgs(model *Model) []string {
+func (a *ClaudeAdapter) InteractiveArgs(model *Model, resume bool) []string {
+	if resume {
+		return []string{"--continue"}
+	}
 	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
 		return []string{model.ModelFlag, model.ModelValue}
 	}
@@ -36,10 +39,6 @@ func (a *ClaudeAdapter) StreamingArgs(model *Model, jsonSchema string) ([]string
 	return args, nil
 }
 
-func (a *ClaudeAdapter) ResumeArgs() []string {
-	return []string{"--continue"}
-}
-
 func (a *ClaudeAdapter) InstructionConfig() AgentInstructionConfig {
 	return AgentInstructionConfig{InstructionDir: ".claude", InstructionFile: "CLAUDE.md"}
 }
@@ -51,3 +50,30 @@ func (a *ClaudeAdapter) SignalingStrategy() SignalingStrategy {
 func (a *ClaudeAdapter) SignalingArgs(filePath string) []string {
 	return []string{"--append-system-prompt-file", filePath}
 }
+
+func (a *ClaudeAdapter) SupportsHooks() bool { return true }
+
+func (a *ClaudeAdapter) SetupHooks(ctx HookContext) error {
+	return claudeSetupHooks(ctx.WorkspacePath, ctx.HooksDir)
+}
+
+func (a *ClaudeAdapter) CleanupHooks(workspacePath string) error {
+	return claudeCleanupHooks(workspacePath)
+}
+
+func (a *ClaudeAdapter) WrapRemoteCommand(command string) (string, error) {
+	return claudeWrapRemoteCommand(command)
+}
+
+func (a *ClaudeAdapter) PersonaInjection() PersonaInjection { return PersonaCLIFlag }
+
+func (a *ClaudeAdapter) PersonaArgs(filePath string) []string {
+	if filePath == "" {
+		return nil
+	}
+	return []string{"--append-system-prompt-file", filePath}
+}
+
+func (a *ClaudeAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
+
+func (a *ClaudeAdapter) SetupCommands(workspacePath string) error { return nil }

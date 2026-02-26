@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -53,30 +54,28 @@ func TestAdapterInteractiveArgs(t *testing.T) {
 	t.Parallel()
 	// Claude interactive with no model: no extra args
 	a := GetAdapter("claude")
-	args := a.InteractiveArgs(nil)
+	args := a.InteractiveArgs(nil, false)
 	if len(args) != 0 {
-		t.Errorf("claude InteractiveArgs(nil) = %v, want empty", args)
+		t.Errorf("claude InteractiveArgs(nil, false) = %v, want empty", args)
 	}
 
 	// Claude interactive with model flag
 	model := &Model{ModelFlag: "--model", ModelValue: "sonnet"}
-	args = a.InteractiveArgs(model)
+	args = a.InteractiveArgs(model, false)
 	assertSliceEqual(t, args, []string{"--model", "sonnet"})
 
 	// Empty ModelValue should not produce --model ""
 	emptyModel := &Model{ModelFlag: "--model", ModelValue: ""}
 	for _, tool := range []string{"claude", "codex", "gemini", "opencode"} {
 		a := GetAdapter(tool)
-		args := a.InteractiveArgs(emptyModel)
+		args := a.InteractiveArgs(emptyModel, false)
 		if len(args) != 0 {
 			t.Errorf("%s InteractiveArgs with empty ModelValue = %v, want empty", tool, args)
 		}
 	}
-}
 
-func TestAdapterResumeArgs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
+	// Resume mode returns resume flags for each tool
+	resumeTests := []struct {
 		tool string
 		want []string
 	}{
@@ -85,13 +84,17 @@ func TestAdapterResumeArgs(t *testing.T) {
 		{"gemini", []string{"-r", "latest"}},
 		{"opencode", []string{"--continue"}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.tool, func(t *testing.T) {
+	for _, tt := range resumeTests {
+		t.Run("resume_"+tt.tool, func(t *testing.T) {
 			a := GetAdapter(tt.tool)
-			got := a.ResumeArgs()
+			got := a.InteractiveArgs(nil, true)
 			assertSliceEqual(t, got, tt.want)
 		})
 	}
+
+	// Resume mode ignores model flags
+	args = GetAdapter("claude").InteractiveArgs(model, true)
+	assertSliceEqual(t, args, []string{"--continue"})
 }
 
 func TestAdapterOneshotArgs(t *testing.T) {
@@ -194,6 +197,98 @@ func TestAdapterSignalingStrategy(t *testing.T) {
 				t.Errorf("SignalingStrategy() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAdapterSupportsHooks(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tool string
+		want bool
+	}{
+		{"claude", true},
+		{"codex", false},
+		{"gemini", false},
+		{"opencode", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			got := GetAdapter(tt.tool).SupportsHooks()
+			if got != tt.want {
+				t.Errorf("SupportsHooks() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdapterPersonaInjection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tool string
+		want PersonaInjection
+	}{
+		{"claude", PersonaCLIFlag},
+		{"codex", PersonaInstructionFile},
+		{"gemini", PersonaInstructionFile},
+		{"opencode", PersonaConfigOverlay},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			got := GetAdapter(tt.tool).PersonaInjection()
+			if got != tt.want {
+				t.Errorf("PersonaInjection() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdapterPersonaArgs(t *testing.T) {
+	t.Parallel()
+	// Claude returns CLI args
+	a := GetAdapter("claude")
+	args := a.PersonaArgs("/path/to/persona.md")
+	assertSliceEqual(t, args, []string{"--append-system-prompt-file", "/path/to/persona.md"})
+
+	// Claude with empty path returns nil
+	args = a.PersonaArgs("")
+	if len(args) != 0 {
+		t.Errorf("PersonaArgs(\"\") = %v, want nil", args)
+	}
+
+	// Codex/Gemini return nil (instruction file approach)
+	for _, tool := range []string{"codex", "gemini"} {
+		args := GetAdapter(tool).PersonaArgs("/path/to/persona.md")
+		if len(args) != 0 {
+			t.Errorf("%s PersonaArgs should return nil, got %v", tool, args)
+		}
+	}
+
+	// OpenCode returns nil (uses SpawnEnv instead)
+	args = GetAdapter("opencode").PersonaArgs("/path/to/persona.md")
+	if len(args) != 0 {
+		t.Errorf("opencode PersonaArgs should return nil, got %v", args)
+	}
+}
+
+func TestOpencodeSpawnEnv(t *testing.T) {
+	t.Parallel()
+	a := GetAdapter("opencode")
+	env := a.SpawnEnv(SpawnContext{PersonaPath: "/workspace/.schmux/persona-abc.md"})
+	if env == nil {
+		t.Fatal("SpawnEnv should return non-nil for opencode with persona")
+	}
+	val, ok := env["OPENCODE_CONFIG_CONTENT"]
+	if !ok {
+		t.Fatal("SpawnEnv should set OPENCODE_CONFIG_CONTENT")
+	}
+	if !strings.Contains(val, "persona-abc.md") {
+		t.Errorf("OPENCODE_CONFIG_CONTENT should reference persona file, got %s", val)
+	}
+
+	// Empty persona returns nil
+	env = a.SpawnEnv(SpawnContext{})
+	if env != nil {
+		t.Errorf("SpawnEnv with empty PersonaPath should return nil, got %v", env)
 	}
 }
 
