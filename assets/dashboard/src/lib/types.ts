@@ -126,6 +126,7 @@ export interface SpawnRequest {
   remote_flavor_id?: string; // optional: spawn on remote host
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
+  image_attachments?: string[]; // base64-encoded PNGs, max 5
 }
 
 export interface SpawnResult {
