@@ -329,7 +329,7 @@ Resume mode (`resume: true`):
 
 - Either `workspace_id` (existing workspace) or `repo`+`branch` (create new workspace) must be provided.
 - `prompt` must be empty (resume uses agent's resume command, not a prompt).
-- The agent's resume command is used instead of a prompt (e.g., `claude --continue`, `codex resume --last`).
+- The agent's resume command is used instead of a prompt (e.g., `claude --continue`, `codex resume --last`, `opencode --continue`).
 
 Response (array of results):
 

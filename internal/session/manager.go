@@ -660,12 +660,15 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Session-level signaling setup (not workspace-level)
-	if !ensure.SupportsHooks(baseTool) {
-		if ensure.SupportsSystemPromptFlag(baseTool) {
+	if adapter := detect.GetAdapter(baseTool); adapter != nil {
+		switch adapter.SignalingStrategy() {
+		case detect.SignalingHooks:
+			// Handled by ensurer.ForSpawn above
+		case detect.SignalingCLIFlag:
 			if err := ensure.SignalingInstructionsFile(); err != nil {
 				m.logger.Warn("failed to ensure signaling instructions file", "err", err)
 			}
-		} else {
+		case detect.SignalingInstructionFile:
 			if err := ensure.AgentInstructions(w.Path, opts.TargetName); err != nil {
 				m.logger.Warn("failed to provision agent instructions", "err", err)
 			}
@@ -1004,27 +1007,36 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // appendSignalingFlags appends CLI flags for signaling instruction injection.
 // In remote mode, uses inline content (--append-system-prompt) since local file
 // paths like ~/.schmux/signaling.md don't exist on the remote host.
-// Claude is skipped here because it uses hooks for signaling instead.
+// Tools using hooks are skipped because they handle signaling via workspace config.
 func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
-	if ensure.SupportsHooks(baseTool) {
-		// Claude uses hooks for signaling, no CLI flag needed
+	adapter := detect.GetAdapter(baseTool)
+	if adapter == nil {
 		return cmd
 	}
-	if !ensure.SupportsSystemPromptFlag(baseTool) {
+
+	strategy := adapter.SignalingStrategy()
+
+	if strategy == detect.SignalingHooks {
+		// Hooks-based tools handle signaling via workspace config, not CLI flags
 		return cmd
 	}
-	if isRemote {
-		// Remote mode: always use inline content (file paths are local-only)
-		// Codex and others: no reliable remote inline injection mechanism
+
+	if strategy == detect.SignalingCLIFlag {
+		if isRemote {
+			// Remote mode: CLI-flag tools reference local file paths that don't exist
+			// on the remote host, so skip signaling injection.
+			return cmd
+		}
+		// Local mode: use adapter's signaling args
+		sigArgs := adapter.SignalingArgs(ensure.SignalingInstructionsFilePath())
+		for _, arg := range sigArgs {
+			cmd = fmt.Sprintf("%s %s", cmd, shellutil.Quote(arg))
+		}
 		return cmd
 	}
-	// Local mode: use file-based injection
-	switch baseTool {
-	case "codex":
-		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+ensure.SignalingInstructionsFilePath()))
-	default:
-		return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
-	}
+
+	// SignalingInstructionFile: no CLI flags needed (handled by ensure package)
+	return cmd
 }
 
 // appendPersonaFlags injects persona prompt via CLI flag for the appropriate agent.

@@ -130,6 +130,11 @@ func TestToolDetectorConfig(t *testing.T) {
 			detector: detectors[2],
 			wantName: "gemini",
 		},
+		{
+			name:     "opencode detector",
+			detector: &OpencodeAdapter{},
+			wantName: "opencode",
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,6 +143,17 @@ func TestToolDetectorConfig(t *testing.T) {
 				t.Errorf("detector.Name() = %q, want %q", tt.detector.Name(), tt.wantName)
 			}
 		})
+	}
+}
+
+func TestOpencodeDetectorRegistered(t *testing.T) {
+	t.Parallel()
+	a := GetAdapter("opencode")
+	if a == nil {
+		t.Fatal("opencode adapter not registered")
+	}
+	if a.Name() != "opencode" {
+		t.Errorf("Name() = %q, want 'opencode'", a.Name())
 	}
 }
 

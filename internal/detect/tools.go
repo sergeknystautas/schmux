@@ -1,7 +1,7 @@
 package detect
 
 // Built-in detected tool names.
-var builtinToolNames = []string{"claude", "codex", "gemini"}
+var builtinToolNames = []string{"claude", "codex", "gemini", "opencode"}
 
 // GetBuiltinToolNames returns the built-in tool names.
 func GetBuiltinToolNames() []string {
@@ -30,9 +30,10 @@ type AgentInstructionConfig struct {
 
 // agentInstructionConfigs maps tool names to their instruction file configuration.
 var agentInstructionConfigs = map[string]AgentInstructionConfig{
-	"claude": {InstructionDir: ".claude", InstructionFile: "CLAUDE.md"},
-	"codex":  {InstructionDir: ".codex", InstructionFile: "AGENTS.md"},
-	"gemini": {InstructionDir: ".gemini", InstructionFile: "GEMINI.md"},
+	"claude":   {InstructionDir: ".claude", InstructionFile: "CLAUDE.md"},
+	"codex":    {InstructionDir: ".codex", InstructionFile: "AGENTS.md"},
+	"gemini":   {InstructionDir: ".gemini", InstructionFile: "GEMINI.md"},
+	"opencode": {InstructionDir: ".opencode", InstructionFile: "AGENTS.md"},
 }
 
 // GetAgentInstructionConfig returns the instruction configuration for a tool.

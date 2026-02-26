@@ -192,6 +192,16 @@ var builtinModels = []Model{
 		ModelFlag:   "-m",
 		Category:    "native",
 	},
+	// OpenCode models
+	{
+		ID:          "opencode-zen",
+		DisplayName: "opencode zen (free)",
+		BaseTool:    "opencode",
+		Provider:    "opencode-zen",
+		ModelValue:  "", // uses opencode's default Zen model
+		ModelFlag:   "--model",
+		Category:    "native",
+	},
 }
 
 // modelAliases maps short aliases and old version IDs to current model IDs.
