@@ -444,7 +444,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch string) (*state.Wo
 	}
 
 	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, repoURL, nil)
 
 	createdUniqueBranch := false
 	if m.config.UseWorktrees() {
@@ -760,7 +760,7 @@ func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID st
 	return m.updateGitStatusWithTriggerAndRound(ctx, workspaceID, trigger, nil)
 }
 
-func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, fetchRound *gitFetchPollRound) (*state.Workspace, error) {
+func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, round *pollRound) (*state.Workspace, error) {
 	// Bail out early if context is already cancelled (e.g. during shutdown)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -794,7 +794,7 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, fetchRound)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, round)
 
 	// Use branch from gitStatus; fall back to existing state if empty/detached
 	actualBranch := currentBranch
@@ -837,30 +837,40 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 // This is called periodically by the background goroutine.
 func (m *Manager) UpdateAllGitStatus(ctx context.Context) {
 	workspaces := m.state.GetWorkspaces()
-	fetchRound := newGitFetchPollRound()
+	round := newPollRound()
 
+	// Collect local workspaces to process
+	var localWorkspaces []state.Workspace
 	for _, w := range workspaces {
-		// Stop iterating if context is cancelled (shutdown in progress)
-		if ctx.Err() != nil {
-			return
-		}
-
-		// Skip remote workspaces - they don't have local git repos
 		if w.RemoteHostID != "" {
 			continue
 		}
-
-		if _, err := m.updateGitStatusWithTriggerAndRound(ctx, w.ID, RefreshTriggerPoller, fetchRound); err != nil {
-			if errors.Is(err, ErrWorkspaceLocked) {
-				continue
-			}
-			// Suppress errors during shutdown — context cancellation is expected
-			if ctx.Err() != nil {
-				return
-			}
-			m.logger.Warn("failed to update git status", "id", w.ID, "err", err)
-		}
+		localWorkspaces = append(localWorkspaces, w)
 	}
+
+	// Process workspaces in parallel. The gitFetchPollRound handles fetch
+	// deduplication for worktrees sharing the same bare clone, and
+	// state.UpdateWorkspace is mutex-protected.
+	var wg sync.WaitGroup
+	for _, w := range localWorkspaces {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(w state.Workspace) {
+			defer wg.Done()
+			if _, err := m.updateGitStatusWithTriggerAndRound(ctx, w.ID, RefreshTriggerPoller, round); err != nil {
+				if errors.Is(err, ErrWorkspaceLocked) {
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				m.logger.Warn("failed to update git status", "id", w.ID, "err", err)
+			}
+		}(w)
+	}
+	wg.Wait()
 }
 
 // EnsureWorkspaceDir ensures the workspace base directory exists.
@@ -1058,7 +1068,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	}
 
 	// Fast-forward local default branch to match origin after fetch
-	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo)
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, worktreeBasePath, source.Repo, nil)
 
 	// 10. Check if branch already exists
 	if m.localBranchExists(ctx, worktreeBasePath, newBranch) {

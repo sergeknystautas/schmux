@@ -141,29 +141,29 @@ func resolveGitFetchDir(dir string) string {
 // Only updates when:
 //   - The branch is not checked out in any worktree (safe to update ref)
 //   - The update is a fast-forward (origin is ahead of local, not diverged)
-func (m *Manager) updateLocalDefaultBranch(ctx context.Context, workspaceID string, trigger RefreshTrigger, bareRepoPath, repoURL string) {
+func (m *Manager) updateLocalDefaultBranch(ctx context.Context, workspaceID string, trigger RefreshTrigger, bareRepoPath, repoURL string, wtCache *worktreeListCache) {
 	defaultBranch, err := m.GetDefaultBranch(ctx, repoURL)
 	if err != nil || defaultBranch == "" {
-		return
-	}
-
-	// Don't update if the branch is checked out in a worktree — git won't allow
-	// updating a ref that's currently checked out, and it could cause issues.
-	if m.isBranchInWorktree(ctx, bareRepoPath, defaultBranch) {
 		return
 	}
 
 	localRef := "refs/heads/" + defaultBranch
 	remoteRef := "refs/remotes/origin/" + defaultBranch
 
-	// Check that origin/<default> exists
-	if m.runGitErr(ctx, workspaceID, trigger, bareRepoPath, "show-ref", "--verify", "--quiet", remoteRef) != nil {
-		return // remote ref doesn't exist
+	// Resolve both refs in a single git command. If either doesn't exist,
+	// rev-parse fails and we bail out (nothing to update).
+	output, err := m.runGit(ctx, workspaceID, trigger, bareRepoPath, "rev-parse", localRef, remoteRef)
+	if err != nil {
+		return // one or both refs don't exist
+	}
+	shas := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
+	if len(shas) == 2 && shas[0] == shas[1] {
+		return // already up to date — nothing to do
 	}
 
-	// Check that local ref exists (it should, since bare clone creates it)
-	if m.runGitErr(ctx, workspaceID, trigger, bareRepoPath, "show-ref", "--verify", "--quiet", localRef) != nil {
-		return // local ref doesn't exist, nothing to update
+	// Refs differ — check if branch is checked out before updating
+	if m.isBranchInWorktreeWithCache(ctx, bareRepoPath, defaultBranch, wtCache) {
+		return
 	}
 
 	// Verify this would be a fast-forward: local must be an ancestor of origin
@@ -376,7 +376,15 @@ func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger Ref
 	return m.gitStatusWithRound(ctx, workspaceID, trigger, dir, repoURL, nil)
 }
 
-func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, fetchRound *gitFetchPollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
+func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, round *pollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
+	// Extract sub-caches from the poll round (nil-safe)
+	var fetchRound *gitFetchPollRound
+	var wtCache *worktreeListCache
+	if round != nil {
+		fetchRound = round.fetch
+		wtCache = round.worktree
+	}
+
 	// Skip fetch for watcher-triggered refreshes — the watcher exists for fast
 	// local feedback (dirty files, branch switches). The 10-second poller already
 	// handles remote state, so running a network fetch (~700ms) on every file
@@ -388,7 +396,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 	// Fast-forward local default branch in bare clone to match origin
 	if isWorktree(dir) {
 		if bareRepoPath, err := resolveWorktreeBaseFromWorktree(dir); err == nil {
-			m.updateLocalDefaultBranch(ctx, workspaceID, trigger, bareRepoPath, repoURL)
+			m.updateLocalDefaultBranch(ctx, workspaceID, trigger, bareRepoPath, repoURL, wtCache)
 		}
 	}
 

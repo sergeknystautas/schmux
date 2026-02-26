@@ -5,6 +5,20 @@ import (
 	"sync"
 )
 
+// pollRound bundles per-sweep caches used during a single polling cycle.
+// Both caches are safe for concurrent use from parallel workspace goroutines.
+type pollRound struct {
+	fetch    *gitFetchPollRound
+	worktree *worktreeListCache
+}
+
+func newPollRound() *pollRound {
+	return &pollRound{
+		fetch:    newGitFetchPollRound(),
+		worktree: newWorktreeListCache(),
+	}
+}
+
 // gitFetchPollRound deduplicates git fetch operations within a single poll sweep.
 // The key is the effective fetch target (for worktrees: shared base repo path).
 //
@@ -55,4 +69,59 @@ func (r *gitFetchPollRound) Do(ctx context.Context, key string, fn func(context.
 	r.mu.Unlock()
 
 	return err
+}
+
+// worktreeListCache caches `git worktree list --porcelain` output per bare repo path
+// within a single poll sweep. Multiple workspaces sharing the same bare clone
+// reuse the cached result instead of running the command repeatedly.
+type worktreeListCache struct {
+	mu      sync.Mutex
+	entries map[string]*worktreeListEntry
+}
+
+type worktreeListEntry struct {
+	done   chan struct{}
+	output []byte
+	err    error
+}
+
+func newWorktreeListCache() *worktreeListCache {
+	return &worktreeListCache{
+		entries: make(map[string]*worktreeListEntry),
+	}
+}
+
+// Get returns the cached worktree list output for the given key, or runs fn to
+// populate the cache. Concurrent callers for the same key wait for the first
+// caller's result (same pattern as gitFetchPollRound).
+func (c *worktreeListCache) Get(ctx context.Context, key string, fn func() ([]byte, error)) ([]byte, error) {
+	if c == nil || key == "" {
+		return fn()
+	}
+
+	c.mu.Lock()
+	if existing, ok := c.entries[key]; ok {
+		done := existing.done
+		c.mu.Unlock()
+		select {
+		case <-done:
+			return existing.output, existing.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	entry := &worktreeListEntry{done: make(chan struct{})}
+	c.entries[key] = entry
+	c.mu.Unlock()
+
+	output, err := fn()
+
+	c.mu.Lock()
+	entry.output = output
+	entry.err = err
+	close(entry.done)
+	c.mu.Unlock()
+
+	return output, err
 }

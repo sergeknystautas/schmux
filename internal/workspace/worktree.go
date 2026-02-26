@@ -221,7 +221,25 @@ func defaultRandSuffix(length int) string {
 // isBranchInWorktree checks if a branch is already checked out in any worktree.
 // Uses `git worktree list --porcelain` for stable, machine-readable output.
 func (m *Manager) isBranchInWorktree(ctx context.Context, worktreeBasePath, branch string) bool {
-	output, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "list", "--porcelain")
+	return m.isBranchInWorktreeWithCache(ctx, worktreeBasePath, branch, nil)
+}
+
+// isBranchInWorktreeWithCache is like isBranchInWorktree but uses a per-round
+// cache to avoid redundant `git worktree list` calls when multiple workspaces
+// share the same bare clone within a single poll sweep.
+func (m *Manager) isBranchInWorktreeWithCache(ctx context.Context, worktreeBasePath, branch string, cache *worktreeListCache) bool {
+	var output []byte
+	var err error
+
+	if cache != nil {
+		key := filepath.Clean(worktreeBasePath)
+		output, err = cache.Get(ctx, key, func() ([]byte, error) {
+			return m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "list", "--porcelain")
+		})
+	} else {
+		output, err = m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "worktree", "list", "--porcelain")
+	}
+
 	if err != nil {
 		return false // If we can't check, assume not in use
 	}

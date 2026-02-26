@@ -4,6 +4,8 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -349,5 +351,382 @@ func TestUpdateGitStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 	showRefCount := snap.Counters["git_show-ref"]
 	if showRefCount > 1 {
 		t.Errorf("expected at most 1 show-ref call (remote branch check), got %d — duplicate query not eliminated", showRefCount)
+	}
+}
+
+// TestEnsureOriginQueries_SkipsDefaultBranchWhenCached verifies that
+// EnsureOriginQueries skips the getDefaultBranch call (git symbolic-ref)
+// when the default branch is already cached from a previous call.
+func TestEnsureOriginQueries_SkipsDefaultBranchWhenCached(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// First call — creates the query repo and detects default branch
+	if err := m.EnsureOriginQueries(ctx); err != nil {
+		t.Fatalf("first EnsureOriginQueries() failed: %v", err)
+	}
+
+	// Verify default branch was cached
+	defaultBranch, err := m.GetDefaultBranch(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("GetDefaultBranch() failed after first call: %v", err)
+	}
+	if defaultBranch != "main" {
+		t.Errorf("expected cached default branch=main, got %q", defaultBranch)
+	}
+
+	// Reset telemetry to measure only the second call
+	tel.Snapshot(true)
+
+	// Second call — default branch is cached, should skip symbolic-ref
+	if err := m.EnsureOriginQueries(ctx); err != nil {
+		t.Fatalf("second EnsureOriginQueries() failed: %v", err)
+	}
+
+	snap2 := tel.Snapshot(true)
+	symbolicRefCount2 := snap2.Counters["git_symbolic-ref"]
+	if symbolicRefCount2 != 0 {
+		t.Errorf("second call should run 0 symbolic-ref calls (cached), got %d", symbolicRefCount2)
+	}
+}
+
+// TestUpdateLocalDefaultBranch_ShortCircuitsWhenRefsMatch verifies that
+// updateLocalDefaultBranch skips the worktree-check, merge-base, and update-ref
+// commands when refs/heads/main and refs/remotes/origin/main already point to
+// the same commit (the common steady-state case).
+func TestUpdateLocalDefaultBranch_ShortCircuitsWhenRefsMatch(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// Create bare clone
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	// Fetch so origin/main is up to date
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+
+	// Fast-forward local main to match origin/main (ensure they're equal)
+	m.setDefaultBranch(remoteDir, "main")
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir, nil)
+
+	// Reset telemetry to measure only the second call
+	tel.Snapshot(true)
+
+	// Call updateLocalDefaultBranch again — refs should already match
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir, nil)
+
+	snap := tel.Snapshot(false)
+
+	// Should have run exactly 1 rev-parse (to compare SHAs) and nothing else
+	if revParseCount := snap.Counters["git_rev-parse"]; revParseCount != 1 {
+		t.Errorf("expected 1 rev-parse call (SHA comparison), got %d", revParseCount)
+	}
+	if mergeBaseCount := snap.Counters["git_merge-base"]; mergeBaseCount != 0 {
+		t.Errorf("expected 0 merge-base calls (short-circuited), got %d", mergeBaseCount)
+	}
+	if updateRefCount := snap.Counters["git_update-ref"]; updateRefCount != 0 {
+		t.Errorf("expected 0 update-ref calls (short-circuited), got %d", updateRefCount)
+	}
+	if worktreeCount := snap.Counters["git_worktree"]; worktreeCount != 0 {
+		t.Errorf("expected 0 worktree list calls (short-circuited), got %d", worktreeCount)
+	}
+}
+
+// TestUpdateLocalDefaultBranch_StillUpdatesWhenBehind verifies that
+// updateLocalDefaultBranch still performs the update when local main is behind
+// origin/main (the rev-parse short-circuit only triggers when SHAs match).
+func TestUpdateLocalDefaultBranch_StillUpdatesWhenBehind(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+
+	remoteDir := gitTestWorkTree(t)
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	// Create bare clone
+	bareRepoPath, err := m.ensureWorktreeBase(ctx, remoteDir)
+	if err != nil {
+		t.Fatalf("ensureWorktreeBase() failed: %v", err)
+	}
+
+	m.setDefaultBranch(remoteDir, "main")
+	initialHash := gitCommitHash(t, bareRepoPath, "refs/heads/main")
+
+	// Push a new commit to the remote
+	writeFile(t, remoteDir, "new.txt", "new")
+	runGit(t, remoteDir, "add", ".")
+	runGit(t, remoteDir, "commit", "-m", "new commit")
+	remoteHash := gitCommitHash(t, remoteDir, "HEAD")
+
+	// Fetch to update origin/main
+	if err := m.gitFetch(ctx, bareRepoPath); err != nil {
+		t.Fatalf("gitFetch() failed: %v", err)
+	}
+
+	// Verify local main is still at initial
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != initialHash {
+		t.Fatalf("local main should be stale: got %s, want %s", got, initialHash)
+	}
+
+	// Call updateLocalDefaultBranch — should advance local main
+	m.updateLocalDefaultBranch(ctx, "", RefreshTriggerExplicit, bareRepoPath, remoteDir, nil)
+
+	if got := gitCommitHash(t, bareRepoPath, "refs/heads/main"); got != remoteHash {
+		t.Errorf("updateLocalDefaultBranch() did not advance local main: got %s, want %s", got, remoteHash)
+	}
+}
+
+// TestUpdateAllGitStatus_ParallelExecution verifies that UpdateAllGitStatus
+// processes multiple workspaces concurrently.
+func TestUpdateAllGitStatus_ParallelExecution(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+
+	// Create two cloned workspaces
+	clone1 := filepath.Join(tmpDir, "ws-001")
+	clone2 := filepath.Join(tmpDir, "ws-002")
+	runGit(t, tmpDir, "clone", remoteDir, "ws-001")
+	runGit(t, tmpDir, "clone", remoteDir, "ws-002")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+
+	st.AddWorkspace(state.Workspace{ID: "ws-001", Repo: remoteDir, Branch: "main", Path: clone1})
+	st.AddWorkspace(state.Workspace{ID: "ws-002", Repo: remoteDir, Branch: "main", Path: clone2})
+
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// Run UpdateAllGitStatus — should complete without error
+	m.UpdateAllGitStatus(ctx)
+
+	// Verify both workspaces were updated
+	w1, _ := st.GetWorkspace("ws-001")
+	w2, _ := st.GetWorkspace("ws-002")
+	if w1.Branch != "main" {
+		t.Errorf("ws-001 branch should be main, got %q", w1.Branch)
+	}
+	if w2.Branch != "main" {
+		t.Errorf("ws-002 branch should be main, got %q", w2.Branch)
+	}
+
+	// Verify fetch deduplication: both workspaces are separate clones (not
+	// worktrees sharing a bare clone), so they need separate fetches.
+	snap := tel.Snapshot(false)
+	if snap.Counters["git_fetch"] < 2 {
+		t.Errorf("expected at least 2 fetches (one per workspace), got %d", snap.Counters["git_fetch"])
+	}
+}
+
+// TestWorktreeListCache_DeduplicatesCalls verifies that the worktreeListCache
+// caches results and only runs git worktree list once per key.
+func TestWorktreeListCache_DeduplicatesCalls(t *testing.T) {
+	t.Parallel()
+
+	cache := newWorktreeListCache()
+	var calls atomic.Int32
+
+	fn := func() ([]byte, error) {
+		calls.Add(1)
+		return []byte("worktree /path\nbranch refs/heads/main\n"), nil
+	}
+
+	ctx := context.Background()
+
+	// First call — should execute fn
+	out1, err := cache.Get(ctx, "/repo/path", fn)
+	if err != nil {
+		t.Fatalf("first Get() error: %v", err)
+	}
+	if string(out1) != "worktree /path\nbranch refs/heads/main\n" {
+		t.Errorf("unexpected output: %q", string(out1))
+	}
+
+	// Second call with same key — should return cached result
+	out2, err := cache.Get(ctx, "/repo/path", fn)
+	if err != nil {
+		t.Fatalf("second Get() error: %v", err)
+	}
+	if string(out2) != string(out1) {
+		t.Errorf("cached output mismatch: %q vs %q", string(out2), string(out1))
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 underlying call, got %d", got)
+	}
+}
+
+// TestWorktreeListCache_DifferentKeys verifies that the cache stores results
+// independently per key.
+func TestWorktreeListCache_DifferentKeys(t *testing.T) {
+	t.Parallel()
+
+	cache := newWorktreeListCache()
+	var calls atomic.Int32
+
+	fn := func() ([]byte, error) {
+		calls.Add(1)
+		return []byte("result"), nil
+	}
+
+	ctx := context.Background()
+
+	cache.Get(ctx, "key-a", fn)
+	cache.Get(ctx, "key-b", fn)
+	cache.Get(ctx, "key-a", fn) // cached
+	cache.Get(ctx, "key-b", fn) // cached
+
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected 2 underlying calls (one per unique key), got %d", got)
+	}
+}
+
+// TestWorktreeListCache_ConcurrentWaiters verifies that concurrent Get calls
+// for the same key wait for the first caller's result.
+func TestWorktreeListCache_ConcurrentWaiters(t *testing.T) {
+	t.Parallel()
+
+	cache := newWorktreeListCache()
+	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	fn := func() ([]byte, error) {
+		calls.Add(1)
+		close(started)
+		<-release
+		return []byte("done"), nil
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, errs[0] = cache.Get(ctx, "key", fn)
+	}()
+
+	<-started
+
+	go func() {
+		defer wg.Done()
+		_, errs[1] = cache.Get(ctx, "key", fn)
+	}()
+
+	close(release)
+	wg.Wait()
+
+	if errs[0] != nil || errs[1] != nil {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 underlying call, got %d", got)
+	}
+}
+
+// TestWorktreeListCache_NilCachePassesThrough verifies that a nil cache
+// falls through to the function (used when not in a poll round).
+func TestWorktreeListCache_NilCachePassesThrough(t *testing.T) {
+	t.Parallel()
+
+	var cache *worktreeListCache // nil
+	var calls atomic.Int32
+
+	fn := func() ([]byte, error) {
+		calls.Add(1)
+		return []byte("output"), nil
+	}
+
+	ctx := context.Background()
+	out, err := cache.Get(ctx, "key", fn)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if string(out) != "output" {
+		t.Errorf("unexpected output: %q", string(out))
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 call, got %d", got)
+	}
+}
+
+// TestPollRound_BundlesBothCaches verifies that newPollRound creates both
+// sub-caches and that they work independently.
+func TestPollRound_BundlesBothCaches(t *testing.T) {
+	t.Parallel()
+
+	round := newPollRound()
+	if round.fetch == nil {
+		t.Error("pollRound.fetch should not be nil")
+	}
+	if round.worktree == nil {
+		t.Error("pollRound.worktree should not be nil")
 	}
 }
