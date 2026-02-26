@@ -554,16 +554,16 @@ func (m *Manager) SpawnRemote(ctx context.Context, flavorID, targetName, prompt,
 
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
 type SpawnOptions struct {
-	RepoURL       string
-	Branch        string
-	TargetName    string
-	Prompt        string
-	Command       string
-	Nickname      string
-	WorkspaceID   string
-	Resume        bool
-	NewBranch     string
-	PersonaID     string
+	RepoURL          string
+	Branch           string
+	TargetName       string
+	Prompt           string
+	Command          string
+	Nickname         string
+	WorkspaceID      string
+	Resume           bool
+	NewBranch        string
+	PersonaID        string
 	PersonaPrompt    string   // Pre-resolved persona prompt content (set by handler)
 	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
 }
