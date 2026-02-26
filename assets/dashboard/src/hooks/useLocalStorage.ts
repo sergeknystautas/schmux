@@ -43,22 +43,24 @@ export default function useLocalStorage<T>(
   const setValue = useCallback(
     (value: T | ((prev: T) => T)) => {
       try {
-        // Allow value to be a function so we have same API as useState
-        const valueToStore = value instanceof Function ? value(storedValue) : value;
+        setStoredValue((prev) => {
+          // Allow value to be a function so we have same API as useState
+          const valueToStore = value instanceof Function ? value(prev) : value;
 
-        setStoredValue(valueToStore);
+          // Save to localStorage
+          if (valueToStore === undefined) {
+            window.localStorage.removeItem(storageKey);
+          } else {
+            window.localStorage.setItem(storageKey, JSON.stringify(valueToStore));
+          }
 
-        // Save to localStorage
-        if (valueToStore === undefined) {
-          window.localStorage.removeItem(storageKey);
-        } else {
-          window.localStorage.setItem(storageKey, JSON.stringify(valueToStore));
-        }
+          return valueToStore;
+        });
       } catch (error) {
         console.error(`Error setting localStorage key "${storageKey}":`, error);
       }
     },
-    [storageKey, storedValue]
+    [storageKey]
   );
 
   // Remove value from localStorage and reset to initialValue

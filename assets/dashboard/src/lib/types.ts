@@ -209,16 +209,8 @@ export interface OverlayChangeEvent {
   unified_diff: string;
 }
 
-export interface FileDiff {
-  old_path?: string;
-  new_path?: string;
-  old_content?: string;
-  new_content?: string;
-  status?: string;
-  lines_added: number;
-  lines_removed: number;
-  is_binary: boolean;
-}
+export type { FileDiff } from './types.generated';
+import type { FileDiff } from './types.generated';
 
 export interface DiffResponse {
   workspace_id: string;

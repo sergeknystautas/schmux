@@ -629,7 +629,7 @@ export default class TerminalStream {
     }
 
     // Text frame: JSON control messages (displaced, legacy fallback)
-    let msg: { type?: string; content?: string };
+    let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(data);
     } catch {
@@ -655,24 +655,24 @@ export default class TerminalStream {
         this.latestIOWorkspaceStats = msg;
         this.onIOWorkspaceStatsUpdate?.(msg);
         break;
-      case 'io-workspace-diagnostic': {
-        const ioMsg = msg as Record<string, unknown>;
+      case 'io-workspace-diagnostic':
         this.onIOWorkspaceDiagnosticComplete?.({
-          diagDir: (ioMsg.diagDir as string) || '',
-          verdict: (ioMsg.verdict as string) || '',
-          findings: (ioMsg.findings as string[]) || [],
+          diagDir: (msg.diagDir as string) || '',
+          verdict: (msg.verdict as string) || '',
+          findings: (msg.findings as string[]) || [],
         });
         break;
-      }
       case 'controlMode':
-        this.onControlModeChange?.((msg as any).attached);
+        this.onControlModeChange?.(msg.attached as boolean);
         break;
       case 'sync':
-        this.handleSync(msg as any);
+        this.handleSync(
+          msg as { screen: string; cursor: { row: number; col: number; visible: boolean } }
+        );
         break;
       default:
         if (msg.content) {
-          this.terminal!.write(msg.content);
+          this.terminal!.write(msg.content as string);
         }
     }
 

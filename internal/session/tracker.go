@@ -70,9 +70,9 @@ type SessionTracker struct {
 
 	Counters TrackerCounters
 
-	// Terminal size tracking for diagnostics
-	LastTerminalCols int
-	LastTerminalRows int
+	// Terminal size tracking for diagnostics (accessed from multiple goroutines)
+	LastTerminalCols atomic.Int32
+	LastTerminalRows atomic.Int32
 }
 
 // IsAttached reports whether the tracker currently has an active control mode attachment.
@@ -202,8 +202,8 @@ func (t *SessionTracker) Resize(cols, rows int) error {
 		return fmt.Errorf("invalid size %dx%d", cols, rows)
 	}
 	// Store the terminal size for diagnostics
-	t.LastTerminalCols = cols
-	t.LastTerminalRows = rows
+	t.LastTerminalCols.Store(int32(cols))
+	t.LastTerminalRows.Store(int32(rows))
 
 	t.mu.RLock()
 	client := t.cmClient

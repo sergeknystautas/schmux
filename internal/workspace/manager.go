@@ -912,7 +912,7 @@ func (m *Manager) EnsureAll() {
 }
 
 // Dispose deletes a workspace by removing its directory and removing it from state.
-func (m *Manager) Dispose(workspaceID string) error {
+func (m *Manager) Dispose(ctx context.Context, workspaceID string) error {
 	w, found := m.state.GetWorkspace(workspaceID)
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
@@ -942,8 +942,6 @@ func (m *Manager) Dispose(workspaceID string) error {
 	if m.hasActiveSessions(workspaceID) {
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
-
-	ctx := context.Background()
 
 	// Check if workspace directory exists
 	dirExists := true
@@ -1021,6 +1019,19 @@ func (m *Manager) Dispose(workspaceID string) error {
 	if err := difftool.CleanupWorkspaceTempDirs(workspaceID); err != nil {
 		m.logger.Warn("failed to cleanup diff temp dirs", "id", workspaceID, "err", err)
 	}
+
+	// Clean up per-workspace maps to prevent unbounded growth
+	m.workspaceConfigsMu.Lock()
+	delete(m.workspaceConfigs, workspaceID)
+	m.workspaceConfigsMu.Unlock()
+
+	m.lockedWorkspacesMu.Lock()
+	delete(m.lockedWorkspaces, workspaceID)
+	m.lockedWorkspacesMu.Unlock()
+
+	m.workspaceGatesMu.Lock()
+	delete(m.workspaceGates, workspaceID)
+	m.workspaceGatesMu.Unlock()
 
 	m.logger.Info("disposed", "id", workspaceID)
 	return nil

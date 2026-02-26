@@ -114,7 +114,7 @@ type WorkspaceManager interface {
 	EnsureWorkspaceDir() error
 
 	// Dispose deletes a workspace by removing its directory and removing it from state.
-	Dispose(workspaceID string) error
+	Dispose(ctx context.Context, workspaceID string) error
 
 	// Scan scans the workspace directory and reconciles state with filesystem.
 	// Returns what was added, updated, and removed.
