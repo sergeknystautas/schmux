@@ -32,6 +32,7 @@ Write a casual subreddit-style post summarizing what just landed. You're sharing
 Guidelines:
 - Conversational tone, like talking to peers who also use the tool
 - Focus on what users would care about: new features, quality-of-life fixes, bugs squashed
+- Put the newest notable changes near the top (roughly reverse-chronological), while still prioritizing the most important user-facing changes first
 - Light opinions are fine ("finally fixed that annoying bug", "solid quality-of-life win")
 - Don't name authors or get technical about implementation
 - Keep it concise — a few paragraphs at most

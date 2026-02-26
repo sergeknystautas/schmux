@@ -475,6 +475,7 @@ export interface LoreStatusResponse {
 export interface SubredditResponse {
   content?: string;
   generated_at?: string;
+  next_generation_at?: string;
   hours?: number;
   commit_count?: number;
   enabled: boolean;

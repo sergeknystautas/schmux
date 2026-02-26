@@ -2049,19 +2049,45 @@ Response (cached content available):
 
 ```json
 {
-  "content": "## r/schmux\n\n**Posted by u/devbot** • 24h ago\n\n### What's new this week..."
+  "content": "## r/schmux\n\n**Posted by u/devbot** • 24h ago\n\n### What's new this week...",
+  "generated_at": "2024-01-15T10:30:00Z",
+  "next_generation_at": "2024-01-15T11:30:00Z",
+  "hours": 24,
+  "commit_count": 12,
+  "enabled": true
 }
 ```
 
 Response (no content yet or generation failed):
 
 ```json
-{}
+{
+  "enabled": true
+}
 ```
 
-The content is markdown-formatted text styled like a Reddit post. Empty response indicates:
+Response (subreddit disabled):
 
-- Subreddit digest is disabled (no target configured)
+```json
+{
+  "enabled": false
+}
+```
+
+Fields:
+
+| Field                | Type   | Description                                                                 |
+| -------------------- | ------ | --------------------------------------------------------------------------- |
+| `content`            | string | Markdown-formatted digest styled like a Reddit post (omitted if no content) |
+| `generated_at`       | string | ISO 8601 timestamp when digest was generated (omitted if no content)        |
+| `next_generation_at` | string | ISO 8601 timestamp when next generation is scheduled (omitted if not known) |
+| `hours`              | int    | Lookback period in hours for commit gathering (omitted if no content)       |
+| `commit_count`       | int    | Number of commits included in the digest (omitted if no content)            |
+| `enabled`            | bool   | Whether subreddit feature is enabled (always present)                       |
+
+The content is markdown-formatted text styled like a Reddit post. Empty content (only `enabled` field) indicates:
+
+- Subreddit digest is disabled (no target configured) - `enabled: false`
 - No commits in the lookback period
 - Generation hasn't completed yet
 - Previous generation failed

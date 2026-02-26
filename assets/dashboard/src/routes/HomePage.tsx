@@ -49,6 +49,12 @@ function formatRelativeDate(isoDate: string): string {
   return date.toLocaleDateString();
 }
 
+// Helper to format absolute time (e.g., "2:45 PM")
+function formatAbsoluteTime(isoDate: string): string {
+  const date = new Date(isoDate);
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 // SVG Icons
 const GitBranchIcon = () => (
   <svg
@@ -898,7 +904,7 @@ export default function HomePage() {
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>
                 <span style={{ fontSize: '1.1em' }}>📢</span>
-                What&apos;s New
+                r/schmux
               </h2>
               {subreddit.generated_at && (
                 <span className={styles.subredditMeta}>
@@ -915,7 +921,9 @@ export default function HomePage() {
                   className={styles.subredditContent}
                   style={{ opacity: 0.6, fontStyle: 'italic' }}
                 >
-                  Generating digest...
+                  {subreddit.next_generation_at
+                    ? `Generating digest... (scheduled ${formatAbsoluteTime(subreddit.next_generation_at)})`
+                    : 'Generating digest...'}
                 </div>
               )}
             </div>

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -191,6 +192,9 @@ type Server struct {
 
 	// Floor manager
 	floorManager *floormanager.Manager
+
+	// Subreddit next generation time tracking
+	nextSubredditGeneration atomic.Pointer[time.Time]
 }
 
 // dsxProvisionStatus tracks the progress of dashboard.sx cert provisioning.
@@ -1041,6 +1045,16 @@ func (s *Server) GetVersionInfo() versionInfo {
 	s.versionInfoMu.RLock()
 	defer s.versionInfoMu.RUnlock()
 	return s.versionInfo
+}
+
+// GetNextSubredditGeneration returns the scheduled time for next digest generation.
+func (s *Server) GetNextSubredditGeneration() *time.Time {
+	return s.nextSubredditGeneration.Load()
+}
+
+// SetNextSubredditGeneration sets the scheduled time for next digest generation.
+func (s *Server) SetNextSubredditGeneration(t time.Time) {
+	s.nextSubredditGeneration.Store(&t)
 }
 
 // RegisterDashboardConn registers a WebSocket connection for dashboard updates.
