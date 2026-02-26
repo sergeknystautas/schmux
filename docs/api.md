@@ -1235,8 +1235,8 @@ Errors:
 Notes:
 
 - Handles both behind and diverged branch states
-- Aborts if conflicts are detected during cherry-pick
-- Preserves local changes via temporary WIP commit
+- Aborts and rolls back if conflicts are detected during rebase
+- Preserves local changes (staged, unstaged, and untracked) via temporary WIP commit
 - Updates workspace git status after sync
 - Lock state changes are broadcast in real-time via the `workspace_locked` WebSocket message
 - Rebase progress (current/total commits) is streamed via `workspace_locked` messages with `sync_progress`
