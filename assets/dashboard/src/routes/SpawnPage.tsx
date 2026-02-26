@@ -809,6 +809,7 @@ export default function SpawnPage() {
         remote_flavor_id: environment.type === 'remote' ? environment.flavorId : undefined,
         new_branch: newBranch,
         persona_id: selectedPersonaId || undefined,
+        image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
       });
       if (handleSpawnResult(response)) {
         saveLastRepo(actualRepo);
@@ -839,6 +840,7 @@ export default function SpawnPage() {
     toastError,
     handleSpawnResult,
     selectedPersonaId,
+    imageAttachments,
   ]);
 
   // Global Cmd+Enter handler to submit form from any input on the spawn page
@@ -967,6 +969,53 @@ export default function SpawnPage() {
             onSubmit={handleEngage}
             data-testid="spawn-prompt"
           />
+          {imageAttachments.length > 0 && (
+            <div
+              style={{
+                padding: 'var(--spacing-sm) var(--spacing-md)',
+                borderTop: '1px solid var(--color-border)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 'var(--spacing-sm)',
+                fontSize: '0.8125rem',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {imageAttachments.map((_, index) => (
+                <span
+                  key={index}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 'var(--spacing-xs)',
+                    padding: '2px var(--spacing-sm)',
+                    background: 'var(--color-surface-raised)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                >
+                  Image {index + 1}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setImageAttachments((prev) => prev.filter((_, i) => i !== index))
+                    }
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '0 2px',
+                      fontSize: '0.75rem',
+                      color: 'var(--color-text-secondary)',
+                      lineHeight: 1,
+                    }}
+                    aria-label={`Remove image ${index + 1}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div
