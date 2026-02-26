@@ -371,6 +371,90 @@ func TestStatsMessage_SyncFields(t *testing.T) {
 	}
 }
 
+func TestMapEventStateToNudge(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"needs_input", "Needs Input"},
+		{"needs_testing", "Needs Attention"},
+		{"completed", "Completed"},
+		{"error", "Error"},
+		{"working", "Working"},
+		{"idle", "Idle"},
+		{"unknown_state", "unknown_state"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := mapEventStateToNudge(tt.input)
+			if got != tt.want {
+				t.Errorf("mapEventStateToNudge(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNudgeStateTier(t *testing.T) {
+	tests := []struct {
+		displayState string
+		wantTier     int
+	}{
+		{"Working", 0},
+		{"Idle", 0},
+		{"something_unknown", 0},
+		{"Needs Input", 1},
+		{"Needs Attention", 1},
+		{"Needs Feature Clarification", 1},
+		{"Completed", 2},
+		{"Error", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.displayState, func(t *testing.T) {
+			got := nudgeStateTier(tt.displayState)
+			if got != tt.wantTier {
+				t.Errorf("nudgeStateTier(%q) = %d, want %d", tt.displayState, got, tt.wantTier)
+			}
+		})
+	}
+
+	// Verify ordering: tier 2 > tier 1 > tier 0
+	if nudgeStateTier("Completed") <= nudgeStateTier("Needs Input") {
+		t.Error("terminal tier should be higher than blocking tier")
+	}
+	if nudgeStateTier("Needs Input") <= nudgeStateTier("Working") {
+		t.Error("blocking tier should be higher than transient tier")
+	}
+}
+
+func TestIsTerminalResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"DA1 response", "\x1b[?1;2c", true},
+		{"DA2 response", "\x1b[>0;276;0c", true},
+		{"OSC 10 foreground", "\x1b]10;rgb:ff/ff/ff\x1b\\", true},
+		{"OSC 11 background", "\x1b]11;rgb:00/00/00\x1b\\", true},
+		{"normal input", "hello world", false},
+		{"escape but not response", "\x1b[A", false},
+		{"empty string", "", false},
+		{"single escape", "\x1b", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTerminalResponse(tt.data)
+			if got != tt.want {
+				t.Errorf("isTerminalResponse(%q) = %v, want %v", tt.data, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildSyncMessage(t *testing.T) {
 	screen := "\x1b[1mhello\x1b[0m world\nline two"
 	cursor := controlmode.CursorState{X: 3, Y: 24, Visible: true}

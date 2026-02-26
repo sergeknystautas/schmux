@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dismissLinearSyncResolveConflictState, getGitGraph } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
 import type {
   LinearSyncResolveConflictStatePayload,
@@ -255,8 +256,8 @@ function StepRow({ step }: { step: LinearSyncResolveConflictStep }) {
 export default function LinearSyncResolveConflictProgress({
   workspaceId,
 }: LinearSyncResolveConflictProgressProps) {
-  const { linearSyncResolveConflictStates, workspaces, clearLinearSyncResolveConflictState } =
-    useSessions();
+  const { workspaces } = useSessions();
+  const { linearSyncResolveConflictStates, clearLinearSyncResolveConflictState } = useSyncState();
   const navigate = useNavigate();
   const state: LinearSyncResolveConflictStatePayload | undefined =
     linearSyncResolveConflictStates[workspaceId];

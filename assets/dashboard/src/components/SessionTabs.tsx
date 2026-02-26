@@ -18,6 +18,7 @@ import { useToast } from './ToastProvider';
 import { useModal } from './ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from './Tooltip';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
@@ -49,12 +50,12 @@ export default function SessionTabs({
   const { success, error: toastError } = useToast();
   const { confirm } = useModal();
   const { config } = useConfig();
+  const { waitForSession } = useSessions();
   const {
-    waitForSession,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
     workspaceLockStates,
-  } = useSessions();
+  } = useSyncState();
   const { setContext, clearContext } = useKeyboardMode();
 
   // Spawn dropdown state

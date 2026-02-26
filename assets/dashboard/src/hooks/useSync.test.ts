@@ -22,8 +22,8 @@ vi.mock('../components/ToastProvider', () => ({
 }));
 
 const clearLinearSyncResolveConflictState = vi.fn();
-vi.mock('../contexts/SessionsContext', () => ({
-  useSessions: () => ({ clearLinearSyncResolveConflictState }),
+vi.mock('../contexts/SyncContext', () => ({
+  useSyncState: () => ({ clearLinearSyncResolveConflictState }),
 }));
 
 const mockLinearSyncFromMain = vi.fn();

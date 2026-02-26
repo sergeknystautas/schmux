@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSessions } from '../contexts/SessionsContext';
+import { useMonitor } from '../contexts/MonitorContext';
 import type { MonitorEvent } from '../lib/types';
 
 const EVENT_TYPES = ['status', 'failure', 'reflection', 'friction'] as const;
@@ -53,7 +54,8 @@ function eventMessage(event: MonitorEvent['event']): string {
 }
 
 export default function EventsPage() {
-  const { monitorEvents, sessionsById } = useSessions();
+  const { sessionsById } = useSessions();
+  const { monitorEvents } = useMonitor();
   const [historyEvents, setHistoryEvents] = useState<MonitorEvent[]>([]);
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set(EVENT_TYPES));
   const [sessionFilter, setSessionFilter] = useState<string>('all');

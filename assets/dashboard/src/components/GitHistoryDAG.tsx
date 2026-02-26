@@ -15,6 +15,7 @@ import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/
 import type { GitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/gitGraphLayout';
 import type { GitGraphResponse, FileDiff } from '../lib/types';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
 import { useSync } from '../hooks/useSync';
 import { useModal } from './ModalProvider';
 import { usePendingNavigation } from '../lib/navigation';
@@ -54,7 +55,8 @@ export default function GitHistoryDAG({ workspaceId }: GitHistoryDAGProps) {
   const [containerHeight, setContainerHeight] = useState(0);
 
   // Pull workspace data early so all hooks are called before any conditional returns.
-  const { workspaces, workspaceLockStates } = useSessions();
+  const { workspaces } = useSessions();
+  const { workspaceLockStates } = useSyncState();
   const ws = workspaces.find((w) => w.id === workspaceId);
   const lockState = workspaceLockStates[workspaceId];
   const isSyncing = syncing || !!lockState?.locked;

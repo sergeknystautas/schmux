@@ -10,6 +10,10 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import useSessionsWebSocket from '../hooks/useSessionsWebSocket';
 import { useConfig } from './ConfigContext';
+import { SyncContext } from './SyncContext';
+import { OverlayContext } from './OverlayContext';
+import { RemoteAccessContext } from './RemoteAccessContext';
+import { MonitorContext } from './MonitorContext';
 import {
   soundForState,
   playAttentionSound,
@@ -20,14 +24,8 @@ import { removePreviewIframe } from '../lib/previewKeepAlive';
 import type {
   SessionWithWorkspace,
   WorkspaceResponse,
-  LinearSyncResolveConflictStatePayload,
-  WorkspaceLockState,
   PendingNavigation,
-  OverlayChangeEvent,
-  RemoteAccessStatus,
-  WorkspaceSyncResultEvent,
   CuratorStreamEvent,
-  MonitorEvent,
 } from '../lib/types';
 
 type SessionsContextValue = {
@@ -38,24 +36,10 @@ type SessionsContextValue = {
   waitForSession: (sessionId: string, opts?: { timeoutMs?: number }) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
   ackSession: (sessionId: string) => void;
-  linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
-  clearLinearSyncResolveConflictState: (workspaceId: string) => void;
-  workspaceLockStates: Record<string, WorkspaceLockState>;
-  syncResultEvents: WorkspaceSyncResultEvent[];
-  clearSyncResultEvents: () => void;
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
-  overlayEvents: OverlayChangeEvent[];
-  overlayUnreadCount: number;
-  clearOverlayEvents: () => void;
-  markOverlaysRead: () => void;
-  remoteAccessStatus: RemoteAccessStatus;
-  simulateRemote: boolean;
-  setSimulateRemote: (value: boolean) => void;
   curatorEvents: Record<string, CuratorStreamEvent[]>;
-  monitorEvents: MonitorEvent[];
-  clearMonitorEvents: () => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -314,7 +298,9 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     lastProcessedNudgeRef.current[sessionId] = nudgeSeq;
   }, []);
 
-  const value = useMemo(
+  // Memoize each sub-context value independently so consumers only re-render
+  // when their specific domain changes.
+  const coreValue = useMemo(
     () => ({
       workspaces,
       loading,
@@ -323,24 +309,10 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       waitForSession,
       sessionsById,
       ackSession,
-      linearSyncResolveConflictStates,
-      clearLinearSyncResolveConflictState,
-      workspaceLockStates,
-      syncResultEvents,
-      clearSyncResultEvents,
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
-      overlayEvents,
-      overlayUnreadCount,
-      clearOverlayEvents,
-      remoteAccessStatus,
-      markOverlaysRead,
-      simulateRemote,
-      setSimulateRemote,
       curatorEvents,
-      monitorEvents,
-      clearMonitorEvents,
     }),
     [
       workspaces,
@@ -349,28 +321,68 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       waitForSession,
       sessionsById,
       ackSession,
+      pendingNavigation,
+      setPendingNavigation,
+      clearPendingNavigation,
+      curatorEvents,
+    ]
+  );
+
+  const syncValue = useMemo(
+    () => ({
       linearSyncResolveConflictStates,
       clearLinearSyncResolveConflictState,
       workspaceLockStates,
       syncResultEvents,
       clearSyncResultEvents,
-      pendingNavigation,
-      setPendingNavigation,
-      clearPendingNavigation,
-      overlayEvents,
-      overlayUnreadCount,
-      clearOverlayEvents,
-      remoteAccessStatus,
-      markOverlaysRead,
-      simulateRemote,
-      setSimulateRemote,
-      curatorEvents,
-      monitorEvents,
-      clearMonitorEvents,
+    }),
+    [
+      linearSyncResolveConflictStates,
+      clearLinearSyncResolveConflictState,
+      workspaceLockStates,
+      syncResultEvents,
+      clearSyncResultEvents,
     ]
   );
 
-  return <SessionsContext.Provider value={value}>{children}</SessionsContext.Provider>;
+  const overlayValue = useMemo(
+    () => ({
+      overlayEvents,
+      overlayUnreadCount,
+      clearOverlayEvents,
+      markOverlaysRead,
+    }),
+    [overlayEvents, overlayUnreadCount, clearOverlayEvents, markOverlaysRead]
+  );
+
+  const remoteValue = useMemo(
+    () => ({
+      remoteAccessStatus,
+      simulateRemote,
+      setSimulateRemote,
+    }),
+    [remoteAccessStatus, simulateRemote]
+  );
+
+  const monitorValue = useMemo(
+    () => ({
+      monitorEvents,
+      clearMonitorEvents,
+    }),
+    [monitorEvents, clearMonitorEvents]
+  );
+
+  return (
+    <SessionsContext.Provider value={coreValue}>
+      <SyncContext.Provider value={syncValue}>
+        <OverlayContext.Provider value={overlayValue}>
+          <RemoteAccessContext.Provider value={remoteValue}>
+            <MonitorContext.Provider value={monitorValue}>{children}</MonitorContext.Provider>
+          </RemoteAccessContext.Provider>
+        </OverlayContext.Provider>
+      </SyncContext.Provider>
+    </SessionsContext.Provider>
+  );
 }
 
 export function useSessions() {

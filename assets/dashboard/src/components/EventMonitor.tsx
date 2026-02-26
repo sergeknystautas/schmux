@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
+import { useMonitor } from '../contexts/MonitorContext';
 
 function eventDotColor(eventType: string): string {
   switch (eventType) {
@@ -43,7 +44,8 @@ function sessionNickname(
 }
 
 export default function EventMonitor() {
-  const { monitorEvents, clearMonitorEvents, sessionsById } = useSessions();
+  const { sessionsById } = useSessions();
+  const { monitorEvents, clearMonitorEvents } = useMonitor();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('event-monitor-collapsed') === '1'
   );

@@ -5,6 +5,7 @@ import { getDiff, diffExternal, getErrorMessage, getWorkspaceFileUrl } from '../
 import useTheme from '../hooks/useTheme';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useModal } from '../components/ModalProvider';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -38,7 +39,8 @@ export default function DiffPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { config } = useConfig();
-  const { workspaces, loading: sessionsLoading, simulateRemote } = useSessions();
+  const { workspaces, loading: sessionsLoading } = useSessions();
+  const { simulateRemote } = useRemoteAccess();
   const { alert } = useModal();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const diffDataRef = useRef<DiffResponse | null>(null);

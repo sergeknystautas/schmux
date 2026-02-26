@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import LinearSyncResolveConflictProgress from '../components/LinearSyncResolveConflictProgress';
@@ -8,7 +9,8 @@ import LinearSyncResolveConflictProgress from '../components/LinearSyncResolveCo
 export default function LinearSyncResolveConflictPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
-  const { workspaces, linearSyncResolveConflictStates } = useSessions();
+  const { workspaces } = useSessions();
+  const { linearSyncResolveConflictStates } = useSyncState();
 
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   const crState = workspaceId ? linearSyncResolveConflictStates[workspaceId] : undefined;

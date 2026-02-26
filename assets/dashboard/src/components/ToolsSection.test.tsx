@@ -14,8 +14,8 @@ vi.mock('../contexts/ConfigContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/SessionsContext', () => ({
-  useSessions: () => ({
+vi.mock('../contexts/OverlayContext', () => ({
+  useOverlay: () => ({
     overlayUnreadCount: 3,
     markOverlaysRead: vi.fn(),
   }),

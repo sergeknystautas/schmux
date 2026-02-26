@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useSessions } from '../contexts/SessionsContext';
+import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useConfig } from '../contexts/ConfigContext';
 import useVersionInfo from '../hooks/useVersionInfo';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
 import { isRemoteClient } from '../lib/utils';
 
 export default function RemoteAccessPanel() {
-  const { remoteAccessStatus, simulateRemote, setSimulateRemote } = useSessions();
+  const { remoteAccessStatus, simulateRemote, setSimulateRemote } = useRemoteAccess();
   const { config } = useConfig();
   const { versionInfo } = useVersionInfo();
   const [loading, setLoading] = useState(false);

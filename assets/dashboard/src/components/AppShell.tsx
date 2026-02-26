@@ -12,6 +12,9 @@ import EventMonitor from './EventMonitor';
 import ConnectionProgressModal from './ConnectionProgressModal';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
+import { useOverlay } from '../contexts/OverlayContext';
+import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
 import { useSync } from '../hooks/useSync';
@@ -47,19 +50,15 @@ export default function AppShell() {
   const { toggleTheme } = useTheme();
   const { isNotConfigured, config, getRepoName } = useConfig();
   const { versionInfo } = useVersionInfo();
+  const { workspaces, connected, sessionsById } = useSessions();
   const {
-    workspaces,
-    connected,
-    sessionsById,
     linearSyncResolveConflictStates,
     workspaceLockStates,
     syncResultEvents,
     clearSyncResultEvents,
-    overlayUnreadCount,
-    markOverlaysRead,
-    remoteAccessStatus,
-    simulateRemote,
-  } = useSessions();
+  } = useSyncState();
+  const { overlayUnreadCount, markOverlaysRead } = useOverlay();
+  const { remoteAccessStatus, simulateRemote } = useRemoteAccess();
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionId } = useParams();

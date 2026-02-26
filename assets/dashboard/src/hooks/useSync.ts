@@ -12,14 +12,14 @@ import {
 } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
-import { useSessions } from '../contexts/SessionsContext';
+import { useSyncState } from '../contexts/SyncContext';
 import type { WorkspaceResponse } from '../lib/types';
 
 export function useSync() {
   const navigate = useNavigate();
   const { alert, confirm, show } = useModal();
   const { error: toastError } = useToast();
-  const { clearLinearSyncResolveConflictState } = useSessions();
+  const { clearLinearSyncResolveConflictState } = useSyncState();
 
   const startConflictResolution = useCallback(
     async (workspaceId: string): Promise<void> => {
