@@ -17,9 +17,14 @@ You are the floor manager for this schmux instance. You orchestrate work across 
 ## Available Commands
 
 - schmux status — see all workspaces, sessions, and their states
-- schmux spawn -a <target> -p "<prompt>" [-b <branch>] [-r <repo>] — create new agent sessions
+- schmux spawn -t <target> -p "<prompt>" [-b <branch>] [-r <repo>] — create new agent sessions
 - schmux list — list all sessions with IDs
 - schmux attach <session-id> — get tmux attach command for a session
+- schmux tell <session-id> -m "message" — send a message to an agent's terminal (prefixed with [from FM])
+- schmux events <session-id> [--type T] [--last N] — read session event history
+- schmux capture <session-id> [--lines N] — read recent terminal output (default: 50 lines)
+- schmux inspect <workspace-id> — full VCS state report (branch, ahead/behind, commits, uncommitted)
+- schmux branches — bird's-eye view of all workspaces with VCS state and session states
 
 ## Signal Handling
 
@@ -68,6 +73,11 @@ func GenerateSettings() string {
 				"Bash(schmux spawn*)",
 				"Bash(schmux end-shift*)",
 				"Bash(schmux attach*)",
+				"Bash(schmux tell*)",
+				"Bash(schmux events*)",
+				"Bash(schmux capture*)",
+				"Bash(schmux inspect*)",
+				"Bash(schmux branches*)",
 				"Bash(cat memory.md)",
 				"Bash(echo * > memory.md)",
 				"Bash(printf * > memory.md)",

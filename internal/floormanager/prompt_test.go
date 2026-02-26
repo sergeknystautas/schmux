@@ -13,6 +13,11 @@ func TestGenerateInstructions(t *testing.T) {
 		"schmux status",
 		"schmux spawn",
 		"schmux list",
+		"schmux tell",
+		"schmux events",
+		"schmux capture",
+		"schmux inspect",
+		"schmux branches",
 		"memory.md",
 		"[SIGNAL]",
 		"[SHIFT]",
@@ -34,6 +39,11 @@ func TestGenerateSettings(t *testing.T) {
 		"schmux list",
 		"schmux spawn",
 		"schmux end-shift",
+		"schmux tell",
+		"schmux events",
+		"schmux capture",
+		"schmux inspect",
+		"schmux branches",
 		"cat memory.md",
 	}
 	for _, pattern := range approvedPatterns {

@@ -72,3 +72,15 @@ func (g *GitCommandBuilder) DetectDefaultBranch() string {
 func (g *GitCommandBuilder) RevListCount(rangeSpec string) string {
 	return fmt.Sprintf("git rev-list --count %s", shellutil.Quote(rangeSpec))
 }
+
+func (g *GitCommandBuilder) CurrentBranch() string {
+	return "git branch --show-current"
+}
+
+func (g *GitCommandBuilder) StatusPorcelain() string {
+	return "git status --porcelain"
+}
+
+func (g *GitCommandBuilder) RemoteBranchExists(branch string) string {
+	return fmt.Sprintf("git ls-remote --heads origin %s", branch)
+}

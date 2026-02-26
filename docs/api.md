@@ -530,6 +530,133 @@ Errors:
 - 400: "session ID is required"
 - 500: "Failed to dispose session: ..."
 
+### POST /api/sessions/{sessionId}/tell
+
+Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin.
+
+Request:
+
+```json
+{
+  "message": "focus on the auth module first"
+}
+```
+
+Response:
+
+```json
+{ "status": "ok" }
+```
+
+Errors:
+
+- 400: "invalid request body", "message is required"
+- 404: "session not found"
+- 409: "session is not running"
+- 500: "failed to send message: ..."
+- 503: "remote manager not available", "remote host not connected"
+
+### GET /api/sessions/{sessionId}/events
+
+Get event history for a session.
+
+Query parameters:
+
+- `type` (optional): Filter by event type (`status`, `failure`, `reflection`, `friction`)
+- `last` (optional): Return only the last N events
+
+Response:
+
+```json
+[
+  {
+    "ts": "2024-01-15T14:32:01Z",
+    "type": "status",
+    "state": "working",
+    "message": "Session spawned",
+    "intent": "Implement OAuth2 token refresh"
+  }
+]
+```
+
+Errors:
+
+- 404: "session not found", "workspace not found"
+- 500: "failed to read events: ..."
+- 503: "remote manager not available", "remote host not connected"
+
+### GET /api/sessions/{sessionId}/capture
+
+Capture recent terminal output from a session's tmux pane.
+
+Query parameters:
+
+- `lines` (optional, default: 50): Number of lines to capture
+
+Response:
+
+```json
+{
+  "session_id": "schmux-001-abc12345",
+  "lines": 50,
+  "output": "... terminal output ..."
+}
+```
+
+Errors:
+
+- 404: "session not found"
+- 409: "session is not running"
+- 500: "failed to capture output: ..."
+- 503: "remote manager not available", "remote host not connected"
+
+### GET /api/workspaces/{workspaceId}/inspect
+
+Full VCS state report for a workspace.
+
+Response:
+
+```json
+{
+  "workspace_id": "schmux-001",
+  "repo": "schmux",
+  "branch": "feature/oauth-refresh",
+  "pushed": true,
+  "remote_branch": "origin/feature/oauth-refresh",
+  "ahead_main": 5,
+  "behind_main": 0,
+  "commits": ["a1b2c3d Add token refresh endpoint"],
+  "uncommitted": ["M internal/auth/refresh.go"]
+}
+```
+
+Errors:
+
+- 404: "workspace not found"
+- 503: "remote manager not available", "remote host not connected"
+
+### GET /api/branches
+
+Bird's-eye view of all workspaces with branch info, sync status, and session states.
+
+Response:
+
+```json
+[
+  {
+    "workspace_id": "schmux-001",
+    "repo": "schmux",
+    "branch": "feature/oauth-refresh",
+    "ahead_main": 5,
+    "behind_main": 0,
+    "pushed": true,
+    "dirty": true,
+    "session_count": 2,
+    "session_states": ["working", "needs_input"]
+  }
+]
+```
+
 ### POST /api/clipboard-paste
 
 Paste an image from the browser clipboard into a tmux session.

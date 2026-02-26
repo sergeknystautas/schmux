@@ -1,12 +1,17 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type monitorEvent struct {
@@ -73,4 +78,105 @@ func (s *Server) handleEventsHistory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(allEvents)
+}
+
+// handleGetSessionEvents returns events for a single session.
+func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+
+	// Parse query params
+	typeFilter := r.URL.Query().Get("type")
+	lastN := 0
+	if lastStr := r.URL.Query().Get("last"); lastStr != "" {
+		if n, err := strconv.Atoi(lastStr); err == nil && n > 0 {
+			lastN = n
+		}
+	}
+
+	// Find the session to get workspace path
+	sess, ok := s.state.GetSession(sessionID)
+	if !ok {
+		writeJSONError(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var lines [][]byte
+
+	if sess.RemoteHostID != "" {
+		// Remote: cat the events file via RunCommand
+		if s.remoteManager == nil {
+			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
+			return
+		}
+		conn := s.remoteManager.GetConnection(sess.RemoteHostID)
+		if conn == nil {
+			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
+			return
+		}
+		ws, wsOk := s.state.GetWorkspace(sess.WorkspaceID)
+		if !wsOk {
+			writeJSONError(w, "workspace not found", http.StatusNotFound)
+			return
+		}
+		eventsPath := fmt.Sprintf("%s/.schmux/events/%s.jsonl", ws.RemotePath, sessionID)
+		output, err := conn.RunCommand(r.Context(), ws.RemotePath, fmt.Sprintf("cat %s 2>/dev/null || true", eventsPath))
+		if err != nil {
+			writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
+			return
+		}
+		for _, line := range bytes.Split([]byte(output), []byte("\n")) {
+			if len(bytes.TrimSpace(line)) > 0 {
+				lines = append(lines, line)
+			}
+		}
+	} else {
+		// Local: read the JSONL file directly
+		ws, wsOk := s.state.GetWorkspace(sess.WorkspaceID)
+		if !wsOk {
+			writeJSONError(w, "workspace not found", http.StatusNotFound)
+			return
+		}
+		eventsPath := filepath.Join(ws.Path, ".schmux", "events", sessionID+".jsonl")
+		data, err := os.ReadFile(eventsPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				writeJSON(w, []interface{}{})
+				return
+			}
+			writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
+			return
+		}
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			if len(bytes.TrimSpace(line)) > 0 {
+				lines = append(lines, line)
+			}
+		}
+	}
+
+	// Filter by type if specified
+	var result []json.RawMessage
+	for _, line := range lines {
+		if typeFilter != "" {
+			var raw struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(line, &raw); err != nil {
+				continue
+			}
+			if raw.Type != typeFilter {
+				continue
+			}
+		}
+		result = append(result, json.RawMessage(line))
+	}
+
+	// Apply --last N
+	if lastN > 0 && len(result) > lastN {
+		result = result[len(result)-lastN:]
+	}
+
+	if result == nil {
+		result = []json.RawMessage{}
+	}
+	writeJSON(w, result)
 }

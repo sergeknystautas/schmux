@@ -648,6 +648,20 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl"),
 	})
 
+	// Write initial spawn event with full prompt
+	if opts.Prompt != "" {
+		eventsFile := filepath.Join(w.Path, ".schmux", "events", sessionID+".jsonl")
+		spawnEvt := events.StatusEvent{
+			Type:    "status",
+			State:   "working",
+			Message: "Session spawned",
+			Intent:  opts.Prompt,
+		}
+		if err := events.AppendEvent(eventsFile, spawnEvt); err != nil {
+			m.logger.Warn("failed to write spawn prompt event", "err", err)
+		}
+	}
+
 	command, err := buildCommand(resolved, opts.Prompt, model, opts.Resume, false)
 	if err != nil {
 		return nil, err
