@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,9 +31,14 @@ func (s *Server) handleSubreddit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Content = cache.Content
-	response.GeneratedAt = cache.GeneratedAt.Format("2006-01-02T15:04:05Z")
+	response.GeneratedAt = cache.GeneratedAt.UTC().Format(time.RFC3339)
 	response.Hours = cache.Hours
 	response.CommitCount = cache.CommitCount
+
+	// Add next generation time if available
+	if nextTime := s.GetNextSubredditGeneration(); nextTime != nil {
+		response.NextGenerationAt = nextTime.UTC().Format(time.RFC3339)
+	}
 
 	writeJSON(w, response)
 }
@@ -43,23 +47,33 @@ func (s *Server) handleSubreddit(w http.ResponseWriter, r *http.Request) {
 // This is called when config is saved with subreddit enabled.
 func (s *Server) TriggerSubredditGeneration() {
 	if !subreddit.IsEnabled(s.config) {
+		s.logger.Info("subreddit generation trigger skipped", "reason", "disabled")
 		return
 	}
 
+	s.logger.Info("subreddit generation triggered", "source", "config_update")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		cache, err := s.generateSubreddit(ctx)
 		if err != nil {
-			log.Printf("subreddit generation failed: %v", err)
+			s.logger.Error("subreddit generation failed", "source", "config_update", "err", err)
 			return
 		}
 
 		cachePath := s.getSubredditCachePath()
 		if err := subreddit.WriteCache(cachePath, cache); err != nil {
-			log.Printf("failed to write subreddit cache: %v", err)
+			s.logger.Error("failed to write subreddit cache", "source", "config_update", "err", err)
+			return
 		}
+
+		s.logger.Info(
+			"subreddit digest generated",
+			"source", "config_update",
+			"commits", cache.CommitCount,
+			"generated_at", cache.GeneratedAt.UTC(),
+		)
 	}()
 }
 
@@ -84,7 +98,7 @@ func (s *Server) generateSubreddit(ctx context.Context) (subreddit.Cache, error)
 		// Continue with empty commits - the digest will show "quiet period"
 	}
 
-	s.logger.Debug("generating digest", "commits", len(commits))
+	s.logger.Info("generating subreddit digest", "source", "config_update", "commits", len(commits))
 
 	// Generate new digest
 	cache, err := subreddit.Generate(ctx, cfg, cfg, nil, commits, "", 0)
@@ -102,9 +116,10 @@ func (s *Server) getSubredditCachePath() string {
 }
 
 type subredditResponse struct {
-	Content     string `json:"content,omitempty"`
-	GeneratedAt string `json:"generated_at,omitempty"`
-	Hours       int    `json:"hours,omitempty"`
-	CommitCount int    `json:"commit_count,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	Content          string `json:"content,omitempty"`
+	GeneratedAt      string `json:"generated_at,omitempty"`
+	NextGenerationAt string `json:"next_generation_at,omitempty"`
+	Hours            int    `json:"hours,omitempty"`
+	CommitCount      int    `json:"commit_count,omitempty"`
+	Enabled          bool   `json:"enabled"`
 }

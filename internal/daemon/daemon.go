@@ -56,6 +56,8 @@ const (
 
 	// Inactivity threshold before asking NudgeNik
 	nudgeInactivityThreshold = 15 * time.Second
+
+	subredditDigestInterval = 4 * time.Hour
 )
 
 // ErrDevRestart is returned by Run() when the daemon needs to restart
@@ -1096,12 +1098,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Start background goroutine to check for inactive sessions and ask NudgeNik
 	go startNudgeNikChecker(d.shutdownCtx, cfg, st, sm, server.BroadcastSessions, nudgenikLog)
 
-	// Start subreddit digest hourly generation if enabled
-	if subreddit.IsEnabled(cfg) {
-		subredditLog := logging.Sub(logger, "subreddit")
-		subredditCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
-		go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditCachePath, subredditLog)
-	}
+	// Start subreddit digest hourly scheduler unconditionally.
+	// The scheduler checks config on each run, so this also covers the case
+	// where subreddit digest is enabled after the daemon has already started.
+	subredditLog := logging.Sub(logger, "subreddit")
+	subredditCachePath := filepath.Join(homeDir, ".schmux", "subreddit.json")
+	go startSubredditHourlyGenerator(d.shutdownCtx, cfg, subredditCachePath, server, subredditLog)
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
@@ -1323,40 +1325,75 @@ func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.S
 }
 
 // startSubredditHourlyGenerator starts a background goroutine that generates
-// subreddit digests hourly.
-func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cachePath string, logger *log.Logger) {
-	// Run every hour
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
+// subreddit digests on a fixed interval.
+func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cachePath string, server *dashboard.Server, logger *log.Logger) {
+	// Wait a bit before first check to let daemon start.
+	initialDelay := 30 * time.Second
+	nextTime := time.Now().Add(initialDelay)
+	server.SetNextSubredditGeneration(nextTime)
+	logger.Info("subreddit scheduler started", "initial_delay", initialDelay, "interval", subredditDigestInterval, "next_at", nextTime.UTC())
 
-	// Wait a bit before first check to let daemon start
-	select {
-	case <-time.After(30 * time.Second):
-		// Ready to start generating
-	case <-ctx.Done():
-		return
-	}
-
-	// Do initial generation on startup
-	generateSubredditDigest(ctx, cfg, cachePath, logger)
-
+	timer := time.NewTimer(initialDelay)
+	defer timer.Stop()
 	for {
 		select {
-		case <-ticker.C:
+		case <-timer.C:
+			logger.Info("subreddit scheduler tick", "at", time.Now().UTC())
 			generateSubredditDigest(ctx, cfg, cachePath, logger)
+
+			nextTime = nextSubredditGenerationTime(cachePath, time.Now())
+			server.SetNextSubredditGeneration(nextTime)
+			logger.Info("subreddit next scheduled", "next_at", nextTime.UTC())
+
+			delay := time.Until(nextTime)
+			if delay < time.Second {
+				delay = time.Second
+			}
+			timer.Reset(delay)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
+func nextSubredditGenerationTime(cachePath string, now time.Time) time.Time {
+	cache, err := subreddit.ReadCache(cachePath)
+	if err == nil {
+		// Add a small buffer so the stale check (> interval) is definitely true.
+		due := cache.GeneratedAt.Add(subredditDigestInterval + 1*time.Second)
+		if due.After(now) {
+			return due
+		}
+	}
+
+	return now.Add(subredditDigestInterval)
+}
+
 // generateSubredditDigest generates a new subreddit digest if the cache is stale.
 func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath string, logger *log.Logger) {
-	// Check if cache is stale (older than 1 hour)
-	cache, err := subreddit.ReadCache(cachePath)
-	if err == nil && !cache.IsStale(1*time.Hour) {
-		logger.Debug("cache is fresh, skipping generation")
+	if !subreddit.IsEnabled(cfg) {
+		logger.Info("subreddit generation skipped", "reason", "disabled")
 		return
+	}
+
+	// Check if cache is stale (older than the digest interval)
+	cache, err := subreddit.ReadCache(cachePath)
+	if err == nil {
+		if !cache.IsStale(subredditDigestInterval) {
+			nextDue := cache.GeneratedAt.Add(subredditDigestInterval + 1*time.Second)
+			logger.Info(
+				"subreddit generation skipped",
+				"reason", "cache_fresh",
+				"generated_at", cache.GeneratedAt.UTC(),
+				"age", time.Since(cache.GeneratedAt).Round(time.Second),
+				"next_due", nextDue.UTC(),
+			)
+			return
+		}
+	} else if os.IsNotExist(err) {
+		logger.Info("subreddit cache missing, generating")
+	} else {
+		logger.Warn("failed to read subreddit cache, regenerating", "err", err)
 	}
 
 	// Build repo info list
@@ -1381,10 +1418,6 @@ func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath 
 	// Generate new digest
 	newCache, err := subreddit.Generate(ctx, cfg, cfg, nil, commits, cachePath, 0)
 	if err != nil {
-		if errors.Is(err, subreddit.ErrDisabled) {
-			logger.Debug("subreddit disabled, skipping")
-			return
-		}
 		logger.Error("failed to generate digest", "err", err)
 		return
 	}
