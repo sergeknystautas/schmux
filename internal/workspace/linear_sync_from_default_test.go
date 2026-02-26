@@ -419,14 +419,15 @@ func TestLinearSyncFromDefault_OrphanDefaultBranch(t *testing.T) {
 	fix.AssertInvariants()
 }
 
-// Test 20: 20 remote commits with a short timeout.
-// The sync uses an "approaching deadline" check to stop early before the context expires,
-// so invariants should hold. We use a timeout long enough for some commits to succeed
-// but short enough that the early-stop logic triggers before all 20 complete.
+// Test 20: Many remote commits with a timeout long enough for the 80% early-stop
+// logic to trigger gracefully. The production code checks (time.Until(deadline) < totalTimeout/5)
+// before each rebase, so with a 3s timeout the loop stops at ~2.4s. With 50 commits
+// each taking ~50ms, roughly 40-48 should complete before the early-stop kicks in.
+// The key assertion: the early-stop produces a clean result with invariants intact.
 func TestLinearSyncFromDefault_TimeoutStopsEarly(t *testing.T) {
 	t.Parallel()
 
-	commits := make([]testCommit, 20)
+	commits := make([]testCommit, 100)
 	for i := range commits {
 		commits[i] = tc(
 			fmt.Sprintf("remote %d", i+1),
@@ -437,23 +438,24 @@ func TestLinearSyncFromDefault_TimeoutStopsEarly(t *testing.T) {
 	fix := newRebaseFixture(t).
 		WithLocalBranch("feature").
 		WithRemoteCommits(commits...).
-		WithTimeout(100 * time.Millisecond).
+		WithTimeout(500 * time.Millisecond).
 		Build()
 
 	result, err := fix.RunLinearSyncFromDefault()
-	// The sync may complete fully, stop early gracefully, or hit a hard timeout.
-	// A hard timeout (context canceled mid-rebase) may leave a rebase in progress,
-	// which is expected — the caller is responsible for cleanup.
 	if err != nil {
-		t.Logf("sync returned error (possibly timeout): %v", err)
-		// If the context expired during a rebase, invariants may not hold.
-		// This is expected behavior — skip invariant check.
-		t.Logf("skipping invariant check due to error (timeout mid-operation)")
-	} else if result != nil {
-		t.Logf("sync completed: success=%v successCount=%d", result.Success, result.SuccessCount)
-		// When the sync returned cleanly (no error), invariants should hold.
-		fix.AssertInvariants()
+		t.Fatalf("expected no error from graceful early-stop, got: %v", err)
 	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if !result.Success {
+		t.Fatalf("expected Success=true from early-stop, got false (ConflictingHash=%s)", result.ConflictingHash)
+	}
+	t.Logf("completed %d/%d commits before early-stop", result.SuccessCount, 100)
+	if result.SuccessCount >= 100 {
+		t.Log("all commits completed before timeout — test may not be exercising early-stop")
+	}
+	fix.AssertInvariants()
 }
 
 // Test 21: Remote has 1 commit, untracked files force WIP commit,
