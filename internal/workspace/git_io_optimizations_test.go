@@ -730,3 +730,319 @@ func TestPollRound_BundlesBothCaches(t *testing.T) {
 		t.Error("pollRound.worktree should not be nil")
 	}
 }
+
+// TestFetchOriginQueries_ParallelExecution verifies that FetchOriginQueries
+// fetches multiple origin query repos concurrently rather than sequentially.
+func TestFetchOriginQueries_ParallelExecution(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// Create two separate remote repos
+	remote1 := gitTestWorkTree(t)
+	remote2 := gitTestWorkTree(t)
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "repo1", remote1),
+		testRepoWithBarePath(t, "repo2", remote2),
+	}
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// Create the origin query repos
+	if err := m.EnsureOriginQueries(ctx); err != nil {
+		t.Fatalf("EnsureOriginQueries() failed: %v", err)
+	}
+
+	tel.Snapshot(true) // reset
+
+	// Run FetchOriginQueries — should fetch both repos
+	m.FetchOriginQueries(ctx)
+
+	snap := tel.Snapshot(false)
+	fetchCount := snap.Counters["git_fetch"]
+	if fetchCount < 2 {
+		t.Errorf("expected at least 2 fetches (one per origin query repo), got %d", fetchCount)
+	}
+}
+
+// TestCommitsSyncedWithRemote_DerivedFromRevList verifies that commitsSyncedWithRemote
+// is derived from rev-list counts rather than two separate merge-base --is-ancestor calls.
+func TestCommitsSyncedWithRemote_DerivedFromRevList(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// When on main and synced with origin/main, commitsSynced should be true
+	_, _, _, _, _, _, commitsSynced, remoteBranchExists, _, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	if !remoteBranchExists {
+		t.Error("expected remoteBranchExists=true for main branch")
+	}
+	if !commitsSynced {
+		t.Error("expected commitsSyncedWithRemote=true when HEAD matches origin/main")
+	}
+
+	snap := tel.Snapshot(false)
+
+	// Verify no merge-base --is-ancestor calls were made for the synced check.
+	// The only merge-base calls should be for the orphan check or common ancestor,
+	// NOT for commitsSyncedWithRemote (which is now derived from rev-list).
+	// Count all commands to verify rev-list was used.
+	var mergeBaseIsAncestorCount int
+	for _, cmd := range snap.AllCommands {
+		if cmd.Command == "git merge-base --is-ancestor HEAD origin/main" ||
+			cmd.Command == "git merge-base --is-ancestor origin/main HEAD" {
+			mergeBaseIsAncestorCount++
+		}
+	}
+	if mergeBaseIsAncestorCount != 0 {
+		t.Errorf("expected 0 merge-base --is-ancestor calls (replaced by rev-list derivation), got %d", mergeBaseIsAncestorCount)
+	}
+}
+
+// TestCommitsSyncedWithRemote_FalseWhenAhead verifies that commitsSyncedWithRemote
+// is false when local has commits not pushed to remote.
+func TestCommitsSyncedWithRemote_FalseWhenAhead(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	// Make a local commit that's not pushed
+	writeFile(t, cloneDir, "local.txt", "local change")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "local commit")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	ctx := context.Background()
+
+	_, _, _, _, _, _, commitsSynced, _, localUnique, _, _ := m.gitStatus(ctx, "ws-test", RefreshTriggerExplicit, cloneDir, remoteDir)
+	if commitsSynced {
+		t.Error("expected commitsSyncedWithRemote=false when local has unpushed commits")
+	}
+	if localUnique != 1 {
+		t.Errorf("expected localUnique=1, got %d", localUnique)
+	}
+}
+
+// TestOrphanCheck_SkippedWhenSynced verifies that the orphan detection check
+// (merge-base HEAD origin/main) is skipped when ahead=0 and behind=0.
+func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+
+	w := state.Workspace{
+		ID:     "test-001",
+		Repo:   remoteDir,
+		Branch: "main",
+		Path:   cloneDir,
+	}
+	st.AddWorkspace(w)
+
+	m := New(cfg, st, statePath, testLogger())
+	m.setDefaultBranch(remoteDir, "main")
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// Run UpdateGitStatus — on main branch, synced with origin, ahead=0, behind=0
+	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	if err != nil {
+		t.Fatalf("UpdateGitStatus() failed: %v", err)
+	}
+
+	if updated.GitAhead != 0 || updated.GitBehind != 0 {
+		t.Fatalf("expected ahead=0, behind=0; got ahead=%d, behind=%d", updated.GitAhead, updated.GitBehind)
+	}
+
+	snap := tel.Snapshot(false)
+
+	// Count merge-base calls — should be 0 since ahead=behind=0 skips the orphan check
+	// (and optimization H eliminated the --is-ancestor calls)
+	mergeBaseCount := snap.Counters["git_merge-base"]
+	if mergeBaseCount != 0 {
+		t.Errorf("expected 0 merge-base calls when ahead=behind=0 (orphan check skipped), got %d", mergeBaseCount)
+	}
+
+	if updated.GitDefaultBranchOrphaned {
+		t.Error("workspace should not be marked as orphaned when ahead=behind=0")
+	}
+}
+
+// TestOrphanCheck_StillRunsWhenAhead verifies that the orphan detection check
+// still runs when the workspace has commits ahead of default.
+func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	cloneDir := filepath.Join(tmpDir, "clone")
+	runGit(t, tmpDir, "clone", remoteDir, "clone")
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	// Create a local commit to make workspace ahead
+	writeFile(t, cloneDir, "ahead.txt", "ahead")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "ahead commit")
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{WorkspacePath: tmpDir}
+	st := state.New(statePath, nil)
+
+	w := state.Workspace{
+		ID:     "test-001",
+		Repo:   remoteDir,
+		Branch: "main",
+		Path:   cloneDir,
+	}
+	st.AddWorkspace(w)
+
+	m := New(cfg, st, statePath, testLogger())
+	m.setDefaultBranch(remoteDir, "main")
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	updated, err := m.UpdateGitStatus(ctx, "test-001")
+	if err != nil {
+		t.Fatalf("UpdateGitStatus() failed: %v", err)
+	}
+
+	if updated.GitAhead == 0 {
+		t.Fatal("expected ahead > 0 with local commit")
+	}
+
+	snap := tel.Snapshot(false)
+
+	// Should have at least 1 merge-base call for orphan check
+	mergeBaseCount := snap.Counters["git_merge-base"]
+	if mergeBaseCount == 0 {
+		t.Error("expected merge-base call for orphan check when ahead > 0")
+	}
+
+	// Should NOT be orphaned (shares ancestry with origin/main)
+	if updated.GitDefaultBranchOrphaned {
+		t.Error("workspace should not be orphaned — it shares ancestry with origin/main")
+	}
+}
+
+// TestRefreshDefaultBranchThrottled_SkipsWithinInterval verifies that
+// refreshDefaultBranchThrottled skips the git symbolic-ref call when called
+// within the refresh interval.
+func TestRefreshDefaultBranchThrottled_SkipsWithinInterval(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	remoteDir := gitTestWorkTree(t)
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+
+	ctx := context.Background()
+
+	// Create the origin query repo
+	if err := m.EnsureOriginQueries(ctx); err != nil {
+		t.Fatalf("EnsureOriginQueries() failed: %v", err)
+	}
+
+	queryRepoPath := m.getQueryRepoPath(remoteDir)
+
+	// Reset telemetry
+	tel.Snapshot(true)
+
+	// First throttled call — should run symbolic-ref (no recent refresh)
+	// Clear the refresh time to simulate fresh state
+	m.defaultBranchCacheMu.Lock()
+	delete(m.defaultBranchRefreshAt, remoteDir)
+	m.defaultBranchCacheMu.Unlock()
+
+	m.refreshDefaultBranchThrottled(ctx, queryRepoPath, remoteDir)
+
+	snap1 := tel.Snapshot(true)
+	if snap1.Counters["git_symbolic-ref"] == 0 {
+		t.Error("first call should have run symbolic-ref")
+	}
+
+	// Second call immediately after — should be throttled
+	m.refreshDefaultBranchThrottled(ctx, queryRepoPath, remoteDir)
+
+	snap2 := tel.Snapshot(true)
+	if snap2.Counters["git_symbolic-ref"] != 0 {
+		t.Errorf("second call should skip symbolic-ref (throttled), got %d calls", snap2.Counters["git_symbolic-ref"])
+	}
+}
