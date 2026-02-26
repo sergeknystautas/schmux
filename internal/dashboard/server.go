@@ -505,6 +505,10 @@ func (s *Server) Start() error {
 		r.Get("/tls/validate", s.handleTLSValidate)
 		r.Get("/debug/tmux-leak", s.handleDebugTmuxLeak)
 
+		r.Get("/sessions/{sessionID}/events", s.handleGetSessionEvents)
+		r.Get("/sessions/{sessionID}/capture", s.handleCaptureSession)
+		r.Get("/branches", s.handleGetBranches)
+
 		r.Get("/github/status", s.handleGetGitHubStatus)
 
 		// Dashboard.sx callbacks (no additional CSRF — hit by browser redirect before HTTPS is configured)
@@ -538,6 +542,7 @@ func (s *Server) Start() error {
 
 			// Session routes
 			r.Post("/sessions/{sessionID}/dispose", s.handleDispose)
+			r.Post("/sessions/{sessionID}/tell", s.handleTellSession)
 			r.Put("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", s.handleUpdateNickname)
 
@@ -581,6 +586,8 @@ func (s *Server) Start() error {
 			// Workspace routes (nested group)
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
 				r.Use(validateWorkspaceID)
+				// Inspect route
+				r.Get("/inspect", s.handleInspectWorkspace)
 				// Preview routes
 				r.Get("/previews", s.handlePreviewsList)
 				r.Post("/previews", s.handlePreviewsCreate)

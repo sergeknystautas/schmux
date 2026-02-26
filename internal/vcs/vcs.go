@@ -30,4 +30,11 @@ type CommandBuilder interface {
 	DetectDefaultBranch() string
 	// RevListCount returns the command to count commits in a range (e.g., "HEAD..origin/main").
 	RevListCount(rangeSpec string) string
+	// CurrentBranch returns a command to get the current branch name.
+	CurrentBranch() string
+	// StatusPorcelain returns a command to get working tree status in machine-readable format.
+	StatusPorcelain() string
+	// RemoteBranchExists returns a command to check if a branch exists on the remote.
+	// The command should exit 0 / produce output if the branch exists.
+	RemoteBranchExists(branch string) string
 }

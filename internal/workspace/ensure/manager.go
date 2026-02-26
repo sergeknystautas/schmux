@@ -388,9 +388,12 @@ func statusEventCommand(state, messageExpr string) string {
 
 // statusEventWithContextCommand returns a shell command that extracts a JSON field
 // and appends a status event with that field as both message and intent.
+// Uses jq -Rs for safe JSON escaping (handles quotes, special chars).
+// Detects [from FM] prefix to add "source":"floor-manager".
+// Note: No single quotes allowed — the output is embedded in JSON that gets wrapped in single quotes by the shell.
 func statusEventWithContextCommand(state, jqField string) string {
 	return fmt.Sprintf(
-		`[ -n "$SCHMUX_EVENTS_FILE" ] && { MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" | cut -c1-100 || true); printf "{\"ts\":\"%%s\",\"type\":\"status\",\"state\":\"%s\",\"message\":\"%%s\",\"intent\":\"%%s\"}\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" "${MSG}" "${MSG}" >> "$SCHMUX_EVENTS_FILE"; } || true`,
+		`[ -n "$SCHMUX_EVENTS_FILE" ] && { MSG=$(jq -r ".%s // empty" 2>/dev/null | tr -d "\n" || true); SRC=""; case "$MSG" in "[from FM] "*) SRC=",\"source\":\"floor-manager\"" ;; esac; EMSG=$(printf "%%s" "$MSG" | jq -Rs .); printf "{\"ts\":\"%%s\",\"type\":\"status\",\"state\":\"%s\",\"message\":%%s,\"intent\":%%s%%s}\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" "$EMSG" "$EMSG" "$SRC" >> "$SCHMUX_EVENTS_FILE"; } || true`,
 		jqField, state,
 	)
 }

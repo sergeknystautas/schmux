@@ -23,6 +23,13 @@ schmux list [--json]                     # List all sessions
 schmux attach <session-id>                # Attach to a session
 schmux dispose <session-id>               # Dispose a session
 
+# Floor Manager & Observability
+schmux tell <session-id> -m "message"    # Send message to a session
+schmux events <session-id> [flags]       # Show session event history
+schmux capture <session-id> [--lines N]  # Capture terminal output
+schmux inspect <workspace-id>            # VCS state report for a workspace
+schmux branches                          # Bird's-eye view of all workspaces
+
 # Workspace Management
 schmux refresh-overlay <workspace-id>     # Refresh overlay files for a workspace
 
@@ -303,6 +310,168 @@ schmux dispose schmux-001-abc12345
 ```
 Dispose session schmux-001-abc12345? [y/N] y
 Session schmux-001-abc12345 disposed.
+```
+
+---
+
+## Floor Manager & Observability Commands
+
+### `schmux tell`
+
+Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin.
+
+**Syntax:**
+
+```bash
+schmux tell <session-id> -m "message"
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-m, --message` | Message to send (required) |
+
+**Example:**
+
+```bash
+schmux tell schmux-001-abc12345 -m "focus on the auth module first"
+```
+
+**Output:**
+
+```
+Message sent to session schmux-001-abc12345.
+```
+
+---
+
+### `schmux events`
+
+Show event history for a session. Events include status changes, failures, reflections, and friction reports.
+
+**Syntax:**
+
+```bash
+schmux events <session-id> [--type T] [--last N] [--json]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--type` | Filter by event type (`status`, `failure`, `reflection`, `friction`) |
+| `--last` | Show last N events |
+| `--json` | Raw JSON output |
+
+**Examples:**
+
+```bash
+# All events
+schmux events schmux-001-abc12345
+
+# Last 5 status events
+schmux events schmux-001-abc12345 --type status --last 5
+
+# JSON output
+schmux events schmux-001-abc12345 --json
+```
+
+**Output:**
+
+```
+schmux-001-abc12345 events:
+
+  14:32:01  status   working        "Session spawned"
+  14:32:15  status   working        "Implementing OAuth2 token refresh"
+  14:35:42  status   needs_input    "Need clarification on token storage"
+  14:36:01  status   working        [from FM] "use Redis for token storage"
+```
+
+---
+
+### `schmux capture`
+
+Capture recent terminal output from a session's tmux pane.
+
+**Syntax:**
+
+```bash
+schmux capture <session-id> [--lines N] [--json]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--lines` | Number of lines to capture (default: 50) |
+| `--json` | JSON output with metadata |
+
+**Example:**
+
+```bash
+schmux capture schmux-001-abc12345 --lines 20
+```
+
+---
+
+### `schmux inspect`
+
+Full VCS state report for a workspace: branch, ahead/behind main, commit list, uncommitted changes.
+
+**Syntax:**
+
+```bash
+schmux inspect <workspace-id> [--json]
+```
+
+**Example:**
+
+```bash
+schmux inspect schmux-001
+```
+
+**Output:**
+
+```
+schmux-001 (schmux)
+
+  Branch:  feature/oauth-refresh
+  Pushed:  yes (origin/feature/oauth-refresh)
+  vs main: +5 commits, -0 behind
+
+  Commits (not in main):
+    a1b2c3d Add token refresh endpoint
+    e4f5g6h Update auth middleware
+
+  Uncommitted:
+    M internal/auth/refresh.go
+    ?? internal/auth/refresh_test.go
+```
+
+---
+
+### `schmux branches`
+
+Bird's-eye view of all workspaces with branch info, sync status, and session states.
+
+**Syntax:**
+
+```bash
+schmux branches [--json]
+```
+
+**Example:**
+
+```bash
+schmux branches
+```
+
+**Output:**
+
+```
+Workspace          Branch                    Main     Origin       Dirty  Sessions
+---------          ------                    ----     ------       -----  --------
+schmux-001         feature/oauth-refresh     +5 -0    pushed       yes    2 (working, needs_input)
+myproject-002      feature/new-api           +3 -1    not pushed   no     1 (working)
+myproject-003      main                      +0 -0    pushed       no     0
 ```
 
 ---

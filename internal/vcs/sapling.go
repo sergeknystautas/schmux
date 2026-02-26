@@ -105,3 +105,15 @@ func (s *SaplingCommandBuilder) RevListCount(rangeSpec string) string {
 	// Fallback for other range specs
 	return fmt.Sprintf("sl log -T '.' -r %s | wc -l", shellutil.Quote(rangeSpec))
 }
+
+func (s *SaplingCommandBuilder) CurrentBranch() string {
+	return "sl whereami"
+}
+
+func (s *SaplingCommandBuilder) StatusPorcelain() string {
+	return "sl status"
+}
+
+func (s *SaplingCommandBuilder) RemoteBranchExists(branch string) string {
+	return fmt.Sprintf("sl log -r 'remote(%s)' --limit 1 -T '{node}' 2>/dev/null", branch)
+}

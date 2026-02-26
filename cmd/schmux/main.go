@@ -195,6 +195,46 @@ func main() {
 		}
 		fmt.Println("Shift rotation acknowledged.")
 
+	case "tell":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewTellCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "events":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewEventsCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "capture":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewCaptureCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "inspect":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewInspectCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "branches":
+		client := cli.NewDaemonClient(cli.GetDefaultURL())
+		cmd := NewBranchesCommand(client)
+		if err := cmd.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -219,10 +259,15 @@ func printUsage() {
 	fmt.Println("  list            List sessions")
 	fmt.Println("  attach          Attach to a session")
 	fmt.Println("  dispose         Dispose a session")
+	fmt.Println("  tell            Send a message to a session")
+	fmt.Println("  events          Show session event history")
+	fmt.Println("  capture         Capture terminal output from a session")
+	fmt.Println("  branches        Show all workspaces with VCS state")
 	fmt.Println("  end-shift       Signal floor manager shift rotation complete")
 	fmt.Println()
 	fmt.Println("Workspace Commands:")
 	fmt.Println("  refresh-overlay Refresh overlay files for a workspace")
+	fmt.Println("  inspect         Inspect VCS state of a workspace")
 	fmt.Println()
 	fmt.Println("Remote Commands:")
 	fmt.Println("  remote on       Start remote access tunnel")
