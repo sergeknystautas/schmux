@@ -89,7 +89,9 @@ export class InputLatencyTracker {
       const idx = Math.min(Math.floor(v), numBuckets - 1);
       buckets[idx]++;
     }
-    return { buckets, maxCount: Math.max(...buckets), maxMs };
+    let maxCount = 0;
+    for (const c of buckets) if (c > maxCount) maxCount = c;
+    return { buckets, maxCount, maxMs };
   }
 
   reset() {
