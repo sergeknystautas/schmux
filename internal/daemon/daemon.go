@@ -1331,19 +1331,19 @@ func startSubredditHourlyGenerator(ctx context.Context, cfg *config.Config, cach
 	initialDelay := 30 * time.Second
 	nextTime := time.Now().Add(initialDelay)
 	server.SetNextSubredditGeneration(nextTime)
-	logger.Info("subreddit scheduler started", "initial_delay", initialDelay, "interval", subredditDigestInterval, "next_at", nextTime.UTC())
+	logger.Info("subreddit scheduler started", "initial_delay", initialDelay, "interval", subredditDigestInterval, "next_at", nextTime)
 
 	timer := time.NewTimer(initialDelay)
 	defer timer.Stop()
 	for {
 		select {
 		case <-timer.C:
-			logger.Info("subreddit scheduler tick", "at", time.Now().UTC())
+			logger.Info("subreddit scheduler tick")
 			generateSubredditDigest(ctx, cfg, cachePath, logger)
 
 			nextTime = nextSubredditGenerationTime(cachePath, time.Now())
 			server.SetNextSubredditGeneration(nextTime)
-			logger.Info("subreddit next scheduled", "next_at", nextTime.UTC())
+			logger.Info("subreddit next scheduled", "next_at", nextTime)
 
 			delay := time.Until(nextTime)
 			if delay < time.Second {
@@ -1384,9 +1384,9 @@ func generateSubredditDigest(ctx context.Context, cfg *config.Config, cachePath 
 			logger.Info(
 				"subreddit generation skipped",
 				"reason", "cache_fresh",
-				"generated_at", cache.GeneratedAt.UTC(),
+				"generated_at", cache.GeneratedAt,
 				"age", time.Since(cache.GeneratedAt).Round(time.Second),
-				"next_due", nextDue.UTC(),
+				"next_due", nextDue,
 			)
 			return
 		}

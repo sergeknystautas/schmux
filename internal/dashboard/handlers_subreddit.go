@@ -72,7 +72,7 @@ func (s *Server) TriggerSubredditGeneration() {
 			"subreddit digest generated",
 			"source", "config_update",
 			"commits", cache.CommitCount,
-			"generated_at", cache.GeneratedAt.UTC(),
+			"generated_at", cache.GeneratedAt,
 		)
 	}()
 }
