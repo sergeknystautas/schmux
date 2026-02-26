@@ -1,6 +1,8 @@
 package session
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -51,6 +53,50 @@ func TestSpawnPromptWrittenToEventsFile(t *testing.T) {
 	}
 	if parsed.Message != "Session spawned" {
 		t.Errorf("expected 'Session spawned', got %q", parsed.Message)
+	}
+}
+
+func TestWriteImageAttachments(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	imgData := []byte("fake-png-data-for-testing")
+	b64 := base64.StdEncoding.EncodeToString(imgData)
+
+	paths, err := writeImageAttachments(tmpDir, []string{b64})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 path, got %d", len(paths))
+	}
+
+	// Verify file exists and has correct content
+	data, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("failed to read written file: %v", err)
+	}
+	if !bytes.Equal(data, imgData) {
+		t.Errorf("file content mismatch")
+	}
+
+	// Verify file is in .schmux/attachments/
+	if !strings.Contains(paths[0], filepath.Join(".schmux", "attachments")) {
+		t.Errorf("expected path to contain .schmux/attachments, got %s", paths[0])
+	}
+}
+
+func TestWriteImageAttachments_InvalidBase64Skipped(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	validData := []byte("valid-image")
+	validB64 := base64.StdEncoding.EncodeToString(validData)
+
+	paths, err := writeImageAttachments(tmpDir, []string{"!!!invalid!!!", validB64})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 path (invalid skipped), got %d", len(paths))
 	}
 }
 
