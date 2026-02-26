@@ -23,97 +23,97 @@
 
 ### Dimension 1: Branch relationship (feature ↔ origin/main)
 
-| ID | Scenario | Expected behavior |
-|----|----------|-------------------|
-| 1a | Already up to date (origin/main is ancestor of HEAD) | Success, count=0 |
-| 1b | Strictly behind (HEAD is ancestor of origin/main) | Rebase succeeds |
-| 1c | Diverged (both sides have commits since fork) | Rebase local on top of main |
-| 1d | Same commit (HEAD == origin/main) | Success, count=0 |
-| 1e | No common ancestor (orphan default branch) | Error: "no common ancestor" |
+| ID  | Scenario                                             | Expected behavior           |
+| --- | ---------------------------------------------------- | --------------------------- |
+| 1a  | Already up to date (origin/main is ancestor of HEAD) | Success, count=0            |
+| 1b  | Strictly behind (HEAD is ancestor of origin/main)    | Rebase succeeds             |
+| 1c  | Diverged (both sides have commits since fork)        | Rebase local on top of main |
+| 1d  | Same commit (HEAD == origin/main)                    | Success, count=0            |
+| 1e  | No common ancestor (orphan default branch)           | Error: "no common ancestor" |
 
 ### Dimension 2: Commit counts
 
-| ID | Scenario |
-|----|----------|
-| 2a | 1 commit on main |
-| 2b | Many commits on main (5-10) |
-| 2c | 1 local commit |
-| 2d | Many local commits (5) |
-| 2e | Commits on both sides (N main × M local) |
+| ID  | Scenario                                 |
+| --- | ---------------------------------------- |
+| 2a  | 1 commit on main                         |
+| 2b  | Many commits on main (5-10)              |
+| 2c  | 1 local commit                           |
+| 2d  | Many local commits (5)                   |
+| 2e  | Commits on both sides (N main × M local) |
 
 ### Dimension 3: Conflict characteristics
 
-| ID | Scenario |
-|----|----------|
-| 3a | No conflicts (different files) |
-| 3b | Single file conflict, single hunk |
-| 3c | Single file conflict, multiple hunks |
-| 3d | Multiple files conflict |
-| 3e | Conflict on first main commit, rest clean |
-| 3f | Conflict on Nth commit (not first) |
-| 3g | Conflicts on every commit |
-| 3h | File deleted on one side, modified on other |
-| 3i | File renamed on one side |
-| 3j | Binary file conflict |
-| 3k | New file on both sides with same name |
+| ID  | Scenario                                    |
+| --- | ------------------------------------------- |
+| 3a  | No conflicts (different files)              |
+| 3b  | Single file conflict, single hunk           |
+| 3c  | Single file conflict, multiple hunks        |
+| 3d  | Multiple files conflict                     |
+| 3e  | Conflict on first main commit, rest clean   |
+| 3f  | Conflict on Nth commit (not first)          |
+| 3g  | Conflicts on every commit                   |
+| 3h  | File deleted on one side, modified on other |
+| 3i  | File renamed on one side                    |
+| 3j  | Binary file conflict                        |
+| 3k  | New file on both sides with same name       |
 
 ### Dimension 4: Working directory state
 
-| ID | Scenario |
-|----|----------|
-| 4a | Clean working directory |
-| 4b | Staged changes |
-| 4c | Unstaged modifications |
-| 4d | Untracked files |
-| 4e | Mix of staged, unstaged, and untracked |
-| 4f | Changes overlapping with incoming conflict |
-| 4g | Empty (WIP commit skipped) |
+| ID  | Scenario                                   |
+| --- | ------------------------------------------ |
+| 4a  | Clean working directory                    |
+| 4b  | Staged changes                             |
+| 4c  | Unstaged modifications                     |
+| 4d  | Untracked files                            |
+| 4e  | Mix of staged, unstaged, and untracked     |
+| 4f  | Changes overlapping with incoming conflict |
+| 4g  | Empty (WIP commit skipped)                 |
 
 ### Dimension 5: WIP commit edge cases
 
-| ID | Scenario |
-|----|----------|
-| 5a | WIP created, rebase succeeds, WIP unwound |
-| 5b | WIP created, rebase fails, WIP unwound |
-| 5c | No WIP needed, rebase succeeds |
-| 5d | No WIP needed, rebase fails |
-| 5e | HEAD already has "WIP:" message (previous leftover) |
-| 5f | Pre-commit hook rejects WIP commit |
-| 5g | WIP unwind when HEAD message doesn't match |
+| ID  | Scenario                                            |
+| --- | --------------------------------------------------- |
+| 5a  | WIP created, rebase succeeds, WIP unwound           |
+| 5b  | WIP created, rebase fails, WIP unwound              |
+| 5c  | No WIP needed, rebase succeeds                      |
+| 5d  | No WIP needed, rebase fails                         |
+| 5e  | HEAD already has "WIP:" message (previous leftover) |
+| 5f  | Pre-commit hook rejects WIP commit                  |
+| 5g  | WIP unwind when HEAD message doesn't match          |
 
 ### Dimension 6: Abort/recovery edge cases
 
-| ID | Scenario |
-|----|----------|
-| 6a | Rebase abort succeeds |
-| 6b | Rebase abort fails (corrupt state) |
-| 6c | Rebase already in progress on entry |
-| 6d | Context cancelled mid-rebase |
-| 6e | Timeout approaching (80% deadline) |
+| ID  | Scenario                            |
+| --- | ----------------------------------- |
+| 6a  | Rebase abort succeeds               |
+| 6b  | Rebase abort fails (corrupt state)  |
+| 6c  | Rebase already in progress on entry |
+| 6d  | Context cancelled mid-rebase        |
+| 6e  | Timeout approaching (80% deadline)  |
 
 ### Dimension 7: Concurrent/locking
 
-| ID | Scenario |
-|----|----------|
-| 7a | Concurrent sync on same workspace → ErrWorkspaceLocked |
-| 7b | Sync while workspace already locked |
+| ID  | Scenario                                               |
+| --- | ------------------------------------------------------ |
+| 7a  | Concurrent sync on same workspace → ErrWorkspaceLocked |
+| 7b  | Sync while workspace already locked                    |
 
 ### Dimension 8: LLM-specific (LinearSyncResolveConflict only)
 
-| ID | Scenario |
-|----|----------|
-| 8a | LLM resolves all files, high confidence |
-| 8b | LLM resolves all files, low confidence → abort |
-| 8c | LLM can't resolve all files → abort |
-| 8d | LLM returns error → abort |
-| 8e | LLM omits a conflicted file → abort |
-| 8f | LLM says "deleted" but file still exists → abort |
-| 8g | LLM says "modified" but conflict markers remain → abort |
-| 8h | LLM returns unknown action → abort |
-| 8i | Multiple commits with conflicts, all resolved |
-| 8j | First commit resolves, second doesn't |
-| 8k | rebase --continue triggers next conflict |
-| 8l | Git auto-resolves (no unmerged files, rebase in progress) |
+| ID  | Scenario                                                  |
+| --- | --------------------------------------------------------- |
+| 8a  | LLM resolves all files, high confidence                   |
+| 8b  | LLM resolves all files, low confidence → abort            |
+| 8c  | LLM can't resolve all files → abort                       |
+| 8d  | LLM returns error → abort                                 |
+| 8e  | LLM omits a conflicted file → abort                       |
+| 8f  | LLM says "deleted" but file still exists → abort          |
+| 8g  | LLM says "modified" but conflict markers remain → abort   |
+| 8h  | LLM returns unknown action → abort                        |
+| 8i  | Multiple commits with conflicts, all resolved             |
+| 8j  | First commit resolves, second doesn't                     |
+| 8k  | rebase --continue triggers next conflict                  |
+| 8l  | Git auto-resolves (no unmerged files, rebase in progress) |
 
 ---
 
@@ -217,6 +217,7 @@ type Manager struct {
 ### Test mock
 
 The mock must:
+
 1. Return a `conflictresolve.Result` with controllable AllResolved/Confidence/Files
 2. Actually write resolved file contents to disk (since validation reads the files)
 3. Optionally delete files (for delete-vs-modify scenarios)
@@ -249,56 +250,56 @@ func mockLLMHighConfidence(files map[string]string) ConflictResolverFunc {
 
 ### LinearSyncFromDefault (23 tests)
 
-| # | Test | Scenarios | Key assertions |
-|---|------|-----------|----------------|
-| 1 | `AlreadyUpToDate` | 1a | Success, count=0 |
-| 2 | `SameCommit` | 1d | Success, count=0 |
-| 3 | `StrictlyBehind_SingleCommit` | 1b+2a | Success, count=1, HEAD advanced |
-| 4 | `StrictlyBehind_ManyCommits` | 1b+2b | Success, count=5 |
-| 5 | `Diverged_NoConflicts` | 1c+3a | Success, local commits replayed on top |
-| 6 | `Diverged_ManyCommitsBothSides` | 1c+2b+2d | Success, all commits present |
-| 7 | `PreservesUnstagedChanges` | 4c | Modified file still shows in `git diff` |
-| 8 | `PreservesUntrackedFiles` | 4d | Untracked file still exists |
-| 9 | `PreservesStagedChanges` | 4b | File still in `git diff --cached` |
-| 10 | `PreservesMixedWorkingDir` | 4e | All three types preserved |
-| 11 | `CleanDir_NoWipCommit` | 4g | No WIP commit in log |
-| 12 | `ConflictOnFirstCommit` | 3e | Conflict result, hash matches, count=0 |
-| 13 | `ConflictOnNthCommit` | 3f | Conflict result, count=N-1 |
-| 14 | `ConflictSingleFileMultipleHunks` | 3c | Conflict detected, repo clean after |
-| 15 | `ConflictMultipleFiles` | 3d | Conflict detected |
-| 16 | `ConflictDeleteVsModify` | 3h | Conflict detected |
-| 17 | `ConflictNewFileSameName` | 3k | Conflict detected |
-| 18 | `ConflictPreservesLocalChanges` | 3b+4e | Conflict + local changes both handled |
-| 19 | `OrphanDefaultBranch` | 1e | Error: "no common ancestor" |
-| 20 | `TimeoutStopsEarly` | 6e | Success with partial count |
-| 21 | `PreCommitHookRejectsWip` | 5f | PreCommitHookError returned |
-| 22 | `ConcurrentSyncBlocked` | 7a | ErrWorkspaceLocked |
-| 23 | `WorkspaceNotFound` | — | Error: "workspace not found" |
+| #   | Test                              | Scenarios | Key assertions                          |
+| --- | --------------------------------- | --------- | --------------------------------------- |
+| 1   | `AlreadyUpToDate`                 | 1a        | Success, count=0                        |
+| 2   | `SameCommit`                      | 1d        | Success, count=0                        |
+| 3   | `StrictlyBehind_SingleCommit`     | 1b+2a     | Success, count=1, HEAD advanced         |
+| 4   | `StrictlyBehind_ManyCommits`      | 1b+2b     | Success, count=5                        |
+| 5   | `Diverged_NoConflicts`            | 1c+3a     | Success, local commits replayed on top  |
+| 6   | `Diverged_ManyCommitsBothSides`   | 1c+2b+2d  | Success, all commits present            |
+| 7   | `PreservesUnstagedChanges`        | 4c        | Modified file still shows in `git diff` |
+| 8   | `PreservesUntrackedFiles`         | 4d        | Untracked file still exists             |
+| 9   | `PreservesStagedChanges`          | 4b        | File still in `git diff --cached`       |
+| 10  | `PreservesMixedWorkingDir`        | 4e        | All three types preserved               |
+| 11  | `CleanDir_NoWipCommit`            | 4g        | No WIP commit in log                    |
+| 12  | `ConflictOnFirstCommit`           | 3e        | Conflict result, hash matches, count=0  |
+| 13  | `ConflictOnNthCommit`             | 3f        | Conflict result, count=N-1              |
+| 14  | `ConflictSingleFileMultipleHunks` | 3c        | Conflict detected, repo clean after     |
+| 15  | `ConflictMultipleFiles`           | 3d        | Conflict detected                       |
+| 16  | `ConflictDeleteVsModify`          | 3h        | Conflict detected                       |
+| 17  | `ConflictNewFileSameName`         | 3k        | Conflict detected                       |
+| 18  | `ConflictPreservesLocalChanges`   | 3b+4e     | Conflict + local changes both handled   |
+| 19  | `OrphanDefaultBranch`             | 1e        | Error: "no common ancestor"             |
+| 20  | `TimeoutStopsEarly`               | 6e        | Success with partial count              |
+| 21  | `PreCommitHookRejectsWip`         | 5f        | PreCommitHookError returned             |
+| 22  | `ConcurrentSyncBlocked`           | 7a        | ErrWorkspaceLocked                      |
+| 23  | `WorkspaceNotFound`               | —         | Error: "workspace not found"            |
 
 ### LinearSyncResolveConflict (20 tests)
 
-| # | Test | Scenarios | Key assertions |
-|---|------|-----------|----------------|
-| 24 | `AlreadyCaughtUp` | — | Success, "Caught up" |
-| 25 | `CleanRebase_NoConflicts` | 3a | Success, 0 resolutions |
-| 26 | `SingleConflict_HighConfidence` | 8a | Success, 1 resolution |
-| 27 | `MultipleFiles_AllResolved` | 3d+8a | Success, files resolved |
-| 28 | `DeletedFile_Resolved` | 3h+8a | Success, deleted file handled |
-| 29 | `TwoConflictingCommits_BothResolved` | 8i+8k | Success, 2 resolutions |
-| 30 | `FirstResolvesSecondFails` | 8j | Failure, 1 resolution in result |
-| 31 | `GitAutoResolves` | 8l | Success via rebase --continue |
-| 32 | `LowConfidence_Aborts` | 8b | Failure, repo clean |
-| 33 | `NotAllResolved_Aborts` | 8c | Failure, repo clean |
-| 34 | `LLMError_Aborts` | 8d | Failure, repo clean |
-| 35 | `LLMOmitsFile_Aborts` | 8e | Failure, repo clean |
-| 36 | `LLMSaysDeletedButFileExists` | 8f | Failure, repo clean |
-| 37 | `ConflictMarkersRemain_Aborts` | 8g | Failure, repo clean |
-| 38 | `UnknownAction_Aborts` | 8h | Failure, repo clean |
-| 39 | `AbortPreservesLocalChanges` | 8c+4e | Failure + local changes preserved |
-| 40 | `AbortNoWipIfCleanDir` | 8c+4a | Failure, no orphaned WIP |
-| 41 | `PreCommitHookRejectsWip` | 5f | PreCommitHookError |
-| 42 | `ConcurrentBlocked` | 7a | ErrWorkspaceLocked |
-| 43 | `NoCommonAncestor` | 1e | Error: "no common ancestor" |
+| #   | Test                                 | Scenarios | Key assertions                    |
+| --- | ------------------------------------ | --------- | --------------------------------- |
+| 24  | `AlreadyCaughtUp`                    | —         | Success, "Caught up"              |
+| 25  | `CleanRebase_NoConflicts`            | 3a        | Success, 0 resolutions            |
+| 26  | `SingleConflict_HighConfidence`      | 8a        | Success, 1 resolution             |
+| 27  | `MultipleFiles_AllResolved`          | 3d+8a     | Success, files resolved           |
+| 28  | `DeletedFile_Resolved`               | 3h+8a     | Success, deleted file handled     |
+| 29  | `TwoConflictingCommits_BothResolved` | 8i+8k     | Success, 2 resolutions            |
+| 30  | `FirstResolvesSecondFails`           | 8j        | Failure, 1 resolution in result   |
+| 31  | `GitAutoResolves`                    | 8l        | Success via rebase --continue     |
+| 32  | `LowConfidence_Aborts`               | 8b        | Failure, repo clean               |
+| 33  | `NotAllResolved_Aborts`              | 8c        | Failure, repo clean               |
+| 34  | `LLMError_Aborts`                    | 8d        | Failure, repo clean               |
+| 35  | `LLMOmitsFile_Aborts`                | 8e        | Failure, repo clean               |
+| 36  | `LLMSaysDeletedButFileExists`        | 8f        | Failure, repo clean               |
+| 37  | `ConflictMarkersRemain_Aborts`       | 8g        | Failure, repo clean               |
+| 38  | `UnknownAction_Aborts`               | 8h        | Failure, repo clean               |
+| 39  | `AbortPreservesLocalChanges`         | 8c+4e     | Failure + local changes preserved |
+| 40  | `AbortNoWipIfCleanDir`               | 8c+4a     | Failure, no orphaned WIP          |
+| 41  | `PreCommitHookRejectsWip`            | 5f        | PreCommitHookError                |
+| 42  | `ConcurrentBlocked`                  | 7a        | ErrWorkspaceLocked                |
+| 43  | `NoCommonAncestor`                   | 1e        | Error: "no common ancestor"       |
 
 ---
 
@@ -315,6 +316,7 @@ internal/workspace/
 ## Production Code Change
 
 One change to `linear_sync.go`:
+
 - Add `conflictResolver ConflictResolverFunc` field to Manager
 - Default to `conflictresolve.Execute` in `New()`
 - Replace direct call in `LinearSyncResolveConflict`

@@ -15,6 +15,7 @@
 ### Task 1: Inject conflict resolver dependency into Manager
 
 **Files:**
+
 - Modify: `internal/workspace/manager.go:32-59` (add field to struct)
 - Modify: `internal/workspace/manager.go:62-83` (set default in New())
 - Modify: `internal/workspace/linear_sync.go:722` (use injected function)
@@ -83,9 +84,11 @@ conflictresolve.Execute. No behavioral change in production.
 ### Task 2: Build the rebase test fixture — repo scaffolding
 
 **Files:**
+
 - Create: `internal/workspace/rebase_fixture_test.go`
 
 This task creates the fixture builder and its `Build()` method. It creates:
+
 1. A remote (bare-like) repo with initial commit
 2. A clone as the workspace
 3. Optionally a feature branch with local commits
@@ -377,6 +380,7 @@ mock LLM injection. No tests yet — just the builder.
 ### Task 3: Add invariant assertions to the fixture
 
 **Files:**
+
 - Modify: `internal/workspace/rebase_fixture_test.go` (append assertion methods)
 
 **Step 1: Add universal and scenario-specific assertion methods**
@@ -650,6 +654,7 @@ assertions for success/conflict/error/local-changes-preserved.
 ### Task 4: Write LinearSyncFromDefault happy-path tests (tests 1-6)
 
 **Files:**
+
 - Create: `internal/workspace/linear_sync_from_default_test.go`
 
 **Step 1: Write the tests**
@@ -788,6 +793,7 @@ and many commits), diverged (no conflicts, many commits both sides).
 ### Task 5: Add local changes preservation tests (tests 7-11)
 
 **Files:**
+
 - Modify: `internal/workspace/linear_sync_from_default_test.go`
 
 **Step 1: Append tests 7-11**
@@ -903,6 +909,7 @@ survive rebase. Also verifies no WIP commit when dir is clean.
 ### Task 6: Add conflict detection tests (tests 12-18)
 
 **Files:**
+
 - Modify: `internal/workspace/linear_sync_from_default_test.go`
 
 **Step 1: Append tests 12-18**
@@ -1051,6 +1058,7 @@ conflict with local changes preservation.
 ### Task 7: Add error/edge case tests (tests 19-23)
 
 **Files:**
+
 - Modify: `internal/workspace/linear_sync_from_default_test.go`
 
 **Step 1: Append tests 19-23**
@@ -1191,6 +1199,7 @@ hook rejects WIP, concurrent sync blocked, workspace not found.
 ### Task 8: Write LinearSyncResolveConflict mock helpers
 
 **Files:**
+
 - Modify: `internal/workspace/rebase_fixture_test.go`
 
 **Step 1: Add mock LLM factory functions**
@@ -1372,6 +1381,7 @@ markers remain, unknown action, and sequential (multi-call).
 ### Task 9: Write LinearSyncResolveConflict happy-path tests (tests 24-31)
 
 **Files:**
+
 - Create: `internal/workspace/linear_sync_resolve_test.go`
 
 **Step 1: Write tests 24-31**
@@ -1594,6 +1604,7 @@ fails, git auto-resolves.
 ### Task 10: Write LLM failure mode tests (tests 32-38)
 
 **Files:**
+
 - Modify: `internal/workspace/linear_sync_resolve_test.go`
 
 **Step 1: Append tests 32-38**
@@ -1730,6 +1741,7 @@ markers remain aborts, unknown action aborts.
 ### Task 11: Write state preservation and edge case tests (tests 39-43)
 
 **Files:**
+
 - Modify: `internal/workspace/linear_sync_resolve_test.go`
 
 **Step 1: Append tests 39-43**
@@ -1879,6 +1891,7 @@ Expected: All tests pass.
 **Step 4: Fix any failures**
 
 Debug and fix any test that doesn't pass. Common issues:
+
 - Git behavior differing between versions (test on the actual system)
 - Race conditions in the concurrent tests
 - The fixture builder not setting up repos exactly right for certain conflict types
@@ -1899,6 +1912,7 @@ fix(workspace): adjust rebase scenario tests for actual git behavior
 **Step 1: Review fixture for DRY**
 
 Read through `rebase_fixture_test.go` and the two test files. Look for:
+
 - Duplicated setup patterns that should be in the builder
 - Missing assertions that should be in `AssertInvariants()`
 - Assertion messages that don't help diagnose failures
