@@ -594,6 +594,31 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 	return w, nil
 }
 
+// writeImageAttachments decodes base64 image data and writes files to the
+// workspace's .schmux/attachments/ directory. Returns absolute file paths.
+// Individual decode/write failures are skipped (partial success is possible).
+func writeImageAttachments(workspacePath string, images []string) ([]string, error) {
+	dir := filepath.Join(workspacePath, ".schmux", "attachments")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create attachments directory: %w", err)
+	}
+
+	var paths []string
+	for _, b64 := range images {
+		data, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			continue
+		}
+		filename := fmt.Sprintf("img-%s.png", uuid.New().String()[:8])
+		filePath := filepath.Join(dir, filename)
+		if err := os.WriteFile(filePath, data, 0644); err != nil {
+			continue
+		}
+		paths = append(paths, filePath)
+	}
+	return paths, nil
+}
+
 // appendImagePathsToPrompt appends image file paths to the prompt text.
 func appendImagePathsToPrompt(prompt string, paths []string) string {
 	if len(paths) == 0 {
@@ -653,30 +678,16 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		m.logger.Warn("failed to create .schmux/events directory", "err", err)
 	}
 
-	// Write image attachments to workspace and append paths to prompt
+	// Write image attachments to workspace and append paths to prompt.
+	// Note: in multi-target spawns, each agent call writes its own copy of
+	// the images. This is acceptable — files are small and git-excluded.
 	if len(opts.ImageAttachments) > 0 {
-		attachDir := filepath.Join(w.Path, ".schmux", "attachments")
-		if err := os.MkdirAll(attachDir, 0755); err != nil {
-			m.logger.Warn("failed to create attachments directory", "err", err)
-		} else {
-			var imgPaths []string
-			for _, b64 := range opts.ImageAttachments {
-				data, err := base64.StdEncoding.DecodeString(b64)
-				if err != nil {
-					m.logger.Warn("failed to decode image attachment", "err", err)
-					continue
-				}
-				filename := fmt.Sprintf("img-%s.png", uuid.New().String()[:8])
-				filePath := filepath.Join(attachDir, filename)
-				if err := os.WriteFile(filePath, data, 0644); err != nil {
-					m.logger.Warn("failed to write image attachment", "err", err)
-					continue
-				}
-				imgPaths = append(imgPaths, filePath)
-			}
-			if len(imgPaths) > 0 {
-				opts.Prompt = appendImagePathsToPrompt(opts.Prompt, imgPaths)
-			}
+		imgPaths, err := writeImageAttachments(w.Path, opts.ImageAttachments)
+		if err != nil {
+			m.logger.Warn("failed to write image attachments", "err", err)
+		}
+		if len(imgPaths) > 0 {
+			opts.Prompt = appendImagePathsToPrompt(opts.Prompt, imgPaths)
 		}
 	}
 
