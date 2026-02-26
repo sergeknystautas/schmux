@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/conflictresolve"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -567,4 +568,224 @@ func (f *rebaseFixture) gitLogMessages(n int) []string {
 func (f *rebaseFixture) remoteMainHash() string {
 	f.t.Helper()
 	return gitCommitHash(f.t, f.cloneDir, "origin/main")
+}
+
+// ---------------------------------------------------------------------------
+// Mock LLM conflict resolver factories
+// ---------------------------------------------------------------------------
+
+// mockLLMResolveAll returns a ConflictResolverFunc that writes each file's content
+// to disk (or deletes if content is empty), then returns AllResolved:true, Confidence:"high".
+func mockLLMResolveAll(resolvedContents map[string]string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		files := make(map[string]conflictresolve.FileAction, len(resolvedContents))
+		for name, content := range resolvedContents {
+			fullPath := filepath.Join(workspacePath, name)
+			if content == "" {
+				// Delete the file
+				os.Remove(fullPath)
+				files[name] = conflictresolve.FileAction{Action: "deleted", Description: "Resolved by deletion"}
+			} else {
+				// Write resolved content
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+				}
+				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+				}
+				files[name] = conflictresolve.FileAction{Action: "modified", Description: "Resolved by merging both sides"}
+			}
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "high",
+			Summary:     "All conflicts resolved",
+			Files:       files,
+		}, "", nil
+	}
+}
+
+// mockLLMLowConfidence writes resolved content to disk but returns Confidence:"medium".
+func mockLLMLowConfidence(resolvedContents map[string]string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		files := make(map[string]conflictresolve.FileAction, len(resolvedContents))
+		for name, content := range resolvedContents {
+			fullPath := filepath.Join(workspacePath, name)
+			if content == "" {
+				os.Remove(fullPath)
+				files[name] = conflictresolve.FileAction{Action: "deleted", Description: "Resolved by deletion"}
+			} else {
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+				}
+				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+				}
+				files[name] = conflictresolve.FileAction{Action: "modified", Description: "Resolved with low confidence"}
+			}
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "medium",
+			Summary:     "Resolved with medium confidence",
+			Files:       files,
+		}, "", nil
+	}
+}
+
+// mockLLMNotAllResolved writes resolved content to disk but returns AllResolved:false.
+func mockLLMNotAllResolved(resolvedContents map[string]string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		files := make(map[string]conflictresolve.FileAction, len(resolvedContents))
+		for name, content := range resolvedContents {
+			fullPath := filepath.Join(workspacePath, name)
+			if content == "" {
+				os.Remove(fullPath)
+				files[name] = conflictresolve.FileAction{Action: "deleted", Description: "Resolved by deletion"}
+			} else {
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+				}
+				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+				}
+				files[name] = conflictresolve.FileAction{Action: "modified", Description: "Partially resolved"}
+			}
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: false,
+			Confidence:  "high",
+			Summary:     "Not all conflicts could be resolved",
+			Files:       files,
+		}, "", nil
+	}
+}
+
+// mockLLMError returns a ConflictResolverFunc that always returns an error.
+func mockLLMError() ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, _ string) (conflictresolve.OneshotResult, string, error) {
+		return conflictresolve.OneshotResult{}, "", fmt.Errorf("LLM service unavailable")
+	}
+}
+
+// mockLLMOmitsFile resolves everything except omitFile (skips it from the Files map).
+func mockLLMOmitsFile(resolvedContents map[string]string, omitFile string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		files := make(map[string]conflictresolve.FileAction, len(resolvedContents))
+		for name, content := range resolvedContents {
+			fullPath := filepath.Join(workspacePath, name)
+			if name == omitFile {
+				// Still write the file to disk (so it doesn't have markers), but omit from response
+				if content != "" {
+					if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+						return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+					}
+					if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+						return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+					}
+				}
+				continue // omit from Files map
+			}
+			if content == "" {
+				os.Remove(fullPath)
+				files[name] = conflictresolve.FileAction{Action: "deleted", Description: "Resolved by deletion"}
+			} else {
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+				}
+				if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+					return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+				}
+				files[name] = conflictresolve.FileAction{Action: "modified", Description: "Resolved"}
+			}
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "high",
+			Summary:     "Resolved (omitting one file)",
+			Files:       files,
+		}, "", nil
+	}
+}
+
+// mockLLMDeletedButExists claims a file is "deleted" but writes content to it instead.
+func mockLLMDeletedButExists(file string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		fullPath := filepath.Join(workspacePath, file)
+		// Write content instead of deleting — production should catch this
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+		}
+		if err := os.WriteFile(fullPath, []byte("still here!"), 0644); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "high",
+			Summary:     "Deleted file (but actually didn't)",
+			Files: map[string]conflictresolve.FileAction{
+				file: {Action: "deleted", Description: "File removed"},
+			},
+		}, "", nil
+	}
+}
+
+// mockLLMLeaveMarkers writes conflict markers to a file but claims Action:"modified".
+func mockLLMLeaveMarkers(file string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		fullPath := filepath.Join(workspacePath, file)
+		markerContent := "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n"
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+		}
+		if err := os.WriteFile(fullPath, []byte(markerContent), 0644); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "high",
+			Summary:     "Resolved (but left markers)",
+			Files: map[string]conflictresolve.FileAction{
+				file: {Action: "modified", Description: "Merged changes"},
+			},
+		}, "", nil
+	}
+}
+
+// mockLLMUnknownAction returns Action:"renamed" (invalid) for a file.
+func mockLLMUnknownAction(file string) ConflictResolverFunc {
+	return func(_ context.Context, _ *config.Config, _ string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		fullPath := filepath.Join(workspacePath, file)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: mkdir failed: %w", err)
+		}
+		if err := os.WriteFile(fullPath, []byte("resolved content"), 0644); err != nil {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mock: write failed: %w", err)
+		}
+		return conflictresolve.OneshotResult{
+			AllResolved: true,
+			Confidence:  "high",
+			Summary:     "Resolved with rename action",
+			Files: map[string]conflictresolve.FileAction{
+				file: {Action: "renamed", Description: "File renamed"},
+			},
+		}, "", nil
+	}
+}
+
+// mockLLMSequential returns successive results from provided mocks on each call.
+// Thread-safe. Errors if called more times than mocks provided.
+func mockLLMSequential(mocks ...ConflictResolverFunc) ConflictResolverFunc {
+	var mu sync.Mutex
+	callIdx := 0
+	return func(ctx context.Context, cfg *config.Config, prompt string, workspacePath string) (conflictresolve.OneshotResult, string, error) {
+		mu.Lock()
+		idx := callIdx
+		callIdx++
+		mu.Unlock()
+		if idx >= len(mocks) {
+			return conflictresolve.OneshotResult{}, "", fmt.Errorf("mockLLMSequential: called %d times but only %d mocks provided", idx+1, len(mocks))
+		}
+		return mocks[idx](ctx, cfg, prompt, workspacePath)
+	}
 }
