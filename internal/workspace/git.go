@@ -371,14 +371,19 @@ func (m *Manager) hasCommonAncestorInstrumented(ctx context.Context, workspaceID
 }
 
 // gitStatus calculates the git status for a workspace directory.
-// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int)
-func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
+// Returns: (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string)
+func (m *Manager) gitStatus(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
 	return m.gitStatusWithRound(ctx, workspaceID, trigger, dir, repoURL, nil)
 }
 
-func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, fetchRound *gitFetchPollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int) {
-	// Fetch to get latest remote state for accurate ahead/behind counts
-	_ = m.gitFetchInstrumentedWithRound(ctx, workspaceID, trigger, dir, fetchRound)
+func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, trigger RefreshTrigger, dir, repoURL string, fetchRound *gitFetchPollRound) (dirty bool, ahead int, behind int, linesAdded int, linesRemoved int, filesChanged int, commitsSyncedWithRemote bool, remoteBranchExists bool, localUnique int, remoteUnique int, currentBranch string) {
+	// Skip fetch for watcher-triggered refreshes — the watcher exists for fast
+	// local feedback (dirty files, branch switches). The 10-second poller already
+	// handles remote state, so running a network fetch (~700ms) on every file
+	// save is wasteful.
+	if trigger != RefreshTriggerWatcher {
+		_ = m.gitFetchInstrumentedWithRound(ctx, workspaceID, trigger, dir, fetchRound)
+	}
 
 	// Fast-forward local default branch in bare clone to match origin
 	if isWorktree(dir) {
@@ -419,7 +424,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 
 	// Check if local HEAD matches origin/{branch} (indicates commits are synced to remote branch)
 	// Get current branch name first
-	currentBranch, _ := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, dir)
+	currentBranch, _ = m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, dir)
 	if currentBranch != "" && currentBranch != "HEAD" {
 		// Check if origin/{branch} exists
 		remoteBranchExists, _ = m.gitRemoteBranchExistsInstrumented(ctx, workspaceID, trigger, dir, currentBranch)
@@ -496,7 +501,7 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		}
 	}
 
-	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, localUnique, remoteUnique
+	return dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSyncedWithRemote, remoteBranchExists, localUnique, remoteUnique, currentBranch
 }
 
 // countLinesCapped counts newlines in a file up to maxBytes.
