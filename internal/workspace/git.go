@@ -439,24 +439,18 @@ func (m *Manager) gitStatusWithRound(ctx context.Context, workspaceID string, tr
 		if remoteBranchExists {
 			remoteRef := "origin/" + currentBranch
 
-			// Check if commits are synced (HEAD is an ancestor of remote AND remote is an ancestor of HEAD)
-			isAncestor := m.runGitErr(ctx, workspaceID, trigger, dir, "merge-base", "--is-ancestor", "HEAD", remoteRef) == nil
-			remoteIsAncestor := m.runGitErr(ctx, workspaceID, trigger, dir, "merge-base", "--is-ancestor", remoteRef, "HEAD") == nil
-
-			// Commits are synced if HEAD is an ancestor of remote AND remote is an ancestor of HEAD
-			// (meaning they point to the same commit)
-			commitsSyncedWithRemote = isAncestor && remoteIsAncestor
-
-			// Calculate unique commits using rev-list --left-right --count
-			// Output format: "left\tright" where left = commits remote has, right = commits local has
+			// Calculate unique commits using rev-list --left-right --count.
+			// This also tells us whether commits are synced: if both counts are 0,
+			// HEAD and origin/<branch> point to the same commit.
 			revOutput, revErr := m.runGit(ctx, workspaceID, trigger, dir, "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
 			if revErr == nil {
 				parts := strings.Split(strings.TrimSpace(string(revOutput)), "\t")
 				if len(parts) == 2 {
-					remoteUnique, _ = strconv.Atoi(parts[0]) // commits remote has = behind
-					localUnique, _ = strconv.Atoi(parts[1])  // commits local has = ahead
+					localUnique, _ = strconv.Atoi(parts[0])  // commits local has (left)
+					remoteUnique, _ = strconv.Atoi(parts[1]) // commits remote has (right)
 				}
 			}
+			commitsSyncedWithRemote = (localUnique == 0 && remoteUnique == 0)
 		}
 	}
 

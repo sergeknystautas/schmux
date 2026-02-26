@@ -8,7 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // EnsureOriginQueries ensures origin query repos exist for all configured repos.
@@ -217,7 +220,9 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 		return
 	}
 
-	for _, repo := range m.config.GetRepos() {
+	repos := m.config.GetRepos()
+	var wg sync.WaitGroup
+	for _, repo := range repos {
 		queryRepoPath := m.getQueryRepoPath(repo.URL)
 
 		// Skip if doesn't exist
@@ -225,30 +230,34 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 			continue
 		}
 
-		if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
-			m.logger.Warn("failed to fetch origin query repo", "repo", repo.Name, "err", err)
-			continue
-		}
+		wg.Add(1)
+		go func(repo config.Repo, queryRepoPath string) {
+			defer wg.Done()
 
-		// Skip originHeadExists check if already ensured — once origin/HEAD
-		// exists it won't disappear at runtime.
-		m.ensuredQueryReposMu.RLock()
-		alreadyEnsured := m.ensuredQueryRepos[repo.URL]
-		m.ensuredQueryReposMu.RUnlock()
-		if !alreadyEnsured {
-			if !m.originHeadExists(ctx, queryRepoPath) {
-				if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
-					m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
+			if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
+				m.logger.Warn("failed to fetch origin query repo", "repo", repo.Name, "err", err)
+				return
+			}
+
+			// Skip originHeadExists check if already ensured — once origin/HEAD
+			// exists it won't disappear at runtime.
+			m.ensuredQueryReposMu.RLock()
+			alreadyEnsured := m.ensuredQueryRepos[repo.URL]
+			m.ensuredQueryReposMu.RUnlock()
+			if !alreadyEnsured {
+				if !m.originHeadExists(ctx, queryRepoPath) {
+					if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
+						m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
+					}
 				}
 			}
-		}
 
-		// Refresh default branch cache after fetch/set-head
-		defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
-		if defaultBranch != "" {
-			m.setDefaultBranch(repo.URL, defaultBranch)
-		}
+			// Refresh default branch cache after fetch, but throttle to avoid
+			// running git symbolic-ref every cycle (default branch rarely changes).
+			m.refreshDefaultBranchThrottled(ctx, queryRepoPath, repo.URL)
+		}(repo, queryRepoPath)
 	}
+	wg.Wait()
 }
 
 // GetRecentBranches returns recent branches from all bare clones, sorted by commit date.
@@ -384,6 +393,33 @@ func (m *Manager) getDefaultBranch(ctx context.Context, queryRepoPath string) st
 	}
 
 	return "" // Signal failure
+}
+
+// defaultBranchRefreshInterval controls how often FetchOriginQueries re-runs
+// git symbolic-ref to detect default branch changes. The default branch of a
+// repo almost never changes, so checking every poll cycle is wasteful.
+const defaultBranchRefreshInterval = 60 * time.Second
+
+// refreshDefaultBranchThrottled refreshes the default branch cache for a repo,
+// but only if enough time has passed since the last refresh. This avoids running
+// git symbolic-ref on every 10-second poll cycle when the result rarely changes.
+func (m *Manager) refreshDefaultBranchThrottled(ctx context.Context, queryRepoPath, repoURL string) {
+	m.defaultBranchCacheMu.RLock()
+	lastRefresh := m.defaultBranchRefreshAt[repoURL]
+	m.defaultBranchCacheMu.RUnlock()
+
+	if time.Since(lastRefresh) < defaultBranchRefreshInterval {
+		return
+	}
+
+	defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
+	if defaultBranch != "" {
+		m.setDefaultBranch(repoURL, defaultBranch)
+	}
+
+	m.defaultBranchCacheMu.Lock()
+	m.defaultBranchRefreshAt[repoURL] = time.Now()
+	m.defaultBranchCacheMu.Unlock()
 }
 
 // GetBranchCommitLog returns the commit subjects for a branch relative to the default branch.

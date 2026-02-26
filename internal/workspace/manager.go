@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
@@ -29,47 +30,49 @@ var ErrWorkspaceLocked = errors.New("workspace is locked")
 
 // Manager manages workspace directories.
 type Manager struct {
-	config               *config.Config
-	state                state.StateStore
-	logger               *log.Logger
-	ensurer              *ensure.Ensurer
-	workspaceConfigs     map[string]*contracts.RepoConfig // workspace ID -> workspace config
-	workspaceConfigsMu   sync.RWMutex
-	configStates         map[string]configState // workspace path -> last known config file state
-	configStatesMu       sync.RWMutex
-	gitWatcher           *GitWatcher
-	repoLocks            map[string]*sync.Mutex
-	repoLocksMu          sync.Mutex
-	randSuffix           func(length int) string
-	defaultBranchCache   map[string]string // repoURL -> defaultBranch or "unknown"
-	defaultBranchCacheMu sync.RWMutex
-	lockedWorkspaces     map[string]bool
-	lockedWorkspacesMu   sync.RWMutex
-	workspaceGates       map[string]*sync.RWMutex // per-workspace gate: coordinates git status vs sync operations
-	workspaceGatesMu     sync.Mutex
-	onLockChangeFn       func(workspaceID string, locked bool)        // optional, called when lock state changes
-	compoundReconcile    func(workspaceID string)                     // reconcile overlay before dispose
-	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
-	telemetry            telemetry.Telemetry                          // optional, for usage tracking
-	ioTelemetry          *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
-	ensuredQueryRepos    map[string]bool                              // repoURL -> true once origin query repo is validated
-	ensuredQueryReposMu  sync.RWMutex
+	config                 *config.Config
+	state                  state.StateStore
+	logger                 *log.Logger
+	ensurer                *ensure.Ensurer
+	workspaceConfigs       map[string]*contracts.RepoConfig // workspace ID -> workspace config
+	workspaceConfigsMu     sync.RWMutex
+	configStates           map[string]configState // workspace path -> last known config file state
+	configStatesMu         sync.RWMutex
+	gitWatcher             *GitWatcher
+	repoLocks              map[string]*sync.Mutex
+	repoLocksMu            sync.Mutex
+	randSuffix             func(length int) string
+	defaultBranchCache     map[string]string // repoURL -> defaultBranch or "unknown"
+	defaultBranchCacheMu   sync.RWMutex
+	defaultBranchRefreshAt map[string]time.Time // repoURL -> last symbolic-ref refresh time
+	lockedWorkspaces       map[string]bool
+	lockedWorkspacesMu     sync.RWMutex
+	workspaceGates         map[string]*sync.RWMutex // per-workspace gate: coordinates git status vs sync operations
+	workspaceGatesMu       sync.Mutex
+	onLockChangeFn         func(workspaceID string, locked bool)        // optional, called when lock state changes
+	compoundReconcile      func(workspaceID string)                     // reconcile overlay before dispose
+	syncProgressFn         func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
+	telemetry              telemetry.Telemetry                          // optional, for usage tracking
+	ioTelemetry            *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
+	ensuredQueryRepos      map[string]bool                              // repoURL -> true once origin query repo is validated
+	ensuredQueryReposMu    sync.RWMutex
 }
 
 // New creates a new workspace manager.
 func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.Logger) *Manager {
 	m := &Manager{
-		config:            cfg,
-		state:             st,
-		logger:            logger,
-		ensurer:           ensure.New(st),
-		workspaceConfigs:  make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
-		configStates:      make(map[string]configState),           // track config file mtime to detect changes
-		repoLocks:         make(map[string]*sync.Mutex),
-		lockedWorkspaces:  make(map[string]bool),
-		workspaceGates:    make(map[string]*sync.RWMutex),
-		ensuredQueryRepos: make(map[string]bool),
-		randSuffix:        defaultRandSuffix,
+		config:                 cfg,
+		state:                  st,
+		logger:                 logger,
+		ensurer:                ensure.New(st),
+		workspaceConfigs:       make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
+		configStates:           make(map[string]configState),           // track config file mtime to detect changes
+		repoLocks:              make(map[string]*sync.Mutex),
+		lockedWorkspaces:       make(map[string]bool),
+		workspaceGates:         make(map[string]*sync.RWMutex),
+		ensuredQueryRepos:      make(map[string]bool),
+		defaultBranchRefreshAt: make(map[string]time.Time),
+		randSuffix:             defaultRandSuffix,
 	}
 	// Pre-load workspace configs so they're available on first API call
 	// (before the first poll cycle runs)
@@ -293,6 +296,10 @@ func (m *Manager) setDefaultBranch(repoURL, branch string) {
 		m.defaultBranchCache = make(map[string]string)
 	}
 	m.defaultBranchCache[repoURL] = branch
+	if m.defaultBranchRefreshAt == nil {
+		m.defaultBranchRefreshAt = make(map[string]time.Time)
+	}
+	m.defaultBranchRefreshAt[repoURL] = time.Now()
 }
 
 // GetByID returns a workspace by its ID.
@@ -802,12 +809,16 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 		actualBranch = w.Branch
 	}
 
-	// Detect orphaned default branch (origin/default has no common ancestor with HEAD)
+	// Detect orphaned default branch (origin/default has no common ancestor with HEAD).
+	// Skip when ahead=0 and behind=0: HEAD is at the same point as origin/default,
+	// so they trivially share ancestry.
 	orphaned := false
-	if defaultBranch, dbErr := m.GetDefaultBranch(ctx, w.Repo); dbErr == nil {
-		defaultRef := "origin/" + defaultBranch
-		if !m.hasCommonAncestorInstrumented(ctx, workspaceID, trigger, w.Path, defaultRef) {
-			orphaned = true
+	if ahead != 0 || behind != 0 {
+		if defaultBranch, dbErr := m.GetDefaultBranch(ctx, w.Repo); dbErr == nil {
+			defaultRef := "origin/" + defaultBranch
+			if !m.hasCommonAncestorInstrumented(ctx, workspaceID, trigger, w.Path, defaultRef) {
+				orphaned = true
+			}
 		}
 	}
 

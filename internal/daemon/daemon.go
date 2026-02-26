@@ -1070,9 +1070,19 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 			if err := wm.EnsureOriginQueries(ctx); err != nil {
 				logger.Warn("failed to ensure origin queries", "err", err)
 			}
-			// Fetch origin query repos to get latest branch info
-			wm.FetchOriginQueries(ctx)
-			wm.UpdateAllGitStatus(ctx)
+			// Fetch origin queries and update workspace git status concurrently.
+			// These operate on independent repos and don't depend on each other.
+			var pollWg sync.WaitGroup
+			pollWg.Add(2)
+			go func() {
+				defer pollWg.Done()
+				wm.FetchOriginQueries(ctx)
+			}()
+			go func() {
+				defer pollWg.Done()
+				wm.UpdateAllGitStatus(ctx)
+			}()
+			pollWg.Wait()
 			cancel()
 			server.BroadcastSessions()
 		}
@@ -1084,9 +1094,18 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 				if err := wm.EnsureOriginQueries(ctx); err != nil {
 					logger.Warn("failed to ensure origin queries", "err", err)
 				}
-				// Fetch origin query repos to get latest branch info
-				wm.FetchOriginQueries(ctx)
-				wm.UpdateAllGitStatus(ctx)
+				// Fetch origin queries and update workspace git status concurrently.
+				var pollWg sync.WaitGroup
+				pollWg.Add(2)
+				go func() {
+					defer pollWg.Done()
+					wm.FetchOriginQueries(ctx)
+				}()
+				go func() {
+					defer pollWg.Done()
+					wm.UpdateAllGitStatus(ctx)
+				}()
+				pollWg.Wait()
 				cancel()
 				server.BroadcastSessions()
 			case <-d.shutdownCtx.Done():
