@@ -32,10 +32,17 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 			continue
 		}
 
-		// Detect and cache default branch after ensuring readiness
-		defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
-		if defaultBranch != "" {
-			m.setDefaultBranch(repo.URL, defaultBranch)
+		// Detect and cache default branch after ensuring readiness.
+		// Skip if already cached — FetchOriginQueries refreshes it after each
+		// fetch, so we only need to detect it once at startup.
+		m.defaultBranchCacheMu.RLock()
+		_, hasCachedBranch := m.defaultBranchCache[repo.URL]
+		m.defaultBranchCacheMu.RUnlock()
+		if !hasCachedBranch {
+			defaultBranch := m.getDefaultBranch(ctx, queryRepoPath)
+			if defaultBranch != "" {
+				m.setDefaultBranch(repo.URL, defaultBranch)
+			}
 		}
 	}
 
