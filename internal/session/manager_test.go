@@ -950,6 +950,13 @@ func TestAppendPersonaFlags(t *testing.T) {
 			personaFilePath: "/home/user/my project/persona.md",
 			shouldContain:   "'/home/user/my project/persona.md'",
 		},
+		{
+			name:             "opencode returns cmd unchanged (uses SpawnEnv)",
+			cmd:              "opencode",
+			baseTool:         "opencode",
+			personaFilePath:  "/tmp/persona.md",
+			shouldNotContain: "persona",
+		},
 	}
 
 	for _, tt := range tests {

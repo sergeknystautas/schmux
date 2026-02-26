@@ -2,6 +2,7 @@ package detect
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 )
@@ -54,7 +55,10 @@ func (a *OpencodeAdapter) Detect(ctx context.Context) (Tool, bool) {
 	return Tool{}, false
 }
 
-func (a *OpencodeAdapter) InteractiveArgs(model *Model) []string {
+func (a *OpencodeAdapter) InteractiveArgs(model *Model, resume bool) []string {
+	if resume {
+		return []string{"--continue"}
+	}
 	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
 		return []string{model.ModelFlag, model.ModelValue}
 	}
@@ -76,10 +80,6 @@ func (a *OpencodeAdapter) StreamingArgs(model *Model, jsonSchema string) ([]stri
 	return nil, fmt.Errorf("tool opencode: streaming oneshot mode is not yet supported")
 }
 
-func (a *OpencodeAdapter) ResumeArgs() []string {
-	return []string{"--continue"}
-}
-
 func (a *OpencodeAdapter) InstructionConfig() AgentInstructionConfig {
 	return AgentInstructionConfig{InstructionDir: ".opencode", InstructionFile: "AGENTS.md"}
 }
@@ -90,4 +90,38 @@ func (a *OpencodeAdapter) SignalingStrategy() SignalingStrategy {
 
 func (a *OpencodeAdapter) SignalingArgs(filePath string) []string {
 	return nil
+}
+
+func (a *OpencodeAdapter) SupportsHooks() bool { return true }
+
+func (a *OpencodeAdapter) SetupHooks(ctx HookContext) error {
+	return opencodeSetupHooks(ctx.WorkspacePath)
+}
+
+func (a *OpencodeAdapter) CleanupHooks(workspacePath string) error {
+	return opencodeCleanupHooks(workspacePath)
+}
+
+func (a *OpencodeAdapter) WrapRemoteCommand(command string) (string, error) {
+	return opencodeWrapRemoteCommand(command)
+}
+
+func (a *OpencodeAdapter) PersonaInjection() PersonaInjection { return PersonaConfigOverlay }
+
+func (a *OpencodeAdapter) PersonaArgs(filePath string) []string { return nil }
+
+func (a *OpencodeAdapter) SpawnEnv(ctx SpawnContext) map[string]string {
+	if ctx.PersonaPath == "" {
+		return nil
+	}
+	cfg := map[string]interface{}{
+		"instructions": []string{ctx.PersonaPath},
+	}
+	jsonBytes, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return map[string]string{
+		"OPENCODE_CONFIG_CONTENT": string(jsonBytes),
+	}
 }
