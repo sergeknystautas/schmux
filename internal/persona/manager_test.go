@@ -105,8 +105,8 @@ func TestEnsureBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list error: %v", err)
 	}
-	if len(personas) != 5 {
-		t.Errorf("expected 5 built-in personas, got %d", len(personas))
+	if len(personas) != 10 {
+		t.Errorf("expected 10 built-in personas, got %d", len(personas))
 	}
 
 	// Verify all are marked built_in
