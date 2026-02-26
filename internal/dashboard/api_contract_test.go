@@ -170,6 +170,68 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 			t.Fatalf("expected error for unknown target")
 		}
 	})
+
+	t.Run("image attachments rejected with resume", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:             "https://example.com/repo.git",
+			Branch:           "main",
+			Targets:          map[string]int{"promptable": 1},
+			Resume:           true,
+			ImageAttachments: []string{"iVBORw0KGgo="},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", rr.Code)
+		}
+	})
+
+	t.Run("image attachments rejected with command", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:             "https://example.com/repo.git",
+			Branch:           "main",
+			Command:          "echo hello",
+			ImageAttachments: []string{"iVBORw0KGgo="},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", rr.Code)
+		}
+	})
+
+	t.Run("image attachments rejected with remote flavor", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			RemoteFlavorID:   "some-flavor",
+			Targets:          map[string]int{"promptable": 1},
+			Prompt:           "do stuff",
+			ImageAttachments: []string{"iVBORw0KGgo="},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", rr.Code)
+		}
+	})
+
+	t.Run("too many image attachments rejected", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:             "https://example.com/repo.git",
+			Branch:           "main",
+			Targets:          map[string]int{"promptable": 1},
+			Prompt:           "do stuff",
+			ImageAttachments: []string{"a", "b", "c", "d", "e", "f"},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d", rr.Code)
+		}
+	})
 }
 
 func TestAPIContract_ConfigGet(t *testing.T) {

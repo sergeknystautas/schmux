@@ -27,23 +27,27 @@ import (
 var cookbooksFS embed.FS
 
 type SpawnRequest struct {
-	Repo            string         `json:"repo"`
-	Branch          string         `json:"branch"`
-	Prompt          string         `json:"prompt"`
-	Nickname        string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
-	Targets         map[string]int `json:"targets"`                // target name -> quantity
-	WorkspaceID     string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
-	Command         string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
-	QuickLaunchName string         `json:"quick_launch_name,omitempty"`
-	Resume          bool           `json:"resume,omitempty"`           // resume mode: use agent's resume command
-	RemoteFlavorID  string         `json:"remote_flavor_id,omitempty"` // optional: spawn on remote host
-	NewBranch       string         `json:"new_branch,omitempty"`       // create new workspace with this branch from source workspace
-	PersonaID       string         `json:"persona_id,omitempty"`       // optional: behavioral persona for the agent
+	Repo             string         `json:"repo"`
+	Branch           string         `json:"branch"`
+	Prompt           string         `json:"prompt"`
+	Nickname         string         `json:"nickname,omitempty"`     // optional human-friendly name for sessions
+	Targets          map[string]int `json:"targets"`                // target name -> quantity
+	WorkspaceID      string         `json:"workspace_id,omitempty"` // optional: spawn into specific workspace
+	Command          string         `json:"command,omitempty"`      // shell command to run directly (alternative to targets)
+	QuickLaunchName  string         `json:"quick_launch_name,omitempty"`
+	Resume           bool           `json:"resume,omitempty"`            // resume mode: use agent's resume command
+	RemoteFlavorID   string         `json:"remote_flavor_id,omitempty"`  // optional: spawn on remote host
+	NewBranch        string         `json:"new_branch,omitempty"`        // create new workspace with this branch from source workspace
+	PersonaID        string         `json:"persona_id,omitempty"`        // optional: behavioral persona for the agent
+	ImageAttachments []string       `json:"image_attachments,omitempty"` // base64-encoded PNGs, max 5
 }
 
 // handleSpawnPost handles session spawning requests.
 func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	// Spawn requests may include base64-encoded image attachments (up to 5 images).
+	// Use a larger body limit than the default 1MB.
+	const maxSpawnBodySize = 50 * 1024 * 1024 // 50MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxSpawnBodySize)
 	var req SpawnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
@@ -115,6 +119,26 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.TrimSpace(req.Prompt) != "" {
 			writeJSONError(w, "cannot use prompt with resume mode", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Validate image attachments
+	if len(req.ImageAttachments) > 0 {
+		if len(req.ImageAttachments) > 5 {
+			writeJSONError(w, "maximum 5 image attachments allowed", http.StatusBadRequest)
+			return
+		}
+		if req.Resume {
+			writeJSONError(w, "cannot use image attachments with resume mode", http.StatusBadRequest)
+			return
+		}
+		if req.Command != "" {
+			writeJSONError(w, "cannot use image attachments with command mode", http.StatusBadRequest)
+			return
+		}
+		if req.RemoteFlavorID != "" {
+			writeJSONError(w, "image attachments are not supported for remote spawns", http.StatusBadRequest)
 			return
 		}
 	}
