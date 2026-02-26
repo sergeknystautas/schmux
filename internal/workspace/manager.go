@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/conflictresolve"
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -27,6 +28,10 @@ const (
 )
 
 var ErrWorkspaceLocked = errors.New("workspace is locked")
+
+// ConflictResolverFunc is the function signature for LLM-based conflict resolution.
+// Production uses conflictresolve.Execute. Tests inject mocks.
+type ConflictResolverFunc func(ctx context.Context, cfg *config.Config, prompt string, workspacePath string) (conflictresolve.OneshotResult, string, error)
 
 // Manager manages workspace directories.
 type Manager struct {
@@ -52,6 +57,7 @@ type Manager struct {
 	onLockChangeFn         func(workspaceID string, locked bool)        // optional, called when lock state changes
 	compoundReconcile      func(workspaceID string)                     // reconcile overlay before dispose
 	syncProgressFn         func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
+	conflictResolver       ConflictResolverFunc                         // injected for testability; defaults to conflictresolve.Execute
 	telemetry              telemetry.Telemetry                          // optional, for usage tracking
 	ioTelemetry            *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
 	ensuredQueryRepos      map[string]bool                              // repoURL -> true once origin query repo is validated
@@ -73,6 +79,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.
 		ensuredQueryRepos:      make(map[string]bool),
 		defaultBranchRefreshAt: make(map[string]time.Time),
 		randSuffix:             defaultRandSuffix,
+		conflictResolver:       conflictresolve.Execute,
 	}
 	// Pre-load workspace configs so they're available on first API call
 	// (before the first poll cycle runs)

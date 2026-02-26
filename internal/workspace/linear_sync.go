@@ -719,7 +719,7 @@ func (m *Manager) LinearSyncResolveConflict(ctx context.Context, workspaceID str
 		})
 
 		prompt := conflictresolve.BuildPrompt(workspacePath, hash, localCommitHash, localCommitMessage, unmergedFiles)
-		oneshotResult, rawResponse, err := conflictresolve.Execute(ctx, m.config, prompt, workspacePath)
+		oneshotResult, rawResponse, err := m.conflictResolver(ctx, m.config, prompt, workspacePath)
 
 		// Record the resolution attempt
 		fileNames := make([]string, 0, len(unmergedFiles))

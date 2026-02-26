@@ -1565,6 +1565,7 @@ Notes:
 - Auto-clears completed/failed state on new request
 - Clears `conflict_on_branch` on successful resolution
 - Pauses Vite file watching during resolution to avoid transform errors
+- Conflict resolution is performed by the workspace manager's conflict resolver (defaults to LLM-based oneshot resolution)
 
 ### DELETE /api/workspaces/{workspaceId}/linear-sync-resolve-conflict-state
 
