@@ -232,6 +232,38 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 			t.Fatalf("expected status 400, got %d", rr.Code)
 		}
 	})
+
+	t.Run("valid image attachments accepted", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:             "https://example.com/repo.git",
+			Branch:           "main",
+			Targets:          map[string]int{"promptable": 1},
+			Prompt:           "build a login page",
+			ImageAttachments: []string{"iVBORw0KGgo="},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code == http.StatusBadRequest {
+			t.Fatalf("expected non-400 status for valid image attachments, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("exactly 5 image attachments accepted", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:             "https://example.com/repo.git",
+			Branch:           "main",
+			Targets:          map[string]int{"promptable": 1},
+			Prompt:           "do stuff",
+			ImageAttachments: []string{"a", "b", "c", "d", "e"},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		server.handleSpawnPost(rr, req)
+		if rr.Code == http.StatusBadRequest {
+			t.Fatalf("expected non-400 for exactly 5 attachments, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
 }
 
 func TestAPIContract_ConfigGet(t *testing.T) {
