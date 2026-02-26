@@ -35,6 +35,7 @@ interface SpawnDraft {
   newRepoName?: string;
   // Only for workspace mode
   createBranch?: boolean;
+  imageAttachments?: string[]; // base64-encoded PNGs
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {
@@ -171,6 +172,7 @@ export default function SpawnPage() {
   const [configError, setConfigError] = useState('');
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersonaId, setSelectedPersonaId] = useState('');
+  const [imageAttachments, setImageAttachments] = useState<string[]>([]);
 
   const [searchParams] = useSearchParams();
   const { error: toastError } = useToast();
@@ -370,6 +372,11 @@ export default function SpawnPage() {
       }
     }
 
+    // imageAttachments: draft → default (applies to all modes)
+    if (draft?.imageAttachments) {
+      setImageAttachments(draft.imageAttachments);
+    }
+
     initialized.current = true;
     skipNextPersist.current = true;
   }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId, location.state]);
@@ -457,6 +464,9 @@ export default function SpawnPage() {
     if (urlWorkspaceId) {
       draft.createBranch = createBranch;
     }
+    if (imageAttachments.length > 0) {
+      draft.imageAttachments = imageAttachments;
+    }
     saveSpawnDraft(urlWorkspaceId, draft);
   }, [
     prompt,
@@ -465,6 +475,7 @@ export default function SpawnPage() {
     repo,
     newRepoName,
     createBranch,
+    imageAttachments,
     urlWorkspaceId,
     engagePhase,
   ]);
@@ -573,6 +584,7 @@ export default function SpawnPage() {
         return false;
       }
       clearSpawnDraft(urlWorkspaceId);
+      setImageAttachments([]);
       const successfulResults = response.filter((r) => !r.error);
       if (successfulResults.length === 1 && successfulResults[0].session_id) {
         setPendingNavigation({ type: 'session', id: successfulResults[0].session_id });
@@ -842,6 +854,45 @@ export default function SpawnPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleEngage]);
+
+  // Handle paste events for image attachments
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      if (!e.clipboardData?.items) return;
+
+      // Find image item in clipboard
+      const imageItem = Array.from(e.clipboardData.items).find((item) =>
+        item.type.startsWith('image/')
+      );
+      if (!imageItem) return;
+
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+
+      // Check limit
+      if (imageAttachments.length >= 5) return;
+
+      // Prevent default paste behavior (don't paste image as text in textarea)
+      e.preventDefault();
+
+      // Convert to base64
+      const buf = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      setImageAttachments((prev) => {
+        if (prev.length >= 5) return prev;
+        return [...prev, base64];
+      });
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [imageAttachments.length]);
 
   if (loading) {
     return (
