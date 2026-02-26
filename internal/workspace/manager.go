@@ -52,21 +52,24 @@ type Manager struct {
 	syncProgressFn       func(workspaceID string, current, total int) // optional, called during LinearSyncFromDefault
 	telemetry            telemetry.Telemetry                          // optional, for usage tracking
 	ioTelemetry          *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
+	ensuredQueryRepos    map[string]bool                              // repoURL -> true once origin query repo is validated
+	ensuredQueryReposMu  sync.RWMutex
 }
 
 // New creates a new workspace manager.
 func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.Logger) *Manager {
 	m := &Manager{
-		config:           cfg,
-		state:            st,
-		logger:           logger,
-		ensurer:          ensure.New(st),
-		workspaceConfigs: make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
-		configStates:     make(map[string]configState),           // track config file mtime to detect changes
-		repoLocks:        make(map[string]*sync.Mutex),
-		lockedWorkspaces: make(map[string]bool),
-		workspaceGates:   make(map[string]*sync.RWMutex),
-		randSuffix:       defaultRandSuffix,
+		config:            cfg,
+		state:             st,
+		logger:            logger,
+		ensurer:           ensure.New(st),
+		workspaceConfigs:  make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
+		configStates:      make(map[string]configState),           // track config file mtime to detect changes
+		repoLocks:         make(map[string]*sync.Mutex),
+		lockedWorkspaces:  make(map[string]bool),
+		workspaceGates:    make(map[string]*sync.RWMutex),
+		ensuredQueryRepos: make(map[string]bool),
+		randSuffix:        defaultRandSuffix,
 	}
 	// Pre-load workspace configs so they're available on first API call
 	// (before the first poll cycle runs)
@@ -791,13 +794,12 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	m.RefreshWorkspaceConfig(w)
 
 	// Calculate git status (safe to run even with active sessions)
-	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, fetchRound)
+	dirty, ahead, behind, linesAdded, linesRemoved, filesChanged, commitsSynced, remoteBranchExists, localUnique, remoteUnique, currentBranch := m.gitStatusWithRound(ctx, workspaceID, trigger, w.Path, w.Repo, fetchRound)
 
-	// Detect actual current branch (may differ from state if user manually switched)
-	actualBranch, err := m.gitCurrentBranchInstrumented(ctx, workspaceID, trigger, w.Path)
-	if err != nil {
-		m.logger.Warn("failed to get current branch", "id", w.ID, "err", err)
-		actualBranch = w.Branch // fallback to existing state
+	// Use branch from gitStatus; fall back to existing state if empty/detached
+	actualBranch := currentBranch
+	if actualBranch == "" || actualBranch == "HEAD" {
+		actualBranch = w.Branch
 	}
 
 	// Detect orphaned default branch (origin/default has no common ancestor with HEAD)
@@ -822,13 +824,6 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	w.RemoteBranchExists = remoteBranchExists
 	w.LocalUniqueCommits = localUnique
 	w.RemoteUniqueCommits = remoteUnique
-
-	// Check if the branch exists on the remote (cached to avoid per-broadcast git calls)
-	if wb, found := m.state.GetWorktreeBaseByURL(w.Repo); found {
-		if exists, existsErr := m.gitRemoteBranchExistsInstrumented(ctx, workspaceID, trigger, wb.Path, w.Branch); existsErr == nil {
-			w.RemoteBranchExists = exists
-		}
-	}
 
 	// Update the workspace in state (this updates the in-memory copy)
 	if err := m.state.UpdateWorkspace(w); err != nil {

@@ -75,12 +75,25 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 		if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
 			return "", fmt.Errorf("failed to initialize origin query repo: %w", err)
 		}
+		// Mark as validated so subsequent calls skip ensureCorrectOriginURL/originQueryRepoNeedsRepair
+		m.ensuredQueryReposMu.Lock()
+		m.ensuredQueryRepos[repoURL] = true
+		m.ensuredQueryReposMu.Unlock()
 	} else {
-		m.ensureCorrectOriginURL(ctx, queryRepoPath, repoURL)
-		if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
-			if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
-				return "", fmt.Errorf("failed to repair origin query repo: %w", err)
+		// Repo exists — skip validation if already ensured this session
+		m.ensuredQueryReposMu.RLock()
+		alreadyEnsured := m.ensuredQueryRepos[repoURL]
+		m.ensuredQueryReposMu.RUnlock()
+		if !alreadyEnsured {
+			m.ensureCorrectOriginURL(ctx, queryRepoPath, repoURL)
+			if m.originQueryRepoNeedsRepair(ctx, queryRepoPath) {
+				if err := m.prepareOriginQueryRepo(ctx, queryRepoPath, repoURL); err != nil {
+					return "", fmt.Errorf("failed to repair origin query repo: %w", err)
+				}
 			}
+			m.ensuredQueryReposMu.Lock()
+			m.ensuredQueryRepos[repoURL] = true
+			m.ensuredQueryReposMu.Unlock()
 		}
 	}
 
@@ -210,9 +223,16 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 			continue
 		}
 
-		if !m.originHeadExists(ctx, queryRepoPath) {
-			if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
-				m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
+		// Skip originHeadExists check if already ensured — once origin/HEAD
+		// exists it won't disappear at runtime.
+		m.ensuredQueryReposMu.RLock()
+		alreadyEnsured := m.ensuredQueryRepos[repo.URL]
+		m.ensuredQueryReposMu.RUnlock()
+		if !alreadyEnsured {
+			if !m.originHeadExists(ctx, queryRepoPath) {
+				if err := m.setOriginHead(ctx, queryRepoPath); err != nil {
+					m.logger.Warn("failed to set origin HEAD", "repo", repo.Name, "err", err)
+				}
 			}
 		}
 
