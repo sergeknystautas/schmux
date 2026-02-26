@@ -7,7 +7,7 @@ import {
   getErrorMessage,
 } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
-import { useSessions } from '../contexts/SessionsContext';
+import { useOverlay } from '../contexts/OverlayContext';
 import { useToast } from '../components/ToastProvider';
 import type {
   OverlayInfo,
@@ -38,7 +38,7 @@ export default function OverlayPage() {
   const { config } = useConfig();
   const repos = config?.repos || [];
   const { success: toastSuccess, error: toastError } = useToast();
-  const { overlayEvents, overlayUnreadCount, clearOverlayEvents, markOverlaysRead } = useSessions();
+  const { overlayEvents, overlayUnreadCount, clearOverlayEvents, markOverlaysRead } = useOverlay();
 
   const [view, setView] = useState<ViewTab>('paths');
   const [activeRepo, setActiveRepo] = useState(repos[0]?.name || '');

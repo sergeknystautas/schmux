@@ -22,8 +22,13 @@ let mockWorkspaces: WorkspaceResponse[] = [];
 
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
-    linearSyncResolveConflictStates: mockLinearSyncResolveConflictStates,
     workspaces: mockWorkspaces,
+  }),
+}));
+
+vi.mock('../contexts/SyncContext', () => ({
+  useSyncState: () => ({
+    linearSyncResolveConflictStates: mockLinearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
   }),
 }));

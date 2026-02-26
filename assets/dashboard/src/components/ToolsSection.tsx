@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useConfig } from '../contexts/ConfigContext';
-import { useSessions } from '../contexts/SessionsContext';
+import { useOverlay } from '../contexts/OverlayContext';
 import { getLoreProposals } from '../lib/api';
 import Tooltip from './Tooltip';
 
@@ -27,7 +27,7 @@ export default function ToolsSection({
 
   const location = useLocation();
   const { config, isNotConfigured } = useConfig();
-  const { overlayUnreadCount, markOverlaysRead } = useSessions();
+  const { overlayUnreadCount, markOverlaysRead } = useOverlay();
 
   // Persist collapsed state
   useEffect(() => {
