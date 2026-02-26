@@ -29,7 +29,8 @@ type Manager struct {
 	sm     *session.Manager // used only for ResolveTarget and session name lookups
 	logger *log.Logger
 
-	workDir string // ~/.schmux/floor-manager/
+	workDir     string // ~/.schmux/floor-manager/
+	sessionName string // tmux session name (defaults to tmuxSessionName constant)
 
 	mu             sync.Mutex
 	tmuxSession    string
@@ -48,11 +49,12 @@ type Manager struct {
 // New creates a new floor manager Manager.
 func New(cfg *config.Config, sm *session.Manager, homeDir string, logger *log.Logger) *Manager {
 	return &Manager{
-		cfg:     cfg,
-		sm:      sm,
-		logger:  logger,
-		workDir: filepath.Join(homeDir, ".schmux", "floor-manager"),
-		stopCh:  make(chan struct{}),
+		cfg:         cfg,
+		sm:          sm,
+		logger:      logger,
+		workDir:     filepath.Join(homeDir, ".schmux", "floor-manager"),
+		sessionName: tmuxSessionName,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -169,21 +171,29 @@ func (m *Manager) spawn(ctx context.Context) error {
 		return fmt.Errorf("failed to write instruction files: %w", err)
 	}
 
-	// Build the command
-	command, err := m.buildFMCommand(ctx, "Begin.")
-	if err != nil {
-		return fmt.Errorf("failed to build command: %w", err)
-	}
+	// If a session already exists (e.g. leftover from a previous daemon run),
+	// reconnect to it instead of trying to create a duplicate.
+	reconnected := false
+	if tmux.SessionExists(ctx, m.sessionName) {
+		m.logger.Info("reconnecting to existing floor manager session", "tmux_session", m.sessionName)
+		reconnected = true
+	} else {
+		// Build the command
+		command, err := m.buildFMCommand(ctx, "Begin.")
+		if err != nil {
+			return fmt.Errorf("failed to build command: %w", err)
+		}
 
-	// Create tmux session
-	if err := tmux.CreateSession(ctx, tmuxSessionName, m.workDir, command); err != nil {
-		return fmt.Errorf("failed to create tmux session: %w", err)
+		// Create tmux session
+		if err := tmux.CreateSession(ctx, m.sessionName, m.workDir, command); err != nil {
+			return fmt.Errorf("failed to create tmux session: %w", err)
+		}
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
 	tracker := session.NewSessionTracker(
 		"floor-manager",
-		tmuxSessionName,
+		m.sessionName,
 		nil, // no state store
 		"",  // no event file
 		nil, // no event handlers
@@ -193,29 +203,40 @@ func (m *Manager) spawn(ctx context.Context) error {
 	tracker.Start()
 
 	m.mu.Lock()
-	m.tmuxSession = tmuxSessionName
+	m.tmuxSession = m.sessionName
 	m.injectionCount = 0
 	m.tracker = tracker
 	m.mu.Unlock()
 
-	m.logger.Info("floor manager spawned", "tmux_session", tmuxSessionName)
+	if reconnected {
+		m.logger.Info("floor manager reconnected", "tmux_session", m.sessionName)
+	} else {
+		m.logger.Info("floor manager spawned", "tmux_session", m.sessionName)
+	}
 	return nil
 }
 
 func (m *Manager) spawnResume(ctx context.Context) error {
-	command, err := m.buildFMResumeCommand(ctx)
-	if err != nil {
-		return err
-	}
+	// If a session already exists, reconnect to it.
+	reconnected := false
+	if tmux.SessionExists(ctx, m.sessionName) {
+		m.logger.Info("reconnecting to existing floor manager session for resume", "tmux_session", m.sessionName)
+		reconnected = true
+	} else {
+		command, err := m.buildFMResumeCommand(ctx)
+		if err != nil {
+			return err
+		}
 
-	if err := tmux.CreateSession(ctx, tmuxSessionName, m.workDir, command); err != nil {
-		return err
+		if err := tmux.CreateSession(ctx, m.sessionName, m.workDir, command); err != nil {
+			return err
+		}
 	}
 
 	// Create a tracker for terminal streaming via WebSocket
 	tracker := session.NewSessionTracker(
 		"floor-manager",
-		tmuxSessionName,
+		m.sessionName,
 		nil, // no state store
 		"",  // no event file
 		nil, // no event handlers
@@ -225,11 +246,15 @@ func (m *Manager) spawnResume(ctx context.Context) error {
 	tracker.Start()
 
 	m.mu.Lock()
-	m.tmuxSession = tmuxSessionName
+	m.tmuxSession = m.sessionName
 	m.tracker = tracker
 	m.mu.Unlock()
 
-	m.logger.Info("floor manager resumed", "tmux_session", tmuxSessionName)
+	if reconnected {
+		m.logger.Info("floor manager reconnected", "tmux_session", m.sessionName)
+	} else {
+		m.logger.Info("floor manager resumed", "tmux_session", m.sessionName)
+	}
 	return nil
 }
 
