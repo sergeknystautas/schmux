@@ -90,8 +90,8 @@ func (cmd *DashboardSXCommand) runSetup() error {
 	}
 	cmd.style.Success("Instance key ready")
 
-	// Step 2: Detect and select private IP
-	ips, err := dashboardsx.DetectPrivateIPs()
+	// Step 2: Detect and select bindable IP
+	ips, err := dashboardsx.DetectBindableIPs()
 	if err != nil {
 		return fmt.Errorf("failed to detect private IPs: %w", err)
 	}

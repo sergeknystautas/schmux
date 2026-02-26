@@ -103,7 +103,7 @@ func (s *Server) handleDashboardSXCallback(w http.ResponseWriter, r *http.Reques
 	// Save initial config (code, email, IP) — TLS paths will be added after cert provisioning
 	ip := s.config.GetDashboardSXIP()
 	if ip == "" {
-		ips, err := dashboardsx.DetectPrivateIPs()
+		ips, err := dashboardsx.DetectBindableIPs()
 		if err == nil && len(ips) > 0 {
 			ip = ips[0]
 		}
