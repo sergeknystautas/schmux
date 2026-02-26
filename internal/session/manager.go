@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -563,7 +564,8 @@ type SpawnOptions struct {
 	Resume        bool
 	NewBranch     string
 	PersonaID     string
-	PersonaPrompt string // Pre-resolved persona prompt content (set by handler)
+	PersonaPrompt    string   // Pre-resolved persona prompt content (set by handler)
+	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
 }
 
 // resolveWorkspace resolves the target workspace from SpawnOptions.
@@ -590,6 +592,20 @@ func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*sta
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 	return w, nil
+}
+
+// appendImagePathsToPrompt appends image file paths to the prompt text.
+func appendImagePathsToPrompt(prompt string, paths []string) string {
+	if len(paths) == 0 {
+		return prompt
+	}
+	var sb strings.Builder
+	sb.WriteString(prompt)
+	sb.WriteString("\n\nImage attachments:")
+	for i, p := range paths {
+		sb.WriteString(fmt.Sprintf("\nImage #%d: %s", i+1, p))
+	}
+	return sb.String()
 }
 
 // Spawn creates a new session.
@@ -635,6 +651,33 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	eventsDir := filepath.Join(w.Path, ".schmux", "events")
 	if err := os.MkdirAll(eventsDir, 0755); err != nil {
 		m.logger.Warn("failed to create .schmux/events directory", "err", err)
+	}
+
+	// Write image attachments to workspace and append paths to prompt
+	if len(opts.ImageAttachments) > 0 {
+		attachDir := filepath.Join(w.Path, ".schmux", "attachments")
+		if err := os.MkdirAll(attachDir, 0755); err != nil {
+			m.logger.Warn("failed to create attachments directory", "err", err)
+		} else {
+			var imgPaths []string
+			for _, b64 := range opts.ImageAttachments {
+				data, err := base64.StdEncoding.DecodeString(b64)
+				if err != nil {
+					m.logger.Warn("failed to decode image attachment", "err", err)
+					continue
+				}
+				filename := fmt.Sprintf("img-%s.png", uuid.New().String()[:8])
+				filePath := filepath.Join(attachDir, filename)
+				if err := os.WriteFile(filePath, data, 0644); err != nil {
+					m.logger.Warn("failed to write image attachment", "err", err)
+					continue
+				}
+				imgPaths = append(imgPaths, filePath)
+			}
+			if len(imgPaths) > 0 {
+				opts.Prompt = appendImagePathsToPrompt(opts.Prompt, imgPaths)
+			}
+		}
 	}
 
 	// Resolve model if target is a model kind

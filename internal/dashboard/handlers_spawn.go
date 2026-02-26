@@ -305,16 +305,17 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// Local spawn - use existing Spawn()
 				sess, err = s.session.Spawn(ctx, session.SpawnOptions{
-					RepoURL:       req.Repo,
-					Branch:        req.Branch,
-					TargetName:    targetName,
-					Prompt:        req.Prompt,
-					Nickname:      nickname,
-					WorkspaceID:   req.WorkspaceID,
-					Resume:        req.Resume,
-					NewBranch:     req.NewBranch,
-					PersonaID:     req.PersonaID,
-					PersonaPrompt: personaPrompt,
+					RepoURL:          req.Repo,
+					Branch:           req.Branch,
+					TargetName:       targetName,
+					Prompt:           req.Prompt,
+					Nickname:         nickname,
+					WorkspaceID:      req.WorkspaceID,
+					Resume:           req.Resume,
+					NewBranch:        req.NewBranch,
+					PersonaID:        req.PersonaID,
+					PersonaPrompt:    personaPrompt,
+					ImageAttachments: req.ImageAttachments,
 				})
 			}
 
