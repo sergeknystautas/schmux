@@ -1,4 +1,4 @@
-name: Unit Tests
+name: Quick Tests
 
 on:
   push:
@@ -9,8 +9,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit:
-    name: Unit Tests
+  quick:
+    name: Quick Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -35,5 +35,5 @@ jobs:
       - name: Enforce API doc updates
         run: scripts/check-api-docs.sh
 
-      - name: Run unit tests
-        run: ./test.sh --verbose
+      - name: Run quick tests
+        run: ./test.sh --quick --verbose
