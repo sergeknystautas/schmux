@@ -79,7 +79,7 @@ func (s *Server) handleDisposeWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 
 	workspaceLog := logging.Sub(s.logger, "workspace")
-	if err := s.workspace.Dispose(workspaceID); err != nil {
+	if err := s.workspace.Dispose(r.Context(), workspaceID); err != nil {
 		workspaceLog.Error("dispose failed", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -160,7 +160,7 @@ func (s *Server) handleDisposeWorkspaceAll(w http.ResponseWriter, r *http.Reques
 	s.rotationLocksMu.Unlock()
 
 	// Then dispose the workspace
-	if err := s.workspace.Dispose(workspaceID); err != nil {
+	if err := s.workspace.Dispose(r.Context(), workspaceID); err != nil {
 		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return

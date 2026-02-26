@@ -78,7 +78,7 @@ func (s *Server) serveAppIndex(w http.ResponseWriter, r *http.Request) {
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		http.Error(w, "Dashboard assets not built. Run `npm install` and `npm run build` in assets/dashboard.", http.StatusNotFound)
+		http.Error(w, "Dashboard assets not built. Run `go run ./cmd/build-dashboard`.", http.StatusNotFound)
 		return
 	}
 

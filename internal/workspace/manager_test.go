@@ -262,7 +262,7 @@ func TestDispose(t *testing.T) {
 	}
 
 	// Dispose the workspace
-	err := m.Dispose(workspaceID)
+	err := m.Dispose(context.Background(), workspaceID)
 	if err != nil {
 		t.Errorf("Dispose() error = %v", err)
 	}
@@ -288,7 +288,7 @@ func TestDispose_NotFound(t *testing.T) {
 	m := New(cfg, st, statePath, testLogger())
 
 	// Try to dispose non-existent workspace
-	err := m.Dispose("nonexistent")
+	err := m.Dispose(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("Dispose() should return error for non-existent workspace")
 	}
@@ -340,7 +340,7 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	st.AddSession(sess)
 
 	// Try to dispose workspace with active session
-	err := m.Dispose(workspaceID)
+	err := m.Dispose(context.Background(), workspaceID)
 	if err == nil {
 		t.Error("Dispose() should return error when workspace has active sessions")
 	}
@@ -405,7 +405,7 @@ func TestDispose_Integration(t *testing.T) {
 	}
 
 	// Dispose the workspace
-	if err := m.Dispose(ws.ID); err != nil {
+	if err := m.Dispose(context.Background(), ws.ID); err != nil {
 		t.Fatalf("Dispose failed: %v", err)
 	}
 
@@ -465,7 +465,7 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 	}
 
 	// Dispose the workspace
-	if err := m.Dispose(ws.ID); err != nil {
+	if err := m.Dispose(context.Background(), ws.ID); err != nil {
 		t.Fatalf("Dispose failed: %v", err)
 	}
 
@@ -531,7 +531,7 @@ func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
 	}
 
 	// Dispose the workspace
-	if err := m.Dispose(ws.ID); err != nil {
+	if err := m.Dispose(context.Background(), ws.ID); err != nil {
 		t.Fatalf("Dispose failed: %v", err)
 	}
 

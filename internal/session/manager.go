@@ -566,6 +566,32 @@ type SpawnOptions struct {
 	PersonaPrompt string // Pre-resolved persona prompt content (set by handler)
 }
 
+// resolveWorkspace resolves the target workspace from SpawnOptions.
+// If WorkspaceID+NewBranch are set, creates a new workspace branching from the source.
+// If only WorkspaceID is set, looks up the existing workspace.
+// Otherwise, finds or creates a workspace by RepoURL/Branch.
+func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*state.Workspace, error) {
+	if opts.WorkspaceID != "" && opts.NewBranch != "" {
+		w, err := m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
+		}
+		return w, nil
+	}
+	if opts.WorkspaceID != "" {
+		ws, found := m.workspace.GetByID(opts.WorkspaceID)
+		if !found {
+			return nil, fmt.Errorf("workspace not found: %s", opts.WorkspaceID)
+		}
+		return ws, nil
+	}
+	w, err := m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace: %w", err)
+	}
+	return w, nil
+}
+
 // Spawn creates a new session.
 // If WorkspaceID is provided, spawn into that specific workspace (Existing Directory Spawn mode).
 // If WorkspaceID is provided with NewBranch, create a new workspace branching from the source workspace's branch.
@@ -579,27 +605,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		return nil, err
 	}
 
-	var w *state.Workspace
-
-	if opts.WorkspaceID != "" && opts.NewBranch != "" {
-		// Create new workspace branching from source workspace's branch
-		w, err = m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
-		}
-	} else if opts.WorkspaceID != "" {
-		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
-		ws, found := m.workspace.GetByID(opts.WorkspaceID)
-		if !found {
-			return nil, fmt.Errorf("workspace not found: %s", opts.WorkspaceID)
-		}
-		w = ws
-	} else {
-		// Get or create workspace (includes fetch/pull/clean)
-		w, err = m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get workspace: %w", err)
-		}
+	w, err := m.resolveWorkspace(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	// Provision agent signaling mechanism
@@ -741,28 +749,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 // SpawnCommand spawns a session running a raw shell command.
 // Used for quick launch presets with a direct command (no target resolution).
 func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.Session, error) {
-	var w *state.Workspace
-	var err error
-
-	if opts.WorkspaceID != "" && opts.NewBranch != "" {
-		// Create new workspace branching from source workspace's branch
-		w, err = m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create workspace from source: %w", err)
-		}
-	} else if opts.WorkspaceID != "" {
-		// Spawn into specific workspace (Existing Directory Spawn mode - no git operations)
-		ws, found := m.workspace.GetByID(opts.WorkspaceID)
-		if !found {
-			return nil, fmt.Errorf("workspace not found: %s", opts.WorkspaceID)
-		}
-		w = ws
-	} else {
-		// Get or create workspace (includes fetch/pull/clean)
-		w, err = m.workspace.GetOrCreate(ctx, opts.RepoURL, opts.Branch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get workspace: %w", err)
-		}
+	w, err := m.resolveWorkspace(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create session ID

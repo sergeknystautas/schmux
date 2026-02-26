@@ -629,8 +629,8 @@ resizeWaitLoop:
 				diag := &DiagnosticCapture{
 					Timestamp:  time.Now(),
 					SessionID:  sessionID,
-					Cols:       tracker.LastTerminalCols,
-					Rows:       tracker.LastTerminalRows,
+					Cols:       int(tracker.LastTerminalCols.Load()),
+					Rows:       int(tracker.LastTerminalRows.Load()),
 					Counters:   counters,
 					TmuxScreen: tmuxScreen,
 					RingBuffer: rbSnapshot,

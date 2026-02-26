@@ -292,20 +292,20 @@ func TestTerminalSizeTracking(t *testing.T) {
 	t.Cleanup(tracker.Stop)
 
 	// Initially, terminal size fields should be zero
-	if tracker.LastTerminalCols != 0 || tracker.LastTerminalRows != 0 {
+	if tracker.LastTerminalCols.Load() != 0 || tracker.LastTerminalRows.Load() != 0 {
 		t.Errorf("initial terminal size should be 0x0, got %dx%d",
-			tracker.LastTerminalCols, tracker.LastTerminalRows)
+			tracker.LastTerminalCols.Load(), tracker.LastTerminalRows.Load())
 	}
 
 	// Directly set the terminal dimensions to simulate what Resize() does
 	// (We can't call actual Resize without a control mode client)
-	tracker.LastTerminalCols = 120
-	tracker.LastTerminalRows = 40
+	tracker.LastTerminalCols.Store(120)
+	tracker.LastTerminalRows.Store(40)
 
 	// Verify the fields were set
-	if tracker.LastTerminalCols != 120 || tracker.LastTerminalRows != 40 {
+	if tracker.LastTerminalCols.Load() != 120 || tracker.LastTerminalRows.Load() != 40 {
 		t.Errorf("terminal size after assignment should be 120x40, got %dx%d",
-			tracker.LastTerminalCols, tracker.LastTerminalRows)
+			tracker.LastTerminalCols.Load(), tracker.LastTerminalRows.Load())
 	}
 }
 
@@ -322,15 +322,15 @@ func TestDiagnosticCaptureIncludesTerminalSize(t *testing.T) {
 	t.Cleanup(tracker.Stop)
 
 	// Simulate terminal size being stored from a resize message
-	tracker.LastTerminalCols = 120
-	tracker.LastTerminalRows = 40
+	tracker.LastTerminalCols.Store(120)
+	tracker.LastTerminalRows.Store(40)
 
 	// Create a DiagnosticCapture using the stored terminal size
 	diag := &DiagnosticCapture{
 		Timestamp:  time.Now(),
 		SessionID:  "test-session",
-		Cols:       tracker.LastTerminalCols,
-		Rows:       tracker.LastTerminalRows,
+		Cols:       int(tracker.LastTerminalCols.Load()),
+		Rows:       int(tracker.LastTerminalRows.Load()),
 		Counters:   tracker.DiagnosticCounters(),
 		TmuxScreen: "test screen content",
 		Findings:   []string{"No drops detected"},

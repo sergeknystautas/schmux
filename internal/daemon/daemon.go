@@ -575,8 +575,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	fmLog := logging.Sub(logger, "floor-manager")
 	var fm *floormanager.Manager
 	var fmInjector *floormanager.Injector
+	var fmMu sync.Mutex
 
 	startFloorManager := func() {
+		fmMu.Lock()
+		defer fmMu.Unlock()
 		if fm != nil {
 			return // already running
 		}
@@ -594,6 +597,8 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	}
 
 	stopFloorManager := func() {
+		fmMu.Lock()
+		defer fmMu.Unlock()
 		if fm == nil {
 			return
 		}
