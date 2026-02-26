@@ -45,7 +45,7 @@ func TestBuildCommandParts_ResumeMode(t *testing.T) {
 			detectedCmd: "unknown",
 			mode:        ToolModeResume,
 			wantErr:     true,
-			errContains: "resume mode not supported",
+			errContains: "unknown tool",
 		},
 	}
 
@@ -127,5 +127,45 @@ func TestBuildCommandParts_OneshotStreamingCodexError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported") {
 		t.Errorf("error %q should contain 'not supported'", err.Error())
+	}
+}
+
+func TestBuildCommandParts_OpencodeResume(t *testing.T) {
+	got, err := BuildCommandParts("opencode", "opencode", ToolModeResume, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"opencode", "--continue"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestBuildCommandParts_OpencodeOneshot(t *testing.T) {
+	got, err := BuildCommandParts("opencode", "opencode", ToolModeOneshot, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, part := range got {
+		if part == "run" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'run' in command parts, got %v", got)
+	}
+}
+
+func TestBuildCommandParts_OpencodeInteractive(t *testing.T) {
+	model := &Model{ModelFlag: "--model", ModelValue: "anthropic/claude-sonnet-4-5"}
+	got, err := BuildCommandParts("opencode", "opencode", ToolModeInteractive, "", model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"opencode", "--model", "anthropic/claude-sonnet-4-5"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

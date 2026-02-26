@@ -165,6 +165,27 @@ func TestGetAgentInstructionConfigForTarget(t *testing.T) {
 	}
 }
 
+func TestOpencodeInBuiltinTools(t *testing.T) {
+	t.Parallel()
+	if !IsBuiltinToolName("opencode") {
+		t.Error("opencode should be a builtin tool name")
+	}
+}
+
+func TestOpencodeInstructionConfig(t *testing.T) {
+	t.Parallel()
+	cfg, ok := GetAgentInstructionConfig("opencode")
+	if !ok {
+		t.Fatal("expected opencode instruction config")
+	}
+	if cfg.InstructionDir != ".opencode" {
+		t.Errorf("InstructionDir = %q, want '.opencode'", cfg.InstructionDir)
+	}
+	if cfg.InstructionFile != "AGENTS.md" {
+		t.Errorf("InstructionFile = %q, want 'AGENTS.md'", cfg.InstructionFile)
+	}
+}
+
 func TestFindToolInList(t *testing.T) {
 	t.Parallel()
 	tools := []Tool{

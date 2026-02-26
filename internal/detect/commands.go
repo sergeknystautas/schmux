@@ -16,69 +16,39 @@ const (
 )
 
 // BuildCommandParts builds command parts for the given detected tool.
-// The jsonSchema parameter is required for oneshot mode (structured output);
-// it is ignored for interactive and resume modes.
-// The model parameter is optional; if provided, it will be used to inject model-specific flags.
+// Delegates to the tool's adapter for mode-specific argument construction.
+// The jsonSchema parameter is used for oneshot mode (structured output).
+// The model parameter is optional; if provided, used for model-specific flags.
 func BuildCommandParts(toolName, detectedCommand string, mode ToolMode, jsonSchema string, model *Model) ([]string, error) {
 	parts := strings.Fields(detectedCommand)
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("tool %s: empty command", toolName)
 	}
 
-	if mode == ToolModeInteractive {
-		// For interactive mode, inject model flag if specified
-		if model != nil && model.ModelFlag != "" {
-			parts = append(parts, model.ModelFlag, model.ModelValue)
-		}
-		return parts, nil
+	adapter := GetAdapter(toolName)
+	if adapter == nil {
+		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 
-	if mode == ToolModeResume {
-		// Return resume command for each tool
-		switch toolName {
-		case "claude":
-			return []string{"claude", "--continue"}, nil
-		case "codex":
-			return []string{"codex", "resume", "--last"}, nil
-		case "gemini":
-			return []string{"gemini", "-r", "latest"}, nil
-		default:
-			return nil, fmt.Errorf("tool %s: resume mode not supported", toolName)
-		}
-	}
+	var modeArgs []string
+	var err error
 
-	baseCmd := parts[0]
-	existingArgs := parts[1:]
-
-	var newArgs []string
-	switch toolName {
-	case "claude":
-		if mode == ToolModeOneshotStreaming {
-			newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose")
-		} else {
-			newArgs = append(existingArgs, "-p", "--dangerously-skip-permissions", "--output-format", "json")
-		}
-		if jsonSchema != "" {
-			newArgs = append(newArgs, "--json-schema", jsonSchema)
-		}
-	case "codex":
-		if mode == ToolModeOneshotStreaming {
-			return nil, fmt.Errorf("tool %s: oneshot-streaming mode is not supported (supported: claude)", toolName)
-		}
-		newArgs = append(existingArgs, "exec", "--json")
-		// Inject model flag for Codex if specified
-		if model != nil && model.ModelFlag != "" {
-			newArgs = append(newArgs, model.ModelFlag, model.ModelValue)
-		}
-		if jsonSchema != "" {
-			newArgs = append(newArgs, "--output-schema", jsonSchema)
-		}
-	case "gemini":
-		// Gemini does not support structured output via JSON schema
-		return nil, fmt.Errorf("tool %s: oneshot mode with JSON schema is not supported (supported: claude, codex)", toolName)
+	switch mode {
+	case ToolModeInteractive:
+		modeArgs = adapter.InteractiveArgs(model)
+	case ToolModeOneshot:
+		modeArgs, err = adapter.OneshotArgs(model, jsonSchema)
+	case ToolModeOneshotStreaming:
+		modeArgs, err = adapter.StreamingArgs(model, jsonSchema)
+	case ToolModeResume:
+		modeArgs = adapter.ResumeArgs()
 	default:
-		return nil, fmt.Errorf("unknown tool: %s (supported: claude, codex)", toolName)
+		return nil, fmt.Errorf("tool %s: unknown mode %q", toolName, mode)
 	}
 
-	return append([]string{baseCmd}, newArgs...), nil
+	if err != nil {
+		return nil, err
+	}
+
+	return append(parts, modeArgs...), nil
 }

@@ -307,14 +307,11 @@ func RemoveAgentInstructions(workspacePath, targetName string) error {
 // instructions via CLI flag (e.g., --append-system-prompt for Claude).
 // Tools that support this don't need file-based instruction injection.
 func SupportsSystemPromptFlag(toolName string) bool {
-	switch toolName {
-	case "claude":
-		return true
-	case "codex":
-		return true
-	default:
+	adapter := detect.GetAdapter(toolName)
+	if adapter == nil {
 		return false
 	}
+	return adapter.SignalingStrategy() == detect.SignalingCLIFlag
 }
 
 // SignalingInstructionsFilePath returns the canonical path for system prompt file injection.
@@ -360,7 +357,11 @@ func HasSignalingInstructions(workspacePath, targetName string) bool {
 // for automatic signaling. Tools with hook support use lifecycle event hooks
 // instead of system prompt injection, which is more reliable.
 func SupportsHooks(baseTool string) bool {
-	return baseTool == "claude"
+	adapter := detect.GetAdapter(baseTool)
+	if adapter == nil {
+		return false
+	}
+	return adapter.SignalingStrategy() == detect.SignalingHooks
 }
 
 // claudeHookHandler is a single hook handler in a Claude Code hooks config.

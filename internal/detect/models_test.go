@@ -36,6 +36,9 @@ func TestFindModel(t *testing.T) {
 		{"gpt-5.1-codex-max", "gpt-5.1-codex-max", true},
 		{"gpt-5.1-codex-mini", "gpt-5.1-codex-mini", true},
 
+		// OpenCode models
+		{"opencode-zen", "opencode-zen", true},
+
 		// Backward compat alias
 		{"minimax-m2.1", "minimax", true},
 
@@ -79,6 +82,7 @@ func TestIsModelID(t *testing.T) {
 		{"gpt-5.3-codex", true},
 		{"gpt-5.1-codex-max", true},
 		{"gpt-5.1-codex-mini", true},
+		{"opencode-zen", true},
 
 		// Aliases
 		{"opus", true},
@@ -269,12 +273,26 @@ func TestGetAvailableModels(t *testing.T) {
 	}
 }
 
+func TestOpencodeModelExists(t *testing.T) {
+	t.Parallel()
+	model, ok := FindModel("opencode-zen")
+	if !ok {
+		t.Fatal("expected opencode-zen model to exist")
+	}
+	if model.BaseTool != "opencode" {
+		t.Errorf("BaseTool = %q, want 'opencode'", model.BaseTool)
+	}
+	if model.Category != "native" {
+		t.Errorf("Category = %q, want 'native'", model.Category)
+	}
+}
+
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 15 models total (11 Claude-based + 4 Codex)
-	if len(models) != 15 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 15", len(models))
+	// Should have 16 models total (11 Claude-based + 4 Codex + 1 OpenCode)
+	if len(models) != 16 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 16", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -292,6 +310,7 @@ func TestGetBuiltinModels(t *testing.T) {
 		"claude-opus", "claude-sonnet", "claude-haiku",
 		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus",
 		"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
+		"opencode-zen",
 	}
 	for _, id := range expectedModels {
 		if !modelIDs[id] {

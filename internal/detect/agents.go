@@ -14,6 +14,16 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+// allDetectors returns ToolDetectors for all registered adapters.
+func allDetectors() []ToolDetector {
+	all := AllAdapters()
+	detectors := make([]ToolDetector, len(all))
+	for i, a := range all {
+		detectors[i] = a
+	}
+	return detectors
+}
+
 var (
 	// pkgLogger is the package-level logger for detect operations.
 	// Set via SetLogger from the daemon initialization.
@@ -66,11 +76,7 @@ func DetectAvailableTools(printProgress bool) []Tool {
 	if pkgLogger != nil {
 		pkgLogger.Info("starting tool detection")
 	}
-	detectors := []ToolDetector{
-		&claudeDetector{},
-		&codexDetector{},
-		&geminiDetector{},
-	}
+	detectors := allDetectors()
 
 	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
 	defer cancel()
@@ -133,11 +139,7 @@ func DetectAvailableToolsContext(ctx context.Context, printProgress bool) ([]Too
 	if pkgLogger != nil {
 		pkgLogger.Info("starting tool detection")
 	}
-	detectors := []ToolDetector{
-		&claudeDetector{},
-		&codexDetector{},
-		&geminiDetector{},
-	}
+	detectors := allDetectors()
 
 	type result struct {
 		tool  Tool
