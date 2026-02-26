@@ -10,5 +10,9 @@ if [ ! -d "$RUNNER_DIR/node_modules" ]; then
   (cd "$RUNNER_DIR" && npm install --silent)
 fi
 
+# Rebuild the schmux CLI binary
+echo "Building schmux CLI..."
+(cd "$SCRIPT_DIR" && go build ./cmd/schmux)
+
 # Delegate to TypeScript dev runner
 exec npx --prefix "$RUNNER_DIR" tsx "$RUNNER_DIR/src/main.tsx" "$@"
