@@ -1527,3 +1527,47 @@ func TestGetWorkspacesByRemoteHostID(t *testing.T) {
 		}
 	})
 }
+
+func TestAddWorkspace_Upsert(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "state.json"), nil)
+
+	w1 := Workspace{ID: "ws-1", Repo: "original"}
+	if err := s.AddWorkspace(w1); err != nil {
+		t.Fatalf("first AddWorkspace: %v", err)
+	}
+
+	w2 := Workspace{ID: "ws-1", Repo: "updated"}
+	if err := s.AddWorkspace(w2); err != nil {
+		t.Fatalf("second AddWorkspace: %v", err)
+	}
+
+	workspaces := s.GetWorkspaces()
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(workspaces))
+	}
+	if workspaces[0].Repo != "updated" {
+		t.Errorf("expected repo %q, got %q", "updated", workspaces[0].Repo)
+	}
+}
+
+func TestAddSession_Upsert(t *testing.T) {
+	s := New(filepath.Join(t.TempDir(), "state.json"), nil)
+
+	s1 := Session{ID: "sess-1", Target: "claude"}
+	if err := s.AddSession(s1); err != nil {
+		t.Fatalf("first AddSession: %v", err)
+	}
+
+	s2 := Session{ID: "sess-1", Target: "codex"}
+	if err := s.AddSession(s2); err != nil {
+		t.Fatalf("second AddSession: %v", err)
+	}
+
+	sessions := s.GetSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].Target != "codex" {
+		t.Errorf("expected target %q, got %q", "codex", sessions[0].Target)
+	}
+}

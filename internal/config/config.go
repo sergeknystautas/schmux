@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -1344,31 +1345,8 @@ func (c *Config) Save() error {
 		}
 	}
 
-	// Write to a unique temporary file first, then rename for atomicity
-	dir := filepath.Dir(configPath)
-	tmpFile, err := os.CreateTemp(dir, ".config-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, configPath); err != nil {
-		os.Remove(tmpPath) // Clean up temp file
+	if err := fileutil.AtomicWriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	// Restrict permissions: config may contain sensitive data (e.g., password hashes)
-	if err := os.Chmod(configPath, 0600); err != nil {
-		return fmt.Errorf("failed to set config file permissions: %w", err)
 	}
 
 	// Invalidate the repo URL cache since repos may have changed

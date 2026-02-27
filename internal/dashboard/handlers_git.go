@@ -24,17 +24,8 @@ import (
 
 // handleWorkspaceGitGraph handles GET /api/workspaces/{id}/git-graph.
 func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request) {
-	// Extract workspace ID from chi URL param
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		http.Error(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Verify workspace exists
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found: "+workspaceID, http.StatusNotFound)
 		return
 	}
 
@@ -82,7 +73,7 @@ func (s *Server) handleWorkspaceGitGraph(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.workspace.GetGitGraph(ctx, workspaceID, maxTotal, mainContext)
+	resp, err := s.workspace.GetGitGraph(ctx, ws.ID, maxTotal, mainContext)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -328,15 +319,8 @@ func (s *Server) handleWorkspaceGitCommit(w http.ResponseWriter, r *http.Request
 // handleGitCommitStage handles POST /api/workspaces/{id}/git-commit-stage.
 // Stages the specified files for commit.
 func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -378,15 +362,8 @@ func (s *Server) handleGitCommitStage(w http.ResponseWriter, r *http.Request) {
 // handleGitAmend handles POST /api/workspaces/{id}/git-amend.
 // Stages the specified files and amends the last commit.
 func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -445,15 +422,8 @@ func (s *Server) handleGitAmend(w http.ResponseWriter, r *http.Request) {
 // handleGitDiscard handles POST /api/workspaces/{id}/git-discard.
 // Discards local changes. If files are specified, only those files are discarded.
 func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
@@ -548,15 +518,8 @@ func (s *Server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
 // Resets the HEAD commit, keeping changes as unstaged.
 // Requires hash parameter to verify we're uncommitting the expected commit.
 func (s *Server) handleGitUncommit(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 

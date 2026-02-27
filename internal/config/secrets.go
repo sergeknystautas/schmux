@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/fileutil"
 )
 
 type ModelSecrets map[string]map[string]string
@@ -134,7 +135,7 @@ func SaveSecretsFile(secrets *SecretsFile) error {
 		return fmt.Errorf("failed to create schmux directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := fileutil.AtomicWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write secrets: %w", err)
 	}
 	return nil
