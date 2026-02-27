@@ -39,6 +39,21 @@ func (s *Server) requireWorkspace(w http.ResponseWriter, r *http.Request) (state
 	return ws, true
 }
 
+// vcsTypeForWorkspace determines the VCS type for a workspace.
+// Defaults to "git" unless the workspace's remote host flavor specifies otherwise.
+func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
+	if ws.RemoteHostID != "" {
+		if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
+			if host.FlavorID != "" {
+				if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VCS != "" {
+					return flavor.VCS
+				}
+			}
+		}
+	}
+	return "git"
+}
+
 // writeJSONError writes a JSON error response with the given status code.
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
@@ -50,6 +65,7 @@ func writeJSONError(w http.ResponseWriter, msg string, code int) {
 
 // writeJSON encodes v as JSON to w, logging any encode error.
 func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("writeJSON: failed to encode response: %v", err)
 	}

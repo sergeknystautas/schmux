@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // TestConnectProgressSSEDisconnect verifies that when an SSE client disconnects
@@ -94,5 +96,32 @@ func TestCleanupOnceIdempotent(t *testing.T) {
 		// Good
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("doneCh should be closed")
+	}
+}
+
+func TestToFlavorResponse_AllFields(t *testing.T) {
+	f := config.RemoteFlavor{
+		ID:                    "devvm",
+		Flavor:                "devvm",
+		DisplayName:           "DevVM",
+		VCS:                   "hg",
+		WorkspacePath:         "/data/users/$USER",
+		ConnectCommand:        "ssh $HOST",
+		ReconnectCommand:      "ssh $HOST",
+		ProvisionCommand:      "setup.sh",
+		HostnameRegex:         `devvm\d+\.example\.com`,
+		VSCodeCommandTemplate: "code --remote ssh-remote+$HOST",
+	}
+
+	resp := toFlavorResponse(f)
+
+	if resp.HostnameRegex != f.HostnameRegex {
+		t.Errorf("HostnameRegex: got %q, want %q", resp.HostnameRegex, f.HostnameRegex)
+	}
+	if resp.VSCodeCommandTemplate != f.VSCodeCommandTemplate {
+		t.Errorf("VSCodeCommandTemplate: got %q, want %q", resp.VSCodeCommandTemplate, f.VSCodeCommandTemplate)
+	}
+	if resp.ID != f.ID {
+		t.Errorf("ID: got %q, want %q", resp.ID, f.ID)
 	}
 }

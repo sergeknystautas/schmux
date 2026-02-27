@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -57,18 +56,7 @@ func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Determine VCS type
-		vcsType := "git"
-		if ws.RemoteHostID != "" {
-			if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
-				if host.FlavorID != "" {
-					if flavor, found := s.config.GetRemoteFlavor(host.FlavorID); found && flavor.VCS != "" {
-						vcsType = flavor.VCS
-					}
-				}
-			}
-		}
-		cb := vcs.NewCommandBuilder(vcsType)
+		cb := vcs.NewCommandBuilder(s.vcsTypeForWorkspace(ws))
 
 		if ws.RemoteHostID != "" {
 			if s.remoteManager == nil {
@@ -82,9 +70,26 @@ func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
 				entries = append(entries, entry)
 				continue
 			}
-			s.populateBranchEntryRemote(r.Context(), conn, ws.RemotePath, cb, &entry)
+			run := func(cmd string) string {
+				out, err := conn.RunCommand(r.Context(), ws.RemotePath, cmd)
+				if err != nil {
+					return ""
+				}
+				return strings.TrimSpace(out)
+			}
+			populateBranchEntry(run, cb, &entry)
 		} else {
-			s.populateBranchEntryLocal(r.Context(), ws.Path, cb, &entry)
+			run := func(cmd string) string {
+				parts := strings.Fields(cmd)
+				if len(parts) == 0 {
+					return ""
+				}
+				c := exec.CommandContext(r.Context(), parts[0], parts[1:]...)
+				c.Dir = ws.Path
+				out, _ := c.Output()
+				return strings.TrimSpace(string(out))
+			}
+			populateBranchEntry(run, cb, &entry)
 		}
 
 		entries = append(entries, entry)
@@ -96,49 +101,7 @@ func (s *Server) handleGetBranches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, entries)
 }
 
-func (s *Server) populateBranchEntryLocal(ctx context.Context, workdir string, cb vcs.CommandBuilder, entry *branchEntry) {
-	run := func(cmd string) string {
-		parts := strings.Fields(cmd)
-		if len(parts) == 0 {
-			return ""
-		}
-		c := exec.CommandContext(ctx, parts[0], parts[1:]...)
-		c.Dir = workdir
-		out, _ := c.Output()
-		return strings.TrimSpace(string(out))
-	}
-
-	entry.Branch = run(cb.CurrentBranch())
-
-	defaultBranch := run(cb.DetectDefaultBranch())
-	if defaultBranch == "" {
-		defaultBranch = "main"
-	}
-	defaultRef := cb.DefaultBranchRef(defaultBranch)
-
-	aheadStr := run(cb.RevListCount(defaultRef + "..HEAD"))
-	behindStr := run(cb.RevListCount("HEAD.." + defaultRef))
-	fmt.Sscanf(aheadStr, "%d", &entry.AheadMain)
-	fmt.Sscanf(behindStr, "%d", &entry.BehindMain)
-
-	remoteCheck := run(cb.RemoteBranchExists(entry.Branch))
-	entry.Pushed = remoteCheck != ""
-
-	statusOutput := run(cb.StatusPorcelain())
-	entry.Dirty = statusOutput != ""
-}
-
-func (s *Server) populateBranchEntryRemote(ctx context.Context, conn interface {
-	RunCommand(context.Context, string, string) (string, error)
-}, workdir string, cb vcs.CommandBuilder, entry *branchEntry) {
-	run := func(cmd string) string {
-		out, err := conn.RunCommand(ctx, workdir, cmd)
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(out)
-	}
-
+func populateBranchEntry(run runFunc, cb vcs.CommandBuilder, entry *branchEntry) {
 	entry.Branch = run(cb.CurrentBranch())
 
 	defaultBranch := run(cb.DetectDefaultBranch())

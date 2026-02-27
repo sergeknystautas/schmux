@@ -602,7 +602,7 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 		if err != nil {
 			return resolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := ensureModelSecrets(model, secrets); err != nil {
+		if err := config.EnsureModelSecrets(model, secrets); err != nil {
 			return resolvedTarget{}, err
 		}
 		return resolvedTarget{
@@ -650,10 +650,6 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
-	return config.EnsureModelSecrets(model, secrets)
 }
 
 // NormalizeJSONPayload normalizes common JSON encoding issues that can occur

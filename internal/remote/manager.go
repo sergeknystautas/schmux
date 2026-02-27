@@ -91,19 +91,10 @@ func (m *Manager) StartConnect(flavorID string) (provisioningSessionID string, e
 	m.mu.RUnlock()
 
 	// Create new connection (session ID is generated immediately in NewConnection)
-	conn := NewConnection(ConnectionConfig{
-		FlavorID:         flavorID,
-		Flavor:           flavor.Flavor,
-		DisplayName:      flavor.DisplayName,
-		WorkspacePath:    flavor.WorkspacePath,
-		VCS:              flavor.VCS,
-		ConnectCommand:   flavor.ConnectCommand,
-		ReconnectCommand: flavor.ReconnectCommand,
-		ProvisionCommand: flavor.ProvisionCommand,
-		HostnameRegex:    flavor.HostnameRegex,
-		OnStatusChange:   m.handleStatusChange,
-		Logger:           m.logger,
-	})
+	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg.OnStatusChange = m.handleStatusChange
+	cfg.Logger = m.logger
+	conn := NewConnection(cfg)
 
 	// Register in map immediately so WebSocket handler can find it.
 	// Clean up old failed/expired connections for this flavor first.
@@ -265,20 +256,11 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		}
 
 		// Try to reconnect to existing host
-		conn := NewConnection(ConnectionConfig{
-			FlavorID:         flavorID,
-			Flavor:           flavor.Flavor,
-			DisplayName:      flavor.DisplayName,
-			WorkspacePath:    flavor.WorkspacePath,
-			VCS:              flavor.VCS,
-			ConnectCommand:   flavor.ConnectCommand,
-			ReconnectCommand: flavor.ReconnectCommand,
-			ProvisionCommand: flavor.ProvisionCommand,
-			HostnameRegex:    flavor.HostnameRegex,
-			OnStatusChange:   m.handleStatusChange,
-			OnProgress:       onProgress,
-			Logger:           m.logger,
-		})
+		cfg := ConnectionConfigFromFlavor(flavor)
+		cfg.OnStatusChange = m.handleStatusChange
+		cfg.OnProgress = onProgress
+		cfg.Logger = m.logger
+		conn := NewConnection(cfg)
 
 		// Update existing host ID
 		conn.host.ID = host.ID
@@ -315,20 +297,11 @@ func (m *Manager) connectInternal(ctx context.Context, flavorID string, onProgre
 		onProgress("provisioning new host")
 	}
 
-	conn := NewConnection(ConnectionConfig{
-		FlavorID:         flavorID,
-		Flavor:           flavor.Flavor,
-		DisplayName:      flavor.DisplayName,
-		WorkspacePath:    flavor.WorkspacePath,
-		VCS:              flavor.VCS,
-		ConnectCommand:   flavor.ConnectCommand,
-		ReconnectCommand: flavor.ReconnectCommand,
-		ProvisionCommand: flavor.ProvisionCommand,
-		HostnameRegex:    flavor.HostnameRegex,
-		OnStatusChange:   m.handleStatusChange,
-		OnProgress:       onProgress,
-		Logger:           m.logger,
-	})
+	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg.OnStatusChange = m.handleStatusChange
+	cfg.OnProgress = onProgress
+	cfg.Logger = m.logger
+	conn := NewConnection(cfg)
 
 	// Add to state before connecting (shows provisioning status)
 	m.state.AddRemoteHost(conn.Host())
@@ -404,7 +377,11 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 			if liveHostname := conn.Hostname(); liveHostname != "" {
 				host.Hostname = liveHostname
 				m.state.UpdateRemoteHost(conn.Host())
-				m.state.Save()
+				if err := m.state.Save(); err != nil {
+					if m.logger != nil {
+						m.logger.Error("failed to save state", "err", err)
+					}
+				}
 			}
 		}
 	}
@@ -420,19 +397,10 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 	}
 
 	// Create new connection for reconnection
-	conn := NewConnection(ConnectionConfig{
-		FlavorID:         flavor.ID,
-		Flavor:           flavor.Flavor,
-		DisplayName:      flavor.DisplayName,
-		WorkspacePath:    flavor.WorkspacePath,
-		VCS:              flavor.VCS,
-		ConnectCommand:   flavor.ConnectCommand,
-		ReconnectCommand: flavor.ReconnectCommand,
-		ProvisionCommand: flavor.ProvisionCommand,
-		HostnameRegex:    flavor.HostnameRegex,
-		OnStatusChange:   m.handleStatusChange,
-		Logger:           m.logger,
-	})
+	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg.OnStatusChange = m.handleStatusChange
+	cfg.Logger = m.logger
+	conn := NewConnection(cfg)
 
 	// Use existing host ID
 	conn.host.ID = host.ID
@@ -442,7 +410,11 @@ func (m *Manager) Reconnect(ctx context.Context, hostID string) (*Connection, er
 	// Reconnect
 	if err := conn.Reconnect(ctx, host.Hostname); err != nil {
 		m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected)
-		m.state.Save() // Best effort on error path
+		if err := m.state.Save(); err != nil {
+			if m.logger != nil {
+				m.logger.Error("failed to save state", "err", err)
+			}
+		}
 		m.notifyStateChange()
 		return nil, fmt.Errorf("reconnection failed: %w", err)
 	}
@@ -541,7 +513,11 @@ func (m *Manager) Disconnect(hostID string) error {
 
 	// Update state
 	m.state.UpdateRemoteHostStatus(hostID, state.RemoteHostStatusDisconnected)
-	m.state.Save()
+	if err := m.state.Save(); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to save state", "err", err)
+		}
+	}
 	m.notifyStateChange()
 
 	return err
@@ -561,7 +537,11 @@ func (m *Manager) DisconnectAll() {
 		conn.Close()
 		m.state.UpdateRemoteHostStatus(conn.host.ID, state.RemoteHostStatusDisconnected)
 	}
-	m.state.Save()
+	if err := m.state.Save(); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to save state", "err", err)
+		}
+	}
 	m.notifyStateChange()
 }
 
@@ -592,7 +572,11 @@ func (m *Manager) handleStatusChange(hostID, status string) {
 	} else {
 		m.state.UpdateRemoteHostStatus(hostID, status)
 	}
-	m.state.Save()
+	if err := m.state.Save(); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to save state", "err", err)
+		}
+	}
 	m.notifyStateChange()
 }
 
@@ -638,7 +622,11 @@ func (m *Manager) PruneExpiredHosts() {
 		if m.logger != nil {
 			m.logger.Info("pruned expired hosts", "count", pruned)
 		}
-		m.state.Save()
+		if err := m.state.Save(); err != nil {
+			if m.logger != nil {
+				m.logger.Error("failed to save state", "err", err)
+			}
+		}
 		m.notifyStateChange()
 	}
 }
@@ -670,7 +658,11 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 			if liveHostname := conn.Hostname(); liveHostname != "" {
 				host.Hostname = liveHostname
 				m.state.UpdateRemoteHost(conn.Host())
-				m.state.Save()
+				if err := m.state.Save(); err != nil {
+					if m.logger != nil {
+						m.logger.Error("failed to save state", "err", err)
+					}
+				}
 			}
 		}
 	}
@@ -698,19 +690,10 @@ func (m *Manager) StartReconnect(hostID string, onFail func(hostID string)) (pro
 	m.mu.RUnlock()
 
 	// Create new connection for reconnection
-	conn := NewConnection(ConnectionConfig{
-		FlavorID:         flavor.ID,
-		Flavor:           flavor.Flavor,
-		DisplayName:      flavor.DisplayName,
-		WorkspacePath:    flavor.WorkspacePath,
-		VCS:              flavor.VCS,
-		ConnectCommand:   flavor.ConnectCommand,
-		ReconnectCommand: flavor.ReconnectCommand,
-		ProvisionCommand: flavor.ProvisionCommand,
-		HostnameRegex:    flavor.HostnameRegex,
-		OnStatusChange:   m.handleStatusChange,
-		Logger:           m.logger,
-	})
+	cfg := ConnectionConfigFromFlavor(flavor)
+	cfg.OnStatusChange = m.handleStatusChange
+	cfg.Logger = m.logger
+	conn := NewConnection(cfg)
 
 	// Use existing host ID and provisioning session ID pattern
 	conn.host.ID = host.ID
@@ -818,7 +801,11 @@ func (m *Manager) MarkStaleHostsDisconnected() int {
 	}
 
 	if count > 0 {
-		m.state.Save()
+		if err := m.state.Save(); err != nil {
+			if m.logger != nil {
+				m.logger.Error("failed to save state", "err", err)
+			}
+		}
 		m.notifyStateChange()
 	}
 
@@ -947,7 +934,11 @@ func (m *Manager) reconcileSessions(ctx context.Context, conn *Connection) error
 		if m.logger != nil {
 			m.logger.Info("reconciled sessions", "reconciled", reconciledCount, "disconnected", disconnectedCount, "host_id", conn.host.ID)
 		}
-		m.state.Save()
+		if err := m.state.Save(); err != nil {
+			if m.logger != nil {
+				m.logger.Error("failed to save state", "err", err)
+			}
+		}
 	}
 
 	return nil

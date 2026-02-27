@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 func TestConnection_QueueSession(t *testing.T) {
@@ -243,5 +245,59 @@ func TestConnectionConfig_Validation(t *testing.T) {
 				t.Errorf("flavor ID mismatch: expected %s, got %s", tt.cfg.FlavorID, conn.flavor.ID)
 			}
 		})
+	}
+}
+
+func TestConnectionConfigFromFlavor(t *testing.T) {
+	f := config.RemoteFlavor{
+		ID:               "devvm",
+		Flavor:           "devvm",
+		DisplayName:      "DevVM",
+		WorkspacePath:    "/data/users/$USER",
+		VCS:              "hg",
+		ConnectCommand:   "ssh $HOST",
+		ReconnectCommand: "ssh $HOST",
+		ProvisionCommand: "setup.sh",
+		HostnameRegex:    `devvm\d+`,
+	}
+
+	cc := ConnectionConfigFromFlavor(f)
+
+	if cc.FlavorID != f.ID {
+		t.Errorf("FlavorID: got %q, want %q", cc.FlavorID, f.ID)
+	}
+	if cc.Flavor != f.Flavor {
+		t.Errorf("Flavor: got %q, want %q", cc.Flavor, f.Flavor)
+	}
+	if cc.DisplayName != f.DisplayName {
+		t.Errorf("DisplayName: got %q, want %q", cc.DisplayName, f.DisplayName)
+	}
+	if cc.WorkspacePath != f.WorkspacePath {
+		t.Errorf("WorkspacePath: got %q, want %q", cc.WorkspacePath, f.WorkspacePath)
+	}
+	if cc.VCS != f.VCS {
+		t.Errorf("VCS: got %q, want %q", cc.VCS, f.VCS)
+	}
+	if cc.ConnectCommand != f.ConnectCommand {
+		t.Errorf("ConnectCommand: got %q, want %q", cc.ConnectCommand, f.ConnectCommand)
+	}
+	if cc.ReconnectCommand != f.ReconnectCommand {
+		t.Errorf("ReconnectCommand: got %q, want %q", cc.ReconnectCommand, f.ReconnectCommand)
+	}
+	if cc.ProvisionCommand != f.ProvisionCommand {
+		t.Errorf("ProvisionCommand: got %q, want %q", cc.ProvisionCommand, f.ProvisionCommand)
+	}
+	if cc.HostnameRegex != f.HostnameRegex {
+		t.Errorf("HostnameRegex: got %q, want %q", cc.HostnameRegex, f.HostnameRegex)
+	}
+	// OnStatusChange, OnProgress, Logger should be nil (not set by helper)
+	if cc.OnStatusChange != nil {
+		t.Error("OnStatusChange should be nil")
+	}
+	if cc.OnProgress != nil {
+		t.Error("OnProgress should be nil")
+	}
+	if cc.Logger != nil {
+		t.Error("Logger should be nil")
 	}
 }

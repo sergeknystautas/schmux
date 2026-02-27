@@ -120,6 +120,23 @@ type ConnectionConfig struct {
 	Logger           *log.Logger
 }
 
+// ConnectionConfigFromFlavor creates a ConnectionConfig from a RemoteFlavor,
+// copying all flavor-derived fields. Callers set OnStatusChange, OnProgress,
+// and Logger separately.
+func ConnectionConfigFromFlavor(f config.RemoteFlavor) ConnectionConfig {
+	return ConnectionConfig{
+		FlavorID:         f.ID,
+		Flavor:           f.Flavor,
+		DisplayName:      f.DisplayName,
+		WorkspacePath:    f.WorkspacePath,
+		VCS:              f.VCS,
+		ConnectCommand:   f.ConnectCommand,
+		ReconnectCommand: f.ReconnectCommand,
+		ProvisionCommand: f.ProvisionCommand,
+		HostnameRegex:    f.HostnameRegex,
+	}
+}
+
 // Regexes for parsing remote connection output
 // These can be customized based on your remote infrastructure
 var (
