@@ -123,3 +123,36 @@ func TestRandomToken_DifferentLengths(t *testing.T) {
 		}
 	}
 }
+
+func TestSignPayload(t *testing.T) {
+	key := []byte("test-secret-key")
+	payload := []byte("hello world")
+
+	// Deterministic: same inputs always produce the same output
+	sig1 := signPayload(key, payload)
+	sig2 := signPayload(key, payload)
+	if len(sig1) != 32 { // SHA-256 produces 32 bytes
+		t.Errorf("signPayload length = %d, want 32", len(sig1))
+	}
+	if string(sig1) != string(sig2) {
+		t.Error("signPayload should be deterministic")
+	}
+
+	// Different payload produces different signature
+	sig3 := signPayload(key, []byte("different payload"))
+	if string(sig1) == string(sig3) {
+		t.Error("different payloads should produce different signatures")
+	}
+
+	// Different key produces different signature
+	sig4 := signPayload([]byte("different-key"), payload)
+	if string(sig1) == string(sig4) {
+		t.Error("different keys should produce different signatures")
+	}
+
+	// Empty payload still produces a valid 32-byte signature
+	sig5 := signPayload(key, []byte{})
+	if len(sig5) != 32 {
+		t.Errorf("signPayload with empty payload length = %d, want 32", len(sig5))
+	}
+}

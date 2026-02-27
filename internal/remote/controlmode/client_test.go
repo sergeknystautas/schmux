@@ -599,3 +599,28 @@ func TestGetCursorPositionExecuteError(t *testing.T) {
 		t.Errorf("expected wrapped error, got %q", err.Error())
 	}
 }
+
+func TestTmuxQuote(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "simple string", input: "hello", want: `"hello"`},
+		{name: "empty string", input: "", want: `""`},
+		{name: "with double quote", input: `say "hi"`, want: `"say \"hi\""`},
+		{name: "with backslash", input: `path\to\file`, want: `"path\\to\\file"`},
+		{name: "with dollar sign", input: "$HOME", want: `"\$HOME"`},
+		{name: "all special chars", input: `a\b"c$d`, want: `"a\\b\"c\$d"`},
+		{name: "with spaces", input: "hello world", want: `"hello world"`},
+		{name: "single quote passes through", input: "it's", want: `"it's"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tmuxQuote(tt.input)
+			if got != tt.want {
+				t.Errorf("tmuxQuote(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

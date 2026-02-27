@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getErrorMessage, LinearSyncError } from './api';
+import { getErrorMessage, getWorkspaceFileUrl, LinearSyncError } from './api';
 
 describe('getErrorMessage', () => {
   it('extracts message from Error instance', () => {
@@ -56,5 +56,25 @@ describe('LinearSyncError', () => {
   it('preCommitErrorDetail is undefined when not provided', () => {
     const err = new LinearSyncError('sync failed', false);
     expect(err.preCommitErrorDetail).toBeUndefined();
+  });
+});
+
+describe('getWorkspaceFileUrl', () => {
+  it('encodes the file path', () => {
+    expect(getWorkspaceFileUrl('ws-1', 'src/foo.ts')).toBe('/api/file/ws-1/src%2Ffoo.ts');
+  });
+
+  it('handles nested paths with special characters', () => {
+    expect(getWorkspaceFileUrl('ws-1', 'path/to/file with spaces.ts')).toBe(
+      '/api/file/ws-1/path%2Fto%2Ffile%20with%20spaces.ts'
+    );
+  });
+
+  it('handles root-level files', () => {
+    expect(getWorkspaceFileUrl('ws-1', 'README.md')).toBe('/api/file/ws-1/README.md');
+  });
+
+  it('handles empty file path', () => {
+    expect(getWorkspaceFileUrl('ws-1', '')).toBe('/api/file/ws-1/');
   });
 });
