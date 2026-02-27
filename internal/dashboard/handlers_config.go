@@ -689,7 +689,6 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 			RequiresRestart: true,
 			Warnings:        warnings,
 		}
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, warning)
 		return
 	}
@@ -755,7 +754,6 @@ func (s *Server) handleAuthSecretsGet(w http.ResponseWriter, r *http.Request) {
 		clientID = strings.TrimSpace(secrets.GitHub.ClientID)
 		clientSecretSet = strings.TrimSpace(secrets.GitHub.ClientSecret) != ""
 	}
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]interface{}{
 		"client_id":         clientID,
 		"client_secret_set": clientSecretSet,
@@ -802,6 +800,5 @@ func (s *Server) handleAuthSecretsUpdate(w http.ResponseWriter, r *http.Request)
 		http.Error(w, fmt.Sprintf("Failed to save secrets: %v", err), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, map[string]string{"status": "ok"})
 }

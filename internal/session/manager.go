@@ -908,7 +908,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 		if err != nil {
 			return ResolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := ensureModelSecrets(model, secrets); err != nil {
+		if err := config.EnsureModelSecrets(model, secrets); err != nil {
 			return ResolvedTarget{}, err
 		}
 		env := mergeEnvMaps(model.BuildEnv(), secrets)
@@ -1015,18 +1015,11 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	}
 	if isRemote {
 		// Remote mode: always use inline content (file paths are local-only)
-		switch baseTool {
-		case "claude":
-			return fmt.Sprintf("%s --append-system-prompt %s", cmd, shellutil.Quote(ensure.SignalingInstructions))
-		default:
-			// Codex and others: no reliable remote inline injection mechanism
-			return cmd
-		}
+		// Codex and others: no reliable remote inline injection mechanism
+		return cmd
 	}
 	// Local mode: use file-based injection
 	switch baseTool {
-	case "claude":
-		return fmt.Sprintf("%s --append-system-prompt-file %s", cmd, shellutil.Quote(ensure.SignalingInstructionsFilePath()))
 	case "codex":
 		return fmt.Sprintf("%s -c %s", cmd, shellutil.Quote("model_instructions_file="+ensure.SignalingInstructionsFilePath()))
 	default:
@@ -1074,10 +1067,6 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func ensureModelSecrets(model detect.Model, secrets map[string]string) error {
-	return config.EnsureModelSecrets(model, secrets)
 }
 
 // IsRunning checks if the agent process is still running.

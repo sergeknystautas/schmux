@@ -29,6 +29,22 @@ type RemoteFlavorResponse struct {
 	VSCodeCommandTemplate string `json:"vscode_command_template,omitempty"`
 }
 
+// toFlavorResponse converts a config.RemoteFlavor to a RemoteFlavorResponse.
+func toFlavorResponse(f config.RemoteFlavor) RemoteFlavorResponse {
+	return RemoteFlavorResponse{
+		ID:                    f.ID,
+		Flavor:                f.Flavor,
+		DisplayName:           f.DisplayName,
+		VCS:                   f.VCS,
+		WorkspacePath:         f.WorkspacePath,
+		ConnectCommand:        f.ConnectCommand,
+		ReconnectCommand:      f.ReconnectCommand,
+		ProvisionCommand:      f.ProvisionCommand,
+		HostnameRegex:         f.HostnameRegex,
+		VSCodeCommandTemplate: f.VSCodeCommandTemplate,
+	}
+}
+
 // RemoteHostResponse represents a remote host in API responses.
 type RemoteHostResponse struct {
 	ID                    string `json:"id"`
@@ -49,18 +65,7 @@ func (s *Server) handleGetRemoteFlavors(w http.ResponseWriter, r *http.Request) 
 	flavors := s.config.GetRemoteFlavors()
 	response := make([]RemoteFlavorResponse, len(flavors))
 	for i, f := range flavors {
-		response[i] = RemoteFlavorResponse{
-			ID:                    f.ID,
-			Flavor:                f.Flavor,
-			DisplayName:           f.DisplayName,
-			VCS:                   f.VCS,
-			WorkspacePath:         f.WorkspacePath,
-			ConnectCommand:        f.ConnectCommand,
-			ReconnectCommand:      f.ReconnectCommand,
-			ProvisionCommand:      f.ProvisionCommand,
-			HostnameRegex:         f.HostnameRegex,
-			VSCodeCommandTemplate: f.VSCodeCommandTemplate,
-		}
+		response[i] = toFlavorResponse(f)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -111,21 +116,14 @@ func (s *Server) handleCreateRemoteFlavor(w http.ResponseWriter, r *http.Request
 	}
 
 	// Find the added flavor to get the generated ID
-	added, _ := s.config.GetRemoteFlavor(config.GenerateRemoteFlavorID(req.Flavor))
+	added, found := s.config.GetRemoteFlavor(config.GenerateRemoteFlavorID(req.Flavor))
+	if !found {
+		writeJSONError(w, "failed to retrieve created flavor", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(RemoteFlavorResponse{
-		ID:                    added.ID,
-		Flavor:                added.Flavor,
-		DisplayName:           added.DisplayName,
-		VCS:                   added.VCS,
-		WorkspacePath:         added.WorkspacePath,
-		ConnectCommand:        added.ConnectCommand,
-		ReconnectCommand:      added.ReconnectCommand,
-		ProvisionCommand:      added.ProvisionCommand,
-		HostnameRegex:         added.HostnameRegex,
-		VSCodeCommandTemplate: added.VSCodeCommandTemplate,
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(toFlavorResponse(added)); err != nil {
 		s.logger.Error("failed to encode response", "handler", "create-remote-flavor", "err", err)
 	}
 }
@@ -144,18 +142,7 @@ func (s *Server) handleRemoteFlavorGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RemoteFlavorResponse{
-		ID:                    flavor.ID,
-		Flavor:                flavor.Flavor,
-		DisplayName:           flavor.DisplayName,
-		VCS:                   flavor.VCS,
-		WorkspacePath:         flavor.WorkspacePath,
-		ConnectCommand:        flavor.ConnectCommand,
-		ReconnectCommand:      flavor.ReconnectCommand,
-		ProvisionCommand:      flavor.ProvisionCommand,
-		HostnameRegex:         flavor.HostnameRegex,
-		VSCodeCommandTemplate: flavor.VSCodeCommandTemplate,
-	})
+	json.NewEncoder(w).Encode(toFlavorResponse(flavor))
 }
 
 // handleRemoteFlavorUpdate handles PUT /api/config/remote-flavors/{id}
@@ -213,18 +200,7 @@ func (s *Server) handleRemoteFlavorUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RemoteFlavorResponse{
-		ID:                    rf.ID,
-		Flavor:                rf.Flavor,
-		DisplayName:           rf.DisplayName,
-		VCS:                   rf.VCS,
-		WorkspacePath:         rf.WorkspacePath,
-		ConnectCommand:        rf.ConnectCommand,
-		ReconnectCommand:      rf.ReconnectCommand,
-		ProvisionCommand:      rf.ProvisionCommand,
-		HostnameRegex:         rf.HostnameRegex,
-		VSCodeCommandTemplate: rf.VSCodeCommandTemplate,
-	})
+	json.NewEncoder(w).Encode(toFlavorResponse(rf))
 }
 
 // handleRemoteFlavorDelete handles DELETE /api/config/remote-flavors/{id}
@@ -495,16 +471,7 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 		response := make([]RemoteFlavorStatusResponse, len(statuses))
 		for i, fs := range statuses {
 			response[i] = RemoteFlavorStatusResponse{
-				Flavor: RemoteFlavorResponse{
-					ID:               fs.Flavor.ID,
-					Flavor:           fs.Flavor.Flavor,
-					DisplayName:      fs.Flavor.DisplayName,
-					VCS:              fs.Flavor.VCS,
-					WorkspacePath:    fs.Flavor.WorkspacePath,
-					ConnectCommand:   fs.Flavor.ConnectCommand,
-					ReconnectCommand: fs.Flavor.ReconnectCommand,
-					ProvisionCommand: fs.Flavor.ProvisionCommand,
-				},
+				Flavor:    toFlavorResponse(fs.Flavor),
 				Connected: fs.Connected,
 				Status:    fs.Status,
 				Hostname:  fs.Hostname,
@@ -532,16 +499,7 @@ func (s *Server) handleRemoteFlavorStatuses(w http.ResponseWriter, r *http.Reque
 	response := make([]RemoteFlavorStatusResponse, len(flavors))
 	for i, f := range flavors {
 		resp := RemoteFlavorStatusResponse{
-			Flavor: RemoteFlavorResponse{
-				ID:               f.ID,
-				Flavor:           f.Flavor,
-				DisplayName:      f.DisplayName,
-				VCS:              f.VCS,
-				WorkspacePath:    f.WorkspacePath,
-				ConnectCommand:   f.ConnectCommand,
-				ReconnectCommand: f.ReconnectCommand,
-				ProvisionCommand: f.ProvisionCommand,
-			},
+			Flavor:    toFlavorResponse(f),
 			Connected: false,
 			Status:    "disconnected",
 		}

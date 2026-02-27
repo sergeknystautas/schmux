@@ -773,7 +773,6 @@ func (s *Server) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Success response
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, OpenVSCodeResponse{
 		Success: true,
 		Message: "You can now switch to VS Code.",
@@ -932,7 +931,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(files) == 0 {
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No changes to diff",
@@ -944,7 +942,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the base command (before file paths)
 	if strings.TrimSpace(selectedCommand) == "" {
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Invalid command",
@@ -962,7 +959,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	tempRoot, err := difftool.TempDirForWorkspace(workspaceID)
 	if err != nil {
 		s.logger.Error("diff-external: failed to create temp dir", "err", err)
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Failed to create temp dir for diff",
@@ -1078,7 +1074,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	if opened == 0 {
 		os.RemoveAll(tempRoot)
 		// No files were added (all were new/untracked)
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No modified or deleted files to diff",
@@ -1094,7 +1089,6 @@ func (s *Server) handleDiffExternal(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Success response
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, DiffExternalResponse{
 		Success: true,
 		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
@@ -1186,7 +1180,6 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(files) == 0 {
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No changes to diff",
@@ -1205,7 +1198,6 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 
 	tempRoot, err := difftool.TempDirForWorkspace(ws.ID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "Failed to create temp dir for diff",
@@ -1296,7 +1288,6 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 
 	if opened == 0 {
 		os.RemoveAll(tempRoot)
-		w.Header().Set("Content-Type", "application/json")
 		writeJSON(w, DiffExternalResponse{
 			Success: false,
 			Message: "No modified or deleted files to diff",
@@ -1311,7 +1302,6 @@ func (s *Server) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request
 		}
 	})
 
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, DiffExternalResponse{
 		Success: true,
 		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),

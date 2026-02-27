@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -178,5 +179,73 @@ func TestClearNudgeOnInput_NoNudge(t *testing.T) {
 	}
 	if sess.Nudge != "" {
 		t.Errorf("expected empty nudge, got %q", sess.Nudge)
+	}
+}
+
+// --- vcsTypeForWorkspace tests ---
+
+func TestVcsTypeForWorkspace_DefaultGit(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo"}
+	vcsType := s.vcsTypeForWorkspace(ws)
+	if vcsType != "git" {
+		t.Errorf("expected git, got %q", vcsType)
+	}
+}
+
+func TestVcsTypeForWorkspace_RemoteHostNoFlavor(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	// Add a remote host with no flavor
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", FlavorID: ""})
+	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
+	vcsType := s.vcsTypeForWorkspace(ws)
+	if vcsType != "git" {
+		t.Errorf("expected git, got %q", vcsType)
+	}
+}
+
+func TestVcsTypeForWorkspace_RemoteHostWithFlavor(t *testing.T) {
+	s, cfg, _ := newTestServer(t)
+	// Add a flavor with VCS=sapling
+	cfg.AddRemoteFlavor(config.RemoteFlavor{
+		ID:            "flavor-1",
+		Flavor:        "test-flavor",
+		DisplayName:   "Test Flavor",
+		WorkspacePath: "~/workspace",
+		VCS:           "sapling",
+	})
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", FlavorID: "flavor-1"})
+	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
+	vcsType := s.vcsTypeForWorkspace(ws)
+	if vcsType != "sapling" {
+		t.Errorf("expected sapling, got %q", vcsType)
+	}
+}
+
+func TestVcsTypeForWorkspace_RemoteHostFlavorEmptyVCS(t *testing.T) {
+	s, cfg, _ := newTestServer(t)
+	// Add a flavor with empty VCS (should default to git)
+	cfg.AddRemoteFlavor(config.RemoteFlavor{
+		ID:            "flavor-2",
+		Flavor:        "test-flavor-2",
+		DisplayName:   "Test Flavor 2",
+		WorkspacePath: "~/workspace",
+		VCS:           "",
+	})
+	s.state.AddRemoteHost(state.RemoteHost{ID: "host-2", FlavorID: "flavor-2"})
+	ws := state.Workspace{ID: "ws-2", Repo: "https://github.com/test/repo", RemoteHostID: "host-2"}
+	vcsType := s.vcsTypeForWorkspace(ws)
+	if vcsType != "git" {
+		t.Errorf("expected git, got %q", vcsType)
+	}
+}
+
+func TestVcsTypeForWorkspace_RemoteHostNotFound(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	// Workspace references a host that doesn't exist in state
+	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "nonexistent-host"}
+	vcsType := s.vcsTypeForWorkspace(ws)
+	if vcsType != "git" {
+		t.Errorf("expected git, got %q", vcsType)
 	}
 }

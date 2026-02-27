@@ -24,6 +24,16 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+func TestWriteJSON_SetsContentType(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSON(rr, map[string]string{"hello": "world"})
+
+	ct := rr.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+}
+
 func TestHandleHasNudgenik(t *testing.T) {
 	t.Run("disabled when no target configured", func(t *testing.T) {
 		cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}

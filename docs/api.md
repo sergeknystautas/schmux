@@ -2683,7 +2683,9 @@ Response:
       "workspace_path": "/home/user/workspaces",
       "connect_command": "ssh {hostname}",
       "reconnect_command": "ssh {hostname}",
-      "provision_command": "setup.sh"
+      "provision_command": "setup.sh",
+      "hostname_regex": "dev-\\d+\\.example\\.com",
+      "vscode_command_template": "code --remote ssh-remote+{hostname}"
     },
     "connected": true,
     "status": "connected",

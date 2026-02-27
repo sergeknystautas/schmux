@@ -35,7 +35,6 @@ func (s *Server) handleDebugTmuxLeak(w http.ResponseWriter, r *http.Request) {
 		resp["ps_error"] = psErr.Error()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, resp)
 }
 
