@@ -255,6 +255,27 @@ func TestSignalingInstructionsFile(t *testing.T) {
 	}
 }
 
+func TestSupportsSystemPromptFlag(t *testing.T) {
+	tests := []struct {
+		tool     string
+		expected bool
+	}{
+		{"claude", true},
+		{"codex", true},
+		{"gemini", false},
+		{"unknown", false},
+		{"", false},
+		{"Claude", false}, // case-sensitive
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			if got := SupportsSystemPromptFlag(tt.tool); got != tt.expected {
+				t.Errorf("SupportsSystemPromptFlag(%q) = %v, want %v", tt.tool, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSupportsHooks(t *testing.T) {
 	tests := []struct {
 		tool     string
