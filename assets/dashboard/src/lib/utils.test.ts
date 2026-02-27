@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatRelativeTime, truncateStart } from './utils';
+import {
+  formatRelativeTime,
+  truncateStart,
+  splitPath,
+  formatTimestamp,
+  copyToClipboard,
+  formatNudgeSummary,
+  isRemoteClient,
+  nudgeStateEmoji,
+} from './utils';
 
 describe('formatRelativeTime', () => {
   beforeEach(() => {
@@ -103,5 +112,226 @@ describe('truncateStart', () => {
     const result = truncateStart('abcdefghij', 6);
     expect(result).toBe('...hij');
     expect(result.length).toBe(6);
+  });
+});
+
+describe('splitPath', () => {
+  it('splits a typical Unix path into directory and filename', () => {
+    const result = splitPath('/home/user/project/file.ts');
+    expect(result).toEqual({ filename: 'file.ts', directory: '/home/user/project/' });
+  });
+
+  it('returns empty directory for a bare filename', () => {
+    const result = splitPath('file.ts');
+    expect(result).toEqual({ filename: 'file.ts', directory: '' });
+  });
+
+  it('handles root-level files', () => {
+    const result = splitPath('/file.ts');
+    expect(result).toEqual({ filename: 'file.ts', directory: '/' });
+  });
+
+  it('handles deeply nested paths', () => {
+    const result = splitPath('/a/b/c/d/e/f.txt');
+    expect(result).toEqual({ filename: 'f.txt', directory: '/a/b/c/d/e/' });
+  });
+
+  it('handles empty string', () => {
+    const result = splitPath('');
+    expect(result).toEqual({ filename: '', directory: '' });
+  });
+
+  it('handles trailing slash (directory path)', () => {
+    const result = splitPath('/home/user/');
+    expect(result).toEqual({ filename: '', directory: '/home/user/' });
+  });
+});
+
+describe('formatTimestamp', () => {
+  it('formats a Date object to locale string', () => {
+    const date = new Date('2024-06-15T12:30:00Z');
+    const result = formatTimestamp(date);
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('accepts a string timestamp', () => {
+    const result = formatTimestamp('2024-06-15T12:30:00Z');
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('accepts a numeric timestamp', () => {
+    const ms = new Date('2024-06-15T12:30:00Z').getTime();
+    const result = formatTimestamp(ms);
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('returns consistent results for equivalent inputs', () => {
+    const dateStr = '2024-06-15T12:30:00Z';
+    const dateObj = new Date(dateStr);
+    const dateMs = dateObj.getTime();
+    expect(formatTimestamp(dateStr)).toBe(formatTimestamp(dateObj));
+    expect(formatTimestamp(dateStr)).toBe(formatTimestamp(dateMs));
+  });
+});
+
+describe('copyToClipboard', () => {
+  const originalClipboard = navigator.clipboard;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: originalClipboard,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('returns true when clipboard write succeeds', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    const result = await copyToClipboard('hello');
+    expect(result).toBe(true);
+    expect(writeText).toHaveBeenCalledWith('hello');
+  });
+
+  it('returns false when clipboard write fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    const result = await copyToClipboard('hello');
+    expect(result).toBe(false);
+  });
+
+  it('passes the exact text to the clipboard API', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    await copyToClipboard('multi\nline\ntext');
+    expect(writeText).toHaveBeenCalledWith('multi\nline\ntext');
+  });
+});
+
+describe('formatNudgeSummary', () => {
+  it('returns null for undefined input', () => {
+    expect(formatNudgeSummary(undefined)).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(formatNudgeSummary('')).toBeNull();
+  });
+
+  it('returns trimmed text when under max length', () => {
+    expect(formatNudgeSummary('  hello world  ')).toBe('hello world');
+  });
+
+  it('returns text unchanged when at default max length', () => {
+    const exact = 'a'.repeat(100);
+    expect(formatNudgeSummary(exact)).toBe(exact);
+  });
+
+  it('truncates text longer than default max length with ellipsis', () => {
+    const long = 'a'.repeat(110);
+    const result = formatNudgeSummary(long);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(100);
+    expect(result!.endsWith('...')).toBe(true);
+    expect(result!).toBe('a'.repeat(97) + '...');
+  });
+
+  it('uses custom max length', () => {
+    const text = 'a'.repeat(20);
+    const result = formatNudgeSummary(text, 10);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(10);
+    expect(result!.endsWith('...')).toBe(true);
+  });
+
+  it('returns empty string for whitespace-only input (trims but does not nullify)', () => {
+    expect(formatNudgeSummary('   ')).toBe('');
+  });
+
+  it('trims before checking length', () => {
+    const padded = '  ' + 'a'.repeat(98) + '  ';
+    const result = formatNudgeSummary(padded);
+    // After trim: 98 chars, under 100 limit
+    expect(result).toBe('a'.repeat(98));
+  });
+});
+
+describe('isRemoteClient', () => {
+  const originalLocation = window.location;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('returns false for localhost', () => {
+    Object.defineProperty(window, 'location', {
+      value: { hostname: 'localhost' },
+      writable: true,
+      configurable: true,
+    });
+    expect(isRemoteClient()).toBe(false);
+  });
+
+  it('returns false for 127.0.0.1', () => {
+    Object.defineProperty(window, 'location', {
+      value: { hostname: '127.0.0.1' },
+      writable: true,
+      configurable: true,
+    });
+    expect(isRemoteClient()).toBe(false);
+  });
+
+  it('returns true for an external hostname', () => {
+    Object.defineProperty(window, 'location', {
+      value: { hostname: 'my-server.example.com' },
+      writable: true,
+      configurable: true,
+    });
+    expect(isRemoteClient()).toBe(true);
+  });
+
+  it('returns true for an IP address that is not 127.0.0.1', () => {
+    Object.defineProperty(window, 'location', {
+      value: { hostname: '192.168.1.100' },
+      writable: true,
+      configurable: true,
+    });
+    expect(isRemoteClient()).toBe(true);
+  });
+});
+
+describe('nudgeStateEmoji', () => {
+  it('maps all expected states', () => {
+    expect(nudgeStateEmoji['Needs Input']).toBeDefined();
+    expect(nudgeStateEmoji['Needs Feature Clarification']).toBeDefined();
+    expect(nudgeStateEmoji['Needs Attention']).toBeDefined();
+    expect(nudgeStateEmoji['Completed']).toBeDefined();
+    expect(nudgeStateEmoji['Error']).toBeDefined();
+  });
+
+  it('returns undefined for unknown state', () => {
+    expect(nudgeStateEmoji['NonExistent']).toBeUndefined();
+  });
+
+  it('has exactly 5 entries', () => {
+    expect(Object.keys(nudgeStateEmoji)).toHaveLength(5);
   });
 });
