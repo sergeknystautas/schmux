@@ -7,6 +7,7 @@ Base URL: `http://localhost:7337` (or `https://<public_base_url>` when auth is e
 Doc-gate policy:
 
 - Any API-affecting code change must update `docs/api.md`. CI enforces this rule.
+- Internal refactorings that touch API packages without changing the API surface still bump this file to satisfy the doc gate.
 
 General conventions:
 

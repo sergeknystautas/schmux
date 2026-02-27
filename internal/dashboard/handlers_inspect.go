@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 )
 
@@ -24,16 +23,13 @@ type inspectResponse struct {
 }
 
 func (s *Server) handleInspectWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-
-	ws, ok := s.state.GetWorkspace(workspaceID)
+	ws, ok := s.requireWorkspace(w, r)
 	if !ok {
-		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
 
 	var resp inspectResponse
-	resp.WorkspaceID = workspaceID
+	resp.WorkspaceID = ws.ID
 
 	// Get repo name from config
 	if repo, found := s.config.FindRepoByURL(ws.Repo); found {

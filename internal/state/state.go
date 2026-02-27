@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/fileutil"
 )
 
 // State represents the application state.
@@ -269,32 +270,8 @@ func (s *State) saveNow() error {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
 
-	// Use atomic write pattern (unique temp file + rename)
-	tmpFile, err := os.CreateTemp(dir, ".state-*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to write state: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to close temp file: %w", err)
-	}
-
-	// Atomic rename on POSIX systems
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // Clean up temp file
+	if err := fileutil.AtomicWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
-	}
-
-	// Restrict permissions: state contains workspace paths, remote host info, and session metadata.
-	if err := os.Chmod(path, 0600); err != nil {
-		return fmt.Errorf("failed to set state file permissions: %w", err)
 	}
 
 	return nil
@@ -304,6 +281,13 @@ func (s *State) saveNow() error {
 func (s *State) AddWorkspace(w Workspace) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Check for existing entry with same ID (upsert)
+	for i, existing := range s.Workspaces {
+		if existing.ID == w.ID {
+			s.Workspaces[i] = w
+			return nil
+		}
+	}
 	s.Workspaces = append(s.Workspaces, w)
 	return nil
 }
@@ -348,6 +332,13 @@ func (s *State) UpdateWorkspace(w Workspace) error {
 func (s *State) AddSession(sess Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Check for existing entry with same ID (upsert)
+	for i, existing := range s.Sessions {
+		if existing.ID == sess.ID {
+			s.Sessions[i] = sess
+			return nil
+		}
+	}
 	s.Sessions = append(s.Sessions, sess)
 	return nil
 }

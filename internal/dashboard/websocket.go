@@ -165,17 +165,10 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  4096,
-		WriteBufferSize: 8192,
-		CheckOrigin:     s.checkWSOrigin,
-	}
-
-	rawConn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 	conn := &wsConn{conn: rawConn}
 	s.RegisterWebSocket(sessionID, conn)
 	defer func() {
@@ -184,28 +177,10 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}()
 
 	// Wait for tracker to attach before subscribing
-	attachDeadline := time.Now().Add(2 * time.Second)
-	for !tracker.IsAttached() && time.Now().Before(attachDeadline) {
-		time.Sleep(25 * time.Millisecond)
-	}
+	waitForTrackerAttach(tracker, 2*time.Second)
 
 	// Start reading client messages early so we can process resize before bootstrap
-	controlChan := make(chan WSMessage, 10)
-	go func() {
-		defer close(controlChan)
-		for {
-			msgType, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var wsMsg WSMessage
-				if err := json.Unmarshal(msg, &wsMsg); err == nil {
-					controlChan <- wsMsg
-				}
-			}
-		}
-	}()
+	controlChan := startWSMessageReader(conn)
 
 	// Wait briefly for frontend to send terminal size via resize message
 	// Frontend calls sendResize() immediately on WebSocket open, so this should
@@ -253,17 +228,7 @@ resizeWaitLoop:
 			switch msg.Type {
 			case "input":
 				if !isTerminalResponse(msg.Data) {
-					if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
-						if s.state.ClearSessionNudge(sessionID) {
-							go func() {
-								if err := s.state.Save(); err != nil {
-									logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
-								} else {
-									s.BroadcastSessions()
-								}
-							}()
-						}
-					}
+					s.clearNudgeOnInput(sessionID, msg.Data)
 					if err := tracker.SendInput(msg.Data); err != nil {
 						logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
 					}
@@ -553,17 +518,7 @@ resizeWaitLoop:
 				if isTerminalResponse(msg.Data) {
 					continue
 				}
-				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
-					if s.state.ClearSessionNudge(sessionID) {
-						go func() {
-							if err := s.state.Save(); err != nil {
-								logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
-							} else {
-								s.BroadcastSessions()
-							}
-						}()
-					}
-				}
+				s.clearNudgeOnInput(sessionID, msg.Data)
 				if err := tracker.SendInput(msg.Data); err != nil {
 					logging.Sub(s.logger, "terminal").Error("failed to send input", "err", err)
 				}
@@ -683,25 +638,15 @@ resizeWaitLoop:
 func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Request,
 	tmuxName string, tracker *session.SessionTracker) {
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  4096,
-		WriteBufferSize: 8192,
-		CheckOrigin:     s.checkWSOrigin,
-	}
-
-	rawConn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	deadline := time.Now().Add(2 * time.Second)
-	for !tracker.IsAttached() && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
-	}
+	waitForTrackerAttach(tracker, 2*time.Second)
 
 	// Bootstrap with scrollback — send as binary frame
 	// Fall back to tmux CLI capture if control mode not attached
@@ -766,43 +711,18 @@ func (s *Server) handleCRTerminalWebSocket(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleFMTerminalWebSocket(w http.ResponseWriter, r *http.Request,
 	tmuxName string, tracker *session.SessionTracker) {
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  4096,
-		WriteBufferSize: 8192,
-		CheckOrigin:     s.checkWSOrigin,
-	}
-
-	rawConn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgradeWebSocket(w, r, 4096, 8192)
 	if err != nil {
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024)
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
 	// Wait briefly for tracker to attach before subscribing
-	deadline := time.Now().Add(2 * time.Second)
-	for !tracker.IsAttached() && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
-	}
+	waitForTrackerAttach(tracker, 2*time.Second)
 
 	// Start reading client messages
-	controlChan := make(chan WSMessage, 10)
-	go func() {
-		defer close(controlChan)
-		for {
-			msgType, msg, err := rawConn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var wsMsg WSMessage
-				if err := json.Unmarshal(msg, &wsMsg); err == nil {
-					controlChan <- wsMsg
-				}
-			}
-		}
-	}()
+	controlChan := startWSMessageReader(rawConn)
 
 	// Wait for initial resize from frontend
 	resizeDeadline := time.Now().Add(100 * time.Millisecond)
@@ -1027,16 +947,10 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin:     s.checkWSOrigin,
-	}
-	rawConn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgradeWebSocket(w, r, 1024, 1024)
 	if err != nil {
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 
 	// Wrap the connection for concurrent write safety
 	wsConn := &wsConn{conn: rawConn}
@@ -1049,22 +963,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 	}()
 
 	// Handle client messages (input, pause, resume)
-	controlChan := make(chan WSMessage, 10)
-	go func() {
-		defer close(controlChan)
-		for {
-			msgType, msg, err := rawConn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var wsMsg WSMessage
-				if err := json.Unmarshal(msg, &wsMsg); err == nil {
-					controlChan <- wsMsg
-				}
-			}
-		}
-	}()
+	controlChan := startWSMessageReader(rawConn)
 
 	sendOutput := func(msgType, content string) error {
 		msg := WSOutputMessage{Type: msgType, Content: content}
@@ -1170,15 +1069,7 @@ func (s *Server) handleRemoteTerminalWebSocket(w http.ResponseWriter, r *http.Re
 				// Clear nudge atomically — avoid using stale sess pointer.
 				// Escape (\x1b alone) also clears nudge so the spinner stops
 				// immediately when the user presses Esc to interrupt an agent.
-				if strings.Contains(msg.Data, "\r") || strings.Contains(msg.Data, "\t") || strings.Contains(msg.Data, "\x1b[Z") || msg.Data == "\x1b" {
-					if s.state.ClearSessionNudge(sessionID) {
-						if err := s.state.Save(); err != nil {
-							logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
-						} else {
-							go s.BroadcastSessions()
-						}
-					}
-				}
+				s.clearNudgeOnInput(sessionID, msg.Data)
 			}
 		}
 	}
@@ -1244,17 +1135,10 @@ func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request
 
 	logging.Sub(s.logger, "ws").Info("PTY available, upgrading to WebSocket", "host_id", hostID[:8])
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin:     s.checkWSOrigin,
-	}
-
-	rawConn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgradeWebSocket(w, r, 1024, 1024)
 	if err != nil {
 		return
 	}
-	rawConn.SetReadLimit(64 * 1024) // 64KB max message size
 
 	// Wrap the connection for concurrent write safety
 	wsConn := &wsConn{conn: rawConn}

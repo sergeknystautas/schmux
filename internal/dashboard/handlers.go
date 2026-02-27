@@ -17,9 +17,27 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
+
+// requireWorkspace extracts the workspaceID URL param, validates it, and
+// looks up the workspace. Returns false if an error response was already
+// written (caller should return).
+func (s *Server) requireWorkspace(w http.ResponseWriter, r *http.Request) (state.Workspace, bool) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if workspaceID == "" {
+		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
+		return state.Workspace{}, false
+	}
+	ws, ok := s.state.GetWorkspace(workspaceID)
+	if !ok {
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
+		return state.Workspace{}, false
+	}
+	return ws, true
+}
 
 // writeJSONError writes a JSON error response with the given status code.
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
