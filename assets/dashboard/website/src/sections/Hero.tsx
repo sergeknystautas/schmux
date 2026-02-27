@@ -7,8 +7,8 @@ export default function Hero() {
       <p className={styles.tagline}>Factory-floor tooling for AI-assisted software development.</p>
       <p className={styles.description}>
         Run multiple AI coding agents in parallel, each in its own
-        <br />
-        isolated version-controlled workspace, all visible from one dashboard.
+        <br className={styles.descriptionBr} /> isolated version-controlled workspace, all visible
+        from one dashboard.
       </p>
       <img
         src="./screenshot.png"

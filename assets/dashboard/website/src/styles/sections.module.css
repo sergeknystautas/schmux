@@ -53,15 +53,15 @@
 }
 
 @media (max-width: 640px) {
+  .section {
+    padding: 48px var(--spacing-lg);
+  }
+
   .layout {
     flex-direction: column;
   }
 
-  .screenshot {
-    width: 100%;
-  }
-
-  .screenshotSmall {
+  .screenshotPortrait {
     width: 100%;
   }
 }

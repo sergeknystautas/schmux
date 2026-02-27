@@ -23,10 +23,12 @@
   border-radius: var(--radius-md);
   padding: var(--spacing-md) var(--spacing-lg);
   margin: 0 auto var(--spacing-xl);
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--spacing-md);
   background: transparent;
+  max-width: 600px;
+  overflow: hidden;
 }
 
 .installCode {
@@ -37,6 +39,9 @@
   margin: 0;
   white-space: nowrap;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .copyButton {
@@ -92,4 +97,15 @@
   font-size: 0.6875rem;
   color: var(--color-text-faint);
   margin: 0;
+}
+
+@media (max-width: 640px) {
+  .close {
+    padding-left: calc(50vw - 50% + var(--spacing-lg));
+    padding-right: calc(50vw - 50% + var(--spacing-lg));
+  }
+
+  .installCode {
+    font-size: 0.7rem;
+  }
 }
