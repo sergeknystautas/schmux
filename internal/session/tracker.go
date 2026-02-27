@@ -36,6 +36,7 @@ type TrackerCounters struct {
 	EventsDelivered atomic.Int64
 	BytesDelivered  atomic.Int64
 	Reconnects      atomic.Int64
+	FanOutDrops     atomic.Int64 // Events dropped because a subscriber channel was full
 }
 
 // SessionTracker maintains a long-lived control mode attachment for a tmux session.
@@ -142,7 +143,7 @@ func (t *SessionTracker) SetTmuxSession(name string) {
 // SubscribeOutput returns a buffered channel that receives output events for this session.
 // Multiple subscribers are supported. Subscriptions survive control mode reconnections.
 func (t *SessionTracker) SubscribeOutput() <-chan controlmode.OutputEvent {
-	ch := make(chan controlmode.OutputEvent, 100)
+	ch := make(chan controlmode.OutputEvent, 1000)
 	t.subsMu.Lock()
 	t.subs = append(t.subs, ch)
 	t.subsMu.Unlock()
@@ -178,6 +179,7 @@ func (t *SessionTracker) fanOut(event controlmode.OutputEvent) {
 		case ch <- event:
 		default:
 			// Slow consumer — drop event to avoid blocking
+			t.Counters.FanOutDrops.Add(1)
 		}
 	}
 }
@@ -265,16 +267,21 @@ func (t *SessionTracker) GetCursorPosition(ctx context.Context) (x, y int, err e
 	return client.GetCursorPosition(ctx, paneID)
 }
 
-// DiagnosticCounters returns a snapshot of pipeline counters including parser drop counts.
+// DiagnosticCounters returns a snapshot of pipeline counters including drop counts
+// at all three fan-out layers: parser, client, and tracker.
 func (t *SessionTracker) DiagnosticCounters() map[string]int64 {
 	result := map[string]int64{
 		"eventsDelivered":       t.Counters.EventsDelivered.Load(),
 		"bytesDelivered":        t.Counters.BytesDelivered.Load(),
 		"controlModeReconnects": t.Counters.Reconnects.Load(),
+		"fanOutDrops":           t.Counters.FanOutDrops.Load(),
 	}
 	t.mu.RLock()
 	if t.cmParser != nil {
 		result["eventsDropped"] = t.cmParser.DroppedOutputs()
+	}
+	if t.cmClient != nil {
+		result["clientFanOutDrops"] = t.cmClient.DroppedFanOut()
 	}
 	t.mu.RUnlock()
 	return result

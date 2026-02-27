@@ -8,6 +8,8 @@ export interface BackendStats {
   bytesDelivered: number;
   controlModeReconnects: number;
   bytesPerSec?: number;
+  clientFanOutDrops?: number;
+  fanOutDrops?: number;
 }
 
 interface FrontendStats {
@@ -44,7 +46,10 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
   const panelRef = useRef<HTMLDivElement>(null);
   const frames = frontendStats?.framesReceived ?? 0;
   const bytes = frontendStats?.bytesReceived ?? 0;
-  const drops = backendStats?.eventsDropped ?? 0;
+  const parserDrops = backendStats?.eventsDropped ?? 0;
+  const clientDrops = backendStats?.clientFanOutDrops ?? 0;
+  const trackerDrops = backendStats?.fanOutDrops ?? 0;
+  const drops = parserDrops + clientDrops + trackerDrops;
   const seqBreaks = frontendStats?.sequenceBreaks ?? 0;
 
   // Close dropdown on outside click
@@ -117,13 +122,35 @@ export function StreamMetricsPanel({ backendStats, frontendStats, onDiagnosticCa
               </tr>
               <tr>
                 <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
-                  Events dropped
+                  Events dropped (parser)
                 </td>
                 <td
-                  className={drops > 0 ? 'warning' : ''}
+                  className={parserDrops > 0 ? 'warning' : ''}
                   style={{ padding: '2px 0', textAlign: 'right' }}
                 >
-                  {drops}
+                  {parserDrops}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Drops (client fan-out)
+                </td>
+                <td
+                  className={clientDrops > 0 ? 'warning' : ''}
+                  style={{ padding: '2px 0', textAlign: 'right' }}
+                >
+                  {clientDrops}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '2px 8px 2px 0', color: 'var(--color-text-muted)' }}>
+                  Drops (tracker fan-out)
+                </td>
+                <td
+                  className={trackerDrops > 0 ? 'warning' : ''}
+                  style={{ padding: '2px 0', textAlign: 'right' }}
+                >
+                  {trackerDrops}
                 </td>
               </tr>
               <tr>

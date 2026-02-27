@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -34,6 +35,9 @@ type Client struct {
 	// Output subscriptions by pane ID
 	outputSubs   map[string][]chan OutputEvent
 	outputSubsMu sync.RWMutex
+
+	// Output fan-out drop counter (events dropped because subscriber couldn't keep up)
+	droppedFanOut atomic.Int64
 
 	// Lifecycle
 	running bool
@@ -207,6 +211,7 @@ func (c *Client) processOutput() {
 				case ch <- event:
 				default:
 					// Drop if subscriber can't keep up
+					c.droppedFanOut.Add(1)
 				}
 			}
 			c.outputSubsMu.RUnlock()
@@ -234,7 +239,7 @@ func (c *Client) processEvents() {
 // SubscribeOutput subscribes to output from a specific pane.
 // Returns a channel that receives output events.
 func (c *Client) SubscribeOutput(paneID string) <-chan OutputEvent {
-	ch := make(chan OutputEvent, 100)
+	ch := make(chan OutputEvent, 1000)
 	c.outputSubsMu.Lock()
 	c.outputSubs[paneID] = append(c.outputSubs[paneID], ch)
 	c.outputSubsMu.Unlock()
@@ -253,6 +258,12 @@ func (c *Client) UnsubscribeOutput(paneID string, ch <-chan OutputEvent) {
 			break
 		}
 	}
+}
+
+// DroppedFanOut returns the number of output events dropped at the client fan-out layer
+// because a subscriber channel was full.
+func (c *Client) DroppedFanOut() int64 {
+	return c.droppedFanOut.Load()
 }
 
 // CreateWindow creates a new window with a command.
