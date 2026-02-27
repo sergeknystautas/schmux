@@ -16,7 +16,7 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: var(--spacing-2xl);
 }
 
@@ -36,4 +36,10 @@
   color: var(--color-text-muted);
   line-height: 1.7;
   margin: 0;
+}
+
+@media (max-width: 640px) {
+  .why {
+    padding: 48px var(--spacing-lg);
+  }
 }

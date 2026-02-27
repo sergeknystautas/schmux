@@ -7,6 +7,14 @@
   --duration-slow: 400ms;
 }
 
+/* Prevent mobile browsers from zooming out to fit overflowing content —
+   must be on html/body, not just .website, because iOS Safari calculates
+   the layout viewport from the root before applying descendant overflow. */
+html,
+body {
+  overflow-x: hidden;
+}
+
 .website {
   font-family: var(--font-body);
   color: var(--color-text);
@@ -15,6 +23,7 @@
   /* Subtle dot-grid texture — factory floor feel */
   background-image: radial-gradient(circle, var(--color-border-subtle) 1px, transparent 1px);
   background-size: 24px 24px;
+  overflow-x: hidden;
 }
 
 /* Section width strategy: text sections are narrow (720px), sections with screenshots break wider (900px) */
@@ -51,4 +60,10 @@
   margin-right: calc(-50vw + 50%);
   padding-left: calc(50vw - 50% + var(--spacing-2xl));
   padding-right: calc(50vw - 50% + var(--spacing-2xl));
+}
+
+@media (max-width: 640px) {
+  .website-section {
+    padding: 48px var(--spacing-lg);
+  }
 }
