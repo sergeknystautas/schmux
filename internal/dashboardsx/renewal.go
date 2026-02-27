@@ -2,7 +2,6 @@ package dashboardsx
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -31,7 +30,9 @@ func StartAutoRenewal(ctx context.Context, client *Client, email string) {
 func checkAndRenew(client *Client, email string) {
 	expiry, err := GetCertExpiry()
 	if err != nil {
-		fmt.Printf("[dashboardsx] auto-renewal: failed to read cert expiry: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("auto-renewal: failed to read cert expiry", "err", err)
+		}
 		return
 	}
 
@@ -40,18 +41,26 @@ func checkAndRenew(client *Client, email string) {
 		return
 	}
 
-	fmt.Printf("[dashboardsx] auto-renewal: cert expires in %d days, renewing...\n", daysLeft)
+	if pkgLogger != nil {
+		pkgLogger.Info("auto-renewal: cert expiring soon, renewing", "days_left", daysLeft)
+	}
 
 	provider, err := NewServiceDNSProvider(client)
 	if err != nil {
-		fmt.Printf("[dashboardsx] auto-renewal: failed to create DNS provider: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("auto-renewal: failed to create DNS provider", "err", err)
+		}
 		return
 	}
 
 	if err := ProvisionCert(client.Code, email, false, provider, nil); err != nil {
-		fmt.Printf("[dashboardsx] auto-renewal: failed: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("auto-renewal: failed", "err", err)
+		}
 		return
 	}
 
-	fmt.Printf("[dashboardsx] auto-renewal: certificate renewed successfully\n")
+	if pkgLogger != nil {
+		pkgLogger.Info("auto-renewal: certificate renewed successfully")
+	}
 }

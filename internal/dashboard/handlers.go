@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -21,6 +21,10 @@ import (
 	"github.com/sergeknystautas/schmux/internal/update"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
+
+// pkgLogger is the package-level logger for dashboard handler helpers.
+// Set during NewServer initialization.
+var pkgLogger *log.Logger
 
 // requireWorkspace extracts the workspaceID URL param, validates it, and
 // looks up the workspace. Returns false if an error response was already
@@ -59,7 +63,9 @@ func writeJSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
-		log.Printf("writeJSONError: failed to encode response: %v", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("writeJSONError: failed to encode response", "err", err)
+		}
 	}
 }
 
@@ -67,7 +73,9 @@ func writeJSONError(w http.ResponseWriter, msg string, code int) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("writeJSON: failed to encode response: %v", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("writeJSON: failed to encode response", "err", err)
+		}
 	}
 }
 

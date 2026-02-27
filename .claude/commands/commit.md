@@ -74,6 +74,7 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
    - Added new client-side state management where `SessionsContext` is the established pattern
    - Called `npm install`, `npm run build`, or `vite build` directly instead of `go run ./cmd/build-dashboard`
    - Edited `assets/dashboard/src/lib/types.generated.ts` directly instead of editing Go structs and running `go run ./cmd/gen-types`
+   - Used `fmt.Print`/`fmt.Println`/`fmt.Printf` or stdlib `log.Printf` for logging in `internal/` packages instead of the project's logging system (`charmbracelet/log` via `internal/logging`). Packages with a `*Server` should use `s.logger`; standalone packages should use the `pkgLogger`/`SetLogger` pattern (see `internal/tunnel`, `internal/update`, `internal/dashboardsx` for examples). Direct stdout printing is only acceptable in `cmd/` packages for user-facing CLI output.
 
 3. **Docs current**: Are all relevant docs updated? `docs/api.md` is covered by Step 2. Consider: does this change affect `docs/web.md`, `docs/cli.md`, `CLAUDE.md`, `AGENTS.md`, or any spec in `docs/specs/`?
 
