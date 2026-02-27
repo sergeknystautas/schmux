@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -300,7 +299,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		log.Printf("handleAuthLogout: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "auth-logout", "err", err)
 	}
 }
 
@@ -318,7 +317,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(session); err != nil {
-		log.Printf("handleAuthMe: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "auth-me", "err", err)
 	}
 }
 

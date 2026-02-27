@@ -325,6 +325,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	detect.SetLogger(logging.Sub(configLog, "detect"))
 	update.SetLogger(logging.Sub(logger, "update"))
 	tunnel.SetLogger(remoteAccessLog)
+	dashboardsx.SetLogger(logging.Sub(logger, "dashboardsx"))
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -388,13 +389,13 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Check dashboard.sx certificate expiry and start background services
 	if cfg.GetDashboardSXEnabled() {
 		if status, err := dashboardsx.GetStatus(cfg); err == nil && status.HasCert && status.DaysUntilExpiry < 30 {
-			fmt.Printf("[dashboardsx] certificate expires in %d days — run 'schmux dashboardsx renew-cert'\n", status.DaysUntilExpiry)
+			logger.Warn("certificate expiring soon — run 'schmux dashboardsx renew-cert'", "days_left", status.DaysUntilExpiry)
 		}
 
 		// Start heartbeat and auto-renewal goroutines
 		instanceKey, err := dashboardsx.EnsureInstanceKey()
 		if err != nil {
-			fmt.Printf("[dashboardsx] warning: failed to read instance key: %v\n", err)
+			logger.Warn("failed to read instance key", "err", err)
 		} else {
 			serviceURL := dashboardsx.DefaultServiceURL
 			if cfg.Network != nil && cfg.Network.DashboardSX != nil && cfg.Network.DashboardSX.ServiceURL != "" {
@@ -514,9 +515,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Check gh CLI authentication
 	d.githubStatus = github.CheckAuth(d.shutdownCtx)
 	if d.githubStatus.Available {
-		fmt.Printf("[daemon] GitHub authenticated as %s\n", d.githubStatus.Username)
+		logger.Info("GitHub authenticated", "user", d.githubStatus.Username)
 	} else {
-		fmt.Println("[daemon] GitHub not available (gh CLI not installed or not authenticated)")
+		logger.Info("GitHub not available (gh CLI not installed or not authenticated)")
 	}
 
 	// Create dashboard server

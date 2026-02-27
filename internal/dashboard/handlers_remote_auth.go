@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -368,7 +367,7 @@ func (s *Server) handleRemoteAccessSetPassword(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]bool{"ok": true}); err != nil {
-		log.Printf("handleRemoteAccessSetPassword: failed to encode response: %v", err)
+		s.logger.Error("failed to encode response", "handler", "remote-access-set-password", "err", err)
 	}
 }
 

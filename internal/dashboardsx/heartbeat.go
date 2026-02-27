@@ -3,10 +3,20 @@ package dashboardsx
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
 	"math/big"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
+
+// pkgLogger is the package-level logger for dashboardsx operations.
+// Set via SetLogger from the daemon initialization.
+var pkgLogger *log.Logger
+
+// SetLogger sets the package-level logger for dashboardsx operations.
+func SetLogger(l *log.Logger) {
+	pkgLogger = l
+}
 
 const (
 	heartbeatBaseInterval = 24 * time.Hour
@@ -20,9 +30,13 @@ const (
 func StartHeartbeat(ctx context.Context, client *Client) {
 	// Send initial heartbeat immediately
 	if err := client.Heartbeat(); err != nil {
-		fmt.Printf("[dashboardsx] heartbeat failed: %v\n", err)
+		if pkgLogger != nil {
+			pkgLogger.Error("heartbeat failed", "err", err)
+		}
 	} else {
-		fmt.Println("[dashboardsx] heartbeat sent")
+		if pkgLogger != nil {
+			pkgLogger.Info("heartbeat sent")
+		}
 	}
 
 	for {
@@ -31,7 +45,9 @@ func StartHeartbeat(ctx context.Context, client *Client) {
 		select {
 		case <-timer.C:
 			if err := client.Heartbeat(); err != nil {
-				fmt.Printf("[dashboardsx] heartbeat failed: %v\n", err)
+				if pkgLogger != nil {
+					pkgLogger.Error("heartbeat failed", "err", err)
+				}
 			}
 		case <-ctx.Done():
 			timer.Stop()

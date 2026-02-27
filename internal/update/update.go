@@ -65,7 +65,9 @@ func Update() error {
 	if pkgLogger != nil {
 		pkgLogger.Info("current version", "version", current)
 	}
-	fmt.Println("Checking for updates...")
+	if pkgLogger != nil {
+		pkgLogger.Info("checking for updates")
+	}
 
 	latest, err := GetLatestVersion()
 	if err != nil {
@@ -83,7 +85,9 @@ func Update() error {
 	}
 
 	if !vLatest.GreaterThan(vCurrent) {
-		fmt.Println("Already up to date.")
+		if pkgLogger != nil {
+			pkgLogger.Info("already up to date")
+		}
 		return nil
 	}
 
@@ -107,7 +111,9 @@ func Update() error {
 		return fmt.Errorf("failed to update binary: %w", err)
 	}
 
-	fmt.Println("Updated successfully. Restart schmux to use the new version.")
+	if pkgLogger != nil {
+		pkgLogger.Info("updated successfully — restart schmux to use the new version")
+	}
 	return nil
 }
 
@@ -283,7 +289,9 @@ func downloadAndInstallBinary(ver string, checksums map[string]string) error {
 	if actualHash != expectedHash {
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
 	}
-	fmt.Println("Checksum verified.")
+	if pkgLogger != nil {
+		pkgLogger.Info("checksum verified")
+	}
 
 	// Make executable
 	if err := os.Chmod(tmpPath, 0755); err != nil {
@@ -366,7 +374,9 @@ func downloadAndInstallAssets(ver string, checksums map[string]string) error {
 	if actualHash != expectedHash {
 		return fmt.Errorf("checksum mismatch for assets: expected %s, got %s", expectedHash, actualHash)
 	}
-	fmt.Println("Assets checksum verified.")
+	if pkgLogger != nil {
+		pkgLogger.Info("assets checksum verified")
+	}
 
 	// Extract using existing logic
 	if err := assets.ExtractTarGzToDir(tmpPath, assetsDir); err != nil {

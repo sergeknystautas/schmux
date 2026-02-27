@@ -242,6 +242,9 @@ const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
 func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd *github.Discovery, logger *log.Logger, ghStatus contracts.GitHubStatus, opts ServerOptions) *Server {
+	// Set package-level logger for standalone helper functions
+	pkgLogger = logger
+
 	shutdownCtx := opts.ShutdownCtx
 	if shutdownCtx == nil {
 		shutdownCtx = context.Background()
