@@ -156,19 +156,20 @@ func TestBuildCommand_ModelFlagInjection(t *testing.T) {
 	target := ResolvedTarget{
 		Name:       "codex",
 		Command:    "codex",
+		ToolName:   "codex",
 		Promptable: false,
 	}
 	model := &detect.Model{
-		ID:         "codex-mini",
-		BaseTool:   "codex",
-		ModelFlag:  "--model",
-		ModelValue: "codex-mini-latest",
+		ID: "codex-mini",
+		Runners: map[string]detect.RunnerSpec{
+			"codex": {ModelValue: "codex-mini-latest"},
+		},
 	}
 	got, err := buildCommand(target, "", model, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(got, "--model 'codex-mini-latest'") {
+	if !strings.Contains(got, "-m 'codex-mini-latest'") {
 		t.Errorf("should contain model flag: %q", got)
 	}
 }

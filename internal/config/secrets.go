@@ -80,6 +80,9 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			// Best-effort save to persist migration
 			_ = SaveSecretsFile(&secrets)
 		}
+		if migrateSecretKeys(&secrets) {
+			_ = SaveSecretsFile(&secrets)
+		}
 		return &secrets, nil
 	}
 
@@ -100,6 +103,9 @@ func LoadSecretsFile() (*SecretsFile, error) {
 			// Best-effort save to persist migration
 			_ = SaveSecretsFile(&secrets)
 		}
+		if migrateSecretKeys(&secrets) {
+			_ = SaveSecretsFile(&secrets)
+		}
 		return &secrets, nil
 	}
 
@@ -110,7 +116,11 @@ func LoadSecretsFile() (*SecretsFile, error) {
 	if legacy == nil {
 		legacy = ModelSecrets{}
 	}
-	return &SecretsFile{Models: legacy}, nil
+	secrets := &SecretsFile{Models: legacy}
+	if migrateSecretKeys(secrets) {
+		_ = SaveSecretsFile(secrets)
+	}
+	return secrets, nil
 }
 
 func SaveSecretsFile(secrets *SecretsFile) error {
@@ -312,4 +322,26 @@ func GetSessionSecret() (string, error) {
 		return "", err
 	}
 	return secrets.Auth.SessionSecret, nil
+}
+
+// migrateSecretKeys renames old model ID keys to vendor-defined IDs.
+// Returns true if any keys were migrated.
+func migrateSecretKeys(secrets *SecretsFile) bool {
+	if secrets == nil || secrets.Models == nil {
+		return false
+	}
+	changed := false
+	for oldID, newID := range detect.LegacyIDMigrations() {
+		if oldID == newID {
+			continue
+		}
+		if s, ok := secrets.Models[oldID]; ok {
+			if _, exists := secrets.Models[newID]; !exists {
+				secrets.Models[newID] = s
+			}
+			delete(secrets.Models, oldID)
+			changed = true
+		}
+	}
+	return changed
 }

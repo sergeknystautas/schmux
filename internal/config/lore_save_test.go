@@ -27,12 +27,12 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
   "external_diff_cleanup_after_ms": 3600000,
   "terminal": {"width": 120, "height": 40, "seed_lines": 100, "bootstrap_lines": 20000},
   "nudgenik": {"viewed_buffer_ms": 5000, "seen_interval_ms": 2000},
-  "conflict_resolve": {"target": "claude-opus"},
+  "conflict_resolve": {"target": "claude-opus-4-6"},
   "sessions": {"dashboard_poll_interval_ms": 5000, "git_status_poll_interval_ms": 10000},
   "xterm": {"mtime_poll_interval_ms": 5000, "query_timeout_ms": 5000, "operation_timeout_ms": 10000},
   "network": {"bind_address": "127.0.0.1", "tls": {}},
   "access_control": {"enabled": false, "provider": "github", "session_ttl_minutes": 1440},
-  "pr_review": {"target": "claude-opus"},
+  "pr_review": {"target": "claude-opus-4-6"},
   "commit_message": {},
   "notifications": {},
   "models": {}
@@ -63,7 +63,7 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
 	cfg.Lore = &LoreConfig{}
 	enabled := true
 	cfg.Lore.Enabled = &enabled
-	cfg.Lore.Target = "claude-opus"
+	cfg.Lore.Target = "claude-opus-4-6"
 	cfg.Lore.CurateOnDispose = "session"
 	autoPR := false
 	cfg.Lore.AutoPR = &autoPR
@@ -101,7 +101,7 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
 		t.Fatalf("Failed to parse lore section: %v", err)
 	}
 
-	if lore["llm_target"] != "claude-opus" {
+	if lore["llm_target"] != "claude-opus-4-6" {
 		t.Errorf("expected llm_target to be 'claude-opus', got %v", lore["llm_target"])
 	}
 	if lore["curate_on_dispose"] != "session" {
@@ -118,7 +118,7 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
 	if cfg.Lore == nil {
 		t.Fatal("Lore is nil after reload")
 	}
-	if cfg.Lore.Target != "claude-opus" {
+	if cfg.Lore.Target != "claude-opus-4-6" {
 		t.Errorf("expected Target to be 'claude-opus' after reload, got %q", cfg.Lore.Target)
 	}
 	if cfg.GetLoreCurateOnDispose() != "session" {

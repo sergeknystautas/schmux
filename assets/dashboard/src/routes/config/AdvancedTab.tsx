@@ -22,7 +22,6 @@ type AdvancedTabProps = {
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
-  modelVersions: Record<string, string>;
   dashboardPollInterval: number;
   gitStatusPollInterval: number;
   gitCloneTimeout: number;
@@ -58,7 +57,6 @@ export default function AdvancedTab({
   soundDisabled,
   confirmBeforeClose,
   suggestDisposeAfterPush,
-  modelVersions,
   dashboardPollInterval,
   gitStatusPollInterval,
   gitCloneTimeout,
@@ -498,39 +496,6 @@ export default function AdvancedTab({
               After pushing all commits to main, prompts to dispose the workspace and its sessions.
             </p>
           </div>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <div className="settings-section__header">
-          <h3 className="settings-section__title">Model Versions</h3>
-        </div>
-        <div className="settings-section__body">
-          <p className="form-group__hint" style={{ marginBottom: 'var(--spacing-md)' }}>
-            Pin specific model versions or leave empty to use the latest.
-          </p>
-          {models
-            ?.filter((m) => m.provider === 'anthropic' && m.category === 'native')
-            .map((model) => (
-              <div key={model.id} className="form-group">
-                <label className="form-group__label">{model.display_name}</label>
-                <input
-                  type="text"
-                  className="input"
-                  value={modelVersions[model.id] || ''}
-                  onChange={(e) => {
-                    const newVersions = { ...modelVersions };
-                    if (e.target.value) {
-                      newVersions[model.id] = e.target.value;
-                    } else {
-                      delete newVersions[model.id];
-                    }
-                    setField('modelVersions', newVersions);
-                  }}
-                  placeholder={`(latest - ${model.default_value})`}
-                />
-              </div>
-            ))}
         </div>
       </div>
 

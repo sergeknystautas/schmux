@@ -54,7 +54,7 @@ func GetInstructionPath(toolName string) string {
 }
 
 // GetBaseToolName returns the base tool name for a given target.
-// If targetName is a model, returns the model's BaseTool.
+// If targetName is a model, returns the first sorted runner key.
 // If targetName is a tool, returns it directly.
 // Returns empty string if not recognized.
 func GetBaseToolName(targetName string) string {
@@ -64,7 +64,10 @@ func GetBaseToolName(targetName string) string {
 	}
 	// Check if it's a model and get its base tool
 	if model, ok := FindModel(targetName); ok {
-		return model.BaseTool
+		keys := SortedRunnerKeys(model.Runners)
+		if len(keys) > 0 {
+			return keys[0]
+		}
 	}
 	return ""
 }

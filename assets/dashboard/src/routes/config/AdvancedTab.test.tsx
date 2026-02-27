@@ -12,13 +12,12 @@ const detectedTargets: RunTargetResponse[] = [
 ];
 const models: Model[] = [
   {
-    id: 'claude-sonnet',
-    display_name: 'Claude Sonnet',
-    base_tool: 'claude',
+    id: 'claude-sonnet-4-6',
+    display_name: 'Claude Sonnet 4.6',
     provider: 'anthropic',
     category: 'native',
     configured: true,
-    default_value: 'claude-sonnet-4-20250514',
+    runners: { claude: { available: true, configured: true } },
   },
 ];
 const promptableTargets: RunTargetResponse[] = [];
@@ -42,7 +41,6 @@ const defaultProps = {
   soundDisabled: false,
   confirmBeforeClose: false,
   suggestDisposeAfterPush: true,
-  modelVersions: {} as Record<string, string>,
   dashboardPollInterval: 5000,
   gitStatusPollInterval: 10000,
   gitCloneTimeout: 300000,
@@ -71,7 +69,6 @@ describe('AdvancedTab', () => {
     expect(screen.getByText('Branch Suggestion')).toBeInTheDocument();
     expect(screen.getByText('Conflict Resolution')).toBeInTheDocument();
     expect(screen.getByText('Notifications')).toBeInTheDocument();
-    expect(screen.getByText('Model Versions')).toBeInTheDocument();
     expect(screen.getByText('Sessions')).toBeInTheDocument();
     expect(screen.getByText('Xterm')).toBeInTheDocument();
   });
@@ -115,11 +112,6 @@ describe('AdvancedTab', () => {
     );
     const errors = screen.getAllByText('Selected target is not available or not promptable.');
     expect(errors).toHaveLength(3);
-  });
-
-  it('renders model version inputs for anthropic native models', () => {
-    render(<AdvancedTab {...defaultProps} />);
-    expect(screen.getAllByText('Claude Sonnet').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows step 5 error when present', () => {

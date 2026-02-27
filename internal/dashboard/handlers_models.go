@@ -27,29 +27,64 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildAvailableModels(cfg *config.Config) ([]contracts.Model, error) {
-	available := cfg.GetAvailableModels(config.DetectedToolsFromConfig(cfg))
-	versions := cfg.GetModelVersions()
-	resp := make([]contracts.Model, 0, len(available))
-	for _, model := range available {
-		configured, err := modelConfigured(model)
-		if err != nil {
-			return nil, err
+	allModels := detect.GetBuiltinModels()
+	detectedTools := config.DetectedToolsFromConfig(cfg)
+	detected := make(map[string]bool, len(detectedTools))
+	for _, t := range detectedTools {
+		detected[t.Name] = true
+	}
+
+	resp := make([]contracts.Model, 0, len(allModels))
+	for _, model := range allModels {
+		runners := make(map[string]contracts.RunnerInfo, len(model.Runners))
+		anyConfigured := false
+		anyAvailable := false
+
+		for toolName, spec := range model.Runners {
+			available := detected[toolName]
+			configured := true // no secrets needed = configured
+			if len(spec.RequiredSecrets) > 0 {
+				configured = false
+				secrets, err := config.GetEffectiveModelSecrets(model)
+				if err == nil {
+					configured = true
+					for _, key := range spec.RequiredSecrets {
+						if strings.TrimSpace(secrets[key]) == "" {
+							configured = false
+							break
+						}
+					}
+				}
+			}
+			runners[toolName] = contracts.RunnerInfo{
+				Available:       available,
+				Configured:      configured,
+				RequiredSecrets: spec.RequiredSecrets,
+			}
+			if available && configured {
+				anyConfigured = true
+			}
+			if available {
+				anyAvailable = true
+			}
 		}
-		pinnedVersion := ""
-		if versions != nil {
-			pinnedVersion = versions[model.ID]
+
+		// Only include models that have at least one available runner
+		if !anyAvailable {
+			continue
 		}
+
+		preferredTool := cfg.PreferredTool(model.ID)
+
 		resp = append(resp, contracts.Model{
-			ID:              model.ID,
-			DisplayName:     model.DisplayName,
-			BaseTool:        model.BaseTool,
-			Provider:        model.Provider,
-			Category:        model.Category,
-			RequiredSecrets: model.RequiredSecrets,
-			UsageURL:        model.UsageURL,
-			Configured:      configured,
-			PinnedVersion:   pinnedVersion,
-			DefaultValue:    model.ModelValue,
+			ID:            model.ID,
+			DisplayName:   model.DisplayName,
+			Provider:      model.Provider,
+			Category:      model.Category,
+			UsageURL:      model.UsageURL,
+			Configured:    anyConfigured,
+			Runners:       runners,
+			PreferredTool: preferredTool,
 		})
 	}
 	return resp, nil
@@ -185,23 +220,39 @@ func targetInUseByNudgenikOrQuickLaunch(cfg *config.Config, targetName string) b
 }
 
 func modelConfigured(model detect.Model) (bool, error) {
+	for _, spec := range model.Runners {
+		if len(spec.RequiredSecrets) == 0 {
+			return true, nil // No secrets needed for at least one runner
+		}
+	}
+	// Check if any runner has its secrets configured
 	secrets, err := config.GetEffectiveModelSecrets(model)
 	if err != nil {
 		return false, err
 	}
-	for _, key := range model.RequiredSecrets {
-		if strings.TrimSpace(secrets[key]) == "" {
-			return false, nil
+	for _, spec := range model.Runners {
+		allPresent := true
+		for _, key := range spec.RequiredSecrets {
+			if strings.TrimSpace(secrets[key]) == "" {
+				allPresent = false
+				break
+			}
+		}
+		if allPresent {
+			return true, nil
 		}
 	}
-	return true, nil
+	return false, nil
 }
 
 func validateModelSecrets(model detect.Model, secrets map[string]string) error {
-	for _, key := range model.RequiredSecrets {
-		val := strings.TrimSpace(secrets[key])
-		if val == "" {
-			return fmt.Errorf("missing required secret %s", key)
+	// Find required secrets from any runner that needs them
+	for _, spec := range model.Runners {
+		for _, key := range spec.RequiredSecrets {
+			val := strings.TrimSpace(secrets[key])
+			if val == "" {
+				return fmt.Errorf("missing required secret %s", key)
+			}
 		}
 	}
 	return nil

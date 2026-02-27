@@ -36,19 +36,19 @@ export function WorkflowTab() {
         <tbody>
           <tr>
             <td>
-              <code>claude-opus</code>
+              <code>claude-opus-4-6</code>
             </td>
             <td>Complex reasoning, architecture, large refactors</td>
           </tr>
           <tr>
             <td>
-              <code>claude-sonnet</code>
+              <code>claude-sonnet-4-6</code>
             </td>
             <td>Balanced speed/quality, feature work, debugging</td>
           </tr>
           <tr>
             <td>
-              <code>claude-haiku</code>
+              <code>claude-haiku-4-5</code>
             </td>
             <td>Quick edits, documentation, simple tasks</td>
           </tr>
@@ -71,7 +71,7 @@ export function WorkflowTab() {
       <ol className={styles.numberedList}>
         <li>
           <strong>Create a feature branch:</strong>{' '}
-          <code>schmux spawn -r myrepo -b feature-x -t claude-haiku -p "create feature X"</code>
+          <code>schmux spawn -r myrepo -b feature-x -t claude-haiku-4-5 -p "create feature X"</code>
         </li>
         <li>
           <strong>Let the agent work:</strong> Monitor via dashboard or attach with tmux to watch in

@@ -22,7 +22,7 @@ func TestFloorManagerConfigDefaults(t *testing.T) {
 }
 
 func TestFloorManagerConfigJSON(t *testing.T) {
-	raw := `{"floor_manager":{"enabled":true,"target":"claude-sonnet","rotation_threshold":200,"debounce_ms":3000}}`
+	raw := `{"floor_manager":{"enabled":true,"target":"claude-sonnet-4-6","rotation_threshold":200,"debounce_ms":3000}}`
 	cfg := &Config{}
 	if err := json.Unmarshal([]byte(raw), cfg); err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestFloorManagerConfigJSON(t *testing.T) {
 	if !cfg.GetFloorManagerEnabled() {
 		t.Error("expected floor manager enabled")
 	}
-	if cfg.GetFloorManagerTarget() != "claude-sonnet" {
+	if cfg.GetFloorManagerTarget() != "claude-sonnet-4-6" {
 		t.Errorf("expected target claude-sonnet, got %s", cfg.GetFloorManagerTarget())
 	}
 	if cfg.GetFloorManagerRotationThreshold() != 200 {

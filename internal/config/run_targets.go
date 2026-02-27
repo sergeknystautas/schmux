@@ -58,13 +58,16 @@ func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, b
 	// Check if it's a model ID or alias
 	model, ok := detect.FindModel(name)
 	if ok {
-		// Check if the model's base tool is detected
+		// Check if any of the model's runners' tools are detected
 		for _, target := range detected {
-			if target.Name == model.BaseTool && target.Source == RunTargetSourceDetected {
+			if target.Source != RunTargetSourceDetected {
+				continue
+			}
+			if _, hasRunner := model.Runners[target.Name]; hasRunner {
 				return true, true
 			}
 		}
-		// Model exists but base tool not detected
+		// Model exists but no runner's tool is detected
 		return true, false
 	}
 	if detect.IsBuiltinToolName(name) {

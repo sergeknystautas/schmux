@@ -110,9 +110,11 @@ export default function ConfigPage() {
         if (!active) return;
 
         const detectedItems = (data.run_targets || []).filter((t) => t.source === 'detected');
-        const modelBaseTools = new Set((data.models || []).map((model) => model.base_tool));
+        const modelRunnerTools = new Set(
+          (data.models || []).flatMap((model) => Object.keys(model.runners || {}))
+        );
         const filteredDetectedItems = detectedItems.filter(
-          (target) => !modelBaseTools.has(target.name)
+          (target) => !modelRunnerTools.has(target.name)
         );
         const promptableItems = (data.run_targets || []).filter(
           (t) => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'model'
@@ -163,7 +165,7 @@ export default function ConfigPage() {
             soundDisabled: data.notifications?.sound_disabled || false,
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
             suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
-            modelVersions: data.model_versions || {},
+            enabledModels: data.enabled_models || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
@@ -224,7 +226,7 @@ export default function ConfigPage() {
             soundDisabled: data.notifications?.sound_disabled || false,
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
             suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
-            modelVersions: data.model_versions || {},
+            enabledModels: data.enabled_models || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
             loreCurateOnDispose: data.lore?.curate_on_dispose || 'session',
@@ -571,7 +573,7 @@ export default function ConfigPage() {
           target: state.subredditTarget,
           hours: state.subredditHours,
         },
-        model_versions: state.modelVersions,
+        enabled_models: state.enabledModels,
         remote_access: {
           enabled: state.remoteAccessEnabled,
           timeout_minutes: state.remoteAccessTimeoutMinutes,
@@ -900,7 +902,8 @@ export default function ConfigPage() {
       return;
     }
 
-    const secretKey = (model.required_secrets || [])[0];
+    const allSecrets = Object.values(model.runners || {}).flatMap((r) => r.required_secrets || []);
+    const secretKey = allSecrets[0];
     if (!secretKey) return;
 
     const title = mode === 'add' ? `Add ${model.display_name}` : `Update ${model.display_name}`;
@@ -1387,7 +1390,6 @@ export default function ConfigPage() {
               soundDisabled={state.soundDisabled}
               confirmBeforeClose={state.confirmBeforeClose}
               suggestDisposeAfterPush={state.suggestDisposeAfterPush}
-              modelVersions={state.modelVersions}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}
               gitCloneTimeout={state.gitCloneTimeout}

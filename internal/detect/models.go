@@ -4,212 +4,324 @@ import (
 	"sort"
 )
 
-// Model represents an AI model that can be used for spawning sessions.
-type Model struct {
-	ID              string   // e.g., "claude-sonnet", "kimi-thinking"
-	DisplayName     string   // e.g., "claude sonnet 4.5", "Kimi K2 Thinking"
-	BaseTool        string   // e.g., "claude" (the CLI tool to invoke)
-	Provider        string   // e.g., "anthropic", "moonshot", "zai", "minimax"
-	Endpoint        string   // API endpoint (empty = default Anthropic)
-	ModelValue      string   // Value for ANTHROPIC_MODEL env var
-	ModelFlag       string   // CLI flag for model selection (e.g., "--model" for Codex)
-	RequiredSecrets []string // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
-	UsageURL        string   // Signup/pricing page
-	Category        string   // "native" or "third-party" (for UI grouping)
+// RunnerSpec describes how a specific tool executes a model.
+type RunnerSpec struct {
+	ModelValue      string   // Value passed to the tool (e.g., "claude-opus-4-6", "anthropic/claude-opus-4-6")
+	Endpoint        string   // API endpoint override (empty = tool's default)
+	RequiredSecrets []string // Secrets needed when using THIS tool for THIS model
 }
 
-// BuildEnv builds the environment variables map for this model.
-func (m Model) BuildEnv() map[string]string {
-	env := map[string]string{}
-	// Skip ANTHROPIC_MODEL for tools that use CLI flags (e.g., Codex with --model)
-	if m.ModelFlag == "" {
-		env["ANTHROPIC_MODEL"] = m.ModelValue
+// Model represents an AI model that can be used for spawning sessions.
+type Model struct {
+	ID          string                // e.g., "claude-sonnet-4-6", "kimi-thinking"
+	DisplayName string                // e.g., "claude sonnet 4.5", "Kimi K2 Thinking"
+	Provider    string                // e.g., "anthropic", "moonshot", "zai", "minimax"
+	UsageURL    string                // Signup/pricing page
+	Category    string                // "native" or "third-party" (for UI grouping)
+	Runners     map[string]RunnerSpec // tool name -> how to run this model with that tool
+}
+
+// RunnerFor returns the RunnerSpec for the given tool, if this model supports it.
+func (m Model) RunnerFor(tool string) (RunnerSpec, bool) {
+	if m.Runners == nil {
+		return RunnerSpec{}, false
 	}
-	if m.Endpoint != "" {
-		env["ANTHROPIC_BASE_URL"] = m.Endpoint
-		// Third-party models need all tier overrides
-		env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = m.ModelValue
-		env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = m.ModelValue
-		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = m.ModelValue
-		env["CLAUDE_CODE_SUBAGENT_MODEL"] = m.ModelValue
+	spec, ok := m.Runners[tool]
+	return spec, ok
+}
+
+// SortedRunnerKeys returns the tool names from a Runners map in sorted order.
+func SortedRunnerKeys(runners map[string]RunnerSpec) []string {
+	keys := make([]string, 0, len(runners))
+	for k := range runners {
+		keys = append(keys, k)
 	}
-	return env
+	sort.Strings(keys)
+	return keys
 }
 
 // builtinModels defines the canonical model IDs and display names exposed to the UI.
 var builtinModels = []Model{
-	// Native Claude models - use tier names, CLI will resolve to latest
+	// Native Claude models - use vendor-defined model IDs
 	{
-		ID:          "claude-opus",
-		DisplayName: "claude opus",
-		BaseTool:    "claude",
+		ID:          "claude-opus-4-6",
+		DisplayName: "Claude Opus 4.6",
 		Provider:    "anthropic",
-		ModelValue:  "opus",
-		ModelFlag:   "--model",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "opus"},
+			"opencode": {ModelValue: "anthropic/claude-opus-4-6"},
+		},
 	},
 	{
-		ID:          "claude-sonnet",
-		DisplayName: "claude sonnet",
-		BaseTool:    "claude",
+		ID:          "claude-sonnet-4-6",
+		DisplayName: "Claude Sonnet 4.6",
 		Provider:    "anthropic",
-		ModelValue:  "sonnet",
-		ModelFlag:   "--model",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "sonnet"},
+			"opencode": {ModelValue: "anthropic/claude-sonnet-4-6"},
+		},
 	},
 	{
-		ID:          "claude-haiku",
-		DisplayName: "claude haiku",
-		BaseTool:    "claude",
+		ID:          "claude-haiku-4-5",
+		DisplayName: "Claude Haiku 4.5",
 		Provider:    "anthropic",
-		ModelValue:  "haiku",
-		ModelFlag:   "--model",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "haiku"},
+			"opencode": {ModelValue: "anthropic/claude-haiku-4-5"},
+		},
+	},
+	{
+		ID:          "claude-opus-4",
+		DisplayName: "Claude Opus 4",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-opus-4-20250514"},
+			"opencode": {ModelValue: "anthropic/claude-opus-4-20250514"},
+		},
+	},
+	{
+		ID:          "claude-sonnet-4-5",
+		DisplayName: "Claude Sonnet 4.5",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-sonnet-4-5-20250514"},
+			"opencode": {ModelValue: "anthropic/claude-sonnet-4-5-20250514"},
+		},
+	},
+	{
+		ID:          "claude-sonnet-4",
+		DisplayName: "Claude Sonnet 4",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-sonnet-4-20250514"},
+			"opencode": {ModelValue: "anthropic/claude-sonnet-4-20250514"},
+		},
+	},
+	{
+		ID:          "claude-sonnet-3-5",
+		DisplayName: "Claude Sonnet 3.5",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-3-5-sonnet-20241022"},
+			"opencode": {ModelValue: "anthropic/claude-3-5-sonnet-20241022"},
+		},
+	},
+	{
+		ID:          "claude-haiku-3-5",
+		DisplayName: "Claude Haiku 3.5",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-3-5-haiku-20241022"},
+			"opencode": {ModelValue: "anthropic/claude-3-5-haiku-20241022"},
+		},
 	},
 	// Third-party models
 	{
-		ID:              "kimi-thinking",
-		DisplayName:     "kimi k2 thinking",
-		BaseTool:        "claude",
-		Provider:        "moonshot",
-		Endpoint:        "https://api.moonshot.ai/anthropic",
-		ModelValue:      "kimi-thinking",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://platform.moonshot.ai/console/account",
-		Category:        "third-party",
+		ID:          "kimi-thinking",
+		DisplayName: "kimi k2 thinking",
+		Provider:    "moonshot",
+		UsageURL:    "https://platform.moonshot.ai/console/account",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "kimi-thinking",
+				Endpoint:        "https://api.moonshot.ai/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "moonshot/kimi-thinking"},
+		},
 	},
 	{
-		ID:              "kimi-k2.5",
-		DisplayName:     "kimi k2.5",
-		BaseTool:        "claude",
-		Provider:        "moonshot",
-		Endpoint:        "https://api.moonshot.ai/anthropic",
-		ModelValue:      "kimi-k2.5",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://platform.moonshot.ai/console/account",
-		Category:        "third-party",
+		ID:          "kimi-k2.5",
+		DisplayName: "kimi k2.5",
+		Provider:    "moonshot",
+		UsageURL:    "https://platform.moonshot.ai/console/account",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "kimi-k2.5",
+				Endpoint:        "https://api.moonshot.ai/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "moonshot/kimi-k2.5"},
+		},
 	},
 	{
-		ID:              "glm-4.7",
-		DisplayName:     "glm 4.7",
-		BaseTool:        "claude",
-		Provider:        "zai",
-		Endpoint:        "https://api.z.ai/api/anthropic",
-		ModelValue:      "glm-4.7",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://z.ai/manage-apikey/subscription",
-		Category:        "third-party",
+		ID:          "glm-4.7",
+		DisplayName: "glm 4.7",
+		Provider:    "zai",
+		UsageURL:    "https://z.ai/manage-apikey/subscription",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "glm-4.7",
+				Endpoint:        "https://api.z.ai/api/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "zhipu/glm-4.7"},
+		},
 	},
 	{
-		ID:              "glm-4.5-air",
-		DisplayName:     "glm 4.5 air",
-		BaseTool:        "claude",
-		Provider:        "zai",
-		Endpoint:        "https://api.z.ai/api/anthropic",
-		ModelValue:      "glm-4.5-air",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://z.ai/manage-apikey/subscription",
-		Category:        "third-party",
+		ID:          "glm-4.5-air",
+		DisplayName: "glm 4.5 air",
+		Provider:    "zai",
+		UsageURL:    "https://z.ai/manage-apikey/subscription",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "glm-4.5-air",
+				Endpoint:        "https://api.z.ai/api/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "zhipu/glm-4.5-air"},
+		},
 	},
 	{
-		ID:              "glm-5",
-		DisplayName:     "glm 5",
-		BaseTool:        "claude",
-		Provider:        "zai",
-		Endpoint:        "https://api.z.ai/api/anthropic",
-		ModelValue:      "glm-5",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://z.ai/manage-apikey/subscription",
-		Category:        "third-party",
+		ID:          "glm-5",
+		DisplayName: "glm 5",
+		Provider:    "zai",
+		UsageURL:    "https://z.ai/manage-apikey/subscription",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "glm-5",
+				Endpoint:        "https://api.z.ai/api/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "zhipu/glm-5"},
+		},
 	},
 	{
-		ID:              "minimax",
-		DisplayName:     "minimax m2.1",
-		BaseTool:        "claude",
-		Provider:        "minimax",
-		Endpoint:        "https://api.minimax.io/anthropic",
-		ModelValue:      "minimax-m2.1",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://platform.minimax.io/user-center/payment/coding-plan",
-		Category:        "third-party",
+		ID:          "minimax-m2.1",
+		DisplayName: "minimax m2.1",
+		Provider:    "minimax",
+		UsageURL:    "https://platform.minimax.io/user-center/payment/coding-plan",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "minimax-m2.1",
+				Endpoint:        "https://api.minimax.io/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "minimax/minimax-m2.1"},
+		},
 	},
 	{
-		ID:              "minimax-2.5",
-		DisplayName:     "minimax m2.5",
-		BaseTool:        "claude",
-		Provider:        "minimax",
-		Endpoint:        "https://api.minimax.io/anthropic",
-		ModelValue:      "minimax-2.5",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://platform.minimax.io/user-center/payment/coding-plan",
-		Category:        "third-party",
+		ID:          "minimax-2.5",
+		DisplayName: "minimax m2.5",
+		Provider:    "minimax",
+		UsageURL:    "https://platform.minimax.io/user-center/payment/coding-plan",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "minimax-2.5",
+				Endpoint:        "https://api.minimax.io/anthropic",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "minimax/minimax-2.5"},
+		},
 	},
 	{
-		ID:              "qwen3-coder-plus",
-		DisplayName:     "qwen 3 coder plus",
-		BaseTool:        "claude",
-		Provider:        "dashscope",
-		Endpoint:        "https://dashscope-intl.aliyuncs.com/api/v2/apps/claude-code-proxy",
-		ModelValue:      "qwen3-coder-plus",
-		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
-		UsageURL:        "https://dashscope-intl.aliyuncs.com",
-		Category:        "third-party",
+		ID:          "qwen3-coder-plus",
+		DisplayName: "qwen 3 coder plus",
+		Provider:    "dashscope",
+		UsageURL:    "https://dashscope-intl.aliyuncs.com",
+		Category:    "third-party",
+		Runners: map[string]RunnerSpec{
+			"claude": {
+				ModelValue:      "qwen3-coder-plus",
+				Endpoint:        "https://dashscope-intl.aliyuncs.com/api/v2/apps/claude-code-proxy",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+			"opencode": {ModelValue: "dashscope/qwen3-coder-plus"},
+		},
 	},
 	// Codex models
 	{
 		ID:          "gpt-5.2-codex",
 		DisplayName: "gpt 5.2 codex",
-		BaseTool:    "codex",
 		Provider:    "openai",
-		ModelValue:  "gpt-5.2-codex",
-		ModelFlag:   "-m",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex": {ModelValue: "gpt-5.2-codex"},
+		},
 	},
 	{
 		ID:          "gpt-5.3-codex",
 		DisplayName: "gpt 5.3 codex",
-		BaseTool:    "codex",
 		Provider:    "openai",
-		ModelValue:  "gpt-5.3-codex",
-		ModelFlag:   "-m",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex": {ModelValue: "gpt-5.3-codex"},
+		},
 	},
 	{
 		ID:          "gpt-5.1-codex-max",
 		DisplayName: "gpt 5.1 codex max",
-		BaseTool:    "codex",
 		Provider:    "openai",
-		ModelValue:  "gpt-5.1-codex-max",
-		ModelFlag:   "-m",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex": {ModelValue: "gpt-5.1-codex-max"},
+		},
 	},
 	{
 		ID:          "gpt-5.1-codex-mini",
 		DisplayName: "gpt 5.1 codex mini",
-		BaseTool:    "codex",
 		Provider:    "openai",
-		ModelValue:  "gpt-5.1-codex-mini",
-		ModelFlag:   "-m",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex": {ModelValue: "gpt-5.1-codex-mini"},
+		},
 	},
 	// OpenCode models
 	{
 		ID:          "opencode-zen",
 		DisplayName: "opencode zen (free)",
-		BaseTool:    "opencode",
 		Provider:    "opencode-zen",
-		ModelValue:  "", // uses opencode's default Zen model
-		ModelFlag:   "--model",
 		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"opencode": {ModelValue: ""},
+		},
 	},
-}
-
-// modelAliases maps short aliases and old version IDs to current model IDs.
-var modelAliases = map[string]string{
-	"opus":         "claude-opus",
-	"sonnet":       "claude-sonnet",
-	"haiku":        "claude-haiku",
-	"minimax-m2.1": "minimax", // backward compat for old ID
+	// Google models
+	{
+		ID:          "gemini-2.5-pro",
+		DisplayName: "Gemini 2.5 Pro",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-2.5-pro"},
+			"opencode": {ModelValue: "google/gemini-2.5-pro"},
+		},
+	},
+	{
+		ID:          "gemini-2.5-flash",
+		DisplayName: "Gemini 2.5 Flash",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-2.5-flash"},
+			"opencode": {ModelValue: "google/gemini-2.5-flash"},
+		},
+	},
+	{
+		ID:          "gemini-2.0-flash",
+		DisplayName: "Gemini 2.0 Flash",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-2.0-flash"},
+			"opencode": {ModelValue: "google/gemini-2.0-flash"},
+		},
+	},
 }
 
 // GetBuiltinModels returns a copy of the built-in models.
@@ -219,12 +331,38 @@ func GetBuiltinModels() []Model {
 	return out
 }
 
-// FindModel returns a built-in model by ID or alias.
-func FindModel(id string) (Model, bool) {
-	// Check for alias first
-	if fullID, ok := modelAliases[id]; ok {
-		id = fullID
+// legacyIDMigrations maps old model IDs to current vendor-defined IDs.
+var legacyIDMigrations = map[string]string{
+	"claude-opus":   "claude-opus-4-6",
+	"claude-sonnet": "claude-sonnet-4-6",
+	"claude-haiku":  "claude-haiku-4-5",
+	"opus":          "claude-opus-4-6",
+	"sonnet":        "claude-sonnet-4-6",
+	"haiku":         "claude-haiku-4-5",
+	"minimax":       "minimax-m2.1",
+}
+
+// MigrateModelID converts a legacy model ID to the current vendor-defined ID.
+// Returns the input unchanged if it's not a legacy ID.
+func MigrateModelID(id string) string {
+	if newID, ok := legacyIDMigrations[id]; ok {
+		return newID
 	}
+	return id
+}
+
+// LegacyIDMigrations returns a copy of the legacy ID migration map.
+func LegacyIDMigrations() map[string]string {
+	out := make(map[string]string, len(legacyIDMigrations))
+	for k, v := range legacyIDMigrations {
+		out[k] = v
+	}
+	return out
+}
+
+// FindModel returns a built-in model by ID.
+func FindModel(id string) (Model, bool) {
+	id = MigrateModelID(id)
 	for _, m := range builtinModels {
 		if m.ID == id {
 			return m, true
@@ -233,16 +371,13 @@ func FindModel(id string) (Model, bool) {
 	return Model{}, false
 }
 
-// IsModelID reports whether id matches a built-in model ID or alias.
+// IsModelID reports whether id matches a built-in model ID.
 func IsModelID(id string) bool {
-	if _, ok := modelAliases[id]; ok {
-		return true
-	}
 	_, ok := FindModel(id)
 	return ok
 }
 
-// GetAvailableModels returns models whose base tool is detected.
+// GetAvailableModels returns models where at least one runner's tool is detected.
 func GetAvailableModels(detected []Tool) []Model {
 	tools := make(map[string]bool, len(detected))
 	for _, tool := range detected {
@@ -251,8 +386,11 @@ func GetAvailableModels(detected []Tool) []Model {
 
 	var out []Model
 	for _, m := range builtinModels {
-		if tools[m.BaseTool] {
-			out = append(out, m)
+		for toolName := range m.Runners {
+			if tools[toolName] {
+				out = append(out, m)
+				break
+			}
 		}
 	}
 
@@ -260,4 +398,34 @@ func GetAvailableModels(detected []Tool) []Model {
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// FirstRunnerKey returns the first sorted runner key from the model's Runners map.
+// Returns empty string if the model has no runners.
+func (m Model) FirstRunnerKey() string {
+	keys := SortedRunnerKeys(m.Runners)
+	if len(keys) > 0 {
+		return keys[0]
+	}
+	return ""
+}
+
+// FirstRunnerRequiredSecrets returns the RequiredSecrets from the first sorted runner.
+// Returns nil if no runners exist or the first runner has no required secrets.
+func (m Model) FirstRunnerRequiredSecrets() []string {
+	keys := SortedRunnerKeys(m.Runners)
+	if len(keys) > 0 {
+		return m.Runners[keys[0]].RequiredSecrets
+	}
+	return nil
+}
+
+// FirstRunnerModelValue returns the ModelValue from the first sorted runner.
+// Returns empty string if no runners exist.
+func (m Model) FirstRunnerModelValue() string {
+	keys := SortedRunnerKeys(m.Runners)
+	if len(keys) > 0 {
+		return m.Runners[keys[0]].ModelValue
+	}
+	return ""
 }

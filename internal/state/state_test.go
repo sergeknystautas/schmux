@@ -1571,3 +1571,85 @@ func TestAddSession_Upsert(t *testing.T) {
 		t.Errorf("expected target %q, got %q", "codex", sessions[0].Target)
 	}
 }
+
+func TestMigrateSessionTargets(t *testing.T) {
+	sessions := []Session{
+		{ID: "s1", Target: "claude-opus"},
+		{ID: "s2", Target: "minimax"},
+		{ID: "s3", Target: "claude-opus-4-6"}, // already migrated
+		{ID: "s4", Target: ""},                // empty target
+	}
+
+	changed := migrateSessionTargets(sessions)
+	if !changed {
+		t.Error("expected migration to occur")
+	}
+	if sessions[0].Target != "claude-opus-4-6" {
+		t.Errorf("sessions[0].Target = %q, want %q", sessions[0].Target, "claude-opus-4-6")
+	}
+	if sessions[1].Target != "minimax-m2.1" {
+		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "minimax-m2.1")
+	}
+	if sessions[2].Target != "claude-opus-4-6" {
+		t.Errorf("sessions[2].Target = %q, want %q", sessions[2].Target, "claude-opus-4-6")
+	}
+	if sessions[3].Target != "" {
+		t.Errorf("sessions[3].Target = %q, want empty", sessions[3].Target)
+	}
+}
+
+func TestMigrateSessionTargets_NoChange(t *testing.T) {
+	sessions := []Session{
+		{ID: "s1", Target: "claude-opus-4-6"},
+		{ID: "s2", Target: "minimax-m2.1"},
+	}
+
+	changed := migrateSessionTargets(sessions)
+	if changed {
+		t.Error("should return false when no legacy IDs present")
+	}
+}
+
+func TestMigrateSessionTargets_Empty(t *testing.T) {
+	changed := migrateSessionTargets(nil)
+	if changed {
+		t.Error("should return false for nil sessions")
+	}
+	changed = migrateSessionTargets([]Session{})
+	if changed {
+		t.Error("should return false for empty sessions")
+	}
+}
+
+func TestMigrateSessionTargets_ViaLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	// Write a state file with legacy session targets
+	stateJSON := `{
+		"workspaces": [],
+		"sessions": [
+			{"id": "s1", "workspace_id": "w1", "target": "claude-opus", "tmux_session": "t1", "created_at": "2025-01-01T00:00:00Z"},
+			{"id": "s2", "workspace_id": "w1", "target": "minimax", "tmux_session": "t2", "created_at": "2025-01-01T00:00:00Z"}
+		]
+	}`
+	if err := os.WriteFile(statePath, []byte(stateJSON), 0644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	st, err := Load(statePath, nil)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	sessions := st.GetSessions()
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].Target != "claude-opus-4-6" {
+		t.Errorf("sessions[0].Target = %q, want %q", sessions[0].Target, "claude-opus-4-6")
+	}
+	if sessions[1].Target != "minimax-m2.1" {
+		t.Errorf("sessions[1].Target = %q, want %q", sessions[1].Target, "minimax-m2.1")
+	}
+}

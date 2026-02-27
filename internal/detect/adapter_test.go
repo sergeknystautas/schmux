@@ -59,13 +59,24 @@ func TestAdapterInteractiveArgs(t *testing.T) {
 		t.Errorf("claude InteractiveArgs(nil, false) = %v, want empty", args)
 	}
 
-	// Claude interactive with model flag
-	model := &Model{ModelFlag: "--model", ModelValue: "sonnet"}
+	// Claude interactive with model via Runners
+	model := &Model{
+		Runners: map[string]RunnerSpec{
+			"claude": {ModelValue: "sonnet"},
+		},
+	}
 	args = a.InteractiveArgs(model, false)
 	assertSliceEqual(t, args, []string{"--model", "sonnet"})
 
-	// Empty ModelValue should not produce --model ""
-	emptyModel := &Model{ModelFlag: "--model", ModelValue: ""}
+	// Empty ModelValue in runner should not produce --model ""
+	emptyModel := &Model{
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: ""},
+			"codex":    {ModelValue: ""},
+			"gemini":   {ModelValue: ""},
+			"opencode": {ModelValue: ""},
+		},
+	}
 	for _, tool := range []string{"claude", "codex", "gemini", "opencode"} {
 		a := GetAdapter(tool)
 		args := a.InteractiveArgs(emptyModel, false)

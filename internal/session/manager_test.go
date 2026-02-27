@@ -361,7 +361,7 @@ func TestBuildCommand(t *testing.T) {
 		{
 			name: "claude model with prompt",
 			target: ResolvedTarget{
-				Name:       "claude-sonnet",
+				Name:       "claude-sonnet-4-6",
 				Kind:       TargetKindModel,
 				Command:    "claude",
 				Promptable: true,
@@ -390,13 +390,14 @@ func TestBuildCommand(t *testing.T) {
 				Command:    "codex",
 				Promptable: true,
 				Env:        map[string]string{}, // No ANTHROPIC_MODEL for Codex
+				ToolName:   "codex",
 			},
 			prompt: "write a function",
 			model: &detect.Model{
-				ID:         "gpt-5.2-codex",
-				BaseTool:   "codex",
-				ModelValue: "gpt-5.2-codex",
-				ModelFlag:  "-m",
+				ID: "gpt-5.2-codex",
+				Runners: map[string]detect.RunnerSpec{
+					"codex": {ModelValue: "gpt-5.2-codex"},
+				},
 			},
 			resume:  false,
 			wantErr: false,
@@ -422,13 +423,14 @@ func TestBuildCommand(t *testing.T) {
 				Env: map[string]string{
 					"SOME_VAR": "value",
 				},
+				ToolName: "codex",
 			},
 			prompt: "test prompt",
 			model: &detect.Model{
-				ID:         "gpt-5.3-codex",
-				BaseTool:   "codex",
-				ModelValue: "gpt-5.3-codex",
-				ModelFlag:  "-m",
+				ID: "gpt-5.3-codex",
+				Runners: map[string]detect.RunnerSpec{
+					"codex": {ModelValue: "gpt-5.3-codex"},
+				},
 			},
 			resume:  false,
 			wantErr: false,
@@ -517,19 +519,21 @@ func TestBuildCommand(t *testing.T) {
 		{
 			name: "resume mode with claude and model env vars",
 			target: ResolvedTarget{
-				Name:       "claude-opus",
+				Name:       "claude-opus-4-6",
 				Kind:       TargetKindModel,
 				Command:    "claude",
 				Promptable: true,
 				Env: map[string]string{
 					"ANTHROPIC_MODEL": "claude-opus-4-5-20251101",
 				},
+				ToolName: "claude",
 			},
 			prompt: "",
 			model: &detect.Model{
-				ID:         "claude-opus",
-				BaseTool:   "claude",
-				ModelValue: "claude-opus-4-5-20251101",
+				ID: "claude-opus-4-6",
+				Runners: map[string]detect.RunnerSpec{
+					"claude": {ModelValue: "claude-opus-4-5-20251101"},
+				},
 			},
 			resume:  true,
 			wantErr: false,
@@ -613,7 +617,7 @@ func TestBuildCommand(t *testing.T) {
 		{
 			name: "remote mode claude with env vars uses hooks",
 			target: ResolvedTarget{
-				Name:       "claude-opus",
+				Name:       "claude-opus-4-6",
 				Kind:       TargetKindModel,
 				Command:    "claude",
 				Promptable: true,

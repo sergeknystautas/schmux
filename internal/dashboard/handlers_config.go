@@ -105,11 +105,22 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		if !model.Configured {
 			continue
 		}
-		baseTarget, found := s.config.GetDetectedRunTarget(model.BaseTool)
-		if !found {
+		if _, exists := seenTargets[model.ID]; exists {
 			continue
 		}
-		if _, exists := seenTargets[model.ID]; exists {
+		// Find the first available runner tool to use as the base target
+		var baseTarget config.RunTarget
+		found := false
+		for toolName, ri := range model.Runners {
+			if ri.Available && ri.Configured {
+				if bt, ok := s.config.GetDetectedRunTarget(toolName); ok {
+					baseTarget = bt
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
 			continue
 		}
 		runTargetResp = append(runTargetResp, contracts.RunTarget{
@@ -130,7 +141,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
 		Models:                     models,
-		ModelVersions:              s.config.GetModelVersions(),
+		EnabledModels:              s.config.GetEnabledModels(),
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),
@@ -589,8 +600,8 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.ModelVersions != nil {
-		cfg.SetModelVersions(*req.ModelVersions)
+	if req.EnabledModels != nil {
+		cfg.SetEnabledModels(*req.EnabledModels)
 	}
 
 	if req.RemoteAccess != nil {

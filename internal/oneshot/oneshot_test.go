@@ -68,40 +68,43 @@ func TestBuildOneShotCommand(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:         "codex with model flag",
+			name:         "codex with model via Runners",
 			agentName:    "codex",
 			agentCommand: "codex",
 			jsonSchema:   "",
 			model: &detect.Model{
-				ID:         "gpt-5.2-codex",
-				ModelValue: "gpt-5.2-codex",
-				ModelFlag:  "-m",
+				ID: "gpt-5.2-codex",
+				Runners: map[string]detect.RunnerSpec{
+					"codex": {ModelValue: "gpt-5.2-codex"},
+				},
 			},
 			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.2-codex"},
 			wantErr: false,
 		},
 		{
-			name:         "codex with model flag and json schema",
+			name:         "codex with model and json schema",
 			agentName:    "codex",
 			agentCommand: "codex",
 			jsonSchema:   "/tmp/schema.json",
 			model: &detect.Model{
-				ID:         "gpt-5.3-codex",
-				ModelValue: "gpt-5.3-codex",
-				ModelFlag:  "-m",
+				ID: "gpt-5.3-codex",
+				Runners: map[string]detect.RunnerSpec{
+					"codex": {ModelValue: "gpt-5.3-codex"},
+				},
 			},
 			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.3-codex", "--output-schema", "/tmp/schema.json"},
 			wantErr: false,
 		},
 		{
-			name:         "claude with model flag is ignored (no flag)",
+			name:         "claude model uses RunnerFor - no oneshot model injection",
 			agentName:    "claude",
 			agentCommand: "claude",
 			jsonSchema:   "",
 			model: &detect.Model{
-				ID:         "claude-sonnet",
-				ModelValue: "claude-sonnet-4-5-20250929",
-				ModelFlag:  "", // No flag - uses env vars
+				ID: "claude-sonnet-4-6",
+				Runners: map[string]detect.RunnerSpec{
+					"claude": {ModelValue: "claude-sonnet-4-5-20250929"},
+				},
 			},
 			want:    []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"},
 			wantErr: false,

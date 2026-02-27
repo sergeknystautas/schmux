@@ -84,7 +84,8 @@ export default function SessionsTab({
               <div className="item-list__item-primary">
                 <span className="item-list__item-name">{model.display_name}</span>
                 <span className="item-list__item-detail">
-                  {model.id} · base: {model.base_tool}
+                  {model.id}
+                  {model.preferred_tool ? ` · via ${model.preferred_tool}` : ''}
                 </span>
                 {model.usage_url && (
                   <a
@@ -97,7 +98,9 @@ export default function SessionsTab({
                   </a>
                 )}
               </div>
-              {model.required_secrets && model.required_secrets.length > 0 ? (
+              {Object.values(model.runners || {}).some(
+                (r) => r.required_secrets && r.required_secrets.length > 0
+              ) ? (
                 model.configured ? (
                   <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
                     <button

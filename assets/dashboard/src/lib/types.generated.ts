@@ -70,7 +70,7 @@ export interface ConfigResponse {
   external_diff_commands?: ExternalDiffCommand[];
   external_diff_cleanup_after_ms?: number;
   models: Model[];
-  model_versions?: Record<string, string>;
+  enabled_models?: Record<string, string>;
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
@@ -114,7 +114,7 @@ export interface ConfigUpdateRequest {
   subreddit?: SubredditUpdate;
   floor_manager?: FloorManagerUpdate;
   remote_access?: RemoteAccessUpdate;
-  model_versions?: Record<string, string>;
+  enabled_models?: Record<string, string>;
 }
 
 export interface ConflictResolve {
@@ -261,14 +261,12 @@ export interface LoreUpdate {
 export interface Model {
   id: string;
   display_name: string;
-  base_tool: string;
   provider: string;
   category: string;
-  required_secrets?: string[];
   usage_url?: string;
   configured: boolean;
-  pinned_version?: string;
-  default_value: string;
+  runners: Record<string, RunnerInfo>;
+  preferred_tool?: string;
 }
 
 export interface Network {
@@ -432,6 +430,12 @@ export interface RunTarget {
   type: string;
   command: string;
   source?: string;
+}
+
+export interface RunnerInfo {
+  available: boolean;
+  configured: boolean;
+  required_secrets?: string[];
 }
 
 export interface Sessions {

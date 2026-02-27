@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 )
 
@@ -186,7 +187,29 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		st.Sessions[i].LastOutputAt = time.Time{}
 	}
 
+	// Migrate legacy model IDs in session targets
+	if migrateSessionTargets(st.Sessions) {
+		// Best-effort save to persist migration
+		_ = st.saveNow()
+	}
+
 	return &st, nil
+}
+
+// migrateSessionTargets updates legacy model IDs in session targets.
+// Returns true if any targets were migrated.
+func migrateSessionTargets(sessions []Session) bool {
+	changed := false
+	for i := range sessions {
+		if sessions[i].Target != "" {
+			newTarget := detect.MigrateModelID(sessions[i].Target)
+			if newTarget != sessions[i].Target {
+				sessions[i].Target = newTarget
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // Save saves the state to its configured path immediately.

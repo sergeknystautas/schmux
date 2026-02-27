@@ -13,20 +13,18 @@ const models: Model[] = [
   {
     id: 'gpt-4',
     display_name: 'GPT-4',
-    base_tool: 'openai',
     provider: 'openai',
     category: 'external',
     configured: true,
-    default_value: 'gpt-4',
+    runners: { openai: { available: true, configured: true } },
   },
   {
     id: 'unconfigured-model',
     display_name: 'Unconfigured',
-    base_tool: 'x',
     provider: 'x',
     category: 'external',
     configured: false,
-    default_value: 'x',
+    runners: { x: { available: true, configured: false } },
   },
 ];
 

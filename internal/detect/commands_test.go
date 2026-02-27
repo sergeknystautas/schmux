@@ -86,10 +86,10 @@ func TestBuildCommandParts_ResumeMode(t *testing.T) {
 func TestBuildCommandParts_ResumeWithModel(t *testing.T) {
 	// Resume mode should ignore model flags (uses agent's resume command directly)
 	model := &Model{
-		ID:         "test-model",
-		BaseTool:   "claude",
-		ModelFlag:  "--model",
-		ModelValue: "custom-model",
+		ID: "test-model",
+		Runners: map[string]RunnerSpec{
+			"claude": {ModelValue: "custom-model"},
+		},
 	}
 
 	got, err := BuildCommandParts("claude", "claude", ToolModeResume, "", model)
@@ -159,7 +159,11 @@ func TestBuildCommandParts_OpencodeOneshot(t *testing.T) {
 }
 
 func TestBuildCommandParts_OpencodeInteractive(t *testing.T) {
-	model := &Model{ModelFlag: "--model", ModelValue: "anthropic/claude-sonnet-4-5"}
+	model := &Model{
+		Runners: map[string]RunnerSpec{
+			"opencode": {ModelValue: "anthropic/claude-sonnet-4-5"},
+		},
+	}
 	got, err := BuildCommandParts("opencode", "opencode", ToolModeInteractive, "", model)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

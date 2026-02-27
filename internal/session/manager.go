@@ -69,6 +69,7 @@ type ResolvedTarget struct {
 	Promptable bool
 	Env        map[string]string
 	Model      *detect.Model
+	ToolName   string // the resolved tool name (e.g., "claude", "opencode")
 }
 
 const (
@@ -893,40 +894,69 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	return &sess, nil
 }
 
+// resolveToolForModel picks which tool to use for a model.
+func (m *Manager) resolveToolForModel(model detect.Model) string {
+	// 1. Check user preference
+	if preferred := m.config.PreferredTool(model.ID); preferred != "" {
+		if _, ok := model.RunnerFor(preferred); ok {
+			return preferred
+		}
+	}
+
+	// 2. Fall back to first detected runner
+	detectedTools := config.DetectedToolsFromConfig(m.config)
+	detected := make(map[string]bool, len(detectedTools))
+	for _, t := range detectedTools {
+		detected[t.Name] = true
+	}
+
+	for _, toolName := range detect.SortedRunnerKeys(model.Runners) {
+		if detected[toolName] {
+			return toolName
+		}
+	}
+	return ""
+}
+
 // ResolveTarget resolves a target name to a command and env.
 func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedTarget, error) {
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
 	model, ok := detect.FindModel(targetName)
 	if ok {
-		// Apply version override from config if present
-		if override := m.config.GetModelVersion(model.ID); override != "" {
-			model.ModelValue = override
+		// Determine which tool to use for this model
+		toolName := m.resolveToolForModel(model)
+		if toolName == "" {
+			return ResolvedTarget{}, fmt.Errorf("no available runner for model %s", model.ID)
 		}
 
-		// Verify the base tool is detected
-		detectedTools := config.DetectedToolsFromConfig(m.config)
-		baseToolDetected := false
-		for _, tool := range detectedTools {
-			if tool.Name == model.BaseTool {
-				baseToolDetected = true
-				break
-			}
-		}
-		if !baseToolDetected {
-			return ResolvedTarget{}, fmt.Errorf("model %s requires base tool %s which is not available", model.ID, model.BaseTool)
-		}
-		baseTarget, found := m.config.GetDetectedRunTarget(model.BaseTool)
+		spec, _ := model.RunnerFor(toolName)
+
+		// Verify the tool is detected and get its command
+		baseTarget, found := m.config.GetDetectedRunTarget(toolName)
 		if !found {
-			return ResolvedTarget{}, fmt.Errorf("model %s requires base tool %s which is not available", model.ID, model.BaseTool)
+			return ResolvedTarget{}, fmt.Errorf("model %s requires tool %s which is not available", model.ID, toolName)
 		}
+
+		// Load secrets and verify required ones are present
 		secrets, err := config.GetEffectiveModelSecrets(model)
 		if err != nil {
 			return ResolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := config.EnsureModelSecrets(model, secrets); err != nil {
-			return ResolvedTarget{}, err
+		for _, key := range spec.RequiredSecrets {
+			if strings.TrimSpace(secrets[key]) == "" {
+				return ResolvedTarget{}, fmt.Errorf("model %s requires secret %s for tool %s", model.ID, key, toolName)
+			}
 		}
-		env := mergeEnvMaps(model.BuildEnv(), secrets)
+
+		// Build env using the adapter
+		adapter := detect.GetAdapter(toolName)
+		var env map[string]string
+		if adapter != nil {
+			env = mergeEnvMaps(adapter.BuildRunnerEnv(spec), secrets)
+		} else {
+			env = secrets
+		}
+
 		return ResolvedTarget{
 			Name:       model.ID,
 			Kind:       TargetKindModel,
@@ -934,6 +964,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 			Promptable: true,
 			Env:        env,
 			Model:      &model,
+			ToolName:   toolName,
 		}, nil
 	}
 
@@ -958,17 +989,17 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	trimmedPrompt := strings.TrimSpace(prompt)
 
 	// Resolve the base tool name for signaling injection
-	baseTool := detect.GetBaseToolName(target.Name)
-	if model != nil {
-		baseTool = model.BaseTool
+	baseTool := target.ToolName
+	if baseTool == "" {
+		baseTool = detect.GetBaseToolName(target.Name)
 	}
 
 	// Handle resume mode
 	if resume {
-		// For models, use the base tool name instead of model ID
-		toolName := target.Name
-		if model != nil {
-			toolName = model.BaseTool
+		// For models, use the tool name instead of model ID
+		toolName := target.ToolName
+		if toolName == "" {
+			toolName = target.Name
 		}
 		parts, err := detect.BuildCommandParts(toolName, target.Command, detect.ToolModeResume, "", model)
 		if err != nil {
@@ -988,9 +1019,14 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 
 	// Build the base command with optional model flag injection
 	baseCommand := target.Command
-	if model != nil && model.ModelFlag != "" {
-		// Inject model flag for tools like Codex that use CLI flags instead of env vars
-		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, model.ModelFlag, shellutil.Quote(model.ModelValue))
+	if model != nil && target.ToolName != "" {
+		adapter := detect.GetAdapter(target.ToolName)
+		if adapter != nil {
+			flag := adapter.ModelFlag()
+			if spec, ok := model.RunnerFor(target.ToolName); ok && spec.ModelValue != "" && flag != "" {
+				baseCommand = fmt.Sprintf("%s %s %s", baseCommand, flag, shellutil.Quote(spec.ModelValue))
+			}
+		}
 	}
 
 	// Inject signaling instructions via CLI flag for supported tools
