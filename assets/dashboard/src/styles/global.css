@@ -909,13 +909,13 @@ body {
 
 .nav-sort-toggle__btn--active {
   background: var(--color-text-muted);
-  color: var(--color-bg);
+  color: black;
   border-color: var(--color-text-muted);
 }
 
 .nav-sort-toggle__btn--active:hover {
   background: var(--color-text);
-  color: var(--color-bg);
+  color: black;
   border-color: var(--color-text);
 }
 
