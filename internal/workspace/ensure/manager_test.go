@@ -121,8 +121,8 @@ func TestAgentInstructions_DifferentAgents(t *testing.T) {
 		{"claude", ".claude", "CLAUDE.md"},
 		{"codex", ".codex", "AGENTS.md"},
 		{"gemini", ".gemini", "GEMINI.md"},
-		{"claude-opus", ".claude", "CLAUDE.md"},   // Model should use base tool
-		{"claude-sonnet", ".claude", "CLAUDE.md"}, // Model should use base tool
+		{"claude-opus-4-6", ".claude", "CLAUDE.md"},   // Model should use base tool
+		{"claude-sonnet-4-6", ".claude", "CLAUDE.md"}, // Model should use base tool
 	}
 
 	for _, tt := range tests {

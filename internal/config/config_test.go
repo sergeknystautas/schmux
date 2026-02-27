@@ -1599,18 +1599,18 @@ func TestGetLoreEnabled_Explicit(t *testing.T) {
 }
 
 func TestGetLoreTarget_FallsBackToCompound(t *testing.T) {
-	c := &Config{Compound: &CompoundConfig{Target: "claude-haiku"}}
-	if got := c.GetLoreTarget(); got != "claude-haiku" {
+	c := &Config{Compound: &CompoundConfig{Target: "claude-haiku-4-5"}}
+	if got := c.GetLoreTarget(); got != "claude-haiku-4-5" {
 		t.Errorf("expected fallback to compound target, got %q", got)
 	}
 }
 
 func TestGetLoreTarget_OwnTarget(t *testing.T) {
 	c := &Config{
-		Compound: &CompoundConfig{Target: "claude-haiku"},
-		Lore:     &LoreConfig{Target: "claude-sonnet"},
+		Compound: &CompoundConfig{Target: "claude-haiku-4-5"},
+		Lore:     &LoreConfig{Target: "claude-sonnet-4-6"},
 	}
-	if got := c.GetLoreTarget(); got != "claude-sonnet" {
+	if got := c.GetLoreTarget(); got != "claude-sonnet-4-6" {
 		t.Errorf("expected lore-specific target, got %q", got)
 	}
 }
@@ -2533,42 +2533,6 @@ func TestGetConfirmBeforeClose(t *testing.T) {
 	})
 }
 
-func TestGetModelVersion(t *testing.T) {
-	t.Parallel()
-	t.Run("returns empty when nil", func(t *testing.T) {
-		cfg := &Config{}
-		if got := cfg.GetModelVersion("claude-sonnet"); got != "" {
-			t.Errorf("got %q, want empty", got)
-		}
-	})
-
-	t.Run("returns empty when versions nil", func(t *testing.T) {
-		cfg := &Config{Models: &ModelsConfig{}}
-		if got := cfg.GetModelVersion("claude-sonnet"); got != "" {
-			t.Errorf("got %q, want empty", got)
-		}
-	})
-
-	t.Run("returns configured version", func(t *testing.T) {
-		cfg := &Config{Models: &ModelsConfig{
-			Versions: map[string]string{"claude-sonnet": "claude-sonnet-4-5-20250929"},
-		}}
-		got := cfg.GetModelVersion("claude-sonnet")
-		if got != "claude-sonnet-4-5-20250929" {
-			t.Errorf("got %q, want 'claude-sonnet-4-5-20250929'", got)
-		}
-	})
-
-	t.Run("returns empty for unknown model", func(t *testing.T) {
-		cfg := &Config{Models: &ModelsConfig{
-			Versions: map[string]string{"claude-sonnet": "v1"},
-		}}
-		if got := cfg.GetModelVersion("claude-opus"); got != "" {
-			t.Errorf("got %q, want empty for unknown model", got)
-		}
-	})
-}
-
 func TestDetectedToolsFromConfig(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
@@ -2720,5 +2684,197 @@ func TestIOWorkspaceTelemetryDefaults(t *testing.T) {
 	}
 	if cfg.GetIOWorkspaceTelemetryTarget() != "" {
 		t.Fatal("expected default empty target")
+	}
+}
+
+func TestModelsEnabled(t *testing.T) {
+	cfg := &Config{}
+
+	// Empty config returns nil
+	if got := cfg.GetEnabledModels(); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+
+	// PreferredTool returns empty for empty config
+	if got := cfg.PreferredTool("claude-opus-4-6"); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+
+	// Set enabled models
+	enabled := map[string]string{"claude-opus-4-6": "claude", "kimi-thinking": "opencode"}
+	cfg.SetEnabledModels(enabled)
+
+	got := cfg.GetEnabledModels()
+	if got["claude-opus-4-6"] != "claude" {
+		t.Errorf("expected claude, got %q", got["claude-opus-4-6"])
+	}
+	if got["kimi-thinking"] != "opencode" {
+		t.Errorf("expected opencode, got %q", got["kimi-thinking"])
+	}
+
+	// PreferredTool returns correct value
+	if got := cfg.PreferredTool("claude-opus-4-6"); got != "claude" {
+		t.Errorf("PreferredTool = %q, want 'claude'", got)
+	}
+	if got := cfg.PreferredTool("nonexistent"); got != "" {
+		t.Errorf("PreferredTool for nonexistent = %q, want ''", got)
+	}
+}
+
+func TestMigrateModelIDs(t *testing.T) {
+	cfg := &Config{
+		QuickLaunch: []QuickLaunch{
+			{Name: "test", Target: "claude-opus"},
+			{Name: "test2", Target: "minimax"},
+		},
+		Nudgenik:             &NudgenikConfig{Target: "claude-sonnet"},
+		BranchSuggest:        &BranchSuggestConfig{Target: "claude-haiku"},
+		ConflictResolve:      &ConflictResolveConfig{Target: "opus"},
+		PrReview:             &PrReviewConfig{Target: "sonnet"},
+		CommitMessage:        &CommitMessageConfig{Target: "haiku"},
+		Desync:               &DesyncConfig{Target: "minimax"},
+		FloorManager:         &FloorManagerConfig{Target: "claude-opus"},
+		Lore:                 &LoreConfig{Target: "claude-sonnet"},
+		Compound:             &CompoundConfig{Target: "claude-haiku"},
+		Subreddit:            &SubredditConfig{Target: "minimax"},
+		IOWorkspaceTelemetry: &IOWorkspaceTelemetryConfig{Target: "claude-opus"},
+		Models: &ModelsConfig{
+			Enabled: map[string]string{
+				"claude-opus": "claude",
+				"minimax":     "opencode",
+			},
+		},
+	}
+
+	cfg.migrateModelIDs()
+
+	// Quick launch targets
+	if cfg.QuickLaunch[0].Target != "claude-opus-4-6" {
+		t.Errorf("QuickLaunch[0].Target = %q, want %q", cfg.QuickLaunch[0].Target, "claude-opus-4-6")
+	}
+	if cfg.QuickLaunch[1].Target != "minimax-m2.1" {
+		t.Errorf("QuickLaunch[1].Target = %q, want %q", cfg.QuickLaunch[1].Target, "minimax-m2.1")
+	}
+
+	// Nested config targets
+	if cfg.Nudgenik.Target != "claude-sonnet-4-6" {
+		t.Errorf("Nudgenik.Target = %q, want %q", cfg.Nudgenik.Target, "claude-sonnet-4-6")
+	}
+	if cfg.BranchSuggest.Target != "claude-haiku-4-5" {
+		t.Errorf("BranchSuggest.Target = %q, want %q", cfg.BranchSuggest.Target, "claude-haiku-4-5")
+	}
+	if cfg.ConflictResolve.Target != "claude-opus-4-6" {
+		t.Errorf("ConflictResolve.Target = %q, want %q", cfg.ConflictResolve.Target, "claude-opus-4-6")
+	}
+	if cfg.PrReview.Target != "claude-sonnet-4-6" {
+		t.Errorf("PrReview.Target = %q, want %q", cfg.PrReview.Target, "claude-sonnet-4-6")
+	}
+	if cfg.CommitMessage.Target != "claude-haiku-4-5" {
+		t.Errorf("CommitMessage.Target = %q, want %q", cfg.CommitMessage.Target, "claude-haiku-4-5")
+	}
+	if cfg.Desync.Target != "minimax-m2.1" {
+		t.Errorf("Desync.Target = %q, want %q", cfg.Desync.Target, "minimax-m2.1")
+	}
+	if cfg.FloorManager.Target != "claude-opus-4-6" {
+		t.Errorf("FloorManager.Target = %q, want %q", cfg.FloorManager.Target, "claude-opus-4-6")
+	}
+	if cfg.Lore.Target != "claude-sonnet-4-6" {
+		t.Errorf("Lore.Target = %q, want %q", cfg.Lore.Target, "claude-sonnet-4-6")
+	}
+	if cfg.Compound.Target != "claude-haiku-4-5" {
+		t.Errorf("Compound.Target = %q, want %q", cfg.Compound.Target, "claude-haiku-4-5")
+	}
+	if cfg.Subreddit.Target != "minimax-m2.1" {
+		t.Errorf("Subreddit.Target = %q, want %q", cfg.Subreddit.Target, "minimax-m2.1")
+	}
+	if cfg.IOWorkspaceTelemetry.Target != "claude-opus-4-6" {
+		t.Errorf("IOWorkspaceTelemetry.Target = %q, want %q", cfg.IOWorkspaceTelemetry.Target, "claude-opus-4-6")
+	}
+
+	// Enabled models map
+	if cfg.Models.Enabled["claude-opus-4-6"] != "claude" {
+		t.Errorf("Models.Enabled[claude-opus-4-6] = %q, want %q", cfg.Models.Enabled["claude-opus-4-6"], "claude")
+	}
+	if cfg.Models.Enabled["minimax-m2.1"] != "opencode" {
+		t.Errorf("Models.Enabled[minimax-m2.1] = %q, want %q", cfg.Models.Enabled["minimax-m2.1"], "opencode")
+	}
+	if _, ok := cfg.Models.Enabled["claude-opus"]; ok {
+		t.Error("old key 'claude-opus' should be removed from Models.Enabled")
+	}
+	if _, ok := cfg.Models.Enabled["minimax"]; ok {
+		t.Error("old key 'minimax' should be removed from Models.Enabled")
+	}
+}
+
+func TestHasLegacyModelIDs(t *testing.T) {
+	// No legacy IDs
+	cfg := &Config{
+		Nudgenik: &NudgenikConfig{Target: "claude-opus-4-6"},
+	}
+	if cfg.hasLegacyModelIDs() {
+		t.Error("should return false when no legacy IDs present")
+	}
+
+	// Legacy ID in nudgenik
+	cfg.Nudgenik.Target = "claude-opus"
+	if !cfg.hasLegacyModelIDs() {
+		t.Error("should return true when legacy ID in nudgenik target")
+	}
+
+	// Legacy ID in quick launch
+	cfg2 := &Config{
+		QuickLaunch: []QuickLaunch{{Name: "test", Target: "minimax"}},
+	}
+	if !cfg2.hasLegacyModelIDs() {
+		t.Error("should return true when legacy ID in quick launch")
+	}
+
+	// Legacy ID in models.enabled
+	cfg3 := &Config{
+		Models: &ModelsConfig{
+			Enabled: map[string]string{"claude-sonnet": "claude"},
+		},
+	}
+	if !cfg3.hasLegacyModelIDs() {
+		t.Error("should return true when legacy ID in models.enabled")
+	}
+}
+
+func TestMigrateModelIDs_NilConfigs(t *testing.T) {
+	// Should not panic with nil nested configs
+	cfg := &Config{}
+	cfg.migrateModelIDs() // should not panic
+}
+
+func TestMigrateModelIDs_ViaLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create a config with legacy model IDs
+	configJSON := `{
+		"workspace_path": "` + tmpDir + `",
+		"repos": [{"name": "test", "url": "git@github.com:test/test.git"}],
+		"run_targets": [{"name": "my-agent", "type": "promptable", "command": "echo test"}],
+		"nudgenik": {"target": "claude-sonnet"},
+		"quick_launch": [{"name": "test", "target": "claude-opus", "prompt": "do stuff"}],
+		"models": {"enabled": {"minimax": "opencode"}}
+	}`
+	if err := os.WriteFile(configPath, []byte(configJSON), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	if cfg.Nudgenik.Target != "claude-sonnet-4-6" {
+		t.Errorf("after Load, Nudgenik.Target = %q, want %q", cfg.Nudgenik.Target, "claude-sonnet-4-6")
+	}
+	if cfg.QuickLaunch[0].Target != "claude-opus-4-6" {
+		t.Errorf("after Load, QuickLaunch[0].Target = %q, want %q", cfg.QuickLaunch[0].Target, "claude-opus-4-6")
+	}
+	if cfg.Models.Enabled["minimax-m2.1"] != "opencode" {
+		t.Errorf("after Load, Models.Enabled[minimax-m2.1] = %q, want %q", cfg.Models.Enabled["minimax-m2.1"], "opencode")
 	}
 }

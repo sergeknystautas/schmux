@@ -17,8 +17,10 @@ func (a *ClaudeAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	if resume {
 		return []string{"--continue"}
 	}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		return []string{model.ModelFlag, model.ModelValue}
+	if model != nil {
+		if spec, ok := model.RunnerFor("claude"); ok && spec.ModelValue != "" {
+			return []string{"--model", spec.ModelValue}
+		}
 	}
 	return nil
 }
@@ -77,3 +79,18 @@ func (a *ClaudeAdapter) PersonaArgs(filePath string) []string {
 func (a *ClaudeAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
 
 func (a *ClaudeAdapter) SetupCommands(workspacePath string) error { return nil }
+
+func (a *ClaudeAdapter) ModelFlag() string { return "--model" }
+
+func (a *ClaudeAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
+	env := map[string]string{}
+	if spec.Endpoint != "" {
+		env["ANTHROPIC_MODEL"] = spec.ModelValue
+		env["ANTHROPIC_BASE_URL"] = spec.Endpoint
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = spec.ModelValue
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = spec.ModelValue
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = spec.ModelValue
+		env["CLAUDE_CODE_SUBAGENT_MODEL"] = spec.ModelValue
+	}
+	return env
+}

@@ -15,12 +15,12 @@ const models: Model[] = [
   {
     id: 'gpt-4',
     display_name: 'GPT-4',
-    base_tool: 'openai',
     provider: 'openai',
     category: 'external',
-    required_secrets: ['OPENAI_API_KEY'],
     configured: false,
-    default_value: 'gpt-4',
+    runners: {
+      openai: { available: true, configured: false, required_secrets: ['OPENAI_API_KEY'] },
+    },
   },
 ];
 

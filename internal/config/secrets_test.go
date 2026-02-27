@@ -192,3 +192,67 @@ func TestLoadSecretsFile_AuthWithGitHub(t *testing.T) {
 		t.Errorf("expected client_secret=gh-secret, got %q", secrets.Auth.GitHub.ClientSecret)
 	}
 }
+
+func TestMigrateSecretKeys(t *testing.T) {
+	secrets := &SecretsFile{
+		Models: ModelSecrets{
+			"claude-opus": {"ANTHROPIC_API_KEY": "sk-test"},
+			"minimax":     {"MINIMAX_API_KEY": "mm-test"},
+		},
+	}
+	changed := migrateSecretKeys(secrets)
+	if !changed {
+		t.Error("expected migration to occur")
+	}
+	if _, ok := secrets.Models["claude-opus"]; ok {
+		t.Error("old key should be removed")
+	}
+	if secrets.Models["claude-opus-4-6"]["ANTHROPIC_API_KEY"] != "sk-test" {
+		t.Error("secrets should be migrated to new key")
+	}
+	if secrets.Models["minimax-m2.1"]["MINIMAX_API_KEY"] != "mm-test" {
+		t.Error("minimax secrets should be migrated")
+	}
+}
+
+func TestMigrateSecretKeys_NoOverwrite(t *testing.T) {
+	secrets := &SecretsFile{
+		Models: ModelSecrets{
+			"claude-opus":     {"ANTHROPIC_API_KEY": "old-key"},
+			"claude-opus-4-6": {"ANTHROPIC_API_KEY": "new-key"},
+		},
+	}
+	migrateSecretKeys(secrets)
+	// New key should NOT be overwritten
+	if secrets.Models["claude-opus-4-6"]["ANTHROPIC_API_KEY"] != "new-key" {
+		t.Error("existing new-format key should not be overwritten")
+	}
+	// Old key should still be removed
+	if _, ok := secrets.Models["claude-opus"]; ok {
+		t.Error("old key should be removed even when new key exists")
+	}
+}
+
+func TestMigrateSecretKeys_NilSecrets(t *testing.T) {
+	// nil secrets
+	if migrateSecretKeys(nil) {
+		t.Error("nil secrets should return false")
+	}
+
+	// nil models
+	secrets := &SecretsFile{}
+	if migrateSecretKeys(secrets) {
+		t.Error("nil models should return false")
+	}
+}
+
+func TestMigrateSecretKeys_NoLegacyKeys(t *testing.T) {
+	secrets := &SecretsFile{
+		Models: ModelSecrets{
+			"claude-opus-4-6": {"ANTHROPIC_API_KEY": "sk-test"},
+		},
+	}
+	if migrateSecretKeys(secrets) {
+		t.Error("should return false when no legacy keys present")
+	}
+}

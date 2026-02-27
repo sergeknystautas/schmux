@@ -119,14 +119,15 @@ func TestGetBaseToolName(t *testing.T) {
 	}
 
 	// Test with a known model name - this depends on the models registered in models.go
-	// We can verify that model names resolve to their base tool
-	t.Run("model name resolves to base tool", func(t *testing.T) {
+	// We can verify that model names resolve to the first sorted runner key
+	t.Run("model name resolves to first runner key", func(t *testing.T) {
 		models := GetBuiltinModels()
 		if len(models) > 0 {
 			model := models[0]
 			got := GetBaseToolName(model.ID)
-			if got != model.BaseTool {
-				t.Errorf("GetBaseToolName(%q) = %q, want %q (model's BaseTool)", model.ID, got, model.BaseTool)
+			want := model.FirstRunnerKey()
+			if got != want {
+				t.Errorf("GetBaseToolName(%q) = %q, want %q (first runner key)", model.ID, got, want)
 			}
 		}
 	})

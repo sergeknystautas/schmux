@@ -59,16 +59,20 @@ func (a *OpencodeAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	if resume {
 		return []string{"--continue"}
 	}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		return []string{model.ModelFlag, model.ModelValue}
+	if model != nil {
+		if spec, ok := model.RunnerFor("opencode"); ok && spec.ModelValue != "" {
+			return []string{"--model", spec.ModelValue}
+		}
 	}
 	return nil
 }
 
 func (a *OpencodeAdapter) OneshotArgs(model *Model, jsonSchema string) ([]string, error) {
 	args := []string{"run"}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		args = append(args, model.ModelFlag, model.ModelValue)
+	if model != nil {
+		if spec, ok := model.RunnerFor("opencode"); ok && spec.ModelValue != "" {
+			args = append(args, "--model", spec.ModelValue)
+		}
 	}
 	if jsonSchema != "" {
 		args = append(args, "--format", "json")
@@ -124,4 +128,10 @@ func (a *OpencodeAdapter) SpawnEnv(ctx SpawnContext) map[string]string {
 	return map[string]string{
 		"OPENCODE_CONFIG_CONTENT": string(jsonBytes),
 	}
+}
+
+func (a *OpencodeAdapter) ModelFlag() string { return "--model" }
+
+func (a *OpencodeAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
+	return map[string]string{}
 }

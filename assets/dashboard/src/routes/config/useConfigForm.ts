@@ -8,14 +8,6 @@ import type {
   RunTargetResponse,
 } from '../../lib/types';
 
-// Model aliases for canonical ID normalization
-export const modelAliases: Record<string, string> = {
-  opus: 'claude-opus',
-  sonnet: 'claude-sonnet',
-  haiku: 'claude-haiku',
-  'minimax-m2.1': 'minimax',
-};
-
 export type ConfigSnapshot = {
   workspacePath: string;
   sourceCodeManagement: string;
@@ -48,7 +40,7 @@ export type ConfigSnapshot = {
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
-  modelVersions: Record<string, string>;
+  enabledModels: Record<string, string>;
   loreEnabled: boolean;
   loreLLMTarget: string;
   loreCurateOnDispose: string;
@@ -158,7 +150,7 @@ export type ConfigFormState = {
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
-  modelVersions: Record<string, string>;
+  enabledModels: Record<string, string>;
 
   // Lore
   loreEnabled: boolean;
@@ -308,7 +300,7 @@ export const initialState: ConfigFormState = {
   soundDisabled: false,
   confirmBeforeClose: false,
   suggestDisposeAfterPush: true,
-  modelVersions: {},
+  enabledModels: {},
 
   loreEnabled: true,
   loreLLMTarget: '',
@@ -559,7 +551,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.soundDisabled !== oc.soundDisabled ||
         state.confirmBeforeClose !== oc.confirmBeforeClose ||
         state.suggestDisposeAfterPush !== oc.suggestDisposeAfterPush ||
-        JSON.stringify(state.modelVersions) !== JSON.stringify(oc.modelVersions) ||
+        JSON.stringify(state.enabledModels) !== JSON.stringify(oc.enabledModels) ||
         state.loreEnabled !== oc.loreEnabled ||
         state.loreLLMTarget !== oc.loreLLMTarget ||
         state.loreCurateOnDispose !== oc.loreCurateOnDispose ||
@@ -586,39 +578,12 @@ export function useConfigForm(initialStep: number = 1) {
 
   const checkTargetUsage = useCallback(
     (targetName: string) => {
-      let canonicalName = targetName;
-      const model = state.models.find(
-        (m) => m.id === targetName || modelAliases[m.id] === targetName
-      );
-      if (model) {
-        canonicalName = model.id;
-      }
-
-      const inQuickLaunch = state.quickLaunch.some(
-        (item) =>
-          item.target === canonicalName ||
-          (item.target && modelAliases[item.target] === canonicalName)
-      );
-      const inNudgenik =
-        state.nudgenikTarget &&
-        (state.nudgenikTarget === canonicalName ||
-          modelAliases[state.nudgenikTarget] === canonicalName);
-      const inBranchSuggest =
-        state.branchSuggestTarget &&
-        (state.branchSuggestTarget === canonicalName ||
-          modelAliases[state.branchSuggestTarget] === canonicalName);
-      const inConflictResolve =
-        state.conflictResolveTarget &&
-        (state.conflictResolveTarget === canonicalName ||
-          modelAliases[state.conflictResolveTarget] === canonicalName);
-      const inPrReview =
-        state.prReviewTarget &&
-        (state.prReviewTarget === canonicalName ||
-          modelAliases[state.prReviewTarget] === canonicalName);
-      const inCommitMessage =
-        state.commitMessageTarget &&
-        (state.commitMessageTarget === canonicalName ||
-          modelAliases[state.commitMessageTarget] === canonicalName);
+      const inQuickLaunch = state.quickLaunch.some((item) => item.target === targetName);
+      const inNudgenik = state.nudgenikTarget === targetName;
+      const inBranchSuggest = state.branchSuggestTarget === targetName;
+      const inConflictResolve = state.conflictResolveTarget === targetName;
+      const inPrReview = state.prReviewTarget === targetName;
+      const inCommitMessage = state.commitMessageTarget === targetName;
       return {
         inQuickLaunch,
         inNudgenik,
@@ -664,7 +629,7 @@ export function useConfigForm(initialStep: number = 1) {
       soundDisabled: state.soundDisabled,
       confirmBeforeClose: state.confirmBeforeClose,
       suggestDisposeAfterPush: state.suggestDisposeAfterPush,
-      modelVersions: state.modelVersions,
+      enabledModels: state.enabledModels,
       loreEnabled: state.loreEnabled,
       loreLLMTarget: state.loreLLMTarget,
       loreCurateOnDispose: state.loreCurateOnDispose,

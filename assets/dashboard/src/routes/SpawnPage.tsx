@@ -266,13 +266,15 @@ export default function SpawnPage() {
         const cfg = await getConfig();
         if (!active) return;
         setRepos((cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name)));
-        const modelBaseTools = new Set((cfg.models || []).map((model) => model.base_tool));
+        const modelRunnerTools = new Set(
+          (cfg.models || []).flatMap((model) => Object.keys(model.runners || {}))
+        );
         const promptableItems = (cfg.run_targets || [])
           .filter((t) => {
             if (t.type !== 'promptable') {
               return false;
             }
-            if (t.source === 'detected' && modelBaseTools.has(t.name)) {
+            if (t.source === 'detected' && modelRunnerTools.has(t.name)) {
               return false;
             }
             return true;

@@ -20,8 +20,10 @@ func (a *GeminiAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	if resume {
 		return []string{"-r", "latest"}
 	}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		return []string{model.ModelFlag, model.ModelValue}
+	if model != nil {
+		if spec, ok := model.RunnerFor("gemini"); ok && spec.ModelValue != "" {
+			return []string{"--model", spec.ModelValue}
+		}
 	}
 	return nil
 }
@@ -61,3 +63,9 @@ func (a *GeminiAdapter) PersonaArgs(filePath string) []string { return nil }
 func (a *GeminiAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
 
 func (a *GeminiAdapter) SetupCommands(workspacePath string) error { return nil }
+
+func (a *GeminiAdapter) ModelFlag() string { return "--model" }
+
+func (a *GeminiAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
+	return map[string]string{}
+}

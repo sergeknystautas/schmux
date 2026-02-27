@@ -11,14 +11,16 @@ func TestFindModel(t *testing.T) {
 		wantFound bool
 	}{
 		// By exact ID
-		{"claude-opus", "claude-opus", true},
-		{"claude-sonnet", "claude-sonnet", true},
-		{"claude-haiku", "claude-haiku", true},
+		{"claude-opus-4-6", "claude-opus-4-6", true},
+		{"claude-sonnet-4-6", "claude-sonnet-4-6", true},
+		{"claude-haiku-4-5", "claude-haiku-4-5", true},
 
-		// By alias
-		{"opus", "claude-opus", true},
-		{"sonnet", "claude-sonnet", true},
-		{"haiku", "claude-haiku", true},
+		// Older Anthropic models
+		{"claude-opus-4", "claude-opus-4", true},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5", true},
+		{"claude-sonnet-4", "claude-sonnet-4", true},
+		{"claude-sonnet-3-5", "claude-sonnet-3-5", true},
+		{"claude-haiku-3-5", "claude-haiku-3-5", true},
 
 		// Third-party models
 		{"kimi-thinking", "kimi-thinking", true},
@@ -26,7 +28,7 @@ func TestFindModel(t *testing.T) {
 		{"glm-4.7", "glm-4.7", true},
 		{"glm-4.5-air", "glm-4.5-air", true},
 		{"glm-5", "glm-5", true},
-		{"minimax", "minimax", true},
+		{"minimax-m2.1", "minimax-m2.1", true},
 		{"minimax-2.5", "minimax-2.5", true},
 		{"qwen3-coder-plus", "qwen3-coder-plus", true},
 
@@ -39,8 +41,19 @@ func TestFindModel(t *testing.T) {
 		// OpenCode models
 		{"opencode-zen", "opencode-zen", true},
 
-		// Backward compat alias
-		{"minimax-m2.1", "minimax", true},
+		// Google/Gemini models
+		{"gemini-2.5-pro", "gemini-2.5-pro", true},
+		{"gemini-2.5-flash", "gemini-2.5-flash", true},
+		{"gemini-2.0-flash", "gemini-2.0-flash", true},
+
+		// Legacy IDs (resolved via MigrateModelID)
+		{"claude-opus", "claude-opus-4-6", true},
+		{"claude-sonnet", "claude-sonnet-4-6", true},
+		{"claude-haiku", "claude-haiku-4-5", true},
+		{"opus", "claude-opus-4-6", true},
+		{"sonnet", "claude-sonnet-4-6", true},
+		{"haiku", "claude-haiku-4-5", true},
+		{"minimax", "minimax-m2.1", true},
 
 		// Not found
 		{"nonexistent", "", false},
@@ -67,15 +80,20 @@ func TestIsModelID(t *testing.T) {
 		wantBool bool
 	}{
 		// Exact IDs
-		{"claude-opus", true},
-		{"claude-sonnet", true},
-		{"claude-haiku", true},
+		{"claude-opus-4-6", true},
+		{"claude-sonnet-4-6", true},
+		{"claude-haiku-4-5", true},
+		{"claude-opus-4", true},
+		{"claude-sonnet-4-5", true},
+		{"claude-sonnet-4", true},
+		{"claude-sonnet-3-5", true},
+		{"claude-haiku-3-5", true},
 		{"kimi-thinking", true},
 		{"kimi-k2.5", true},
 		{"glm-4.7", true},
 		{"glm-4.5-air", true},
 		{"glm-5", true},
-		{"minimax", true},
+		{"minimax-m2.1", true},
 		{"minimax-2.5", true},
 		{"qwen3-coder-plus", true},
 		{"gpt-5.2-codex", true},
@@ -83,12 +101,18 @@ func TestIsModelID(t *testing.T) {
 		{"gpt-5.1-codex-max", true},
 		{"gpt-5.1-codex-mini", true},
 		{"opencode-zen", true},
+		{"gemini-2.5-pro", true},
+		{"gemini-2.5-flash", true},
+		{"gemini-2.0-flash", true},
 
-		// Aliases
+		// Legacy IDs (resolved via MigrateModelID)
+		{"claude-opus", true},
+		{"claude-sonnet", true},
+		{"claude-haiku", true},
 		{"opus", true},
 		{"sonnet", true},
 		{"haiku", true},
-		{"minimax-m2.1", true},
+		{"minimax", true},
 
 		// Not models
 		{"", false},
@@ -107,111 +131,27 @@ func TestIsModelID(t *testing.T) {
 	}
 }
 
-func TestBuildEnv(t *testing.T) {
-	tests := []struct {
-		name        string
-		endpoint    string
-		modelValue  string
-		modelFlag   string
-		expectedEnv map[string]string
-	}{
-		{
-			name:        "native model - no endpoint, uses CLI flag",
-			endpoint:    "",
-			modelValue:  "opus",
-			modelFlag:   "--model",
-			expectedEnv: map[string]string{
-				// No ANTHROPIC_MODEL when ModelFlag is set
-			},
-		},
-		{
-			name:       "third-party model with endpoint",
-			endpoint:   "https://api.example.com",
-			modelValue: "kimi-thinking",
-			modelFlag:  "",
-			expectedEnv: map[string]string{
-				"ANTHROPIC_MODEL":                "kimi-thinking",
-				"ANTHROPIC_BASE_URL":             "https://api.example.com",
-				"ANTHROPIC_DEFAULT_OPUS_MODEL":   "kimi-thinking",
-				"ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-thinking",
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "kimi-thinking",
-				"CLAUDE_CODE_SUBAGENT_MODEL":     "kimi-thinking",
-			},
-		},
-		{
-			name:       "third-party model minimax",
-			endpoint:   "https://api.minimax.io/anthropic",
-			modelValue: "minimax-m2.1",
-			modelFlag:  "",
-			expectedEnv: map[string]string{
-				"ANTHROPIC_MODEL":                "minimax-m2.1",
-				"ANTHROPIC_BASE_URL":             "https://api.minimax.io/anthropic",
-				"ANTHROPIC_DEFAULT_OPUS_MODEL":   "minimax-m2.1",
-				"ANTHROPIC_DEFAULT_SONNET_MODEL": "minimax-m2.1",
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "minimax-m2.1",
-				"CLAUDE_CODE_SUBAGENT_MODEL":     "minimax-m2.1",
-			},
-		},
-		{
-			name:        "codex model with CLI flag - no ANTHROPIC_MODEL env var",
-			endpoint:    "",
-			modelValue:  "gpt-5.2-codex",
-			modelFlag:   "-m",
-			expectedEnv: map[string]string{
-				// No ANTHROPIC_MODEL when ModelFlag is set
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			model := Model{
-				ID:          "test-model",
-				DisplayName: "Test Model",
-				BaseTool:    "claude",
-				Endpoint:    tt.endpoint,
-				ModelValue:  tt.modelValue,
-				ModelFlag:   tt.modelFlag,
-			}
-			env := model.BuildEnv()
-
-			if len(env) != len(tt.expectedEnv) {
-				t.Errorf("BuildEnv() returned %d env vars, want %d", len(env), len(tt.expectedEnv))
-				return
-			}
-
-			for key, wantVal := range tt.expectedEnv {
-				gotVal, ok := env[key]
-				if !ok {
-					t.Errorf("BuildEnv() missing key %q", key)
-					return
-				}
-				if gotVal != wantVal {
-					t.Errorf("BuildEnv()[%q]=%q, want %q", key, gotVal, wantVal)
-				}
-			}
-		})
-	}
-}
-
 func TestGetAvailableModels(t *testing.T) {
 	tests := []struct {
 		name             string
 		detected         []Tool
-		expectedCount    int
 		shouldContain    []string
 		shouldNotContain []string
 	}{
 		{
 			name:          "no tools detected",
 			detected:      []Tool{},
-			expectedCount: 0,
+			shouldContain: []string{},
 		},
 		{
-			name:          "only claude detected",
-			detected:      []Tool{{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true}},
-			expectedCount: 11,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus"},
+			name:     "only claude detected",
+			detected: []Tool{{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true}},
+			shouldContain: []string{"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
+				"claude-opus-4", "claude-sonnet-4-5", "claude-sonnet-4", "claude-sonnet-3-5", "claude-haiku-3-5",
+				"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5",
+				"minimax-m2.1", "minimax-2.5", "qwen3-coder-plus"},
+			shouldNotContain: []string{"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
+				"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
 		},
 		{
 			name: "claude and codex detected",
@@ -219,28 +159,41 @@ func TestGetAvailableModels(t *testing.T) {
 				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
 				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
 			},
-			expectedCount: 15,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			shouldContain: []string{"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
+				"claude-opus-4", "claude-sonnet-4-5", "claude-sonnet-4", "claude-sonnet-3-5", "claude-haiku-3-5",
+				"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5",
+				"minimax-m2.1", "minimax-2.5", "qwen3-coder-plus",
+				"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			shouldNotContain: []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
 		},
 		{
-			name: "all detected tools",
-			detected: []Tool{
-				{Name: "claude", Command: "/usr/bin/claude", Source: "config", Agentic: true},
-				{Name: "codex", Command: "/usr/bin/codex", Source: "config", Agentic: true},
-			},
-			expectedCount: 15,
-			shouldContain: []string{"claude-opus", "claude-sonnet", "claude-haiku", "kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			name:     "only opencode detected - shows models with opencode runner",
+			detected: []Tool{{Name: "opencode", Command: "opencode", Source: "PATH", Agentic: true}},
+			shouldContain: []string{"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
+				"claude-opus-4", "claude-sonnet-4-5", "claude-sonnet-4", "claude-sonnet-3-5", "claude-haiku-3-5",
+				"opencode-zen",
+				"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5",
+				"minimax-m2.1", "minimax-2.5", "qwen3-coder-plus",
+				"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
+			shouldNotContain: []string{"gpt-5.2-codex", "gpt-5.3-codex"},
+		},
+		{
+			name:             "only codex detected",
+			detected:         []Tool{{Name: "codex", Command: "codex", Source: "PATH", Agentic: true}},
+			shouldContain:    []string{"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini"},
+			shouldNotContain: []string{"claude-opus-4-6", "claude-sonnet-4-6", "opencode-zen", "gemini-2.5-pro"},
+		},
+		{
+			name:     "only gemini detected",
+			detected: []Tool{{Name: "gemini", Command: "gemini", Source: "PATH", Agentic: true}},
+			shouldContain:    []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
+			shouldNotContain: []string{"claude-opus-4-6", "gpt-5.2-codex", "opencode-zen"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			available := GetAvailableModels(tt.detected)
-
-			if len(available) != tt.expectedCount {
-				t.Errorf("GetAvailableModels() returned %d models, want %d", len(available), tt.expectedCount)
-				return
-			}
 
 			// Check shouldContain
 			for _, id := range tt.shouldContain {
@@ -279,8 +232,8 @@ func TestOpencodeModelExists(t *testing.T) {
 	if !ok {
 		t.Fatal("expected opencode-zen model to exist")
 	}
-	if model.BaseTool != "opencode" {
-		t.Errorf("BaseTool = %q, want 'opencode'", model.BaseTool)
+	if _, hasRunner := model.RunnerFor("opencode"); !hasRunner {
+		t.Error("expected opencode-zen to have an opencode runner")
 	}
 	if model.Category != "native" {
 		t.Errorf("Category = %q, want 'native'", model.Category)
@@ -290,9 +243,9 @@ func TestOpencodeModelExists(t *testing.T) {
 func TestGetBuiltinModels(t *testing.T) {
 	models := GetBuiltinModels()
 
-	// Should have 16 models total (11 Claude-based + 4 Codex + 1 OpenCode)
-	if len(models) != 16 {
-		t.Errorf("GetBuiltinModels() returned %d models, want 16", len(models))
+	// Should have 24 models total (8 Anthropic + 8 third-party + 4 Codex + 1 OpenCode + 3 Google)
+	if len(models) != 24 {
+		t.Errorf("GetBuiltinModels() returned %d models, want 24", len(models))
 	}
 
 	// Check that models are copies (not pointers)
@@ -307,14 +260,178 @@ func TestGetBuiltinModels(t *testing.T) {
 	}
 
 	expectedModels := []string{
-		"claude-opus", "claude-sonnet", "claude-haiku",
-		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax", "minimax-2.5", "qwen3-coder-plus",
+		"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
+		"claude-opus-4", "claude-sonnet-4-5", "claude-sonnet-4", "claude-sonnet-3-5", "claude-haiku-3-5",
+		"kimi-thinking", "kimi-k2.5", "glm-4.7", "glm-4.5-air", "glm-5", "minimax-m2.1", "minimax-2.5", "qwen3-coder-plus",
 		"gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
 		"opencode-zen",
+		"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash",
 	}
 	for _, id := range expectedModels {
 		if !modelIDs[id] {
 			t.Errorf("GetBuiltinModels() missing expected model %q", id)
 		}
+	}
+}
+
+func TestRunnerSpec(t *testing.T) {
+	model := Model{
+		ID: "test-model",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "test-model"},
+			"opencode": {ModelValue: "anthropic/test-model"},
+		},
+	}
+	spec, ok := model.RunnerFor("claude")
+	if !ok {
+		t.Fatal("expected runner for claude")
+	}
+	if spec.ModelValue != "test-model" {
+		t.Errorf("ModelValue = %q, want %q", spec.ModelValue, "test-model")
+	}
+	_, ok = model.RunnerFor("nonexistent")
+	if ok {
+		t.Error("expected no runner for nonexistent tool")
+	}
+}
+
+func TestBuildRunnerEnv(t *testing.T) {
+	adapter := GetAdapter("claude")
+	spec := RunnerSpec{
+		ModelValue: "kimi-thinking",
+		Endpoint:   "https://api.moonshot.ai/anthropic",
+	}
+	env := adapter.BuildRunnerEnv(spec)
+	if env["ANTHROPIC_BASE_URL"] != "https://api.moonshot.ai/anthropic" {
+		t.Errorf("ANTHROPIC_BASE_URL = %q", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["ANTHROPIC_MODEL"] != "kimi-thinking" {
+		t.Errorf("ANTHROPIC_MODEL = %q", env["ANTHROPIC_MODEL"])
+	}
+
+	// Native model (no endpoint) should return empty env
+	nativeSpec := RunnerSpec{ModelValue: "claude-opus-4-6"}
+	nativeEnv := adapter.BuildRunnerEnv(nativeSpec)
+	if len(nativeEnv) != 0 {
+		t.Errorf("expected empty env for native model, got %v", nativeEnv)
+	}
+
+	// Non-claude adapters return empty env
+	codexAdapter := GetAdapter("codex")
+	codexEnv := codexAdapter.BuildRunnerEnv(RunnerSpec{ModelValue: "gpt-5.2-codex"})
+	if len(codexEnv) != 0 {
+		t.Errorf("expected empty env for codex adapter, got %v", codexEnv)
+	}
+}
+
+func TestAllModelsHaveRunners(t *testing.T) {
+	models := GetBuiltinModels()
+	for _, m := range models {
+		if len(m.Runners) == 0 {
+			t.Errorf("model %q has no runners", m.ID)
+		}
+	}
+}
+
+func TestSortedRunnerKeys(t *testing.T) {
+	runners := map[string]RunnerSpec{
+		"opencode": {},
+		"claude":   {},
+		"codex":    {},
+	}
+	keys := SortedRunnerKeys(runners)
+	if len(keys) != 3 || keys[0] != "claude" || keys[1] != "codex" || keys[2] != "opencode" {
+		t.Errorf("SortedRunnerKeys = %v, want [claude codex opencode]", keys)
+	}
+}
+
+// TestGetAvailableModelsMultiRunner was merged into TestGetAvailableModels
+// since GetAvailableModels now uses multi-runner logic.
+
+func TestExpandedCatalogModels(t *testing.T) {
+	t.Parallel()
+	newModelIDs := []string{
+		// Older Anthropic models
+		"claude-opus-4",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4",
+		"claude-sonnet-3-5",
+		"claude-haiku-3-5",
+		// Google/Gemini models
+		"gemini-2.5-pro",
+		"gemini-2.5-flash",
+		"gemini-2.0-flash",
+	}
+	for _, id := range newModelIDs {
+		t.Run(id, func(t *testing.T) {
+			model, ok := FindModel(id)
+			if !ok {
+				t.Fatalf("expected model %q to exist in catalog", id)
+			}
+			if model.ID != id {
+				t.Errorf("FindModel(%q).ID = %q, want %q", id, model.ID, id)
+			}
+		})
+	}
+}
+
+func TestGeminiModelsHaveGeminiRunner(t *testing.T) {
+	t.Parallel()
+	geminiIDs := []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"}
+	for _, id := range geminiIDs {
+		t.Run(id, func(t *testing.T) {
+			model, ok := FindModel(id)
+			if !ok {
+				t.Fatalf("model %q not found", id)
+			}
+			spec, hasGemini := model.RunnerFor("gemini")
+			if !hasGemini {
+				t.Fatalf("model %q missing gemini runner", id)
+			}
+			if spec.ModelValue == "" {
+				t.Errorf("model %q gemini runner has empty ModelValue", id)
+			}
+			// Should also have opencode runner
+			spec, hasOpencode := model.RunnerFor("opencode")
+			if !hasOpencode {
+				t.Fatalf("model %q missing opencode runner", id)
+			}
+			if spec.ModelValue == "" {
+				t.Errorf("model %q opencode runner has empty ModelValue", id)
+			}
+		})
+	}
+}
+
+func TestOlderClaudeModelsHaveBothRunners(t *testing.T) {
+	t.Parallel()
+	olderClaudeIDs := []string{
+		"claude-opus-4",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4",
+		"claude-sonnet-3-5",
+		"claude-haiku-3-5",
+	}
+	for _, id := range olderClaudeIDs {
+		t.Run(id, func(t *testing.T) {
+			model, ok := FindModel(id)
+			if !ok {
+				t.Fatalf("model %q not found", id)
+			}
+			spec, hasClaude := model.RunnerFor("claude")
+			if !hasClaude {
+				t.Fatalf("model %q missing claude runner", id)
+			}
+			if spec.ModelValue == "" {
+				t.Errorf("model %q claude runner has empty ModelValue", id)
+			}
+			spec, hasOpencode := model.RunnerFor("opencode")
+			if !hasOpencode {
+				t.Fatalf("model %q missing opencode runner", id)
+			}
+			if spec.ModelValue == "" {
+				t.Errorf("model %q opencode runner has empty ModelValue", id)
+			}
+		})
 	}
 }

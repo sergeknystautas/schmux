@@ -440,7 +440,7 @@ type ExternalDiffCommand struct {
 
 // ModelsConfig holds model-related configuration.
 type ModelsConfig struct {
-	Versions map[string]string `json:"versions,omitempty"` // modelID -> pinned version
+	Enabled map[string]string `json:"enabled,omitempty"` // modelID -> preferred tool
 }
 
 const (
@@ -503,6 +503,141 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Name: "migrate_legacy_model_ids",
+		Detect: func(raw map[string]json.RawMessage, cfg *Config) bool {
+			return cfg.hasLegacyModelIDs()
+		},
+		Apply: func(raw map[string]json.RawMessage, cfg *Config) error {
+			cfg.migrateModelIDs()
+			return nil
+		},
+	},
+}
+
+// hasLegacyModelIDs returns true if any config field contains a legacy model ID.
+func (c *Config) hasLegacyModelIDs() bool {
+	legacy := detect.LegacyIDMigrations()
+	isLegacy := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		newID, ok := legacy[id]
+		return ok && newID != id
+	}
+
+	// Quick launch targets
+	for _, ql := range c.QuickLaunch {
+		if isLegacy(ql.Target) {
+			return true
+		}
+	}
+
+	// Nested config targets
+	if c.Nudgenik != nil && isLegacy(c.Nudgenik.Target) {
+		return true
+	}
+	if c.BranchSuggest != nil && isLegacy(c.BranchSuggest.Target) {
+		return true
+	}
+	if c.ConflictResolve != nil && isLegacy(c.ConflictResolve.Target) {
+		return true
+	}
+	if c.PrReview != nil && isLegacy(c.PrReview.Target) {
+		return true
+	}
+	if c.CommitMessage != nil && isLegacy(c.CommitMessage.Target) {
+		return true
+	}
+	if c.Desync != nil && isLegacy(c.Desync.Target) {
+		return true
+	}
+	if c.FloorManager != nil && isLegacy(c.FloorManager.Target) {
+		return true
+	}
+	if c.Lore != nil && isLegacy(c.Lore.Target) {
+		return true
+	}
+	if c.Compound != nil && isLegacy(c.Compound.Target) {
+		return true
+	}
+	if c.Subreddit != nil && isLegacy(c.Subreddit.Target) {
+		return true
+	}
+	if c.IOWorkspaceTelemetry != nil && isLegacy(c.IOWorkspaceTelemetry.Target) {
+		return true
+	}
+
+	// Enabled models map
+	if c.Models != nil && c.Models.Enabled != nil {
+		for id := range c.Models.Enabled {
+			if isLegacy(id) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// migrateModelIDs updates legacy model IDs to vendor-defined IDs in config fields.
+func (c *Config) migrateModelIDs() {
+	// Quick launch targets
+	for i, ql := range c.QuickLaunch {
+		if ql.Target != "" {
+			c.QuickLaunch[i].Target = detect.MigrateModelID(ql.Target)
+		}
+	}
+
+	// Nested config targets
+	migrateTarget := func(field *string) {
+		if field != nil && *field != "" {
+			*field = detect.MigrateModelID(*field)
+		}
+	}
+
+	if c.Nudgenik != nil {
+		migrateTarget(&c.Nudgenik.Target)
+	}
+	if c.BranchSuggest != nil {
+		migrateTarget(&c.BranchSuggest.Target)
+	}
+	if c.ConflictResolve != nil {
+		migrateTarget(&c.ConflictResolve.Target)
+	}
+	if c.PrReview != nil {
+		migrateTarget(&c.PrReview.Target)
+	}
+	if c.CommitMessage != nil {
+		migrateTarget(&c.CommitMessage.Target)
+	}
+	if c.Desync != nil {
+		migrateTarget(&c.Desync.Target)
+	}
+	if c.FloorManager != nil {
+		migrateTarget(&c.FloorManager.Target)
+	}
+	if c.Lore != nil {
+		migrateTarget(&c.Lore.Target)
+	}
+	if c.Compound != nil {
+		migrateTarget(&c.Compound.Target)
+	}
+	if c.Subreddit != nil {
+		migrateTarget(&c.Subreddit.Target)
+	}
+	if c.IOWorkspaceTelemetry != nil {
+		migrateTarget(&c.IOWorkspaceTelemetry.Target)
+	}
+
+	// Enabled models map
+	if c.Models != nil && c.Models.Enabled != nil {
+		newEnabled := make(map[string]string, len(c.Models.Enabled))
+		for id, tool := range c.Models.Enabled {
+			newEnabled[detect.MigrateModelID(id)] = tool
+		}
+		c.Models.Enabled = newEnabled
+	}
 }
 
 // Validate validates the config including terminal settings, run targets, models, and quick launch presets.
@@ -1883,9 +2018,10 @@ func DetectedToolsFromConfig(cfg *Config) []detect.Tool {
 }
 
 // EnsureModelSecrets validates that all required secrets for a model are non-empty.
+// Checks the first runner's RequiredSecrets since model-level RequiredSecrets was removed.
 // This is a shared helper used by multiple packages (session, oneshot, nudgenik).
 func EnsureModelSecrets(model detect.Model, secrets map[string]string) error {
-	for _, key := range model.RequiredSecrets {
+	for _, key := range model.FirstRunnerRequiredSecrets() {
 		val := strings.TrimSpace(secrets[key])
 		if val == "" {
 			return fmt.Errorf("%w: model %s missing required secret: %s", ErrInvalidConfig, model.ID, key)
@@ -2227,26 +2363,6 @@ func GenerateRemoteFlavorID(flavor string) string {
 	return generateRemoteFlavorID(flavor)
 }
 
-// GetModelVersion returns the pinned version for a model, or empty string if not pinned.
-func (c *Config) GetModelVersion(modelID string) string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.Models == nil || c.Models.Versions == nil {
-		return ""
-	}
-	return c.Models.Versions[modelID]
-}
-
-// GetModelVersions returns all pinned model versions.
-func (c *Config) GetModelVersions() map[string]string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.Models == nil || c.Models.Versions == nil {
-		return nil
-	}
-	return c.Models.Versions
-}
-
 // GetTelemetryEnabled returns whether telemetry is enabled.
 // Defaults to true if not explicitly configured.
 func (c *Config) GetTelemetryEnabled() bool {
@@ -2445,14 +2561,34 @@ func bareRepoMatchesURL(repoPath, expectedURL string) bool {
 	return strings.TrimSpace(string(output)) == expectedURL
 }
 
-// SetModelVersions sets the model version overrides.
-func (c *Config) SetModelVersions(versions map[string]string) {
+// GetEnabledModels returns the enabled models map (modelID -> preferred tool).
+func (c *Config) GetEnabledModels() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Models == nil || c.Models.Enabled == nil {
+		return nil
+	}
+	return c.Models.Enabled
+}
+
+// SetEnabledModels sets the enabled models map.
+func (c *Config) SetEnabledModels(enabled map[string]string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Models == nil {
 		c.Models = &ModelsConfig{}
 	}
-	c.Models.Versions = versions
+	c.Models.Enabled = enabled
+}
+
+// PreferredTool returns the user's preferred tool for a model, or empty string.
+func (c *Config) PreferredTool(modelID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Models == nil || c.Models.Enabled == nil {
+		return ""
+	}
+	return c.Models.Enabled[modelID]
 }
 
 // AddRepoOverlayPaths adds overlay paths to a repo's config, deduplicating against existing paths.

@@ -425,8 +425,14 @@ func (m *Manager) buildFMCommand(ctx context.Context, prompt string) (string, er
 
 	// Build the base command with model flag if applicable
 	baseCommand := resolved.Command
-	if resolved.Model != nil && resolved.Model.ModelFlag != "" {
-		baseCommand = fmt.Sprintf("%s %s %s", baseCommand, resolved.Model.ModelFlag, shellutil.Quote(resolved.Model.ModelValue))
+	if resolved.Model != nil && resolved.ToolName != "" {
+		adapter := detect.GetAdapter(resolved.ToolName)
+		if adapter != nil {
+			flag := adapter.ModelFlag()
+			if spec, ok := resolved.Model.RunnerFor(resolved.ToolName); ok && spec.ModelValue != "" && flag != "" {
+				baseCommand = fmt.Sprintf("%s %s %s", baseCommand, flag, shellutil.Quote(spec.ModelValue))
+			}
+		}
 	}
 
 	// FM gets minimal env: just SCHMUX_ENABLED and SCHMUX_SESSION_ID
@@ -450,9 +456,13 @@ func (m *Manager) buildFMResumeCommand(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	toolName := resolved.Name
-	if resolved.Model != nil {
-		toolName = resolved.Model.BaseTool
+	// Use the resolved tool name from session, fall back to first runner key, then Name
+	toolName := resolved.ToolName
+	if toolName == "" && resolved.Model != nil {
+		toolName = resolved.Model.FirstRunnerKey()
+	}
+	if toolName == "" {
+		toolName = resolved.Name
 	}
 
 	parts, err := detect.BuildCommandParts(toolName, resolved.Command, detect.ToolModeResume, "", resolved.Model)
@@ -473,6 +483,7 @@ func (m *Manager) buildFMResumeCommand(ctx context.Context) (string, error) {
 // resolvedFMTarget holds a resolved target with optional model info.
 type resolvedFMTarget struct {
 	Name       string
+	ToolName   string // the resolved tool name (e.g., "claude", "opencode")
 	Command    string
 	Promptable bool
 	Env        map[string]string
@@ -499,6 +510,7 @@ func (m *Manager) resolveTarget(ctx context.Context) (resolvedFMTarget, error) {
 
 	return resolvedFMTarget{
 		Name:       resolved.Name,
+		ToolName:   resolved.ToolName,
 		Command:    resolved.Command,
 		Promptable: resolved.Promptable,
 		Env:        resolved.Env,

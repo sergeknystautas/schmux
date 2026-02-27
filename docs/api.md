@@ -756,16 +756,18 @@ Response:
   "quick_launch": [{ "name": "preset", "target": "target", "prompt": "optional" }],
   "models": [
     {
-      "id": "claude-sonnet",
-      "display_name": "Claude Sonnet 4.5",
-      "base_tool": "claude",
+      "id": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6",
       "provider": "anthropic",
       "category": "native",
-      "required_secrets": [],
-      "usage_url": "",
-      "configured": true
+      "configured": true,
+      "runners": {
+        "claude": { "available": true, "configured": true }
+      },
+      "preferred_tool": "claude"
     }
   ],
+  "enabled_models": { "claude-sonnet-4-6": "claude" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -840,18 +842,7 @@ Request:
   "repos": [{ "name": "repo", "url": "https://..." }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [{ "name": "preset", "target": "target", "prompt": "optional" }],
-  "models": [
-    {
-      "id": "claude-sonnet",
-      "display_name": "Claude Sonnet 4.5",
-      "base_tool": "claude",
-      "provider": "anthropic",
-      "category": "native",
-      "required_secrets": [],
-      "usage_url": "",
-      "configured": true
-    }
-  ],
+  "enabled_models": { "claude-sonnet-4-6": "claude" },
   "nudgenik": { "target": "optional", "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -1052,7 +1043,7 @@ Response:
 
 ### GET /api/models
 
-Lists available models and whether they are configured (provider-scoped secrets apply).
+Lists available models and whether they are configured. Each model includes a `runners` map showing which tools can run it and their configuration status. Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
 
 Response:
 
@@ -1060,34 +1051,35 @@ Response:
 {
   "models": [
     {
-      "id": "claude-sonnet",
-      "display_name": "claude sonnet 4.5",
-      "base_tool": "claude",
+      "id": "claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6",
       "provider": "anthropic",
       "category": "native",
-      "required_secrets": [],
-      "usage_url": "",
-      "configured": true
+      "configured": true,
+      "runners": {
+        "claude": { "available": true, "configured": true },
+        "opencode": { "available": false, "configured": true }
+      },
+      "preferred_tool": "claude"
     },
     {
       "id": "kimi-thinking",
       "display_name": "kimi k2 thinking",
-      "base_tool": "claude",
       "provider": "moonshot",
       "category": "third-party",
-      "required_secrets": ["ANTHROPIC_AUTH_TOKEN"],
       "usage_url": "https://platform.moonshot.ai/console/account",
-      "configured": false
-    },
-    {
-      "id": "kimi-k2.5",
-      "display_name": "kimi k2.5",
-      "base_tool": "claude",
-      "provider": "moonshot",
-      "category": "third-party",
-      "required_secrets": ["ANTHROPIC_AUTH_TOKEN"],
-      "usage_url": "https://platform.moonshot.ai/console/account",
-      "configured": false
+      "configured": false,
+      "runners": {
+        "claude": {
+          "available": true,
+          "configured": false,
+          "required_secrets": ["ANTHROPIC_AUTH_TOKEN"]
+        },
+        "opencode": {
+          "available": false,
+          "configured": false
+        }
+      }
     }
   ]
 }

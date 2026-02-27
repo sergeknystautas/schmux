@@ -43,18 +43,23 @@ type ExternalDiffCommand struct {
 	Command string `json:"command"`
 }
 
+// RunnerInfo describes a tool that can run a model.
+type RunnerInfo struct {
+	Available       bool     `json:"available"`                  // true if the tool is detected
+	Configured      bool     `json:"configured"`                 // true if required secrets are present
+	RequiredSecrets []string `json:"required_secrets,omitempty"` // secrets needed for this runner
+}
+
 // Model represents an AI model with metadata and configuration status.
 type Model struct {
-	ID              string   `json:"id"`                         // e.g., "claude-sonnet", "kimi-thinking"
-	DisplayName     string   `json:"display_name"`               // e.g., "Claude Sonnet 4.5"
-	BaseTool        string   `json:"base_tool"`                  // e.g., "claude"
-	Provider        string   `json:"provider"`                   // "anthropic", "moonshot", "zai", "minimax"
-	Category        string   `json:"category"`                   // "native" or "third-party"
-	RequiredSecrets []string `json:"required_secrets,omitempty"` // e.g., ["ANTHROPIC_AUTH_TOKEN"] for third-party
-	UsageURL        string   `json:"usage_url,omitempty"`        // signup/pricing page
-	Configured      bool     `json:"configured"`                 // true if secrets are configured (or native model)
-	PinnedVersion   string   `json:"pinned_version,omitempty"`   // version if pinned
-	DefaultValue    string   `json:"default_value"`              // tier name (opus/sonnet/haiku)
+	ID            string                `json:"id"`                       // e.g., "claude-opus-4-6"
+	DisplayName   string                `json:"display_name"`             // e.g., "Claude Opus 4.6"
+	Provider      string                `json:"provider"`                 // e.g., "anthropic"
+	Category      string                `json:"category"`                 // "native" or "third-party"
+	UsageURL      string                `json:"usage_url,omitempty"`      // signup/pricing page
+	Configured    bool                  `json:"configured"`               // true if at least one runner is configured
+	Runners       map[string]RunnerInfo `json:"runners"`                  // tool name -> runner info
+	PreferredTool string                `json:"preferred_tool,omitempty"` // user's preferred tool for this model
 }
 
 // Nudgenik represents NudgeNik configuration.
@@ -120,7 +125,7 @@ type ConfigResponse struct {
 	ExternalDiffCommands       []ExternalDiffCommand `json:"external_diff_commands,omitempty"`
 	ExternalDiffCleanupAfterMs int                   `json:"external_diff_cleanup_after_ms,omitempty"`
 	Models                     []Model               `json:"models"`
-	ModelVersions              map[string]string     `json:"model_versions,omitempty"` // pinned versions
+	EnabledModels              map[string]string     `json:"enabled_models,omitempty"` // modelID -> preferred tool
 	Nudgenik                   Nudgenik              `json:"nudgenik"`
 	BranchSuggest              BranchSuggest         `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve       `json:"conflict_resolve"`
@@ -267,7 +272,7 @@ type ConfigUpdateRequest struct {
 	Subreddit                  *SubredditUpdate            `json:"subreddit,omitempty"`
 	FloorManager               *FloorManagerUpdate         `json:"floor_manager,omitempty"`
 	RemoteAccess               *RemoteAccessUpdate         `json:"remote_access,omitempty"`
-	ModelVersions              *map[string]string          `json:"model_versions,omitempty"`
+	EnabledModels              *map[string]string          `json:"enabled_models,omitempty"`
 }
 
 // DesyncUpdate represents partial desync diagnostic config updates.

@@ -585,6 +585,32 @@ const (
 	targetKindUser     = "user"
 )
 
+// resolveToolForModel picks which tool to use for a model in the oneshot context.
+// It checks the config's PreferredTool, then falls back to the first detected runner.
+func resolveToolForModel(cfg *config.Config, model detect.Model) string {
+	// 1. Check user preference
+	if preferred := cfg.PreferredTool(model.ID); preferred != "" {
+		if _, ok := model.RunnerFor(preferred); ok {
+			return preferred
+		}
+	}
+
+	// 2. Fall back to first detected runner
+	detectedTools := config.DetectedToolsFromConfig(cfg)
+	detected := make(map[string]bool, len(detectedTools))
+	for _, t := range detectedTools {
+		detected[t.Name] = true
+	}
+
+	for _, toolName := range detect.SortedRunnerKeys(model.Runners) {
+		if detected[toolName] {
+			return toolName
+		}
+	}
+
+	return ""
+}
+
 // resolveTarget resolves a target name to its full configuration including models and secrets.
 func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error) {
 	if cfg == nil {
@@ -594,36 +620,47 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
 	model, ok := detect.FindModel(targetName)
 	if ok {
-		// Verify the base tool is detected
-		detectedTools := config.DetectedToolsFromConfig(cfg)
-		baseToolDetected := false
-		for _, tool := range detectedTools {
-			if tool.Name == model.BaseTool {
-				baseToolDetected = true
-				break
-			}
-		}
-		if !baseToolDetected {
+		// Determine which tool to use for this model
+		toolName := resolveToolForModel(cfg, model)
+		if toolName == "" {
 			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 		}
-		baseTarget, found := cfg.GetDetectedRunTarget(model.BaseTool)
+
+		spec, _ := model.RunnerFor(toolName)
+
+		// Get the tool's command from detected run targets
+		baseTarget, found := cfg.GetDetectedRunTarget(toolName)
 		if !found {
 			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 		}
+
+		// Load secrets and verify required ones are present
 		secrets, err := config.GetEffectiveModelSecrets(model)
 		if err != nil {
 			return resolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
 		}
-		if err := config.EnsureModelSecrets(model, secrets); err != nil {
-			return resolvedTarget{}, err
+		for _, key := range spec.RequiredSecrets {
+			if strings.TrimSpace(secrets[key]) == "" {
+				return resolvedTarget{}, fmt.Errorf("model %s requires secret %s for tool %s", model.ID, key, toolName)
+			}
 		}
+
+		// Build env using the adapter
+		adapter := detect.GetAdapter(toolName)
+		var env map[string]string
+		if adapter != nil {
+			env = mergeEnvMaps(adapter.BuildRunnerEnv(spec), secrets)
+		} else {
+			env = secrets
+		}
+
 		return resolvedTarget{
 			Name:       model.ID,
 			Kind:       targetKindModel,
-			ToolName:   model.BaseTool,
+			ToolName:   toolName,
 			Command:    baseTarget.Command,
 			Promptable: true,
-			Env:        mergeEnvMaps(model.BuildEnv(), secrets),
+			Env:        env,
 			Model:      &model,
 		}, nil
 	}

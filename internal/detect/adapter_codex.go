@@ -20,16 +20,20 @@ func (a *CodexAdapter) InteractiveArgs(model *Model, resume bool) []string {
 	if resume {
 		return []string{"resume", "--last"}
 	}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		return []string{model.ModelFlag, model.ModelValue}
+	if model != nil {
+		if spec, ok := model.RunnerFor("codex"); ok && spec.ModelValue != "" {
+			return []string{"-m", spec.ModelValue}
+		}
 	}
 	return nil
 }
 
 func (a *CodexAdapter) OneshotArgs(model *Model, jsonSchema string) ([]string, error) {
 	args := []string{"exec", "--json"}
-	if model != nil && model.ModelFlag != "" && model.ModelValue != "" {
-		args = append(args, model.ModelFlag, model.ModelValue)
+	if model != nil {
+		if spec, ok := model.RunnerFor("codex"); ok && spec.ModelValue != "" {
+			args = append(args, "-m", spec.ModelValue)
+		}
 	}
 	if jsonSchema != "" {
 		args = append(args, "--output-schema", jsonSchema)
@@ -68,3 +72,9 @@ func (a *CodexAdapter) PersonaArgs(filePath string) []string { return nil }
 func (a *CodexAdapter) SpawnEnv(ctx SpawnContext) map[string]string { return nil }
 
 func (a *CodexAdapter) SetupCommands(workspacePath string) error { return nil }
+
+func (a *CodexAdapter) ModelFlag() string { return "-m" }
+
+func (a *CodexAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
+	return map[string]string{}
+}

@@ -308,16 +308,23 @@ type QuickLaunch struct {
 	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
 }
 
+// RunnerInfo describes a tool that can run a model.
+type RunnerInfo struct {
+	Available       bool     `json:"available"`
+	Configured      bool     `json:"configured"`
+	RequiredSecrets []string `json:"required_secrets,omitempty"`
+}
+
 // Model represents an AI model with metadata and configuration status.
 type Model struct {
-	ID              string   `json:"id"`
-	DisplayName     string   `json:"display_name"`
-	BaseTool        string   `json:"base_tool"`
-	Provider        string   `json:"provider"`
-	Category        string   `json:"category"`
-	RequiredSecrets []string `json:"required_secrets,omitempty"`
-	UsageURL        string   `json:"usage_url,omitempty"`
-	Configured      bool     `json:"configured"`
+	ID            string                `json:"id"`
+	DisplayName   string                `json:"display_name"`
+	Provider      string                `json:"provider"`
+	Category      string                `json:"category"`
+	UsageURL      string                `json:"usage_url,omitempty"`
+	Configured    bool                  `json:"configured"`
+	Runners       map[string]RunnerInfo `json:"runners"`
+	PreferredTool string                `json:"preferred_tool,omitempty"`
 }
 
 // TerminalConfig represents terminal dimensions.
