@@ -76,10 +76,10 @@ async function runParallel(opts: Options): Promise<SuiteResult[]> {
   const buildPromises: Promise<{ ok: boolean }>[] = [];
 
   if (needsDocker) {
-    buildPromises.push(buildLocalArtifacts(buildEvent));
+    buildPromises.push(buildLocalArtifacts(buildEvent, opts.coverage));
   }
   if (needsDashboard) {
-    buildPromises.push(buildDashboard(buildEvent));
+    buildPromises.push(buildDashboard(buildEvent, opts.coverage));
   }
 
   if (buildPromises.length > 0) {

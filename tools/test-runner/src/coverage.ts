@@ -1,5 +1,5 @@
 import { exec } from './exec.js';
-import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, type Dirent } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -282,4 +282,387 @@ export function parseVitestCoverage(output: string): FrontendCoverageReport | nu
   directories.sort((a, b) => a.stmtsCoverage - b.stmtsCoverage);
 
   return { totalCoverage, directories };
+}
+
+// ─── Dual Coverage Comparison (Unit vs Integration) ─────────────────────────
+
+export interface DualCoveragePackage {
+  name: string;
+  unitOnly: number; // stmts covered only by unit tests
+  integOnly: number; // stmts covered only by integration tests
+  both: number; // stmts covered by both
+  neither: number; // stmts covered by neither
+  total: number; // total stmts
+}
+
+export interface DualCoverageReport {
+  packages: DualCoveragePackage[];
+  totals: DualCoveragePackage;
+}
+
+/**
+ * Parse a Go coverprofile text file into a map of statement blocks.
+ * Each block is keyed by "file:startLine.startCol,endLine.endCol".
+ * Value is { pkg, numStmts, count }.
+ *
+ * Format: mode: atomic
+ *         github.com/.../file.go:10.2,15.3 2 1
+ *         file:startLine.startCol,endLine.endCol numStatements count
+ */
+export function parseCoverProfile(
+  text: string,
+  modulePrefix: string
+): Map<string, { pkg: string; numStmts: number; count: number }> {
+  const blocks = new Map<string, { pkg: string; numStmts: number; count: number }>();
+
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('mode:')) continue;
+
+    // Format: path/file.go:startLine.startCol,endLine.endCol numStmts count
+    const match = line.match(/^(\S+):(\d+\.\d+),(\d+\.\d+)\s+(\d+)\s+(\d+)$/);
+    if (!match) continue;
+
+    const fullPath = match[1];
+    const start = match[2];
+    const end = match[3];
+    const numStmts = parseInt(match[4], 10);
+    const count = parseInt(match[5], 10);
+
+    // Strip module prefix to get relative path
+    let relPath = fullPath;
+    if (modulePrefix && relPath.startsWith(modulePrefix)) {
+      relPath = relPath.slice(modulePrefix.length);
+    }
+
+    // Extract package dir (everything before the last /)
+    const lastSlash = relPath.lastIndexOf('/');
+    const pkg = lastSlash > 0 ? relPath.substring(0, lastSlash) : relPath;
+
+    const key = `${fullPath}:${start},${end}`;
+
+    // Merge: if same block appears multiple times, sum the counts
+    const existing = blocks.get(key);
+    if (existing) {
+      existing.count += count;
+    } else {
+      blocks.set(key, { pkg, numStmts, count });
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Convert binary covdata directories to a text coverprofile file using
+ * `go tool covdata textfmt`. Returns the path to the output file, or null
+ * if conversion fails or no data exists.
+ */
+export async function convertCovdataToProfile(
+  covdataDirs: string[],
+  outputFile: string,
+  root: string
+): Promise<string | null> {
+  // Filter to directories that actually exist and contain files
+  const validDirs = covdataDirs.filter((d) => {
+    try {
+      if (!existsSync(d)) return false;
+      const entries = readdirSync(d);
+      return entries.length > 0;
+    } catch {
+      return false;
+    }
+  });
+
+  if (validDirs.length === 0) return null;
+
+  const result = await exec({
+    cmd: 'go',
+    args: ['tool', 'covdata', 'textfmt', `-i=${validDirs.join(',')}`, `-o=${outputFile}`],
+    cwd: root,
+  });
+
+  if (result.exitCode !== 0) return null;
+
+  return outputFile;
+}
+
+/**
+ * Compare unit test coverage against integration test coverage.
+ * Returns per-package breakdown of which statements are covered by
+ * unit only, integration only, both, or neither.
+ */
+export async function compareGoCoverage(
+  unitProfileFile: string,
+  integrationDirs: string[],
+  root: string
+): Promise<DualCoverageReport | null> {
+  // Read the unit test coverprofile
+  let unitText: string;
+  try {
+    unitText = readFileSync(resolve(root, unitProfileFile), 'utf-8');
+  } catch {
+    return null;
+  }
+
+  // Convert integration covdata to text profile
+  const integProfileFile = resolve(root, 'coverage-integration.out');
+  const integProfile = await convertCovdataToProfile(
+    integrationDirs.map((d) => resolve(root, d)),
+    integProfileFile,
+    root
+  );
+
+  if (!integProfile) return null;
+
+  let integText: string;
+  try {
+    integText = readFileSync(integProfile, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  // Parse module prefix
+  const goMod = readFileSync(resolve(root, 'go.mod'), 'utf-8');
+  const moduleLine = goMod.match(/^module\s+(\S+)/m);
+  const modulePrefix = moduleLine ? moduleLine[1] + '/' : '';
+
+  // Parse both profiles
+  const unitBlocks = parseCoverProfile(unitText, modulePrefix);
+  const integBlocks = parseCoverProfile(integText, modulePrefix);
+
+  // Collect all block keys from both profiles
+  const allKeys = new Set([...unitBlocks.keys(), ...integBlocks.keys()]);
+
+  // Per-package accumulators
+  const pkgMap = new Map<
+    string,
+    { unitOnly: number; integOnly: number; both: number; neither: number; total: number }
+  >();
+
+  for (const key of allKeys) {
+    const unit = unitBlocks.get(key);
+    const integ = integBlocks.get(key);
+
+    const pkg = unit?.pkg ?? integ?.pkg ?? 'unknown';
+    const numStmts = unit?.numStmts ?? integ?.numStmts ?? 0;
+    const unitCovered = (unit?.count ?? 0) > 0;
+    const integCovered = (integ?.count ?? 0) > 0;
+
+    let stats = pkgMap.get(pkg);
+    if (!stats) {
+      stats = { unitOnly: 0, integOnly: 0, both: 0, neither: 0, total: 0 };
+      pkgMap.set(pkg, stats);
+    }
+
+    stats.total += numStmts;
+    if (unitCovered && integCovered) {
+      stats.both += numStmts;
+    } else if (unitCovered) {
+      stats.unitOnly += numStmts;
+    } else if (integCovered) {
+      stats.integOnly += numStmts;
+    } else {
+      stats.neither += numStmts;
+    }
+  }
+
+  // Build sorted package list
+  const packages: DualCoveragePackage[] = [];
+  for (const [name, stats] of pkgMap) {
+    packages.push({ name, ...stats });
+  }
+  packages.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Compute totals
+  const totals: DualCoveragePackage = {
+    name: 'Total',
+    unitOnly: packages.reduce((s, p) => s + p.unitOnly, 0),
+    integOnly: packages.reduce((s, p) => s + p.integOnly, 0),
+    both: packages.reduce((s, p) => s + p.both, 0),
+    neither: packages.reduce((s, p) => s + p.neither, 0),
+    total: packages.reduce((s, p) => s + p.total, 0),
+  };
+
+  return { packages, totals };
+}
+
+// ─── Frontend Dual Coverage (Istanbul JSON) ─────────────────────────────────
+
+/**
+ * Istanbul coverage format: { [filePath]: FileCoverage }
+ * FileCoverage has: s (statement counts), f (function counts), b (branch counts)
+ */
+interface IstanbulFileCoverage {
+  path: string;
+  s: Record<string, number>; // statement index → execution count
+  f: Record<string, number>; // function index → execution count
+  b: Record<string, number[]>; // branch index → [truthy count, falsy count]
+  statementMap: Record<string, { start: { line: number }; end: { line: number } }>;
+}
+
+type IstanbulCoverageMap = Record<string, IstanbulFileCoverage>;
+
+/**
+ * Merge multiple Istanbul coverage JSON objects into one.
+ * Sums execution counters for matching files/statements.
+ */
+function mergeIstanbulCoverage(coverages: IstanbulCoverageMap[]): IstanbulCoverageMap {
+  const merged: IstanbulCoverageMap = {};
+
+  for (const coverage of coverages) {
+    for (const [filePath, fileCov] of Object.entries(coverage)) {
+      if (!merged[filePath]) {
+        merged[filePath] = JSON.parse(JSON.stringify(fileCov));
+        continue;
+      }
+
+      const target = merged[filePath];
+      // Sum statement counts
+      for (const [key, count] of Object.entries(fileCov.s)) {
+        target.s[key] = (target.s[key] ?? 0) + count;
+      }
+      // Sum function counts
+      for (const [key, count] of Object.entries(fileCov.f)) {
+        target.f[key] = (target.f[key] ?? 0) + count;
+      }
+      // Sum branch counts (arrays)
+      for (const [key, counts] of Object.entries(fileCov.b)) {
+        if (!target.b[key]) {
+          target.b[key] = [...counts];
+        } else {
+          for (let i = 0; i < counts.length; i++) {
+            target.b[key][i] = (target.b[key][i] ?? 0) + counts[i];
+          }
+        }
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Load and merge all Istanbul coverage JSON files from a directory.
+ * Each file is a per-test coverage snapshot written by the Playwright fixture.
+ */
+function loadIstanbulCoverageDir(dir: string): IstanbulCoverageMap | null {
+  if (!existsSync(dir)) return null;
+
+  let entries: string[];
+  try {
+    entries = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  } catch {
+    return null;
+  }
+
+  if (entries.length === 0) return null;
+
+  const coverages: IstanbulCoverageMap[] = [];
+  for (const entry of entries) {
+    try {
+      const content = readFileSync(join(dir, entry), 'utf-8');
+      coverages.push(JSON.parse(content) as IstanbulCoverageMap);
+    } catch {
+      // Skip malformed files
+    }
+  }
+
+  return coverages.length > 0 ? mergeIstanbulCoverage(coverages) : null;
+}
+
+/**
+ * Extract directory name from a file path relative to the project.
+ * E.g., "src/components/Foo.tsx" → "src/components"
+ */
+function extractFrontendDir(filePath: string): string {
+  // Find "src/" in the path and take the next directory level
+  const srcIdx = filePath.indexOf('/src/');
+  if (srcIdx < 0) return 'other';
+
+  const afterSrc = filePath.substring(srcIdx + 5); // after "/src/"
+  const nextSlash = afterSrc.indexOf('/');
+  if (nextSlash < 0) return 'src';
+  return `src/${afterSrc.substring(0, nextSlash)}`;
+}
+
+/**
+ * Compare frontend unit (Vitest) coverage against integration (Playwright) coverage.
+ * Both use Istanbul JSON format. Returns per-directory breakdown.
+ */
+export function compareFrontendCoverage(
+  unitCoverageFile: string,
+  integrationCoverageDir: string
+): DualCoverageReport | null {
+  // Load unit coverage (Vitest JSON)
+  let unitCoverage: IstanbulCoverageMap;
+  try {
+    unitCoverage = JSON.parse(readFileSync(unitCoverageFile, 'utf-8')) as IstanbulCoverageMap;
+  } catch {
+    return null;
+  }
+
+  // Load and merge integration coverage (per-test Playwright JSONs)
+  const integCoverage = loadIstanbulCoverageDir(integrationCoverageDir);
+  if (!integCoverage) return null;
+
+  // Collect all file paths from both
+  const allFiles = new Set([...Object.keys(unitCoverage), ...Object.keys(integCoverage)]);
+
+  // Per-directory accumulators
+  const dirMap = new Map<
+    string,
+    { unitOnly: number; integOnly: number; both: number; neither: number; total: number }
+  >();
+
+  for (const filePath of allFiles) {
+    const dir = extractFrontendDir(filePath);
+    const unitFile = unitCoverage[filePath];
+    const integFile = integCoverage[filePath];
+
+    let stats = dirMap.get(dir);
+    if (!stats) {
+      stats = { unitOnly: 0, integOnly: 0, both: 0, neither: 0, total: 0 };
+      dirMap.set(dir, stats);
+    }
+
+    // Compare at statement level
+    const unitStmts = unitFile?.s ?? {};
+    const integStmts = integFile?.s ?? {};
+    const allStmtKeys = new Set([...Object.keys(unitStmts), ...Object.keys(integStmts)]);
+
+    for (const key of allStmtKeys) {
+      const unitCovered = (unitStmts[key] ?? 0) > 0;
+      const integCovered = (integStmts[key] ?? 0) > 0;
+
+      stats.total++;
+      if (unitCovered && integCovered) {
+        stats.both++;
+      } else if (unitCovered) {
+        stats.unitOnly++;
+      } else if (integCovered) {
+        stats.integOnly++;
+      } else {
+        stats.neither++;
+      }
+    }
+  }
+
+  // Build sorted directory list
+  const packages: DualCoveragePackage[] = [];
+  for (const [name, stats] of dirMap) {
+    packages.push({ name, ...stats });
+  }
+  packages.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Compute totals
+  const totals: DualCoveragePackage = {
+    name: 'Total',
+    unitOnly: packages.reduce((s, p) => s + p.unitOnly, 0),
+    integOnly: packages.reduce((s, p) => s + p.integOnly, 0),
+    both: packages.reduce((s, p) => s + p.both, 0),
+    neither: packages.reduce((s, p) => s + p.neither, 0),
+    total: packages.reduce((s, p) => s + p.total, 0),
+  };
+
+  return { packages, totals };
 }

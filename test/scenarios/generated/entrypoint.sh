@@ -42,6 +42,12 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Set up frontend coverage collection directory if coverage is enabled
+if [ -n "${GOCOVERDIR:-}" ]; then
+    export COVERAGE_DIR=/tmp/fe-coverage
+    mkdir -p "$COVERAGE_DIR"
+fi
+
 # Run Playwright scenario tests
 cd /app/test/scenarios/generated
 set +e
@@ -67,8 +73,15 @@ if [ -d /artifacts ]; then
     if [ -d playwright-report ]; then
         cp -r playwright-report /artifacts/playwright-report
     fi
+    # Copy frontend coverage data if collected
+    if [ -d "$COVERAGE_DIR" ] && [ "$(ls -A "$COVERAGE_DIR" 2>/dev/null)" ]; then
+        echo "Copying frontend coverage data to /artifacts/fe-coverage..."
+        mkdir -p /artifacts/fe-coverage
+        cp "$COVERAGE_DIR"/*.json /artifacts/fe-coverage/
+    fi
 fi
 
-# Clean up
+# Clean up — wait for daemon to fully exit so coverage data flushes
 kill $DAEMON_PID 2>/dev/null || true
+wait $DAEMON_PID 2>/dev/null || true
 exit $TEST_EXIT

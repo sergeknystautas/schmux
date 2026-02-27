@@ -3,7 +3,9 @@ import { exec, projectRoot } from '../exec.js';
 import type { EventCallback } from '../types.js';
 
 let localBuildDone = false;
+let localBuildCoverage = false;
 let dashboardBuildDone = false;
+let dashboardBuildCoverage = false;
 
 /** Map Node.js os.arch() to Go's GOARCH values */
 function goArch(): string {
@@ -29,17 +31,25 @@ function extractBuildError(result: { stdout: string; stderr: string }, maxLines 
   return lines.slice(-maxLines).join('\n');
 }
 
-export async function buildLocalArtifacts(onEvent: EventCallback): Promise<BuildResult> {
-  if (localBuildDone) return { ok: true, errorOutput: '' };
+export async function buildLocalArtifacts(
+  onEvent: EventCallback,
+  coverage = false
+): Promise<BuildResult> {
+  if (localBuildDone && localBuildCoverage === coverage) return { ok: true, errorOutput: '' };
 
   const root = projectRoot();
   await exec({ cmd: 'mkdir', args: ['-p', 'build'], cwd: root });
 
   const ga = goArch();
-  onEvent('e2e', { type: 'build_step', message: `Cross-compiling schmux for linux/${ga}...` });
+  const coverArgs = coverage ? ['-cover', '-coverpkg=./...'] : [];
+  const coverLabel = coverage ? ' (with coverage)' : '';
+  onEvent('e2e', {
+    type: 'build_step',
+    message: `Cross-compiling schmux for linux/${ga}${coverLabel}...`,
+  });
   const schmux = await exec({
     cmd: 'go',
-    args: ['build', '-o', 'build/schmux-linux', './cmd/schmux'],
+    args: ['build', ...coverArgs, '-o', 'build/schmux-linux', './cmd/schmux'],
     cwd: root,
     env: { GOOS: 'linux', GOARCH: ga, CGO_ENABLED: '0' },
   });
@@ -66,11 +76,17 @@ export async function buildLocalArtifacts(onEvent: EventCallback): Promise<Build
   onEvent('e2e', { type: 'build_step', message: 'E2E test binary built: build/e2e-test' });
 
   localBuildDone = true;
+  localBuildCoverage = coverage;
   return { ok: true, errorOutput: '' };
 }
 
-export async function buildDashboard(onEvent: EventCallback): Promise<BuildResult> {
-  if (dashboardBuildDone) return { ok: true, errorOutput: '' };
+export async function buildDashboard(
+  onEvent: EventCallback,
+  coverage = false
+): Promise<BuildResult> {
+  if (dashboardBuildDone && dashboardBuildCoverage === coverage) {
+    return { ok: true, errorOutput: '' };
+  }
 
   const root = projectRoot();
 
@@ -83,11 +99,15 @@ export async function buildDashboard(onEvent: EventCallback): Promise<BuildResul
   }
 
   onEvent('scenarios', { type: 'build_step', message: 'Building dashboard...' });
+  const buildEnv: Record<string, string> = { VITE_EXPOSE_TERMINAL: 'true' };
+  if (coverage) {
+    buildEnv['VITE_COVERAGE'] = 'true';
+  }
   const result = await exec({
     cmd: 'go',
     args: dashboardArgs,
     cwd: root,
-    env: { VITE_EXPOSE_TERMINAL: 'true' },
+    env: buildEnv,
   });
 
   if (result.exitCode !== 0) {
@@ -97,5 +117,6 @@ export async function buildDashboard(onEvent: EventCallback): Promise<BuildResul
 
   onEvent('scenarios', { type: 'build_step', message: 'Dashboard built' });
   dashboardBuildDone = true;
+  dashboardBuildCoverage = coverage;
   return { ok: true, errorOutput: '' };
 }

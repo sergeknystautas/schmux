@@ -7,7 +7,7 @@ import type {
   FlakyResult,
   FailedTest,
 } from './types.js';
-import type { CoverageReport, FrontendCoverageReport } from './coverage.js';
+import type { CoverageReport, FrontendCoverageReport, DualCoverageReport } from './coverage.js';
 
 const isTTY = process.stdout.isTTY ?? false;
 
@@ -756,6 +756,56 @@ export function printFrontendCoverageReport(report: FrontendCoverageReport): voi
       { header: 'Funcs', align: 'right' },
     ],
     rows,
+  });
+
+  for (const line of lines) {
+    console.log(line);
+  }
+}
+
+// ─── Dual Coverage Report (Unit vs Integration) ────────────────────────────
+
+function pctStr(count: number, total: number): string {
+  if (total === 0) return '-';
+  return `${((count / total) * 100).toFixed(0)}%`;
+}
+
+export function printDualCoverageReport(report: DualCoverageReport, label: string): void {
+  console.log('');
+  console.log(chalk.white(`  ${label} Coverage Comparison (unit vs integration)`));
+  console.log('');
+
+  const rows: string[][] = report.packages.map((p) => [
+    p.name,
+    chalk.yellow(pctStr(p.unitOnly, p.total)),
+    chalk.blue(pctStr(p.integOnly, p.total)),
+    chalk.green(pctStr(p.both, p.total)),
+    chalk.red(pctStr(p.neither, p.total)),
+    formatNumber(p.total),
+  ]);
+
+  // Total row
+  const t = report.totals;
+  rows.push([
+    `Total (${report.packages.length} packages)`,
+    chalk.yellow(pctStr(t.unitOnly, t.total)),
+    chalk.blue(pctStr(t.integOnly, t.total)),
+    chalk.green(pctStr(t.both, t.total)),
+    chalk.red(pctStr(t.neither, t.total)),
+    formatNumber(t.total),
+  ]);
+
+  const lines = renderTable({
+    columns: [
+      { header: 'Package', align: 'left' },
+      { header: 'Unit', align: 'right' },
+      { header: 'Integ', align: 'right' },
+      { header: 'Both', align: 'right' },
+      { header: 'Neither', align: 'right' },
+      { header: 'Stmts', align: 'right' },
+    ],
+    rows,
+    separatorAfter: [rows.length - 2],
   });
 
   for (const line of lines) {
