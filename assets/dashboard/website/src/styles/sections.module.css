@@ -1,0 +1,67 @@
+.section {
+  padding: 80px var(--spacing-2xl);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text-faint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0 0 var(--spacing-md);
+}
+
+.painPoint {
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+  color: var(--color-text);
+  line-height: 1.6;
+  margin: 0;
+  font-style: italic;
+  max-width: 720px;
+}
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2xl);
+}
+
+.text {
+  flex: 1;
+}
+
+.screenshotPortrait {
+  width: 50%;
+  height: auto;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.screenshotLandscape {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  margin-top: var(--spacing-xl);
+}
+
+@media (max-width: 640px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .screenshot {
+    width: 100%;
+  }
+
+  .screenshotSmall {
+    width: 100%;
+  }
+}

@@ -146,6 +146,10 @@ gen-types:
 vite:
     cd assets/dashboard && npx vite --port 5173 --strictPort
 
+# Start website dev server
+website:
+    cd assets/dashboard && npx vite --config website/vite.config.ts --port 3000 --strictPort
+
 # Install dashboard npm dependencies
 npm-install:
     cd assets/dashboard && npm install

@@ -52,5 +52,8 @@ test/scenarios/artifacts/
 # Cross-compiled build artifacts
 build/
 
+# Website build output
+dist/website/
+
 # Schmux local state
 .schmux/

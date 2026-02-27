@@ -1,0 +1,54 @@
+/* Website-specific overrides — typography, texture, scroll animation */
+
+/* Website font overrides — distinctive type for marketing, not the dashboard's system fonts */
+:root {
+  --font-display: 'IBM Plex Mono', monospace;
+  --font-body: 'DM Sans', sans-serif;
+  --duration-slow: 400ms;
+}
+
+.website {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background: var(--color-surface);
+  min-height: 100vh;
+  /* Subtle dot-grid texture — factory floor feel */
+  background-image: radial-gradient(circle, var(--color-border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Section width strategy: text sections are narrow (720px), sections with screenshots break wider (900px) */
+.website-section {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 80px var(--spacing-2xl);
+}
+
+.website-section--wide {
+  max-width: 900px;
+}
+
+/* Scroll-triggered entrance animation — applied to each section */
+.website-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.6s ease-out,
+    transform 0.6s ease-out;
+}
+
+.website-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Section dividers — subtle background tone shift between alternating sections */
+.website-section--alt {
+  background: var(--color-surface-alt);
+  background-image: radial-gradient(circle, var(--color-border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+  padding-left: calc(50vw - 50% + var(--spacing-2xl));
+  padding-right: calc(50vw - 50% + var(--spacing-2xl));
+}
