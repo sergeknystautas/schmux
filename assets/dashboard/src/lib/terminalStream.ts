@@ -667,7 +667,11 @@ export default class TerminalStream {
         break;
       case 'sync':
         this.handleSync(
-          msg as { screen: string; cursor: { row: number; col: number; visible: boolean } }
+          msg as {
+            screen: string;
+            cursor: { row: number; col: number; visible: boolean };
+            forced?: boolean;
+          }
         );
         break;
       default:
@@ -684,11 +688,13 @@ export default class TerminalStream {
   private handleSync(msg: {
     screen: string;
     cursor: { row: number; col: number; visible: boolean };
+    forced?: boolean;
   }) {
     if (!this.terminal) return;
 
     // Activity guard: skip if binary data arrived within 500ms
-    if (Date.now() - this.lastBinaryTime < 500) {
+    // Bypass when forced (drops detected — correction is critical)
+    if (!msg.forced && Date.now() - this.lastBinaryTime < 500) {
       this.sendSyncResult(false, []);
       return;
     }

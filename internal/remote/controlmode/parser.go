@@ -90,7 +90,7 @@ func NewParser(r io.Reader, logger *log.Logger, connID ...string) *Parser {
 		reader:           bufio.NewReader(r),
 		connectionID:     id,
 		logger:           logger,
-		output:           make(chan OutputEvent, 100),
+		output:           make(chan OutputEvent, 1000),
 		responses:        make(chan CommandResponse, 10000), // Large buffer to prevent blocking on slow networks
 		events:           make(chan Event, 100),
 		controlModeReady: make(chan struct{}),

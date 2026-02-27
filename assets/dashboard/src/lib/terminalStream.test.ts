@@ -195,4 +195,45 @@ describe('TerminalStream sync handling', () => {
     // reset should NOT have been called for sync (content matches)
     expect(terminal.reset).toHaveBeenCalledTimes(0);
   });
+
+  it('forced sync bypasses activity guard and applies correction', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    // Simulate binary data arriving (bootstrap)
+    stream.handleOutput(new TextEncoder().encode('bootstrap').buffer as ArrayBuffer);
+
+    // Clear mock call counts so we only measure sync behavior
+    vi.mocked(terminal.reset).mockClear();
+    vi.mocked(terminal.write).mockClear();
+
+    // lastBinaryTime is very recent (within 500ms guard window)
+    // A normal sync would be skipped, but forced should not be
+
+    // Mock the buffer to return specific lines
+    const mockLine = { translateToString: () => 'wrong content' };
+    (terminal as any).buffer = {
+      active: {
+        viewportY: 0,
+        baseY: 0,
+        cursorY: 0,
+        length: 1,
+        getLine: () => mockLine,
+      },
+    };
+    (terminal as any).rows = 1;
+
+    // Send forced sync with different content
+    const syncMsg = {
+      type: 'sync',
+      screen: '\x1b[1mcorrect content\x1b[0m',
+      cursor: { row: 0, col: 0, visible: true },
+      forced: true,
+    };
+    stream.handleOutput(JSON.stringify(syncMsg));
+
+    // Should have applied the correction despite recent binary data
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+    expect(terminal.write).toHaveBeenCalledWith(expect.stringContaining('correct content'));
+  });
 });

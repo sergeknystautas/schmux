@@ -72,6 +72,8 @@ type WSStatsMessage struct {
 	SyncChecksSent    int64  `json:"syncChecksSent"`
 	SyncCorrections   int64  `json:"syncCorrections"`
 	SyncSkippedActive int64  `json:"syncSkippedActive"`
+	ClientFanOutDrops int64  `json:"clientFanOutDrops"`
+	FanOutDrops       int64  `json:"fanOutDrops"`
 }
 
 // WSSyncCursor holds cursor position for sync messages.
@@ -86,6 +88,7 @@ type WSSyncMessage struct {
 	Type   string       `json:"type"`
 	Screen string       `json:"screen"`
 	Cursor WSSyncCursor `json:"cursor"`
+	Forced bool         `json:"forced,omitempty"`
 }
 
 // buildSyncMessage constructs a sync message from a capture-pane output and cursor state.
@@ -380,6 +383,7 @@ resizeWaitLoop:
 		defer timer.Stop()
 
 		interval := 10 * time.Second
+		var lastDropsSeen int64
 
 		for {
 			select {
@@ -420,7 +424,15 @@ resizeWaitLoop:
 				continue
 			}
 
+			// Check if any drops have occurred since the last sync — if so,
+			// force the correction to bypass the frontend's activity guard
+			counters := tracker.DiagnosticCounters()
+			currentDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
+			forced := currentDrops > lastDropsSeen
+			lastDropsSeen = currentDrops
+
 			msg := buildSyncMessage(screen, cursor)
+			msg.Forced = forced
 			data, _ := json.Marshal(msg)
 			syncChecksSent.Add(1)
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
@@ -484,6 +496,8 @@ resizeWaitLoop:
 					SyncChecksSent:    syncChecksSent.Load(),
 					SyncCorrections:   syncCorrections.Load(),
 					SyncSkippedActive: syncSkippedActive.Load(),
+					ClientFanOutDrops: counters["clientFanOutDrops"],
+					FanOutDrops:       counters["fanOutDrops"],
 				}
 				data, _ := json.Marshal(statsMsg)
 				conn.WriteMessage(websocket.TextMessage, data)
@@ -566,9 +580,18 @@ resizeWaitLoop:
 				// Build findings from automated checks
 				findings := []string{}
 				verdict := ""
-				if counters["eventsDropped"] > 0 {
-					findings = append(findings, fmt.Sprintf("%d events dropped", counters["eventsDropped"]))
-					verdict = "Events were dropped due to channel backpressure."
+				totalDrops := counters["eventsDropped"] + counters["clientFanOutDrops"] + counters["fanOutDrops"]
+				if totalDrops > 0 {
+					if counters["eventsDropped"] > 0 {
+						findings = append(findings, fmt.Sprintf("%d events dropped at parser level", counters["eventsDropped"]))
+					}
+					if counters["clientFanOutDrops"] > 0 {
+						findings = append(findings, fmt.Sprintf("%d events dropped at client fan-out", counters["clientFanOutDrops"]))
+					}
+					if counters["fanOutDrops"] > 0 {
+						findings = append(findings, fmt.Sprintf("%d events dropped at tracker fan-out", counters["fanOutDrops"]))
+					}
+					verdict = fmt.Sprintf("%d total events dropped due to channel backpressure across pipeline.", totalDrops)
 				} else {
 					findings = append(findings, "No drops detected")
 					verdict = "No obvious cause found. Likely a bootstrap race during TUI redraw."
