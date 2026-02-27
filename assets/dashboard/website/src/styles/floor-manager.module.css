@@ -1,0 +1,6 @@
+.phoneHint {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: var(--spacing-lg) 0 0;
+}
