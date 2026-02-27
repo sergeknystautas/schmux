@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './coverage-fixture';
 import { apiGet, apiPost, waitForHealthy } from './helpers';
 
 const BASE_URL = 'http://localhost:7337';

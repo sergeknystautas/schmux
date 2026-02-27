@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './coverage-fixture';
 import { apiGet, apiPost, waitForDashboardLive, waitForHealthy } from './helpers';
 
 test.describe.serial('Remote access password authentication', () => {

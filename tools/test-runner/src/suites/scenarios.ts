@@ -55,7 +55,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     status: 'building',
     message: 'Building local artifacts...',
   });
-  const artifactsBuild = await buildLocalArtifacts(onEvent);
+  const artifactsBuild = await buildLocalArtifacts(onEvent, opts.coverage);
   if (!artifactsBuild.ok) {
     return makeResult(
       'broken',
@@ -69,7 +69,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   }
 
   // Build dashboard (needed for scenarios, not for E2E)
-  const dashboardBuild = await buildDashboard(onEvent);
+  const dashboardBuild = await buildDashboard(onEvent, opts.coverage);
   if (!dashboardBuild.ok) {
     return makeResult(
       'broken',
@@ -109,7 +109,15 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   }
 
   // Build ephemeral image + run container (with auto-retry on stale base image)
-  const result = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
+  // Set up coverage directory if requested
+  let covDataDir: string | undefined;
+  if (opts.coverage) {
+    covDataDir = resolve(root, 'build/covdata-scenarios');
+    rmSync(covDataDir, { recursive: true, force: true });
+    mkdirSync(covDataDir, { recursive: true });
+  }
+
+  const result = await buildAndRun(opts, onEvent, imageTag, artifactsDir, covDataDir);
   if (!result) {
     return makeResult(
       'broken',
@@ -165,8 +173,12 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     // Clean artifacts for retry
     rmSync(artifactsDir, { recursive: true, force: true });
     mkdirSync(artifactsDir, { recursive: true });
+    if (covDataDir) {
+      rmSync(covDataDir, { recursive: true, force: true });
+      mkdirSync(covDataDir, { recursive: true });
+    }
 
-    const retryResult = await buildAndRun(opts, onEvent, imageTag, artifactsDir);
+    const retryResult = await buildAndRun(opts, onEvent, imageTag, artifactsDir, covDataDir);
     if (!retryResult) {
       return makeResult(
         'broken',
@@ -189,7 +201,8 @@ async function buildAndRun(
   opts: Options,
   onEvent: EventCallback,
   imageTag: string,
-  artifactsDir: string
+  artifactsDir: string,
+  covDataDir?: string
 ): Promise<SuiteResult | null> {
   // Build ephemeral image
   onEvent('scenarios', { type: 'build_step', message: 'Building scenario test image...' });
@@ -224,18 +237,23 @@ async function buildAndRun(
   const testDurations: Record<string, number> = {};
 
   const env: Record<string, string> = {};
+  const volumes: string[] = [`${artifactsDir}:/artifacts`];
   if (opts.runPattern) {
     env['TEST_GREP'] = opts.runPattern;
   }
   if (opts.repeat > 1) {
     env['TEST_REPEAT'] = String(opts.repeat);
   }
+  if (covDataDir) {
+    env['GOCOVERDIR'] = '/covdata';
+    volumes.push(`${covDataDir}:/covdata`);
+  }
 
   try {
     const containerResult = await runContainer({
       tag: imageTag,
       env: Object.keys(env).length > 0 ? env : undefined,
-      volumes: [`${artifactsDir}:/artifacts`],
+      volumes,
       onLine: (line) => {
         const event = parsePlaywrightLine(line);
         if (!event) {

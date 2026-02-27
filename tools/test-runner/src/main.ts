@@ -8,7 +8,10 @@ import {
   printFinalBanner,
   printCoverageReport,
   printFrontendCoverageReport,
+  printDualCoverageReport,
 } from './ui.js';
+import { compareGoCoverage, compareFrontendCoverage } from './coverage.js';
+import { projectRoot } from './exec.js';
 
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
@@ -183,6 +186,43 @@ async function main(): Promise<void> {
     }
     if (r.frontendCoverageReport) {
       printFrontendCoverageReport(r.frontendCoverageReport);
+    }
+  }
+
+  // Print dual coverage comparison (unit vs integration) when both data sources exist
+  if (opts.coverage) {
+    const root = projectRoot();
+    const hasUnitCoverage = results.some((r) => r.coverageReport);
+    const hasIntegration = results.some((r) => r.suite === 'e2e' || r.suite === 'scenarios');
+
+    if (hasUnitCoverage && hasIntegration) {
+      const integDirs: string[] = [];
+      if (results.some((r) => r.suite === 'e2e')) {
+        integDirs.push('build/covdata-e2e');
+      }
+      if (results.some((r) => r.suite === 'scenarios')) {
+        integDirs.push('build/covdata-scenarios');
+      }
+
+      const dualReport = await compareGoCoverage('coverage.out', integDirs, root);
+      if (dualReport) {
+        printDualCoverageReport(dualReport, 'Go');
+      }
+    }
+
+    // Frontend dual coverage: compare Vitest JSON vs Playwright Istanbul JSON
+    const hasFrontendUnit = results.some((r) => r.frontendCoverageReport);
+    const hasScenarios = results.some((r) => r.suite === 'scenarios');
+
+    if (hasFrontendUnit && hasScenarios) {
+      const { resolve } = await import('node:path');
+      const unitCoverageFile = resolve(root, 'assets/dashboard/coverage/coverage-final.json');
+      const integCoverageDir = resolve(root, 'test/scenarios/artifacts/fe-coverage');
+
+      const frontendDualReport = compareFrontendCoverage(unitCoverageFile, integCoverageDir);
+      if (frontendDualReport) {
+        printDualCoverageReport(frontendDualReport, 'Frontend');
+      }
     }
   }
 

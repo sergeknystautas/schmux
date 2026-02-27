@@ -53,8 +53,31 @@ function pauseWatchPlugin() {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), pauseWatchPlugin()],
+// Load Istanbul coverage plugin when VITE_COVERAGE is set (for scenario tests).
+// Uses dynamic import so the plugin is only required when needed.
+async function loadPlugins() {
+  const plugins = [react(), pauseWatchPlugin()];
+
+  if (process.env.VITE_COVERAGE === 'true') {
+    try {
+      const { default: istanbul } = await import('vite-plugin-istanbul');
+      plugins.push(
+        istanbul({
+          include: 'src/**/*',
+          exclude: ['node_modules', 'src/setupTests.ts'],
+          extension: ['.js', '.ts', '.jsx', '.tsx'],
+        })
+      );
+    } catch {
+      console.warn('vite-plugin-istanbul not installed, skipping coverage instrumentation');
+    }
+  }
+
+  return plugins;
+}
+
+export default defineConfig(async () => ({
+  plugins: await loadPlugins(),
   server: {
     port: 5173,
     strictPort: true, // Fail if port is already in use
@@ -66,7 +89,7 @@ export default defineConfig({
     setupFiles: './src/setupTests.ts',
     coverage: {
       provider: 'v8',
-      reporter: ['text'],
+      reporter: ['text', 'json'],
     },
   },
   build: {
@@ -87,4 +110,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

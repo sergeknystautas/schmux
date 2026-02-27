@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './coverage-fixture';
 import { createTestRepo, waitForDashboardLive, waitForHealthy } from './helpers';
 
 test.describe.serial('Configure a new repository', () => {

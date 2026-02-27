@@ -10,6 +10,8 @@ import {
 } from '../docker.js';
 import { buildLocalArtifacts } from './shared.js';
 import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
+import { resolve } from 'node:path';
+import { rmSync, mkdirSync } from 'node:fs';
 
 const BASE_TAG = 'schmux-e2e-base';
 
@@ -35,6 +37,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
+  const root = projectRoot();
   const imageTag = `schmux-e2e-${process.pid}`;
 
   // Build local artifacts
@@ -43,7 +46,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     status: 'building',
     message: 'Building local artifacts...',
   });
-  const buildResult = await buildLocalArtifacts(onEvent);
+  const buildResult = await buildLocalArtifacts(onEvent, opts.coverage);
   if (!buildResult.ok) {
     return makeResult(
       'broken',
@@ -83,7 +86,15 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   }
 
   // Build ephemeral image + run container (with auto-retry on stale base image)
-  const result = await buildAndRun(opts, onEvent, imageTag);
+  // Set up coverage directory if requested
+  let covDataDir: string | undefined;
+  if (opts.coverage) {
+    covDataDir = resolve(root, 'build/covdata-e2e');
+    rmSync(covDataDir, { recursive: true, force: true });
+    mkdirSync(covDataDir, { recursive: true });
+  }
+
+  const result = await buildAndRun(opts, onEvent, imageTag, covDataDir);
   if (!result) {
     return makeResult(
       'broken',
@@ -136,7 +147,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       );
     }
 
-    const retryResult = await buildAndRun(opts, onEvent, imageTag);
+    const retryResult = await buildAndRun(opts, onEvent, imageTag, covDataDir);
     if (!retryResult) {
       return makeResult(
         'broken',
@@ -158,7 +169,8 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
 async function buildAndRun(
   opts: Options,
   onEvent: EventCallback,
-  imageTag: string
+  imageTag: string,
+  covDataDir?: string
 ): Promise<SuiteResult | null> {
   // Build ephemeral image
   onEvent('e2e', { type: 'build_step', message: 'Building E2E test image...' });
@@ -194,17 +206,23 @@ async function buildAndRun(
   const testDurations: Record<string, number> = {};
 
   const env: Record<string, string> = {};
+  const volumes: string[] = [];
   if (opts.runPattern) {
     env['TEST_RUN'] = opts.runPattern;
   }
   if (opts.repeat > 1) {
     env['TEST_COUNT'] = String(opts.repeat);
   }
+  if (covDataDir) {
+    env['GOCOVERDIR'] = '/covdata';
+    volumes.push(`${covDataDir}:/covdata`);
+  }
 
   try {
     const containerResult = await runContainer({
       tag: imageTag,
       env: Object.keys(env).length > 0 ? env : undefined,
+      volumes: volumes.length > 0 ? volumes : undefined,
       onLine: (line) => {
         accumulator.feedLine(line);
 
