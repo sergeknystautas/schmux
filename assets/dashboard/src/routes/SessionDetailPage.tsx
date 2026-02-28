@@ -664,7 +664,7 @@ export default function SessionDetailPage() {
               </button>
             </div>
           ) : (
-            <div className="log-viewer">
+            <div className="log-viewer" data-tour="terminal-log-viewer">
               <div
                 className="log-viewer__header"
                 style={
@@ -817,6 +817,7 @@ export default function SessionDetailPage() {
                 key={sessionData.id}
                 id="terminal"
                 className="log-viewer__output"
+                data-tour="terminal-viewport"
                 ref={terminalRef}
                 data-testid="terminal-viewport"
                 style={{ cursor: selectionMode ? 'pointer' : undefined }}
@@ -837,7 +838,11 @@ export default function SessionDetailPage() {
           )}
         </div>
 
-        <aside className="session-detail__sidebar" data-testid="session-sidebar">
+        <aside
+          className="session-detail__sidebar"
+          data-tour="session-detail-sidebar"
+          data-testid="session-sidebar"
+        >
           <div className="metadata-field">
             <span className="metadata-field__label">Session ID</span>
             <span className="metadata-field__value metadata-field__value--mono">

@@ -685,7 +685,11 @@ export default function AppShell() {
           </div>
 
           <div className="nav-spawn-btn-container">
-            <button className="btn nav-spawn-btn" onClick={() => navigate('/spawn')}>
+            <button
+              className="btn nav-spawn-btn"
+              data-tour="sidebar-add-workspace"
+              onClick={() => navigate('/spawn')}
+            >
               <svg
                 width="14"
                 height="14"
@@ -701,7 +705,7 @@ export default function AppShell() {
             </button>
           </div>
 
-          <div className="nav-workspaces">
+          <div className="nav-workspaces" data-tour="sidebar-workspace-list">
             <div className="nav-section-header">
               <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
               <div className="nav-sort-toggle">
@@ -726,7 +730,7 @@ export default function AppShell() {
                 <p>No workspaces yet</p>
               </div>
             )}
-            {sortedWorkspaces?.map((workspace) => {
+            {sortedWorkspaces?.map((workspace, wsIndex) => {
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
@@ -882,7 +886,7 @@ export default function AppShell() {
                     </div>
                   </div>
                   <div className="nav-workspace__sessions">
-                    {workspace.sessions?.map((sess) => {
+                    {workspace.sessions?.map((sess, sessIndex) => {
                       const isActive = sess.id === sessionId;
                       const activityDisplay = !sess.running
                         ? 'Stopped'
@@ -924,6 +928,9 @@ export default function AppShell() {
                         <div
                           key={sess.id}
                           className={`nav-session${isActive ? ' nav-session--active' : ''}`}
+                          data-tour={
+                            wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
+                          }
                           onClick={() => handleSessionClick(sess.id)}
                           role="button"
                           tabIndex={0}
@@ -971,10 +978,28 @@ export default function AppShell() {
                                 {sess.persona_icon}
                               </span>
                             )}
-                            <span className="nav-session__activity">{activityDisplay}</span>
+                            <span
+                              className="nav-session__activity"
+                              data-tour={
+                                wsIndex === 0 && sessIndex === 0
+                                  ? 'sidebar-session-status'
+                                  : undefined
+                              }
+                            >
+                              {activityDisplay}
+                            </span>
                           </div>
                           {!wsLocked && nudgePreviewElement && (
-                            <div className="nav-session__row2">{nudgePreviewElement}</div>
+                            <div
+                              className="nav-session__row2"
+                              data-tour={
+                                nudgePreviewElement && wsIndex === 0 && sessIndex === 1
+                                  ? 'sidebar-nudge'
+                                  : undefined
+                              }
+                            >
+                              {nudgePreviewElement}
+                            </div>
                           )}
                         </div>
                       );

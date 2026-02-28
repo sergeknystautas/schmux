@@ -46,6 +46,13 @@ import type {
   PersonaUpdateRequest,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
+import { transport } from './transport';
+
+// All fetch calls in this module route through the active transport.
+// This enables the demo shell to intercept API calls with mock responses.
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return transport.fetch(input, init);
+}
 
 // Custom error types that preserve API response fields
 export class LinearSyncError extends Error {
@@ -80,19 +87,19 @@ async function parseErrorResponse(response: Response, fallback: string): Promise
 }
 
 export async function getSessions(): Promise<WorkspaceResponse[]> {
-  const response = await fetch('/api/sessions');
+  const response = await apiFetch('/api/sessions');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch sessions');
   return response.json();
 }
 
 export async function getConfig(): Promise<ConfigResponse> {
-  const response = await fetch('/api/config');
+  const response = await apiFetch('/api/config');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch config');
   return response.json();
 }
 
 export async function spawnSessions(request: SpawnRequest): Promise<SpawnResult[]> {
-  const response = await fetch('/api/spawn', {
+  const response = await apiFetch('/api/spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -111,7 +118,7 @@ export async function checkBranchConflict(
   repo: string,
   branch: string
 ): Promise<{ conflict: boolean; workspace_id?: string }> {
-  const response = await fetch('/api/check-branch-conflict', {
+  const response = await apiFetch('/api/check-branch-conflict', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo, branch }),
@@ -127,7 +134,7 @@ export async function checkBranchConflict(
  * Returns an object with branch (kebab-case) and nickname (short description).
  */
 export async function suggestBranch(request: SuggestBranchRequest): Promise<SuggestBranchResponse> {
-  const response = await fetch('/api/suggest-branch', {
+  const response = await apiFetch('/api/suggest-branch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -153,7 +160,7 @@ export async function prepareBranchSpawn(
   repoName: string,
   branch: string
 ): Promise<PrepareBranchSpawnResponse> {
-  const response = await fetch('/api/prepare-branch-spawn', {
+  const response = await apiFetch('/api/prepare-branch-spawn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_name: repoName, branch }),
@@ -165,7 +172,7 @@ export async function prepareBranchSpawn(
 }
 
 export async function disposeSession(sessionId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/sessions/${sessionId}/dispose`, {
+  const response = await apiFetch(`/api/sessions/${sessionId}/dispose`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -177,7 +184,7 @@ export async function updateNickname(
   sessionId: string,
   nickname: string
 ): Promise<{ status: string }> {
-  const response = await fetch(`/api/sessions-nickname/${sessionId}`, {
+  const response = await apiFetch(`/api/sessions-nickname/${sessionId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ nickname }),
@@ -201,7 +208,7 @@ export async function updateNickname(
 }
 
 export async function disposeWorkspace(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/dispose`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -214,7 +221,7 @@ export async function disposeWorkspace(workspaceId: string): Promise<{ status: s
 export async function disposeWorkspaceAll(
   workspaceId: string
 ): Promise<{ status: string; sessions_disposed: number }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/dispose-all`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/dispose-all`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -225,7 +232,7 @@ export async function disposeWorkspaceAll(
 }
 
 export async function getDiff(workspaceId: string): Promise<DiffResponse> {
-  const response = await fetch(`/api/diff/${workspaceId}`);
+  const response = await apiFetch(`/api/diff/${workspaceId}`);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch diff');
   return response.json();
 }
@@ -237,7 +244,7 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
 }
 
 export async function getAuthMe(): Promise<{ login: string; avatar_url?: string; name?: string }> {
-  const response = await fetch('/auth/me');
+  const response = await apiFetch('/auth/me');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch auth user');
   }
@@ -245,7 +252,7 @@ export async function getAuthMe(): Promise<{ login: string; avatar_url?: string;
 }
 
 export async function scanWorkspaces(): Promise<ScanResult> {
-  const response = await fetch('/api/workspaces/scan', {
+  const response = await apiFetch('/api/workspaces/scan', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -256,7 +263,7 @@ export async function scanWorkspaces(): Promise<ScanResult> {
 export async function updateConfig(
   request: ConfigUpdateRequest
 ): Promise<{ status: string; message?: string; warning?: string; warnings?: string[] }> {
-  const response = await fetch('/api/config', {
+  const response = await apiFetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -271,7 +278,7 @@ export async function getAuthSecretsStatus(): Promise<{
   client_id: string;
   client_secret_set: boolean;
 }> {
-  const response = await fetch('/api/auth/secrets');
+  const response = await apiFetch('/api/auth/secrets');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch auth secrets');
   return response.json();
 }
@@ -280,7 +287,7 @@ export async function saveAuthSecrets(payload: {
   client_id: string;
   client_secret?: string;
 }): Promise<{ status: string }> {
-  const response = await fetch('/api/auth/secrets', {
+  const response = await apiFetch('/api/auth/secrets', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(payload),
@@ -292,7 +299,7 @@ export async function saveAuthSecrets(payload: {
 }
 
 export async function validateTLS(certPath: string, keyPath: string): Promise<TLSValidateResponse> {
-  const response = await fetch('/api/tls/validate', {
+  const response = await apiFetch('/api/tls/validate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ cert_path: certPath, key_path: keyPath }),
@@ -304,7 +311,7 @@ export async function validateTLS(certPath: string, keyPath: string): Promise<TL
 }
 
 export async function openVSCode(workspaceId: string): Promise<OpenVSCodeResponse> {
-  const response = await fetch(`/api/open-vscode/${workspaceId}`, {
+  const response = await apiFetch(`/api/open-vscode/${workspaceId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -318,7 +325,7 @@ export async function diffExternal(
   workspaceId: string,
   command?: string
 ): Promise<DiffExternalResponse> {
-  const response = await fetch(`/api/diff-external/${workspaceId}`, {
+  const response = await apiFetch(`/api/diff-external/${workspaceId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(command ? { command } : {}),
@@ -334,7 +341,7 @@ export async function diffExternal(
  * Returns a list of detected tools with their names, commands, and sources.
  */
 export async function detectTools(): Promise<DetectToolsResponse> {
-  const response = await fetch('/api/detect-tools');
+  const response = await apiFetch('/api/detect-tools');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to detect tools');
   }
@@ -348,7 +355,7 @@ export async function configureModelSecrets(
   modelId: string,
   secrets: Record<string, string>
 ): Promise<{ status: string }> {
-  const response = await fetch(`/api/models/${modelId}/secrets`, {
+  const response = await apiFetch(`/api/models/${modelId}/secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ secrets }),
@@ -363,7 +370,7 @@ export async function configureModelSecrets(
  * Removes secrets for a third-party model.
  */
 export async function removeModelSecrets(modelId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/models/${modelId}/secrets`, {
+  const response = await apiFetch(`/api/models/${modelId}/secrets`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -374,13 +381,13 @@ export async function removeModelSecrets(modelId: string): Promise<{ status: str
 }
 
 export async function getOverlays(): Promise<OverlaysResponse> {
-  const response = await fetch('/api/overlays');
+  const response = await apiFetch('/api/overlays');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch overlays');
   return response.json();
 }
 
 export async function refreshOverlay(workspaceId: string): Promise<{ status: string }> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/refresh-overlay`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -394,7 +401,7 @@ export async function scanOverlayFiles(
   workspaceId: string,
   repoName: string
 ): Promise<OverlayScanResponse> {
-  const response = await fetch('/api/overlays/scan', {
+  const response = await apiFetch('/api/overlays/scan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId, repo_name: repoName }),
@@ -404,7 +411,7 @@ export async function scanOverlayFiles(
 }
 
 export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAddResponse> {
-  const response = await fetch('/api/overlays/add', {
+  const response = await apiFetch('/api/overlays/add', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
@@ -414,7 +421,7 @@ export async function addOverlayFiles(req: OverlayAddRequest): Promise<OverlayAd
 }
 
 export async function dismissOverlayNudge(repoName: string): Promise<{ status: string }> {
-  const response = await fetch('/api/overlays/dismiss-nudge', {
+  const response = await apiFetch('/api/overlays/dismiss-nudge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_name: repoName }),
@@ -428,7 +435,7 @@ export async function dismissOverlayNudge(repoName: string): Promise<{ status: s
  * Returns a list of preset templates with names, targets, and prompts.
  */
 export async function getBuiltinQuickLaunch(): Promise<BuiltinQuickLaunchCookbook[]> {
-  const response = await fetch('/api/builtin-quick-launch');
+  const response = await apiFetch('/api/builtin-quick-launch');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch built-in quick launch presets');
   }
@@ -439,7 +446,7 @@ export async function linearSyncFromMain(
   workspaceId: string,
   hash: string
 ): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/linear-sync-from-main`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ hash }),
@@ -465,7 +472,7 @@ export async function linearSyncFromMain(
 }
 
 export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/linear-sync-to-main`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -476,7 +483,7 @@ export async function linearSyncToMain(workspaceId: string): Promise<LinearSyncR
 }
 
 export async function pushToBranch(workspaceId: string): Promise<LinearSyncResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/push-to-branch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -489,7 +496,7 @@ export async function pushToBranch(workspaceId: string): Promise<LinearSyncRespo
 export async function linearSyncResolveConflict(
   workspaceId: string
 ): Promise<LinearSyncResolveConflictResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/linear-sync-resolve-conflict`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
   });
@@ -500,7 +507,7 @@ export async function linearSyncResolveConflict(
 }
 
 export async function dismissLinearSyncResolveConflictState(workspaceId: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/workspaces/${workspaceId}/linear-sync-resolve-conflict-state`,
     {
       method: 'DELETE',
@@ -513,7 +520,7 @@ export async function dismissLinearSyncResolveConflictState(workspaceId: string)
 }
 
 export async function getRecentBranches(limit: number = 10): Promise<RecentBranch[]> {
-  const response = await fetch(`/api/recent-branches?limit=${limit}`);
+  const response = await apiFetch(`/api/recent-branches?limit=${limit}`);
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch recent branches');
   }
@@ -526,7 +533,7 @@ export interface RecentBranchesRefreshResponse {
 }
 
 export async function refreshRecentBranches(): Promise<RecentBranchesRefreshResponse> {
-  const response = await fetch('/api/recent-branches/refresh', {
+  const response = await apiFetch('/api/recent-branches/refresh', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -553,7 +560,7 @@ export async function getGitGraph(
   if (opts?.context !== undefined) params.set('context', String(opts.context));
   const qs = params.toString();
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-graph${qs ? `?${qs}` : ''}`;
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch git graph');
   return response.json();
 }
@@ -563,7 +570,7 @@ export async function getCommitDetail(
   commitHash: string
 ): Promise<GitCommitDetailResponse> {
   const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit/${encodeURIComponent(commitHash)}`;
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch commit detail');
   }
@@ -571,13 +578,13 @@ export async function getCommitDetail(
 }
 
 export async function getPRs(): Promise<PRsResponse> {
-  const response = await fetch('/api/prs');
+  const response = await apiFetch('/api/prs');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch PRs');
   return response.json();
 }
 
 export async function refreshPRs(): Promise<PRRefreshResponse> {
-  const response = await fetch('/api/prs/refresh', {
+  const response = await apiFetch('/api/prs/refresh', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -586,7 +593,7 @@ export async function refreshPRs(): Promise<PRRefreshResponse> {
 }
 
 export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRCheckoutResponse> {
-  const response = await fetch('/api/prs/checkout', {
+  const response = await apiFetch('/api/prs/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ repo_url: repoUrl, pr_number: prNumber }),
@@ -602,7 +609,7 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
 // ============================================================================
 
 export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
-  const response = await fetch('/api/config/remote-flavors');
+  const response = await apiFetch('/api/config/remote-flavors');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavors');
   return response.json();
 }
@@ -610,7 +617,7 @@ export async function getRemoteFlavors(): Promise<RemoteFlavor[]> {
 export async function createRemoteFlavor(
   request: RemoteFlavorCreateRequest
 ): Promise<RemoteFlavor> {
-  const response = await fetch('/api/config/remote-flavors', {
+  const response = await apiFetch('/api/config/remote-flavors', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -625,7 +632,7 @@ export async function updateRemoteFlavor(
   id: string,
   request: RemoteFlavorCreateRequest
 ): Promise<RemoteFlavor> {
-  const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -637,7 +644,7 @@ export async function updateRemoteFlavor(
 }
 
 export async function deleteRemoteFlavor(id: string): Promise<void> {
-  const response = await fetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/config/remote-flavors/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -651,19 +658,19 @@ export async function deleteRemoteFlavor(id: string): Promise<void> {
 // ============================================================================
 
 export async function getRemoteHosts(): Promise<RemoteHost[]> {
-  const response = await fetch('/api/remote/hosts');
+  const response = await apiFetch('/api/remote/hosts');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote hosts');
   return response.json();
 }
 
 export async function getRemoteFlavorStatuses(): Promise<RemoteFlavorStatus[]> {
-  const response = await fetch('/api/remote/flavor-statuses');
+  const response = await apiFetch('/api/remote/flavor-statuses');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote flavor statuses');
   return response.json();
 }
 
 export async function connectRemoteHost(request: RemoteHostConnectRequest): Promise<RemoteHost> {
-  const response = await fetch('/api/remote/hosts/connect', {
+  const response = await apiFetch('/api/remote/hosts/connect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(request),
@@ -675,7 +682,7 @@ export async function connectRemoteHost(request: RemoteHostConnectRequest): Prom
 }
 
 export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
-  const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
+  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -686,7 +693,7 @@ export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
 }
 
 export async function disconnectRemoteHost(hostId: string): Promise<void> {
-  const response = await fetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
+  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -703,7 +710,7 @@ export async function gitCommitStage(
   workspaceId: string,
   files: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/git-commit-stage`,
     {
       method: 'POST',
@@ -721,7 +728,7 @@ export async function gitAmend(
   workspaceId: string,
   files: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-amend`, {
+  const response = await apiFetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-amend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ files }),
@@ -736,11 +743,14 @@ export async function gitDiscard(
   workspaceId: string,
   files?: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-discard`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(files ? { files } : {}),
-  });
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-discard`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify(files ? { files } : {}),
+    }
+  );
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to discard changes');
   }
@@ -751,11 +761,14 @@ export async function gitUncommit(
   workspaceId: string,
   hash: string
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/git-uncommit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ hash }),
-  });
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/git-uncommit`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ hash }),
+    }
+  );
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to uncommit');
   }
@@ -779,7 +792,7 @@ export interface CommitMessageResponse {
 
 // Fetch the commit prompt template from the backend.
 export async function getCommitPrompt(): Promise<string> {
-  const response = await fetch('/api/commit/prompt');
+  const response = await apiFetch('/api/commit/prompt');
   if (!response.ok) {
     await parseErrorResponse(response, 'Failed to fetch commit prompt');
   }
@@ -789,7 +802,7 @@ export async function getCommitPrompt(): Promise<string> {
 
 // Generate a commit message using oneshot.
 export async function generateCommitMessage(workspaceId: string): Promise<CommitMessageResponse> {
-  const response = await fetch('/api/commit/generate', {
+  const response = await apiFetch('/api/commit/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId }),
@@ -851,7 +864,7 @@ export interface DevStatus {
 }
 
 export async function getDevStatus(): Promise<DevStatus> {
-  const response = await fetch('/api/dev/status');
+  const response = await apiFetch('/api/dev/status');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch dev status');
   return response.json();
 }
@@ -860,7 +873,7 @@ export async function devRebuild(
   workspaceId: string,
   type: 'frontend' | 'backend' | 'both'
 ): Promise<{ status: string }> {
-  const response = await fetch('/api/dev/rebuild', {
+  const response = await apiFetch('/api/dev/rebuild', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ workspace_id: workspaceId, type }),
@@ -876,13 +889,13 @@ export async function devRebuild(
 // ============================================================================
 
 export async function getLoreProposals(repoName: string): Promise<LoreProposalsResponse> {
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/proposals`);
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/proposals`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposals');
   return res.json();
 }
 
 export async function getLoreProposal(repoName: string, id: string): Promise<LoreProposal> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore proposal');
@@ -894,7 +907,7 @@ export async function applyLoreProposal(
   id: string,
   overrides?: Record<string, string>
 ): Promise<LoreApplyResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/apply`,
     {
       method: 'POST',
@@ -907,7 +920,7 @@ export async function applyLoreProposal(
 }
 
 export async function dismissLoreProposal(repoName: string, id: string): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/proposals/${encodeURIComponent(id)}/dismiss`,
     {
       method: 'POST',
@@ -927,7 +940,9 @@ export async function getLoreEntries(
   if (filters?.type) params.set('type', filters.type);
   if (filters?.limit) params.set('limit', String(filters.limit));
   const qs = params.toString();
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`);
+  const res = await apiFetch(
+    `/api/lore/${encodeURIComponent(repoName)}/entries${qs ? '?' + qs : ''}`
+  );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore entries');
   return res.json();
 }
@@ -935,7 +950,7 @@ export async function getLoreEntries(
 export async function clearLoreEntries(
   repoName: string
 ): Promise<{ status: string; cleared: number }> {
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/entries`, {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/entries`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -944,7 +959,7 @@ export async function clearLoreEntries(
 }
 
 export async function startLoreCuration(repoName: string): Promise<{ id: string; status: string }> {
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/curate`, {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -955,7 +970,7 @@ export async function startLoreCuration(repoName: string): Promise<{ id: string;
 }
 
 export async function getLoreStatus(): Promise<LoreStatusResponse> {
-  const res = await fetch('/api/lore/status');
+  const res = await apiFetch('/api/lore/status');
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch lore status');
   return res.json();
 }
@@ -967,7 +982,7 @@ export interface CurationRunInfo {
 }
 
 export async function getLoreCurations(repoName: string): Promise<{ runs: CurationRunInfo[] }> {
-  const res = await fetch(`/api/lore/${encodeURIComponent(repoName)}/curations`);
+  const res = await apiFetch(`/api/lore/${encodeURIComponent(repoName)}/curations`);
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation runs');
   return res.json();
 }
@@ -976,7 +991,7 @@ export async function getLoreCurationLog(
   repoName: string,
   id: string
 ): Promise<{ events: Record<string, unknown>[] }> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/lore/${encodeURIComponent(repoName)}/curations/${encodeURIComponent(id)}/log`
   );
   if (!res.ok) await parseErrorResponse(res, 'Failed to fetch curation log');
@@ -988,7 +1003,7 @@ export async function getLoreCurationLog(
 // ============================================================================
 
 export async function remoteAccessOn(): Promise<void> {
-  const response = await fetch('/api/remote-access/on', {
+  const response = await apiFetch('/api/remote-access/on', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -998,7 +1013,7 @@ export async function remoteAccessOn(): Promise<void> {
 }
 
 export async function remoteAccessOff(): Promise<void> {
-  const response = await fetch('/api/remote-access/off', {
+  const response = await apiFetch('/api/remote-access/off', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -1008,7 +1023,7 @@ export async function remoteAccessOff(): Promise<void> {
 }
 
 export async function setRemoteAccessPassword(password: string): Promise<void> {
-  const response = await fetch('/api/remote-access/set-password', {
+  const response = await apiFetch('/api/remote-access/set-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ password }),
@@ -1019,7 +1034,7 @@ export async function setRemoteAccessPassword(password: string): Promise<void> {
 }
 
 export async function testRemoteAccessNotification(): Promise<void> {
-  const response = await fetch('/api/remote-access/test-notification', {
+  const response = await apiFetch('/api/remote-access/test-notification', {
     method: 'POST',
     headers: { ...csrfHeaders() },
   });
@@ -1033,13 +1048,13 @@ export async function testRemoteAccessNotification(): Promise<void> {
 // ============================================================================
 
 export async function getPersonas(): Promise<PersonaListResponse> {
-  const response = await fetch('/api/personas');
+  const response = await apiFetch('/api/personas');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch personas');
   return response.json();
 }
 
 export async function createPersona(req: PersonaCreateRequest): Promise<Persona> {
-  const response = await fetch('/api/personas', {
+  const response = await apiFetch('/api/personas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
@@ -1049,7 +1064,7 @@ export async function createPersona(req: PersonaCreateRequest): Promise<Persona>
 }
 
 export async function updatePersona(id: string, req: PersonaUpdateRequest): Promise<Persona> {
-  const response = await fetch(`/api/personas/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/personas/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
@@ -1059,7 +1074,7 @@ export async function updatePersona(id: string, req: PersonaUpdateRequest): Prom
 }
 
 export async function deletePersona(id: string): Promise<void> {
-  const response = await fetch(`/api/personas/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/personas/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { ...csrfHeaders() },
   });
@@ -1071,7 +1086,7 @@ export async function deletePersona(id: string): Promise<void> {
 // ============================================================================
 
 export async function getSubreddit(): Promise<SubredditResponse> {
-  const response = await fetch('/api/subreddit');
+  const response = await apiFetch('/api/subreddit');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch subreddit digest');
   return response.json();
 }

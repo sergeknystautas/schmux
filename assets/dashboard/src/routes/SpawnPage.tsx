@@ -936,7 +936,7 @@ export default function SpawnPage() {
         </div>
       )}
 
-      <div className="spawn-content">
+      <div className="spawn-content" data-tour="spawn-form">
         {/* Environment selection for fresh spawns */}
         {mode === 'fresh' && (
           <RemoteHostSelector
@@ -1081,6 +1081,7 @@ export default function SpawnPage() {
                           <select
                             id="persona-select"
                             className="select"
+                            data-tour="spawn-persona-select"
                             data-testid="persona-select"
                             value={selectedPersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
@@ -1097,6 +1098,7 @@ export default function SpawnPage() {
                         <select
                           id="repo"
                           className="select"
+                          data-tour="spawn-repo-select"
                           required
                           value={repo}
                           data-testid="spawn-repo-select"
@@ -1476,6 +1478,7 @@ export default function SpawnPage() {
             className="btn btn--primary"
             onClick={handleEngage}
             disabled={engagePhase !== 'idle'}
+            data-tour="spawn-submit"
             data-testid="spawn-submit"
             style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}
           >

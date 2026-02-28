@@ -223,6 +223,7 @@ export default function WorkspaceHeader({
                 disabled={openingVSCode}
                 onClick={handleOpenVSCode}
                 aria-label={`Open ${workspace.id} in VS Code`}
+                data-tour="vscode-btn"
               >
                 {openingVSCode ? (
                   <div className="spinner spinner--small"></div>

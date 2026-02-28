@@ -363,6 +363,7 @@ export default function SessionTabs({
       onClick={() => !isLocked && handleDiffTabClick()}
       role="button"
       tabIndex={isLocked ? -1 : 0}
+      data-tour="diff-tab"
       onKeyDown={(e) => {
         if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
@@ -402,6 +403,7 @@ export default function SessionTabs({
       onClick={() => !isLocked && handleGitTabClick()}
       role="button"
       tabIndex={isLocked ? -1 : 0}
+      data-tour="git-tab"
       onKeyDown={(e) => {
         if (isLocked) return;
         if (e.key === 'Enter' || e.key === ' ') {
@@ -554,6 +556,7 @@ export default function SessionTabs({
         aria-expanded={spawnMenuOpen}
         aria-haspopup="menu"
         aria-label="Spawn new session"
+        data-tour="session-tab-add"
         style={isLocked ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
       >
         {spawning ? (
@@ -623,7 +626,7 @@ export default function SessionTabs({
   const showAddButton = workspace && !activeSpawnTab;
 
   return (
-    <div className="session-tabs">
+    <div className="session-tabs" data-tour="session-tabs">
       {/* Session tabs + add button (wrapped so mobile can reorder) */}
       <div className="session-tabs__main">
         {sessions.map((sess) => renderSessionTab(sess))}
