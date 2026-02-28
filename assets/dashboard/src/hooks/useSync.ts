@@ -116,9 +116,8 @@ export function useSync() {
             }
 
             if (isDevLive) {
-              await alert(
-                'Pushed',
-                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is currently live in dev mode — switch to another workspace before disposing it.`
+              toastSuccess(
+                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is live in dev mode — switch before disposing.`
               );
             } else {
               const disposeConfirmed = await confirm(
@@ -146,7 +145,7 @@ export function useSync() {
         const result = await pushToBranch(workspaceId);
         if (result.success) {
           const branch = branchName || 'current branch';
-          await alert('Success', `Pushed to origin/${branch}`);
+          toastSuccess(`Pushed to origin/${branch}`);
         } else {
           await alert(
             'Error',
@@ -157,7 +156,7 @@ export function useSync() {
         await alert('Error', getErrorMessage(err, 'Failed to push to branch'));
       }
     },
-    [alert]
+    [alert, toastSuccess]
   );
 
   // Smart sync: chooses clean or conflict resolution based on workspace state
