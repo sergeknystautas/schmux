@@ -31,6 +31,7 @@ type Manager struct {
 
 	workDir     string // ~/.schmux/floor-manager/
 	sessionName string // tmux session name (defaults to tmuxSessionName constant)
+	schmuxBin   string // absolute path to the current schmux binary
 
 	mu             sync.Mutex
 	tmuxSession    string
@@ -48,12 +49,20 @@ type Manager struct {
 
 // New creates a new floor manager Manager.
 func New(cfg *config.Config, sm *session.Manager, homeDir string, logger *log.Logger) *Manager {
+	// Resolve the path to the currently running schmux binary so the FM
+	// invokes the same build rather than whatever "schmux" is on PATH.
+	schmuxBin := "schmux" // fallback
+	if exe, err := os.Executable(); err == nil {
+		schmuxBin = exe
+	}
+
 	return &Manager{
 		cfg:         cfg,
 		sm:          sm,
 		logger:      logger,
 		workDir:     filepath.Join(homeDir, ".schmux", "floor-manager"),
 		sessionName: tmuxSessionName,
+		schmuxBin:   schmuxBin,
 		stopCh:      make(chan struct{}),
 	}
 }
@@ -307,8 +316,9 @@ func (m *Manager) handleShiftRotation(ctx context.Context) {
 		m.mu.Unlock()
 	}()
 
-	// Send [SHIFT] warning
-	shiftMsg := "[SHIFT] Forced rotation imminent. Save your summary to memory.md, then run `schmux end-shift`. Do not acknowledge this message to the operator."
+	// Send [SHIFT] warning — clear partial input first to prevent collision
+	shiftMsg := fmt.Sprintf("[SHIFT] Forced rotation imminent. Save your summary to memory.md, then run `%s end-shift`. Do not acknowledge this message to the operator.", m.schmuxBin)
+	_ = tmux.SendKeys(ctx, tmuxSess, "C-u")
 	if err := tmux.SendLiteral(ctx, tmuxSess, shiftMsg); err != nil {
 		m.logger.Warn("failed to send [SHIFT] to floor manager", "err", err)
 	} else {
@@ -359,8 +369,8 @@ func (m *Manager) HandleRotation(ctx context.Context) {
 }
 
 func (m *Manager) writeInstructionFiles() error {
-	instructions := GenerateInstructions()
-	settings := GenerateSettings()
+	instructions := GenerateInstructions(m.schmuxBin)
+	settings := GenerateSettings(m.schmuxBin)
 
 	// Write CLAUDE.md
 	if err := os.WriteFile(filepath.Join(m.workDir, "CLAUDE.md"), []byte(instructions), 0644); err != nil {

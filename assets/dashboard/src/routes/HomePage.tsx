@@ -20,8 +20,8 @@ import {
   getSubreddit,
 } from '../lib/api';
 import { navigateToWorkspace, usePendingNavigation } from '../lib/navigation';
-import TerminalStream from '../lib/terminalStream';
 import { useFloorManager } from '../hooks/useFloorManager';
+import { useTerminalStream } from '../hooks/useTerminalStream';
 import type {
   WorkspaceResponse,
   RecentBranch,
@@ -273,8 +273,9 @@ export default function HomePage() {
 
   // Floor manager
   const fm = useFloorManager();
-  const fmTerminalRef = useRef<HTMLDivElement | null>(null);
-  const fmTerminalStreamRef = useRef<TerminalStream | null>(null);
+  const { containerRef: fmTerminalRef } = useTerminalStream({
+    sessionId: fm.enabled && fm.running ? fm.tmuxSession : null,
+  });
 
   const handleDismissHero = () => {
     setHeroDismissed(true);
@@ -306,25 +307,6 @@ export default function HomePage() {
       }
     })();
   }, []);
-
-  // Floor manager terminal stream
-  useEffect(() => {
-    if (!fm.enabled || !fm.running || !fm.tmuxSession || !fmTerminalRef.current) return;
-
-    const terminalStream = new TerminalStream(fm.tmuxSession, fmTerminalRef.current, {
-      followTail: true,
-    });
-    fmTerminalStreamRef.current = terminalStream;
-
-    terminalStream.initialized.then(() => {
-      terminalStream.connect();
-    });
-
-    return () => {
-      terminalStream.disconnect();
-      fmTerminalStreamRef.current = null;
-    };
-  }, [fm.enabled, fm.running, fm.tmuxSession]);
 
   const handleDismissNudge = async (repoName: string) => {
     setDismissedNudges((prev) => new Set(prev).add(repoName));
@@ -630,7 +612,7 @@ export default function HomePage() {
               )}
             </div>
             <div
-              className="log-viewer__output"
+              className="log-viewer__output terminal-xterm"
               ref={fmTerminalRef}
               data-testid="fm-terminal"
               style={{ flex: 1, minHeight: 400 }}

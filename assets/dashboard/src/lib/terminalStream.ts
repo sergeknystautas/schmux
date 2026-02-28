@@ -301,11 +301,12 @@ export default class TerminalStream {
       });
       resizeObserver.observe(this.containerElement);
 
-      // Also watch the .session-detail parent to detect viewport changes
-      // This catches cases where the window grows but our container doesn't
-      const sessionDetail = this.containerElement.closest('.session-detail');
-      if (sessionDetail) {
-        resizeObserver.observe(sessionDetail);
+      // Also watch the nearest layout ancestor to detect viewport changes
+      // that don't directly resize our container (e.g. sidebar collapse).
+      const layoutParent =
+        this.containerElement.closest('.session-detail') || this.containerElement.parentElement;
+      if (layoutParent && layoutParent !== this.containerElement) {
+        resizeObserver.observe(layoutParent);
       }
 
       this.resizeObserver = resizeObserver;

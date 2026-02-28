@@ -59,6 +59,9 @@ func (s *Server) handleTellSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx := context.Background()
+		// Clear any partial input before injecting the message to prevent
+		// collision with operator typing. See injector.go for details.
+		_ = tmux.SendKeys(ctx, tmuxSession, "C-u")
 		if err := tmux.SendLiteral(ctx, tmuxSession, text); err != nil {
 			writeJSONError(w, fmt.Sprintf("failed to send message: %v", err), http.StatusInternalServerError)
 			return

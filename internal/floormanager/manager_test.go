@@ -20,7 +20,8 @@ func tmuxAvailable() bool {
 func TestManagerWritesInstructionFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := &Manager{
-		workDir: tmpDir,
+		workDir:   tmpDir,
+		schmuxBin: "/test/bin/schmux",
 	}
 
 	if err := m.writeInstructionFiles(); err != nil {

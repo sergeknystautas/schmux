@@ -1,7 +1,15 @@
 package floormanager
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/log"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 func TestShouldInject(t *testing.T) {
@@ -87,5 +95,60 @@ func TestFormatSignalMessage(t *testing.T) {
 				t.Errorf("FormatSignalMessage() =\n  %q\nwant:\n  %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFlushClearsPartialInputBeforeInjecting(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	ctx := context.Background()
+	sessName := fmt.Sprintf("schmux-fm-inject-test-%d", os.Getpid())
+
+	_ = tmux.KillSession(ctx, sessName)
+	t.Cleanup(func() {
+		_ = tmux.KillSession(ctx, sessName)
+	})
+
+	tmpDir := t.TempDir()
+
+	// Create a session running bash (readline supports Ctrl+U)
+	if err := tmux.CreateSession(ctx, sessName, tmpDir, "bash --norc --noprofile"); err != nil {
+		t.Fatal("failed to create session:", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Type partial input to simulate operator typing
+	if err := tmux.SendLiteral(ctx, sessName, "hello wor"); err != nil {
+		t.Fatal("failed to type partial input:", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// Set up injector with pending signal
+	m := &Manager{
+		tmuxSession: sessName,
+		logger:      log.Default(),
+	}
+	inj := NewInjector(m, 0, log.Default())
+	inj.pending = []string{`[SIGNAL] agent-1: working -> completed "Task done"`}
+
+	// Flush should clear the partial input, then inject the signal
+	inj.flush(ctx)
+	time.Sleep(300 * time.Millisecond)
+
+	// Capture pane output
+	output, err := tmux.CaptureOutput(ctx, sessName)
+	if err != nil {
+		t.Fatal("failed to capture output:", err)
+	}
+
+	// The signal text should NOT be garbled with the partial input
+	if strings.Contains(output, "hello wor[SIGNAL]") {
+		t.Error("signal text was garbled with partial operator input")
+	}
+	// The signal should still have been injected
+	if !strings.Contains(output, "[SIGNAL]") {
+		t.Error("signal text was not injected")
 	}
 }

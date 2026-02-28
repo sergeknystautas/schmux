@@ -6,22 +6,22 @@ import (
 )
 
 func TestGenerateInstructions(t *testing.T) {
-	instructions := GenerateInstructions()
+	instructions := GenerateInstructions("/usr/local/bin/schmux")
 
 	checks := []string{
 		"floor manager",
-		"schmux status",
-		"schmux spawn",
-		"schmux list",
-		"schmux tell",
-		"schmux events",
-		"schmux capture",
-		"schmux inspect",
-		"schmux branches",
+		"/usr/local/bin/schmux status",
+		"/usr/local/bin/schmux spawn",
+		"/usr/local/bin/schmux list",
+		"/usr/local/bin/schmux tell",
+		"/usr/local/bin/schmux events",
+		"/usr/local/bin/schmux capture",
+		"/usr/local/bin/schmux inspect",
+		"/usr/local/bin/schmux branches",
 		"memory.md",
 		"[SIGNAL]",
 		"[SHIFT]",
-		"schmux end-shift",
+		"/usr/local/bin/schmux end-shift",
 	}
 	for _, check := range checks {
 		if !strings.Contains(instructions, check) {
@@ -31,19 +31,19 @@ func TestGenerateInstructions(t *testing.T) {
 }
 
 func TestGenerateSettings(t *testing.T) {
-	settings := GenerateSettings()
+	settings := GenerateSettings("/usr/local/bin/schmux")
 
 	// Must pre-approve non-destructive commands
 	approvedPatterns := []string{
-		"schmux status",
-		"schmux list",
-		"schmux spawn",
-		"schmux end-shift",
-		"schmux tell",
-		"schmux events",
-		"schmux capture",
-		"schmux inspect",
-		"schmux branches",
+		"/usr/local/bin/schmux status",
+		"/usr/local/bin/schmux list",
+		"/usr/local/bin/schmux spawn",
+		"/usr/local/bin/schmux end-shift",
+		"/usr/local/bin/schmux tell",
+		"/usr/local/bin/schmux events",
+		"/usr/local/bin/schmux capture",
+		"/usr/local/bin/schmux inspect",
+		"/usr/local/bin/schmux branches",
 		"cat memory.md",
 	}
 	for _, pattern := range approvedPatterns {
