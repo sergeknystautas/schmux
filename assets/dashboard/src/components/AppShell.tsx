@@ -173,7 +173,7 @@ export default function AppShell() {
         } else if (event.success) {
           const branch = event.branch || 'main';
           const count = event.success_count ?? 0;
-          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
+          success(`Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
         } else {
           await alert('Error', event.message || 'Failed to sync from main');
         }

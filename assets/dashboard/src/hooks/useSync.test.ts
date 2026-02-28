@@ -148,7 +148,7 @@ describe('useSync', () => {
       const { result } = renderHook(() => useSync());
       await act(() => result.current.handleLinearSyncToMain('ws-1', 'main', '/tmp/ws'));
 
-      expect(alert).toHaveBeenCalledWith('Pushed', expect.stringContaining('dev mode'));
+      expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('dev mode'));
       expect(confirm).not.toHaveBeenCalled();
     });
   });

@@ -7,6 +7,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useModal } from '../components/ModalProvider';
+import { useToast } from '../components/ToastProvider';
 import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
@@ -42,6 +43,7 @@ export default function DiffPage() {
   const { workspaces, loading: sessionsLoading } = useSessions();
   const { simulateRemote } = useRemoteAccess();
   const { alert } = useModal();
+  const { success: toastSuccess } = useToast();
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const diffDataRef = useRef<DiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,8 +94,11 @@ export default function DiffPage() {
     setExecutingDiff(cmd.name);
     try {
       const response = await diffExternal(workspaceId, cmd.command);
-      const title = response.success ? 'Diff tool opened' : 'Failed to open diff tool';
-      await alert(title, response.message);
+      if (response.success) {
+        toastSuccess(response.message);
+      } else {
+        await alert('Failed to open diff tool', response.message);
+      }
     } catch (err) {
       await alert('Failed to open diff tool', getErrorMessage(err, 'Failed to open diff tool'));
     } finally {
