@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { navigateToWorkspace } from './navigation';
+import { navigateToWorkspace, findNextWorkspaceWithSessions } from './navigation';
 import type { WorkspaceResponse } from './types';
 
 // Mock react-router-dom's useNavigate
@@ -97,5 +97,75 @@ describe('navigateToWorkspace', () => {
 
     navigateToWorkspace(navigate, workspaces, 'ws-1');
     expect(navigate).toHaveBeenCalledWith('/diff/ws-1');
+  });
+});
+
+describe('findNextWorkspaceWithSessions', () => {
+  const session = {
+    id: 's-1',
+    target: 'claude',
+    branch: 'main',
+    created_at: '',
+    running: true,
+    attach_cmd: '',
+  };
+
+  it('finds next workspace with sessions going down', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2' }), // no sessions
+      makeWorkspace({ id: 'ws-3', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(2);
+  });
+
+  it('finds previous workspace with sessions going up', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2' }), // no sessions
+      makeWorkspace({ id: 'ws-3', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspaceWithSessions(workspaces, 2, -1)).toBe(0);
+  });
+
+  it('returns -1 when no workspace with sessions in direction', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2' }),
+      makeWorkspace({ id: 'ws-3' }),
+    ];
+    // Going down from ws-1, no more workspaces with sessions
+    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(-1);
+    // Going up from ws-1, nothing before it
+    expect(findNextWorkspaceWithSessions(workspaces, 0, -1)).toBe(-1);
+  });
+
+  it('skips multiple consecutive sessionless workspaces', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2' }),
+      makeWorkspace({ id: 'ws-3' }),
+      makeWorkspace({ id: 'ws-4' }),
+      makeWorkspace({ id: 'ws-5', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(4);
+    expect(findNextWorkspaceWithSessions(workspaces, 4, -1)).toBe(0);
+  });
+
+  it('finds immediate neighbor when it has sessions', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(1);
+    expect(findNextWorkspaceWithSessions(workspaces, 1, -1)).toBe(0);
+  });
+
+  it('works from index -1 to find first workspace with sessions', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1' }),
+      makeWorkspace({ id: 'ws-2', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspaceWithSessions(workspaces, -1, 1)).toBe(1);
   });
 });
