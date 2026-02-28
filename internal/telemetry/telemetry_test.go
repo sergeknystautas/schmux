@@ -10,10 +10,24 @@ import (
 )
 
 func TestNoopTelemetry(t *testing.T) {
+	// Verify NoopTelemetry satisfies the Telemetry interface at compile time
+	var _ Telemetry = (*NoopTelemetry)(nil)
+
+	// Verify Track does not make HTTP requests
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("NoopTelemetry should not make HTTP requests")
+	}))
+	defer server.Close()
+
+	originalEndpoint := posthogEndpoint
+	defer func() { posthogEndpoint = originalEndpoint }()
+	posthogEndpoint = server.URL
+
 	noop := &NoopTelemetry{}
-	// Should not panic
 	noop.Track("test", map[string]any{"foo": "bar"})
 	noop.Shutdown()
+	// Give any accidental goroutine time to fire
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestNewSendsEvents(t *testing.T) {
@@ -60,45 +74,61 @@ func TestNewSendsEvents(t *testing.T) {
 }
 
 func TestGeneratesInstallIDWhenEmpty(t *testing.T) {
-	var received struct {
-		mu    sync.Mutex
-		count int
-		id    string
-	}
+	// When installID is "", New() should generate a UUID.
+	// When installID is provided, it should be used as-is.
+	// This test verifies both cases and that the IDs differ.
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var generatedID, providedID string
+	var mu sync.Mutex
+
+	serverGenerated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload posthogPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("failed to decode payload: %v", err)
 			return
 		}
-		received.mu.Lock()
-		received.count++
-		received.id = payload.DistinctID
-		received.mu.Unlock()
+		mu.Lock()
+		generatedID = payload.DistinctID
+		mu.Unlock()
 	}))
-	defer server.Close()
+	defer serverGenerated.Close()
 
-	// Override endpoint for test
+	serverProvided := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload posthogPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			return
+		}
+		mu.Lock()
+		providedID = payload.DistinctID
+		mu.Unlock()
+	}))
+	defer serverProvided.Close()
+
 	originalEndpoint := posthogEndpoint
 	defer func() { posthogEndpoint = originalEndpoint }()
-	posthogEndpoint = server.URL
 
-	client := New("", nil).(*Client)
+	// Case 1: empty installID — should auto-generate a UUID
+	posthogEndpoint = serverGenerated.URL
+	client1 := New("", nil)
+	client1.Track("test_event", nil)
+	client1.Shutdown()
 
-	client.Track("test_event", map[string]any{"foo": "bar"})
+	// Case 2: explicit installID — should use the provided value
+	posthogEndpoint = serverProvided.URL
+	client2 := New("my-explicit-id", nil)
+	client2.Track("test_event", nil)
+	client2.Shutdown()
 
-	// Shutdown flushes all pending events before returning
-	client.Shutdown()
+	mu.Lock()
+	defer mu.Unlock()
 
-	received.mu.Lock()
-	defer received.mu.Unlock()
-
-	if received.count != 1 {
-		t.Errorf("expected 1 event, got %d", received.count)
+	if generatedID == "" {
+		t.Error("expected generated install ID to be non-empty")
 	}
-	if received.id == "" {
-		t.Error("expected non-empty install ID")
+	if providedID != "my-explicit-id" {
+		t.Errorf("expected provided install ID 'my-explicit-id', got %q", providedID)
+	}
+	if generatedID == "my-explicit-id" {
+		t.Error("generated install ID should not equal the explicit ID")
 	}
 }
 

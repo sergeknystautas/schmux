@@ -54,9 +54,11 @@ func TestRunGit_CapturesExitCode(t *testing.T) {
 	if snap.TotalCommands != 1 {
 		t.Fatalf("expected 1 command recorded, got %d", snap.TotalCommands)
 	}
-	// Should have recorded a non-zero exit code (not a git repo)
-	if len(snap.AllCommands) > 0 && snap.AllCommands[0].ExitCode == 0 {
-		// Running git log in a temp dir that's not a repo should fail
-		// But if it somehow succeeds, that's OK too
+	// Running git log in a temp dir that's not a repo should produce a non-zero exit code
+	if len(snap.AllCommands) == 0 {
+		t.Fatal("expected at least 1 command recorded in AllCommands")
+	}
+	if snap.AllCommands[0].ExitCode == 0 {
+		t.Error("expected non-zero exit code for git log in a non-repo directory")
 	}
 }

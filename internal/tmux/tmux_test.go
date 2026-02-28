@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -165,108 +166,82 @@ func TestCaptureLastLines_Validation(t *testing.T) {
 	})
 }
 
-// Context cancellation tests: these verify that functions accept a context
-// parameter and attempt to honor cancellation. Due to inherent race conditions
-// between cancellation and OS-level command execution, we use t.Log rather
-// than t.Error when cancellation is not observed.
+// Context cancellation tests: these verify that all tmux functions that accept
+// a context propagate cancellation to the underlying exec.CommandContext call.
+// We use a deadline in the past to make cancellation deterministic — the context
+// is already expired before exec.Command starts, so the error is guaranteed.
 func TestContextCancellation(t *testing.T) {
-	t.Run("CreateSession respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
+	// Create a context that is already expired
+	expiredCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
 
-		err := CreateSession(ctx, "test", "/tmp", "echo test")
+	t.Run("CreateSession rejects cancelled context", func(t *testing.T) {
+		err := CreateSession(expiredCtx, "test", "/tmp", "echo test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("ListSessions respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		_, err := ListSessions(ctx)
+	t.Run("ListSessions rejects cancelled context", func(t *testing.T) {
+		_, err := ListSessions(expiredCtx)
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("GetPanePID respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		_, err := GetPanePID(ctx, "test")
+	t.Run("GetPanePID rejects cancelled context", func(t *testing.T) {
+		_, err := GetPanePID(expiredCtx, "test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("CaptureOutput respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		_, err := CaptureOutput(ctx, "test")
+	t.Run("CaptureOutput rejects cancelled context", func(t *testing.T) {
+		_, err := CaptureOutput(expiredCtx, "test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("KillSession respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := KillSession(ctx, "test")
+	t.Run("KillSession rejects cancelled context", func(t *testing.T) {
+		err := KillSession(expiredCtx, "test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("SendKeys respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := SendKeys(ctx, "test", "command")
+	t.Run("SendKeys rejects cancelled context", func(t *testing.T) {
+		err := SendKeys(expiredCtx, "test", "command")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("SetWindowSizeManual respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := SetWindowSizeManual(ctx, "test")
+	t.Run("SetWindowSizeManual rejects cancelled context", func(t *testing.T) {
+		err := SetWindowSizeManual(expiredCtx, "test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("ResizeWindow respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := ResizeWindow(ctx, "test", 80, 24)
+	t.Run("ResizeWindow rejects cancelled context", func(t *testing.T) {
+		err := ResizeWindow(expiredCtx, "test", 80, 24)
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("GetWindowSize respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		_, _, err := GetWindowSize(ctx, "test")
+	t.Run("GetWindowSize rejects cancelled context", func(t *testing.T) {
+		_, _, err := GetWindowSize(expiredCtx, "test")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 
-	t.Run("RenameSession respects cancelled context", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := RenameSession(ctx, "old", "new")
+	t.Run("RenameSession rejects cancelled context", func(t *testing.T) {
+		err := RenameSession(expiredCtx, "old", "new")
 		if err == nil {
-			t.Log("may succeed if context wasn't cancelled fast enough")
+			t.Error("expected error from cancelled context, got nil")
 		}
 	})
 }
