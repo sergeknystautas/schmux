@@ -14,10 +14,30 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
-func TestStatus(t *testing.T) {
-	// This test requires a running daemon or mocking
-	// Skip for now
-	t.Skip("requires running daemon")
+func TestStatus_NoPidFile(t *testing.T) {
+	// When no PID file exists (or the daemon was never started),
+	// Status() should return running=false without error.
+	// This tests the common case and the PID file parsing logic.
+	//
+	// Note: this can only run reliably when no daemon is actually running.
+	// If a daemon IS running, it still validates the function doesn't panic
+	// and returns consistent results.
+	running, url, _, err := Status()
+	if err != nil {
+		t.Fatalf("Status() returned unexpected error: %v", err)
+	}
+	if running {
+		// A daemon is running on this machine — skip the not-running assertions
+		// but still verify the URL is well-formed
+		if url == "" {
+			t.Error("Status() returned running=true but empty url")
+		}
+		t.Skipf("daemon is running at %s — cannot test not-running case", url)
+	}
+	// Not running: url should be empty
+	if url != "" {
+		t.Errorf("Status() returned running=false but non-empty url: %q", url)
+	}
 }
 
 func TestPidFileParsing(t *testing.T) {
