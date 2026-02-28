@@ -179,8 +179,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 			Target:  s.config.GetIOWorkspaceTelemetryTarget(),
 		},
 		Notifications: contracts.Notifications{
-			SoundDisabled:      !s.config.GetNotificationSoundEnabled(),
-			ConfirmBeforeClose: s.config.GetConfirmBeforeClose(),
+			SoundDisabled:           !s.config.GetNotificationSoundEnabled(),
+			ConfirmBeforeClose:      s.config.GetConfirmBeforeClose(),
+			SuggestDisposeAfterPush: s.config.GetSuggestDisposeAfterPush(),
 		},
 		Lore: contracts.Lore{
 			Enabled:         s.config.GetLoreEnabled(),
@@ -526,6 +527,10 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Notifications.ConfirmBeforeClose != nil {
 			cfg.Notifications.ConfirmBeforeClose = *req.Notifications.ConfirmBeforeClose
+		}
+		if req.Notifications.SuggestDisposeAfterPush != nil {
+			v := *req.Notifications.SuggestDisposeAfterPush
+			cfg.Notifications.SuggestDisposeAfterPush = &v
 		}
 	}
 

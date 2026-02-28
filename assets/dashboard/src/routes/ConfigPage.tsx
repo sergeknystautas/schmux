@@ -162,6 +162,7 @@ export default function ConfigPage() {
             apiNeedsRestart: data.needs_restart || false,
             soundDisabled: data.notifications?.sound_disabled || false,
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
+            suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
             modelVersions: data.model_versions || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
@@ -222,6 +223,7 @@ export default function ConfigPage() {
             authTlsKeyPath: data.network?.tls?.key_path || '',
             soundDisabled: data.notifications?.sound_disabled || false,
             confirmBeforeClose: data.notifications?.confirm_before_close || false,
+            suggestDisposeAfterPush: data.notifications?.suggest_dispose_after_push ?? true,
             modelVersions: data.model_versions || {},
             loreEnabled: data.lore?.enabled ?? true,
             loreLLMTarget: data.lore?.llm_target || '',
@@ -557,6 +559,7 @@ export default function ConfigPage() {
         notifications: {
           sound_disabled: state.soundDisabled,
           confirm_before_close: state.confirmBeforeClose,
+          suggest_dispose_after_push: state.suggestDisposeAfterPush,
         },
         lore: {
           enabled: state.loreEnabled,
@@ -1383,6 +1386,7 @@ export default function ConfigPage() {
               conflictResolveTarget={state.conflictResolveTarget}
               soundDisabled={state.soundDisabled}
               confirmBeforeClose={state.confirmBeforeClose}
+              suggestDisposeAfterPush={state.suggestDisposeAfterPush}
               modelVersions={state.modelVersions}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}

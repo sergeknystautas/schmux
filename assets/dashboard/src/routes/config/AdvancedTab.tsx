@@ -21,6 +21,7 @@ type AdvancedTabProps = {
   conflictResolveTarget: string;
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
+  suggestDisposeAfterPush: boolean;
   modelVersions: Record<string, string>;
   dashboardPollInterval: number;
   gitStatusPollInterval: number;
@@ -56,6 +57,7 @@ export default function AdvancedTab({
   conflictResolveTarget,
   soundDisabled,
   confirmBeforeClose,
+  suggestDisposeAfterPush,
   modelVersions,
   dashboardPollInterval,
   gitStatusPollInterval,
@@ -474,6 +476,26 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Shows a browser &ldquo;Leave site?&rdquo; dialog when closing or reloading the
               dashboard tab.
+            </p>
+          </div>
+          <div className="form-group">
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--spacing-xs)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={suggestDisposeAfterPush}
+                onChange={(e) => setField('suggestDisposeAfterPush', e.target.checked)}
+              />
+              <span>Suggest disposing workspace after push to main</span>
+            </label>
+            <p className="form-group__hint">
+              After pushing all commits to main, prompts to dispose the workspace and its sessions.
             </p>
           </div>
         </div>

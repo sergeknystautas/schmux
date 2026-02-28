@@ -8,6 +8,7 @@ import {
   disposeWorkspaceAll,
   getErrorMessage,
   getDevStatus,
+  getConfig,
   LinearSyncError,
 } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
@@ -108,12 +109,28 @@ export function useSync() {
               `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is currently live in dev mode — switch to another workspace before disposing it.`
             );
           } else {
-            const disposeConfirmed = await confirm(
-              `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
-            );
-            if (disposeConfirmed) {
-              await disposeWorkspaceAll(workspaceId);
-              navigate('/');
+            // Check config flag for dispose suggestion
+            let suggestDispose = true;
+            try {
+              const config = await getConfig();
+              suggestDispose = config.notifications?.suggest_dispose_after_push ?? true;
+            } catch {
+              // Config fetch failed — default to showing the prompt
+            }
+
+            if (suggestDispose) {
+              const disposeConfirmed = await confirm(
+                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
+              );
+              if (disposeConfirmed) {
+                await disposeWorkspaceAll(workspaceId);
+                navigate('/');
+              }
+            } else {
+              await alert(
+                'Pushed',
+                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`
+              );
             }
           }
         } else {

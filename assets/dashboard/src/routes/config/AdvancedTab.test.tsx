@@ -41,6 +41,7 @@ const defaultProps = {
   conflictResolveTarget: '',
   soundDisabled: false,
   confirmBeforeClose: false,
+  suggestDisposeAfterPush: true,
   modelVersions: {} as Record<string, string>,
   dashboardPollInterval: 5000,
   gitStatusPollInterval: 10000,

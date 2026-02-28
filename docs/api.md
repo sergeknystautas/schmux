@@ -814,6 +814,11 @@ Response:
     "rotation_threshold": 150,
     "debounce_ms": 2000
   },
+  "notifications": {
+    "sound_disabled": false,
+    "confirm_before_close": false,
+    "suggest_dispose_after_push": true
+  },
   "needs_restart": false
 }
 ```
@@ -897,6 +902,11 @@ Request:
   "subreddit": {
     "target": "claude",
     "hours": 24
+  },
+  "notifications": {
+    "sound_disabled": false,
+    "confirm_before_close": false,
+    "suggest_dispose_after_push": true
   }
 }
 ```

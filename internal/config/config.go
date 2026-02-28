@@ -229,8 +229,9 @@ type IOWorkspaceTelemetryConfig struct {
 
 // NotificationsConfig holds configuration for dashboard notifications.
 type NotificationsConfig struct {
-	SoundDisabled      bool `json:"sound_disabled,omitempty"`       // disable attention sounds (default: false = sounds enabled)
-	ConfirmBeforeClose bool `json:"confirm_before_close,omitempty"` // show browser "Leave site?" dialog on tab close (default: false = no confirmation)
+	SoundDisabled           bool  `json:"sound_disabled,omitempty"`             // disable attention sounds (default: false = sounds enabled)
+	ConfirmBeforeClose      bool  `json:"confirm_before_close,omitempty"`       // show browser "Leave site?" dialog on tab close (default: false = no confirmation)
+	SuggestDisposeAfterPush *bool `json:"suggest_dispose_after_push,omitempty"` // prompt to dispose workspace after pushing to main (default: true)
 }
 
 // RemoteWorkspaceConfig holds configuration for remote workspace operations.
@@ -1036,6 +1037,17 @@ func (c *Config) GetConfirmBeforeClose() bool {
 		return false
 	}
 	return c.Notifications.ConfirmBeforeClose
+}
+
+// GetSuggestDisposeAfterPush returns whether to prompt disposing workspace after pushing to main.
+// Defaults to true (prompt enabled) unless explicitly disabled.
+func (c *Config) GetSuggestDisposeAfterPush() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c == nil || c.Notifications == nil || c.Notifications.SuggestDisposeAfterPush == nil {
+		return true
+	}
+	return *c.Notifications.SuggestDisposeAfterPush
 }
 
 // GetDetectedRunTarget finds a detected run target by name.
