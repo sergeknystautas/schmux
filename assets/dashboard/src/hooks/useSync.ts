@@ -45,7 +45,7 @@ export function useSync() {
         if (result.success) {
           const branch = result.branch || 'main';
           const count = result.success_count ?? 0;
-          await alert('Success', `Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
+          toastSuccess(`Synced ${count} commit${count === 1 ? '' : 's'} from ${branch}.`);
         } else if (result.conflicting_hash) {
           const commitCount = result.success_count ?? 0;
           const resolveConfirmed = await show(
@@ -81,7 +81,7 @@ export function useSync() {
         await alert('Error', getErrorMessage(err, 'Failed to sync from main'));
       }
     },
-    [alert, show, startConflictResolution]
+    [alert, show, startConflictResolution, toastSuccess]
   );
 
   const handleLinearSyncToMain = useCallback(
