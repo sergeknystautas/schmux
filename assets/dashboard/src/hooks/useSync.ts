@@ -19,7 +19,7 @@ import type { WorkspaceResponse } from '../lib/types';
 export function useSync() {
   const navigate = useNavigate();
   const { alert, confirm, show } = useModal();
-  const { error: toastError } = useToast();
+  const { error: toastError, success: toastSuccess } = useToast();
   const { clearLinearSyncResolveConflictState } = useSyncState();
 
   const startConflictResolution = useCallback(
@@ -92,33 +92,35 @@ export function useSync() {
           const branch = defaultBranch || result.branch || 'main';
           const count = result.success_count ?? 0;
 
-          // Check if this workspace is the live dev workspace
-          let isDevLive = false;
-          if (workspacePath) {
-            try {
-              const devStatus = await getDevStatus();
-              isDevLive = devStatus.source_workspace === workspacePath;
-            } catch {
-              // Not in dev mode or dev status unavailable — ignore
-            }
+          // Check config flag for dispose suggestion
+          let suggestDispose = true;
+          try {
+            const config = await getConfig();
+            suggestDispose = config.notifications?.suggest_dispose_after_push ?? true;
+          } catch {
+            // Config fetch failed — default to showing the prompt
           }
 
-          if (isDevLive) {
-            await alert(
-              'Pushed',
-              `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is currently live in dev mode — switch to another workspace before disposing it.`
-            );
+          if (!suggestDispose) {
+            toastSuccess(`Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`);
           } else {
-            // Check config flag for dispose suggestion
-            let suggestDispose = true;
-            try {
-              const config = await getConfig();
-              suggestDispose = config.notifications?.suggest_dispose_after_push ?? true;
-            } catch {
-              // Config fetch failed — default to showing the prompt
+            // Check if this workspace is the live dev workspace
+            let isDevLive = false;
+            if (workspacePath) {
+              try {
+                const devStatus = await getDevStatus();
+                isDevLive = devStatus.source_workspace === workspacePath;
+              } catch {
+                // Not in dev mode or dev status unavailable — ignore
+              }
             }
 
-            if (suggestDispose) {
+            if (isDevLive) {
+              await alert(
+                'Pushed',
+                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. This workspace is currently live in dev mode — switch to another workspace before disposing it.`
+              );
+            } else {
               const disposeConfirmed = await confirm(
                 `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}. Are you done? Shall I dispose this workspace and sessions?`
               );
@@ -126,11 +128,6 @@ export function useSync() {
                 await disposeWorkspaceAll(workspaceId);
                 navigate('/');
               }
-            } else {
-              await alert(
-                'Pushed',
-                `Pushed ${count} commit${count === 1 ? '' : 's'} to ${branch}.`
-              );
             }
           }
         } else {
@@ -140,7 +137,7 @@ export function useSync() {
         await alert('Error', getErrorMessage(err, 'Failed to sync or dispose'));
       }
     },
-    [alert, confirm, navigate]
+    [alert, confirm, navigate, toastSuccess]
   );
 
   const handlePushToBranch = useCallback(
