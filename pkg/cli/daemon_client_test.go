@@ -14,23 +14,56 @@ func TestGetDefaultURL(t *testing.T) {
 	if url != "http://localhost:7337" {
 		t.Errorf("got %q, want %q", url, "http://localhost:7337")
 	}
+	// Verify the URL is parseable and usable for HTTP requests
+	parsed, err := http.NewRequest(http.MethodGet, url+"/api/healthz", nil)
+	if err != nil {
+		t.Errorf("default URL should be valid for HTTP requests: %v", err)
+	}
+	if parsed.URL.Hostname() != "localhost" {
+		t.Errorf("hostname = %q, want localhost", parsed.URL.Hostname())
+	}
+	if parsed.URL.Port() != "7337" {
+		t.Errorf("port = %q, want 7337", parsed.URL.Port())
+	}
 }
 
 func TestNewDaemonClient(t *testing.T) {
-	baseURL := "http://example.com:8080"
-	client := NewDaemonClient(baseURL)
+	t.Run("configures client correctly", func(t *testing.T) {
+		baseURL := "http://example.com:8080"
+		client := NewDaemonClient(baseURL)
 
-	if client.baseURL != baseURL {
-		t.Errorf("baseURL = %q, want %q", client.baseURL, baseURL)
-	}
+		if client.baseURL != baseURL {
+			t.Errorf("baseURL = %q, want %q", client.baseURL, baseURL)
+		}
 
-	if client.httpClient == nil {
-		t.Error("httpClient should not be nil")
-	}
+		if client.httpClient == nil {
+			t.Fatal("httpClient should not be nil")
+		}
 
-	if client.httpClient.Timeout != 30*time.Second {
-		t.Errorf("timeout = %v, want 30s", client.httpClient.Timeout)
-	}
+		if client.httpClient.Timeout != 30*time.Second {
+			t.Errorf("timeout = %v, want 30s", client.httpClient.Timeout)
+		}
+	})
+
+	t.Run("can make actual requests", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		}))
+		defer server.Close()
+
+		client := NewDaemonClient(server.URL)
+		if !client.IsRunning() {
+			t.Error("client should be able to reach test server")
+		}
+	})
+
+	t.Run("reports not running for unreachable server", func(t *testing.T) {
+		client := NewDaemonClient("http://localhost:1")
+		if client.IsRunning() {
+			t.Error("client should report not running for unreachable server")
+		}
+	})
 }
 
 func TestClient_IsRunning(t *testing.T) {

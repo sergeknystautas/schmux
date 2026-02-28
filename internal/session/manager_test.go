@@ -27,19 +27,45 @@ func TestNew(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	m := New(cfg, st, statePath, wm, nil)
-	if m == nil {
-		t.Error("New() returned nil")
-	}
-	if m.config != cfg {
-		t.Error("config not set correctly")
-	}
-	if m.state != st {
-		t.Error("state not set correctly")
-	}
-	if m.workspace != wm {
-		t.Error("workspace manager not set correctly")
-	}
+	t.Run("initializes all internal state", func(t *testing.T) {
+		m := New(cfg, st, statePath, wm, nil)
+		if m == nil {
+			t.Fatal("New() returned nil")
+		}
+		if m.config != cfg {
+			t.Error("config not set correctly")
+		}
+		if m.state != st {
+			t.Error("state not set correctly")
+		}
+		if m.workspace != wm {
+			t.Error("workspace manager not set correctly")
+		}
+		if m.ensurer == nil {
+			t.Error("ensurer should be initialized by New()")
+		}
+		if m.trackers == nil {
+			t.Error("trackers map should be initialized by New()")
+		}
+		if m.remoteDetectors == nil {
+			t.Error("remoteDetectors map should be initialized by New()")
+		}
+	})
+
+	t.Run("creates default logger when nil is passed", func(t *testing.T) {
+		m := New(cfg, st, statePath, wm, nil)
+		if m.logger == nil {
+			t.Fatal("logger should be non-nil even when nil is passed to New()")
+		}
+	})
+
+	t.Run("uses provided logger", func(t *testing.T) {
+		customLogger := log.NewWithOptions(io.Discard, log.Options{})
+		m := New(cfg, st, statePath, wm, customLogger)
+		if m.logger != customLogger {
+			t.Error("should use the provided logger, not create a new one")
+		}
+	})
 }
 
 func TestGetAttachCommand(t *testing.T) {

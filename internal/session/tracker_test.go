@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -23,19 +24,61 @@ func TestSessionTrackerInputResizeWithoutControlMode(t *testing.T) {
 
 func TestTrackerCounters_Increment(t *testing.T) {
 	var c TrackerCounters
-	c.EventsDelivered.Add(5)
-	c.BytesDelivered.Add(1024)
-	c.Reconnects.Add(1)
 
-	if c.EventsDelivered.Load() != 5 {
-		t.Errorf("EventsDelivered = %d, want 5", c.EventsDelivered.Load())
-	}
-	if c.BytesDelivered.Load() != 1024 {
-		t.Errorf("BytesDelivered = %d, want 1024", c.BytesDelivered.Load())
-	}
-	if c.Reconnects.Load() != 1 {
-		t.Errorf("Reconnects = %d, want 1", c.Reconnects.Load())
-	}
+	t.Run("basic increments are recorded", func(t *testing.T) {
+		c.EventsDelivered.Add(5)
+		c.BytesDelivered.Add(1024)
+		c.Reconnects.Add(1)
+		c.FanOutDrops.Add(3)
+
+		if c.EventsDelivered.Load() != 5 {
+			t.Errorf("EventsDelivered = %d, want 5", c.EventsDelivered.Load())
+		}
+		if c.BytesDelivered.Load() != 1024 {
+			t.Errorf("BytesDelivered = %d, want 1024", c.BytesDelivered.Load())
+		}
+		if c.Reconnects.Load() != 1 {
+			t.Errorf("Reconnects = %d, want 1", c.Reconnects.Load())
+		}
+		if c.FanOutDrops.Load() != 3 {
+			t.Errorf("FanOutDrops = %d, want 3", c.FanOutDrops.Load())
+		}
+	})
+
+	t.Run("concurrent increments are race-free", func(t *testing.T) {
+		var counters TrackerCounters
+		const goroutines = 10
+		const increments = 100
+
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+		for i := 0; i < goroutines; i++ {
+			go func() {
+				defer wg.Done()
+				for j := 0; j < increments; j++ {
+					counters.EventsDelivered.Add(1)
+					counters.BytesDelivered.Add(10)
+					counters.Reconnects.Add(1)
+					counters.FanOutDrops.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+
+		want := int64(goroutines * increments)
+		if got := counters.EventsDelivered.Load(); got != want {
+			t.Errorf("EventsDelivered = %d, want %d", got, want)
+		}
+		if got := counters.BytesDelivered.Load(); got != want*10 {
+			t.Errorf("BytesDelivered = %d, want %d", got, want*10)
+		}
+		if got := counters.Reconnects.Load(); got != want {
+			t.Errorf("Reconnects = %d, want %d", got, want)
+		}
+		if got := counters.FanOutDrops.Load(); got != want {
+			t.Errorf("FanOutDrops = %d, want %d", got, want)
+		}
+	})
 }
 
 func TestSubscribeUnsubscribeOutput(t *testing.T) {
