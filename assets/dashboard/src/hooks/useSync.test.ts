@@ -17,8 +17,9 @@ vi.mock('../components/ModalProvider', () => ({
 }));
 
 const toastError = vi.fn();
+const toastSuccess = vi.fn();
 vi.mock('../components/ToastProvider', () => ({
-  useToast: () => ({ error: toastError }),
+  useToast: () => ({ error: toastError, success: toastSuccess }),
 }));
 
 const clearLinearSyncResolveConflictState = vi.fn();
@@ -30,6 +31,9 @@ const mockLinearSyncFromMain = vi.fn();
 const mockLinearSyncToMain = vi.fn();
 const mockDisposeWorkspaceAll = vi.fn();
 const mockGetDevStatus = vi.fn();
+const mockGetConfig = vi
+  .fn()
+  .mockResolvedValue({ notifications: { suggest_dispose_after_push: true } });
 vi.mock('../lib/api', () => ({
   linearSyncFromMain: (...args: unknown[]) => mockLinearSyncFromMain(...args),
   linearSyncToMain: (...args: unknown[]) => mockLinearSyncToMain(...args),
@@ -38,6 +42,7 @@ vi.mock('../lib/api', () => ({
   disposeWorkspaceAll: (...args: unknown[]) => mockDisposeWorkspaceAll(...args),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   getDevStatus: (...args: unknown[]) => mockGetDevStatus(...args),
+  getConfig: (...args: unknown[]) => mockGetConfig(...args),
   LinearSyncError: class LinearSyncError extends Error {
     isPreCommitHookError = false;
     preCommitErrorDetail = '';
@@ -52,7 +57,7 @@ beforeEach(() => {
 
 describe('useSync', () => {
   describe('handleLinearSyncFromMain', () => {
-    it('shows a success alert when sync succeeds', async () => {
+    it('shows a success toast when sync succeeds', async () => {
       mockLinearSyncFromMain.mockResolvedValue({
         success: true,
         branch: 'main',
@@ -62,7 +67,7 @@ describe('useSync', () => {
       const { result } = renderHook(() => useSync());
       await act(() => result.current.handleLinearSyncFromMain('ws-1', 'abc123'));
 
-      expect(alert).toHaveBeenCalledWith('Success', 'Synced 3 commits from main.');
+      expect(toastSuccess).toHaveBeenCalledWith('Synced 3 commits from main.');
       expect(show).not.toHaveBeenCalled();
     });
 
