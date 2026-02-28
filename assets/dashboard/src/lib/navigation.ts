@@ -31,6 +31,21 @@ export function navigateToWorkspace(
 }
 
 /**
+ * Find the next workspace with sessions in a given direction, skipping sessionless ones.
+ * Returns the index of the found workspace, or -1 if none found.
+ */
+export function findNextWorkspaceWithSessions(
+  workspaces: WorkspaceResponse[],
+  currentIndex: number,
+  direction: 1 | -1
+): number {
+  for (let i = currentIndex + direction; i >= 0 && i < workspaces.length; i += direction) {
+    if (workspaces[i].sessions?.length) return i;
+  }
+  return -1;
+}
+
+/**
  * Hook to manage pending navigation - wait for a session or workspace to appear
  * in dashboard data and automatically navigate to it.
  *
