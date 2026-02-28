@@ -2789,4 +2789,4 @@ Response:
 - Session ID is derived from the filename (without `.jsonl` extension)
 - Returns at most 200 events, sorted oldest-first
 
-<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent -->
+<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent, secrets file migration, nudge summary parsing, curator response parsing, shell argument splitting -->
