@@ -102,6 +102,15 @@ func (inj *Injector) flush(ctx context.Context) {
 		return
 	}
 
+	// Clear any partial operator input before injecting signals.
+	// Without this, if the operator is mid-keystroke, the signal text
+	// gets appended to their partial input, garbling both the operator's
+	// message and the signal. Ctrl+U (unix-line-discard) clears from
+	// cursor to beginning of line in readline-based inputs and many TUIs.
+	if err := tmux.SendKeys(ctx, tmuxSession, "C-u"); err != nil {
+		inj.logger.Warn("failed to clear input line before signal", "err", err)
+	}
+
 	text := strings.Join(messages, "\n")
 	if err := tmux.SendLiteral(ctx, tmuxSession, text); err != nil {
 		inj.logger.Warn("failed to send signal to floor manager", "err", err)

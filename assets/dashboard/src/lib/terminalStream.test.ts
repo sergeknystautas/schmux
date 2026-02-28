@@ -237,3 +237,78 @@ describe('TerminalStream sync handling', () => {
     expect(terminal.write).toHaveBeenCalledWith(expect.stringContaining('correct content'));
   });
 });
+
+describe('TerminalStream.setupResizeHandler', () => {
+  let observedElements: Element[];
+
+  beforeEach(() => {
+    observedElements = [];
+    // ResizeObserver must be a class (used with `new`)
+    class MockResizeObserver {
+      constructor(_cb: ResizeObserverCallback) {}
+      observe(el: Element) {
+        observedElements.push(el);
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
+  });
+
+  it('observes .session-detail parent when present', async () => {
+    // Create DOM: .session-detail > .session-detail__main > container
+    const sessionDetail = document.createElement('div');
+    sessionDetail.className = 'session-detail';
+    const main = document.createElement('div');
+    main.className = 'session-detail__main';
+    const container = document.createElement('div');
+
+    sessionDetail.appendChild(main);
+    main.appendChild(container);
+
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    // Should observe both the container and the .session-detail ancestor
+    expect(observedElements).toContain(container);
+    expect(observedElements).toContain(sessionDetail);
+  });
+
+  it('falls back to parentElement when .session-detail is absent', async () => {
+    // Create DOM: parent > container (no .session-detail)
+    const parent = document.createElement('div');
+    parent.className = 'fm-terminal-column';
+    const container = document.createElement('div');
+    parent.appendChild(container);
+
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    // Should observe both the container and its parent
+    expect(observedElements).toContain(container);
+    expect(observedElements).toContain(parent);
+  });
+
+  it('does not observe parent when container has no parent', async () => {
+    // Standalone container with no parent
+    const container = document.createElement('div');
+
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+
+    const stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+
+    // Should only observe the container itself
+    expect(observedElements).toEqual([container]);
+  });
+});
