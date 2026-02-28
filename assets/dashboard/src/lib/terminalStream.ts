@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { transport } from './transport';
 import { inputLatency } from './inputLatency';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
@@ -22,7 +23,7 @@ async function pasteImageToSession(sessionId: string, imageBlob: Blob): Promise<
   }
   const imageBase64 = btoa(binary);
 
-  const resp = await fetch('/api/clipboard-paste', {
+  const resp = await transport.fetch('/api/clipboard-paste', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ sessionId, imageBase64 }),
@@ -427,7 +428,7 @@ export default class TerminalStream {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${this.sessionId}`;
 
-    this.ws = new WebSocket(wsUrl);
+    this.ws = transport.createWebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
 
     // Reset state for new connection attempt
@@ -556,16 +557,17 @@ export default class TerminalStream {
         ? new TextDecoder().decode(this.diagnostics.ringBufferSnapshot())
         : '';
       // 4. Post frontend files back to backend to append to diagnostic dir
-      fetch('/api/dev/diagnostic-append', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-        body: JSON.stringify({
-          diagDir,
-          xtermScreen,
-          screenDiff: diff.diffText,
-          ringBufferFrontend: frontendRingBuffer,
-        }),
-      })
+      transport
+        .fetch('/api/dev/diagnostic-append', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+          body: JSON.stringify({
+            diagDir,
+            xtermScreen,
+            screenDiff: diff.diffText,
+            ringBufferFrontend: frontendRingBuffer,
+          }),
+        })
         .then(() => {
           this.onDiagnosticComplete?.({ diagDir, verdict, findings });
         })

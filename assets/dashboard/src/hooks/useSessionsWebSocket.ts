@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { transport } from '../lib/transport';
 import type {
   WorkspaceResponse,
   LinearSyncResolveConflictStatePayload,
@@ -202,7 +203,7 @@ export default function useSessionsWebSocket(opts?: {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
+    const ws = transport.createWebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
     wsRef.current = ws;
 
     ws.onopen = () => {

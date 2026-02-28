@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 // Plugin that allows the Go backend to pause Vite's file watching during
 // git operations (rebase, merge) to prevent transform errors from transient
@@ -78,6 +79,11 @@ async function loadPlugins() {
 
 export default defineConfig(async () => ({
   plugins: await loadPlugins(),
+  resolve: {
+    alias: {
+      '@dashboard': path.resolve(__dirname, 'src'),
+    },
+  },
   server: {
     port: 5173,
     strictPort: true, // Fail if port is already in use

@@ -87,7 +87,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
     debounce_ms: 2000,
   },
   remote_access: {
-    enabled: true,
+    enabled: false,
     timeout_minutes: 0,
     password_hash_set: false,
     notify: {

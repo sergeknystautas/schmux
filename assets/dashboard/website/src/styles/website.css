@@ -67,3 +67,17 @@ body {
     padding: 48px var(--spacing-lg);
   }
 }
+
+.website-cta-link {
+  display: inline-block;
+  margin-top: var(--spacing-md);
+  color: var(--accent-color, #6366f1);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.website-cta-link:hover {
+  opacity: 0.8;
+}

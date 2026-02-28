@@ -14,6 +14,9 @@ export default function Sessions() {
             question, two are still working. Get notified immediately when an agent needs your
             attention.
           </p>
+          <a href="demo/#/workspaces" className="website-cta-link">
+            Try it →
+          </a>
         </div>
         <img
           src="./screenshot-sessions.png"
