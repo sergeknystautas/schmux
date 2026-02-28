@@ -2788,3 +2788,5 @@ Response:
 - Scans `<workspace>/.schmux/events/*.jsonl` across all active workspaces
 - Session ID is derived from the filename (without `.jsonl` extension)
 - Returns at most 200 events, sorted oldest-first
+
+<!-- Test coverage: config getters, dashboard dispose/nickname guards, compound suppression, injector HandleEvent -->
