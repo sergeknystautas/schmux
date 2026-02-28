@@ -12,13 +12,12 @@ type QuickLaunchTabProps = {
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
   detectedTargets: RunTargetResponse[];
   models: Model[];
-  promptableTargets: RunTargetResponse[];
   commandTargets: RunTargetResponse[];
   newQuickLaunchName: string;
   newQuickLaunchTarget: string;
   newQuickLaunchPrompt: string;
   selectedCookbookTemplate: BuiltinQuickLaunchCookbook | null;
-  promptableTargetNames: Set<string>;
+  modelTargetNames: Set<string>;
   commandTargetNames: Set<string>;
   dispatch: React.Dispatch<ConfigFormAction>;
   onAddQuickLaunch: () => void;
@@ -31,13 +30,12 @@ export default function QuickLaunchTab({
   builtinQuickLaunch,
   detectedTargets,
   models,
-  promptableTargets,
   commandTargets,
   newQuickLaunchName,
   newQuickLaunchTarget,
   newQuickLaunchPrompt,
   selectedCookbookTemplate,
-  promptableTargetNames,
+  modelTargetNames,
   commandTargetNames,
   dispatch,
   onAddQuickLaunch,
@@ -48,7 +46,7 @@ export default function QuickLaunchTab({
     <div className="wizard-step-content" data-step="3">
       <h2 className="wizard-step-content__title">Quick Launch</h2>
       <p className="wizard-step-content__description">
-        Quick launch runs a target with a prompt. Promptable targets require a prompt.
+        Quick launch runs a target with a prompt. Models and detected tools require a prompt.
       </p>
 
       <div className="quick-launch-editor">
@@ -133,7 +131,7 @@ export default function QuickLaunchTab({
             >
               <option value="">Select target...</option>
               {selectedCookbookTemplate ? (
-                <optgroup label="Promptable Targets">
+                <optgroup label="Models &amp; Tools">
                   {[
                     ...detectedTargets.map((target) => ({
                       value: target.name,
@@ -145,10 +143,6 @@ export default function QuickLaunchTab({
                         value: model.id,
                         label: model.display_name,
                       })),
-                    ...promptableTargets.map((target) => ({
-                      value: target.name,
-                      label: target.name,
-                    })),
                   ].map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -157,7 +151,7 @@ export default function QuickLaunchTab({
                 </optgroup>
               ) : (
                 <>
-                  <optgroup label="Promptable Targets">
+                  <optgroup label="Models &amp; Tools">
                     {[
                       ...detectedTargets.map((target) => ({
                         value: target.name,
@@ -169,10 +163,6 @@ export default function QuickLaunchTab({
                           value: model.id,
                           label: model.display_name,
                         })),
-                      ...promptableTargets.map((target) => ({
-                        value: target.name,
-                        label: target.name,
-                      })),
                     ].map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -194,7 +184,7 @@ export default function QuickLaunchTab({
             </button>
           </div>
 
-          {(selectedCookbookTemplate || promptableTargetNames.has(newQuickLaunchTarget)) && (
+          {(selectedCookbookTemplate || modelTargetNames.has(newQuickLaunchTarget)) && (
             <div className="quick-launch-editor__prompt">
               <label className="form-group__label">
                 {selectedCookbookTemplate ? 'Prompt (from Cookbook)' : 'Prompt'}

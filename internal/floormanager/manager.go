@@ -501,20 +501,13 @@ func (m *Manager) resolveTarget(ctx context.Context) (resolvedFMTarget, error) {
 		return resolvedFMTarget{}, fmt.Errorf("failed to resolve target %q: %w", targetName, err)
 	}
 
-	var model *detect.Model
-	if resolved.Kind == session.TargetKindModel {
-		if m, ok := detect.FindModel(resolved.Name); ok {
-			model = &m
-		}
-	}
-
 	return resolvedFMTarget{
 		Name:       resolved.Name,
 		ToolName:   resolved.ToolName,
 		Command:    resolved.Command,
 		Promptable: resolved.Promptable,
 		Env:        resolved.Env,
-		Model:      model,
+		Model:      resolved.Model,
 	}, nil
 }
 

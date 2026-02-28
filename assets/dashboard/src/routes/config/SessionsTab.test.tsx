@@ -1,41 +1,46 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, fireEvent } from '@testing-library/react';
 import SessionsTab from './SessionsTab';
-import type { ConfigFormAction } from './useConfigForm';
 import type { Model, RunTargetResponse } from '../../lib/types';
-
-const dispatch = vi.fn<(action: ConfigFormAction) => void>();
-
-const detectedTargets: RunTargetResponse[] = [
-  { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-];
 
 const models: Model[] = [
   {
-    id: 'gpt-4',
-    display_name: 'GPT-4',
-    provider: 'openai',
-    category: 'external',
-    configured: false,
+    id: 'claude-opus-4-6',
+    display_name: 'Claude Opus 4.6',
+    provider: 'anthropic',
+    category: 'native',
+    configured: true,
     runners: {
-      openai: { available: true, configured: false, required_secrets: ['OPENAI_API_KEY'] },
+      claude: { available: true, configured: true },
+      opencode: { available: true, configured: true },
+    },
+  },
+  {
+    id: 'gpt-5.3-codex',
+    display_name: 'GPT 5.3 Codex',
+    provider: 'openai',
+    category: 'native',
+    configured: true,
+    runners: {
+      codex: { available: true, configured: true },
+      opencode: { available: true, configured: true },
     },
   },
 ];
 
+const commandTargets: RunTargetResponse[] = [
+  { name: 'build', command: 'go build ./...', source: 'user', type: 'command' },
+];
+
+const dispatch = vi.fn();
+
 const defaultProps = {
-  detectedTargets,
   models,
-  promptableTargets: [] as RunTargetResponse[],
-  commandTargets: [] as RunTargetResponse[],
-  newPromptableName: '',
-  newPromptableCommand: '',
+  enabledModels: {} as Record<string, string>,
+  commandTargets,
   newCommandName: '',
   newCommandCommand: '',
   dispatch,
-  onAddPromptableTarget: vi.fn(),
-  onRemovePromptableTarget: vi.fn(),
   onAddCommand: vi.fn(),
   onRemoveCommand: vi.fn(),
   onModelAction: vi.fn(),
@@ -43,59 +48,73 @@ const defaultProps = {
 };
 
 describe('SessionsTab', () => {
-  it('renders detected targets', () => {
+  it('renders model catalog with provider groups', () => {
     render(<SessionsTab {...defaultProps} />);
-    expect(screen.getAllByText('claude').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('anthropic')).toBeInTheDocument();
+    expect(screen.getByText('openai')).toBeInTheDocument();
   });
 
-  it('renders models with Add Secrets button when not configured', () => {
+  it('renders command targets section', () => {
     render(<SessionsTab {...defaultProps} />);
-    expect(screen.getByText('GPT-4')).toBeInTheDocument();
-    expect(screen.getByText('Add Secrets')).toBeInTheDocument();
-  });
-
-  it('renders models with Update/Remove when configured', () => {
-    const configuredModels: Model[] = [{ ...models[0], configured: true }];
-    render(<SessionsTab {...defaultProps} models={configuredModels} />);
-    expect(screen.getByText('Update')).toBeInTheDocument();
-    expect(screen.getByText('Remove')).toBeInTheDocument();
-  });
-
-  it('renders promptable targets with Edit and Remove buttons', () => {
-    const promptableTargets: RunTargetResponse[] = [
-      { name: 'custom-agent', command: 'my-agent', type: 'promptable', source: 'user' },
-    ];
-    render(<SessionsTab {...defaultProps} promptableTargets={promptableTargets} />);
-    expect(screen.getByText('custom-agent')).toBeInTheDocument();
-    expect(screen.getByText('Edit')).toBeInTheDocument();
-  });
-
-  it('renders command targets', () => {
-    const commandTargets: RunTargetResponse[] = [
-      { name: 'build', command: 'make build', type: 'command', source: 'user' },
-    ];
-    render(<SessionsTab {...defaultProps} commandTargets={commandTargets} />);
+    expect(screen.getByText('Command Targets')).toBeInTheDocument();
     expect(screen.getByText('build')).toBeInTheDocument();
-    expect(screen.getByText('make build')).toBeInTheDocument();
   });
 
-  it('calls onAddPromptableTarget when Add button is clicked', async () => {
-    const onAddPromptableTarget = vi.fn();
-    render(<SessionsTab {...defaultProps} onAddPromptableTarget={onAddPromptableTarget} />);
-    await userEvent.click(screen.getByTestId('add-target'));
-    expect(onAddPromptableTarget).toHaveBeenCalled();
+  it('dispatches TOGGLE_MODEL when checking a model', () => {
+    render(<SessionsTab {...defaultProps} />);
+    const opusRow = screen.getByText('Claude Opus 4.6').closest('.model-catalog__model-row');
+    const checkbox = opusRow?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'TOGGLE_MODEL',
+      modelId: 'claude-opus-4-6',
+      enabled: true,
+      defaultRunner: 'claude',
+    });
   });
 
-  it('calls onModelAction when Add Secrets is clicked', async () => {
-    const onModelAction = vi.fn();
-    render(<SessionsTab {...defaultProps} onModelAction={onModelAction} />);
-    await userEvent.click(screen.getByText('Add Secrets'));
-    expect(onModelAction).toHaveBeenCalledWith(models[0], 'add');
+  it('dispatches TOGGLE_MODEL when unchecking a model', () => {
+    render(
+      <SessionsTab
+        {...defaultProps}
+        enabledModels={{ 'claude-opus-4-6': 'claude', 'gpt-5.3-codex': 'codex' }}
+      />
+    );
+    const opusRow = screen.getByText('Claude Opus 4.6').closest('.model-catalog__model-row');
+    const checkbox = opusRow?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'TOGGLE_MODEL',
+      modelId: 'claude-opus-4-6',
+      enabled: false,
+      defaultRunner: 'claude',
+    });
   });
 
-  it('shows empty state when no detected targets', () => {
-    render(<SessionsTab {...defaultProps} detectedTargets={[]} />);
-    expect(screen.getByText(/No detected run targets/)).toBeInTheDocument();
+  it('dispatches CHANGE_RUNNER when runner button clicked', () => {
+    render(<SessionsTab {...defaultProps} enabledModels={{ 'claude-opus-4-6': 'claude' }} />);
+    const opusRow = screen.getByText('Claude Opus 4.6').closest('.model-catalog__model-row');
+    const opencodeBtn = Array.from(opusRow?.querySelectorAll('.runner-picker__option') || []).find(
+      (btn) => btn.textContent === 'opencode'
+    );
+    if (opencodeBtn) fireEvent.click(opencodeBtn);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'CHANGE_RUNNER',
+      modelId: 'claude-opus-4-6',
+      runner: 'opencode',
+    });
+  });
+
+  it('renders add command form', () => {
+    render(<SessionsTab {...defaultProps} />);
+    expect(screen.getByPlaceholderText('Name')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Command (e.g., go build ./...)')).toBeInTheDocument();
+  });
+
+  it('does not render detected targets or promptable targets sections', () => {
+    render(<SessionsTab {...defaultProps} />);
+    expect(screen.queryByText('Detected Run Targets')).not.toBeInTheDocument();
+    expect(screen.queryByText('Promptable Targets')).not.toBeInTheDocument();
   });
 
   it('dispatches SET_FIELD for newPromptableName on typing', async () => {

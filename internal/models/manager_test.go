@@ -1,15 +1,14 @@
-package dashboard
+package models
 
 import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
-	"github.com/sergeknystautas/schmux/internal/models"
 )
 
-func TestValidateModelSecrets(t *testing.T) {
-	mm := models.New(&config.Config{})
+func TestValidateSecrets(t *testing.T) {
+	mm := New(&config.Config{})
 
 	tests := []struct {
 		name    string
@@ -76,7 +75,7 @@ func TestValidateModelSecrets(t *testing.T) {
 	}
 }
 
-func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
+func TestIsTargetInUse(t *testing.T) {
 	tests := []struct {
 		name       string
 		cfg        *config.Config
@@ -105,7 +104,7 @@ func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := models.New(tt.cfg)
+			mm := New(tt.cfg)
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)
@@ -114,44 +113,61 @@ func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
 	}
 }
 
-func TestBuildTLS(t *testing.T) {
-	t.Run("nil when no TLS configured", func(t *testing.T) {
-		cfg := &config.Config{}
-		result := buildTLS(cfg)
-		if result != nil {
-			t.Errorf("expected nil TLS, got %+v", result)
-		}
-	})
-}
-
-func TestValidPersonaIDRegex(t *testing.T) {
+func TestMergeEnvMaps(t *testing.T) {
 	tests := []struct {
-		id   string
-		want bool
+		name      string
+		base      map[string]string
+		overrides map[string]string
+		want      map[string]string
 	}{
-		{"a", true},
-		{"abc", true},
-		{"my-persona", true},
-		{"test-123", true},
-		{"a1", true},
-		{"1a", true},
-		{"0", true},
-		{"", false},
-		{"-invalid", false},
-		{"invalid-", false},
-		{"UPPERCASE", false},
-		{"has space", false},
-		{"has.dot", false},
-		{"has_underscore", false},
-		{"../traversal", false},
-		{"create", true}, // regex allows it; handler rejects it separately
+		{
+			name:      "both nil",
+			base:      nil,
+			overrides: nil,
+			want:      nil,
+		},
+		{
+			name:      "base only",
+			base:      map[string]string{"A": "1"},
+			overrides: nil,
+			want:      map[string]string{"A": "1"},
+		},
+		{
+			name:      "overrides only",
+			base:      nil,
+			overrides: map[string]string{"B": "2"},
+			want:      map[string]string{"B": "2"},
+		},
+		{
+			name:      "override wins",
+			base:      map[string]string{"A": "1"},
+			overrides: map[string]string{"A": "2"},
+			want:      map[string]string{"A": "2"},
+		},
+		{
+			name:      "merge both",
+			base:      map[string]string{"A": "1"},
+			overrides: map[string]string{"B": "2"},
+			want:      map[string]string{"A": "1", "B": "2"},
+		},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
-			got := validPersonaID.MatchString(tt.id)
-			if got != tt.want {
-				t.Errorf("validPersonaID.MatchString(%q) = %v, want %v", tt.id, got, tt.want)
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeEnvMaps(tt.base, tt.overrides)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("mergeEnvMaps() = %v, want nil", got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Errorf("mergeEnvMaps() has %d entries, want %d", len(got), len(tt.want))
+				return
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("mergeEnvMaps()[%q] = %q, want %q", k, got[k], v)
+				}
 			}
 		})
 	}

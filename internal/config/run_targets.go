@@ -34,6 +34,9 @@ func validateRunTargets(targets []RunTarget) error {
 			if detect.IsBuiltinToolName(name) {
 				return fmt.Errorf("%w: run target name %s collides with detected tool", ErrInvalidConfig, name)
 			}
+			if target.Type == RunTargetTypePromptable {
+				return fmt.Errorf("%w: user run target %s cannot be promptable", ErrInvalidConfig, name)
+			}
 		}
 		if source == RunTargetSourceDetected {
 			if !detect.IsBuiltinToolName(name) {
@@ -51,37 +54,6 @@ func validateRunTargets(targets []RunTarget) error {
 		seen[name] = struct{}{}
 	}
 	return nil
-}
-
-// IsTargetPromptable returns whether the named target is promptable and whether it exists.
-func IsTargetPromptable(cfg *Config, detected []RunTarget, name string) (bool, bool) {
-	// Check if it's a model ID or alias
-	model, ok := detect.FindModel(name)
-	if ok {
-		// Check if any of the model's runners' tools are detected
-		for _, target := range detected {
-			if target.Source != RunTargetSourceDetected {
-				continue
-			}
-			if _, hasRunner := model.Runners[target.Name]; hasRunner {
-				return true, true
-			}
-		}
-		// Model exists but no runner's tool is detected
-		return true, false
-	}
-	if detect.IsBuiltinToolName(name) {
-		for _, target := range detected {
-			if target.Name == name {
-				return true, true
-			}
-		}
-		return true, false
-	}
-	if target, found := cfg.GetRunTarget(name); found {
-		return target.Type == RunTargetTypePromptable, true
-	}
-	return false, false
 }
 
 func validateQuickLaunch(presets []QuickLaunch, targets []RunTarget) error {

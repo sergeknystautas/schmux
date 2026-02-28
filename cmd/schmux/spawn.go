@@ -37,8 +37,8 @@ func (cmd *SpawnCommand) Run(args []string) error {
 	fs := flag.NewFlagSet("spawn", flag.ExitOnError)
 	fs.StringVar(&targetFlag, "t", "", "Run target name (required)")
 	fs.StringVar(&targetFlag, "target", "", "Run target name (required)")
-	fs.StringVar(&promptFlag, "p", "", "Prompt for promptable targets")
-	fs.StringVar(&promptFlag, "prompt", "", "Prompt for promptable targets")
+	fs.StringVar(&promptFlag, "p", "", "Prompt for model/tool targets")
+	fs.StringVar(&promptFlag, "prompt", "", "Prompt for model/tool targets")
 	fs.StringVar(&workspaceFlag, "w", "", "Workspace path (e.g., . or ~/ws/myproject-001)")
 	fs.StringVar(&workspaceFlag, "workspace", "", "Workspace path (e.g., . or ~/ws/myproject-001)")
 	fs.StringVar(&repoFlag, "r", "", "Repo name from config (for new workspace)")
@@ -99,7 +99,7 @@ func (cmd *SpawnCommand) Run(args []string) error {
 			return fmt.Errorf("prompt (-p/--prompt) is not allowed for command targets")
 		}
 		if target.Type == "promptable" && promptFlag == "" {
-			return fmt.Errorf("prompt (-p/--prompt) is required for promptable targets")
+			return fmt.Errorf("prompt (-p/--prompt) is required for model/tool targets")
 		}
 	}
 

@@ -307,11 +307,7 @@ export default function ConfigModals({
                   rows={6}
                   autoFocus
                 />
-                <p className="form-group__hint">
-                  {runTargetEditModal.target.type === 'promptable'
-                    ? 'Prompt is appended as last arg'
-                    : 'Shell command to run'}
-                </p>
+                <p className="form-group__hint">Shell command to run</p>
               </div>
               {runTargetEditModal.error && (
                 <p className="form-group__error">{runTargetEditModal.error}</p>

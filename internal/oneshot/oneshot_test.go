@@ -75,7 +75,8 @@ func TestBuildOneShotCommand(t *testing.T) {
 			model: &detect.Model{
 				ID: "gpt-5.2-codex",
 				Runners: map[string]detect.RunnerSpec{
-					"codex": {ModelValue: "gpt-5.2-codex"},
+					"codex":    {ModelValue: "gpt-5.2-codex"},
+					"opencode": {ModelValue: "openai/gpt-5.2-codex"},
 				},
 			},
 			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.2-codex"},
@@ -89,7 +90,8 @@ func TestBuildOneShotCommand(t *testing.T) {
 			model: &detect.Model{
 				ID: "gpt-5.3-codex",
 				Runners: map[string]detect.RunnerSpec{
-					"codex": {ModelValue: "gpt-5.3-codex"},
+					"codex":    {ModelValue: "gpt-5.3-codex"},
+					"opencode": {ModelValue: "openai/gpt-5.3-codex"},
 				},
 			},
 			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.3-codex", "--output-schema", "/tmp/schema.json"},

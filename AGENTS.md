@@ -10,8 +10,11 @@
   - `internal/workspace/` — repo clone/checkout management.
   - `internal/tmux/` — tmux integration and process inspection.
   - `internal/config/`, `internal/state/` — config/state IO.
+  - `internal/detect/` — tool/agent detection adapters; files follow the `adapter_<toolname>.go` naming convention (e.g., `adapter_claude.go`, `adapter_opencode.go`). Use `Glob` to list files before reading if the target filename is uncertain.
 - `assets/dashboard/` — static web UI assets (HTML/CSS/TypeScript) served by the daemon.
 - Docs: `README.md`, `docs/cli.md`, `docs/web.md`, `docs/api.md`, `docs/dev/react.md`, `docs/dev/architecture.md`, `docs/dev/README.md`.
+
+**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use search/grep to find specific symbols, or read targeted sections using offset/limit parameters.
 
 ## Build, Test, and Development Commands
 
@@ -25,6 +28,15 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 
 ❌ **WRONG**: `go test ./internal/e2e/...`, `go test -tags=e2e ./...`
 ✅ **RIGHT**: `docker build -f Dockerfile.e2e -t schmux-e2e . && docker run --rm schmux-e2e`
+
+## ⚠️ Frontend Tests — Use `./test.sh`, NOT `npx vitest` directly
+
+**NEVER run frontend tests by `cd`-ing into `assets/dashboard/` and invoking `npx vitest run` or similar commands directly.**
+
+Always run frontend tests from the repository root using the test wrapper:
+
+❌ **WRONG**: `cd assets/dashboard && npx vitest run`
+✅ **RIGHT**: `./test.sh --quick` (from repo root)
 
 - `go build ./cmd/schmux` — build the runnable binary at `./schmux`.
 - `go run ./cmd/gen-types` — generate TypeScript types from Go contracts.
@@ -45,6 +57,7 @@ E2E tests in this repo are Docker-gated and must be executed through the Docker 
 - Packages: lowercase, short, domain-based (`dashboard`, `workspace`, `session`).
 - Identifiers: exported `CamelCase`, unexported `camelCase`; errors as `err`.
 - Frontend assets live in `assets/dashboard/`; **build via `go run ./cmd/build-dashboard` only — never npm directly**; keep HTML/CSS/TypeScript minimal and consistent with `docs/dev/react.md`.
+- Always run `git` commands (`git add`, `git diff`, etc.) from the **repository root**, not from subdirectories.
 
 ## Testing Guidelines
 
@@ -63,6 +76,8 @@ The `/commit` command enforces the definition of done:
 - Requires a structured self-assessment (tests written, no architecture drift, docs current)
 
 Before invoking `/commit`, run `./format.sh` to format all staged files.
+
+**`./format.sh` exit code 2 is normal** — it means no staged files required changes. Treat exit codes 0 and 2 as success; only exit code 1 indicates a real formatting error.
 
 ❌ **WRONG**: `git commit -m "message"`
 ✅ **RIGHT**: `/commit`
@@ -120,6 +135,10 @@ Hot-reload development mode:
 - Local config/state are user-scoped: `~/.schmux/config.json` and `~/.schmux/state.json`; never commit secrets.
 - Local dev artifacts are ignored via `.gitignore` (notably `.schmux/` and the `schmux` binary).
 
+## Operational Notes
+
+- **tmux capture-pane timing**: When probing tmux pane output after running a short-lived command, keep the pane alive (e.g., with `; read` or a long-running tail command) before the process exits — `capture-pane` cannot read output from a pane whose window has already closed.
+
 ## Lore Capture
 
 As you work, append discoveries to `.schmux/lore.jsonl` — things you learned
@@ -130,3 +149,9 @@ that aren't already documented in this file. One JSON line per entry:
 ```
 
 Don't evaluate importance. Don't read the file first. Just append.
+
+In zsh, use `printf` (not `echo`) when appending JSONL entries to avoid quote-mismatch errors with special characters in JSON:
+
+```bash
+printf '%s\n' '{"ts":"...","ws":"...","agent":"...","type":"operational","text":"..."}' >> .schmux/lore.jsonl
+```

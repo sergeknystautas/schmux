@@ -32,7 +32,7 @@ func TestNew(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
 		RunTargets: []config.RunTarget{
-			{Name: "test", Type: config.RunTargetTypePromptable, Command: "test"},
+			{Name: "test", Type: config.RunTargetTypeCommand, Command: "test"},
 		},
 	}
 	st := state.New("", nil)
@@ -396,7 +396,8 @@ func TestBuildCommand(t *testing.T) {
 			model: &detect.Model{
 				ID: "gpt-5.2-codex",
 				Runners: map[string]detect.RunnerSpec{
-					"codex": {ModelValue: "gpt-5.2-codex"},
+					"codex":    {ModelValue: "gpt-5.2-codex"},
+					"opencode": {ModelValue: "openai/gpt-5.2-codex"},
 				},
 			},
 			resume:  false,
@@ -429,7 +430,8 @@ func TestBuildCommand(t *testing.T) {
 			model: &detect.Model{
 				ID: "gpt-5.3-codex",
 				Runners: map[string]detect.RunnerSpec{
-					"codex": {ModelValue: "gpt-5.3-codex"},
+					"codex":    {ModelValue: "gpt-5.3-codex"},
+					"opencode": {ModelValue: "openai/gpt-5.3-codex"},
 				},
 			},
 			resume:  false,

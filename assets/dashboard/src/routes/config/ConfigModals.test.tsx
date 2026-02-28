@@ -136,7 +136,7 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={{
-            target: { name: 'my-agent', command: 'my-agent --prompt', type: 'promptable' },
+            target: { name: 'my-agent', command: 'my-agent --prompt', type: 'command' },
             command: 'my-agent --prompt',
             error: '',
           }}
@@ -161,7 +161,7 @@ describe('ConfigModals', () => {
         <ConfigModals
           authSecretsModal={null}
           runTargetEditModal={{
-            target: { name: 'x', command: 'x', type: 'promptable' },
+            target: { name: 'x', command: 'x', type: 'command' },
             command: 'x',
             error: '',
           }}

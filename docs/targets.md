@@ -59,13 +59,20 @@ Models are the AI models you can use for spawning sessions. They include native 
 
 Native models require no configuration—just select them when spawning.
 
-| ID              | Display Name      |
-| --------------- | ----------------- |
-| `claude-opus`   | claude opus 4.5   |
-| `claude-sonnet` | claude sonnet 4.5 |
-| `claude-haiku`  | claude haiku 4.5  |
+| ID                  | Display Name      |
+| ------------------- | ----------------- |
+| `claude-opus-4-6`   | Claude Opus 4.6   |
+| `claude-sonnet-4-6` | Claude Sonnet 4.6 |
+| `claude-haiku-4-5`  | Claude Haiku 4.5  |
+| `claude-opus-4-5`   | Claude Opus 4.5   |
+| `claude-opus-4-1`   | Claude Opus 4.1   |
+| `claude-opus-4`     | Claude Opus 4     |
+| `claude-sonnet-4-5` | Claude Sonnet 4.5 |
+| `claude-sonnet-4`   | Claude Sonnet 4   |
+| `claude-sonnet-3-5` | Claude Sonnet 3.5 |
+| `claude-haiku-3-5`  | Claude Haiku 3.5  |
 
-You can also use short aliases: `opus`, `sonnet`, `haiku`.
+Legacy short aliases (`opus`, `sonnet`, `haiku`, `claude-opus`, `claude-sonnet`, `claude-haiku`) are migrated to the latest model automatically.
 
 ### Third-Party Models
 
@@ -143,14 +150,35 @@ Models do **not** apply to user-supplied run targets.
 
 ### Codex Models
 
-Codex models require the Codex CLI to be installed and detected. No API secrets are required—configuration is handled by the Codex tool itself.
+Codex models can run via the Codex CLI or OpenCode. No API secrets are required—configuration is handled by the tool itself.
 
-| ID                   | Display Name       |
-| -------------------- | ------------------ |
-| `gpt-5.2-codex`      | gpt 5.2 codex      |
-| `gpt-5.3-codex`      | gpt 5.3 codex      |
-| `gpt-5.1-codex-max`  | gpt 5.1 codex max  |
-| `gpt-5.1-codex-mini` | gpt 5.1 codex mini |
+| ID                   | Display Name       | Runners         |
+| -------------------- | ------------------ | --------------- |
+| `gpt-5.3-codex`      | gpt 5.3 codex      | codex, opencode |
+| `gpt-5.2-codex`      | gpt 5.2 codex      | codex, opencode |
+| `gpt-5.1-codex-max`  | gpt 5.1 codex max  | codex, opencode |
+| `gpt-5.1-codex`      | gpt 5.1 codex      | codex, opencode |
+| `gpt-5.1-codex-mini` | gpt 5.1 codex mini | codex, opencode |
+| `gpt-5-codex`        | gpt 5 codex        | codex, opencode |
+
+### Google Gemini Models
+
+Gemini models can run via the Gemini CLI or OpenCode.
+
+| ID                       | Display Name             | Runners          |
+| ------------------------ | ------------------------ | ---------------- |
+| `gemini-3.1-pro-preview` | Gemini 3.1 Pro (Preview) | gemini, opencode |
+| `gemini-3-flash-preview` | Gemini 3 Flash (Preview) | gemini, opencode |
+| `gemini-2.5-pro`         | Gemini 2.5 Pro           | gemini, opencode |
+| `gemini-2.5-flash`       | Gemini 2.5 Flash         | gemini, opencode |
+| `gemini-2.5-flash-lite`  | Gemini 2.5 Flash Lite    | gemini, opencode |
+| `gemini-2.0-flash`       | Gemini 2.0 Flash         | gemini, opencode |
+
+### OpenCode Models
+
+| ID             | Display Name        | Runners  |
+| -------------- | ------------------- | -------- |
+| `opencode-zen` | opencode zen (free) | opencode |
 
 ---
 

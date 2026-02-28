@@ -15,6 +15,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
@@ -56,6 +57,7 @@ type Manager struct {
 	ioTelemetry            *IOWorkspaceTelemetry                        // optional, for git command I/O telemetry
 	ensuredQueryRepos      map[string]bool                              // repoURL -> true once origin query repo is validated
 	ensuredQueryReposMu    sync.RWMutex
+	models                 *models.Manager // Model manager for target validation
 }
 
 // New creates a new workspace manager.
@@ -174,6 +176,10 @@ func (m *Manager) SetTelemetry(t telemetry.Telemetry) {
 }
 
 // SetIOWorkspaceTelemetry sets the I/O telemetry collector for git command instrumentation.
+func (m *Manager) SetModelManager(mm *models.Manager) {
+	m.models = mm
+}
+
 func (m *Manager) SetIOWorkspaceTelemetry(tel *IOWorkspaceTelemetry) {
 	m.ioTelemetry = tel
 }

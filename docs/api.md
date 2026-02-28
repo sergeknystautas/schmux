@@ -1043,7 +1043,7 @@ Response:
 
 ### GET /api/models
 
-Lists available models and whether they are configured. Each model includes a `runners` map showing which tools can run it and their configuration status. Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
+Lists available models and whether they are configured. Each model includes a `runners` map showing which tools can run it and their configuration status. Model catalog, availability, enablement, and resolution are owned by the internal model manager (`internal/models`). Model IDs are vendor-defined (e.g., `claude-sonnet-4-6`). Legacy IDs (`claude-sonnet`, `sonnet`, etc.) are automatically migrated on load.
 
 Response:
 

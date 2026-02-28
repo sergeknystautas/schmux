@@ -94,43 +94,14 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build models list with full metadata
-	models, err := buildAvailableModels(s.config)
+	models, err := s.models.GetCatalog()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Add configured models as run targets
-	for _, model := range models {
-		if !model.Configured {
-			continue
-		}
-		if _, exists := seenTargets[model.ID]; exists {
-			continue
-		}
-		// Find the first available runner tool to use as the base target
-		var baseTarget config.RunTarget
-		found := false
-		for toolName, ri := range model.Runners {
-			if ri.Available && ri.Configured {
-				if bt, ok := s.config.GetDetectedRunTarget(toolName); ok {
-					baseTarget = bt
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			continue
-		}
-		runTargetResp = append(runTargetResp, contracts.RunTarget{
-			Name:    model.ID,
-			Type:    config.RunTargetTypePromptable,
-			Command: baseTarget.Command,
-			Source:  "model",
-		})
-		seenTargets[model.ID] = struct{}{}
-	}
+	// Add enabled models as run targets (for spawn dropdown)
+	runTargetResp = append(runTargetResp, s.models.GetEnabledRunTargets(seenTargets)...)
 
 	response := contracts.ConfigResponse{
 		WorkspacePath:              s.config.GetWorkspacePath(),
@@ -141,7 +112,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		ExternalDiffCommands:       externalDiffCommandsResp,
 		ExternalDiffCleanupAfterMs: s.config.GetExternalDiffCleanupAfterMs(),
 		Models:                     models,
-		EnabledModels:              s.config.GetEnabledModels(),
+		EnabledModels:              s.models.GetEnabledModels(),
 		Nudgenik: contracts.Nudgenik{
 			Target:         s.config.GetNudgenikTarget(),
 			ViewedBufferMs: s.config.GetNudgenikViewedBufferMs(),

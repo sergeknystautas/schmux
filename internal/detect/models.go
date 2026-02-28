@@ -40,6 +40,69 @@ func SortedRunnerKeys(runners map[string]RunnerSpec) []string {
 	return keys
 }
 
+// # Model Catalog Maintenance
+//
+// The builtinModels list is manually maintained. Use the sources below to verify
+// and update it. An agent can run through these checks systematically.
+//
+// ## Provider Model List APIs (require API keys)
+//
+//   Anthropic:  GET https://api.anthropic.com/v1/models
+//               Headers: anthropic-version: 2023-06-01, X-Api-Key: $ANTHROPIC_API_KEY
+//               Returns: id, display_name, created_at (no capabilities/context window)
+//               Paginated: ?limit=100&after_id=...
+//               Docs: https://platform.claude.com/docs/en/api/models-list
+//
+//   OpenAI:     GET https://api.openai.com/v1/models
+//               Headers: Authorization: Bearer $OPENAI_API_KEY
+//               Returns: id, created, owned_by (no capabilities/context window)
+//               Docs: https://platform.openai.com/docs/api-reference/models/list
+//
+//   Google:     GET https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY
+//               Returns: name, displayName, inputTokenLimit, outputTokenLimit,
+//                        supportedGenerationMethods (richest API of the three)
+//               Paginated: ?pageSize=100&pageToken=...
+//               Docs: https://ai.google.dev/api/models
+//
+// ## Tool CLI Commands (require tools installed)
+//
+//   opencode:   opencode models              — lists all models from configured providers
+//               opencode models --provider X — filter by provider (anthropic, openai, google, etc.)
+//               opencode models --refresh    — refresh cached list from remote
+//               Supports 75+ providers via "provider/model" format.
+//               This is the BEST source for cross-checking runner mappings because
+//               OpenCode can run models from ANY provider — if a model ID works with
+//               "opencode --model provider/model-id", it should have an opencode runner here.
+//               Docs: https://opencode.ai/docs/models/
+//
+//   claude:     /model (interactive only, no CLI listing command yet)
+//               Docs: https://code.claude.com/docs/en/cli-reference
+//
+//   codex:      /model (interactive only, within a Codex CLI session)
+//               Docs: https://developers.openai.com/codex/cli
+//
+//   gemini:     /model (interactive only)
+//               Docs: https://geminicli.com/docs/cli/model/
+//
+// ## Documentation Pages (no auth required, not machine-readable)
+//
+//   Anthropic:  https://platform.claude.com/docs/en/about-claude/models/overview
+//   OpenAI:     https://platform.openai.com/docs/models
+//   Google:     https://ai.google.dev/gemini-api/docs/models
+//   OpenCode:   https://opencode.ai/docs/providers/
+//
+// ## Verification Checklist
+//
+// When updating this list, check:
+//  1. Query each provider API (above) for current model IDs
+//  2. Run "opencode models" to see what's available — any model listed there
+//     should have an opencode runner entry here (e.g., "openai/gpt-5.2-codex")
+//  3. Cross-reference CLI tool model selectors for native runner values
+//  4. Check provider docs for newly released or deprecated models
+//  5. Verify third-party endpoint URLs still work
+//  6. Update legacyIDMigrations if model IDs were renamed
+//
+
 // builtinModels defines the canonical model IDs and display names exposed to the UI.
 var builtinModels = []Model{
 	// Native Claude models - use vendor-defined model IDs
@@ -74,13 +137,23 @@ var builtinModels = []Model{
 		},
 	},
 	{
-		ID:          "claude-opus-4",
-		DisplayName: "Claude Opus 4",
+		ID:          "claude-opus-4-5",
+		DisplayName: "Claude Opus 4.5",
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"claude":   {ModelValue: "claude-opus-4-20250514"},
-			"opencode": {ModelValue: "anthropic/claude-opus-4-20250514"},
+			"claude":   {ModelValue: "claude-opus-4-5-20251101"},
+			"opencode": {ModelValue: "anthropic/claude-opus-4-5-20251101"},
+		},
+	},
+	{
+		ID:          "claude-opus-4-1",
+		DisplayName: "Claude Opus 4.1",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-opus-4-1-20250805"},
+			"opencode": {ModelValue: "anthropic/claude-opus-4-1-20250805"},
 		},
 	},
 	{
@@ -89,8 +162,18 @@ var builtinModels = []Model{
 		Provider:    "anthropic",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"claude":   {ModelValue: "claude-sonnet-4-5-20250514"},
-			"opencode": {ModelValue: "anthropic/claude-sonnet-4-5-20250514"},
+			"claude":   {ModelValue: "claude-sonnet-4-5-20250929"},
+			"opencode": {ModelValue: "anthropic/claude-sonnet-4-5-20250929"},
+		},
+	},
+	{
+		ID:          "claude-opus-4",
+		DisplayName: "Claude Opus 4",
+		Provider:    "anthropic",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"claude":   {ModelValue: "claude-opus-4-20250514"},
+			"opencode": {ModelValue: "anthropic/claude-opus-4-20250514"},
 		},
 	},
 	{
@@ -246,21 +329,23 @@ var builtinModels = []Model{
 	},
 	// Codex models
 	{
-		ID:          "gpt-5.2-codex",
-		DisplayName: "gpt 5.2 codex",
-		Provider:    "openai",
-		Category:    "native",
-		Runners: map[string]RunnerSpec{
-			"codex": {ModelValue: "gpt-5.2-codex"},
-		},
-	},
-	{
 		ID:          "gpt-5.3-codex",
 		DisplayName: "gpt 5.3 codex",
 		Provider:    "openai",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"codex": {ModelValue: "gpt-5.3-codex"},
+			"codex":    {ModelValue: "gpt-5.3-codex"},
+			"opencode": {ModelValue: "openai/gpt-5.3-codex"},
+		},
+	},
+	{
+		ID:          "gpt-5.2-codex",
+		DisplayName: "gpt 5.2 codex",
+		Provider:    "openai",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex":    {ModelValue: "gpt-5.2-codex"},
+			"opencode": {ModelValue: "openai/gpt-5.2-codex"},
 		},
 	},
 	{
@@ -269,7 +354,18 @@ var builtinModels = []Model{
 		Provider:    "openai",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"codex": {ModelValue: "gpt-5.1-codex-max"},
+			"codex":    {ModelValue: "gpt-5.1-codex-max"},
+			"opencode": {ModelValue: "openai/gpt-5.1-codex-max"},
+		},
+	},
+	{
+		ID:          "gpt-5.1-codex",
+		DisplayName: "gpt 5.1 codex",
+		Provider:    "openai",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex":    {ModelValue: "gpt-5.1-codex"},
+			"opencode": {ModelValue: "openai/gpt-5.1-codex"},
 		},
 	},
 	{
@@ -278,7 +374,18 @@ var builtinModels = []Model{
 		Provider:    "openai",
 		Category:    "native",
 		Runners: map[string]RunnerSpec{
-			"codex": {ModelValue: "gpt-5.1-codex-mini"},
+			"codex":    {ModelValue: "gpt-5.1-codex-mini"},
+			"opencode": {ModelValue: "openai/gpt-5.1-codex-mini"},
+		},
+	},
+	{
+		ID:          "gpt-5-codex",
+		DisplayName: "gpt 5 codex",
+		Provider:    "openai",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"codex":    {ModelValue: "gpt-5-codex"},
+			"opencode": {ModelValue: "openai/gpt-5-codex"},
 		},
 	},
 	// OpenCode models
@@ -292,6 +399,26 @@ var builtinModels = []Model{
 		},
 	},
 	// Google models
+	{
+		ID:          "gemini-3.1-pro-preview",
+		DisplayName: "Gemini 3.1 Pro (Preview)",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-3.1-pro-preview"},
+			"opencode": {ModelValue: "google/gemini-3.1-pro-preview"},
+		},
+	},
+	{
+		ID:          "gemini-3-flash-preview",
+		DisplayName: "Gemini 3 Flash (Preview)",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-3-flash-preview"},
+			"opencode": {ModelValue: "google/gemini-3-flash-preview"},
+		},
+	},
 	{
 		ID:          "gemini-2.5-pro",
 		DisplayName: "Gemini 2.5 Pro",
@@ -310,6 +437,16 @@ var builtinModels = []Model{
 		Runners: map[string]RunnerSpec{
 			"gemini":   {ModelValue: "gemini-2.5-flash"},
 			"opencode": {ModelValue: "google/gemini-2.5-flash"},
+		},
+	},
+	{
+		ID:          "gemini-2.5-flash-lite",
+		DisplayName: "Gemini 2.5 Flash Lite",
+		Provider:    "google",
+		Category:    "native",
+		Runners: map[string]RunnerSpec{
+			"gemini":   {ModelValue: "gemini-2.5-flash-lite"},
+			"opencode": {ModelValue: "google/gemini-2.5-flash-lite"},
 		},
 	},
 	{

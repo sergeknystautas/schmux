@@ -12,7 +12,6 @@ export type ConfigSnapshot = {
   workspacePath: string;
   sourceCodeManagement: string;
   repos: RepoResponse[];
-  promptableTargets: RunTargetResponse[];
   commandTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
   externalDiffCommands: { name: string; command: string }[];
@@ -95,7 +94,6 @@ export type ConfigFormState = {
   workspacePath: string;
   sourceCodeManagement: string;
   repos: RepoResponse[];
-  promptableTargets: RunTargetResponse[];
   commandTargets: RunTargetResponse[];
   detectedTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
@@ -112,8 +110,6 @@ export type ConfigFormState = {
   // New item inputs
   newRepoName: string;
   newRepoUrl: string;
-  newPromptableName: string;
-  newPromptableCommand: string;
   newCommandName: string;
   newCommandCommand: string;
   newQuickLaunchName: string;
@@ -220,9 +216,6 @@ export type ConfigFormAction =
   | { type: 'SET_ORIGINAL'; config: ConfigSnapshot | null }
   | { type: 'ADD_REPO'; repo: RepoResponse }
   | { type: 'REMOVE_REPO'; name: string }
-  | { type: 'ADD_PROMPTABLE_TARGET'; target: RunTargetResponse }
-  | { type: 'REMOVE_PROMPTABLE_TARGET'; name: string }
-  | { type: 'UPDATE_PROMPTABLE_TARGET'; name: string; command: string }
   | { type: 'ADD_COMMAND_TARGET'; target: RunTargetResponse }
   | { type: 'REMOVE_COMMAND_TARGET'; name: string }
   | { type: 'UPDATE_COMMAND_TARGET'; name: string; command: string }
@@ -234,20 +227,20 @@ export type ConfigFormAction =
   | { type: 'SET_MODELS'; models: Model[] }
   | { type: 'SET_STEP_ERROR'; step: number; error: string | null }
   | { type: 'RESET_NEW_REPO' }
-  | { type: 'RESET_NEW_PROMPTABLE' }
   | { type: 'RESET_NEW_COMMAND' }
   | { type: 'RESET_NEW_QUICK_LAUNCH' }
   | { type: 'RESET_NEW_DIFF' }
   | { type: 'SET_RUN_TARGET_EDIT_MODAL'; modal: RunTargetEditModalState }
   | { type: 'SET_QUICK_LAUNCH_EDIT_MODAL'; modal: QuickLaunchEditModalState }
   | { type: 'SET_AUTH_SECRETS_MODAL'; modal: AuthSecretsModalState }
-  | { type: 'SET_TLS_MODAL'; modal: TlsModalState };
+  | { type: 'SET_TLS_MODAL'; modal: TlsModalState }
+  | { type: 'TOGGLE_MODEL'; modelId: string; enabled: boolean; defaultRunner: string }
+  | { type: 'CHANGE_RUNNER'; modelId: string; runner: string };
 
 export const initialState: ConfigFormState = {
   workspacePath: '',
   sourceCodeManagement: 'git-worktree',
   repos: [],
-  promptableTargets: [],
   commandTargets: [],
   detectedTargets: [],
   quickLaunch: [],
@@ -263,8 +256,6 @@ export const initialState: ConfigFormState = {
 
   newRepoName: '',
   newRepoUrl: '',
-  newPromptableName: '',
-  newPromptableCommand: '',
   newCommandName: '',
   newCommandCommand: '',
   newQuickLaunchName: '',
@@ -368,23 +359,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
     case 'REMOVE_REPO':
       return { ...state, repos: state.repos.filter((r) => r.name !== action.name) };
 
-    case 'ADD_PROMPTABLE_TARGET':
-      return { ...state, promptableTargets: [...state.promptableTargets, action.target] };
-
-    case 'REMOVE_PROMPTABLE_TARGET':
-      return {
-        ...state,
-        promptableTargets: state.promptableTargets.filter((t) => t.name !== action.name),
-      };
-
-    case 'UPDATE_PROMPTABLE_TARGET':
-      return {
-        ...state,
-        promptableTargets: state.promptableTargets.map((t) =>
-          t.name === action.name ? { ...t, command: action.command } : t
-        ),
-      };
-
     case 'ADD_COMMAND_TARGET':
       return { ...state, commandTargets: [...state.commandTargets, action.target] };
 
@@ -445,9 +419,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
     case 'RESET_NEW_REPO':
       return { ...state, newRepoName: '', newRepoUrl: '' };
 
-    case 'RESET_NEW_PROMPTABLE':
-      return { ...state, newPromptableName: '', newPromptableCommand: '' };
-
     case 'RESET_NEW_COMMAND':
       return { ...state, newCommandName: '', newCommandCommand: '' };
 
@@ -475,6 +446,24 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
     case 'SET_TLS_MODAL':
       return { ...state, tlsModal: action.modal };
 
+    case 'TOGGLE_MODEL': {
+      const next = { ...state.enabledModels };
+      if (action.enabled) {
+        next[action.modelId] = action.defaultRunner;
+      } else {
+        delete next[action.modelId];
+      }
+      return { ...state, enabledModels: next };
+    }
+
+    case 'CHANGE_RUNNER': {
+      if (!(action.modelId in state.enabledModels)) return state;
+      return {
+        ...state,
+        enabledModels: { ...state.enabledModels, [action.modelId]: action.runner },
+      };
+    }
+
     default:
       return state;
   }
@@ -486,27 +475,26 @@ export function useConfigForm(initialStep: number = 1) {
     currentStep: initialStep,
   });
 
-  const promptableTargetNames = new Set([
+  const modelTargetNames = new Set([
     ...state.detectedTargets.map((target) => target.name),
-    ...state.promptableTargets.map((target) => target.name),
     ...state.models.filter((model) => model.configured).map((model) => model.id),
   ]);
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
 
   const nudgenikTargetMissing =
-    state.nudgenikTarget.trim() !== '' && !promptableTargetNames.has(state.nudgenikTarget.trim());
+    state.nudgenikTarget.trim() !== '' && !modelTargetNames.has(state.nudgenikTarget.trim());
   const branchSuggestTargetMissing =
     state.branchSuggestTarget.trim() !== '' &&
-    !promptableTargetNames.has(state.branchSuggestTarget.trim());
+    !modelTargetNames.has(state.branchSuggestTarget.trim());
   const conflictResolveTargetMissing =
     state.conflictResolveTarget.trim() !== '' &&
-    !promptableTargetNames.has(state.conflictResolveTarget.trim());
+    !modelTargetNames.has(state.conflictResolveTarget.trim());
   const prReviewTargetMissing =
-    state.prReviewTarget.trim() !== '' && !promptableTargetNames.has(state.prReviewTarget.trim());
+    state.prReviewTarget.trim() !== '' && !modelTargetNames.has(state.prReviewTarget.trim());
   const commitMessageTargetMissing =
     state.commitMessageTarget.trim() !== '' &&
-    !promptableTargetNames.has(state.commitMessageTarget.trim());
+    !modelTargetNames.has(state.commitMessageTarget.trim());
 
   const hasChanges = useCallback(
     (isFirstRun: boolean) => {
@@ -523,7 +511,6 @@ export function useConfigForm(initialStep: number = 1) {
         state.workspacePath !== oc.workspacePath ||
         state.sourceCodeManagement !== oc.sourceCodeManagement ||
         !arraysMatch(state.repos, oc.repos) ||
-        !arraysMatch(state.promptableTargets, oc.promptableTargets) ||
         !arraysMatch(state.commandTargets, oc.commandTargets) ||
         !arraysMatch(state.quickLaunch, oc.quickLaunch) ||
         !arraysMatch(state.externalDiffCommands, oc.externalDiffCommands) ||
@@ -601,7 +588,6 @@ export function useConfigForm(initialStep: number = 1) {
       workspacePath: state.workspacePath,
       sourceCodeManagement: state.sourceCodeManagement,
       repos: state.repos,
-      promptableTargets: state.promptableTargets,
       commandTargets: state.commandTargets,
       quickLaunch: state.quickLaunch,
       externalDiffCommands: state.externalDiffCommands,
@@ -654,7 +640,7 @@ export function useConfigForm(initialStep: number = 1) {
   return {
     state,
     dispatch,
-    promptableTargetNames,
+    modelTargetNames,
     commandTargetNames,
     nudgenikTargetMissing,
     branchSuggestTargetMissing,

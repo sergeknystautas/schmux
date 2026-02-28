@@ -19,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -41,6 +42,7 @@ type Manager struct {
 	workspace               workspace.WorkspaceManager
 	logger                  *log.Logger
 	ensurer                 *ensure.Ensurer
+	models                  *models.Manager // Model catalog, resolution, enablement
 	remoteManager           *remote.Manager // Optional, for remote sessions
 	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
@@ -99,6 +101,12 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetRemoteManager(rm *remote.Manager) {
 	m.remoteManager = rm
+}
+
+// SetModelManager sets the model manager for model resolution.
+// Must be called before Start() — not safe for concurrent use.
+func (m *Manager) SetModelManager(mm *models.Manager) {
+	m.models = mm
 }
 
 // SetHooksDir sets the centralized hooks directory on the ensurer.
@@ -695,13 +703,8 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	// Resolve model if target is a model kind
-	var model *detect.Model
-	if resolved.Kind == TargetKindModel {
-		if m, ok := detect.FindModel(resolved.Name); ok {
-			model = &m
-		}
-	}
+	// Use model from resolution (already populated by ResolveTarget)
+	model := resolved.Model
 
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
@@ -894,77 +897,22 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	return &sess, nil
 }
 
-// resolveToolForModel picks which tool to use for a model.
-func (m *Manager) resolveToolForModel(model detect.Model) string {
-	// 1. Check user preference
-	if preferred := m.config.PreferredTool(model.ID); preferred != "" {
-		if _, ok := model.RunnerFor(preferred); ok {
-			return preferred
-		}
-	}
-
-	// 2. Fall back to first detected runner
-	detectedTools := config.DetectedToolsFromConfig(m.config)
-	detected := make(map[string]bool, len(detectedTools))
-	for _, t := range detectedTools {
-		detected[t.Name] = true
-	}
-
-	for _, toolName := range detect.SortedRunnerKeys(model.Runners) {
-		if detected[toolName] {
-			return toolName
-		}
-	}
-	return ""
-}
-
 // ResolveTarget resolves a target name to a command and env.
 func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedTarget, error) {
 	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
-	model, ok := detect.FindModel(targetName)
-	if ok {
-		// Determine which tool to use for this model
-		toolName := m.resolveToolForModel(model)
-		if toolName == "" {
-			return ResolvedTarget{}, fmt.Errorf("no available runner for model %s", model.ID)
-		}
-
-		spec, _ := model.RunnerFor(toolName)
-
-		// Verify the tool is detected and get its command
-		baseTarget, found := m.config.GetDetectedRunTarget(toolName)
-		if !found {
-			return ResolvedTarget{}, fmt.Errorf("model %s requires tool %s which is not available", model.ID, toolName)
-		}
-
-		// Load secrets and verify required ones are present
-		secrets, err := config.GetEffectiveModelSecrets(model)
+	if m.models != nil && m.models.IsModelID(targetName) {
+		resolved, err := m.models.ResolveModel(targetName)
 		if err != nil {
-			return ResolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
+			return ResolvedTarget{}, err
 		}
-		for _, key := range spec.RequiredSecrets {
-			if strings.TrimSpace(secrets[key]) == "" {
-				return ResolvedTarget{}, fmt.Errorf("model %s requires secret %s for tool %s", model.ID, key, toolName)
-			}
-		}
-
-		// Build env using the adapter
-		adapter := detect.GetAdapter(toolName)
-		var env map[string]string
-		if adapter != nil {
-			env = mergeEnvMaps(adapter.BuildRunnerEnv(spec), secrets)
-		} else {
-			env = secrets
-		}
-
 		return ResolvedTarget{
-			Name:       model.ID,
+			Name:       resolved.Model.ID,
 			Kind:       TargetKindModel,
-			Command:    baseTarget.Command,
+			Command:    resolved.Command,
 			Promptable: true,
-			Env:        env,
-			Model:      &model,
-			ToolName:   toolName,
+			Env:        resolved.Env,
+			Model:      &resolved.Model,
+			ToolName:   resolved.ToolName,
 		}, nil
 	}
 

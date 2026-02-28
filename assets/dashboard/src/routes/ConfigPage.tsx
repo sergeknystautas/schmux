@@ -65,7 +65,7 @@ export default function ConfigPage() {
   const {
     state,
     dispatch,
-    promptableTargetNames,
+    modelTargetNames,
     commandTargetNames,
     nudgenikTargetMissing,
     branchSuggestTargetMissing,
@@ -116,9 +116,6 @@ export default function ConfigPage() {
         const filteredDetectedItems = detectedItems.filter(
           (target) => !modelRunnerTools.has(target.name)
         );
-        const promptableItems = (data.run_targets || []).filter(
-          (t) => t.type === 'promptable' && t.source !== 'detected' && t.source !== 'model'
-        );
         const commandItems = (data.run_targets || []).filter(
           (t) => t.type === 'command' && t.source !== 'detected' && t.source !== 'model'
         );
@@ -131,7 +128,6 @@ export default function ConfigPage() {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
             repos: data.repos || [],
-            promptableTargets: promptableItems,
             commandTargets: commandItems,
             detectedTargets: filteredDetectedItems,
             quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
@@ -195,7 +191,6 @@ export default function ConfigPage() {
             workspacePath: data.workspace_path || '',
             sourceCodeManagement: data.source_code_management || 'git-worktree',
             repos: data.repos || [],
-            promptableTargets: promptableItems,
             commandTargets: commandItems,
             quickLaunch: data.quick_launch || [],
             externalDiffCommands: data.external_diff_commands || [],
@@ -507,10 +502,7 @@ export default function ConfigPage() {
     dispatch({ type: 'SET_FIELD', field: 'warning', value: '' });
 
     try {
-      const runTargets = [
-        ...state.promptableTargets.map((t) => ({ ...t, type: 'promptable' })),
-        ...state.commandTargets.map((t) => ({ ...t, type: 'command' })),
-      ];
+      const runTargets = [...state.commandTargets.map((t) => ({ ...t, type: 'command' }))];
 
       const updateRequest: ConfigUpdateRequest = {
         workspace_path: state.workspacePath,
@@ -717,65 +709,6 @@ export default function ConfigPage() {
     }
   };
 
-  const addPromptableTarget = () => {
-    if (!state.newPromptableName.trim()) {
-      toastError('Run target name is required');
-      return;
-    }
-    if (!state.newPromptableCommand.trim()) {
-      toastError('Run target command is required');
-      return;
-    }
-    const nameExists = [
-      ...state.promptableTargets,
-      ...state.commandTargets,
-      ...state.detectedTargets,
-    ].some((t) => t.name === state.newPromptableName);
-    if (nameExists) {
-      toastError('Run target name already exists');
-      return;
-    }
-    dispatch({
-      type: 'ADD_PROMPTABLE_TARGET',
-      target: {
-        name: state.newPromptableName,
-        command: state.newPromptableCommand,
-        type: 'promptable',
-        source: 'user',
-      },
-    });
-    dispatch({ type: 'RESET_NEW_PROMPTABLE' });
-  };
-
-  const removePromptableTarget = async (name: string) => {
-    const usage = checkTargetUsage(name);
-    if (
-      usage.inQuickLaunch ||
-      usage.inNudgenik ||
-      usage.inBranchSuggest ||
-      usage.inConflictResolve ||
-      usage.inPrReview ||
-      usage.inCommitMessage
-    ) {
-      const reasons = [
-        usage.inQuickLaunch ? 'quick launch item' : null,
-        usage.inNudgenik ? 'nudgenik target' : null,
-        usage.inBranchSuggest ? 'branch suggest target' : null,
-        usage.inConflictResolve ? 'conflict resolve target' : null,
-        usage.inPrReview ? 'PR review target' : null,
-        usage.inCommitMessage ? 'commit message target' : null,
-      ]
-        .filter(Boolean)
-        .join(' and ');
-      toastError(`Cannot remove "${name}" while used by ${reasons}.`);
-      return;
-    }
-    const confirmed = await confirm('Remove run target?', `Remove "${name}" from the config?`);
-    if (confirmed) {
-      dispatch({ type: 'REMOVE_PROMPTABLE_TARGET', name });
-    }
-  };
-
   const addCommand = () => {
     if (!state.newCommandName.trim()) {
       toastError('Command name is required');
@@ -785,11 +718,9 @@ export default function ConfigPage() {
       toastError('Command is required');
       return;
     }
-    const nameExists = [
-      ...state.promptableTargets,
-      ...state.commandTargets,
-      ...state.detectedTargets,
-    ].some((t) => t.name === state.newCommandName);
+    const nameExists = [...state.commandTargets, ...state.detectedTargets].some(
+      (t) => t.name === state.newCommandName
+    );
     if (nameExists) {
       toastError('Run target name already exists');
       return;
@@ -844,7 +775,7 @@ export default function ConfigPage() {
       toastError('Quick launch name already exists');
       return;
     }
-    const promptable = promptableTargetNames.has(targetName);
+    const promptable = modelTargetNames.has(targetName);
     if (!promptable && !commandTargetNames.has(targetName)) {
       toastError('Quick launch target not found');
       return;
@@ -944,11 +875,7 @@ export default function ConfigPage() {
       });
       return;
     }
-    if (target.type === 'promptable') {
-      dispatch({ type: 'UPDATE_PROMPTABLE_TARGET', name: target.name, command });
-    } else {
-      dispatch({ type: 'UPDATE_COMMAND_TARGET', name: target.name, command });
-    }
+    dispatch({ type: 'UPDATE_COMMAND_TARGET', name: target.name, command });
     dispatch({ type: 'SET_RUN_TARGET_EDIT_MODAL', modal: null });
   };
 
@@ -972,7 +899,7 @@ export default function ConfigPage() {
     const { item, prompt: modalPrompt, isCommandTarget } = state.quickLaunchEditModal;
     const target = item.target || '';
 
-    const isPromptable = promptableTargetNames.has(target);
+    const isPromptable = modelTargetNames.has(target);
     if (isPromptable && !modalPrompt.trim()) {
       dispatch({
         type: 'SET_QUICK_LAUNCH_EDIT_MODAL',
@@ -1261,17 +1188,12 @@ export default function ConfigPage() {
 
           {currentTab === 2 && (
             <SessionsTab
-              detectedTargets={state.detectedTargets}
               models={state.models}
-              promptableTargets={state.promptableTargets}
+              enabledModels={state.enabledModels}
               commandTargets={state.commandTargets}
-              newPromptableName={state.newPromptableName}
-              newPromptableCommand={state.newPromptableCommand}
               newCommandName={state.newCommandName}
               newCommandCommand={state.newCommandCommand}
               dispatch={dispatch}
-              onAddPromptableTarget={addPromptableTarget}
-              onRemovePromptableTarget={removePromptableTarget}
               onAddCommand={addCommand}
               onRemoveCommand={removeCommand}
               onModelAction={handleModelAction}
@@ -1285,13 +1207,12 @@ export default function ConfigPage() {
               builtinQuickLaunch={state.builtinQuickLaunch}
               detectedTargets={state.detectedTargets}
               models={state.models}
-              promptableTargets={state.promptableTargets}
               commandTargets={state.commandTargets}
               newQuickLaunchName={state.newQuickLaunchName}
               newQuickLaunchTarget={state.newQuickLaunchTarget}
               newQuickLaunchPrompt={state.newQuickLaunchPrompt}
               selectedCookbookTemplate={state.selectedCookbookTemplate}
-              promptableTargetNames={promptableTargetNames}
+              modelTargetNames={modelTargetNames}
               commandTargetNames={commandTargetNames}
               dispatch={dispatch}
               onAddQuickLaunch={addQuickLaunch}
@@ -1312,7 +1233,6 @@ export default function ConfigPage() {
               prReviewTargetMissing={prReviewTargetMissing}
               detectedTargets={state.detectedTargets}
               models={state.models}
-              promptableTargets={state.promptableTargets}
               dispatch={dispatch}
               onAddDiffCommand={addDiffCommand}
             />
@@ -1326,7 +1246,6 @@ export default function ConfigPage() {
               fmDebounceMs={state.fmDebounceMs}
               detectedTargets={state.detectedTargets}
               models={state.models}
-              promptableTargets={state.promptableTargets}
               dispatch={dispatch}
             />
           )}
@@ -1402,7 +1321,6 @@ export default function ConfigPage() {
               stepErrors={state.stepErrors}
               detectedTargets={state.detectedTargets}
               models={state.models}
-              promptableTargets={state.promptableTargets}
               dispatch={dispatch}
             />
           )}

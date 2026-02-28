@@ -11,8 +11,8 @@ const configFixture: ConfigResponse = {
   source_code_management: 'git-worktree',
   repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
   run_targets: [
-    { name: 'claude', command: 'claude --prompt', type: 'promptable', source: 'user' },
-    { name: 'codex', command: 'codex --prompt', type: 'promptable', source: 'user' },
+    { name: 'claude', command: 'claude', type: 'promptable', source: 'model' },
+    { name: 'codex', command: 'codex', type: 'promptable', source: 'model' },
     { name: 'build', command: 'make build', type: 'command', source: 'user' },
   ],
   models: [
@@ -30,7 +30,10 @@ const configFixture: ConfigResponse = {
       provider: 'openai',
       category: 'agent',
       configured: true,
-      runners: { codex: { available: true, configured: true } },
+      runners: {
+        codex: { available: true, configured: true },
+        opencode: { available: true, configured: true },
+      },
     },
   ],
   quick_launch: [],

@@ -11,8 +11,6 @@ const detectedTargets: RunTargetResponse[] = [
   { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
 ];
 const models: Model[] = [];
-const promptableTargets: RunTargetResponse[] = [];
-
 const defaultProps = {
   commitMessageTarget: '',
   prReviewTarget: '',
@@ -24,7 +22,6 @@ const defaultProps = {
   prReviewTargetMissing: false,
   detectedTargets,
   models,
-  promptableTargets,
   dispatch,
   onAddDiffCommand: vi.fn(),
 };

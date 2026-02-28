@@ -29,6 +29,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
@@ -141,6 +142,9 @@ type Server struct {
 	updateMu         sync.Mutex
 
 	authSessionKey []byte
+
+	// Model manager (catalog, resolution, enablement)
+	models *models.Manager
 
 	// GitHub PR discovery
 	prDiscovery *github.Discovery
@@ -323,6 +327,11 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	// Scan existing sessions for web server ports
 	go s.scanExistingSessionsForPreviews()
 	return s
+}
+
+// SetModelManager sets the model manager for model catalog and resolution.
+func (s *Server) SetModelManager(mm *models.Manager) {
+	s.models = mm
 }
 
 // SetRemoteManager sets the remote manager for remote workspace support.

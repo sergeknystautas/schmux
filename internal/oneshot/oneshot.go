@@ -16,8 +16,17 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/schema"
 )
+
+// modelManager is the package-level model manager, set via SetModelManager.
+var modelManager *models.Manager
+
+// SetModelManager sets the package-level model manager for target resolution.
+func SetModelManager(mm *models.Manager) {
+	modelManager = mm
+}
 
 // ErrTargetNotFound is returned when a target name cannot be resolved.
 var ErrTargetNotFound = errors.New("target not found")
@@ -585,83 +594,26 @@ const (
 	targetKindUser     = "user"
 )
 
-// resolveToolForModel picks which tool to use for a model in the oneshot context.
-// It checks the config's PreferredTool, then falls back to the first detected runner.
-func resolveToolForModel(cfg *config.Config, model detect.Model) string {
-	// 1. Check user preference
-	if preferred := cfg.PreferredTool(model.ID); preferred != "" {
-		if _, ok := model.RunnerFor(preferred); ok {
-			return preferred
-		}
-	}
-
-	// 2. Fall back to first detected runner
-	detectedTools := config.DetectedToolsFromConfig(cfg)
-	detected := make(map[string]bool, len(detectedTools))
-	for _, t := range detectedTools {
-		detected[t.Name] = true
-	}
-
-	for _, toolName := range detect.SortedRunnerKeys(model.Runners) {
-		if detected[toolName] {
-			return toolName
-		}
-	}
-
-	return ""
-}
-
 // resolveTarget resolves a target name to its full configuration including models and secrets.
 func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error) {
 	if cfg == nil {
 		return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
-	// Check if it's a model (handles aliases like "opus", "sonnet", "haiku")
-	model, ok := detect.FindModel(targetName)
-	if ok {
-		// Determine which tool to use for this model
-		toolName := resolveToolForModel(cfg, model)
-		if toolName == "" {
-			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-		}
-
-		spec, _ := model.RunnerFor(toolName)
-
-		// Get the tool's command from detected run targets
-		baseTarget, found := cfg.GetDetectedRunTarget(toolName)
-		if !found {
-			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-		}
-
-		// Load secrets and verify required ones are present
-		secrets, err := config.GetEffectiveModelSecrets(model)
+	// Check if it's a model via the model manager
+	if modelManager != nil && modelManager.IsModelID(targetName) {
+		resolved, err := modelManager.ResolveModel(targetName)
 		if err != nil {
-			return resolvedTarget{}, fmt.Errorf("failed to load secrets for model %s: %w", model.ID, err)
+			return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 		}
-		for _, key := range spec.RequiredSecrets {
-			if strings.TrimSpace(secrets[key]) == "" {
-				return resolvedTarget{}, fmt.Errorf("model %s requires secret %s for tool %s", model.ID, key, toolName)
-			}
-		}
-
-		// Build env using the adapter
-		adapter := detect.GetAdapter(toolName)
-		var env map[string]string
-		if adapter != nil {
-			env = mergeEnvMaps(adapter.BuildRunnerEnv(spec), secrets)
-		} else {
-			env = secrets
-		}
-
 		return resolvedTarget{
-			Name:       model.ID,
+			Name:       resolved.Model.ID,
 			Kind:       targetKindModel,
-			ToolName:   toolName,
-			Command:    baseTarget.Command,
+			ToolName:   resolved.ToolName,
+			Command:    resolved.Command,
 			Promptable: true,
-			Env:        env,
-			Model:      &model,
+			Env:        resolved.Env,
+			Model:      &resolved.Model,
 		}, nil
 	}
 
@@ -685,20 +637,6 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 	}
 
 	return resolvedTarget{}, fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
-}
-
-func mergeEnvMaps(base, overrides map[string]string) map[string]string {
-	if base == nil && overrides == nil {
-		return nil
-	}
-	out := make(map[string]string, len(base)+len(overrides))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overrides {
-		out[k] = v
-	}
-	return out
 }
 
 // NormalizeJSONPayload normalizes common JSON encoding issues that can occur

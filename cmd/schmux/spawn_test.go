@@ -141,7 +141,7 @@ func TestAutoDetectWorkspace(t *testing.T) {
 func TestFindRunTarget(t *testing.T) {
 	cfg := &cli.Config{
 		RunTargets: []cli.RunTarget{
-			{Name: "claude", Type: "promptable", Command: "claude"},
+			{Name: "claude", Type: "command", Command: "claude"},
 			{Name: "zsh", Type: "command", Command: "zsh"},
 		},
 	}
@@ -252,7 +252,7 @@ func TestSpawnCommand_Run(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "prompt (-p/--prompt) is required for promptable targets",
+			errContains: "prompt (-p/--prompt) is required for model/tool targets",
 		},
 		{
 			name:      "spawn with invalid repo",
