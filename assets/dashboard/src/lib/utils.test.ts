@@ -152,20 +152,21 @@ describe('formatTimestamp', () => {
     const date = new Date('2024-06-15T12:30:00Z');
     const result = formatTimestamp(date);
     expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+    // Should contain the year and some time component
+    expect(result).toContain('2024');
   });
 
   it('accepts a string timestamp', () => {
     const result = formatTimestamp('2024-06-15T12:30:00Z');
     expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+    expect(result).toContain('2024');
   });
 
   it('accepts a numeric timestamp', () => {
     const ms = new Date('2024-06-15T12:30:00Z').getTime();
     const result = formatTimestamp(ms);
     expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+    expect(result).toContain('2024');
   });
 
   it('returns consistent results for equivalent inputs', () => {
@@ -174,6 +175,12 @@ describe('formatTimestamp', () => {
     const dateMs = dateObj.getTime();
     expect(formatTimestamp(dateStr)).toBe(formatTimestamp(dateObj));
     expect(formatTimestamp(dateStr)).toBe(formatTimestamp(dateMs));
+  });
+
+  it('produces different output for different dates', () => {
+    const result1 = formatTimestamp('2024-01-01T00:00:00Z');
+    const result2 = formatTimestamp('2024-12-31T23:59:59Z');
+    expect(result1).not.toBe(result2);
   });
 });
 
@@ -319,12 +326,26 @@ describe('isRemoteClient', () => {
 });
 
 describe('nudgeStateEmoji', () => {
-  it('maps all expected states', () => {
-    expect(nudgeStateEmoji['Needs Input']).toBeDefined();
-    expect(nudgeStateEmoji['Needs Feature Clarification']).toBeDefined();
-    expect(nudgeStateEmoji['Needs Attention']).toBeDefined();
-    expect(nudgeStateEmoji['Completed']).toBeDefined();
-    expect(nudgeStateEmoji['Error']).toBeDefined();
+  it('maps all expected states to non-empty emoji strings', () => {
+    const expectedStates = [
+      'Needs Input',
+      'Needs Feature Clarification',
+      'Needs Attention',
+      'Completed',
+      'Error',
+    ];
+    for (const state of expectedStates) {
+      const emoji = nudgeStateEmoji[state];
+      expect(emoji).toBeDefined();
+      expect(typeof emoji).toBe('string');
+      expect(emoji.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('uses distinct emojis for each state', () => {
+    const values = Object.values(nudgeStateEmoji);
+    const uniqueValues = new Set(values);
+    expect(uniqueValues.size).toBe(values.length);
   });
 
   it('returns undefined for unknown state', () => {

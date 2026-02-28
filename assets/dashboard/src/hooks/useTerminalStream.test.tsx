@@ -25,11 +25,13 @@ type TestHandle = {
   streamRef: ReturnType<typeof useTerminalStream>['streamRef'];
 };
 
-const TestTerminal = forwardRef<TestHandle, { sessionId: string | null }>(({ sessionId }, ref) => {
-  const { containerRef, streamRef } = useTerminalStream({ sessionId });
-  useImperativeHandle(ref, () => ({ streamRef }), [streamRef]);
-  return <div ref={containerRef} data-testid="terminal-container" />;
-});
+const TestTerminal = forwardRef<TestHandle, { sessionId: string | null | undefined }>(
+  ({ sessionId }, ref) => {
+    const { containerRef, streamRef } = useTerminalStream({ sessionId });
+    useImperativeHandle(ref, () => ({ streamRef }), [streamRef]);
+    return <div ref={containerRef} data-testid="terminal-container" />;
+  }
+);
 TestTerminal.displayName = 'TestTerminal';
 
 describe('useTerminalStream', () => {
@@ -43,7 +45,7 @@ describe('useTerminalStream', () => {
   });
 
   it('does not create a stream when sessionId is undefined', () => {
-    render(<TestTerminal sessionId={null} />);
+    render(<TestTerminal sessionId={undefined} />);
     expect(TerminalStream).not.toHaveBeenCalled();
   });
 
