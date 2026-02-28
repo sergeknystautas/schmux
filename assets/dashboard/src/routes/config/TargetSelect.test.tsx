@@ -28,10 +28,6 @@ const models: Model[] = [
   },
 ];
 
-const promptableTargets: RunTargetResponse[] = [
-  { name: 'my-agent', command: 'my-agent', type: 'promptable', source: 'user' },
-];
-
 describe('TargetSelect', () => {
   it('renders Disabled option by default', () => {
     render(
@@ -40,7 +36,6 @@ describe('TargetSelect', () => {
         onChange={() => {}}
         detectedTargets={detectedTargets}
         models={models}
-        promptableTargets={promptableTargets}
       />
     );
     expect(screen.getByText('Disabled')).toBeInTheDocument();
@@ -53,7 +48,6 @@ describe('TargetSelect', () => {
         onChange={() => {}}
         detectedTargets={detectedTargets}
         models={models}
-        promptableTargets={promptableTargets}
       />
     );
     expect(screen.getByText('claude')).toBeInTheDocument();
@@ -61,30 +55,9 @@ describe('TargetSelect', () => {
   });
 
   it('renders only configured models', () => {
-    render(
-      <TargetSelect
-        value=""
-        onChange={() => {}}
-        detectedTargets={[]}
-        models={models}
-        promptableTargets={[]}
-      />
-    );
+    render(<TargetSelect value="" onChange={() => {}} detectedTargets={[]} models={models} />);
     expect(screen.getByText('GPT-4')).toBeInTheDocument();
     expect(screen.queryByText('Unconfigured')).not.toBeInTheDocument();
-  });
-
-  it('renders user promptable targets', () => {
-    render(
-      <TargetSelect
-        value=""
-        onChange={() => {}}
-        detectedTargets={[]}
-        models={[]}
-        promptableTargets={promptableTargets}
-      />
-    );
-    expect(screen.getByText('my-agent')).toBeInTheDocument();
   });
 
   it('renders None option when includeNoneOption is provided', () => {
@@ -96,7 +69,6 @@ describe('TargetSelect', () => {
         includeNoneOption="None (capture only)"
         detectedTargets={[]}
         models={[]}
-        promptableTargets={[]}
       />
     );
     expect(screen.getByText('None (capture only)')).toBeInTheDocument();
@@ -106,13 +78,7 @@ describe('TargetSelect', () => {
   it('calls onChange when value changes', async () => {
     const onChange = vi.fn();
     render(
-      <TargetSelect
-        value=""
-        onChange={onChange}
-        detectedTargets={detectedTargets}
-        models={[]}
-        promptableTargets={[]}
-      />
+      <TargetSelect value="" onChange={onChange} detectedTargets={detectedTargets} models={[]} />
     );
     await userEvent.selectOptions(screen.getByRole('combobox'), 'claude');
     expect(onChange).toHaveBeenCalledWith('claude');
@@ -135,14 +101,7 @@ describe('TargetSelect', () => {
 
   it('respects disabled prop', () => {
     render(
-      <TargetSelect
-        value=""
-        onChange={() => {}}
-        disabled={true}
-        detectedTargets={[]}
-        models={[]}
-        promptableTargets={[]}
-      />
+      <TargetSelect value="" onChange={() => {}} disabled={true} detectedTargets={[]} models={[]} />
     );
     expect(screen.getByRole('combobox')).toBeDisabled();
   });

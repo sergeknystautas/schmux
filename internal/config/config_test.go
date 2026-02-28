@@ -1926,7 +1926,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "empty run target name",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "", Type: RunTargetTypeCommand, Command: "echo hi"},
 				},
 			},
 			wantContains: "name is required",
@@ -1935,7 +1935,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "missing command",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "my-agent", Type: RunTargetTypePromptable, Command: ""},
+					{Name: "my-agent", Type: RunTargetTypeCommand, Command: ""},
 				},
 			},
 			wantContains: "command is required",
@@ -1953,7 +1953,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "duplicate target names",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo a"},
+					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo a"},
 					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo b"},
 				},
 			},
@@ -1964,10 +1964,10 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "empty quick launch name",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 				},
 				QuickLaunch: []QuickLaunch{
-					{Name: "", Target: "agent", Prompt: &prompt},
+					{Name: "", Target: "claude", Prompt: &prompt},
 				},
 			},
 			wantContains: "name is required",
@@ -1976,11 +1976,11 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "duplicate quick launch names",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 				},
 				QuickLaunch: []QuickLaunch{
-					{Name: "preset", Target: "agent", Prompt: &prompt},
-					{Name: "preset", Target: "agent", Prompt: &prompt},
+					{Name: "preset", Target: "claude", Prompt: &prompt},
+					{Name: "preset", Target: "claude", Prompt: &prompt},
 				},
 			},
 			wantContains: "duplicate quick launch name",
@@ -1989,7 +1989,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "empty target in quick launch",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 				},
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "", Prompt: &prompt},
@@ -2001,7 +2001,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "target not found in quick launch",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 				},
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "nonexistent", Prompt: &prompt},
@@ -2013,10 +2013,10 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "promptable target without prompt in quick launch",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 				},
 				QuickLaunch: []QuickLaunch{
-					{Name: "preset", Target: "agent"},
+					{Name: "preset", Target: "claude"},
 				},
 			},
 			wantContains: "requires prompt",
@@ -2605,43 +2605,6 @@ func TestMergeDetectedRunTargets(t *testing.T) {
 			t.Fatalf("expected 1, got %d", len(merged))
 		}
 	})
-}
-
-func TestIsTargetPromptable(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{
-		RunTargets: []RunTarget{
-			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash"},
-			{Name: "my-agent", Type: RunTargetTypePromptable, Command: "agent"},
-		},
-	}
-	detected := []RunTarget{
-		{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-	}
-
-	tests := []struct {
-		name           string
-		target         string
-		wantPromptable bool
-		wantFound      bool
-	}{
-		{"user promptable target", "my-agent", true, true},
-		{"user command target", "my-script", false, true},
-		{"detected tool", "claude", true, true},
-		{"unknown target", "nonexistent", false, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			promptable, found := IsTargetPromptable(cfg, detected, tt.target)
-			if promptable != tt.wantPromptable {
-				t.Errorf("promptable = %v, want %v", promptable, tt.wantPromptable)
-			}
-			if found != tt.wantFound {
-				t.Errorf("found = %v, want %v", found, tt.wantFound)
-			}
-		})
-	}
 }
 
 func TestTimeoutDurationConverters(t *testing.T) {

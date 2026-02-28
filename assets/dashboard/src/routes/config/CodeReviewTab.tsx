@@ -14,7 +14,6 @@ type CodeReviewTabProps = {
   prReviewTargetMissing: boolean;
   detectedTargets: RunTargetResponse[];
   models: Model[];
-  promptableTargets: RunTargetResponse[];
   dispatch: React.Dispatch<ConfigFormAction>;
   onAddDiffCommand: () => void;
 };
@@ -30,7 +29,6 @@ export default function CodeReviewTab({
   prReviewTargetMissing,
   detectedTargets,
   models,
-  promptableTargets,
   dispatch,
   onAddDiffCommand,
 }: CodeReviewTabProps) {
@@ -55,7 +53,6 @@ export default function CodeReviewTab({
               }
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Select a promptable target for generating commit messages from the Git History DAG.
@@ -81,7 +78,6 @@ export default function CodeReviewTab({
               onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prReviewTarget', value: v })}
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Select a promptable target for PR review sessions, or leave disabled.

@@ -9,7 +9,6 @@ type TargetSelectProps = {
   includeNoneOption?: string;
   detectedTargets: RunTargetResponse[];
   models: Model[];
-  promptableTargets: RunTargetResponse[];
   className?: string;
 };
 
@@ -21,7 +20,6 @@ export default function TargetSelect({
   includeNoneOption,
   detectedTargets,
   models,
-  promptableTargets,
   className = 'input',
 }: TargetSelectProps) {
   return (
@@ -48,13 +46,6 @@ export default function TargetSelect({
               {model.display_name}
             </option>
           ))}
-      </optgroup>
-      <optgroup label="User Promptable">
-        {promptableTargets.map((target) => (
-          <option key={target.name} value={target.name}>
-            {target.name}
-          </option>
-        ))}
       </optgroup>
     </select>
   );

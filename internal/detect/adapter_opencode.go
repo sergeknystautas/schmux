@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // OpencodeAdapter implements ToolAdapter for OpenCode.
@@ -14,42 +16,74 @@ func init() { registerAdapter(&OpencodeAdapter{}) }
 
 func (a *OpencodeAdapter) Name() string { return "opencode" }
 
+func opencodeVersionCheck(ctx context.Context, command string) (string, error) {
+	cmd := exec.CommandContext(ctx, command, "--version")
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
 func (a *OpencodeAdapter) Detect(ctx context.Context) (Tool, bool) {
+	if pkgLogger != nil {
+		if deadline, ok := ctx.Deadline(); ok {
+			pkgLogger.Info("opencode detection started", "deadline", deadline.Format("2006-01-02T15:04:05.000Z07:00"))
+		} else {
+			pkgLogger.Info("opencode detection started", "deadline", "none")
+		}
+	}
+
 	// Method 1: PATH lookup
 	if commandExists("opencode") {
-		if tryCommand(ctx, "opencode", "--version") {
+		if version, err := opencodeVersionCheck(ctx, "opencode"); err == nil {
 			if pkgLogger != nil {
-				pkgLogger.Info("opencode found via PATH", "command", "opencode")
+				pkgLogger.Info("opencode found via PATH", "command", "opencode", "version", version)
 			}
 			return Tool{Name: "opencode", Command: "opencode", Source: "PATH", Agentic: true}, true
+		} else if pkgLogger != nil {
+			pkgLogger.Info("opencode PATH candidate failed version probe", "command", "opencode", "err", err, "output", version, "ctx_err", ctx.Err())
 		}
+	} else if pkgLogger != nil {
+		pkgLogger.Info("opencode not found on PATH")
 	}
 
 	// Method 2: Native install location (~/.local/bin/opencode)
 	if fileExists("~/.local/bin/opencode") {
 		cmd := filepath.Join(homeDirOrTilde(), ".local", "bin", "opencode")
-		if tryCommand(ctx, cmd, "--version") {
+		if version, err := opencodeVersionCheck(ctx, cmd); err == nil {
 			if pkgLogger != nil {
-				pkgLogger.Info("opencode found via native install", "command", cmd)
+				pkgLogger.Info("opencode found via native install", "command", cmd, "version", version)
 			}
 			return Tool{Name: "opencode", Command: cmd, Source: "native install (~/.local/bin/opencode)", Agentic: true}, true
+		} else if pkgLogger != nil {
+			pkgLogger.Info("opencode native candidate failed version probe", "command", cmd, "err", err, "output", version, "ctx_err", ctx.Err())
 		}
+	} else if pkgLogger != nil {
+		pkgLogger.Info("opencode native install not found", "path", "~/.local/bin/opencode")
 	}
 
 	// Method 3: Homebrew formula
-	if homebrewFormulaInstalled(ctx, "opencode") {
+	brewInstalled := homebrewFormulaInstalled(ctx, "opencode")
+	if brewInstalled {
 		if pkgLogger != nil {
 			pkgLogger.Info("opencode found via Homebrew formula", "command", "opencode")
 		}
 		return Tool{Name: "opencode", Command: "opencode", Source: "Homebrew formula opencode", Agentic: true}, true
+	} else if pkgLogger != nil {
+		pkgLogger.Info("opencode Homebrew formula not detected")
 	}
 
 	// Method 4: npm global
-	if npmGlobalInstalled(ctx, "opencode-ai") {
+	npmInstalled := npmGlobalInstalled(ctx, "opencode-ai")
+	if npmInstalled {
 		if pkgLogger != nil {
 			pkgLogger.Info("opencode found via npm global", "package", "opencode-ai", "command", "opencode")
 		}
 		return Tool{Name: "opencode", Command: "opencode", Source: "npm global package opencode-ai", Agentic: true}, true
+	} else if pkgLogger != nil {
+		pkgLogger.Info("opencode npm global package not detected", "package", "opencode-ai")
+	}
+
+	if pkgLogger != nil {
+		pkgLogger.Info("opencode detection complete", "found", false)
 	}
 
 	return Tool{}, false

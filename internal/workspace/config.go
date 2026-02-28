@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -90,7 +90,7 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 		m.logger.Info("loaded config", "path", configPath)
 	}
 
-	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.config, m.logger)
+	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.models, m.logger)
 	if repoCfg == nil || len(validQuickLaunch) == 0 {
 		m.workspaceConfigsMu.Lock()
 		delete(m.workspaceConfigs, w.ID)
@@ -116,7 +116,7 @@ func (m *Manager) GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig {
 	return copyCfg
 }
 
-func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, cfg *config.Config, logger *log.Logger) []contracts.QuickLaunch {
+func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, mm *models.Manager, logger *log.Logger) []contracts.QuickLaunch {
 	if repoCfg == nil {
 		return nil
 	}
@@ -126,7 +126,6 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 	}
 	valid := make([]contracts.QuickLaunch, 0, len(presets))
 	seen := make(map[string]bool)
-	detected := cfg.GetDetectedRunTargets()
 
 	for _, preset := range presets {
 		name := strings.TrimSpace(preset.Name)
@@ -160,7 +159,7 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 			continue
 		}
 
-		promptable, found := config.IsTargetPromptable(cfg, detected, target)
+		promptable, found := mm.IsModel(target)
 		if !found {
 			logger.Warn("quick_launch target not found", "config", configPath, "name", name, "target", target)
 			continue

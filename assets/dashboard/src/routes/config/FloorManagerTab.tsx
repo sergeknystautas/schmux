@@ -10,7 +10,6 @@ type FloorManagerTabProps = {
   fmDebounceMs: number;
   detectedTargets: RunTargetResponse[];
   models: Model[];
-  promptableTargets: RunTargetResponse[];
   dispatch: React.Dispatch<ConfigFormAction>;
 };
 
@@ -21,7 +20,6 @@ export default function FloorManagerTab({
   fmDebounceMs,
   detectedTargets,
   models,
-  promptableTargets,
   dispatch,
 }: FloorManagerTabProps) {
   const setField = (field: string, value: unknown) =>
@@ -75,7 +73,6 @@ export default function FloorManagerTab({
               onChange={(v) => setField('fmTarget', v)}
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
               includeDisabledOption={false}
               includeNoneOption="Select a target..."
             />

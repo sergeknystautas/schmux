@@ -34,7 +34,6 @@ type AdvancedTabProps = {
   stepErrors: Record<number, string | null>;
   detectedTargets: RunTargetResponse[];
   models: Model[];
-  promptableTargets: RunTargetResponse[];
   dispatch: React.Dispatch<ConfigFormAction>;
 };
 
@@ -69,7 +68,6 @@ export default function AdvancedTab({
   stepErrors,
   detectedTargets,
   models,
-  promptableTargets,
   dispatch,
 }: AdvancedTabProps) {
   const setField = (field: string, value: unknown) =>
@@ -124,7 +122,6 @@ export default function AdvancedTab({
               includeNoneOption="None (curator disabled)"
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Promptable target for curating lore entries into documentation proposals.
@@ -186,7 +183,6 @@ export default function AdvancedTab({
               includeNoneOption="None (disabled)"
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Promptable target for generating casual subreddit-style digests of recent commits.
@@ -229,7 +225,6 @@ export default function AdvancedTab({
               onChange={(v) => setField('nudgenikTarget', v)}
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Select a promptable target for NudgeNik session feedback, or leave disabled.
@@ -318,7 +313,6 @@ export default function AdvancedTab({
               includeNoneOption="None (capture only)"
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               When a target is selected, a diagnostic capture will automatically spawn an agent
@@ -365,7 +359,6 @@ export default function AdvancedTab({
               includeNoneOption="None (capture only)"
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               When a target is selected, a diagnostic capture will automatically spawn an agent
@@ -388,7 +381,6 @@ export default function AdvancedTab({
               onChange={(v) => setField('branchSuggestTarget', v)}
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Select a promptable target for branch name suggestion, or leave disabled.
@@ -414,7 +406,6 @@ export default function AdvancedTab({
               onChange={(v) => setField('conflictResolveTarget', v)}
               detectedTargets={detectedTargets}
               models={models}
-              promptableTargets={promptableTargets}
             />
             <p className="form-group__hint">
               Select a promptable target for merge conflict resolution. When &quot;sync from main

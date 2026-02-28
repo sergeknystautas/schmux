@@ -20,8 +20,6 @@ const models: Model[] = [
     runners: { claude: { available: true, configured: true } },
   },
 ];
-const promptableTargets: RunTargetResponse[] = [];
-
 const defaultProps = {
   loreEnabled: true,
   loreLLMTarget: '',
@@ -56,7 +54,6 @@ const defaultProps = {
   >,
   detectedTargets,
   models,
-  promptableTargets,
   dispatch,
 };
 

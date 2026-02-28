@@ -13,7 +13,6 @@ function makeSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
     workspacePath: '/home/test/workspaces',
     sourceCodeManagement: 'git-worktree',
     repos: [{ name: 'repo1', url: 'git@github.com:user/repo1.git' }],
-    promptableTargets: [],
     commandTargets: [],
     quickLaunch: [],
     externalDiffCommands: [],
@@ -144,52 +143,6 @@ describe('useConfigForm', () => {
       });
       expect(result.current.state.newRepoName).toBe('');
       expect(result.current.state.newRepoUrl).toBe('');
-    });
-  });
-
-  describe('promptable targets', () => {
-    it('ADD_PROMPTABLE_TARGET appends', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({
-          type: 'ADD_PROMPTABLE_TARGET',
-          target: { name: 'pt1', command: 'cmd', type: 'promptable', source: 'user' },
-        });
-      });
-      expect(result.current.state.promptableTargets).toHaveLength(1);
-    });
-
-    it('REMOVE_PROMPTABLE_TARGET removes by name', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({
-          type: 'ADD_PROMPTABLE_TARGET',
-          target: { name: 'pt1', command: 'cmd', type: 'promptable' },
-        });
-        result.current.dispatch({
-          type: 'ADD_PROMPTABLE_TARGET',
-          target: { name: 'pt2', command: 'cmd2', type: 'promptable' },
-        });
-      });
-      act(() => {
-        result.current.dispatch({ type: 'REMOVE_PROMPTABLE_TARGET', name: 'pt1' });
-      });
-      expect(result.current.state.promptableTargets).toHaveLength(1);
-      expect(result.current.state.promptableTargets[0].name).toBe('pt2');
-    });
-
-    it('UPDATE_PROMPTABLE_TARGET updates command', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({
-          type: 'ADD_PROMPTABLE_TARGET',
-          target: { name: 'pt1', command: 'old', type: 'promptable' },
-        });
-      });
-      act(() => {
-        result.current.dispatch({ type: 'UPDATE_PROMPTABLE_TARGET', name: 'pt1', command: 'new' });
-      });
-      expect(result.current.state.promptableTargets[0].command).toBe('new');
     });
   });
 
@@ -337,7 +290,7 @@ describe('useConfigForm', () => {
   });
 
   describe('derived values', () => {
-    it('promptableTargetNames includes detected, promptable, and configured models', () => {
+    it('modelTargetNames includes detected and configured models', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
@@ -345,9 +298,6 @@ describe('useConfigForm', () => {
           state: {
             detectedTargets: [
               { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-            ],
-            promptableTargets: [
-              { name: 'custom', command: 'custom', type: 'promptable', source: 'user' },
             ],
             models: [
               {
@@ -370,9 +320,8 @@ describe('useConfigForm', () => {
           },
         });
       });
-      const names = result.current.promptableTargetNames;
+      const names = result.current.modelTargetNames;
       expect(names.has('claude')).toBe(true);
-      expect(names.has('custom')).toBe(true);
       expect(names.has('gpt-4')).toBe(true);
       expect(names.has('unconfigured')).toBe(false);
     });
@@ -400,7 +349,6 @@ describe('useConfigForm', () => {
             prReviewTarget: 'nonexistent',
             commitMessageTarget: 'nonexistent',
             detectedTargets: [],
-            promptableTargets: [],
             models: [],
           },
         });
@@ -429,12 +377,80 @@ describe('useConfigForm', () => {
             detectedTargets: [
               { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
             ],
-            promptableTargets: [],
             models: [],
           },
         });
       });
       expect(result.current.nudgenikTargetMissing).toBe(false);
+    });
+  });
+
+  describe('enabledModels', () => {
+    it('TOGGLE_MODEL enables a model with default runner', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'TOGGLE_MODEL',
+          modelId: 'gpt-4o',
+          enabled: true,
+          defaultRunner: 'openai',
+        });
+      });
+      expect(result.current.state.enabledModels).toEqual({ 'gpt-4o': 'openai' });
+    });
+
+    it('TOGGLE_MODEL disables a model', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'TOGGLE_MODEL',
+          modelId: 'gpt-4o',
+          enabled: true,
+          defaultRunner: 'openai',
+        });
+      });
+      expect(result.current.state.enabledModels).toEqual({ 'gpt-4o': 'openai' });
+      act(() => {
+        result.current.dispatch({
+          type: 'TOGGLE_MODEL',
+          modelId: 'gpt-4o',
+          enabled: false,
+          defaultRunner: 'openai',
+        });
+      });
+      expect(result.current.state.enabledModels).toEqual({});
+    });
+
+    it('CHANGE_RUNNER updates runner for enabled model', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'TOGGLE_MODEL',
+          modelId: 'gpt-4o',
+          enabled: true,
+          defaultRunner: 'openai',
+        });
+      });
+      act(() => {
+        result.current.dispatch({
+          type: 'CHANGE_RUNNER',
+          modelId: 'gpt-4o',
+          runner: 'azure',
+        });
+      });
+      expect(result.current.state.enabledModels).toEqual({ 'gpt-4o': 'azure' });
+    });
+
+    it('CHANGE_RUNNER does nothing for non-enabled model', () => {
+      const { result } = renderHook(() => useConfigForm());
+      act(() => {
+        result.current.dispatch({
+          type: 'CHANGE_RUNNER',
+          modelId: 'gpt-4o',
+          runner: 'azure',
+        });
+      });
+      expect(result.current.state.enabledModels).toEqual({});
     });
   });
 
@@ -464,7 +480,6 @@ describe('useConfigForm', () => {
             workspacePath: snapshot.workspacePath,
             sourceCodeManagement: snapshot.sourceCodeManagement,
             repos: snapshot.repos,
-            promptableTargets: snapshot.promptableTargets,
             commandTargets: snapshot.commandTargets,
             quickLaunch: snapshot.quickLaunch,
             externalDiffCommands: snapshot.externalDiffCommands,
@@ -524,7 +539,6 @@ describe('useConfigForm', () => {
             workspacePath: snapshot.workspacePath,
             sourceCodeManagement: snapshot.sourceCodeManagement,
             repos: snapshot.repos,
-            promptableTargets: [],
             commandTargets: [],
             quickLaunch: [],
             externalDiffCommands: [],

@@ -287,11 +287,11 @@ These are mostly simple accessor functions with default-value logic (e.g., `GetP
 
 #### Run targets — partially covered
 
-| Function                  | Line | Coverage | Purpose                                      |
-| ------------------------- | ---- | -------- | -------------------------------------------- |
-| `IsTargetPromptable`      | 57   | 0%       | Determines if a target supports prompting    |
-| `splitRunTargets`         | 210  | 0%       | Parses compound target definitions           |
-| `MergeDetectedRunTargets` | 227  | 0%       | Merges auto-detected with configured targets |
+| Function                  | Line | Coverage | Purpose                                            |
+| ------------------------- | ---- | -------- | -------------------------------------------------- |
+| `IsModel`                 | 57   | 0%       | Determines if a target is a model or detected tool |
+| `splitRunTargets`         | 210  | 0%       | Parses compound target definitions                 |
+| `MergeDetectedRunTargets` | 227  | 0%       | Merges auto-detected with configured targets       |
 
 **Regression risk:** Run target resolution determines which agent binary is used for each session. A regression could cause sessions to spawn with the wrong binary or fail to detect installed agents.
 

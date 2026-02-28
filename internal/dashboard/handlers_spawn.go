@@ -228,9 +228,8 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 
 	// Calculate total sessions to spawn for global nickname numbering
 	totalToSpawn := 0
-	detected := s.config.GetDetectedRunTargets()
 	for targetName, count := range req.Targets {
-		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
+		promptable, found := s.models.IsModel(targetName)
 		if !found || (promptable && strings.TrimSpace(req.Prompt) == "") || (!promptable && strings.TrimSpace(req.Prompt) != "") {
 			continue
 		}
@@ -256,7 +255,7 @@ func (s *Server) handleSpawnPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for targetName, count := range req.Targets {
-		promptable, found := config.IsTargetPromptable(s.config, detected, targetName)
+		promptable, found := s.models.IsModel(targetName)
 		if !found {
 			results = append(results, SessionResult{
 				Target: targetName,
@@ -522,19 +521,18 @@ func (s *Server) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQu
 	if name == "" {
 		return nil, fmt.Errorf("quick_launch_name is required")
 	}
-	detected := s.config.GetDetectedRunTargets()
 	if wsCfg := s.workspace.GetWorkspaceConfig(workspaceID); wsCfg != nil {
-		if resolved := resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, detected, s.config, name); resolved != nil {
+		if resolved := s.resolveQuickLaunchFromPresets(wsCfg.QuickLaunch, name); resolved != nil {
 			return resolved, nil
 		}
 	}
-	if resolved := resolveQuickLaunchFromPresets(adaptQuickLaunch(s.config.GetQuickLaunch()), detected, s.config, name); resolved != nil {
+	if resolved := s.resolveQuickLaunchFromPresets(adaptQuickLaunch(s.config.GetQuickLaunch()), name); resolved != nil {
 		return resolved, nil
 	}
 	return nil, fmt.Errorf("quick launch not found: %s", name)
 }
 
-func resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, detected []config.RunTarget, cfg *config.Config, name string) *resolvedQuickLaunch {
+func (s *Server) resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, name string) *resolvedQuickLaunch {
 	for _, preset := range presets {
 		if preset.Name != name {
 			continue
@@ -545,7 +543,7 @@ func resolveQuickLaunchFromPresets(presets []contracts.QuickLaunch, detected []c
 		if strings.TrimSpace(preset.Target) == "" {
 			return nil
 		}
-		promptable, found := config.IsTargetPromptable(cfg, detected, preset.Target)
+		promptable, found := s.models.IsModel(preset.Target)
 		if !found {
 			return nil
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -169,7 +170,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	cfg.WorkspacePath = t.TempDir()
 	cfg.RunTargets = []config.RunTarget{
-		{Name: "promptable", Type: config.RunTargetTypePromptable, Command: "echo promptable", Source: config.RunTargetSourceUser},
+		{Name: "claude", Type: config.RunTargetTypePromptable, Command: "claude", Source: config.RunTargetSourceDetected},
 	}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("failed to save config: %v", err)
@@ -177,8 +178,11 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	mm := models.New(cfg)
+	wm.SetModelManager(mm)
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})
+	server.SetModelManager(mm)
 
 	ws := state.Workspace{
 		ID:     "ws-1",
@@ -189,7 +193,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(ws.Path, ".schmux"), 0755); err != nil {
 		t.Fatalf("failed to create workspace config dir: %v", err)
 	}
-	configContent := `{"quick_launch":[{"name":"Run","command":"echo run"},{"name":"Fix","target":"promptable","prompt":"do it"}]}`
+	configContent := `{"quick_launch":[{"name":"Run","command":"echo run"},{"name":"Fix","target":"claude","prompt":"do it"}]}`
 	if err := os.WriteFile(filepath.Join(ws.Path, ".schmux", "config.json"), []byte(configContent), 0644); err != nil {
 		t.Fatalf("failed to write config.json: %v", err)
 	}
@@ -210,7 +214,7 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected resolve to succeed: %v", err)
 	}
-	if resolved.Target != "promptable" || resolved.Prompt == "" {
+	if resolved.Target != "claude" || resolved.Prompt == "" {
 		t.Fatalf("expected promptable quick launch, got %+v", resolved)
 	}
 }

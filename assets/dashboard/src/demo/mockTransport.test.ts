@@ -30,7 +30,7 @@ describe('createDemoTransport', () => {
       expect(data.repos.length).toBeGreaterThan(0);
     });
 
-    it('returns config with promptable run targets for spawn page', async () => {
+    it('returns config with model/tool run targets for spawn page', async () => {
       const dt = createDemoTransport({
         workspaces: createDemoWorkspaces(),
         recordings: {},
@@ -38,7 +38,7 @@ describe('createDemoTransport', () => {
 
       const response = await dt.fetch('/api/config');
       const data = await response.json();
-      // SpawnPage filters run_targets for type === 'promptable'
+      // SpawnPage filters run_targets for type === 'promptable' (models and detected tools)
       const promptable = (data.run_targets || []).filter((t: any) => t.type === 'promptable');
       expect(promptable.length).toBeGreaterThan(0);
     });

@@ -34,6 +34,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/lore"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/remote"
@@ -498,6 +499,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
+	// Create model manager (single owner for catalog, resolution, enablement)
+	mm := models.New(cfg)
+
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
@@ -528,6 +532,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		DevMode:     devMode,
 		ShutdownCtx: d.shutdownCtx,
 	})
+
+	// Wire model manager into server, session manager, workspace manager, and oneshot
+	server.SetModelManager(mm)
+	sm.SetModelManager(mm)
+	wm.SetModelManager(mm)
+	oneshot.SetModelManager(mm)
 
 	// Create remote manager for remote workspace support
 	remoteManager := remote.NewManager(cfg, st, remoteLog)

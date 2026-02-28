@@ -513,6 +513,33 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Name: "convert_user_promptable_to_command",
+		Detect: func(_ map[string]json.RawMessage, cfg *Config) bool {
+			for _, t := range cfg.RunTargets {
+				source := t.Source
+				if source == "" {
+					source = RunTargetSourceUser
+				}
+				if source == RunTargetSourceUser && t.Type == RunTargetTypePromptable {
+					return true
+				}
+			}
+			return false
+		},
+		Apply: func(_ map[string]json.RawMessage, cfg *Config) error {
+			for i := range cfg.RunTargets {
+				source := cfg.RunTargets[i].Source
+				if source == "" {
+					source = RunTargetSourceUser
+				}
+				if source == RunTargetSourceUser && cfg.RunTargets[i].Type == RunTargetTypePromptable {
+					cfg.RunTargets[i].Type = RunTargetTypeCommand
+				}
+			}
+			return nil
+		},
+	},
 }
 
 // hasLegacyModelIDs returns true if any config field contains a legacy model ID.

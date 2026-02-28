@@ -61,7 +61,7 @@ const configFixture: ConfigResponse = {
   repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
   run_targets: [
     { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-    { name: 'my-agent', command: 'my-agent --prompt', type: 'promptable', source: 'user' },
+    { name: 'my-agent', command: 'my-agent --prompt', type: 'command', source: 'user' },
     { name: 'build', command: 'make build', type: 'command', source: 'user' },
   ],
   models: [],
@@ -186,7 +186,7 @@ describe('ConfigPage', () => {
     expect(payload.repos).toEqual([{ name: 'my-repo', url: 'https://github.com/user/repo.git' }]);
     expect(payload.run_targets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'my-agent', type: 'promptable' }),
+        expect.objectContaining({ name: 'my-agent', type: 'command' }),
         expect.objectContaining({ name: 'build', type: 'command' }),
       ])
     );
@@ -279,7 +279,7 @@ describe('ConfigPage', () => {
     // Click on the Sessions tab
     await userEvent.click(screen.getByTestId('config-tab-sessions'));
     await waitFor(() => {
-      expect(screen.getByText('Detected Run Targets (Read-only)')).toBeInTheDocument();
+      expect(screen.getByText('Command Targets')).toBeInTheDocument();
     });
   });
 
@@ -349,7 +349,7 @@ describe('ConfigPage', () => {
 
       // Step 2 content should now be visible
       await waitFor(() => {
-        expect(screen.getByText('Detected Run Targets (Read-only)')).toBeInTheDocument();
+        expect(screen.getByText('Command Targets')).toBeInTheDocument();
       });
     });
 
@@ -360,7 +360,7 @@ describe('ConfigPage', () => {
       // Advance to step 2
       await userEvent.click(screen.getByRole('button', { name: /Next/ }));
       await waitFor(() => {
-        expect(screen.getByText('Detected Run Targets (Read-only)')).toBeInTheDocument();
+        expect(screen.getByText('Command Targets')).toBeInTheDocument();
       });
 
       // Back button should be visible
@@ -439,7 +439,7 @@ describe('ConfigPage', () => {
 
       // Should still be on step 1
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-      expect(screen.queryByText('Detected Run Targets (Read-only)')).not.toBeInTheDocument();
+      expect(screen.queryByText('Command Targets')).not.toBeInTheDocument();
     });
 
     it('wizard step indicators allow clicking to navigate', async () => {
@@ -451,7 +451,7 @@ describe('ConfigPage', () => {
 
       // Should switch to step 2
       await waitFor(() => {
-        expect(screen.getByText('Detected Run Targets (Read-only)')).toBeInTheDocument();
+        expect(screen.getByText('Command Targets')).toBeInTheDocument();
       });
     });
   });
@@ -478,6 +478,6 @@ describe('ConfigPage', () => {
     });
 
     // Should NOT advance to step 2
-    expect(screen.queryByText('Detected Run Targets (Read-only)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Command Targets')).not.toBeInTheDocument();
   });
 });

@@ -104,6 +104,8 @@ Before the `/commit` command runs, ensure:
 
 The pre-commit hook automatically formats staged Go, TypeScript, JavaScript, CSS, Markdown, and JSON files. Running `./format.sh` auto-installs the hook if missing.
 
+**`./format.sh` exit code 2 is normal** — it means no staged files required changes. Treat exit codes 0 and 2 as success; only exit code 1 indicates a real formatting error.
+
 For faster iteration during development:
 
 - Run unit tests only: `./test.sh --quick` (or `go test ./...`)
@@ -148,6 +150,8 @@ For faster iteration during development:
 
 **Key entry point**: `cmd/schmux/main.go` parses CLI commands and delegates to `internal/daemon/`.
 
+**Known large files**: `internal/config/config.go`, `internal/config/config_test.go`, and `assets/dashboard/src/styles/global.css` all exceed the 25,000-token read limit. Do not attempt to read any of them in full — use `Grep` to search for specific symbols, or read targeted sections with `offset`/`limit` parameters.
+
 ## ⚠️ TypeScript Type Generation — Never Edit `.generated.ts` Files
 
 API types shared between Go and TypeScript are defined in `internal/api/contracts/` and auto-generated into `assets/dashboard/src/lib/types.generated.ts`.
@@ -174,6 +178,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 - Exported identifiers `CamelCase`, unexported `camelCase`
 - Errors as `err` variable
 - Tests: standard Go `testing` package with `TestXxx` naming; prefer table-driven tests
+- Always run `git` commands from the **repository root**, not from subdirectories like `assets/dashboard/`
 
 ## Web Dashboard Guidelines
 

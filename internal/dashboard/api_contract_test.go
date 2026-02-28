@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -30,7 +31,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
 	cfg.RunTargets = []config.RunTarget{
-		{Name: "promptable", Type: config.RunTargetTypePromptable, Command: "echo promptable", Source: config.RunTargetSourceUser},
+		{Name: "claude", Type: config.RunTargetTypePromptable, Command: "claude", Source: config.RunTargetSourceDetected},
 		{Name: "command", Type: config.RunTargetTypeCommand, Command: "echo command", Source: config.RunTargetSourceUser},
 	}
 	if err := cfg.Save(); err != nil {
@@ -44,6 +45,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
+	server.SetModelManager(models.New(cfg))
 	t.Cleanup(server.CloseForTest)
 	t.Cleanup(shutdownCancel)
 	return server, cfg, st

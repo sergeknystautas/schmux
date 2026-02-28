@@ -54,16 +54,25 @@ func TestValidateRunTargets_SourceValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid user source with non-builtin name",
+			name: "user source cannot be promptable",
 			targets: []RunTarget{
 				{Name: "my-agent", Type: RunTargetTypePromptable, Command: "echo hi", Source: RunTargetSourceUser},
 			},
-			wantErr: false,
+			wantErr:      true,
+			wantContains: "cannot be promptable",
 		},
 		{
-			name: "empty source defaults to user (valid)",
+			name: "empty source defaults to user - promptable rejected",
 			targets: []RunTarget{
 				{Name: "my-agent", Type: RunTargetTypePromptable, Command: "echo hi"},
+			},
+			wantErr:      true,
+			wantContains: "cannot be promptable",
+		},
+		{
+			name: "valid user source with command type",
+			targets: []RunTarget{
+				{Name: "my-agent", Type: RunTargetTypeCommand, Command: "echo hi", Source: RunTargetSourceUser},
 			},
 			wantErr: false,
 		},
@@ -209,7 +218,7 @@ func TestValidateRunTargetDependencies(t *testing.T) {
 		{
 			name: "nudgenik references nonexistent target",
 			targets: []RunTarget{
-				{Name: "agent", Type: RunTargetTypePromptable, Command: "echo"},
+				{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 			},
 			nudgenik:     &NudgenikConfig{Target: "missing"},
 			wantErr:      true,
@@ -227,7 +236,7 @@ func TestValidateRunTargetDependencies(t *testing.T) {
 		{
 			name: "compound references nonexistent target",
 			targets: []RunTarget{
-				{Name: "agent", Type: RunTargetTypePromptable, Command: "echo"},
+				{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 			},
 			compound:     &CompoundConfig{Target: "missing"},
 			wantErr:      true,
@@ -245,7 +254,7 @@ func TestValidateRunTargetDependencies(t *testing.T) {
 		{
 			name: "quick launch references nonexistent target in dependencies",
 			targets: []RunTarget{
-				{Name: "agent", Type: RunTargetTypePromptable, Command: "echo"},
+				{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 			},
 			quickLaunch: []QuickLaunch{
 				{Name: "preset", Target: "deleted-target", Prompt: &prompt},
@@ -256,24 +265,24 @@ func TestValidateRunTargetDependencies(t *testing.T) {
 		{
 			name: "all valid dependencies pass",
 			targets: []RunTarget{
-				{Name: "agent", Type: RunTargetTypePromptable, Command: "echo"},
+				{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 			},
 			quickLaunch: []QuickLaunch{
-				{Name: "preset", Target: "agent", Prompt: &prompt},
+				{Name: "preset", Target: "claude", Prompt: &prompt},
 			},
-			nudgenik: &NudgenikConfig{Target: "agent"},
-			compound: &CompoundConfig{Target: "agent"},
+			nudgenik: &NudgenikConfig{Target: "claude"},
+			compound: &CompoundConfig{Target: "claude"},
 			wantErr:  false,
 		},
 		{
 			name:    "nil nudgenik and compound pass",
-			targets: []RunTarget{{Name: "a", Type: RunTargetTypePromptable, Command: "c"}},
+			targets: []RunTarget{{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected}},
 			wantErr: false,
 		},
 		{
 			name: "empty nudgenik target passes",
 			targets: []RunTarget{
-				{Name: "agent", Type: RunTargetTypePromptable, Command: "echo"},
+				{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
 			},
 			nudgenik: &NudgenikConfig{Target: ""},
 			wantErr:  false,
