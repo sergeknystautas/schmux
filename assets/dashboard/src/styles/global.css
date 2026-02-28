@@ -885,7 +885,6 @@ body {
 
 .nav-sort-toggle {
   display: flex;
-  gap: 2px;
   margin-left: auto;
 }
 
@@ -895,10 +894,19 @@ body {
   color: var(--color-text-muted);
   font-size: 0.6rem;
   padding: 1px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   cursor: pointer;
   transition: all var(--duration-fast) var(--easing);
   line-height: 1.4;
+}
+
+.nav-sort-toggle__btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: none;
+}
+
+.nav-sort-toggle__btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .nav-sort-toggle__btn:hover {
