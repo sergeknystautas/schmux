@@ -25,7 +25,7 @@ import {
   WorkingSpinner,
   isRemoteClient,
 } from '../lib/utils';
-import { navigateToWorkspace } from '../lib/navigation';
+import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import {
@@ -263,8 +263,17 @@ export default function AppShell() {
   const previewMatch = location.pathname.match(/^\/preview\/([^\/]+)\/([^\/]+)$/);
   const resolveConflictMatch = location.pathname.match(/^\/resolve-conflict\/([^\/]+)$/);
   const gitMatch = location.pathname.match(/^\/git\/([^\/]+)$/);
+  const spawnWorkspaceId =
+    location.pathname === '/spawn'
+      ? new URLSearchParams(location.search).get('workspace_id')
+      : null;
   const activeWorkspaceId =
-    diffMatch?.[1] ?? previewMatch?.[1] ?? resolveConflictMatch?.[1] ?? gitMatch?.[1] ?? null;
+    diffMatch?.[1] ??
+    previewMatch?.[1] ??
+    resolveConflictMatch?.[1] ??
+    gitMatch?.[1] ??
+    spawnWorkspaceId ??
+    null;
 
   // Check if we're on a session detail page and get workspace info
   const sessionMatch = location.pathname.match(/^\/sessions\/([^\/]+)$/);
@@ -427,8 +436,11 @@ export default function AppShell() {
             : -1;
           if (currentIndex <= 0) return; // Already at first or not in a workspace
 
+          const targetIndex = findNextWorkspaceWithSessions(frozen, currentIndex, -1);
+          if (targetIndex === -1) return;
+
           e.preventDefault();
-          navigateToWorkspace(navigate, frozen, frozen[currentIndex - 1].id);
+          navigateToWorkspace(navigate, frozen, frozen[targetIndex].id);
           return;
         }
 
@@ -437,17 +449,21 @@ export default function AppShell() {
           ? frozen.findIndex((ws) => ws.id === context.workspaceId)
           : -1;
 
-        // If not in any workspace, go to first workspace
+        // If not in any workspace, find first workspace with sessions
         if (currentIndex === -1) {
+          const targetIndex = findNextWorkspaceWithSessions(frozen, -1, 1);
+          if (targetIndex === -1) return;
+
           e.preventDefault();
-          navigateToWorkspace(navigate, frozen, frozen[0].id);
+          navigateToWorkspace(navigate, frozen, frozen[targetIndex].id);
           return;
         }
 
-        if (currentIndex >= frozen.length - 1) return; // Already at last
+        const targetIndex = findNextWorkspaceWithSessions(frozen, currentIndex, 1);
+        if (targetIndex === -1) return;
 
         e.preventDefault();
-        navigateToWorkspace(navigate, frozen, frozen[currentIndex + 1].id);
+        navigateToWorkspace(navigate, frozen, frozen[targetIndex].id);
         return;
       }
     };
