@@ -3,6 +3,7 @@ package dashboard
 import (
 	"testing"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 )
 
@@ -67,6 +68,86 @@ func TestValidateModelSecrets(t *testing.T) {
 			err := validateModelSecrets(tt.model, tt.secrets)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateModelSecrets() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        *config.Config
+		targetName string
+		want       bool
+	}{
+		{
+			name:       "nil config",
+			cfg:        nil,
+			targetName: "claude-sonnet",
+			want:       false,
+		},
+		{
+			name:       "empty target name",
+			cfg:        &config.Config{},
+			targetName: "",
+			want:       false,
+		},
+		{
+			name:       "target not in use",
+			cfg:        &config.Config{},
+			targetName: "claude-sonnet",
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := targetInUseByNudgenikOrQuickLaunch(tt.cfg, tt.targetName)
+			if got != tt.want {
+				t.Errorf("targetInUseByNudgenikOrQuickLaunch() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildTLS(t *testing.T) {
+	t.Run("nil when no TLS configured", func(t *testing.T) {
+		cfg := &config.Config{}
+		result := buildTLS(cfg)
+		if result != nil {
+			t.Errorf("expected nil TLS, got %+v", result)
+		}
+	})
+}
+
+func TestValidPersonaIDRegex(t *testing.T) {
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"a", true},
+		{"abc", true},
+		{"my-persona", true},
+		{"test-123", true},
+		{"a1", true},
+		{"1a", true},
+		{"0", true},
+		{"", false},
+		{"-invalid", false},
+		{"invalid-", false},
+		{"UPPERCASE", false},
+		{"has space", false},
+		{"has.dot", false},
+		{"has_underscore", false},
+		{"../traversal", false},
+		{"create", true}, // regex allows it; handler rejects it separately
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			got := validPersonaID.MatchString(tt.id)
+			if got != tt.want {
+				t.Errorf("validPersonaID.MatchString(%q) = %v, want %v", tt.id, got, tt.want)
 			}
 		})
 	}
