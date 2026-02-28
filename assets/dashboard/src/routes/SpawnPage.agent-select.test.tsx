@@ -57,7 +57,11 @@ const configFixture: ConfigResponse = {
   commit_message: { target: '' },
   desync: { enabled: false, target: '' },
   io_workspace_telemetry: { enabled: false, target: '' },
-  notifications: { sound_disabled: false, confirm_before_close: false },
+  notifications: {
+    sound_disabled: false,
+    confirm_before_close: false,
+    suggest_dispose_after_push: true,
+  },
   lore: { enabled: true, llm_target: '', curate_on_dispose: 'session', auto_pr: false },
   subreddit: { target: '', hours: 24 },
   floor_manager: { enabled: false, target: '', rotation_threshold: 150, debounce_ms: 2000 },

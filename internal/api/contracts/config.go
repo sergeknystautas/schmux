@@ -170,8 +170,9 @@ type CommitMessage struct {
 
 // Notifications represents dashboard notification settings.
 type Notifications struct {
-	SoundDisabled      bool `json:"sound_disabled"`
-	ConfirmBeforeClose bool `json:"confirm_before_close"`
+	SoundDisabled           bool `json:"sound_disabled"`
+	ConfirmBeforeClose      bool `json:"confirm_before_close"`
+	SuggestDisposeAfterPush bool `json:"suggest_dispose_after_push"`
 }
 
 // NudgenikUpdate represents partial nudgenik updates.
@@ -287,8 +288,9 @@ type CommitMessageUpdate struct {
 
 // NotificationsUpdate represents partial notifications config updates.
 type NotificationsUpdate struct {
-	SoundDisabled      *bool `json:"sound_disabled,omitempty"`
-	ConfirmBeforeClose *bool `json:"confirm_before_close,omitempty"`
+	SoundDisabled           *bool `json:"sound_disabled,omitempty"`
+	ConfirmBeforeClose      *bool `json:"confirm_before_close,omitempty"`
+	SuggestDisposeAfterPush *bool `json:"suggest_dispose_after_push,omitempty"`
 }
 
 // Lore represents lore system configuration in the API response.

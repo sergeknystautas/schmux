@@ -47,6 +47,7 @@ export type ConfigSnapshot = {
   authTlsKeyPath: string;
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
+  suggestDisposeAfterPush: boolean;
   modelVersions: Record<string, string>;
   loreEnabled: boolean;
   loreLLMTarget: string;
@@ -156,6 +157,7 @@ export type ConfigFormState = {
   apiNeedsRestart: boolean;
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
+  suggestDisposeAfterPush: boolean;
   modelVersions: Record<string, string>;
 
   // Lore
@@ -305,6 +307,7 @@ export const initialState: ConfigFormState = {
   apiNeedsRestart: false,
   soundDisabled: false,
   confirmBeforeClose: false,
+  suggestDisposeAfterPush: true,
   modelVersions: {},
 
   loreEnabled: true,
@@ -555,6 +558,7 @@ export function useConfigForm(initialStep: number = 1) {
         state.authTlsKeyPath !== oc.authTlsKeyPath ||
         state.soundDisabled !== oc.soundDisabled ||
         state.confirmBeforeClose !== oc.confirmBeforeClose ||
+        state.suggestDisposeAfterPush !== oc.suggestDisposeAfterPush ||
         JSON.stringify(state.modelVersions) !== JSON.stringify(oc.modelVersions) ||
         state.loreEnabled !== oc.loreEnabled ||
         state.loreLLMTarget !== oc.loreLLMTarget ||
@@ -659,6 +663,7 @@ export function useConfigForm(initialStep: number = 1) {
       authTlsKeyPath: state.authTlsKeyPath,
       soundDisabled: state.soundDisabled,
       confirmBeforeClose: state.confirmBeforeClose,
+      suggestDisposeAfterPush: state.suggestDisposeAfterPush,
       modelVersions: state.modelVersions,
       loreEnabled: state.loreEnabled,
       loreLLMTarget: state.loreLLMTarget,

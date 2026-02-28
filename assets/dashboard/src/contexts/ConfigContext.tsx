@@ -68,6 +68,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   notifications: {
     sound_disabled: false,
     confirm_before_close: false,
+    suggest_dispose_after_push: true,
   },
   lore: {
     enabled: true,

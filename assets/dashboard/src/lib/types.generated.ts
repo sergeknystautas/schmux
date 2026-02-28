@@ -240,11 +240,13 @@ export interface NetworkUpdate {
 export interface Notifications {
   sound_disabled: boolean;
   confirm_before_close: boolean;
+  suggest_dispose_after_push: boolean;
 }
 
 export interface NotificationsUpdate {
   sound_disabled?: boolean;
   confirm_before_close?: boolean;
+  suggest_dispose_after_push?: boolean;
 }
 
 export interface Nudgenik {
@@ -429,3 +431,4 @@ export interface XtermUpdate {
   query_timeout_ms?: number;
   operation_timeout_ms?: number;
 }
+
