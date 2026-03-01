@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidateSecrets(t *testing.T) {
-	mm := New(&config.Config{})
+	mm := New(&config.Config{}, nil)
 
 	tests := []struct {
 		name    string
@@ -104,7 +104,7 @@ func TestIsTargetInUse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := New(tt.cfg)
+			mm := New(tt.cfg, nil)
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)

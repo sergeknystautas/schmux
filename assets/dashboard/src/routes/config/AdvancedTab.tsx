@@ -1,7 +1,7 @@
 import React from 'react';
 import TargetSelect from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model } from '../../lib/types';
 
 type AdvancedTabProps = {
   loreEnabled: boolean;
@@ -32,7 +32,6 @@ type AdvancedTabProps = {
   branchSuggestTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
   stepErrors: Record<number, string | null>;
-  detectedTargets: RunTargetResponse[];
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
 };
@@ -66,7 +65,6 @@ export default function AdvancedTab({
   branchSuggestTargetMissing,
   conflictResolveTargetMissing,
   stepErrors,
-  detectedTargets,
   models,
   dispatch,
 }: AdvancedTabProps) {
@@ -120,7 +118,6 @@ export default function AdvancedTab({
               disabled={!loreEnabled}
               includeDisabledOption={false}
               includeNoneOption="None (curator disabled)"
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
@@ -181,7 +178,6 @@ export default function AdvancedTab({
               onChange={(v) => setField('subredditTarget', v)}
               includeDisabledOption={false}
               includeNoneOption="None (disabled)"
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
@@ -223,16 +219,13 @@ export default function AdvancedTab({
             <TargetSelect
               value={nudgenikTarget}
               onChange={(v) => setField('nudgenikTarget', v)}
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
-              Select a promptable target for NudgeNik session feedback, or leave disabled.
+              Select a model for NudgeNik session feedback, or leave disabled.
             </p>
             {nudgenikTargetMissing && (
-              <p className="form-group__error">
-                Selected target is not available or not promptable.
-              </p>
+              <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>
 
@@ -311,7 +304,6 @@ export default function AdvancedTab({
               disabled={!desyncEnabled}
               includeDisabledOption={false}
               includeNoneOption="None (capture only)"
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
@@ -357,7 +349,6 @@ export default function AdvancedTab({
               disabled={!ioWorkspaceTelemetryEnabled}
               includeDisabledOption={false}
               includeNoneOption="None (capture only)"
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
@@ -379,16 +370,13 @@ export default function AdvancedTab({
             <TargetSelect
               value={branchSuggestTarget}
               onChange={(v) => setField('branchSuggestTarget', v)}
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
-              Select a promptable target for branch name suggestion, or leave disabled.
+              Select a model for branch name suggestion, or leave disabled.
             </p>
             {branchSuggestTargetMissing && (
-              <p className="form-group__error">
-                Selected target is not available or not promptable.
-              </p>
+              <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>
         </div>
@@ -404,17 +392,14 @@ export default function AdvancedTab({
             <TargetSelect
               value={conflictResolveTarget}
               onChange={(v) => setField('conflictResolveTarget', v)}
-              detectedTargets={detectedTargets}
               models={models}
             />
             <p className="form-group__hint">
-              Select a promptable target for merge conflict resolution. When &quot;sync from main
-              conflict&quot; encounters a conflict, this target will be spawned to resolve it.
+              Select a model for merge conflict resolution. When &quot;sync from main conflict&quot;
+              encounters a conflict, this target will be spawned to resolve it.
             </p>
             {conflictResolveTargetMissing && (
-              <p className="form-group__error">
-                Selected target is not available or not promptable.
-              </p>
+              <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>
         </div>

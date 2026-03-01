@@ -26,7 +26,6 @@ test.describe.serial('Git stage and discard operations', () => {
           name: 'file-modifier',
           command:
             "sh -c 'echo new-line >> README.md && echo new-file-content > extra.txt; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -35,7 +34,6 @@ test.describe.serial('Git stage and discard operations', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'git-ops-branch',
-      prompt: 'test',
       targets: { 'file-modifier': 1 },
     });
     workspaceId = results[0].workspace_id;
@@ -113,7 +111,6 @@ test.describe.serial('Git discard all changes', () => {
         {
           name: 'modifier',
           command: "sh -c 'echo change >> README.md && echo newfile > added.txt; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -121,7 +118,6 @@ test.describe.serial('Git discard all changes', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'discard-all-branch',
-      prompt: 'test',
       targets: { modifier: 1 },
     });
     workspaceId = results[0].workspace_id;
@@ -174,15 +170,13 @@ test.describe.serial('Git operations — path validation', () => {
         {
           name: 'idle-agent',
           command: "sh -c 'sleep 600'",
-          promptable: true,
         },
       ],
     });
 
     const results = await spawnSession({
       repo: repoPath,
-      branch: 'main',
-      prompt: 'test',
+      branch: 'validate-branch',
       targets: { 'idle-agent': 1 },
     });
     workspaceId = results[0].workspace_id;

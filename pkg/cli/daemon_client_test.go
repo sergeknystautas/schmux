@@ -132,7 +132,7 @@ func TestClient_GetConfig(t *testing.T) {
 			{Name: "test", URL: "git@github.com:test/test.git"},
 		},
 		RunTargets: []RunTarget{
-			{Name: "glm-4.7", Type: "promptable", Command: "~/bin/glm-4.7"},
+			{Name: "build", Command: "go build ./..."},
 		},
 	}
 

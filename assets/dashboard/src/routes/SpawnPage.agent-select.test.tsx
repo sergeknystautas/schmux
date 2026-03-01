@@ -10,11 +10,7 @@ const configFixture: ConfigResponse = {
   workspace_path: '/home/user/ws',
   source_code_management: 'git-worktree',
   repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
-  run_targets: [
-    { name: 'claude', command: 'claude', type: 'promptable', source: 'model' },
-    { name: 'codex', command: 'codex', type: 'promptable', source: 'model' },
-    { name: 'build', command: 'make build', type: 'command', source: 'user' },
-  ],
+  run_targets: [{ name: 'build', command: 'make build' }],
   models: [
     {
       id: 'claude',

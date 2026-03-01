@@ -169,16 +169,14 @@ func TestHandleAskNudgenik(t *testing.T) {
 func TestResolveQuickLaunchByName(t *testing.T) {
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	cfg.WorkspacePath = t.TempDir()
-	cfg.RunTargets = []config.RunTarget{
-		{Name: "claude", Type: config.RunTargetTypePromptable, Command: "claude", Source: config.RunTargetSourceDetected},
-	}
+	cfg.RunTargets = []config.RunTarget{}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("failed to save config: %v", err)
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	mm := models.New(cfg)
+	mm := models.New(cfg, nil)
 	wm.SetModelManager(mm)
 	sm := session.New(cfg, st, statePath, wm, log.NewWithOptions(io.Discard, log.Options{}))
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{})

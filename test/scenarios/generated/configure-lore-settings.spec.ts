@@ -22,7 +22,6 @@ test.describe.serial('Configure lore settings', () => {
         {
           name: agentName,
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -74,7 +73,7 @@ test.describe.serial('Configure lore settings', () => {
     await expect(curateSelect.locator('option', { hasText: 'Never' })).toHaveCount(1);
   });
 
-  test('configure LLM target and save', async ({ page }) => {
+  test('configure curate-on-dispose and save', async ({ page }) => {
     await page.goto('/config');
     await waitForDashboardLive(page);
 
@@ -82,13 +81,13 @@ test.describe.serial('Configure lore settings', () => {
     const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTab.click();
 
-    // Select the echo-agent as LLM target
-    const targetSelect = page
+    // Change curate-on-dispose to "workspace" (last session per workspace)
+    const curateSelect = page
       .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
+        has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
       })
       .locator('select');
-    await targetSelect.selectOption(agentName);
+    await curateSelect.selectOption('workspace');
 
     // Save
     const saveButton = page.locator('[data-testid="config-save"]');

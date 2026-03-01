@@ -617,20 +617,13 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 		}, nil
 	}
 
-	// Check regular run targets
+	// Check regular run targets (command targets only)
 	if target, found := cfg.GetRunTarget(targetName); found {
-		kind := targetKindUser
-		toolName := ""
-		if target.Source == config.RunTargetSourceDetected {
-			kind = targetKindDetected
-			toolName = target.Name
-		}
 		return resolvedTarget{
 			Name:       target.Name,
-			Kind:       kind,
-			ToolName:   toolName,
+			Kind:       targetKindUser,
 			Command:    target.Command,
-			Promptable: target.Type == config.RunTargetTypePromptable,
+			Promptable: false,
 			Env:        nil,
 			Model:      nil,
 		}, nil

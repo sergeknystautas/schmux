@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -25,7 +24,7 @@ func TestLoad(t *testing.T) {
 			{Name: "myproject", URL: "git@github.com:user/myproject.git"},
 		},
 		RunTargets: []RunTarget{
-			{Name: "test-agent", Type: RunTargetTypePromptable, Command: "echo test"},
+			{Name: "test-agent", Command: "echo test"},
 		},
 	}
 
@@ -90,8 +89,8 @@ func TestGetRepos(t *testing.T) {
 
 func TestGetRunTargets(t *testing.T) {
 	targets := []RunTarget{
-		{Name: "glm-4.7", Type: RunTargetTypePromptable, Command: "~/bin/glm-4.7"},
-		{Name: "zsh", Type: RunTargetTypeCommand, Command: "zsh"},
+		{Name: "build", Command: "go build ./..."},
+		{Name: "zsh", Command: "zsh"},
 	}
 	cfg := &Config{RunTargets: targets}
 
@@ -1926,7 +1925,7 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "empty run target name",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "", Type: RunTargetTypeCommand, Command: "echo hi"},
+					{Name: "", Command: "echo hi"},
 				},
 			},
 			wantContains: "name is required",
@@ -1935,37 +1934,25 @@ func TestValidate_NegativeCases(t *testing.T) {
 			name: "missing command",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "my-agent", Type: RunTargetTypeCommand, Command: ""},
+					{Name: "my-agent", Command: ""},
 				},
 			},
 			wantContains: "command is required",
 		},
 		{
-			name: "invalid type",
-			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "my-agent", Type: "bogus", Command: "echo hi"},
-				},
-			},
-			wantContains: "invalid type",
-		},
-		{
 			name: "duplicate target names",
 			cfg: &Config{
 				RunTargets: []RunTarget{
-					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo a"},
-					{Name: "agent", Type: RunTargetTypeCommand, Command: "echo b"},
+					{Name: "agent", Command: "echo a"},
+					{Name: "agent", Command: "echo b"},
 				},
 			},
 			wantContains: "duplicate run target name",
 		},
-		// validateQuickLaunch errors
+		// validateQuickLaunch errors (use "claude" as builtin tool target)
 		{
 			name: "empty quick launch name",
 			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-				},
 				QuickLaunch: []QuickLaunch{
 					{Name: "", Target: "claude", Prompt: &prompt},
 				},
@@ -1975,9 +1962,6 @@ func TestValidate_NegativeCases(t *testing.T) {
 		{
 			name: "duplicate quick launch names",
 			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-				},
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "claude", Prompt: &prompt},
 					{Name: "preset", Target: "claude", Prompt: &prompt},
@@ -1988,38 +1972,11 @@ func TestValidate_NegativeCases(t *testing.T) {
 		{
 			name: "empty target in quick launch",
 			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-				},
 				QuickLaunch: []QuickLaunch{
 					{Name: "preset", Target: "", Prompt: &prompt},
 				},
 			},
 			wantContains: "target is required",
-		},
-		{
-			name: "target not found in quick launch",
-			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-				},
-				QuickLaunch: []QuickLaunch{
-					{Name: "preset", Target: "nonexistent", Prompt: &prompt},
-				},
-			},
-			wantContains: "target not found",
-		},
-		{
-			name: "promptable target without prompt in quick launch",
-			cfg: &Config{
-				RunTargets: []RunTarget{
-					{Name: "claude", Type: RunTargetTypePromptable, Command: "claude", Source: RunTargetSourceDetected},
-				},
-				QuickLaunch: []QuickLaunch{
-					{Name: "preset", Target: "claude"},
-				},
-			},
-			wantContains: "requires prompt",
 		},
 	}
 
@@ -2246,19 +2203,19 @@ func TestGetRunTarget(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
 		RunTargets: []RunTarget{
-			{Name: "claude", Type: RunTargetTypePromptable, Command: "claude"},
-			{Name: "codex", Type: RunTargetTypePromptable, Command: "codex"},
-			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash run.sh"},
+			{Name: "build", Command: "go build"},
+			{Name: "lint", Command: "golangci-lint run"},
+			{Name: "my-script", Command: "bash run.sh"},
 		},
 	}
 
 	t.Run("finds target by name", func(t *testing.T) {
-		target, found := cfg.GetRunTarget("claude")
+		target, found := cfg.GetRunTarget("build")
 		if !found {
 			t.Fatal("expected to find target")
 		}
-		if target.Command != "claude" {
-			t.Errorf("Command = %q, want 'claude'", target.Command)
+		if target.Command != "go build" {
+			t.Errorf("Command = %q, want 'go build'", target.Command)
 		}
 	})
 
@@ -2268,49 +2225,6 @@ func TestGetRunTarget(t *testing.T) {
 			t.Error("expected found=false")
 		}
 	})
-}
-
-func TestGetDetectedRunTarget(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{
-		RunTargets: []RunTarget{
-			{Name: "claude", Source: RunTargetSourceDetected, Command: "claude"},
-			{Name: "my-script", Source: "", Command: "bash run.sh"},
-		},
-	}
-
-	t.Run("finds detected target", func(t *testing.T) {
-		target, found := cfg.GetDetectedRunTarget("claude")
-		if !found {
-			t.Fatal("expected to find detected target")
-		}
-		if target.Command != "claude" {
-			t.Errorf("Command = %q, want 'claude'", target.Command)
-		}
-	})
-
-	t.Run("skips non-detected target", func(t *testing.T) {
-		_, found := cfg.GetDetectedRunTarget("my-script")
-		if found {
-			t.Error("expected found=false for non-detected target")
-		}
-	})
-}
-
-func TestGetDetectedRunTargets(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{
-		RunTargets: []RunTarget{
-			{Name: "claude", Source: RunTargetSourceDetected, Command: "claude"},
-			{Name: "codex", Source: RunTargetSourceDetected, Command: "codex"},
-			{Name: "my-script", Source: "", Command: "bash"},
-		},
-	}
-
-	targets := cfg.GetDetectedRunTargets()
-	if len(targets) != 2 {
-		t.Fatalf("expected 2 detected targets, got %d", len(targets))
-	}
 }
 
 func TestGetBindAddress(t *testing.T) {
@@ -2533,80 +2447,6 @@ func TestGetConfirmBeforeClose(t *testing.T) {
 	})
 }
 
-func TestDetectedToolsFromConfig(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{
-		RunTargets: []RunTarget{
-			{Name: "claude", Source: RunTargetSourceDetected, Command: "/usr/bin/claude"},
-			{Name: "codex", Source: RunTargetSourceDetected, Command: "/usr/bin/codex"},
-			{Name: "my-script", Source: "", Command: "bash run.sh"}, // user target, not detected
-		},
-	}
-
-	tools := DetectedToolsFromConfig(cfg)
-	if len(tools) != 2 {
-		t.Fatalf("expected 2 detected tools, got %d", len(tools))
-	}
-	if tools[0].Name != "claude" || tools[0].Command != "/usr/bin/claude" {
-		t.Errorf("tools[0] = %+v, want Name='claude' Command='/usr/bin/claude'", tools[0])
-	}
-	if tools[1].Name != "codex" || tools[1].Command != "/usr/bin/codex" {
-		t.Errorf("tools[1] = %+v, want Name='codex' Command='/usr/bin/codex'", tools[1])
-	}
-}
-
-func TestMergeDetectedRunTargets(t *testing.T) {
-	t.Parallel()
-	t.Run("preserves user targets and adds detected", func(t *testing.T) {
-		existing := []RunTarget{
-			{Name: "my-script", Type: RunTargetTypeCommand, Command: "bash run.sh", Source: ""},
-			{Name: "old-detected", Type: RunTargetTypePromptable, Command: "old", Source: RunTargetSourceDetected},
-		}
-		detected := []detect.Tool{
-			{Name: "claude", Command: "/usr/bin/claude"},
-			{Name: "codex", Command: "/usr/bin/codex"},
-		}
-
-		merged := MergeDetectedRunTargets(existing, detected)
-
-		// Should have: user target + 2 detected (old detected target is dropped)
-		if len(merged) != 3 {
-			t.Fatalf("expected 3 merged targets, got %d", len(merged))
-		}
-
-		// First should be the user target
-		if merged[0].Name != "my-script" || merged[0].Source != "" {
-			t.Errorf("merged[0] should be user target, got %+v", merged[0])
-		}
-
-		// Detected targets should have correct Source
-		if merged[1].Source != RunTargetSourceDetected {
-			t.Errorf("merged[1].Source = %q, want 'detected'", merged[1].Source)
-		}
-		if merged[2].Source != RunTargetSourceDetected {
-			t.Errorf("merged[2].Source = %q, want 'detected'", merged[2].Source)
-		}
-	})
-
-	t.Run("empty existing returns only detected", func(t *testing.T) {
-		detected := []detect.Tool{{Name: "claude", Command: "claude"}}
-		merged := MergeDetectedRunTargets(nil, detected)
-		if len(merged) != 1 {
-			t.Fatalf("expected 1, got %d", len(merged))
-		}
-	})
-
-	t.Run("empty detected returns only user targets", func(t *testing.T) {
-		existing := []RunTarget{
-			{Name: "script", Command: "bash", Source: ""},
-		}
-		merged := MergeDetectedRunTargets(existing, nil)
-		if len(merged) != 1 {
-			t.Fatalf("expected 1, got %d", len(merged))
-		}
-	})
-}
-
 func TestTimeoutDurationConverters(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
@@ -2817,7 +2657,7 @@ func TestMigrateModelIDs_ViaLoad(t *testing.T) {
 	configJSON := `{
 		"workspace_path": "` + tmpDir + `",
 		"repos": [{"name": "test", "url": "git@github.com:test/test.git"}],
-		"run_targets": [{"name": "my-agent", "type": "promptable", "command": "echo test"}],
+		"run_targets": [{"name": "my-agent", "command": "echo test"}],
 		"nudgenik": {"target": "claude-sonnet"},
 		"quick_launch": [{"name": "test", "target": "claude-opus", "prompt": "do stuff"}],
 		"models": {"enabled": {"minimax": "opencode"}}

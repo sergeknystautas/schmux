@@ -484,23 +484,17 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// Ensure all workspaces have the necessary schmux configuration
 	wm.EnsureAll()
 
-	// Detect run targets once on daemon start and persist to config
+	// Detect available tools for model catalog
 	detectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	detectedTargets, err := detect.DetectAvailableToolsContext(detectCtx, false)
 	cancel()
 	if err != nil {
-		configLog.Warn("failed to detect run targets", "err", err)
-	} else {
-		cfg.RunTargets = config.MergeDetectedRunTargets(cfg.RunTargets, detectedTargets)
-		if err := cfg.Validate(); err != nil {
-			configLog.Warn("failed to validate config after detection", "err", err)
-		} else if err := cfg.Save(); err != nil {
-			configLog.Warn("failed to save config after detection", "err", err)
-		}
+		configLog.Warn("failed to detect tools", "err", err)
+		detectedTargets = nil
 	}
 
 	// Create model manager (single owner for catalog, resolution, enablement)
-	mm := models.New(cfg)
+	mm := models.New(cfg, detectedTargets)
 
 	// Ensure workspace directory exists
 	if err := wm.EnsureWorkspaceDir(); err != nil {

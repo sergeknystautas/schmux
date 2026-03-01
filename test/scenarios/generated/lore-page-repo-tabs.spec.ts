@@ -23,7 +23,6 @@ test.describe.serial('Lore page with repo tabs', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });

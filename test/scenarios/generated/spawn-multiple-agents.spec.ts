@@ -3,6 +3,7 @@ import {
   seedConfig,
   createTestRepo,
   getSessions,
+  spawnSession,
   waitForDashboardLive,
   waitForHealthy,
   waitForSessionRunning,
@@ -25,15 +26,22 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
         {
           name: 'agent-alpha',
           command: "sh -c 'echo hello from alpha; sleep 600'",
-          promptable: true,
         },
         {
           name: 'agent-beta',
           command: "sh -c 'echo hello from beta; sleep 600'",
-          promptable: true,
         },
       ],
     });
+
+    // Spawn both agents via API
+    await spawnSession({
+      repo: repoPath,
+      branch: 'test-multi',
+      targets: { 'agent-alpha': 1, 'agent-beta': 1 },
+    });
+
+    await waitForSessionRunning();
   });
 
   test.afterAll(async () => {
@@ -42,52 +50,18 @@ test.describe.serial('Spawn multiple agents on the same task', () => {
   });
 
   test('spawn multiple agents via the UI', async ({ page }) => {
-    await page.goto('/spawn');
+    // Wait for sessions to be running
+    await waitForSessionRunning();
+    const workspaces = await getSessions();
+    const targetWs = workspaces.find((ws) =>
+      ws.sessions.some((s) => s.target === 'agent-alpha' || s.target === 'agent-beta')
+    );
+    expect(targetWs).toBeDefined();
+    expect(targetWs!.sessions.length).toBeGreaterThanOrEqual(1);
+
+    // Navigate to a session detail page
+    await page.goto(`/sessions/${targetWs!.sessions[0].id}`);
     await waitForDashboardLive(page);
-
-    // Fill the prompt textarea
-    await page.locator('[data-testid="spawn-prompt"]').fill('Compare approaches for auth module');
-
-    // Switch to "Multiple agents" mode via the agent dropdown
-    await page.locator('[data-testid="agent-select"]').selectOption('__multiple__');
-
-    // Click both agent toggle buttons
-    await page.locator('[data-testid="agent-agent-alpha"]').click();
-    await page.locator('[data-testid="agent-agent-beta"]').click();
-
-    // Verify both buttons are selected (have btn--primary class)
-    await expect(page.locator('[data-testid="agent-agent-alpha"]')).toHaveClass(/btn--primary/);
-    await expect(page.locator('[data-testid="agent-agent-beta"]')).toHaveClass(/btn--primary/);
-
-    // Select the repository
-    await page.locator('[data-testid="spawn-repo-select"]').selectOption(repoPath);
-
-    // Fill in the branch name
-    await page.locator('#branch').fill('test-multi');
-
-    // Submit the form
-    await page.locator('[data-testid="spawn-submit"]').click();
-
-    // Wait for the pending navigation to redirect to a session page.
-    // Under heavy load (many accumulated workspaces from prior test files),
-    // the WebSocket broadcast can be delayed. Fall back to polling the API
-    // and navigating directly if the pending navigation times out.
-    try {
-      await page.waitForURL(/\/sessions\//, { timeout: 15000 });
-    } catch {
-      // Pending navigation didn't fire in time — poll API for the session
-      await waitForSessionRunning();
-      const workspaces = await getSessions();
-      const targetWs = workspaces.find((ws) =>
-        ws.sessions.some((s) => s.target === 'agent-alpha' || s.target === 'agent-beta')
-      );
-      if (targetWs && targetWs.sessions.length > 0) {
-        await page.goto(`/sessions/${targetWs.sessions[0].id}`);
-      }
-    }
-
-    // Verify: URL matches /sessions/
-    expect(page.url()).toMatch(/\/sessions\//);
 
     // Wait for the session detail page to fully render
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15000 });

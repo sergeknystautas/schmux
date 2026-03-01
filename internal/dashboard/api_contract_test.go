@@ -31,8 +31,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
 	cfg.RunTargets = []config.RunTarget{
-		{Name: "claude", Type: config.RunTargetTypePromptable, Command: "claude", Source: config.RunTargetSourceDetected},
-		{Name: "command", Type: config.RunTargetTypeCommand, Command: "echo command", Source: config.RunTargetSourceUser},
+		{Name: "command", Command: "echo command"},
 	}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("failed to save config: %v", err)
@@ -45,7 +44,7 @@ func newTestServer(t *testing.T) (*Server, *config.Config, *state.State) {
 	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
-	server.SetModelManager(models.New(cfg))
+	server.SetModelManager(models.New(cfg, nil))
 	t.Cleanup(server.CloseForTest)
 	t.Cleanup(shutdownCancel)
 	return server, cfg, st
@@ -77,7 +76,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 	t.Run("missing repo", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Branch:  "main",
-			Targets: map[string]int{"promptable": 1},
+			Targets: map[string]int{"claude": 1},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -90,7 +89,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 	t.Run("missing branch", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:    "https://example.com/repo.git",
-			Targets: map[string]int{"promptable": 1},
+			Targets: map[string]int{"claude": 1},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -104,7 +103,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:    "https://example.com/repo.git",
 			Branch:  "main",
-			Targets: map[string]int{"promptable": 1},
+			Targets: map[string]int{"claude": 1},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -177,7 +176,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:             "https://example.com/repo.git",
 			Branch:           "main",
-			Targets:          map[string]int{"promptable": 1},
+			Targets:          map[string]int{"claude": 1},
 			Resume:           true,
 			ImageAttachments: []string{"iVBORw0KGgo="},
 		})
@@ -207,7 +206,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 	t.Run("image attachments rejected with remote flavor", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			RemoteFlavorID:   "some-flavor",
-			Targets:          map[string]int{"promptable": 1},
+			Targets:          map[string]int{"claude": 1},
 			Prompt:           "do stuff",
 			ImageAttachments: []string{"iVBORw0KGgo="},
 		})
@@ -223,7 +222,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:             "https://example.com/repo.git",
 			Branch:           "main",
-			Targets:          map[string]int{"promptable": 1},
+			Targets:          map[string]int{"claude": 1},
 			Prompt:           "do stuff",
 			ImageAttachments: []string{"a", "b", "c", "d", "e", "f"},
 		})
@@ -239,7 +238,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:             "https://example.com/repo.git",
 			Branch:           "main",
-			Targets:          map[string]int{"promptable": 1},
+			Targets:          map[string]int{"claude": 1},
 			Prompt:           "build a login page",
 			ImageAttachments: []string{"iVBORw0KGgo="},
 		})
@@ -255,7 +254,7 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
 			Repo:             "https://example.com/repo.git",
 			Branch:           "main",
-			Targets:          map[string]int{"promptable": 1},
+			Targets:          map[string]int{"claude": 1},
 			Prompt:           "do stuff",
 			ImageAttachments: []string{"a", "b", "c", "d", "e"},
 		})
@@ -659,7 +658,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
 	cfg.RunTargets = []config.RunTarget{
-		{Name: "promptable", Type: config.RunTargetTypePromptable, Command: "echo promptable", Source: config.RunTargetSourceUser},
+		{Name: "build", Command: "echo build"},
 	}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("failed to save config: %v", err)

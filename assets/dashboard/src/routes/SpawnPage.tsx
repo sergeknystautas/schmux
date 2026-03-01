@@ -15,13 +15,7 @@ import RemoteHostSelector, { type EnvironmentSelection } from '../components/Rem
 import { useActions } from '../hooks/useActions';
 import usePromptHistory from '../hooks/usePromptHistory';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
-import type {
-  Model,
-  RepoResponse,
-  RunTargetResponse,
-  SpawnResult,
-  SuggestBranchResponse,
-} from '../lib/types';
+import type { Model, RepoResponse, SpawnResult, SuggestBranchResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 import { WORKSPACE_EXPANDED_KEY } from '../lib/constants';
 
@@ -155,8 +149,7 @@ function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): v
 export default function SpawnPage() {
   useRequireConfig();
   const [repos, setRepos] = useState<RepoResponse[]>([]);
-  const [promptableTargets, setPromptableTargets] = useState<RunTargetResponse[]>([]);
-  const [commandTargets, setCommandTargets] = useState<RunTargetResponse[]>([]);
+  const [commandTargets, setCommandTargets] = useState<{ name: string; command: string }[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('');
@@ -266,24 +259,7 @@ export default function SpawnPage() {
         const cfg = await getConfig();
         if (!active) return;
         setRepos((cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name)));
-        const modelRunnerTools = new Set(
-          (cfg.models || []).flatMap((model) => Object.keys(model.runners || {}))
-        );
-        const promptableItems = (cfg.run_targets || [])
-          .filter((t) => {
-            if (t.type !== 'promptable') {
-              return false;
-            }
-            if (t.source === 'detected' && modelRunnerTools.has(t.name)) {
-              return false;
-            }
-            return true;
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
-        const commandItems = (cfg.run_targets || [])
-          .filter((t) => t.type === 'command')
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setPromptableTargets(promptableItems);
+        const commandItems = (cfg.run_targets || []).sort((a, b) => a.name.localeCompare(b.name));
         setCommandTargets(commandItems);
         setModels(cfg.models || []);
 
@@ -397,18 +373,13 @@ export default function SpawnPage() {
     skipNextPersist.current = true;
   }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId, location.state]);
 
-  type PromptableListItem = {
-    name: string;
-    label: string;
-  };
-
-  const promptableList = useMemo<PromptableListItem[]>(() => {
-    const modelLabels = new Map(models.map((model) => [model.id, model.display_name]));
-    return promptableTargets.map((target) => ({
-      name: target.name,
-      label: modelLabels.get(target.name) || target.name,
-    }));
-  }, [models, promptableTargets]);
+  const availableModels = useMemo(() => {
+    const enabled = config?.enabled_models || {};
+    const hasExplicit = Object.keys(enabled).length > 0;
+    return models
+      .filter((m) => (hasExplicit ? m.id in enabled : m.configured))
+      .map((m) => ({ name: m.id, label: m.display_name }));
+  }, [models, config]);
 
   const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
   const [modelSelectionMode, setModelSelectionMode] = useState<'single' | 'multiple' | 'advanced'>(
@@ -417,44 +388,44 @@ export default function SpawnPage() {
 
   // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)
   useEffect(() => {
-    if (promptableList.length === 0) return;
+    if (availableModels.length === 0) return;
     setTargetCounts((current) => {
       const next = { ...current };
       let changed = false;
-      promptableList.forEach((item) => {
+      availableModels.forEach((item) => {
         if (next[item.name] === undefined) {
           next[item.name] = 0;
           changed = true;
         }
       });
       Object.keys(next).forEach((name) => {
-        if (!promptableList.find((item) => item.name === name)) {
+        if (!availableModels.find((item) => item.name === name)) {
           delete next[name];
           changed = true;
         }
       });
       return changed ? next : current;
     });
-  }, [promptableList]);
+  }, [availableModels]);
 
   // Enforce single mode constraint: when switching to single, reduce to at most one selection
   useEffect(() => {
     if (modelSelectionMode !== 'single') return;
-    if (promptableList.length === 0) return;
+    if (availableModels.length === 0) return;
     setTargetCounts((current) => {
       // Find all selected agents
-      const selected = promptableList.filter((item) => (current[item.name] || 0) > 0);
+      const selected = availableModels.filter((item) => (current[item.name] || 0) > 0);
       if (selected.length <= 1) return current; // Already at most one
 
       // Keep only the first selected, clear the rest
       const firstSelected = selected[0].name;
       const next: Record<string, number> = {};
-      promptableList.forEach((item) => {
+      availableModels.forEach((item) => {
         next[item.name] = item.name === firstSelected ? 1 : 0;
       });
       return next;
     });
-  }, [modelSelectionMode, promptableList]);
+  }, [modelSelectionMode, availableModels]);
 
   // Persist to sessionStorage on changes
   useEffect(() => {
@@ -501,7 +472,7 @@ export default function SpawnPage() {
     (item: AutocompleteItem) => {
       if (item.source === 'action' && item.action) {
         const a = item.action;
-        if (a.target && promptableTargets.some((t) => t.name === a.target)) {
+        if (a.target && availableModels.some((m) => m.name === a.target)) {
           setTargetCounts((prev) => {
             const next = { ...prev };
             if (!next[a.target!]) {
@@ -515,7 +486,7 @@ export default function SpawnPage() {
         }
       }
     },
-    [promptableTargets, personas]
+    [availableModels, personas]
   );
 
   const totalPromptableCount = useMemo(() => {
@@ -540,7 +511,7 @@ export default function SpawnPage() {
         } else {
           // Select this one, deselect all others
           const next: Record<string, number> = {};
-          promptableList.forEach((item) => {
+          availableModels.forEach((item) => {
             next[item.name] = item.name === name ? 1 : 0;
           });
           return next;
@@ -1072,7 +1043,7 @@ export default function SpawnPage() {
           }}
         >
           {/* Agent selection */}
-          {promptableList.length > 0 && (
+          {availableModels.length > 0 && (
             <>
               {modelSelectionMode === 'single' ? (
                 <>
@@ -1091,7 +1062,7 @@ export default function SpawnPage() {
                           className="select"
                           data-testid="agent-select"
                           value={
-                            promptableList.find((item) => (targetCounts[item.name] || 0) > 0)
+                            availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
                               ?.name || ''
                           }
                           onChange={(e) => {
@@ -1103,7 +1074,7 @@ export default function SpawnPage() {
                             } else if (val) {
                               toggleAgent(val);
                             } else {
-                              const selected = promptableList.find(
+                              const selected = availableModels.find(
                                 (item) => (targetCounts[item.name] || 0) > 0
                               );
                               if (selected) toggleAgent(selected.name);
@@ -1112,7 +1083,7 @@ export default function SpawnPage() {
                           style={{ flex: 1 }}
                         >
                           <option value="">Select agent...</option>
-                          {promptableList.map((item) => (
+                          {availableModels.map((item) => (
                             <option key={item.name} value={item.name}>
                               {item.label}
                             </option>
@@ -1191,7 +1162,7 @@ export default function SpawnPage() {
                           className="select"
                           data-testid="agent-select"
                           value={
-                            promptableList.find((item) => (targetCounts[item.name] || 0) > 0)
+                            availableModels.find((item) => (targetCounts[item.name] || 0) > 0)
                               ?.name || ''
                           }
                           onChange={(e) => {
@@ -1203,7 +1174,7 @@ export default function SpawnPage() {
                             } else if (val) {
                               toggleAgent(val);
                             } else {
-                              const selected = promptableList.find(
+                              const selected = availableModels.find(
                                 (item) => (targetCounts[item.name] || 0) > 0
                               );
                               if (selected) toggleAgent(selected.name);
@@ -1212,7 +1183,7 @@ export default function SpawnPage() {
                           style={{ flex: 1 }}
                         >
                           <option value="">Select agent...</option>
-                          {promptableList.map((item) => (
+                          {availableModels.map((item) => (
                             <option key={item.name} value={item.name}>
                               {item.label}
                             </option>
@@ -1312,7 +1283,7 @@ export default function SpawnPage() {
                           gap: 'var(--spacing-sm)',
                         }}
                       >
-                        {promptableList.map((item) => {
+                        {availableModels.map((item) => {
                           const isSelected = (targetCounts[item.name] || 0) > 0;
                           return (
                             <button
@@ -1345,7 +1316,7 @@ export default function SpawnPage() {
                           gap: 'var(--spacing-sm)',
                         }}
                       >
-                        {promptableList.map((item) => {
+                        {availableModels.map((item) => {
                           const count = targetCounts[item.name] || 0;
                           const isSelected = count > 0;
                           return (

@@ -216,8 +216,9 @@ export default function SessionTabs({
     const displayName = sess.nickname || sess.target;
     const disabled = isLocked;
 
-    const runTarget = (config?.run_targets || []).find((t) => t.name === sess.target);
-    const isPromptable = runTarget ? runTarget.type === 'promptable' : true;
+    // run_targets are command-only now; if not in run_targets, it's a model = promptable
+    const isCommand = (config?.run_targets || []).some((t) => t.name === sess.target);
+    const isPromptable = !isCommand;
 
     const nudgeSummary = formatNudgeSummary(sess.nudge_summary);
 

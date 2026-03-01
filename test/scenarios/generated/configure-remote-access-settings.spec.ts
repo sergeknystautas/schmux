@@ -20,7 +20,6 @@ test.describe.serial('Configure remote access settings', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });

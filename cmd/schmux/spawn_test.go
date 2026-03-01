@@ -141,20 +141,20 @@ func TestAutoDetectWorkspace(t *testing.T) {
 func TestFindRunTarget(t *testing.T) {
 	cfg := &cli.Config{
 		RunTargets: []cli.RunTarget{
-			{Name: "claude", Type: "command", Command: "claude"},
-			{Name: "zsh", Type: "command", Command: "zsh"},
+			{Name: "build", Command: "go build"},
+			{Name: "zsh", Command: "zsh"},
 		},
 	}
 
 	cmd := &SpawnCommand{}
 
 	t.Run("finds existing target", func(t *testing.T) {
-		target, found := cmd.findRunTarget("claude", cfg)
+		target, found := cmd.findRunTarget("build", cfg)
 		if !found {
 			t.Fatal("target not found")
 		}
-		if target.Name != "claude" {
-			t.Errorf("got name %q, want %q", target.Name, "claude")
+		if target.Name != "build" {
+			t.Errorf("got name %q, want %q", target.Name, "build")
 		}
 	})
 
@@ -227,9 +227,7 @@ func TestSpawnCommand_Run(t *testing.T) {
 			args:      []string{"-r", "schmux", "-t", "claude", "-p", "test"},
 			isRunning: true,
 			config: &cli.Config{
-				RunTargets: []cli.RunTarget{
-					{Name: "claude", Type: "promptable", Command: "claude"},
-				},
+				RunTargets: []cli.RunTarget{},
 				Repos: []cli.Repo{
 					{Name: "schmux", URL: "https://github.com/user/schmux.git"},
 				},
@@ -240,19 +238,19 @@ func TestSpawnCommand_Run(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "spawn with promptable target without prompt (repo flag)",
-			args:      []string{"-r", "schmux", "-t", "claude"},
+			name:      "spawn with command target rejects prompt (repo flag)",
+			args:      []string{"-r", "schmux", "-t", "build", "-p", "test"},
 			isRunning: true,
 			config: &cli.Config{
 				RunTargets: []cli.RunTarget{
-					{Name: "claude", Type: "promptable", Command: "claude"},
+					{Name: "build", Command: "go build"},
 				},
 				Repos: []cli.Repo{
 					{Name: "schmux", URL: "https://github.com/user/schmux.git"},
 				},
 			},
 			wantErr:     true,
-			errContains: "prompt (-p/--prompt) is required for model/tool targets",
+			errContains: "prompt (-p/--prompt) is not allowed for command targets",
 		},
 		{
 			name:      "spawn with invalid repo",

@@ -493,11 +493,11 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 		}
 	}()
 
-	// Add "claude" as a detected target AFTER daemon starts, then reload.
-	// The daemon's startup tool detection replaces all detected-source targets,
-	// so we must inject the mock target after that and trigger a config reload.
-	t.Run("InjectClaudeTarget", func(t *testing.T) {
-		env.AddDetectedTargetToConfig("claude", "sh -c 'echo hello; sleep 600'")
+	// Add a mock command target for testing, then reload.
+	// "claude" is a builtin tool name resolved by the model manager,
+	// so we add a custom command target for the spawn test.
+	t.Run("InjectTestTarget", func(t *testing.T) {
+		env.AddCommandTargetToConfig("test-agent", "sh -c 'echo hello; sleep 600'")
 		env.ReloadConfig()
 	})
 

@@ -1,18 +1,12 @@
 import React from 'react';
 import type { ConfigFormAction } from './useConfigForm';
-import type {
-  BuiltinQuickLaunchCookbook,
-  Model,
-  QuickLaunchPreset,
-  RunTargetResponse,
-} from '../../lib/types';
+import type { BuiltinQuickLaunchCookbook, Model, QuickLaunchPreset } from '../../lib/types';
 
 type QuickLaunchTabProps = {
   quickLaunch: QuickLaunchPreset[];
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
-  detectedTargets: RunTargetResponse[];
   models: Model[];
-  commandTargets: RunTargetResponse[];
+  commandTargets: { name: string; command: string }[];
   newQuickLaunchName: string;
   newQuickLaunchTarget: string;
   newQuickLaunchPrompt: string;
@@ -28,7 +22,6 @@ type QuickLaunchTabProps = {
 export default function QuickLaunchTab({
   quickLaunch,
   builtinQuickLaunch,
-  detectedTargets,
   models,
   commandTargets,
   newQuickLaunchName,
@@ -131,43 +124,25 @@ export default function QuickLaunchTab({
             >
               <option value="">Select target...</option>
               {selectedCookbookTemplate ? (
-                <optgroup label="Models &amp; Tools">
-                  {[
-                    ...detectedTargets.map((target) => ({
-                      value: target.name,
-                      label: target.name,
-                    })),
-                    ...models
-                      .filter((model) => model.configured)
-                      .map((model) => ({
-                        value: model.id,
-                        label: model.display_name,
-                      })),
-                  ].map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+                <optgroup label="Models">
+                  {models
+                    .filter((model) => model.configured)
+                    .map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.display_name}
+                      </option>
+                    ))}
                 </optgroup>
               ) : (
                 <>
-                  <optgroup label="Models &amp; Tools">
-                    {[
-                      ...detectedTargets.map((target) => ({
-                        value: target.name,
-                        label: target.name,
-                      })),
-                      ...models
-                        .filter((model) => model.configured)
-                        .map((model) => ({
-                          value: model.id,
-                          label: model.display_name,
-                        })),
-                    ].map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
+                  <optgroup label="Models">
+                    {models
+                      .filter((model) => model.configured)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.display_name}
+                        </option>
+                      ))}
                   </optgroup>
                   <optgroup label="Command Targets">
                     {commandTargets.map((target) => (

@@ -70,29 +70,20 @@ export default function SessionsTab({
                   {cmd.command}
                 </span>
               </div>
-              {cmd.source === 'user' ? (
-                <div className="btn-group">
-                  <button
-                    className="btn btn--sm btn--primary"
-                    onClick={() => onOpenRunTargetEditModal(cmd)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="btn btn--sm btn--danger"
-                    onClick={() => onRemoveCommand(cmd.name)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
+              <div className="btn-group">
+                <button
+                  className="btn btn--sm btn--primary"
+                  onClick={() => onOpenRunTargetEditModal(cmd)}
+                >
+                  Edit
+                </button>
                 <button
                   className="btn btn--sm btn--danger"
                   onClick={() => onRemoveCommand(cmd.name)}
                 >
                   Remove
                 </button>
-              )}
+              </div>
             </div>
           ))}
         </div>

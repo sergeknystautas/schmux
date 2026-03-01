@@ -28,9 +28,7 @@ const models: Model[] = [
   },
 ];
 
-const commandTargets: RunTargetResponse[] = [
-  { name: 'build', command: 'go build ./...', source: 'user', type: 'command' },
-];
+const commandTargets: RunTargetResponse[] = [{ name: 'build', command: 'go build ./...' }];
 
 const dispatch = vi.fn();
 
@@ -109,54 +107,5 @@ describe('SessionsTab', () => {
     render(<SessionsTab {...defaultProps} />);
     expect(screen.getByPlaceholderText('Name')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Command (e.g., go build ./...)')).toBeInTheDocument();
-  });
-
-  it('does not render detected targets or promptable targets sections', () => {
-    render(<SessionsTab {...defaultProps} />);
-    expect(screen.queryByText('Detected Run Targets')).not.toBeInTheDocument();
-    expect(screen.queryByText('Promptable Targets')).not.toBeInTheDocument();
-  });
-
-  it('dispatches SET_FIELD for newPromptableName on typing', async () => {
-    dispatch.mockClear();
-    render(<SessionsTab {...defaultProps} />);
-    // First "Name" placeholder belongs to the promptable targets form
-    const nameInput = screen.getAllByPlaceholderText('Name')[0];
-    await userEvent.type(nameInput, 'x');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'newPromptableName' })
-    );
-  });
-
-  it('calls onRemovePromptableTarget with correct name', async () => {
-    const onRemovePromptableTarget = vi.fn();
-    const promptableTargets: RunTargetResponse[] = [
-      { name: 'my-agent', command: 'my-agent', type: 'promptable', source: 'user' },
-    ];
-    render(
-      <SessionsTab
-        {...defaultProps}
-        promptableTargets={promptableTargets}
-        onRemovePromptableTarget={onRemovePromptableTarget}
-      />
-    );
-    await userEvent.click(screen.getByText('Remove'));
-    expect(onRemovePromptableTarget).toHaveBeenCalledWith('my-agent');
-  });
-
-  it('calls onOpenRunTargetEditModal when Edit is clicked', async () => {
-    const onOpenRunTargetEditModal = vi.fn();
-    const commandTargets: RunTargetResponse[] = [
-      { name: 'build', command: 'make build', type: 'command', source: 'user' },
-    ];
-    render(
-      <SessionsTab
-        {...defaultProps}
-        commandTargets={commandTargets}
-        onOpenRunTargetEditModal={onOpenRunTargetEditModal}
-      />
-    );
-    await userEvent.click(screen.getByText('Edit'));
-    expect(onOpenRunTargetEditModal).toHaveBeenCalledWith(commandTargets[0]);
   });
 });

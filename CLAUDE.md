@@ -19,6 +19,15 @@ The React dashboard MUST be built via `go run ./cmd/build-dashboard`. This Go wr
 ❌ **WRONG**: `cd assets/dashboard && npm install && npm run build`
 ✅ **RIGHT**: `go run ./cmd/build-dashboard`
 
+## ⚠️ Frontend Tests — Use `./test.sh`, NOT `npx vitest` directly
+
+**NEVER run frontend tests by `cd`-ing into `assets/dashboard/` and invoking `npx vitest run` or similar commands directly.**
+
+Frontend tests are already included in `./test.sh --quick`. Running vitest from the subdirectory bypasses the project test wrapper and produces unreliable results.
+
+❌ **WRONG**: `cd assets/dashboard && npx vitest run`
+✅ **RIGHT**: `./test.sh --quick` (from repository root)
+
 ## Hot-Reload Development Mode
 
 For active development with automatic rebuilding:
@@ -178,7 +187,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 - Exported identifiers `CamelCase`, unexported `camelCase`
 - Errors as `err` variable
 - Tests: standard Go `testing` package with `TestXxx` naming; prefer table-driven tests
-- Always run `git` commands from the **repository root**, not from subdirectories like `assets/dashboard/`
+- Always run all commands (`git`, `./test.sh`, `./format.sh`, `go build`, `go run`, etc.) from the **repository root**, not from subdirectories like `assets/dashboard/`
 
 ## Web Dashboard Guidelines
 

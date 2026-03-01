@@ -22,7 +22,6 @@ test.describe.serial('Persist lore curator model selection', () => {
         {
           name: agentName,
           command: "sh -c 'echo hello; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -71,10 +70,11 @@ test.describe.serial('Persist lore curator model selection', () => {
     expect(config.lore.llm_target).toBe('');
   });
 
-  test('UI selection persists across page reload', async ({ page }) => {
-    // First clear any previous lore target so we start clean
+  test('UI curate-on-dispose persists across page reload', async ({ page }) => {
+    // Set llm_target via API (TargetSelect only shows models from the catalog,
+    // which are unavailable in the test environment) and reset curate_on_dispose
     await apiPost('/api/config', {
-      lore: { llm_target: '' },
+      lore: { llm_target: agentName, curate_on_dispose: 'session' },
     });
 
     await page.goto('/config');
@@ -84,20 +84,7 @@ test.describe.serial('Persist lore curator model selection', () => {
     const advancedTab = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTab.click();
 
-    // The LLM Target dropdown should initially show "None"
-    const targetSelect = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
-      })
-      .locator('select');
-    await expect(targetSelect).toBeVisible();
-    await expect(targetSelect).toHaveValue('');
-
-    // Select the echo-agent
-    await targetSelect.selectOption(agentName);
-    await expect(targetSelect).toHaveValue(agentName);
-
-    // Also change curate on dispose to verify multi-field persistence
+    // Change curate on dispose via UI
     const curateSelect = page
       .locator('.form-group', {
         has: page.locator('.form-group__label', { hasText: 'Curate On Dispose' }),
@@ -119,14 +106,6 @@ test.describe.serial('Persist lore curator model selection', () => {
     const advancedTabAfterReload = page.locator('[data-testid="config-tab-advanced"]');
     await advancedTabAfterReload.click();
 
-    // Verify the LLM target is still echo-agent
-    const targetSelectAfterReload = page
-      .locator('.form-group', {
-        has: page.locator('.form-group__label', { hasText: 'LLM Target' }),
-      })
-      .locator('select');
-    await expect(targetSelectAfterReload).toHaveValue(agentName);
-
     // Verify curate on dispose is still workspace
     const curateSelectAfterReload = page
       .locator('.form-group', {
@@ -134,5 +113,13 @@ test.describe.serial('Persist lore curator model selection', () => {
       })
       .locator('select');
     await expect(curateSelectAfterReload).toHaveValue('workspace');
+
+    // Verify llm_target was persisted via API
+    interface ConfigResp {
+      lore: { llm_target: string; curate_on_dispose: string };
+    }
+    const config = await apiGet<ConfigResp>('/api/config');
+    expect(config.lore.llm_target).toBe(agentName);
+    expect(config.lore.curate_on_dispose).toBe('workspace');
   });
 });

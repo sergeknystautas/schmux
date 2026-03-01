@@ -60,9 +60,8 @@ const configFixture: ConfigResponse = {
   source_code_management: 'git-worktree',
   repos: [{ name: 'my-repo', url: 'https://github.com/user/repo.git' }],
   run_targets: [
-    { name: 'claude', command: 'claude', type: 'promptable', source: 'detected' },
-    { name: 'my-agent', command: 'my-agent --prompt', type: 'command', source: 'user' },
-    { name: 'build', command: 'make build', type: 'command', source: 'user' },
+    { name: 'my-agent', command: 'my-agent --prompt' },
+    { name: 'build', command: 'make build' },
   ],
   models: [],
   quick_launch: [{ name: 'ql1', target: 'claude', prompt: 'hello' }],
@@ -186,12 +185,10 @@ describe('ConfigPage', () => {
     expect(payload.repos).toEqual([{ name: 'my-repo', url: 'https://github.com/user/repo.git' }]);
     expect(payload.run_targets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'my-agent', type: 'command' }),
-        expect.objectContaining({ name: 'build', type: 'command' }),
+        expect.objectContaining({ name: 'my-agent', command: 'my-agent --prompt' }),
+        expect.objectContaining({ name: 'build', command: 'make build' }),
       ])
     );
-    // Detected targets are NOT included in run_targets (filtered out)
-    expect(payload.run_targets?.find((t) => t.name === 'claude')).toBeUndefined();
     expect(payload.quick_launch).toEqual([{ name: 'ql1', target: 'claude', prompt: 'hello' }]);
     expect(payload.nudgenik).toEqual({
       target: '',

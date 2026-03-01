@@ -9,7 +9,7 @@ import (
 )
 
 func TestValidateModelSecrets(t *testing.T) {
-	mm := models.New(&config.Config{})
+	mm := models.New(&config.Config{}, nil)
 
 	tests := []struct {
 		name    string
@@ -105,7 +105,7 @@ func TestTargetInUseByNudgenikOrQuickLaunch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := models.New(tt.cfg)
+			mm := models.New(tt.cfg, nil)
 			got := mm.IsTargetInUse(tt.targetName)
 			if got != tt.want {
 				t.Errorf("IsTargetInUse() = %v, want %v", got, tt.want)

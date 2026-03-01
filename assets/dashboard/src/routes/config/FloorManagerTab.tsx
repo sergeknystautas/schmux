@@ -1,14 +1,13 @@
 import React from 'react';
 import TargetSelect from './TargetSelect';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
-import type { Model, RunTargetResponse } from '../../lib/types';
+import type { Model } from '../../lib/types';
 
 type FloorManagerTabProps = {
   fmEnabled: boolean;
   fmTarget: string;
   fmRotationThreshold: number;
   fmDebounceMs: number;
-  detectedTargets: RunTargetResponse[];
   models: Model[];
   dispatch: React.Dispatch<ConfigFormAction>;
 };
@@ -18,7 +17,6 @@ export default function FloorManagerTab({
   fmTarget,
   fmRotationThreshold,
   fmDebounceMs,
-  detectedTargets,
   models,
   dispatch,
 }: FloorManagerTabProps) {
@@ -71,7 +69,6 @@ export default function FloorManagerTab({
             <TargetSelect
               value={fmTarget}
               onChange={(v) => setField('fmTarget', v)}
-              detectedTargets={detectedTargets}
               models={models}
               includeDisabledOption={false}
               includeNoneOption="Select a target..."

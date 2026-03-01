@@ -20,8 +20,7 @@ func TestLoreSaveWithUserConfigStructure(t *testing.T) {
     {"name": "test-repo", "url": "https://example.com/test.git", "bare_path": "test.git"}
   ],
   "run_targets": [
-    {"name": "Shell", "type": "command", "command": "bash", "source": "user"},
-    {"name": "claude", "type": "promptable", "command": "claude", "source": "detected"}
+    {"name": "Shell", "command": "bash"}
   ],
   "quick_launch": [],
   "external_diff_cleanup_after_ms": 3600000,

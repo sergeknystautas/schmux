@@ -11,11 +11,10 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 )
 
-// handleDetectTools returns detected targets from config (GET only).
+// handleDetectTools returns detected tools (GET only).
 func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 	type ToolResponse struct {
 		Name    string `json:"name"`
@@ -27,16 +26,7 @@ func (s *Server) handleDetectTools(w http.ResponseWriter, r *http.Request) {
 		Tools []ToolResponse `json:"tools"`
 	}
 
-	var detectedTools []detect.Tool
-	for _, target := range s.config.GetDetectedRunTargets() {
-		detectedTools = append(detectedTools, detect.Tool{
-			Name:    target.Name,
-			Command: target.Command,
-			Source:  "config",
-			Agentic: true,
-		})
-	}
-
+	detectedTools := s.models.GetDetectedTools()
 	toolResp := make([]ToolResponse, len(detectedTools))
 	for i, dt := range detectedTools {
 		toolResp[i] = ToolResponse{
@@ -72,15 +62,11 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runTargetResp := make([]contracts.RunTarget, 0, len(runTargets))
-	seenTargets := make(map[string]struct{}, len(runTargets))
 	for _, target := range runTargets {
 		runTargetResp = append(runTargetResp, contracts.RunTarget{
 			Name:    target.Name,
-			Type:    target.Type,
 			Command: target.Command,
-			Source:  target.Source,
 		})
-		seenTargets[target.Name] = struct{}{}
 	}
 	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
 	for i, preset := range quickLaunch {
@@ -99,9 +85,6 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to read models: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	// Add enabled models as run targets (for spawn dropdown)
-	runTargetResp = append(runTargetResp, s.models.GetEnabledRunTargets(seenTargets)...)
 
 	response := contracts.ConfigResponse{
 		WorkspacePath:              s.config.GetWorkspacePath(),
@@ -279,34 +262,19 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.RunTargets != nil {
-		for _, target := range req.RunTargets {
-			if target.Name == "" {
+		userTargets := make([]config.RunTarget, len(req.RunTargets))
+		for i, t := range req.RunTargets {
+			if t.Name == "" {
 				http.Error(w, "run target name is required", http.StatusBadRequest)
 				return
 			}
-			if target.Command == "" {
-				http.Error(w, fmt.Sprintf("run target command is required for %s", target.Name), http.StatusBadRequest)
+			if t.Command == "" {
+				http.Error(w, fmt.Sprintf("run target command is required for %s", t.Name), http.StatusBadRequest)
 				return
 			}
-			if target.Source == config.RunTargetSourceDetected {
-				http.Error(w, fmt.Sprintf("run target %s cannot be marked as detected", target.Name), http.StatusBadRequest)
-				return
-			}
-			if target.Source != "" && target.Source != config.RunTargetSourceUser {
-				http.Error(w, fmt.Sprintf("run target %s has invalid source %q", target.Name, target.Source), http.StatusBadRequest)
-				return
-			}
+			userTargets[i] = config.RunTarget{Name: t.Name, Command: t.Command}
 		}
-		userTargets := make([]config.RunTarget, len(req.RunTargets))
-		for i, t := range req.RunTargets {
-			source := t.Source
-			if source == "" {
-				source = config.RunTargetSourceUser
-			}
-			userTargets[i] = config.RunTarget{Name: t.Name, Type: t.Type, Command: t.Command, Source: source}
-		}
-		detectedTools := config.DetectedToolsFromConfig(cfg)
-		cfg.RunTargets = config.MergeDetectedRunTargets(userTargets, detectedTools)
+		cfg.RunTargets = userTargets
 	}
 
 	if req.QuickLaunch != nil {

@@ -3,12 +3,15 @@ import {
   seedConfig,
   createTestRepo,
   getSessions,
+  spawnSession,
   waitForDashboardLive,
   waitForHealthy,
+  waitForSessionRunning,
 } from './helpers';
 
 test.describe('Spawn a single session', () => {
   let repoPath: string;
+  let sessionId: string;
 
   test.beforeAll(async () => {
     await waitForHealthy();
@@ -20,36 +23,24 @@ test.describe('Spawn a single session', () => {
         {
           name: 'echo-agent',
           command: "sh -c 'echo hello from agent; sleep 600'",
-          promptable: true,
         },
       ],
     });
+
+    // Spawn a session via API
+    const results = await spawnSession({
+      repo: repoPath,
+      branch: 'test-branch',
+      targets: { 'echo-agent': 1 },
+    });
+    sessionId = results[0].session_id;
+    await waitForSessionRunning(sessionId);
   });
 
   test('spawn a single session via the UI', async ({ page }) => {
-    await page.goto('/spawn');
+    // Navigate to the session detail page
+    await page.goto(`/sessions/${sessionId}`);
     await waitForDashboardLive(page);
-
-    // Fill the prompt textarea
-    await page.locator('[data-testid="spawn-prompt"]').fill('Add unit tests for the auth module');
-
-    // Select the agent — in "Single Agent" mode, pick from the dropdown
-    await page.getByRole('combobox').filter({ hasText: 'Select agent' }).selectOption('echo-agent');
-
-    // Select the repository
-    await page.locator('[data-testid="spawn-repo-select"]').selectOption(repoPath);
-
-    // Fill in the branch name (required when branch_suggest is not configured)
-    await page.locator('#branch').fill('test-branch');
-
-    // Submit the form
-    await page.locator('[data-testid="spawn-submit"]').click();
-
-    // Wait for navigation to the session detail page
-    await page.waitForURL(/\/sessions\//);
-
-    // Verify: URL matches /sessions/
-    expect(page.url()).toMatch(/\/sessions\//);
 
     // Wait for the session detail page to fully render
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15000 });

@@ -427,9 +427,7 @@ export interface RepoWithConfig {
 
 export interface RunTarget {
   name: string;
-  type: string;
   command: string;
-  source?: string;
 }
 
 export interface RunnerInfo {

@@ -23,7 +23,6 @@ test.describe.serial('View code changes in a workspace', () => {
         {
           name: 'diff-agent',
           command: "sh -c 'echo new-line >> README.md; sleep 600'",
-          promptable: true,
         },
       ],
     });
@@ -32,7 +31,6 @@ test.describe.serial('View code changes in a workspace', () => {
     const results = await spawnSession({
       repo: repoPath,
       branch: 'test-branch',
-      prompt: 'test',
       targets: { 'diff-agent': 1 },
     });
     workspaceId = results[0].workspace_id;

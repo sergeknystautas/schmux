@@ -95,7 +95,6 @@ export type ConfigFormState = {
   sourceCodeManagement: string;
   repos: RepoResponse[];
   commandTargets: RunTargetResponse[];
-  detectedTargets: RunTargetResponse[];
   quickLaunch: QuickLaunchPreset[];
   builtinQuickLaunch: BuiltinQuickLaunchCookbook[];
   externalDiffCommands: { name: string; command: string }[];
@@ -242,7 +241,6 @@ export const initialState: ConfigFormState = {
   sourceCodeManagement: 'git-worktree',
   repos: [],
   commandTargets: [],
-  detectedTargets: [],
   quickLaunch: [],
   builtinQuickLaunch: [],
   externalDiffCommands: [],
@@ -475,10 +473,9 @@ export function useConfigForm(initialStep: number = 1) {
     currentStep: initialStep,
   });
 
-  const modelTargetNames = new Set([
-    ...state.detectedTargets.map((target) => target.name),
-    ...state.models.filter((model) => model.configured).map((model) => model.id),
-  ]);
+  const modelTargetNames = new Set(
+    state.models.filter((model) => model.configured).map((model) => model.id)
+  );
 
   const commandTargetNames = new Set(state.commandTargets.map((target) => target.name));
 
