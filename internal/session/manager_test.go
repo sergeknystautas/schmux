@@ -16,6 +16,18 @@ import (
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
+// newTestManager creates a Manager with minimal config, ephemeral state, and a discard logger.
+// Returns the manager and state for further test setup (e.g., adding sessions).
+func newTestManager(t *testing.T) (*Manager, *state.State) {
+	t.Helper()
+	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
+	st := state.New("", nil)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil)
+	return m, st
+}
+
 func TestNew(t *testing.T) {
 	cfg := &config.Config{
 		WorkspacePath: "/tmp/workspaces",
@@ -69,12 +81,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestGetAttachCommand(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	// Add a test session
 	sess := state.Session{
@@ -98,12 +105,7 @@ func TestGetAttachCommand(t *testing.T) {
 }
 
 func TestGetAttachCommandNotFound(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, _ := newTestManager(t)
 
 	_, err := m.GetAttachCommand("nonexistent")
 	if err == nil {
@@ -112,13 +114,7 @@ func TestGetAttachCommandNotFound(t *testing.T) {
 }
 
 func TestGetAllSessions(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	// Create fresh state for test isolation
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	// Add test sessions
 	sessions := []state.Session{
@@ -137,12 +133,7 @@ func TestGetAllSessions(t *testing.T) {
 }
 
 func TestGetSession(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	// Add a test session
 	sess := state.Session{
@@ -170,12 +161,7 @@ func TestGetSession(t *testing.T) {
 }
 
 func TestIsRunning(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	t.Run("returns false for nonexistent session", func(t *testing.T) {
 		running := m.IsRunning(context.Background(), "nonexistent")
@@ -202,12 +188,7 @@ func TestIsRunning(t *testing.T) {
 }
 
 func TestGetOutput(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, _ := newTestManager(t)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		_, err := m.GetOutput(context.Background(), "nonexistent")
@@ -261,12 +242,7 @@ func TestSanitizeNickname(t *testing.T) {
 }
 
 func TestRenameSession(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, _ := newTestManager(t)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.RenameSession(context.Background(), "nonexistent", "new-name")
@@ -293,14 +269,7 @@ func TestDispose(t *testing.T) {
 }
 
 func TestEnsurePipePane(t *testing.T) {
-	cfg := &config.Config{
-		WorkspacePath: "/tmp/workspaces",
-	}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, _ := newTestManager(t)
 
 	t.Run("returns error for nonexistent session", func(t *testing.T) {
 		err := m.EnsureTracker("nonexistent")
@@ -707,12 +676,7 @@ func TestBuildCommand(t *testing.T) {
 }
 
 func TestGetTrackerAndEnsureTracker(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	t.Run("GetTracker returns error for missing session", func(t *testing.T) {
 		_, err := m.GetTracker("missing")
@@ -757,12 +721,7 @@ func TestGetTrackerAndEnsureTracker(t *testing.T) {
 }
 
 func TestSetTerminalCaptureCallback(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-
-	m := New(cfg, st, statePath, wm, nil)
+	m, _ := newTestManager(t)
 
 	var capturedSessionID, capturedWorkspaceID, capturedOutput string
 	m.SetTerminalCaptureCallback(func(sessionID, workspaceID, output string) {
@@ -884,11 +843,7 @@ func TestBuildEnvPrefix(t *testing.T) {
 }
 
 func TestNicknameExists(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	// Add sessions with known tmux names
 	st.AddSession(state.Session{ID: "s1", TmuxSession: "my-session"})
@@ -919,11 +874,7 @@ func TestNicknameExists(t *testing.T) {
 }
 
 func TestGenerateUniqueNickname(t *testing.T) {
-	cfg := &config.Config{WorkspacePath: "/tmp/workspaces"}
-	st := state.New("", nil)
-	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil)
+	m, st := newTestManager(t)
 
 	t.Run("empty returns empty", func(t *testing.T) {
 		got := m.generateUniqueNickname("")
