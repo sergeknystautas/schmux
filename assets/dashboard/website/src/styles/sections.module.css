@@ -34,6 +34,16 @@
   flex: 1;
 }
 
+.inlineRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xl);
+}
+
+.inlineRow .painPoint {
+  flex: 1;
+}
+
 .screenshotPortrait {
   width: 50%;
   height: auto;
@@ -63,5 +73,9 @@
 
   .screenshotPortrait {
     width: 100%;
+  }
+
+  .inlineRow {
+    flex-direction: column;
   }
 }
