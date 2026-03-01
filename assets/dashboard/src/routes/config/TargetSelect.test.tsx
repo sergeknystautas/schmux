@@ -120,6 +120,21 @@ describe('TargetSelect', () => {
     expect(onChange).toHaveBeenCalledWith('claude');
   });
 
+  it('calls onChange with empty string when Disabled is selected', async () => {
+    const onChange = vi.fn();
+    render(
+      <TargetSelect
+        value="claude"
+        onChange={onChange}
+        detectedTargets={detectedTargets}
+        models={[]}
+        promptableTargets={[]}
+      />
+    );
+    await userEvent.selectOptions(screen.getByRole('combobox'), '');
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+
   it('respects disabled prop', () => {
     render(
       <TargetSelect
