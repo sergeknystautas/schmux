@@ -791,7 +791,7 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 		// Wait for debounce window to pass (server debounces broadcasts at 500ms)
 		// The git status goroutine broadcasts on startup, and we need to wait
 		// for that debounce window to close before spawning
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 	})
 
 	var sessionID string
@@ -813,7 +813,7 @@ func TestE2EDashboardWebSocket(t *testing.T) {
 
 	t.Run("DisposeAndReceiveUpdate", func(t *testing.T) {
 		// Wait for debounce window to pass from spawn broadcast
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 		env.DisposeSession(sessionID)
 
 		// Wait for the session to disappear via websocket
@@ -895,7 +895,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 			t.Fatalf("Expected message type 'sessions', got %q", msg.Type)
 		}
 		// Wait for debounce window to pass
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 	})
 
 	var sessionID string
@@ -939,7 +939,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 
 	t.Run("WriteCompletedSignal", func(t *testing.T) {
 		// Wait for debounce window to pass from spawn broadcast
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Implementation done")
 
@@ -959,7 +959,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 
 	t.Run("WriteNeedsInputSignal", func(t *testing.T) {
 		// Wait for debounce window to pass
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Reset to working first — state priority prevents lower-tier
 		// states (needs_input, tier 1) from overwriting terminal states
@@ -981,7 +981,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 
 	t.Run("WriteWorkingSignal", func(t *testing.T) {
 		// Wait for debounce window to pass
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		writeStatusEvent(t, workspacePath, sessionID, "working", "")
 
@@ -995,7 +995,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 
 	t.Run("WriteErrorSignal", func(t *testing.T) {
 		// Wait for debounce window to pass
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		writeStatusEvent(t, workspacePath, sessionID, "error", "Build failed with 3 errors")
 
@@ -1011,7 +1011,7 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 
 	t.Run("RepeatedEventIncrementsSeq", func(t *testing.T) {
 		// Wait for debounce window to pass
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Get current NudgeSeq from API
 		sessions := env.GetAPISessions()
@@ -1028,8 +1028,16 @@ func TestE2EFileBasedSignaling(t *testing.T) {
 		// is a distinct event that should increment seq.
 		writeStatusEvent(t, workspacePath, sessionID, "error", "Build failed with 4 errors")
 
-		// Wait for the event to be processed
-		time.Sleep(500 * time.Millisecond)
+		// Poll until NudgeSeq has incremented
+		env.PollUntil(3*time.Second, "nudge seq incremented", func() bool {
+			sessions := env.GetAPISessions()
+			for _, s := range sessions {
+				if s.ID == sessionID && s.NudgeSeq > currentSeq {
+					return true
+				}
+			}
+			return false
+		})
 
 		// Verify NudgeSeq incremented (different message = new event)
 		sessions = env.GetAPISessions()
@@ -1123,7 +1131,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 
 		// Drain initial state message
 		env.ReadDashboardMessage(conn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Implementation done")
 
@@ -1169,7 +1177,7 @@ func TestE2ESignalDaemonRestart(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(conn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Reset to working first — state priority prevents needs_input
 		// (tier 1) from overwriting Completed (tier 2) directly.
@@ -1266,7 +1274,7 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Write a status event to create a nudge
 		writeStatusEvent(t, workspacePath, sessionID, "needs_input", "Waiting for approval")
@@ -1289,7 +1297,7 @@ func TestE2ENudgeClearOnTerminalInput(t *testing.T) {
 
 		// Drain initial state (should show the nudge)
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Connect terminal WS and send Enter key
 		termConn, err := env.ConnectTerminalWebSocket(sessionID)
@@ -1398,7 +1406,7 @@ func TestE2EMultipleSessionsIsolatedSignals(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Write event to session1's event file only
 		writeStatusEvent(t, workspacePath, session1ID, "completed", "All tasks done")
@@ -1549,7 +1557,7 @@ func TestE2ESpawnCommandSignaling(t *testing.T) {
 
 		// Drain initial state
 		env.ReadDashboardMessage(dashConn, 3*time.Second)
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(550 * time.Millisecond)
 
 		// Write a status event — this verifies the EventWatcher is active for SpawnCommand sessions
 		writeStatusEvent(t, workspacePath, sessionID, "completed", "Command finished")

@@ -113,14 +113,16 @@ func TestE2ERemoteSSHSmoke(t *testing.T) {
 	t.Run("DisposeSession", func(t *testing.T) {
 		env.DisposeSession(sessionID)
 
-		time.Sleep(500 * time.Millisecond)
-
-		sessions := env.GetAPISessions()
-		for _, sess := range sessions {
-			if sess.ID == sessionID {
-				t.Error("SSH session still exists after dispose")
+		// Poll until session is gone
+		env.PollUntil(5*time.Second, "session disposed", func() bool {
+			sessions := env.GetAPISessions()
+			for _, sess := range sessions {
+				if sess.ID == sessionID {
+					return false
+				}
 			}
-		}
+			return true
+		})
 	})
 
 	t.Run("VerifyHostDisconnected", func(t *testing.T) {

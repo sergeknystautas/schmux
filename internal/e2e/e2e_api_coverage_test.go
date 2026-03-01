@@ -48,8 +48,22 @@ func TestE2ECaptureSession(t *testing.T) {
 		t.Fatal("Expected session ID from spawn")
 	}
 
-	// Wait for echo target to produce output
-	time.Sleep(2 * time.Second)
+	// Poll until capture output contains "hello" (echo target output)
+	env.PollUntil(5*time.Second, "capture output", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/sessions/"+sessionID+"/capture", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return false
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return strings.Contains(string(body), "hello")
+	})
 
 	t.Run("DefaultLines", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -160,8 +174,17 @@ func TestE2EInspectWorkspace(t *testing.T) {
 		t.Fatal("Expected workspace ID")
 	}
 
-	// Wait for workspace to be fully set up
-	time.Sleep(2 * time.Second)
+	// Poll until workspace inspect returns 200
+	env.PollUntil(5*time.Second, "workspace inspect", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/workspaces/"+workspaceID+"/inspect", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return err == nil && resp.StatusCode == http.StatusOK
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/workspaces/"+workspaceID+"/inspect", nil)
@@ -300,8 +323,23 @@ func TestE2EBranchesEndpoint(t *testing.T) {
 		t.Fatal("Expected session ID")
 	}
 
-	// Wait for workspace to be set up
-	time.Sleep(2 * time.Second)
+	// Poll until branches endpoint returns a non-empty array
+	env.PollUntil(5*time.Second, "branches endpoint", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/branches", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return false
+		}
+		var entries []json.RawMessage
+		json.NewDecoder(resp.Body).Decode(&entries)
+		resp.Body.Close()
+		return len(entries) > 0
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/branches", nil)
@@ -383,8 +421,17 @@ func TestE2EGitAmendAndUncommit(t *testing.T) {
 		t.Fatal("Expected workspace ID and path")
 	}
 
-	// Wait for workspace setup
-	time.Sleep(2 * time.Second)
+	// Poll until workspace inspect returns 200
+	env.PollUntil(5*time.Second, "workspace ready", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/workspaces/"+workspaceID+"/inspect", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return err == nil && resp.StatusCode == http.StatusOK
+	})
 
 	// Set git identity in the workspace clone (not inherited from the source repo)
 	RunCmd(t, workspacePath, "git", "config", "user.email", "e2e@test.local")

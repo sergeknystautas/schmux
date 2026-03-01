@@ -276,6 +276,24 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// --- Config save/restore helpers ---
+
+/**
+ * Captures the current config for later restoration.
+ * Used in beforeAll/afterAll pairs to prevent config contamination between specs.
+ */
+export async function getConfig(): Promise<Record<string, unknown>> {
+  return apiGet<Record<string, unknown>>('/api/config');
+}
+
+/**
+ * Restores a previously saved config.
+ * Posts the full saved config object back to the API.
+ */
+export async function resetConfig(saved: Record<string, unknown>): Promise<void> {
+  await apiPost('/api/config', saved);
+}
+
 // --- Page helpers ---
 
 /**

@@ -247,8 +247,23 @@ func TestE2ESessionEvents(t *testing.T) {
 	writeStatusEvent(t, wsPath, sessionID, "completed", "done")
 	writeStatusEvent(t, wsPath, sessionID, "needs_input", "waiting")
 
-	// Small delay for filesystem sync
-	time.Sleep(200 * time.Millisecond)
+	// Poll until events are written and readable
+	env.PollUntil(3*time.Second, "events written", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.DaemonURL+"/api/sessions/"+sessionID+"/events", nil)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return false
+		}
+		var events []json.RawMessage
+		json.NewDecoder(resp.Body).Decode(&events)
+		resp.Body.Close()
+		return len(events) >= 3
+	})
 
 	t.Run("GetAllEvents", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
