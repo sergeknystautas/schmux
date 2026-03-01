@@ -11,14 +11,13 @@ function ModalTrigger({ action }: { action: (modal: ReturnType<typeof useModal>)
 describe('ModalProvider', () => {
   // Suppress React console warnings for act() boundaries in keyboard tests
   // and jsdom error events from intentional throws
-  const originalConsoleError = console.error;
   const suppressError = (e: Event) => e.preventDefault();
   beforeEach(() => {
-    console.error = vi.fn();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     window.addEventListener('error', suppressError);
   });
   afterEach(() => {
-    console.error = originalConsoleError;
+    vi.restoreAllMocks();
     window.removeEventListener('error', suppressError);
   });
 

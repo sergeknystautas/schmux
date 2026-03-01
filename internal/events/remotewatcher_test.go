@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -12,26 +13,13 @@ func TestRemoteWatcherScript(t *testing.T) {
 		t.Fatal("empty script")
 	}
 	// Must contain tail -f
-	if !containsStr(script, "tail -f") {
+	if !strings.Contains(script, "tail -f") {
 		t.Error("script should use tail -f")
 	}
 	// Must contain sentinel markers
-	if !containsStr(script, "__SCHMUX_SIGNAL__") {
+	if !strings.Contains(script, "__SCHMUX_SIGNAL__") {
 		t.Error("script should use sentinel markers")
 	}
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && searchStr(s, substr)
-}
-
-func searchStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 type remoteTestHandler struct {

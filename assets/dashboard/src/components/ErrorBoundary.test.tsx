@@ -9,14 +9,13 @@ function ThrowingComponent({ message }: { message: string }): React.ReactElement
 describe('ErrorBoundary', () => {
   // Suppress React's console.error and jsdom's window error events
   // for expected error boundary triggers
-  const originalConsoleError = console.error;
   const suppressError = (e: Event) => e.preventDefault();
   beforeEach(() => {
-    console.error = vi.fn();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     window.addEventListener('error', suppressError);
   });
   afterEach(() => {
-    console.error = originalConsoleError;
+    vi.restoreAllMocks();
     window.removeEventListener('error', suppressError);
   });
 

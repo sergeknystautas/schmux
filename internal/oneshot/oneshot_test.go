@@ -3,6 +3,8 @@ package oneshot
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,12 +146,12 @@ func TestBuildOneShotCommand(t *testing.T) {
 				return
 			}
 			if tt.wantErr && tt.errContains != "" {
-				if err == nil || !contains(err.Error(), tt.errContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("BuildCommandParts() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
 			}
-			if !equalSlices(got, tt.want) {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("BuildCommandParts() = %v, want %v", got, tt.want)
 			}
 		})
@@ -201,7 +203,7 @@ func TestExecuteInputValidation(t *testing.T) {
 				return
 			}
 			if tt.wantErr && tt.errContains != "" {
-				if err == nil || !contains(err.Error(), tt.errContains) {
+				if err == nil || !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("Execute() error = %v, want error containing %q", err, tt.errContains)
 				}
 			}
@@ -215,7 +217,7 @@ func TestExecuteRejectsEmptySchemaLabel(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when schemaLabel is empty")
 	}
-	if !contains(err.Error(), "schema label cannot be empty") {
+	if !strings.Contains(err.Error(), "schema label cannot be empty") {
 		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
 	}
 }
@@ -413,7 +415,7 @@ func TestResultEventParsing(t *testing.T) {
 	}
 	// Verify we can extract the structured output as a string
 	output := string(re.StructuredOutput)
-	if !contains(output, "proposed_files") {
+	if !strings.Contains(output, "proposed_files") {
 		t.Errorf("StructuredOutput should contain 'proposed_files', got: %s", output)
 	}
 }
@@ -437,40 +439,14 @@ func TestExecuteTargetStreamingInputValidation(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := ExecuteTargetStreaming(ctx, nil, "test", "", "schema", time.Minute, "", nil)
-	if err == nil || !contains(err.Error(), "prompt cannot be empty") {
+	if err == nil || !strings.Contains(err.Error(), "prompt cannot be empty") {
 		t.Errorf("expected 'prompt cannot be empty' error, got: %v", err)
 	}
 
 	_, err = ExecuteTargetStreaming(ctx, nil, "test", "prompt", "", time.Minute, "", nil)
-	if err == nil || !contains(err.Error(), "schema label cannot be empty") {
+	if err == nil || !strings.Contains(err.Error(), "schema label cannot be empty") {
 		t.Errorf("expected 'schema label cannot be empty' error, got: %v", err)
 	}
-}
-
-// Helper functions
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func equalSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestMergeEnvMaps(t *testing.T) {

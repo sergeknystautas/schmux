@@ -14,6 +14,33 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
+// testServerPort extracts the port number from a running httptest.Server.
+func testServerPort(s *httptest.Server) int {
+	_, p, _ := net.SplitHostPort(s.Listener.Addr().String())
+	var port int
+	_, _ = fmt.Sscanf(p, "%d", &port)
+	return port
+}
+
+// newPreviewTestState creates a persistent state at a temp path, adds the given
+// workspaces, and saves. Returns the state and the file path.
+func newPreviewTestState(t *testing.T, workspaces ...state.Workspace) (*state.State, string) {
+	t.Helper()
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	for _, ws := range workspaces {
+		if err := st.AddWorkspace(ws); err != nil {
+			t.Fatalf("add workspace %s: %v", ws.ID, err)
+		}
+	}
+	if len(workspaces) > 0 {
+		if err := st.Save(); err != nil {
+			t.Fatalf("save state: %v", err)
+		}
+	}
+	return st, statePath
+}
+
 func TestNormalizeTargetHost(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -41,23 +68,14 @@ func TestNormalizeTargetHost(t *testing.T) {
 }
 
 func TestManagerCreateOrGetReuse(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
-	if err := st.Save(); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
+	st, _ := newPreviewTestState(t, ws)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer upstream.Close()
-	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
-	var port int
-	_, _ = fmt.Sscanf(portStr, "%d", &port)
+	port := testServerPort(upstream)
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
@@ -86,9 +104,8 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 }
 
 func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
+	st, _ := newPreviewTestState(t, ws)
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
 
@@ -99,23 +116,14 @@ func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
 }
 
 func TestManagerStablePortSurvivesRestart(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
-	if err := st.Save(); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
+	st, statePath := newPreviewTestState(t, ws)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer upstream.Close()
-	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
-	var upstreamPort int
-	_, _ = fmt.Sscanf(portStr, "%d", &upstreamPort)
+	upstreamPort := testServerPort(upstream)
 
 	// First "daemon run": create a preview, note its port.
 	m1 := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
@@ -151,41 +159,24 @@ func TestManagerStablePortSurvivesRestart(t *testing.T) {
 }
 
 func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws1 := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	ws2 := state.Workspace{ID: "ws-2", Repo: "repo", Branch: "main", Path: t.TempDir()}
-	if err := st.AddWorkspace(ws1); err != nil {
-		t.Fatalf("add ws1: %v", err)
-	}
-	if err := st.AddWorkspace(ws2); err != nil {
-		t.Fatalf("add ws2: %v", err)
-	}
-	if err := st.Save(); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
+	st, _ := newPreviewTestState(t, ws1, ws2)
 
 	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer upstream1.Close()
 	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer upstream2.Close()
 
-	parsePort := func(s *httptest.Server) int {
-		_, p, _ := net.SplitHostPort(s.Listener.Addr().String())
-		var port int
-		_, _ = fmt.Sscanf(p, "%d", &port)
-		return port
-	}
-
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
 
 	ctx := context.Background()
-	p1, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", parsePort(upstream1))
+	p1, err := m.CreateOrGet(ctx, ws1, "127.0.0.1", testServerPort(upstream1))
 	if err != nil {
 		t.Fatalf("create preview ws1: %v", err)
 	}
-	p2, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", parsePort(upstream2))
+	p2, err := m.CreateOrGet(ctx, ws2, "127.0.0.1", testServerPort(upstream2))
 	if err != nil {
 		t.Fatalf("create preview ws2: %v", err)
 	}
@@ -214,19 +205,13 @@ func TestManagerDifferentWorkspacesGetDifferentBlocks(t *testing.T) {
 }
 
 func TestManagerReconcileWorkspaceRemovesStalePreview(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
+	st, _ := newPreviewTestState(t, ws)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
-	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
-	var port int
-	_, _ = fmt.Sscanf(portStr, "%d", &port)
+	port := testServerPort(upstream)
 
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
@@ -280,20 +265,11 @@ func TestManagerWebSocketProxying(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
-	var port int
-	_, _ = fmt.Sscanf(portStr, "%d", &port)
+	port := testServerPort(upstream)
 
 	// Create preview proxy pointing at the upstream.
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
 	ws := state.Workspace{ID: "ws-ws", Repo: "repo", Branch: "main", Path: t.TempDir()}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
-	if err := st.Save(); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
+	st, _ := newPreviewTestState(t, ws)
 	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil)
 	defer m.Stop()
 
